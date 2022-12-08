@@ -14,70 +14,52 @@ from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
 from perfRunner import Paths
 
+import numpy as np
+import pandas as pd
+
 # global variables.
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 
-#Tune MIOpen with MLIR kernels
-def tuneMLIRKernels(configs, paths: Paths, arch):
-    solver_names = {testVector : getSolverName(testVector, arch) for testVector in configs}
+#Run a gemm or conv config with --perf_config
+def runMLIRWithPerfConfig(perf_config, config, paths: Paths, rocmlir_gen_flags, debug):
+    config.setPerfConfig(perf_config.strip())
+    rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + config.generateMlirDriverCommandLine('')
+    rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '--kernel-pipeline=applicability', '-']
+    if debug:
+        print(rocmlirGenCommand)
 
-    envs = os.environ.copy()
-    envs['MIOPEN_FIND_ENFORCE'] = '4'
-    envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
+    p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1.stdout.close()
+    outs, errs = p2.communicate()
+    if p2.returncode != 0:
+        nanoSeconds = np.nan
+        if debug:
+            print(errs.decode('utf-8'))
+    else:
+        # run with applicable perf_config
+        perfRunner.runConfigWithMLIR(config, paths, rocmlir_gen_flags, False)
+        # get nanoseconds from rocprof output.
+        nanoSeconds = perfRunner.getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        if debug:
+            print(perf_config, 'takes', nanoSeconds, 'ns')
+    return config.tableEntry(nanoSeconds)
+
+#Tune MLIR Gemm or Convolution kernels
+def tuneMLIRKernels(configs, confClass, paths: Paths, arch, rocmlir_gen_flags, debug):
     for testVector in configs:
-        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         commandLine = testVector.split(sep=' ')
-        config = ConvConfiguration.fromCommandLine(commandLine, arch)
-        if config.inputLayout == 'nchw':
-            MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine,'-V', '0']
-            print(' '.join(MIOpenDriverCommand))
-            p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
-            # get output.
-            try:
-               outs, errs = p1.communicate(timeout=300)
-            except subprocess.TimeoutExpired:
-                p1.kill()
-                print("MIOpen tuning timed out")
-                outs, errs = p1.communicate()
-
-def tuneGemmKernels(configs, paths: Paths, arch, debug):
-    best_perf_config = ''
-    best_ns = 0
-    for testVector in configs:
-       commandLine = testVector.split(sep=' ')
-       config = GemmConfiguration.fromCommandLine(commandLine, arch)
-       config.MLIR_N_REPEATS=1
-       commandLineOptions = config.generateMlirDriverCommandLine('')
-       rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions + ' --emit-tuning-space'
-       args = rocmlirGenCommand.split()
-       # get tuning space for this config
-       p = subprocess.check_output(args).decode()
-       for perf_config in p.splitlines():
-           # check the applicability for this perf_config
-           rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions + ' --perf_config=' + str(perf_config.strip())
-           rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '--kernel-pipeline=applicability', '-']
-           if debug:
-               print(rocmlirGenCommand)
-           
-           p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-           p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-           p1.stdout.close()
-           outs, errs = p2.communicate()
-           if p2.returncode != 0:
-               if debug:
-                   print(errs.decode('utf-8'))
-           else:  
-               # run with applicable perf_config
-               config.setPerfConfig(perf_config.strip())
-               perfRunner.runConfigWithMLIR(config, paths, '', False)
-               # get nanoseconds from rocprof output.
-               nanoSeconds = perfRunner.getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-               if debug:
-                   print(perf_config, 'takes', nanoSeconds, 'ns')
-               if best_ns == 0 or nanoSeconds < best_ns:
-                   best_perf_config = perf_config
-                   best_ns = nanoSeconds
-       print('Tuning', testVector, '--arch', arch, ':', best_perf_config)
+        config = confClass.fromCommandLine(commandLine, arch)
+        config.MLIR_N_REPEATS=1
+        commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
+        rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions + ' --emit-tuning-space'
+        args = rocmlirGenCommand.split()
+        # get tuning space for this config
+        p = subprocess.check_output(args).decode()
+        tune_df = pd.DataFrame(runMLIRWithPerfConfig(perf_config.strip(), config, paths, rocmlir_gen_flags, debug) for perf_config in p.splitlines())
+        if debug: 
+            print(tune_df)
+        print('Tuning', testVector, ':', tune_df['PerfConfig'][tune_df['TFlops'].idxmin()])
 
 # Main function.
 def main(args=None):
@@ -86,6 +68,8 @@ def main(args=None):
 
     python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs 
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
+    python3 tuningRunner.py --op conv --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
+
     """
     if args is None:
         args = sys.argv[1:]
@@ -178,18 +162,13 @@ def main(args=None):
         else:
             raise RuntimeError("Tuning operation was not provided/found")
 
-    if opType == Operation.CONV:
-        if not paths.miopen_driver_path:
-            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
-        tuneMLIRKernels(configs, paths, arch)
+    if not paths.mlir_paths:
+        raise RuntimeError("MLIR build dir was not provided/found")
 
-    if opType == Operation.GEMM:
-       if not paths.mlir_paths:
-          raise RuntimeError("MLIR build dir was not provided/found")
-       if parsed_args.config:
-           tuneGemmKernels(parsed_args.config, paths, arch, parsed_args.debug)
-       else:
-           tuneGemmKernels(configs, paths, arch, parsed_args.debug)
+    if parsed_args.config:
+        configs = parsed_args.config
+
+    tuneMLIRKernels(configs, confClass, paths, arch, rocmlir_gen_flags, parsed_args.debug)
 
 
 if __name__ == '__main__':

@@ -217,7 +217,7 @@ class ConvConfiguration(PerfConfiguration):
         result = OrderedDict()
         values = [self.direction, self.dataType, self.chip, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
-                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW,
+                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig,
                    self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
@@ -229,7 +229,10 @@ class ConvConfiguration(PerfConfiguration):
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r})"""
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r}, perf_config={self.perfConfig})"""
+
+    def setPerfConfig(self, perf_config):
+        self.perfConfig = perf_config
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         direction = {'fwd':'--operation conv2d',
@@ -255,7 +258,8 @@ class ConvConfiguration(PerfConfiguration):
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           f"--perf_config={self.perfConfig}"])
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -390,6 +394,8 @@ class ConvConfiguration(PerfConfiguration):
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
+        self.perfConfig = '' 
+
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
         config = cls.fromCommandLine(commandLine, arch)
@@ -465,7 +471,7 @@ class GemmConfiguration(PerfConfiguration):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
         values = [self.dataType, self.chip, self.transA, self.transB, \
-                   self.g, self.m, self.k, self.n, self.computeTFlops(nanoSeconds)]
+                   self.g, self.m, self.k, self.n, self.perfConfig, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -474,7 +480,7 @@ class GemmConfiguration(PerfConfiguration):
 
     def __repr__(self):
         return f"""GemmConfiguration(dtype={self.dataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
-                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r})"""
+                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
@@ -489,9 +495,8 @@ class GemmConfiguration(PerfConfiguration):
                            '-n', str(self.n),
                            f"-transA={self.transA}",
                            f"-transB={self.transB}",
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
-        if self.perfConfig != '':
-          result += ' '.join([f" --perf_config={self.perfConfig}"])
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           f"--perf_config={self.perfConfig}"])
 
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())

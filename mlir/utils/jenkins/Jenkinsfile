@@ -546,6 +546,7 @@ pipeline {
                             dir('build') {
                                 sh 'python3 ./bin/tuningRunner.py --operation gemm --config="-g 1 -m 1 -k 1 -n 1 -t f32 -transA 0 -transB 0" -d'
                             }
+                            sh 'rm build/CMakeCache.txt'
                         }
                     }
                     stage("Build MIOpen with librockCompiler") {

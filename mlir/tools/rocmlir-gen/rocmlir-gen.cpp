@@ -61,7 +61,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "bf16convert.hpp"
-#include <iostream>
 #include <unordered_map>
 
 #include <tuple>
@@ -2535,7 +2534,7 @@ int main(int argc, char **argv) {
       std::string perfConfig;
       for (auto param : tunableParams->tuningRange) {
         param.getPerfConfigStr(perfConfig);
-        std::cout << perfConfig << "\n";
+        llvm::outs() << perfConfig << "\n";
       }
       delete tunableParams;
       return 0;
@@ -2627,16 +2626,6 @@ int main(int argc, char **argv) {
         genParams.convConfig = llvm::None;
         genParams.arch = arch;
         (void)createGpuGemmKernel(module, genParams);
-        if (emitTuningSpace) {
-          auto tunableParams = rock::createTunableParamSpace(module);
-          std::string perfConfig;
-          for (auto param : tunableParams->tuningRange) {
-            param.getPerfConfigStr(perfConfig);
-            std::cout << perfConfig << "\n";
-          }
-          delete tunableParams;
-          return 0;
-        }
       } else {
         conv2dGenerator = rock::Conv2dGenerator(
             arch, chip, triple, chipFeatures, perfConfig.getValue(),
@@ -2696,6 +2685,17 @@ int main(int argc, char **argv) {
       }
       conv2dGenerator.setKernelName(kernelBaseName);
     }
+  }
+
+  if (emitTuningSpace) {
+    auto tunableParams = rock::createTunableParamSpace(module);
+    std::string perfConfig;
+    for (auto param : tunableParams->tuningRange) {
+      param.getPerfConfigStr(perfConfig);
+      llvm::outs() << perfConfig << "\n";
+    }
+    delete tunableParams;
+    return 0;
   }
 
   SmallVector<KernelIF, 8> kernels;
