@@ -21,9 +21,9 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -331,6 +331,11 @@ static llvm::cl::opt<bool>
     populateDefaultValues("p", llvm::cl::desc("To populate default values"),
                           llvm::cl::value_desc("To populate default values"),
                           llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    emitTuningSpace("emit-tuning-space", llvm::cl::desc("Tune a Gemm kernel"),
+                    llvm::cl::value_desc("To tune a Gemm kernel"),
+                    llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -2511,12 +2516,37 @@ int main(int argc, char **argv) {
     }
     module = moduleRef.release();
 
+    if (!perfConfig.empty()) {
+      WalkResult findGemmOp = module->walk(
+          [&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
+            OpBuilder b(gemmOp.getContext());
+            gemmOp->setAttr("perf_config", b.getStringAttr(perfConfig));
+            return WalkResult::interrupt();
+          });
+      if (!findGemmOp.wasInterrupted()) {
+        llvm::errs() << "Cannot find a Gemm kernel for perf_config\n";
+        exit(1);
+      }
+    }
+
+    if (emitTuningSpace) {
+      auto tunableParams = rock::createTunableParamSpace(module);
+      std::string perfConfig;
+      for (auto param : tunableParams->tuningRange) {
+        param.getPerfConfigStr(perfConfig);
+        llvm::outs() << perfConfig << "\n";
+      }
+      delete tunableParams;
+      return 0;
+    }
+
     module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         hasUserKernel = true;
       }
       return WalkResult::advance();
     });
+
   } else {
     if (genValidation == "clone") {
       llvm::errs()
@@ -2655,6 +2685,17 @@ int main(int argc, char **argv) {
       }
       conv2dGenerator.setKernelName(kernelBaseName);
     }
+  }
+
+  if (emitTuningSpace) {
+    auto tunableParams = rock::createTunableParamSpace(module);
+    std::string perfConfig;
+    for (auto param : tunableParams->tuningRange) {
+      param.getPerfConfigStr(perfConfig);
+      llvm::outs() << perfConfig << "\n";
+    }
+    delete tunableParams;
+    return 0;
   }
 
   SmallVector<KernelIF, 8> kernels;

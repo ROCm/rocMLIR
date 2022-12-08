@@ -160,7 +160,6 @@ def getNanoSeconds(fileName):
 
 class PerfConfiguration:
     TABLE_COLUMNS = []
-    MLIR_N_REPEATS = 5
 
     def computeTFlops(self, ns: int) -> float:
         raise NotImplementedError()
@@ -170,6 +169,7 @@ class PerfConfiguration:
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         raise NotImplementedError()
+
 
     @classmethod
     def fromCommandLine(cls, argv, arch) -> 'self':
@@ -217,7 +217,7 @@ class ConvConfiguration(PerfConfiguration):
         result = OrderedDict()
         values = [self.direction, self.dataType, self.chip, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
-                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW,
+                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig,
                    self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
@@ -229,7 +229,10 @@ class ConvConfiguration(PerfConfiguration):
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r})"""
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r}, perf_config={self.perfConfig})"""
+
+    def setPerfConfig(self, perf_config):
+        self.perfConfig = perf_config
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         direction = {'fwd':'--operation conv2d',
@@ -255,7 +258,8 @@ class ConvConfiguration(PerfConfiguration):
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           f"--perf_config={self.perfConfig}"])
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -360,6 +364,7 @@ class ConvConfiguration(PerfConfiguration):
         if layout not in self.MLIR_OUTPUT_LAYOUTS:
             raise ValueError(f"Invalid layout: {layout}")
 
+        self.MLIR_N_REPEATS = 5
         self.dataType = dtype
         self.direction = direction
 
@@ -388,6 +393,8 @@ class ConvConfiguration(PerfConfiguration):
 
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
+
+        self.perfConfig = '' 
 
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
@@ -464,7 +471,7 @@ class GemmConfiguration(PerfConfiguration):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
         values = [self.dataType, self.chip, self.transA, self.transB, \
-                   self.g, self.m, self.k, self.n, self.computeTFlops(nanoSeconds)]
+                   self.g, self.m, self.k, self.n, self.perfConfig, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -473,7 +480,10 @@ class GemmConfiguration(PerfConfiguration):
 
     def __repr__(self):
         return f"""GemmConfiguration(dtype={self.dataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
-                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r})"""
+                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r}, perf_config={self.perfConfig})"""
+
+    def setPerfConfig(self, perf_config):
+        self.perfConfig = perf_config
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         result = ' '.join(['-operation', 'gemm',
@@ -485,7 +495,9 @@ class GemmConfiguration(PerfConfiguration):
                            '-n', str(self.n),
                            f"-transA={self.transA}",
                            f"-transB={self.transB}",
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           f"--perf_config={self.perfConfig}"])
+
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -529,6 +541,7 @@ class GemmConfiguration(PerfConfiguration):
                  transA: bool, transB: bool, arch: str):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
+        self.MLIR_N_REPEATS = 5
         self.dataType = dtype
         self.g = g
         self.m = m
@@ -536,6 +549,7 @@ class GemmConfiguration(PerfConfiguration):
         self.n = n
         self.transA = transA
         self.transB = transB
+        self.perfConfig = ''
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
@@ -568,11 +582,12 @@ class GemmConfiguration(PerfConfiguration):
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         return config.tableEntry(nanoSeconds)
 
-def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags):
+def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags, debug=True):
     # remove the result file generated by rocprof in previous benchmarking
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
-    print("Running MLIR Benchmark: ", repr(config))
+    if debug:
+        print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']

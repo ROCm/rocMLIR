@@ -17,8 +17,8 @@ MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
                         'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
-                        'PaddingH', 'PaddingW']
-GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
+                        'PaddingH', 'PaddingW', 'PerfConfig']
+GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
 ROUND_DIGITS = 2
 
 def geoMean(data):
