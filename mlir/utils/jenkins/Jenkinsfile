@@ -881,6 +881,10 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             dir('MIGraphX/build') {
+                                // Verify MLIR unit tests
+                                sh 'make -j$(nproc) test_gpu_mlir'
+                                sh 'ctest -R test_gpu_mlir'
+                                // Verify ResNet50
                                 sh 'wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea9e02/vision/classification/resnet/model/resnet50-v1-7.onnx'
                                 sh './bin/driver verify --onnx resnet50-v1-7.onnx'
                             }
