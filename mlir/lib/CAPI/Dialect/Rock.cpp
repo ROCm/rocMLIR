@@ -129,5 +129,5 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 
 MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module) {
   auto mod = unwrap(module);
-  return getTuningHash(mod);
+  return rock::getTuningHash(mod);
 }
