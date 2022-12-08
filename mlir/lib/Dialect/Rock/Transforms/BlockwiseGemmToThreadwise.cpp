@@ -554,6 +554,10 @@ struct BlockwiseGemmV2RewritePattern
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
+    // LDS barrier: LDS_fence and WG_barrier to ensure all data has been read
+    // out from LDS.
+    b.create<LDSBarrierOp>(loc);
+
     // Workload of either MPerWave and NPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well

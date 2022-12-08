@@ -1282,7 +1282,8 @@ struct GridwiseGemmV2RewritePattern
               .getBeginOperandIndex(),
           iv);
 
-      // LDS barrier.
+      // LDS barrier : LDS_fence and WG_barrier to guarantee LDS updates are
+      // completed.
       b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise GEMM.
@@ -1291,10 +1292,6 @@ struct GridwiseGemmV2RewritePattern
           b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB,
           arrayA, arrayB, regCAllocOp, op.getBlockSizeAttr(),
           op.getParamsAttr());
-
-      // LDS barrier.
-      // This barrier prevents halo part of outputs having weird values.
-      b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise stores
       BlockAndValueMapping storeAUpdates, storeBUpdates;
