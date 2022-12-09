@@ -184,7 +184,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
-    problemOS << gemmIF.getInputType().print(problemOS);
+    gemmIF.getInputType().print(problemOS);
     problemOS << gemmIF.getGemmSize().m << gemmIF.getGemmSize().k << gemmIF.getGemmSize().n;
   }
   return problemStr;
