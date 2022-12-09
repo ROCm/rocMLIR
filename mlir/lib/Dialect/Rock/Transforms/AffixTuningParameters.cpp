@@ -132,8 +132,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack,
-        validParams.gemmMPerWave, validParams.gemmNPerWave, 
-        validParams.gemmAThreadCopyMoreGemmK, validParams.gemmBThreadCopyMoreGemmKPack);
+        validParams.gemmMPerWave, validParams.gemmNPerWave,
+        validParams.gemmAThreadCopyMoreGemmK);
     op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.

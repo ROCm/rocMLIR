@@ -243,8 +243,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
-    "bool":$forceUnroll,
-    "bool":$useIndexDiff
+    "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
@@ -256,7 +255,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
-        + "1,1"; /* *ThreadCopyMore* */
+        + Twine(getForceUnroll()) + ","
+        + "1"; /* *ThreadCopyMore* */
       perfStr = paramsConcat.str();
     }
   }];

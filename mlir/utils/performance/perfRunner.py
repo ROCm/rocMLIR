@@ -407,7 +407,7 @@ class ConvConfiguration(PerfConfiguration):
         nanoSeconds = np.nan
         try:
             outs, errs = p1.communicate(timeout=300)
-            if False and len(errs) > 0:
+            if len(errs) > 0:
                 print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
             else:
                 # convert bytes to str

@@ -31,7 +31,8 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
       {16, 32, 64, 128},
       {16, 32, 64},
       {16, 32, 64},
-      {1, 4}};
+      {1, 4},
+      {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
@@ -43,12 +44,14 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmMPerWave : ValidRangeXdlopsGemmParams[3]) {
             for (uint32_t gemmNPerWave : ValidRangeXdlopsGemmParams[4]) {
               for (uint32_t gemmKPack : ValidRangeXdlopsGemmParams[5]) {
-                XdlopsGemmParamsAttr gemmParams =
-                    b.getAttr<XdlopsGemmParamsAttr>(
-                        gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
-                        gemmMPerWave, gemmNPerWave);
-                newSpace->tuningRange.push_back(
-                    gemmParams.cast<RockTuningParamAttrInterface>());
+                for (uint32_t forceUnroll : ValidRangeXdlopsGemmParams[6]) {
+                  XdlopsGemmParamsAttr gemmParams =
+                      b.getAttr<XdlopsGemmParamsAttr>(
+                          gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                          gemmKPack, gemmMPerWave, gemmNPerWave, forceUnroll);
+                  newSpace->tuningRange.push_back(
+                      gemmParams.cast<RockTuningParamAttrInterface>());
+                }
               }
             }
           }
