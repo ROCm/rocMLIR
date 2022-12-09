@@ -125,13 +125,3 @@ RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/r
     && cmake -P install_deps.cmake --prefix /usr/local
 RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
 WORKDIR /
-# --------------------- Section 4: MIGraphX dependencies ---------------
-WORKDIR /MIGraphXDeps
-RUN pip3 install setuptools wheel
-RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
-ENV MIGRAPHX_COMMIT=be70702dc80d59126d6b4011d6cc7913193db566
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_COMMIT}/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_COMMIT}/dev-requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_COMMIT}/rbuild.ini
-RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++
-WORKDIR /

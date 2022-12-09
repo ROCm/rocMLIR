@@ -20,25 +20,29 @@ start_clean_docker() {
 
 # Build the docker image and push it to the repository
 build_rocm_image() {
-  if docker build -t rocm-mlir -f ./mlir/utils/jenkins/Dockerfile ./mlir/utils/jenkins ; then
+  local image_name_suffix=$1
+  local docker_file="Dockerfile$image_name_suffix"
+  echo "Start a new build for $docker_file"
+  if ! docker build -t rocm-mlir -f ./mlir/utils/jenkins/$docker_file ./mlir/utils/jenkins ; then
     err Docker image build failed
     exit 1
   fi
 
   # Target repository to push
   local docker_repository="rocm/mlir"
+  local image_name_wo_tag="$docker_repository$image_name_suffix"
 
   local rocm_full_version rocm_short_version git_commit_hash
-  rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/Dockerfile | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
+  rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/$docker_file | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
   rocm_short_version="rocm${rocm_full_version%.*}"
   git_commit_hash=$(git rev-parse --short HEAD)
 
   # Example: rocm/mlir:rocm3.7-38337614c80
-  local docker_new_img_name=${docker_repository}:${rocm_short_version}-${git_commit_hash}
+  local docker_new_img_name=${image_name_wo_tag}:${rocm_short_version}-${git_commit_hash}
   # Example: rocm/mlir:rocm3.7-latest
-  local docker_new_img_name_rocm_latest=${docker_repository}:${rocm_short_version}-latest
+  local docker_new_img_name_rocm_latest=${image_name_wo_tag}:${rocm_short_version}-latest
   # Example: rocm/mlir:latest
-  local docker_new_img_name_latest=${docker_repository}:latest
+  local docker_new_img_name_latest=${image_name_wo_tag}:latest
 
   # Commit the most recent container to an image with the new image name
   docker tag rocm-mlir "${docker_new_img_name_rocm_latest}"
@@ -59,9 +63,9 @@ build_rocm_image() {
 main() {
   if [[ " ${ARGS[*]} " =~ " --force " ]] || \
       git diff --name-only HEAD^ HEAD | grep -q "Dockerfile"; then
-    echo "Start a new build"
     start_clean_docker
-    build_rocm_image
+    build_rocm_image ""
+    build_rocm_image ".ci-migraphx"
   else
     echo "No dependency changes, abort build"
     exit 0

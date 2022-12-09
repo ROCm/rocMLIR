@@ -65,6 +65,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
+    // If this is being changed please change Dockerfile.ci-migraphx's base image as well
     return 'rocm/mlir:rocm5.3-latest'
 }
 
