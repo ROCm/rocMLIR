@@ -131,6 +131,6 @@ MLIR_CAPI_EXPORTED const char *
 mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module) {
   auto pTable = unwrap(perfTable);
   auto mod = unwrap(module);
-  pTable->problem = rock::getTuningProblemStr(mod);
-  return pTable->problem.c_str();
+  pTable->problemBuf = rock::getTuningProblemStr(mod);
+  return pTable->problemBuf.c_str();
 }
