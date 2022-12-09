@@ -184,6 +184,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << convIF.getPadding() << sep;
     problemOS << convIF.getStrides() << sep;
     problemOS << convIF.getDilations();
+    // fixme : add layout
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
