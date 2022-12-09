@@ -18,9 +18,9 @@
 // This pass converts rock.gridwise_gemm[_v2] into block- and threadwise ops
 //
 //===-----------------------------------------------------===//
+#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"

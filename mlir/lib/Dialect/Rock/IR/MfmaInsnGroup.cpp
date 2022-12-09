@@ -1,5 +1,5 @@
 
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
+#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"

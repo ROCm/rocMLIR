@@ -1,4 +1,4 @@
-//===- XdlopsCodeSelection.h - MLIR to C++ for Rock conversion
+//===- MfmaInsnGroup.h - MLIR to C++ for Rock conversion
 //---------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -6,13 +6,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// This file implements code selection logic for XDLOPS instructions.
+
+// This file implements code selection logic for Mfma instructions.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_XDLOPS_CODE_SELECTION_H
-#define MLIR_XDLOPS_CODE_SELECTION_H
+#ifndef MLIR_MFMA_INSN_GROUP_H
+#define MLIR_MFMA_INSN_GROUP_H
 
 #include <set>
 
@@ -121,4 +121,4 @@ public:
 } // namespace rock
 } // namespace mlir
 
-#endif // MLIR_XDLOPS_CODE_SELECTION_H
+#endif // MLIR_MFMA_INSN_GROUP_H

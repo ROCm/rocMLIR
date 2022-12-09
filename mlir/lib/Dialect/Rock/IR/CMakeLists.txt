@@ -5,7 +5,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   RockGemmWrapperInterface.cpp
   RockConvInterface.cpp
   RockTuningParamAttrInterface.cpp
-  XdlopsCodeSelection.cpp
+  MfmaInsnGroup.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Rock
