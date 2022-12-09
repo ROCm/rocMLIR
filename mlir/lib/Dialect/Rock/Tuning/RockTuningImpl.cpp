@@ -169,23 +169,28 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   if (!findPrimary.wasInterrupted())
     return std::string();
   std::string problemStr;
+  char sep = '#';
   llvm::raw_string_ostream problemOS(problemStr);
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
-  problemOS << gemmOp->getName().getStringRef();
+  problemOS << gemmOp->getName().getStringRef() << sep;
   // conv case
   if (opType == KernelType::Conv2D) {
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
     convIF.getFilter().getType().print(problemOS);
+    problemOS << sep;
     convIF.getInput().getType().print(problemOS);
-    problemOS << convIF.getPadding();
-    problemOS << convIF.getStrides();
+    problemOS << sep;
+    problemOS << convIF.getPadding() << sep;
+    problemOS << convIF.getStrides() << sep;
     problemOS << convIF.getDilations();
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
     gemmIF.getInputType().print(problemOS);
-    problemOS << gemmIF.getGemmSize().m << gemmIF.getGemmSize().k << gemmIF.getGemmSize().n;
+    problemOS << sep;
+    problemOS << gemmIF.getGemmSize().m << sep << gemmIF.getGemmSize().k << sep
+              << gemmIF.getGemmSize().n;
   }
   return problemStr;
 }
