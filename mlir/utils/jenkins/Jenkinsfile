@@ -85,6 +85,10 @@ String dockerImage() {
     return 'rocm/mlir:rocm5.3-latest'
 }
 
+String dockerImageCIMIGraphX() {
+    return 'rocm/mlir.ci-migraphx:rocm5.3-latest'
+}
+
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
     if ( (params.nightly == false) && (codepath == "mfma") ) {
@@ -316,7 +320,7 @@ pipeline {
                description: 'The MIOpen branch to be used with the job')
         // MIGRAPHX_COMMIT is defined in the Dockerfile
         // So in order to update the commit, please change the Dockerfile
-        string(name: 'MIGraphXBranch', defaultValue: '${MIGRAPHX_COMMIT}',
+        string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
 
 
@@ -842,7 +846,7 @@ pipeline {
                 }
                 agent {
                     docker {
-                        image dockerImage()
+                        image dockerImageCIMIGraphX()
                         args dockerArgs()
                         label getLabelFromCodepath("${CODEPATH}")
                         alwaysPull true
@@ -864,8 +868,6 @@ pipeline {
                     }
                     stage("Install MIGraphX Dependencies") {
                         steps {
-                            // We are installing miopen-hip here (and not in Dockerfile) to avoid collision with MIOpen checks above
-                            sh 'apt-get install miopen-hip'
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
                             sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_MIXR_TARGET=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
                         }
@@ -885,8 +887,7 @@ pipeline {
                                 sh 'make -j$(nproc) test_gpu_mlir'
                                 sh 'ctest -R test_gpu_mlir'
                                 // Verify ResNet50
-                                sh 'wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea9e02/vision/classification/resnet/model/resnet50-v1-7.onnx'
-                                sh './bin/driver verify --onnx resnet50-v1-7.onnx'
+                                sh './bin/driver verify --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                             }
                         }
                     }
