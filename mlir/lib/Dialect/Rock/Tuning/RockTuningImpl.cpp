@@ -207,7 +207,7 @@ bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
 }
 
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
-  size_t hashKey = getTuningHash(mod);
+  std::string problem = getTuningProblemStr(mod);
   if (problem.empty())
     return std::string();
   auto search = perfTable->tuningMap.find(problem);
