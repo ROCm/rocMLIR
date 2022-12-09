@@ -92,7 +92,8 @@ MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module);
 
-MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module);
+MLIR_CAPI_EXPORTED const char *
+mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module);
 
 #ifdef __cplusplus
 }

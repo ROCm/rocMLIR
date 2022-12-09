@@ -159,29 +159,60 @@ size_t getTuningHash(ModuleOp &mod) {
   return hash;
 }
 
+std::string getTuningProblemStr(ModuleOp &mod) {
+  rock::RockGemmWrapperInterface gemmIF;
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        gemmIF = op;
+        return WalkResult::interrupt();
+      });
+  if (!findPrimary.wasInterrupted())
+    return std::string();
+  std::string problemStr;
+  llvm::raw_string_ostream problemOS(problemStr);
+  KernelType opType = gemmIF.getKernelType();
+  Operation *gemmOp = gemmIF.getOperation();
+  problemOS << gemmOp->getName().getStringRef();
+  // conv case
+  if (opType == KernelType::Conv2D) {
+    RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
+    convIF.getFilter().getType().print(problemOS);
+    convIF.getInput().getType().print(problemOS);
+    problemOS << convIF.getPadding();
+    problemOS << convIF.getStrides();
+    problemOS << convIF.getDilations();
+  }
+  // gemm case
+  else if (opType == KernelType::Gemm) {
+    problemOS << gemmIF.getInputType().getType().print(problemOS);
+    problemOS << gemmIF.getGemmSize();
+  }
+  return problemStr;
+}
+
 bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time) {
-  size_t hashKey = getTuningHash(mod);
-  if (hashKey == 0)
+  std::string problem = getTuningProblemStr(mod);
+  if (problem.empty())
     return false;
-  auto search = perfTable->tuningMap.find(hashKey);
+  auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
-    auto entry = perfTable->tuningMap[hashKey];
+    auto entry = perfTable->tuningMap[problem];
     if (entry.second <= time) {
       return false;
     }
   }
-  perfTable->tuningMap[hashKey] = std::make_pair(perfConfig, time);
+  perfTable->tuningMap[problem] = std::make_pair(perfConfig, time);
   return true;
 }
 
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
   size_t hashKey = getTuningHash(mod);
-  if (hashKey == 0)
+  if (problem.empty())
     return std::string();
-  auto search = perfTable->tuningMap.find(hashKey);
+  auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
-    auto entry = perfTable->tuningMap[hashKey];
+    auto entry = perfTable->tuningMap[problem];
     return entry.first;
   }
   return std::string();

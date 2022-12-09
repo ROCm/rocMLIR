@@ -39,11 +39,13 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
 struct TuningTable {
-  std::map<size_t, std::pair<std::string, float>> tuningMap;
+  std::map<std::string, std::pair<std::string, float>> tuningMap;
+  std::string problemBuf;
 };
 
 TuningTable *tuningTableCreate();
 size_t getTuningHash(ModuleOp &mod);
+std::string getTuningProblemStr(ModuleOp &mod);
 bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod);
