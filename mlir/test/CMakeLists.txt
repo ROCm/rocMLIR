@@ -115,9 +115,11 @@ endif()
 
 # Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
 if(ROCK_E2E_TEST_ENABLED OR ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
-  list(APPEND ROCMLIR_TEST_DEPENDS e2e_tests)
+  list(APPEND ROCMLIR_TEST_DEPENDS e2e_tests fusion-e2e-tests)
   add_subdirectory(e2e)
+  add_subdirectory(fusion)
 endif()
+
 
 add_custom_target(check-rocmlir-build-only
   DEPENDS ${ROCMLIR_TEST_DEPENDS})
@@ -143,4 +145,12 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_BINARY_DIR}/e2e/lit.site.cfg.py
   MAIN_CONFIG
   ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
+)
+
+# Update the configs for fusion E2E tests
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/fusion/e2e/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/fusion/e2e/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/fusion/e2e/lit.cfg.py
 )

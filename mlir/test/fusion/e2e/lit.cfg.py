@@ -16,7 +16,7 @@ from lit.llvm.subst import FindTool
 # Configuration file for the 'lit' test runner.
 
 # name: The name of this test suite.
-config.name = 'ROCK E2E'
+config.name = 'Fusion E2E'
 
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
@@ -24,7 +24,7 @@ config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 config.suffixes = ['.mlir']
 
 # test_source_root: The root path where tests are located.
-config.test_source_root = os.path.join(config.mlir_obj_root, 'mlir/test/e2e')
+config.test_source_root = os.path.join(config.mlir_obj_root, 'mlir/test/fusion/e2e')
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 
@@ -83,8 +83,7 @@ tools.extend([
     ToolSubst('%PYTHON', config.python_executable, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),
-    ToolSubst('%conv_validation_wrapper_library_dir',
-              config.conv_validation_wrapper_library_dir, unresolved='fatal'),
+    ToolSubst('%conv_validation_wrapper_library_dir', config.conv_validation_wrapper_library_dir, unresolved='fatal'),
 ])
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
