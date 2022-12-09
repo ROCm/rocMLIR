@@ -318,8 +318,6 @@ pipeline {
                      description: 'Run weekly-only jobs')
         string(name: 'MIOpenBranch', defaultValue: 'develop',
                description: 'The MIOpen branch to be used with the job')
-        // MIGRAPHX_COMMIT is defined in the Dockerfile
-        // So in order to update the commit, please change the Dockerfile
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
 
@@ -332,7 +330,6 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
-        //TODO(@manupak): Switch the default to True after testing
         booleanParam(name: 'checkMIGraphX', defaultValue: false,
                      description: 'Run the MIGraphX integration tests')
 
@@ -834,8 +831,10 @@ pipeline {
         stage ("MIGraphX") {
             when {
                 beforeAgent true;
-                equals expected: true, actual: params.checkMIGraphX;
-                equals expected: true, actual: params.nightly;
+                anyOf {
+                    equals expected: true, actual: params.checkMIGraphX;
+                    equals expected: true, actual: params.nightly;
+                }
             }
             matrix {
                 axes {
