@@ -480,7 +480,7 @@ static llvm::cl::opt<std::string> randomSide(
 // float random inputs range
 static llvm::cl::opt<int>
     randMin("rand_min", llvm::cl::desc("lower bound for float random input"),
-            llvm::cl::value_desc("range"), llvm::cl::init(-1));
+            llvm::cl::value_desc("range"), llvm::cl::init(0));
 
 static llvm::cl::opt<int>
     randMax("rand_max", llvm::cl::desc("upper bound for float random input"),
@@ -1948,9 +1948,25 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
   }
 }
 
+static void checkRandomInputsE2E() {
+  if (randomSeed != "none" && randomSeed != "fixed" &&
+      randomDataType == "float") {
+    int min = randMin.getValue();
+    int max = randMax.getValue();
+    if (min < 0 && max > 0) {
+      llvm::errs() << "WARNING: E2E tests with float random inputs within ";
+      llvm::errs() << "WARNING: E2E tests may fail with both positive and ";
+      llvm::errs() << "negative float random inputs\n";
+      llvm::errs() << "         Try range [1, 3] by setting ";
+      llvm::errs() << "\"-rand_min 1 -rand_max 3\"\n";
+    }
+  }
+}
+
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType,
                                        MemRefType valType) {
+  checkRandomInputsE2E();
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
