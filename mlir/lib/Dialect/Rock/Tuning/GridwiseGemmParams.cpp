@@ -249,17 +249,17 @@ PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
 // clang-format off
 const InitParamsXDL
 PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-  {128, 128, 4, 64, 64, 4, false, false},
-  {32, 64, 4, 32, 64, 4, false, false},
+  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
+  {128, 128, 4, 64, 64, 4, true, true},
+  {32, 64, 4, 32, 64, 4, true, true},
 
-  {128, 128, 8, 64, 64, 1, false, false},
-  {128, 128, 16, 64, 64, 1, false, false},
-  {8, 64, 8, 8, 64, 1, false, false},
-  {4, 64, 16, 4, 64, 1, false, false},
-  {32, 64, 4, 32, 64, 1, false, false},
-  {16, 16, 16, 16, 16, 1, false, false},
-  {16, 16, 4, 16, 16, 1, false, false},
+  {128, 128, 8, 64, 64, 1, true, true},
+  {128, 128, 16, 64, 64, 1, true, true},
+  {8, 64, 8, 8, 64, 1, true, true},
+  {4, 64, 16, 4, 64, 1, true, true},
+  {32, 64, 4, 32, 64, 1, true, true},
+  {16, 16, 16, 16, 16, 1, true, true},
+  {16, 16, 4, 16, 16, 1, true, true},
 };
 
 const InitParamsXDL
