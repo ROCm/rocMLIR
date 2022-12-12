@@ -121,10 +121,10 @@ function stderr() {
 }
 
 function print_convDB() {
-    for db in ${convDB[@]};
+    for db in "${convDB[@]}";
     do
         echo -n "    $db "
-        if [ -f ${E2E_CONV_DB_DIR}/$db.toml ];then
+        if [ -f "${E2E_CONV_DB_DIR}/$db.toml" ];then
             printf "\xE2\x9C\x94\n"
         else
             printf "\xE2\x9D\x8C\n"
@@ -202,12 +202,12 @@ function print_config_with_defaults() {
 ##   3. Match the config from the database and insert if requested
 function process_input() {
     ## Check input file format
-    if [[ "${INPUT_OPTION}" =~ ".mlir" ]];then
-        grep "rocmlir-gen" ${INPUT_OPTION} > configs.tmp
-    elif [[ "${INPUT_OPTION}" =~ ".toml" ]];then
-        grep "config =" ${INPUT_OPTION} > configs.tmp
+    if [[ "${INPUT_OPTION}" =~ .mlir ]];then
+        grep "rocmlir-gen" "${INPUT_OPTION}" > configs.tmp
+    elif [[ "${INPUT_OPTION}" =~ .toml ]];then
+        grep "config =" "${INPUT_OPTION}" > configs.tmp
     else
-        echo -e ${COL_ERR}"ERROR: Unkonw format of input file: ${INPUT_OPTION}"`
+        echo -e "${COL_ERR}""ERROR: Unkonw format of input file: ${INPUT_OPTION}"`
                          `" (must be .mlir or .toml)" | stderr
         exit 0
     fi
@@ -236,7 +236,7 @@ function preprocess_config() {
     line=${line/\%random_data}
     line=${line/\%rocmlir_gen_flags}
     ## remove spaces
-    echo $line | xargs
+    echo "$line" | xargs
 }
 
 ## Format the given config
@@ -248,7 +248,7 @@ function canonicalize_config() {
     update_config "$config"
     ## pretty print the config
     entry=$(print_config)
-    echo $entry | xargs
+    echo "$entry" | xargs
 }
 
 ## Use the given config ($1) to update the parameters in configArr
@@ -263,7 +263,7 @@ function update_config() {
     do
         ## Keep processing if there is an option in str
         ## extract the last key-value pair from str
-        pair=$(echo `expr "$str" : '.*\(-.*\)'`)
+        pair=$(expr "$str" : '.*\(-.*\)')
         ## replace = with space and remove - for easy processing
         pair=${pair//=/ }
         pair=${pair//-/}
@@ -274,12 +274,12 @@ function update_config() {
             populateDefaults=1
         else
             ## key value pair
-            key_value=($pair)
+            key_value=("$pair")
             key=${key_value[0]}
             value=${key_value[1]}
             ## special case: -p=true or -p true
             if [[ "$key" == "p" ]]; then
-                if [[ $valye == "true" ]];then
+                if [[ $value == "true" ]];then
                     populateDefaults=1
                 fi
             else
@@ -312,20 +312,20 @@ function update_config() {
 function match_and_insert() {
     ## $1: config entry
     entry=$1
-    entry=$(echo $entry | xargs)
+    entry=$(echo "$entry" | xargs)
     foundOne=0
-    for db in ${DB_ARR[@]};
+    for db in "${DB_ARR[@]}";
     do
-        if [ ! -f $db ];then
+        if [ ! -f "$db" ];then
             db=${CONVDB_DIR}/$db.toml
         fi
-        grep "config =" ${db} > db.tmp
+        grep "config =" "${db}" > db.tmp
         dbN=1
         while read -r line;
         do
             entry_db=$(canonicalize_config "$line")
             if [[ "$entry" == "$entry_db" ]];then
-                printf "    \xE2\x9C\x94 Match config $dbN in ${db##*/}\n"
+                printf "    \xE2\x9C\x94 Match config %d in %s\n" $dbN "${db##*/}"
                 foundOne=1
             fi
             ((dbN++))
@@ -333,9 +333,11 @@ function match_and_insert() {
         ## If not found in the database, insert if MODE=insert
         if [[ $foundOne -eq 0 ]] && [[ "$MODE" == "insert" ]];then
             echo "    -> Insert new config into ${db##*/}"
-            echo "" >> $db
-            echo "[[suite.test]]" >> $db
-            echo "config = \"$entry\"" >> $db
+            {
+                echo ""
+                echo "[[suite.test]]"
+                echo "config = \"$entry\""
+            } >> "$db"
         fi
         rm db.tmp
     done
@@ -349,18 +351,18 @@ function match_and_insert() {
 function check_database() {
     ## Set database to convDB if not set at command line
     DATABASE=${DATABASE_OPTION:-$convDB}
-    IFS=',' read -r -a DB_ARR <<< $DATABASE
+    IFS=',' read -r -a DB_ARR <<< "$DATABASE"
     err=0
-    for db in ${DB_ARR[@]};
+    for db in "${DB_ARR[@]}";
     do
-        if [ ! -f $db ] && [ ! -f ${CONVDB_DIR}/$db.toml ];then
+        if [ ! -f "$db" ] && [ ! -f "${CONVDB_DIR}/$db.toml" ];then
             err=1
-            echo -e ${COL_ERR}"ERROR: $db does not exist" | stderr
+            echo -e "${COL_ERR}""ERROR: $db does not exist" | stderr
         fi
     done
     [[ $err -eq 0 ]] || exit 0
     if [[ "$MODE" == "insert" ]] && [[ "$DATABASE" =~ "," ]];then
-        echo -e ${COL_ERR}"ERROR: Only one database is allowed"`
+        echo -e "${COL_ERR}""ERROR: Only one database is allowed"`
                         ` "in insert mode" | stderr
         exit 1
     fi
@@ -373,7 +375,7 @@ function check_inputs() {
         entry=$(canonicalize_config "${CONFIG_STR}")
         match_and_insert "$entry"
     else
-        echo -e ${COL_ERR}"ERROR: No input. Must provide input by" `
+        echo -e "${COL_ERR}""ERROR: No input. Must provide input by" `
                          `"--input= or --config=" | stderr
         exit 1
     fi
@@ -389,8 +391,8 @@ function check_formats() {
 
 
 PROG=${0##*/}
-PROG_DIR=$(cd ${0%/*} && pwd -P)
-ROCMLIR_DIR=$(cd ${PROG_DIR}; git rev-parse --show-toplevel || echo "${HOME}/rocMLIR/")
+PROG_DIR=$(cd "${0%/*}" && pwd -P)
+ROCMLIR_DIR=$(cd "${PROG_DIR}" || return; git rev-parse --show-toplevel || echo "${HOME}/rocMLIR/")
 CONVDB_DIR=${ROCMLIR_DIR}/mlir/test/e2e
 
 convDB="${CONVDB_DIR}/MixedConvLayouts.toml"
@@ -413,13 +415,13 @@ do
     case "$1" in
         -h | --help ) usage; exit 0 ;;
         --dt | --no-dt | --dir | --no-dir | --layouts | --no-layouts)
-            FORMATS+=(${1#--}); shift ;;
+            FORMATS+=("${1#--}"); shift ;;
         -s | --search ) MODE=search; shift ;;
         -i | --insert ) MODE=insert; shift ;;
         --input=* | --database=* )
             option=${1%=*}
             option=${option#--}
-            eval ${option^^}_OPTION="${1#--*=}"
+            eval "${option^^}"_OPTION="${1#--*=}"
             shift
             ;;
         --config ) shift ;;
