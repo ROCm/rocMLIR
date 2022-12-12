@@ -96,7 +96,6 @@ bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr) {
   return rock::tuningSetStr(mod, perfConfig);
 }
 
-// opaque pointer to tuning storage, can be db, in memory map for now.
 MLIR_CAPI_EXPORTED
 MlirRockTuningTable mlirRockTuningTableCreate() {
   struct rock::TuningTable *newTable = rock::tuningTableCreate();
@@ -131,6 +130,9 @@ MLIR_CAPI_EXPORTED const char *
 mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module) {
   auto pTable = unwrap(perfTable);
   auto mod = unwrap(module);
+  // Hold output string in the tuning table which has a buffer to store the
+  // string formatted problem so the data is not lost in the border between C++
+  // and C.
   pTable->problemBuf = rock::getTuningProblemStr(mod);
   return pTable->problemBuf.c_str();
 }

@@ -131,7 +131,16 @@ TuningTable *tuningTableCreate() {
 
 // Suppose to return the structure of the given problem to tune, currently
 // combines the string representation of the selected field of the primary
-// operation
+// operation. String format of the problem will not be required by the DB,
+// since it can store each field separately.
+//
+// Current internal model of the tuning problem is assuming :
+// tuning problem struct =
+// primaryOp-{opType, arch}-+-conv_case-{inShapedType, filterShapedType,
+//                   |          adding,Stride, Dilation, in/fil/out_layout}
+//                   `---- gemm_case-{dataType, m, n, k}
+// *Only take one conv&gemm operation into account
+//
 std::string getTuningProblemStr(ModuleOp &mod) {
   rock::RockGemmWrapperInterface gemmIF;
   WalkResult findPrimary =
@@ -157,7 +166,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << convIF.getPadding() << sep;
     problemOS << convIF.getStrides() << sep;
     problemOS << convIF.getDilations() << sep;
-    ;
 
     // Layout information
     auto filterLayoutAttr =
