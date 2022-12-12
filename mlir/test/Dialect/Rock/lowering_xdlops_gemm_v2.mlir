@@ -23,7 +23,8 @@ func.func @rock_xdlops_gemm_v2_nonreduction_nokpack(%matrixA : memref<8xf32, 5>,
        mPerBlock = 128,
        mPerWave = 64,
        nPerBlock = 64,
-       nPerWave = 32>
+       nPerWave = 32,
+       forceUnroll = true>
      } : memref<1x1x2xvector<32xf32>, #map1, 5> += memref<1x8xf32, #map0, 5> * memref<1x8xf32, #map0, 5>
   return
 }
@@ -54,7 +55,8 @@ func.func @rock_xdlops_gemm_v2_nonreduction_kpack(%matrixA : memref<2xvector<2xf
       mPerBlock = 128,
       mPerWave = 64,
       nPerBlock = 128,
-      nPerWave = 64>
+      nPerWave = 64,
+      forceUnroll = true>
   } : memref<1x1x2xvector<32xf32>, #map3, 5> += memref<1x2xvector<2xf32>, #map2, 5> * memref<1x2xvector<2xf32>, #map2, 5>
   return
 }
@@ -78,7 +80,8 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack(%matrixA : memref<2xvector<8xi8>,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
-      nPerBlock = 64>
+      nPerBlock = 64,
+      forceUnroll = true>
   } : memref<1x1x1xvector<16xi32>, #map3, 5> += memref<1x2xvector<8xi8>, #map2, 5> * memref<1x2xvector<8xi8>, #map2, 5>
   return
 }
