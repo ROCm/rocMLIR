@@ -757,6 +757,8 @@ pipeline {
                                 target: 'MIOpen/build/MIOpenUserDB'
                                 sh 'ls MIOpen/build/MIOpenUserDB'
                                 // Move GEMM tuning DB out of the way if it exists
+                                // This is needed because the tuned vs. untuned MIOpen
+                                // code will delete the MIOpenUserBD directory
                                 catchError {
                                     sh "mv MIOpen/build/MIOpenUserDB/*.tsv ${WORKSPACE}"
                                 }
@@ -803,8 +805,8 @@ pipeline {
                                 // Run MLIR perf benchmarks
                                 sh 'python3 ./bin/perfRunner.py'
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
---configs_file=../mlir/utils/performance/bert-configs \
---tuning_db=../mlir_tuning_${CHIP}.tsv"""
+--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
                     }
