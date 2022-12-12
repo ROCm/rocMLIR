@@ -60,20 +60,20 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, arch, rocmlir_gen_flags, d
         # get tuning space for this config
         p = subprocess.check_output(args).decode('utf-8')
         # Tune, printing progress as we go to avoid CI timeouts
-        minTFlops = np.inf
-        minConfig = "None"
+        maxTFlops = -np.inf
+        winningConfig = "None"
         for i, perfConfig in enumerate(p.splitlines()):
             perfConfig = perfConfig.strip()
-            if i > 0 and i % 50 == 0:
-                print(f"Tested {i} configs, best perf {min} TFlops on perf_config {minConfig}")
+            if i > 0 and i % 5 == 0:
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}")
             entry = runMLIRWithPerfConfig(perfConfig, config, paths, rocmlir_gen_flags, debug)
             allData.append(entry)
             theseTFlops = entry['TFlops']
-            if not np.isnan(theseTFlops) and theseTFlops < minTFlops:
-                minTFlops = theseTFlops
-                minConfig = perfConfig
-        print(f"Tuned : {testVector} : {minConfig} with {minTFlops} TFlops")
-        winners[testVector] = minConfig
+            if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
+                maxTFlops = theseTFlops
+                winningConfig = perfConfig
+        print(f"Tuned : {testVector} : {winningConfig} with {maxTFlops} TFlops")
+        winners[testVector] = winningConfig
     allData = pd.DataFrame(allData)
     return winners, allData
 
