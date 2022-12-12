@@ -274,7 +274,7 @@ function update_config() {
             populateDefaults=1
         else
             ## key value pair
-            key_value=("$pair")
+            key_value=($pair)
             key=${key_value[0]}
             value=${key_value[1]}
             ## special case: -p=true or -p true
