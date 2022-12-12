@@ -38,7 +38,16 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
-
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the arch string attr of this op
+        }],
+        /*retType=*/"StingAttr",
+        /*methodName=*/"getArch",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
     InterfaceMethod<
         /*desc=*/[{
           Return the OpOperand that corresponds to the operand argument

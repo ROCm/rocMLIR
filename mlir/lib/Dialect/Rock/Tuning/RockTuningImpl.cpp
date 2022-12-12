@@ -159,9 +159,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << convIF.getDilations();
 
     // Layout information
-    SmallVectorImpl<StringRef> filterNames;
-    SmallVectorImpl<StringRef> inputNames;
-    SmallVectorImpl<StringRef> outputNames;
     auto filterLayoutAttr =
         gemmOp->template getAttrOfType<ArrayAttr>("filter_layout");
     auto inputLayoutAttr =
@@ -170,30 +167,21 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
 
     unsigned size = filterLayoutAttr.size();
-    if (size != inputLayoutAttr.size() || size != outputLayoutAttr.size())
-      return gemmOp.emitOpError(
-          "All convolution layouts must have the same length");
-
-    filterNames.reserve(size);
-    inputNames.reserve(size);
-    outputNames.reserve(size);
-
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+      problemOS << filterAttr.getValue();
+    }
+    for (unsigned i = 0; i < size; ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      problemOS << inputAttr.getValue();
+    }
+    for (unsigned i = 0; i < size; ++i) {
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      filterNames.push_back(filterAttr.getValue());
-      inputNames.push_back(inputAttr.getValue());
-      outputNames.push_back(outputAttr.getValue());
+      problemOS << outputAttr.getValue();
     }
-    problemOS << filterNames << sep;
-    problemOS << inputNames << sep;
-    problemOS << outputNames << sep;
-
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
@@ -202,7 +190,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << gemmIF.getGemmSize().m << sep << gemmIF.getGemmSize().k << sep
               << gemmIF.getGemmSize().n << sep;
   }
-  problemOS << getArch();
+  problemOS << gemmIF.getArch().getValue();
   return problemStr;
 }
 
