@@ -5,27 +5,28 @@ declare -a orders
 declare -A configVarToCL
 declare -A configCLToVar
 ## Define conv parameters in order
-orders+=(operation)
-orders+=(filterLayout)
-orders+=(inputLayout)
-orders+=(outputLayout)
-orders+=(groupSize)
-orders+=(batchSize)
-orders+=(inputChannel)
-orders+=(outputChannel)
-orders+=(inputHeight)
-orders+=(inputWidth)
-orders+=(filterHeight)
-orders+=(filterWidth)
-orders+=(dilationHeight)
-orders+=(dilationWidth)
-orders+=(strideHeight)
-orders+=(strideWidth)
-orders+=(paddingHeightLeft)
-orders+=(paddingHeightRight)
-orders+=(paddingWidthLeft)
-orders+=(paddingWidthRight)
-orders+=(tensorDataType)
+orders=(operation
+        filterLayout
+        inputLayout
+        outputLayout
+        groupSize
+        batchSize
+        inputChannel
+        outputChannel
+        inputHeight
+        inputWidth
+        filterHeight
+        filterWidth
+        dilationHeight
+        dilationWidth
+        strideHeight
+        strideWidth
+        paddingHeightLeft
+        paddingHeightRight
+        paddingWidthLeft
+        paddingWidthRight
+        tensorDataType
+       )
 
 ## Command line options for each config parameter
 ## Convert variable to command line option
