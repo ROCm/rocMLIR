@@ -129,36 +129,9 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-// Suppose to return the encoding of the given problem, currently only returns
-// hash of its primary operation
-size_t getTuningHash(ModuleOp &mod) {
-  rock::RockGemmWrapperInterface gemmIF;
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        gemmIF = op;
-        return WalkResult::interrupt();
-      });
-  if (!findPrimary.wasInterrupted())
-    return 0;
-  KernelType opType = gemmIF.getKernelType();
-  llvm::hash_code hash;
-  Operation *gemmOp = gemmIF.getOperation();
-  // conv case
-  if (opType == KernelType::Conv2D) {
-    RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
-    hash = llvm::hash_combine(opType, convIF.getFilter(), convIF.getInput(),
-                              convIF.getPadding(), convIF.getStrides(),
-                              convIF.getDilations(), convIF.getFeatures());
-  }
-  // gemm case
-  else if (opType == KernelType::Gemm) {
-    hash = llvm::hash_combine(opType, gemmIF.getInputType(),
-                              gemmIF.getGemmSize().m, gemmIF.getGemmSize().k,
-                              gemmIF.getGemmSize().n, gemmIF.getGemmFeatures());
-  }
-  return hash;
-}
-
+// Suppose to return the structure of the given problem to tune, currently
+// combines the string representation of the selected field of the primary
+// operation
 std::string getTuningProblemStr(ModuleOp &mod) {
   rock::RockGemmWrapperInterface gemmIF;
   WalkResult findPrimary =
@@ -184,15 +157,52 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << convIF.getPadding() << sep;
     problemOS << convIF.getStrides() << sep;
     problemOS << convIF.getDilations();
-    // fixme : add layout
+
+    // Layout information
+    SmallVectorImpl<StringRef> filterNames;
+    SmallVectorImpl<StringRef> inputNames;
+    SmallVectorImpl<StringRef> outputNames;
+    auto filterLayoutAttr =
+        gemmOp->template getAttrOfType<ArrayAttr>("filter_layout");
+    auto inputLayoutAttr =
+        gemmOp->template getAttrOfType<ArrayAttr>("input_layout");
+    auto outputLayoutAttr =
+        gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
+
+    unsigned size = filterLayoutAttr.size();
+    if (size != inputLayoutAttr.size() || size != outputLayoutAttr.size())
+      return gemmOp.emitOpError(
+          "All convolution layouts must have the same length");
+
+    filterNames.reserve(size);
+    inputNames.reserve(size);
+    outputNames.reserve(size);
+
+    for (unsigned i = 0; i < size; ++i) {
+      auto filterAttr =
+          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto outputAttr =
+          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+      filterNames.push_back(filterAttr.getValue());
+      inputNames.push_back(inputAttr.getValue());
+      outputNames.push_back(outputAttr.getValue());
+    }
+    problemOS << filterNames << sep;
+    problemOS << inputNames << sep;
+    problemOS << outputNames << sep;
+
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
     gemmIF.getInputType().print(problemOS);
     problemOS << sep;
     problemOS << gemmIF.getGemmSize().m << sep << gemmIF.getGemmSize().k << sep
-              << gemmIF.getGemmSize().n;
+              << gemmIF.getGemmSize().n << sep;
   }
+  problemOS << getArch();
   return problemStr;
 }
 
