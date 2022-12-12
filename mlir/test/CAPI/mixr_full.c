@@ -72,6 +72,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation func = mlirOperationCreate(&funcState);
   mlirOperationSetAttributeByName(
       func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
+  mlirOperationSetAttributeByName(
+      func, mlirStringRefCreateFromCString("arch"),
+      mlirStringAttrGet(ctx, mlirStringRefCreateFromCString("gfx906")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution

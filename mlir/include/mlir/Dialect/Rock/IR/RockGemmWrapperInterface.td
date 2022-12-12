@@ -40,9 +40,9 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the arch string attr of this op
+          Return the arch string of this op
         }],
-        /*retType=*/"StingAttr",
+        /*retType=*/"StringRef",
         /*methodName=*/"getArch",
         /*args=*/(ins),
         /*methodBody=*/"",

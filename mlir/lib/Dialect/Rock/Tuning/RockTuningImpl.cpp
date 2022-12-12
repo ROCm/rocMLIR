@@ -156,7 +156,8 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << sep;
     problemOS << convIF.getPadding() << sep;
     problemOS << convIF.getStrides() << sep;
-    problemOS << convIF.getDilations();
+    problemOS << convIF.getDilations() << sep;
+    ;
 
     // Layout information
     auto filterLayoutAttr =
@@ -190,7 +191,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << gemmIF.getGemmSize().m << sep << gemmIF.getGemmSize().k << sep
               << gemmIF.getGemmSize().n << sep;
   }
-  problemOS << gemmIF.getArch().getValue();
+  problemOS << sep << gemmIF.getArch() << sep;
   return problemStr;
 }
 
