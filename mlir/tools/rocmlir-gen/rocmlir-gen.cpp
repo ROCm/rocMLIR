@@ -337,6 +337,14 @@ static llvm::cl::opt<bool>
                     llvm::cl::value_desc("To tune a Gemm kernel"),
                     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> emitTuningKey(
+    "emit-tuning-key",
+    llvm::cl::desc(
+        "Prints out the struct of the problem to be tuned for inspection."),
+    llvm::cl::value_desc(
+        "String formatted fields of the problem which is going to be tuned."),
+    llvm::cl::init(false));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -2556,6 +2564,11 @@ int main(int argc, char **argv) {
       return 0;
     }
 
+    if (emitTuningKey) {
+      llvm::outs() << rock::getTuningProblemStr(mod);
+      return 0;
+    }
+
     module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         hasUserKernel = true;
@@ -2711,6 +2724,11 @@ int main(int argc, char **argv) {
       llvm::outs() << perfConfig << "\n";
     }
     delete tunableParams;
+    return 0;
+  }
+
+  if (emitTuningKey) {
+    llvm::outs() << rock::getTuningProblemStr(mod);
     return 0;
   }
 
