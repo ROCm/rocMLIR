@@ -14,12 +14,21 @@ def printAllPerformance(chip):
     try:
         df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_GEMM_FILE)
         perfReportFound = True
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'rocBLAS TFlops (no MLIR Kernels)', 'MLIR/rocBLAS']
+        if 'Tuned MLIR TFlops' in df:
+            COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'Tuned MLIR TFlops',
+                'rocBLAS TFlops (no MLIR Kernels)', 'Tuned/Untuned',
+                'MLIR/rocBLAS', 'Tuned/rocBLAS']
+        else:
+            COLUMNS_TO_AVERAGE = ['MLIR TFlops',
+                'rocBLAS TFlops (no MLIR Kernels)',
+                'MLIR/rocBLAS']
     except FileNotFoundError:
         print('Perf report not found.')
         return
 
-    plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    # Only plot the actual averages, not the ratios
+    # (This conveniently keeps the old behavior for the no tuning DB case)
+    plotMean = df[COLUMNS_TO_AVERAGE[:3]].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
