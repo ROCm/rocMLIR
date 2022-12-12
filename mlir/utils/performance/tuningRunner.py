@@ -47,26 +47,42 @@ def runMLIRWithPerfConfig(perf_config, config, paths: Paths, rocmlir_gen_flags, 
 
 #Tune MLIR Gemm or Convolution kernels
 def tuneMLIRKernels(configs, confClass, paths: Paths, arch, rocmlir_gen_flags, debug):
+    allData = []
+    winners = {}
     for testVector in configs:
         commandLine = testVector.split(sep=' ')
         config = confClass.fromCommandLine(commandLine, arch)
         config.MLIR_N_REPEATS=1
+        print("Tuning:", testVector)
         commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
         rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions + ' --emit-tuning-space'
         args = rocmlirGenCommand.split()
         # get tuning space for this config
-        p = subprocess.check_output(args).decode()
-        tune_df = pd.DataFrame(runMLIRWithPerfConfig(perf_config.strip(), config, paths, rocmlir_gen_flags, debug) for perf_config in p.splitlines())
-        if debug: 
-            print(tune_df)
-        print('Tuning', testVector, ':', tune_df['PerfConfig'][tune_df['TFlops'].idxmin()])
+        p = subprocess.check_output(args).decode('utf-8')
+        # Tune, printing progress as we go to avoid CI timeouts
+        minTFlops = np.inf
+        minConfig = "None"
+        for i, perfConfig in enumerate(p.splitlines()):
+            perfConfig = perfConfig.strip()
+            if i > 0 and i % 50 == 0:
+                print(f"Tested {i} configs, best perf {min} TFlops on perf_config {minConfig}")
+            entry = runMLIRWithPerfConfig(perfConfig, config, paths, rocmlir_gen_flags, debug)
+            allData.append(entry)
+            theseTFlops = entry['TFlops']
+            if not np.isnan(theseTFlops) and theseTFlops < minTFlops:
+                minTFlops = theseTFlops
+                minConfig = perfConfig
+        print(f"Tuned : {testVector} : {minConfig} with {minTFlops} TFlops")
+        winners[testVector] = minConfig
+    allData = pd.DataFrame(allData)
+    return winners, allData
 
 # Main function.
 def main(args=None):
     """
     usage examples:
 
-    python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs 
+    python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs --output=tuning_db.tsv
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
     python3 tuningRunner.py --op conv --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
 
@@ -90,7 +106,6 @@ def main(args=None):
         default='conv',
         help="Operation for tuning")
 
-    mutex_arg_group = parser.add_mutually_exclusive_group()
     parser.add_argument(
         "-c", "--configs_file",
         type=str,
@@ -98,18 +113,16 @@ def main(args=None):
         help="File of configurations to test"
     )
 
+    parser.add_argument("-o", "--output",
+        type=str,
+        default="tuning_results_local.tsv",
+        help="File to output tuning results to. Will append to existing files")
+
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
         default=perfRunner.find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
-    )
-
-    parser.add_argument(
-        "--miopen-build-dir",
-        type=str,
-        default=perfRunner.find_miopen_build_dir(),
-        help="The build directory of MIOpen",
     )
 
     parser.add_argument(
@@ -138,10 +151,6 @@ def main(args=None):
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    # Impose default behavior when no args have been passed
-    if len(args) == 0:
-        parsed_args.batch_both = True
-
     confClass = PerfConfiguration
     opType = Operation.fromName(parsed_args.op)
     if opType == Operation.CONV:
@@ -150,26 +159,31 @@ def main(args=None):
         confClass = GemmConfiguration
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
-    configs = []
+    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
 
-    configs = parsed_args.config
-    if not parsed_args.config:
-        if opType == Operation.CONV:
-           configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
-        elif opType == Operation.GEMM:
-            configs = perfRunner.getGemmConfigurations(paths.configuration_file_path)
-        else:
-            raise RuntimeError("Tuning operation was not provided/found")
+    if parsed_args.config:
+        configs = parsed_args.config
+    elif opType == Operation.CONV:
+        configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
+    elif opType == Operation.GEMM:
+        configs = perfRunner.getGemmConfigurations(paths.configuration_file_path)
+    else:
+        raise RuntimeError("Tuning operation was not provided/found")
 
     if not paths.mlir_paths:
         raise RuntimeError("MLIR build dir was not provided/found")
 
-    if parsed_args.config:
-        configs = parsed_args.config
+    winners, allData = tuneMLIRKernels(configs, confClass, paths, arch, rocmlir_gen_flags, parsed_args.debug)
 
-    tuneMLIRKernels(configs, confClass, paths, arch, rocmlir_gen_flags, parsed_args.debug)
-
+    if parsed_args.debug:
+        print(allData)
+        allData.to_csv(f"{parsed_args.output}.debug", sep='\t')
+    # Note, appending results here to allow multiple config sets
+    with open(parsed_args.output, 'a') as outFile:
+        print("# arch\ttestVector\tperfConfig", file=outFile)
+        for testVector, perfConfig in winners.items():
+            print(f"Arch = {arch}, vector = '{testVector}', perfConfig = {perfConfig}")
+            print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -12,7 +12,7 @@ def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
     COLUMNS_DROPPED = ['MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)',
                        'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen',
-                       'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS']
+                       'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS', 'Tuned/rocBLAS']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
     return df
 
@@ -39,13 +39,21 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
         newLabel += "_new"
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
+    oldLabelTuned = f"Tuned TFlops ({oldLabel})"
+    newLabelTuned = f"Tuned TFlops ({newLabel})"
     data.rename(columns={'MLIR TFlops_old': oldLabel,
                          'MLIR TFlops_new': newLabel,
                          'TFlops_old': oldLabel,
-                         'TFlops_new': newLabel}, inplace=True)
+                         'TFlops_new': newLabel,
+                         'Tuned MLIR TFlops_old': oldLabelTuned,
+                         'Tuned MLIR TFlops_new': newLabelTuned}, inplace=True)
     data['Current/Previous'] = data[newLabel] / data[oldLabel]
+    if oldLabelTuned in data and newLabelTuned in data:
+        data['Tuned Current/Previous'] = data[newLabelTuned] / data[oldLabelTuned]
 
-    columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
+    columnsToAverage = ['Current/Previous', oldLabel, newLabel]
+    if 'Tuned Current/Previous' in data:
+        columnsToAverage += ['Tuned Current/Previous', oldLabelTuned, newLabelTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
     groups = ["DataType", "TransA", "TransB"] if isGemm else ["Direction", "DataType", "InputLayout"]
