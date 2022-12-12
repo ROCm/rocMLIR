@@ -2565,7 +2565,7 @@ int main(int argc, char **argv) {
     }
 
     if (emitTuningKey) {
-      llvm::outs() << rock::getTuningProblemStr(mod);
+      llvm::outs() << rock::getTuningProblemStr(module) << "\n";
       return 0;
     }
 
@@ -2728,7 +2728,7 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningKey) {
-    llvm::outs() << rock::getTuningProblemStr(mod);
+    llvm::outs() << rock::getTuningProblemStr(module) << "\n";
     return 0;
   }
 
