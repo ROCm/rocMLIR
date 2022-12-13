@@ -759,7 +759,7 @@ pipeline {
                                 // Move GEMM tuning DB out of the way if it exists
                                 // This is needed because the tuned vs. untuned MIOpen
                                 // code will delete the MIOpenUserBD directory
-                                catchError {
+                                catchError (buildResult: null) {
                                     sh "mv MIOpen/build/MIOpenUserDB/*.tsv ${WORKSPACE}"
                                 }
                                 sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
