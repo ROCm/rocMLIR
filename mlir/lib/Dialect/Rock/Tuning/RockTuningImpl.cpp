@@ -27,6 +27,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
+<<<<<<< HEAD
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
       {1, 2, 4, 8},
@@ -44,6 +45,15 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
       {4, 8, 16, 32, 64, 128},
       {1, 4, 8},
       {0, 1}};
+=======
+      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {1, 2, 4, 8},
+      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
+
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
+      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {8, 16, 32},
+      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
+>>>>>>> 8fce0bd03d0a (Fix up tuning results by using the correct tuning API ranges)
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
@@ -58,6 +68,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
             for (uint32_t gemmNPerWave : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
+<<<<<<< HEAD
                 for (uint32_t forceUnroll : xdlopsParams[6]) {
                   XdlopsGemmParamsAttr gemmParams =
                       b.getAttr<XdlopsGemmParamsAttr>(
@@ -66,6 +77,14 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
                   newSpace->tuningRange.push_back(
                       gemmParams.cast<RockTuningParamAttrInterface>());
                 }
+=======
+                XdlopsGemmParamsAttr gemmParams =
+                    b.getAttr<XdlopsGemmParamsAttr>(
+                        gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
+                        gemmMPerWave, gemmNPerWave);
+                newSpace->tuningRange.push_back(
+                    gemmParams.cast<RockTuningParamAttrInterface>());
+>>>>>>> 8fce0bd03d0a (Fix up tuning results by using the correct tuning API ranges)
               }
             }
           }
