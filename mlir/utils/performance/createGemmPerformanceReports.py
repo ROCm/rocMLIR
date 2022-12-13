@@ -35,9 +35,9 @@ def printAllPerformance(chip):
     plotMean[['MLIR TFlops', 'rocBLAS TFlops (no MLIR Kernels)']]\
         .to_csv(chip + '_' + reportUtils.PERF_PLOT_REPORT_GEMM_FILE, index=False)
 
-    means = df.groupby(["DataType", "TransA", "TransB"])[COLUMNS_TO_AVERAGE]\
+    means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
         .agg(reportUtils.geoMean)
-    means.loc[("All", "All", "All"),:] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_GEMM_FILE)
 
     toHighlight = ["MLIR/rocBLAS"]

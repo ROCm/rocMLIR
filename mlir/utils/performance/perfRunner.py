@@ -30,7 +30,8 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
+# Pending confirmation of where rocBLAS supports i8, just do f32 and f16 for now
+DATA_TYPES_GEMM = ['f32', 'f16']#, 'i8']
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
@@ -462,23 +463,24 @@ def getGemmConfigurations(fileName):
                 if len(line) == 0 or line[0] == '#':
                     continue
 
+                # We need trailing spaces here to account for the concat below
                 # Skip type if already in
                 dataTypeString = ""
-                if "-t" not in line:
-                    dataTypeString = f"-t {datatype}"
+                if "-t " not in line:
+                    dataTypeString = f"-t {datatype} "
 
                 # Skip transA if already in
                 transAString = ""
-                if "-transA" not in line:
-                    transAString = f"-transA {transA}"
+                if "-transA " not in line:
+                    transAString = f"-transA {transA} "
 
                 # Skip transB if already in
                 transBString = ""
-                if "-transB" not in line:
-                    transBString = f"-transB {transB}"
+                if "-transB " not in line:
+                    transBString = f"-transB {transB} "
 
                 # Strip to avoid spurious spaces
-                oneConfig = f"{dataTypeString} {transAString} {transBString} {line}".strip()
+                oneConfig = f"{dataTypeString}{transAString}{transBString}{line}".strip()
                 if oneConfig not in configs:
                     configs.append(oneConfig)
     return configs
@@ -535,7 +537,6 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         transA = None
         transB = None
-
         for i in range(0, len(argv), 2):
             opt = argv[i]
             val = argv[i + 1]
