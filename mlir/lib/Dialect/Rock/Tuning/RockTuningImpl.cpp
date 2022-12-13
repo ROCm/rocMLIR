@@ -189,9 +189,10 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
 
     unsigned size = filterLayoutAttr.size();
-    std::map<std::sting, unsigned> fLayoutMap;
-    std::map<std::sting, unsigned> iLayoutMap;
-    std::map<std::sting, unsigned> oLayoutMap;
+    std::map<StringRef, unsigned> fLayoutMap;
+    std::map<StringRef, unsigned> iLayoutMap;
+    std::map<StringRef, unsigned> oLayoutMap;
+
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -211,18 +212,28 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     SmallString<4> fLayout;
     SmallString<4> iLayout;
     SmallString<4> oLayout;
-    fLayout[fLayoutMap["k"]] = 'N';
-    fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["y"]] = 'H';
-    fLayout[fLayoutMap["x"]] = 'W';
-    iLayout[iLayoutMap["ni"]] = 'N';
-    iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["hi"]] = 'H';
-    iLayout[iLayoutMap["wi"]] = 'W';
-    oLayout[oLayoutMap["no"]] = 'N';
-    oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["ho"]] = 'H';
-    oLayout[oLayoutMap["wo"]] = 'W';
+    // ignore 'g' and fill blank index.
+    unsigned layoutIdx(std::map<StringRef, unsigned> &lMap, StringRef inDim, StringRef gDim) {
+      unsigned inIdx = lMap[inDim];
+      unsigned gIdx = lMap[gDim];
+      if (inIdx > gIdx)
+        inIdx--;
+      return inIdx;
+    }
+
+    // dimensions need to be mapped 1 to 1.
+    fLayout[layoutIdx(fLayoutMap, "k", "g")] = 'N';
+    fLayout[layoutIdx(fLayoutMap, "c", "g")] = 'C';
+    fLayout[layoutIdx(fLayoutMap, "y", "g")] = 'H';
+    fLayout[layoutIdx(fLayoutMap, "x", "g")] = 'W';
+    iLayout[layoutIdx(iLayoutMap, "ni", "gi")] = 'N';
+    iLayout[layoutIdx(iLayoutMap, "ci", "gi")] = 'C';
+    iLayout[layoutIdx(iLayoutMap, "hi", "gi")] = 'H';
+    iLayout[layoutIdx(iLayoutMap, "wi", "gi")] = 'W';
+    oLayout[layoutIdx(oLayoutMap, "no", "go")] = 'N';
+    oLayout[layoutIdx(oLayoutMap, "ko", "go")] = 'C';
+    oLayout[layoutIdx(oLayoutMap, "ho", "go")] = 'H';
+    oLayout[layoutIdx(oLayoutMap, "wo", "go")] = 'W';
 
     // filter layout
     problemOS << "-f " << fLayout << sep;
@@ -256,17 +267,17 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-l " << dilationVal[0] << "-j" << dilationVal[1] << sep;
 
   } else if (opType == KernelType::Gemm) { // gemm case
-    rock::GemmOp rGemmOp = gemmOp->dyn_cast<rock::GemmOp>();
+    rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
     // TransA
     problemOS << "-transA ";
-    if (rGemmOp.getATransposed)
+    if (rGemmOp.getATransposed())
       problemOS << "true ";
     else
       problemOS << "false ";
 
     // TransB
     problemOS << "-transB ";
-    if (rGemmOp.getATransposed)
+    if (rGemmOp.getBTransposed())
       problemOS << "true ";
     else
       problemOS << "false ";
