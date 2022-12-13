@@ -28,7 +28,10 @@ def mergePerfConfigs(v: Tuple[str, str]) -> str:
 
 def summarizeStat(grouped, func, data):
     ret = grouped.agg(func)
-    ret.loc[("All", "All", "All"),:] = data.agg(func)
+    if ret.index.nlevels == 1:
+        ret.loc["All"] = data.agg(func)
+    else:
+        ret.loc[("All",) * ret.index.nlevels,:] = data.agg(func)
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -76,7 +79,7 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
         columnsToAverage += ['Tuned Current/Previous', oldLabelTuned, newLabelTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
-    groups = ["DataType", "TransA", "TransB"] if isGemm else ["Direction", "DataType", "InputLayout"]
+    groups = ["DataType"] if isGemm else ["Direction", "DataType", "InputLayout"]
     grouped = data.groupby(groups)[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
