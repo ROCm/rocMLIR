@@ -40,8 +40,13 @@ def printAllPerformance(chip):
     means.loc[("All", "All", "All"),:] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_GEMM_FILE)
 
+    toHighlight = ["MLIR/rocBLAS"]
+    if "Tuned/Untuned" in df:
+        toHighlight += ["Tuned/rocBLAS", "Tuned/Untuned"]
+
     with open(chip + "_" + "MLIR_vs_rocBLAS.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, "MLIR vs. rocBLAS performance", ["MLIR/rocBLAS"], htmlOutput)
+        reportUtils.htmlReport(df, means, "MLIR vs. rocBLAS performance",
+        toHighlight, htmlOutput)
 
 # Main function.
 if __name__ == '__main__':
