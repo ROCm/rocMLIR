@@ -66,11 +66,13 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
                          'Tuned MLIR TFlops_old': oldLabelTuned,
                          'Tuned MLIR TFlops_new': newLabelTuned}, inplace=True)
     data['Current/Previous'] = data[newLabel] / data[oldLabel]
+    hasTuning = False
     if oldLabelTuned in data and newLabelTuned in data:
         data['Tuned Current/Previous'] = data[newLabelTuned] / data[oldLabelTuned]
+        hasTuning = True
 
     columnsToAverage = ['Current/Previous', oldLabel, newLabel]
-    if 'Tuned Current/Previous' in data:
+    if hasTuning:
         columnsToAverage += ['Tuned Current/Previous', oldLabelTuned, newLabelTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
@@ -114,8 +116,12 @@ if __name__ == '__main__':
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     isGemm = ("TransA" in data)
+    hasTuning = ("Tuned Current/Previous" in data)
     if isGemm and len(sys.argv) < 5:
         outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
     with open(outputPath, "w") as outputStream:
-        reportUtils.htmlReport(data, summary, "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            ["Current/Previous"], outputStream)
+        toHighlight = ["Current/Previous", "Tuned Current/Previous"] if hasTuning \
+            else ["Current/Previous"]
+        reportUtils.htmlReport(data, summary,
+            "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
+            toHighlight, outputStream)
