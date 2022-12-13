@@ -249,39 +249,39 @@ PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
 // clang-format off
 const InitParamsXDL
 PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-  {128, 128, 4, 64, 64, 4, false, false},
-  {32, 64, 4, 32, 64, 4, false, false},
+  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
+  {128, 128, 4, 64, 64, 4, true, true},
+  {32, 64, 4, 32, 64, 4, true, true},
 
-  {128, 128, 8, 64, 64, 1, false, false},
-  {128, 128, 16, 64, 64, 1, false, false},
-  {8, 64, 8, 8, 64, 1, false, false},
-  {4, 64, 16, 4, 64, 1, false, false},
-  {32, 64, 4, 32, 64, 1, false, false},
-  {16, 16, 16, 16, 16, 1, false, false},
-  {16, 16, 4, 16, 16, 1, false, false},
+  {128, 128, 8, 64, 64, 1, true, true},
+  {128, 128, 16, 64, 64, 1, true, true},
+  {8, 64, 8, 8, 64, 1, true, true},
+  {4, 64, 16, 4, 64, 1, true, true},
+  {32, 64, 4, 32, 64, 1, true, true},
+  {16, 16, 16, 16, 16, 1, true, true},
+  {16, 16, 4, 16, 16, 1, true, true},
 };
 
 const InitParamsXDL
 PopulateParamsXDL::initParametersForwardI8[
   PopulateParamsXDL::nInitParametersForwardI8] = {
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
   // kpack for int8 must be larger than kbase, which means
   // kpack must be at least 4, once enabled.
-  {64, 64, 8, 32, 32, 8, false, false},
-  {64, 64, 8, 32, 32, 4, false, false},
-  {32, 32, 8, 16, 16, 8, false, false},
-  {32, 32, 8, 16, 16, 4, false, false},
+  {64, 64, 8, 32, 32, 8, true, true},
+  {64, 64, 8, 32, 32, 4, true, true},
+  {32, 32, 8, 16, 16, 8, true, true},
+  {32, 32, 8, 16, 16, 4, true, true},
   // The 32 x 32 xdlops k/block must be at least 8
-  {64, 64, 16, 32, 32, 1, false, false},
-  {64, 64, 8, 32, 32, 1, false, false},
-  {32, 32, 16, 32, 32, 1, false, false},
-  {32, 32, 8, 32, 32, 1, false, false},
+  {64, 64, 16, 32, 32, 1, true, true},
+  {64, 64, 8, 32, 32, 1, true, true},
+  {32, 32, 16, 32, 32, 1, true, true},
+  {32, 32, 8, 32, 32, 1, true, true},
   // The 16 x 16 xdlops k/block must be at least 16
-  {32, 32, 32, 16, 16, 1, false, false},
-  {32, 32, 16, 16, 16, 1, false, false},
-  {16, 16, 32, 16, 16, 1, false, false},
-  {16, 16, 16, 16, 16, 1, false, false},
+  {32, 32, 32, 16, 16, 1, true, true},
+  {32, 32, 16, 16, 16, 1, true, true},
+  {16, 16, 32, 16, 16, 1, true, true},
+  {16, 16, 16, 16, 16, 1, true, true},
 };
 // clang-format on
 

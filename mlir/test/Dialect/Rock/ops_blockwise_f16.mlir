@@ -33,7 +33,8 @@ func.func @rock_xdlops_gemm_v2_one_result_f16(%matrixA : memref<2x16xf16, 5>,
       kPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
-      kpack = 1>
+      kpack = 1,
+      forceUnroll = true>
   } : memref<2x1x1xvector<32xf16>, 5> += memref<2x16xf16, 5> * memref<1x16xf16, 5>
   return
 }
@@ -54,7 +55,8 @@ func.func @rock_xdlops_gemm_v2_two_results_f16(%matrixA : memref<2x16xf16, 5>,
       kPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
-      kpack = 1>
+      kpack = 1,
+      forceUnroll = true>
   } : memref<2x1x1xvector<32xf16>, 5> += memref<2x16xf16, 5> * memref<1x16xf16, 5>
   return
 }
@@ -77,7 +79,8 @@ func.func @rock_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
       kPerBlock = 16,
       mPerWave = 16,
       nPerWave = 16,
-      kpack = 1>,
+      kpack = 1,
+      forceUnroll = true>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 8192 : index
   } : memref<1xvector<32xf16>, 5> +=  memref<32xf16, 5> from memref<12288xf16, 3> * memref<16xf16, 5> from memref<12288xf16, 3>
@@ -101,7 +104,8 @@ func.func @rock_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>
       kPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
-      kpack = 1>,
+      kpack = 1,
+      forceUnroll = true>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 8192 : index
   } : memref<2xvector<32xf16>, 5> += memref<32xf16, 5> from memref<12288xf16, 3> * memref<16xf16, 5> from memref<12288xf16, 3>
