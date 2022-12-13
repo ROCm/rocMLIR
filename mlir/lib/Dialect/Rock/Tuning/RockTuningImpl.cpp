@@ -26,23 +26,27 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
-      {4, 8, 16, 32, 64, 128},
-      {16, 32, 64, 128},
-      {16, 32, 64, 128},
-      {16, 32, 64},
-      {16, 32, 64},
-      {1, 4}};
+      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {1, 2, 4, 8},
+      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
+
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
+      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {8, 16, 32},
+      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
-    for (uint32_t gemmMPerBlock : ValidRangeXdlopsGemmParams[0]) {
-      for (uint32_t gemmNPerBlock : ValidRangeXdlopsGemmParams[1]) {
-        for (uint32_t gemmKPerBlock : ValidRangeXdlopsGemmParams[2]) {
-          for (uint32_t gemmMPerWave : ValidRangeXdlopsGemmParams[3]) {
-            for (uint32_t gemmNPerWave : ValidRangeXdlopsGemmParams[4]) {
-              for (uint32_t gemmKPack : ValidRangeXdlopsGemmParams[5]) {
+    const std::vector<std::vector<uint32_t>> &xdlopsParams =
+        gemmOp.getInputType().isInteger(8) ? ValidRangeXdlopsGemmParamsI8
+                                           : ValidRangeXdlopsGemmParams;
+    for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
+      for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
+        for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
+          for (uint32_t gemmMPerWave : xdlopsParams[3]) {
+            for (uint32_t gemmNPerWave : xdlopsParams[4]) {
+              for (uint32_t gemmKPack : xdlopsParams[5]) {
                 XdlopsGemmParamsAttr gemmParams =
                     b.getAttr<XdlopsGemmParamsAttr>(
                         gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
