@@ -14,7 +14,17 @@ def loadMlirData(filename: str):
                        'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen',
                        'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS', 'Tuned/rocBLAS']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
+    # Work around empty PerfConfig field whin migrating from no tuning to yes tuning
+    # Can be removed next time we touch this
+    if 'PerfConfig' in df:
+        df['PerfConfig'] = df['PerfConfig'].fillna('None')
     return df
+
+def mergePerfConfigs(v: Tuple[str, str]) -> str:
+    v1, v2 = v
+    if v1 == v2:
+        return v1
+    return f"{v1} -> {v2}"
 
 def summarizeStat(grouped, func, data):
     ret = grouped.agg(func)
@@ -23,7 +33,8 @@ def summarizeStat(grouped, func, data):
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     isGemm = "TransA" in newDf
-    joinCols = reportUtils.GEMM_TEST_PARAMETERS if isGemm else reportUtils.CONV_TEST_PARAMETERS
+    # Ignore perf config in join
+    joinCols = reportUtils.GEMM_TEST_PARAMETERS[:-1] if isGemm else reportUtils.CONV_TEST_PARAMETERS[:-1]
     try:
         data = newDf.merge(oldDf, on=joinCols, suffixes=('_new', '_old'))
     except KeyError as e:
@@ -33,6 +44,13 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
         print("Old and new data have come from disjoint performance runs, ignoring old data",
             file=sys.stderr)
         return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
+
+    # Clean up PerfConfig columns, as the report generator wants a single PerfConfig
+    if "PerfConfig_old" in data and "PerfConfig_new" in data:
+        perfConfigColPos = data.columns.get_loc("PerfConfig_old")
+        zipped = list(map(mergePerfConfigs, zip(data["PerfConfig_old"], data["PerfConfig_new"])))
+        data.insert(perfConfigColPos, "PerfConfig", zipped)
+        data.drop(columns=["PerfConfig_old", "PerfConfig_new"], inplace=True)
 
     if (oldLabel == newLabel):
         oldLabel += "_old"
