@@ -129,6 +129,16 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
+// To calculate the layout index with 'g' dimension ignored.
+unsigned layoutIdx(std::map<StringRef, unsigned> &lMap, StringRef inDim,
+                   StringRef gDim) {
+  unsigned inIdx = lMap[inDim];
+  unsigned gIdx = lMap[gDim];
+  if (inIdx > gIdx)
+    inIdx--;
+  return inIdx;
+}
+
 // Suppose to return the structure of the given problem to tune, currently
 // combines the string representation of the selected field of the primary
 // operation. String format of the problem will not be required by the DB,
@@ -209,17 +219,9 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       oLayoutMap[outputAttr.getValue()] = i;
     }
 
-    SmallString<4> fLayout;
-    SmallString<4> iLayout;
-    SmallString<4> oLayout;
-    // ignore 'g' and fill blank index.
-    unsigned layoutIdx(std::map<StringRef, unsigned> &lMap, StringRef inDim, StringRef gDim) {
-      unsigned inIdx = lMap[inDim];
-      unsigned gIdx = lMap[gDim];
-      if (inIdx > gIdx)
-        inIdx--;
-      return inIdx;
-    }
+    SmallString<4> fLayout("####");
+    SmallString<4> iLayout("####");
+    SmallString<4> oLayout("####");
 
     // dimensions need to be mapped 1 to 1.
     fLayout[layoutIdx(fLayoutMap, "k", "g")] = 'N';
@@ -260,11 +262,11 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     auto strideVal = extractFromI64ArrayAttr(convIF.getStrides());
     auto dilationVal = extractFromI64ArrayAttr(convIF.getDilations());
     // padding
-    problemOS << "-p " << paddingVal[0] << "-q" << paddingVal[2] << sep;
+    problemOS << "-p " << paddingVal[0] << " -q " << paddingVal[2] << sep;
     // stride
-    problemOS << "-u " << strideVal[0] << "-v" << strideVal[1] << sep;
+    problemOS << "-u " << strideVal[0] << " -v " << strideVal[1] << sep;
     // dilation
-    problemOS << "-l " << dilationVal[0] << "-j" << dilationVal[1] << sep;
+    problemOS << "-l " << dilationVal[0] << " -j " << dilationVal[1] << sep;
 
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
