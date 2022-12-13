@@ -2,5 +2,7 @@
 // RUN: rocmlir-gen --arch gfx908 --operation gemm -p --store-method atomic_add | FileCheck %s --check-prefix=ATOMIC_ADD
 // ATOMIC_ADD: rock.gemm
 // ATOMIC_ADD-SAME: storeMethod = atomic_add
-// RUN: ./bin/rocmlir-gen --emit-tuning-key -p --arch gfx900
-// CHECK: rock.conv2d#memref<1x128x8x3x3xf32>#memref<128x1x8x32x32xf32>#[0 : i32, 0 : i32, 0 : i32, 0 : i32]#[1 : i32, 1 : i32]#[1 : i32, 1 : i32]#gkcyxnigicihiwinogokohowo#amdgcn-amd-amdhsa:gfx900#
+// RUN: rocmlir-gen --emit-tuning-key -p --arch gfx900
+// CHECK: amdgcn-amd-amdhsa:gfx900        conv -F 1 -f NCHW -I NCHW -O NCHW -n 128 -c 8 -h 32 -w 32 -k 128 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -t f32
+// RUN: rocmlir-gen --arch gfx908 --operation gemm -p --emit-tuning-key
+// CHECK: amdgcn-amd-amdhsa:gfx908        gemm -transA false -transB false -g 1 -m 1024 -n 512 -k 769 -t f32
