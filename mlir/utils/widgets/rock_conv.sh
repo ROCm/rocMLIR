@@ -82,34 +82,44 @@ configCLToVar[t]=tensorDataType
 usage() {
     cat <<END_USAGE
 Usage: $PROG [options...]
+       Search one or more conv configs in one or more conv config pools.
 
 Options:
     -h|--help                  Display this help message
-    --input=                   Input test file.
+  Input Options:
+    --input=                   Source of search. A test file.
                                Note: input files can be either mlir test files
-                               (.mlir) or toml configuration files
-    --database=                Config database file(s). If in search mode, multiple
-                               database files can be selected if comma separated, e.g.
-                               $PROG --input=myTest --database=db1,db2 --search
-                               If in insert mode, only one database file is allowed.
+                               (.mlir) or toml configuration files.
+    --config                   Source of search. A single config.
+  Target Options:
+    --tomlfile=                One or more pools of conv configs as target of search.
+                               If in search mode, multiple toml files can be selected
+                               if comma separated, e.g.
+                               $PROG --input=myTest --tomlfile=db1,db2 --search
+                               If in insert mode, only one toml file is allowed.
                                Note:
-                               1. database files must be .toml files.
-                               2. if database file is located at /mlir/test/e2e,
+                               1. if toml file is located at /mlir/test/e2e,
                                   then only the filename without extension is needed.
                                   Otherwiese, full file path is required.
-                               3. If no database files are provided, all toml files
-                                  at /mlir/test/e2e will be used.
-    --config                   A single config (pure + accessories) used to be
-                               searched in the database file(s).
+                               2. If no toml files are provided, all toml files
+                                  in /mlir/test/e2e will be used.
+  Mode Options:
     -s|--search                Search mode, i.e. search the given configs, either
                                from input file(s) (--input=) or a single config
-                               (--config=) from the database.
+                               (--config=) from the pool(s).
                                This mode is set to be the default.
     -i|--insert                Insert mode, i.e. insert the given configs, either
                                from input file(s) (--input=) or a single config
-                               (--config=) into the database.
+                               (--config=) into the pool if not there yet.
 
-    Example usages:
+Notes about config comparison:
+1. Only geometric parameters (dim, strid, and padding) of the convolution problem
+   is used. Directional (fwd, bwd, wrw) and storage related (data type, random input
+   and arch) parameters are ignored.
+2. Default values from rocmlir-gen.cpp are used for geometric parameters
+   if they are not provided by user input
+
+Example usages:
 
     $PROG --input=xxx.mlir -s # search tests in xxx.mlir in the default database
     $PROG --input=xxx.mlir --database=Resnet50Config -s # search tests in the Resnet50 databse
