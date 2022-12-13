@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/SmallString.h"
 
 namespace mlir {
 namespace rock {
@@ -133,14 +133,7 @@ TuningTable *tuningTableCreate() {
 // combines the string representation of the selected field of the primary
 // operation. String format of the problem will not be required by the DB,
 // since it can store each field separately.
-//
-// Current internal model of the tuning problem is assuming :
-// tuning problem struct =
-// primaryOp-{opType, arch}-+-conv_case-{inShapedType, filterShapedType,
-//                   |          adding,Stride, Dilation, in/fil/out_layout}
-//                   `---- gemm_case-{dataType, m, n, k}
-// *Only take one conv&gemm operation into account
-//
+// Currently serialize the problem in MIOpenDriver command friendly format
 std::string getTuningProblemStr(ModuleOp &mod) {
   rock::RockGemmWrapperInterface gemmIF;
   WalkResult findPrimary =
@@ -151,23 +144,43 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   if (!findPrimary.wasInterrupted())
     return std::string();
   std::string problemStr;
-  char sep = '#';
+  char sep = ' ';
+  char tab = '\t';
   llvm::raw_string_ostream problemOS(problemStr);
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
-  problemOS << gemmOp->getName().getStringRef() << sep;
-  // conv case
-  if (opType == KernelType::Conv2D) {
-    RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
-    convIF.getFilter().getType().print(problemOS);
-    problemOS << sep;
-    convIF.getInput().getType().print(problemOS);
-    problemOS << sep;
-    problemOS << convIF.getPadding() << sep;
-    problemOS << convIF.getStrides() << sep;
-    problemOS << convIF.getDilations() << sep;
 
-    // Layout information
+  // ARCH string
+  problemOS << gemmIF.getArch() << tab;
+
+  // OP type
+  switch (opType) {
+  case KernelType::Conv2D:
+    problemOS << "conv -F 1" << sep;
+    break;
+  case KernelType::Conv2DBwdData:
+    problemOS << "conv -F 2" << sep;
+    break;
+  case KernelType::Conv2DBwdWeight:
+    problemOS << "conv -F 4" << sep;
+    break;
+  case KernelType::Gemm:
+    problemOS << "gemm" << sep;
+    break;
+  default: // Unknown op type?
+    return std::string();
+  }
+
+  if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
+      opType == KernelType::Conv2DBwdWeight) { // conv cases
+    RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
+
+    ShapedType inType = convIF.getInput().getType();
+    ArrayRef<int64_t> inShape = inType.getShape();
+    ShapedType filType = convIF.getFilter().getType();
+    ArrayRef<int64_t> filShape = filType.getShape();
+
+    // Extract layout information
     auto filterLayoutAttr =
         gemmOp->template getAttrOfType<ArrayAttr>("filter_layout");
     auto inputLayoutAttr =
@@ -176,30 +189,112 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
 
     unsigned size = filterLayoutAttr.size();
+    std::map<std::sting, unsigned> fLayoutMap;
+    std::map<std::sting, unsigned> iLayoutMap;
+    std::map<std::sting, unsigned> oLayoutMap;
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      problemOS << filterAttr.getValue();
+      fLayoutMap[filterAttr.getValue()] = i;
     }
     for (unsigned i = 0; i < size; ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      problemOS << inputAttr.getValue();
+      iLayoutMap[inputAttr.getValue()] = i;
     }
     for (unsigned i = 0; i < size; ++i) {
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      problemOS << outputAttr.getValue();
+      oLayoutMap[outputAttr.getValue()] = i;
     }
+
+    SmallString<4> fLayout;
+    SmallString<4> iLayout;
+    SmallString<4> oLayout;
+    fLayout[fLayoutMap["k"]] = 'N';
+    fLayout[fLayoutMap["c"]] = 'C';
+    fLayout[fLayoutMap["y"]] = 'H';
+    fLayout[fLayoutMap["x"]] = 'W';
+    iLayout[iLayoutMap["ni"]] = 'N';
+    iLayout[iLayoutMap["ci"]] = 'C';
+    iLayout[iLayoutMap["hi"]] = 'H';
+    iLayout[iLayoutMap["wi"]] = 'W';
+    oLayout[oLayoutMap["no"]] = 'N';
+    oLayout[oLayoutMap["ko"]] = 'C';
+    oLayout[oLayoutMap["ho"]] = 'H';
+    oLayout[oLayoutMap["wo"]] = 'W';
+
+    // filter layout
+    problemOS << "-f " << fLayout << sep;
+    // input layout
+    problemOS << "-I " << iLayout << sep;
+    // output layout
+    problemOS << "-O " << oLayout << sep;
+    // N
+    problemOS << "-n " << inShape[iLayoutMap["ni"]] << sep;
+    // C
+    problemOS << "-c " << inShape[iLayoutMap["ci"]] << sep;
+    // H
+    problemOS << "-h " << inShape[iLayoutMap["hi"]] << sep;
+    // W
+    problemOS << "-w " << inShape[iLayoutMap["wi"]] << sep;
+    // K
+    problemOS << "-k " << filShape[fLayoutMap["k"]] << sep;
+    // Y
+    problemOS << "-y " << filShape[fLayoutMap["y"]] << sep;
+    // X
+    problemOS << "-x " << filShape[fLayoutMap["x"]] << sep;
+
+    auto paddingVal = extractFromI64ArrayAttr(convIF.getPadding());
+    auto strideVal = extractFromI64ArrayAttr(convIF.getStrides());
+    auto dilationVal = extractFromI64ArrayAttr(convIF.getDilations());
+    // padding
+    problemOS << "-p " << paddingVal[0] << "-q" << paddingVal[2] << sep;
+    // stride
+    problemOS << "-u " << strideVal[0] << "-v" << strideVal[1] << sep;
+    // dilation
+    problemOS << "-l " << dilationVal[0] << "-j" << dilationVal[1] << sep;
+
+  } else if (opType == KernelType::Gemm) { // gemm case
+    rock::GemmOp rGemmOp = gemmOp->dyn_cast<rock::GemmOp>();
+    // TransA
+    problemOS << "-transA ";
+    if (rGemmOp.getATransposed)
+      problemOS << "true ";
+    else
+      problemOS << "false ";
+
+    // TransB
+    problemOS << "-transB ";
+    if (rGemmOp.getATransposed)
+      problemOS << "true ";
+    else
+      problemOS << "false ";
+
+    // Gemmsize G/M/N/K
+    problemOS << "-g " << gemmIF.getGemmSize().g << sep;
+    problemOS << "-m " << gemmIF.getGemmSize().m << sep;
+    problemOS << "-n " << gemmIF.getGemmSize().n << sep;
+    problemOS << "-k " << gemmIF.getGemmSize().k << sep;
+  } else {
+    // Unknown op type, unreachable.
+    return std::string();
   }
-  // gemm case
-  else if (opType == KernelType::Gemm) {
-    gemmIF.getInputType().print(problemOS);
-    problemOS << sep;
-    problemOS << gemmIF.getGemmSize().m << sep << gemmIF.getGemmSize().k << sep
-              << gemmIF.getGemmSize().n << sep;
+
+  // Data type
+  problemOS << "-t ";
+  Type elemType = gemmIF.getInputType();
+  if (elemType.isF32()) {
+    problemOS << "f32";
+  } else if (elemType.isF16()) {
+    problemOS << "f16";
+  } else if (elemType.isInteger(8)) {
+    problemOS << "i8";
+  } else {
+    // Unknown data type
+    return std::string();
   }
-  problemOS << sep << gemmIF.getArch() << sep;
+
   return problemStr;
 }
 
