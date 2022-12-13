@@ -267,6 +267,8 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-u " << strideVal[0] << " -v " << strideVal[1] << sep;
     // dilation
     problemOS << "-l " << dilationVal[0] << " -j " << dilationVal[1] << sep;
+    // group
+    problemOS << "-g " << inShape[iLayoutMap["gi"]] << sep;
 
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
