@@ -129,16 +129,6 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-// To calculate the layout index with 'g' dimension ignored.
-unsigned layoutIdx(std::map<StringRef, unsigned> &lMap, StringRef inDim,
-                   StringRef gDim) {
-  unsigned inIdx = lMap[inDim];
-  unsigned gIdx = lMap[gDim];
-  if (inIdx > gIdx)
-    inIdx--;
-  return inIdx;
-}
-
 // Suppose to return the structure of the given problem to tune, currently
 // combines the string representation of the selected field of the primary
 // operation. String format of the problem will not be required by the DB,
@@ -232,23 +222,26 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       oLayoutMap[outputAttr.getValue()] = i;
     }
 
-    SmallString<4> fLayout("####");
-    SmallString<4> iLayout("####");
-    SmallString<4> oLayout("####");
+    SmallString<5> fLayout("#####");
+    SmallString<5> iLayout("#####");
+    SmallString<5> oLayout("#####");
 
     // dimensions need to be mapped 1 to 1.
-    fLayout[layoutIdx(fLayoutMap, "k", "g")] = 'N';
-    fLayout[layoutIdx(fLayoutMap, "c", "g")] = 'C';
-    fLayout[layoutIdx(fLayoutMap, "y", "g")] = 'H';
-    fLayout[layoutIdx(fLayoutMap, "x", "g")] = 'W';
-    iLayout[layoutIdx(iLayoutMap, "ni", "gi")] = 'N';
-    iLayout[layoutIdx(iLayoutMap, "ci", "gi")] = 'C';
-    iLayout[layoutIdx(iLayoutMap, "hi", "gi")] = 'H';
-    iLayout[layoutIdx(iLayoutMap, "wi", "gi")] = 'W';
-    oLayout[layoutIdx(oLayoutMap, "no", "go")] = 'N';
-    oLayout[layoutIdx(oLayoutMap, "ko", "go")] = 'C';
-    oLayout[layoutIdx(oLayoutMap, "ho", "go")] = 'H';
-    oLayout[layoutIdx(oLayoutMap, "wo", "go")] = 'W';
+    fLayout[fLayoutMap["k"]] = 'N';
+    fLayout[fLayoutMap["c"]] = 'C';
+    fLayout[fLayoutMap["y"]] = 'H';
+    fLayout[fLayoutMap["x"]] = 'W';
+    fLayout[fLayoutMap["g"]] = 'G';
+    iLayout[iLayoutMap["ni"]] = 'N';
+    iLayout[iLayoutMap["ci"]] = 'C';
+    iLayout[iLayoutMap["hi"]] = 'H';
+    iLayout[iLayoutMap["wi"]] = 'W';
+    iLayout[iLayoutMap["gi"]] = 'G';
+    oLayout[oLayoutMap["no"]] = 'N';
+    oLayout[oLayoutMap["ko"]] = 'C';
+    oLayout[oLayoutMap["ho"]] = 'H';
+    oLayout[oLayoutMap["wo"]] = 'W';
+    oLayout[oLayoutMap["go"]] = 'G';
 
     // filter layout
     problemOS << "-f " << fLayout << sep;
