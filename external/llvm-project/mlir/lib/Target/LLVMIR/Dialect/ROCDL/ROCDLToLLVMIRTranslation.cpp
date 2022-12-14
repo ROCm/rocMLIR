@@ -133,7 +133,6 @@ public:
           moduleTranslation.lookupFunction(func.getName());
       llvm::SmallString<8> llvmAttrValue;
       llvmAttrValue.append(value.getValue());
-      llvm::errs() << llvmAttrValue << "\n";
       llvmFunc->addFnAttr("amdgpu-flat-work-group-size", llvmAttrValue);
     }
 
