@@ -183,6 +183,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     // Unknown data type
     return std::string();
   }
+  problemOS << sep;
 
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases
