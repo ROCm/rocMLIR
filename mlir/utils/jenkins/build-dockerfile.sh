@@ -21,7 +21,10 @@ start_clean_docker() {
 # Build the docker image and push it to the repository
 build_rocm_image() {
   local image_name_suffix=$1
-  local docker_file="Dockerfile$image_name_suffix"
+  local docker_file="Dockerfile"
+  if [ ! -z "$image_name_suffix" ]; then
+    docker_file="Dockerfile.$image_name_suffix"
+  fi
   echo "Start a new build for $docker_file"
   if ! docker build -t rocm-mlir -f ./mlir/utils/jenkins/$docker_file ./mlir/utils/jenkins ; then
     err Docker image build failed
@@ -30,7 +33,10 @@ build_rocm_image() {
 
   # Target repository to push
   local docker_repository="rocm/mlir"
-  local image_name_wo_tag="$docker_repository$image_name_suffix"
+  local image_name_wo_tag="$docker_repository"
+  if [ ! -z "$image_name_suffix" ]; then
+    image_name_wo_tag="$docker_repository-$image_name_suffix"
+  fi
 
   local rocm_full_version rocm_short_version git_commit_hash
   rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/$docker_file | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
@@ -65,7 +71,7 @@ main() {
       git diff --name-only HEAD^ HEAD | grep -q "Dockerfile"; then
     start_clean_docker
     build_rocm_image ""
-    build_rocm_image ".ci-migraphx"
+    build_rocm_image "migraphx-ci"
   else
     echo "No dependency changes, abort build"
     exit 0
