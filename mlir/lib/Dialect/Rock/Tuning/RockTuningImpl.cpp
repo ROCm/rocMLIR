@@ -166,18 +166,31 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   // OP type
   switch (opType) {
   case KernelType::Conv2D:
-    problemOS << "conv -F 1" << sep;
+    problemOS << "-F 1" << sep;
     break;
   case KernelType::Conv2DBwdData:
-    problemOS << "conv -F 2" << sep;
+    problemOS << "-F 2" << sep;
     break;
   case KernelType::Conv2DBwdWeight:
-    problemOS << "conv -F 4" << sep;
+    problemOS << "-F 4" << sep;
     break;
   case KernelType::Gemm:
-    problemOS << "gemm" << sep;
     break;
   default: // Unknown op type?
+    return std::string();
+  }
+
+  // Data type
+  problemOS << "-t ";
+  Type elemType = gemmIF.getInputType();
+  if (elemType.isF32()) {
+    problemOS << "f32";
+  } else if (elemType.isF16()) {
+    problemOS << "f16";
+  } else if (elemType.isInteger(8)) {
+    problemOS << "i8";
+  } else {
+    // Unknown data type
     return std::string();
   }
 
@@ -293,20 +306,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-k " << gemmIF.getGemmSize().k << sep;
   } else {
     // Unknown op type, unreachable.
-    return std::string();
-  }
-
-  // Data type
-  problemOS << "-t ";
-  Type elemType = gemmIF.getInputType();
-  if (elemType.isF32()) {
-    problemOS << "f32";
-  } else if (elemType.isF16()) {
-    problemOS << "f16";
-  } else if (elemType.isInteger(8)) {
-    problemOS << "i8";
-  } else {
-    // Unknown data type
     return std::string();
   }
 
