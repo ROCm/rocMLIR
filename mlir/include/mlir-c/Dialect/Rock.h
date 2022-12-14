@@ -29,6 +29,8 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Rock, rock);
 
 DEFINE_C_API_STRUCT(MlirRockTuningSpace, void);
 DEFINE_C_API_STRUCT(MlirRockTuningParam, void);
+DEFINE_C_API_STRUCT(MlirRockTuningTable, void);
+// DEFINE_C_API_STRUCT(MlirRockGemmWrapperInterface, void);
 DEFINE_C_API_STRUCT(MlirRockTuningKey, const void);
 
 // Create full range of the tuning params space
@@ -68,8 +70,37 @@ const char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
 MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
                                                MlirRockTuningParam param);
 
-MLIR_CAPI_EXPORTED MlirRockTuningKey
-mlirRockTuningGetKey(MlirRockTuningSpace params);
+// Set the tuning params of the given module using provided perf string
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr);
+
+// Opaque pointer to tuning table storage. This could be used as an abstraction
+// to access the database. Initially, it's pointing to a memory map for now.
+MLIR_CAPI_EXPORTED
+MlirRockTuningTable mlirRockTuningTableCreate();
+
+// Destroy (close) the tuning table storage
+MLIR_CAPI_EXPORTED
+void mlirRockTuningTableDestroy(MlirRockTuningTable table);
+
+// Update the table entry. This API tries to register/update the tuning result
+// of a single problem into the tuning table. Current policy is only storing
+// the best performing tuning parameter to simplify the underlying
+// implementation, which can be revisited in the future.
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, MlirModule module,
+                               char *perfCStr, float time);
+
+// Search the tuning table and get the stored best value for the given problem.
+// The definition of the tuning problem is internally described and opaque to
+// the users.
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
+                                MlirModule module);
+
+// Returns the tuning problem in the C-string format for the inspection.
+MLIR_CAPI_EXPORTED const char *
+mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module);
 
 #ifdef __cplusplus
 }
