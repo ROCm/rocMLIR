@@ -72,6 +72,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation func = mlirOperationCreate(&funcState);
   mlirOperationSetAttributeByName(
       func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
+  mlirOperationSetAttributeByName(
+      func, mlirStringRefCreateFromCString("arch"),
+      mlirStringAttrGet(ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution
@@ -173,16 +176,33 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
   printf("quick set = %d, full set = %d\n", qNum, fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
-  if (!mlirRockTuningParamGet(tuningSpace, 0, tuningParam)) {
-    printf("fails to obtain param\n");
+  MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
+
+  for (int i = 0; i < 2; i++) {
+    if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
+      printf("fails to obtain param\n");
+      return false;
+    }
+    float fakeTime = (float)(i + 1);
+    char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
+    char *problemKey = strdup(mlirRockTuningGetKey(tuningTable, module));
+    printf("Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
+           problemKey, paramStr, fakeTime);
+    if (!mlirRockTuningUpdateTable(tuningTable, module, paramStr, fakeTime)) {
+      printf("fails to update table, maybe existing config is faster\n");
+    }
+    free(paramStr);
+    free(problemKey);
+  }
+
+  if (!mlirRockTuningSetFromTable(tuningTable, module)) {
+    printf("fails to set param\n");
     return false;
   }
-  mlirRockTuningSetParam(module, tuningParam);
-  char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
+
+  mlirRockTuningTableDestroy(tuningTable);
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
-  printf("Obtained perfconfig : \"%s\"\n", paramStr);
-  free(paramStr);
 
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main
