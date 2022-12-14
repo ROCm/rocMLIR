@@ -24,27 +24,40 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
-      {16, 32, 64, 128},
-      {16, 32, 64, 128},
-      {16, 32, 64},
-      {16, 32, 64},
-      {1, 4},
+      {4, 8, 16, 32, 64, 128},
+      {1, 4, 8},
+      {0, 1}};
+
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {8, 16, 32},
+      {4, 8, 16, 32, 64, 128},
+      {4, 8, 16, 32, 64, 128},
+      {1, 4, 8},
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
-    for (uint32_t gemmMPerBlock : ValidRangeXdlopsGemmParams[0]) {
-      for (uint32_t gemmNPerBlock : ValidRangeXdlopsGemmParams[1]) {
-        for (uint32_t gemmKPerBlock : ValidRangeXdlopsGemmParams[2]) {
-          for (uint32_t gemmMPerWave : ValidRangeXdlopsGemmParams[3]) {
-            for (uint32_t gemmNPerWave : ValidRangeXdlopsGemmParams[4]) {
-              for (uint32_t gemmKPack : ValidRangeXdlopsGemmParams[5]) {
-                for (uint32_t forceUnroll : ValidRangeXdlopsGemmParams[6]) {
+    const std::vector<std::vector<uint32_t>> &xdlopsParams =
+        gemmOp.getInputType().isInteger(8) ? ValidRangeXdlopsGemmParamsI8
+                                           : ValidRangeXdlopsGemmParams;
+    for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
+      for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
+        for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
+          for (uint32_t gemmMPerWave : xdlopsParams[3]) {
+            for (uint32_t gemmNPerWave : xdlopsParams[4]) {
+              for (uint32_t gemmKPack : xdlopsParams[5]) {
+                for (uint32_t forceUnroll : xdlopsParams[6]) {
                   XdlopsGemmParamsAttr gemmParams =
                       b.getAttr<XdlopsGemmParamsAttr>(
                           gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,

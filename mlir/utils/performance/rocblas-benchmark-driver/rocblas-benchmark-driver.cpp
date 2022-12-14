@@ -101,6 +101,11 @@ static llvm::cl::opt<std::string>
     arch("arch", llvm::cl::desc("Arch (ignored, MLIR compat)"),
          llvm::cl::init("gemm"));
 
+static llvm::cl::opt<std::string>
+    perfConfig("perf_config",
+               llvm::cl::desc("Perf config (ignored, MLIR compat)"),
+               llvm::cl::init(""));
+
 static size_t getByteSize(size_t elems, bool isOut) {
   switch (dataType) {
   case DataType::F32:
