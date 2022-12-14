@@ -24,15 +24,25 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
-      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {1, 2, 4, 8},
-      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {1, 2, 4, 8},
+      {4, 8, 16, 32, 64, 128},
+      {4, 8, 16, 32, 64, 128},
+      {1, 4, 8},
+      {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
-      {4, 8, 16, 32, 64, 128, 256}, {16, 32, 64, 128, 256},  {8, 16, 32},
-      {4, 8, 16, 32, 64, 128},      {4, 8, 16, 32, 64, 128}, {1, 4, 8}};
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {8, 16, 32},
+      {4, 8, 16, 32, 64, 128},
+      {4, 8, 16, 32, 64, 128},
+      {1, 4, 8},
+      {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
@@ -47,12 +57,14 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
             for (uint32_t gemmNPerWave : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
-                XdlopsGemmParamsAttr gemmParams =
-                    b.getAttr<XdlopsGemmParamsAttr>(
-                        gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
-                        gemmMPerWave, gemmNPerWave);
-                newSpace->tuningRange.push_back(
-                    gemmParams.cast<RockTuningParamAttrInterface>());
+                for (uint32_t forceUnroll : xdlopsParams[6]) {
+                  XdlopsGemmParamsAttr gemmParams =
+                      b.getAttr<XdlopsGemmParamsAttr>(
+                          gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                          gemmKPack, gemmMPerWave, gemmNPerWave, forceUnroll);
+                  newSpace->tuningRange.push_back(
+                      gemmParams.cast<RockTuningParamAttrInterface>());
+                }
               }
             }
           }

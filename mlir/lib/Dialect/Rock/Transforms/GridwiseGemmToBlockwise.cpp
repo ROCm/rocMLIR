@@ -284,10 +284,12 @@ static ArrayAttr ldsVectorLayout(OpBuilder &b, Location loc,
   return b.getArrayAttr({ignoreTidAttr});
 }
 
-static TransformingForOp
-createGlobalLoadLoop(PatternRewriter &b, Location loc, Value wrappedMatrix,
-                     ArrayAttr vectorMap, int64_t dataPerThread,
-                     int64_t vectorLen, Value bid, Value tid) {
+static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
+                                              Value wrappedMatrix,
+                                              ArrayAttr vectorMap,
+                                              int64_t dataPerThread,
+                                              int64_t vectorLen, Value bid,
+                                              Value tid, bool forceUnroll) {
   Value tensor;
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
@@ -310,8 +312,8 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, Value wrappedMatrix,
       loc, ArrayRef<ValueRange>{globalStart, vectorStartOuter},
       ArrayRef<Attribute>{matrixToTensor, b.getArrayAttr({})},
       /*bounds=*/ArrayRef<int64_t>{1, 1, 1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen},
-      /*forceUnroll=*/true, /*useIndexDiffs=*/true, resultInit);
+      /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen}, forceUnroll,
+      /*useIndexDiffs=*/true, resultInit);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToEnd(outerLoop.getBody());
@@ -324,8 +326,7 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, Value wrappedMatrix,
                              outerLoop.getLowerCoords(/*domain=*/1).back()},
         ArrayRef<Attribute>{b.getArrayAttr({}), vectorMap},
         /*bounds=*/ArrayRef<int64_t>{vectorLen},
-        /*strides=*/ArrayRef<int64_t>{1},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true,
+        /*strides=*/ArrayRef<int64_t>{1}, forceUnroll, /*useIndexDiffs=*/true,
         outerLoop.getIterArgs()[0]);
     {
       PatternRewriter::InsertionGuard innerGuard(b);
@@ -347,11 +348,10 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, Value wrappedMatrix,
   return outerLoop;
 }
 
-static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
-                                            Value loaded,
-                                            ArrayAttr ldsVectorMap,
-                                            Value wrappedBuffer,
-                                            int64_t dataPerThread, Value tid) {
+static TransformingForOp
+createLdsStoreLoop(PatternRewriter &b, Location loc, Value loaded,
+                   ArrayAttr ldsVectorMap, Value wrappedBuffer,
+                   int64_t dataPerThread, Value tid, bool forceUnroll) {
   Value rawBuffer;
   ArrayAttr bufferView;
   std::tie(rawBuffer, bufferView) = untransform(b, wrappedBuffer);
@@ -373,8 +373,8 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
       loc, ArrayRef<ValueRange>{vecCoordInit, ldsCoordInit},
       ArrayRef<Attribute>{ldsVectorMap, bufferView},
       /*bounds=*/ArrayRef<int64_t>{1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, ldsStoreVectorization},
-      /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      /*strides=*/ArrayRef<int64_t>{1, ldsStoreVectorization}, forceUnroll,
+      /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
@@ -692,10 +692,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     TransformingForOp blockwiseLoadA =
         createGlobalLoadLoop(b, loc, wrappedA, aVectorGlobalMap, aCopyPerThread,
-                             aVectorLen, bid, tid);
+                             aVectorLen, bid, tid, true);
     TransformingForOp blockwiseLoadB =
         createGlobalLoadLoop(b, loc, wrappedB, bVectorGlobalMap, bCopyPerThread,
-                             bVectorLen, bid, tid);
+                             bVectorLen, bid, tid, true);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -713,10 +713,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, blockwiseLoadA.getResult(0), aVectorLdsMap,
-                           wrappedLdsA, aCopyPerThread, tid);
+                           wrappedLdsA, aCopyPerThread, tid, true);
     TransformingForOp blockwiseStoreB =
         createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
-                           wrappedLdsB, bCopyPerThread, tid);
+                           wrappedLdsB, bCopyPerThread, tid, true);
 
     // Emit loop.
     int64_t nIterations = K / kPerBlock;
@@ -982,6 +982,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
+    bool forceUnroll = tuningParams.getForceUnroll();
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
 
@@ -1066,10 +1067,10 @@ struct GridwiseGemmV2RewritePattern
 
     TransformingForOp blockwiseLoadA =
         createGlobalLoadLoop(b, loc, wrappedA, aVectorGlobalMap, aCopyPerThread,
-                             aVectorLen, bid, tid);
+                             aVectorLen, bid, tid, forceUnroll);
     TransformingForOp blockwiseLoadB =
         createGlobalLoadLoop(b, loc, wrappedB, bVectorGlobalMap, bCopyPerThread,
-                             bVectorLen, bid, tid);
+                             bVectorLen, bid, tid, forceUnroll);
 
     // Obtain XDLOPS-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -1161,10 +1162,10 @@ struct GridwiseGemmV2RewritePattern
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, blockwiseLoadA.getResult(0), aVectorLdsMap,
-                           wrappedLdsA, aCopyPerThread, tid);
+                           wrappedLdsA, aCopyPerThread, tid, forceUnroll);
     TransformingForOp blockwiseStoreB =
         createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
-                           wrappedLdsB, bCopyPerThread, tid);
+                           wrappedLdsB, bCopyPerThread, tid, forceUnroll);
 
     // -----
 
@@ -1479,7 +1480,7 @@ struct GridwiseGemmV2RewritePattern
         ArrayRef<Attribute>{b.getArrayAttr({}),
                             b.getArrayAttr(toRegCScalarAttr)},
         /*bounds=*/regCAllocType.getShape(), /*strides=*/llvm::None,
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        forceUnroll, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(convertLoop.getBody());
@@ -1505,8 +1506,8 @@ struct GridwiseGemmV2RewritePattern
         ArrayRef<Attribute>{b.getArrayAttr({correctVectorCoordsAttr}),
                             idToTensorCMaps},
         ArrayRef<int64_t>{1, 1, numElements},
-        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
+        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy}, forceUnroll,
+        /*useIndexDiffs=*/useIndexDiffs);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
