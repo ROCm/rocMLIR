@@ -1,4 +1,5 @@
 import enum
+import re
 
 class Operation(enum.IntEnum):
   CONV = 1
@@ -13,3 +14,5 @@ class Operation(enum.IntEnum):
       return Operation.GEMM
     else:
       raise ValueError(f"Unknown operation type {name}")
+
+CORRECT_RESULT_RE = re.compile('\[1\s*1\s*1\]')

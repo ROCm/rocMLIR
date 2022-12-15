@@ -30,8 +30,7 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-# Pending confirmation of where rocBLAS supports i8, just do f32 and f16 for now
-DATA_TYPES_GEMM = ['f32', 'f16']#, 'i8']
+DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
@@ -46,6 +45,7 @@ class MLIRPaths:
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
+    rocmlir_tuning_driver_path : str
     rocblas_benchmark_driver_path : Optional[str] = None
 
 @dataclass
@@ -136,6 +136,7 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
+            rocmlir_tuning_driver_path = mlir_bin_dir + '/rocmlir-tuning-driver',
             rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
               if rocblas_benchmark_driver_location.exists() else None)
 
@@ -778,6 +779,8 @@ def main(args=None):
     python3 perfRunner.py --batch_all -o=output_file.csv
     python3 perfRunner.py --batch_all -o=output_file.csv -t=tuning_db.tsv
     python3 perfRunner.py -b
+    # Uses results from tuning db when running MLIR benchmarks
+    python3 perfRunner.py -b -t=tuning_db.tsv
     python3 perfRunner.py --batch_external
     python3 perfRunner.py --operation gemm --external # rocblas tests
     python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
