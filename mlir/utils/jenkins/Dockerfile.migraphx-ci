@@ -1,5 +1,6 @@
 FROM rocm/mlir:rocm5.3-latest
 ARG ROCM_PATH=/opt/rocm-5.3.2
+
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
 RUN apt-get update && apt-get install -y miopen-hip
