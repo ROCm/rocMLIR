@@ -675,6 +675,56 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
 
+    if (diff < 0) {
+      // collapse non-dim exprs
+      // inp = rock.transform(inp) {[0, 1], 2, 3}
+      MutableAffineMap newInpIdxMap = AffineMap::getMinorIdentityMap(
+          outShape.size(), outShape.size(), b.getContext());
+      uint32_t newIdx = 0;
+      SmallVector<SmallVector<uint32_t>> merges;
+      SmallVector<uint32_t> mergeDims;
+      for (const auto &idxAndValue : llvm::enumerate(inpIdxMap.getResults())) {
+        uint32_t idx = idxAndValue.index();
+        AffineExpr resultExpr = idxAndValue.value();
+        mergeDims.push_back(idx);
+        if (diff != 0 && resultExpr.isa<AffineConstantExpr>() &&
+            inpShape[idx] == 1) {
+          diff++;
+        } else {
+          newInpIdxMap.setResult(newIdx++, resultExpr);
+          merges.push_back(mergeDims);
+          mergeDims.clear();
+        }
+      }
+      if (mergeDims.size())
+        merges.back().append(mergeDims);
+
+      TopDownTMBuilder collapseTransform(b, outShape, loc);
+      for (auto idxAndMerge : llvm::enumerate(merges)) {
+        uint32_t idx = idxAndMerge.index();
+        auto merge = idxAndMerge.value();
+        if (merge.size() == 1) {
+          collapseTransform.passThrough({merge[0]}, {idx});
+        } else {
+          SmallVector<SmallString<8>> mergeNames;
+          SmallVector<int64_t> mergeSizes;
+          SmallVector<StringRef> mergeNameRefs;
+          for (auto midx : merge) {
+            SmallString<8> mname(Twine("m" + Twine(midx)).str());
+            mergeNames.push_back(mname);
+            mergeNameRefs.push_back(mergeNames.back());
+            mergeSizes.push_back(inpShape[midx]);
+          }
+          collapseTransform.merge(mergeNameRefs, merge,
+                                  collapseTransform.startName(idx), mergeSizes);
+        }
+      }
+      inp = b.create<TransformOp>(loc, inp, collapseTransform.get());
+      auto inpType = inp.getType().template cast<MemRefType>();
+      inpShape = inpType.getShape();
+      inpIdxMap = newInpIdxMap.getAffineMap();
+    }
+
     SmallVector<uint32_t> bcastDims;
     SmallVector<uint32_t> bcastInDims;
     SmallVector<uint32_t> passThroughInDims;
@@ -682,9 +732,10 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     createPermutationForMinorIdentityWithBroadcast(inpIdxMap, perm);
     auto permMap = AffineMap::getPermutationMap(perm, b.getContext());
     inpIdxMap = inpIdxMap.compose(permMap);
+    bool isIdentity = inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
     assert(
-        (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) &&
-        "this is guranteed by createPermutationForMinorIdentityWithBroadcast");
+        isIdentity &&
+        "this is guaranteed by createPermutationForMinorIdentityWithBroadcast");
 
     // Broadcast those dimensions that the original linalg.generic map specifies
     // are broadcast and collect their locations, accounting for the leading

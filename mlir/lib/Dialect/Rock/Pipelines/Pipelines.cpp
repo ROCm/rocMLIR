@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -54,21 +55,23 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
      */
     pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
   }
+
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
-  mlir::tosa::addTosaToLinalgPasses(pm);
+  tosa::addTosaToLinalgPasses(pm);
+
+  // for tosa control flow
+  /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
+   */
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaToSCF());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaToArith());
 
   // linalg tensor opts
-  /* rocmlir-opt --linalg-fuse-elementwise-ops
+  /* rocmlir-opt --linalg-fuse-elementwise-ops --linalg-fold-unit-extent-dims
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
   pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
-
-  // for tosa control flow
-  /* rocmlir-opt --tosa-to-scf --tosa-to-arith
-   */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToSCF());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToArith());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
