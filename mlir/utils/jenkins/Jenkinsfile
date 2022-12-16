@@ -86,7 +86,7 @@ String dockerImage() {
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir.ci-migraphx:rocm5.3-latest'
+    return 'rocm/mlir-migraphx-ci:rocm5.3-latest'
 }
 
 void preMergeCheck(String codepath) {
