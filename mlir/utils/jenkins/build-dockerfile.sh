@@ -69,7 +69,7 @@ build_rocm_image() {
 
 main() {
   if [[ " ${ARGS[*]} " =~ " --force " ]] || \
-      git diff --name-only HEAD^ HEAD | grep -q "Dockerfile"; then
+      git diff --name-only HEAD^ HEAD | grep -iq "Dockerfile"; then
     start_clean_docker
     build_rocm_image ""
     build_rocm_image "migraphx-ci"
