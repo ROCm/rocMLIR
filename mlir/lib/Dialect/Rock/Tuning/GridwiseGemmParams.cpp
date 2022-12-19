@@ -366,6 +366,12 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
     return failure();
 
+  // Sledgehammer hotfix because not unrolling sometimes makes the register
+  // allocator break. This should be refined quickly.
+  if (param.gemmAThreadCopyMoreGemmK == false) {
+    return failure();
+  }
+
   // Reject invalid KPACK values.
   if (!XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
                                 param.gemmNPerWave)
