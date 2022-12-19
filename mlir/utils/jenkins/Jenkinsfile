@@ -35,7 +35,7 @@ void buildMIGraphX(String cmakeOpts) {
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
-        cmakeArgs: ${cmakeOpts}
+        cmakeArgs: "${cmakeOpts}"
     sh 'cd build; make -j $(nproc)'
 }
 
