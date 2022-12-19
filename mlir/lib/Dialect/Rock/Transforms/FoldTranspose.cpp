@@ -400,8 +400,10 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
       // (d0, d1, d2) -> (0, d1, d0 * 32 + d2)
       // (d0, d1, d2) -> ??? (d0 % 1, d1, d0 / 32 + d2 % 32)
       auto invertInpIdxMap = inversePermutation(inpIdxMap);
-      if (!invertInpIdxMap)
-        continue;
+      if (!invertInpIdxMap) {
+        LLVM_DEBUG(llvm::dbgs() << "AffineMap invert failed\n");
+        return failure();
+      }
       auto inToOutIdxMap = laGenericOutIdxMap.compose(invertInpIdxMap);
       SmallVector<uint32_t, 4> permutation;
       if (!inToOutIdxMap.isPermutationOfMinorIdentityWithBroadcasting(
