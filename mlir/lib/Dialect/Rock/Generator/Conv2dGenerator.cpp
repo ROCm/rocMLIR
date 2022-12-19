@@ -695,6 +695,10 @@ void Conv2dGenerator::flipXdlops() {
   config.features = config.features ^ GemmFeatures::mfma;
 }
 
+void Conv2dGenerator::setPerfConfig(StringRef perfConfig) {
+  config.perfConfig = perfConfig.str();
+}
+
 ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
