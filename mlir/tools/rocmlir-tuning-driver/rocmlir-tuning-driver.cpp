@@ -40,10 +40,11 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include <cstdlib>
-#include <hip/hip_runtime_api.h>
 
-#include "hip/hip_ext.h"
 #include "hip/hip_runtime.h"
+
+// Needs to go second lest we get compiler issues
+#include "hip/hip_ext.h"
 
 using namespace mlir;
 
