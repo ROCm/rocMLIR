@@ -78,8 +78,6 @@ set(ROCMLIR_TEST_DEPENDS
   mlir_runner_utils
   mlir_c_runner_utils
   mlir_async_runtime
-  # Not strictly a test dependency, included so we don't break it during compiles
-  rocmlir-tuning-driver
 )
 
 list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
@@ -90,6 +88,8 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     conv-validation-wrappers
     mlir-cpu-runner
     xmir-runner
+    # Not strictly a test dependency, included so we don't break it during compiles
+    rocmlir-tuning-driver
   )
 endif()
 
