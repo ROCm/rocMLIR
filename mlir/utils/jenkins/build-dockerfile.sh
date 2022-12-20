@@ -12,7 +12,8 @@ err() {
 # Note: includes a workaround for the occasional hung docker daemon
 start_clean_docker() {
   systemctl status docker | grep 'Active:'
-  sudo /usr/bin/pkill -f docker
+  docker stop $(docker ps -a -q)
+  docker rm -f $(docker ps -a -q)
   sudo /bin/systemctl restart docker
   docker system prune -a -f
   systemctl status docker | grep 'Active:'
@@ -55,7 +56,7 @@ build_rocm_image() {
   docker tag rocm-mlir "${docker_new_img_name_latest}"
   docker tag rocm-mlir "${docker_new_img_name}"
 
-  if docker login -u="${USER}" -p="${PASSWORD}" ; then
+  if ! docker login -u="${DOCKER_USER}" -p="${DOCKER_PASSWORD}" ; then
     err Docker login failed
     exit 1
   fi
@@ -68,7 +69,7 @@ build_rocm_image() {
 
 main() {
   if [[ " ${ARGS[*]} " =~ " --force " ]] || \
-      git diff --name-only HEAD^ HEAD | grep -q "Dockerfile"; then
+      git diff --name-only HEAD^ HEAD | grep -iq "Dockerfile"; then
     start_clean_docker
     build_rocm_image ""
     build_rocm_image "migraphx-ci"
