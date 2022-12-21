@@ -380,7 +380,7 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
     return failure();
   }
   MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-  if (!mfmaGroup.isCohereantWithK(param.gemmKPack, param.gemmKPerBlock)) {
+  if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
     LLVM_DEBUG(
         llvm::dbgs()
         << "Mfma instruction group selection is not compatible with k.\n");
@@ -524,7 +524,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
           return false;
         }
         MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-        if (!mfmaGroup.isCohereantWithK(param.gemmKPack, param.gemmKPerBlock)) {
+        if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
           return false;
         }
         return true;

@@ -183,15 +183,15 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // Obtain critical information.
     int64_t KPack = tuningParams.getKpack();
     int64_t K = tuningParams.getKPerBlock();
-    int64_t MPerWave = tuningParams.getMPerWave();
-    int64_t NPerWave = tuningParams.getNPerWave();
+    int64_t mPerWave = tuningParams.getMPerWave();
+    int64_t nPerWave = tuningParams.getNPerWave();
 
-    // Workload of either MPerWave and NPerWave that are larger
+    // Workload of either mPerWave and nPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
     int64_t waveSize = 64;
-    int64_t MPerXdlops = (MPerWave > waveSize) ? waveSize : MPerWave;
-    int64_t NPerXdlops = (NPerWave > waveSize) ? waveSize : NPerWave;
+    int64_t MPerXdlops = (mPerWave > waveSize) ? waveSize : mPerWave;
+    int64_t NPerXdlops = (nPerWave > waveSize) ? waveSize : nPerWave;
 
     auto dataType =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -230,12 +230,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     ArrayRef<int64_t> aShape = matrixAType.getShape();
     ArrayRef<int64_t> bShape = matrixBType.getShape();
-    int64_t MRepeats = aShape[0];
-    int64_t NRepeats = bShape[0];
+    int64_t mRepeats = aShape[0];
+    int64_t nRepeats = bShape[0];
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
-    SmallVector<int64_t> dimensions = {MRepeats, NRepeats, KPerThread,
+    SmallVector<int64_t> dimensions = {mRepeats, nRepeats, KPerThread,
                                        nResultVectors};
     TopDownTMBuilder aView(b, {"m", "n", "k", "v"}, dimensions, loc);
     aView.ignore("n");
@@ -327,8 +327,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         //   for(index_t ki_i = 0; ki_i < k_base * KRepeats; ki_i += k_base)
         //     argA = &matrixAElement[ki_i];
         //     argB = &matrixAElement[ki_i];
-        //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
-        //                                         NPerXdlops * NRepeats,
+        //     p_c_thread = mfma_type.template run<MPerXlops * mRepeats,
+        //                                         NPerXdlops * nRepeats,
         //                                         AStride,
         //                                         BStride>(argA, argB,
         //       p_c_thread);

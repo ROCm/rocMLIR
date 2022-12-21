@@ -236,8 +236,8 @@ async def get_properties(config: str, xdlops: bool, filename: Optional[str] = No
     ret["N per block"] = get_debug_int(grid_dbg, "NPerBlock")
     ret["KPack"] = get_debug_int(grid_dbg, "KPack")
     if xdlops:
-        ret["M per wave"] = get_debug_int(grid_dbg, "MPerWave")
-        ret["N per wave"] = get_debug_int(grid_dbg, "NPerWave")
+        ret["M per wave"] = get_debug_int(grid_dbg, "mPerWave")
+        ret["N per wave"] = get_debug_int(grid_dbg, "nPerWave")
     else:
         ret["M per thread"] = get_debug_int(grid_dbg, "MPerThread")
         ret["N per thread"] = get_debug_int(grid_dbg, "NPerThread")

@@ -14,16 +14,15 @@
 #ifndef MLIR_MFMA_INSN_GROUP_H
 #define MLIR_MFMA_INSN_GROUP_H
 
-#include <set>
-
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir {
 namespace rock {
 
-enum class MfmaTypeId { Fp32TyId = 0, Fp16TyId, Bf16TyId, I8TyId };
+enum class MfmaTypeId : uint32_t { Fp32TyId = 0, Fp16TyId, Bf16TyId, I8TyId };
 
 struct MfmaInsnInfo {
   MfmaTypeId type;
@@ -64,19 +63,40 @@ public:
   MfmaInsnAttr getAttr();
   Type getArgType(Type elementType);
   VectorType getRetType(Type elementType);
-  bool isCohereantWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };
+
+template <typename T>
+constexpr typename std::underlying_type<T>::type cast_as_underlying(T t) {
+  return static_cast<typename std::underlying_type<T>::type>(t);
+}
 
 struct MfmaInsnGroupSelectKey {
   MfmaTypeId type;
-  int64_t MPerWave;
-  int64_t NPerWave;
+  int64_t mPerWave;
+  int64_t nPerWave;
+};
 
-  inline bool operator<(const MfmaInsnGroupSelectKey rhs) const {
-    return static_cast<int>(type) < static_cast<int>(rhs.type) ||
-           (type == rhs.type && MPerWave < rhs.MPerWave) ||
-           (type == rhs.type && MPerWave == rhs.MPerWave &&
-            NPerWave < rhs.NPerWave);
+struct MfmaInsnGroupSelectKeyInfo
+    : public llvm::DenseMapInfo<MfmaInsnGroupSelectKey> {
+  static inline MfmaInsnGroupSelectKey getEmptyKey() {
+    return {MfmaTypeId::Fp32TyId, 0, 0};
+  }
+
+  static inline MfmaInsnGroupSelectKey getTombstoneKey() {
+    return {MfmaTypeId::Fp32TyId, -1, -1};
+  }
+
+  static inline bool isEqual(const MfmaInsnGroupSelectKey &lhs,
+                             const MfmaInsnGroupSelectKey &rhs) {
+    return lhs.type == rhs.type && lhs.mPerWave == rhs.mPerWave &&
+           lhs.nPerWave == rhs.nPerWave;
+  }
+
+  static unsigned getHashValue(const MfmaInsnGroupSelectKey &key) {
+    return llvm::detail::combineHashValue(
+        cast_as_underlying(key.type),
+        llvm::detail::combineHashValue(key.mPerWave, key.nPerWave));
   }
 };
 
@@ -90,14 +110,15 @@ struct MFMAParams {
 
 struct MfmaInsnGroupAttr {
   SmallString<16> insn;
-  int64_t MRepeats;
-  int64_t NRepeats;
+  int64_t mRepeats;
+  int64_t nRepeats;
   SmallVector<MFMAParams, 2> imms;
 };
 
 class MfmaInsnGroup {
 private:
-  static const std::map<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr>
+  static const llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                              MfmaInsnGroupSelectKeyInfo>
       mfmaInsnGroupAttrMap;
   Type elementType;
   MfmaInsn insn;
@@ -115,7 +136,7 @@ public:
   MfmaInsnAttr getInsnAttr();
   Type getArgType();
   VectorType getRetType();
-  bool isCohereantWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };
 
 } // namespace rock

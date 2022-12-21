@@ -1176,7 +1176,7 @@ struct GridwiseGemmV2RewritePattern
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
     MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-    if (!mfmaGroup.isCohereantWithK(kpack, kPerBlock)) {
+    if (!mfmaGroup.isCoherentWithK(kpack, kPerBlock)) {
       return emitError(loc)
              << "Mfma instruction group selection is not compatible with k.\n";
     }

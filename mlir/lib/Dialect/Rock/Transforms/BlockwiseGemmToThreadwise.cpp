@@ -313,21 +313,24 @@ struct BlockwiseGemmV2RewritePattern
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKPerBlock();
-    int64_t MPerWave = tuningParams.getMPerWave();
-    int64_t NPerWave = tuningParams.getNPerWave();
+    int64_t mPerWave = tuningParams.getMPerWave();
+    int64_t nPerWave = tuningParams.getNPerWave();
     int64_t KPack = tuningParams.getKpack();
 
     // Original C++ logic.
-    // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /
-    // 64) : 1; static constexpr index_t NRepeats = (GemmNPerWave > 64) ?
-    // (GemmNPerWave / 64) : 1; static constexpr index_t MPerXdlops =
-    // (GemmMPerWave > 64) ? 64 : GemmMPerWave; static constexpr index_t
-    // NPerXdlops = (GemmNPerWave > 64) ? 64 : GemmNPerWave;
+    // static constexpr index_t mRepeats =
+    // (GemmMPerWave > 64) ? (GemmMPerWave / 64) : 1;
+    // static constexpr index_t nRepeats =
+    // (GemmNPerWave > 64) ? (GemmNPerWave / 64) : 1;
+    // static constexpr index_t MPerXdlops =
+    // (GemmMPerWave > 64) ? 64 : GemmMPerWave;
+    // static constexpr index_t NPerXdlops =
+    // (GemmNPerWave > 64) ? 64 : GemmNPerWave;
 
-    int64_t MRepeats = (MPerWave > 64) ? (MPerWave / 64) : 1;
-    int64_t NRepeats = (NPerWave > 64) ? (NPerWave / 64) : 1;
-    int64_t MPerXdlops = (MPerWave > 64) ? 64 : MPerWave;
-    int64_t NPerXdlops = (NPerWave > 64) ? 64 : NPerWave;
+    int64_t mRepeats = (mPerWave > 64) ? (mPerWave / 64) : 1;
+    int64_t nRepeats = (nPerWave > 64) ? (nPerWave / 64) : 1;
+    int64_t MPerXdlops = (mPerWave > 64) ? 64 : mPerWave;
+    int64_t NPerXdlops = (nPerWave > 64) ? 64 : nPerWave;
 
     int64_t ldsOffsetA = op.getLdsBufferOffsetA().getSExtValue();
     int64_t ldsOffsetB = op.getLdsBufferOffsetB().getSExtValue();
@@ -357,7 +360,7 @@ struct BlockwiseGemmV2RewritePattern
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, MPerWave, NPerWave);
+        MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
@@ -380,8 +383,8 @@ struct BlockwiseGemmV2RewritePattern
     }
 
     // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
-    // FloatA a[KPerThread * MRepeats];
-    // FloatB b[KPerThread * NRepeats];
+    // FloatA a[KPerThread * mRepeats];
+    // FloatB b[KPerThread * nRepeats];
     // constexpr index_t KRepeats = KPack / mfma_type.k_base;
     // auto pa = reinterpret_cast<const data_type*>(&a);
     // auto pb = reinterpret_cast<const data_type*>(&b);
@@ -419,12 +422,12 @@ struct BlockwiseGemmV2RewritePattern
     if (!IsKReduction) {
 
       // store bufferA logic.
-      // for(index_t m_i = 0; m_i < MRepeats; ++m_i)
+      // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
       //   for(index_t k_i      = 0; k_i < K; ++k_i)
       //     a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
       // Note: p_a_wave need to be offseted by waveOffsetA.
 
-      auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
+      auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
       auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
                                                           b.getListener());
       auto olmiv = outerLoopM.getInductionVar();
@@ -455,13 +458,13 @@ struct BlockwiseGemmV2RewritePattern
                                     ValueRange{destOffsetA});
 
       // store bufferB logic.
-      // for(index_t n_i = 0; n_i < NRepeats; ++n_i)
+      // for(index_t n_i = 0; n_i < nRepeats; ++n_i)
       //   for(index_t k_i      = 0; k_i < KPerThread; ++k_i)
       //     b[k_i + n_i * KPerThread] = p_b_wave[k_i * N + laneId + NPerXdlops
       //     * n_i];
       // Note: p_b_wave need to be offseted by waveOffsetB.
 
-      auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
+      auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
       auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
                                                           b.getListener());
       auto olniv = outerLoopN.getInductionVar();
@@ -558,7 +561,7 @@ struct BlockwiseGemmV2RewritePattern
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
-    // Workload of either MPerWave and NPerWave that are larger
+    // Workload of either mPerWave and nPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
     maybeMfmaInsnGroup =
@@ -570,12 +573,12 @@ struct BlockwiseGemmV2RewritePattern
     int64_t nResultVectors = mfmaGroup.getImms().size();
 
     Value reshapedARegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferA(), {"m", "k"}, {MRepeats, KPerThread});
+        b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
     Value reshapedBRegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferB(), {"n", "k"}, {NRepeats, KPerThread});
+        b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
     Value reshapedCRegisters =
         reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
-                      {MRepeats, NRepeats, nResultVectors});
+                      {mRepeats, nRepeats, nResultVectors});
 
     b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
                                          reshapedBRegisters, reshapedCRegisters,

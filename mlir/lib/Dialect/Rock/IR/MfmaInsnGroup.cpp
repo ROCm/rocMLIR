@@ -73,10 +73,12 @@ const llvm::StringMap<MfmaInsnAttr> MfmaInsn::mfmaInsnAttrMap = [] {
   return insnDb;
 }();
 
-const std::map<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr>
+const llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                     MfmaInsnGroupSelectKeyInfo>
     MfmaInsnGroup::mfmaInsnGroupAttrMap = [] {
       using amdgpu::MFMAPermB;
-      return std::map<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr>{
+      return llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                            MfmaInsnGroupSelectKeyInfo>{
           {{MfmaTypeId::Fp32TyId, 128, 64},
            {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
             2,
@@ -380,7 +382,7 @@ VectorType MfmaInsn::getRetType(Type elementType) {
   return VectorType::get({attr.nOutputsOfMfma}, vectorElem);
 }
 
-bool MfmaInsn::isCohereantWithK(int64_t kpack, int64_t kPerBlock) {
+bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
   bool isKReduction =
       (attr.blocksInOutRegs == 1) && (attr.inputSpansPerMfmaIn > 1);
   if (kpack > 1) {
@@ -430,15 +432,15 @@ MfmaTypeId convertTypeToId(mlir::Type dataType) {
 }
 
 FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
-                                               int64_t MPerWave,
-                                               int64_t NPerWave) {
+                                               int64_t mPerWave,
+                                               int64_t nPerWave) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType: " << elementType << "\n"
-                          << "MPerWave: " << MPerWave << "\n"
-                          << "NPerWave: " << NPerWave << "\n");
+                          << "mPerWave: " << mPerWave << "\n"
+                          << "nPerWave: " << nPerWave << "\n");
 
-  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), MPerWave,
-                                NPerWave};
+  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerWave,
+                                nPerWave};
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
@@ -459,9 +461,9 @@ MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &mfmaInsnGroupAttr)
     : elementType(dataType), insn(mfmaInsn), groupAttr(mfmaInsnGroupAttr) {}
 
-int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.MRepeats; }
+int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
 
-int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.NRepeats; }
+int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
 
@@ -473,6 +475,6 @@ SmallVector<mlir::rock::MFMAParams, 2> MfmaInsnGroup::getImms() {
   return groupAttr.imms;
 }
 
-bool MfmaInsnGroup::isCohereantWithK(int64_t kpack, int64_t kPerBlock) {
-  return insn.isCohereantWithK(kpack, kPerBlock);
+bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
+  return insn.isCoherentWithK(kpack, kPerBlock);
 }
