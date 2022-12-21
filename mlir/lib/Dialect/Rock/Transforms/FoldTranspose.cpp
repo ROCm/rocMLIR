@@ -58,31 +58,52 @@ struct InlineViewLikeOperandsLinalgRewritePattern
 // post-reassociation --> then, produce the set of resultant AffineExprs after
 // the reassociation.
 static void getDelinearizedAffineExpr(
-    int64_t originalSize, ArrayRef<int64_t> postReassociatedDimSizes,
-    Builder &b, unsigned int position, SmallVectorImpl<AffineExpr> &res) {
+    ArrayRef<int64_t> originalStridesDimsBeingReassociated,
+    ArrayRef<int64_t> postReassociatedDimSizes, Builder &b,
+    unsigned int position, SmallVectorImpl<AffineExpr> &res) {
   AffineExpr resultExpr = b.getAffineDimExpr(position);
-  int64_t rank = postReassociatedDimSizes.size();
-  for (int i = rank - 1; i >= 0; --i) {
+  int64_t rank = originalStridesDimsBeingReassociated.size();
+  // If the rank is 1, expand or collapse shapes will just
+  // pass-through the dimensions.
+  if (rank == 1) {
+    res[0] = resultExpr;
+    return;
+  }
+  for (int i = 0; i < rank; i++) {
     // If the postReassociatedDimSize is 1 and the rank is non-zero,
     // could only mean it is being broadcasted. Hence,
     // putting zero.
-    int64_t dim = postReassociatedDimSizes[i];
-    if (dim == 1) {
+    if (postReassociatedDimSizes[i] == 1) {
       res[i] = resultExpr * 0;
     } else {
       // Recording the vector offsets here.
       res[i] = resultExpr;
       // There is no point of putting a modulo if the size
       // is equivalent to that.
-      if (dim < originalSize) {
-        res[i] = res[i] % dim;
+      if (i - 1 >= 0 && postReassociatedDimSizes[i] !=
+                            originalStridesDimsBeingReassociated[i - 1]) {
+        res[i] = res[i] % originalStridesDimsBeingReassociated[i - 1];
+      }
+
+      if (postReassociatedDimSizes[i] >
+          originalStridesDimsBeingReassociated[i]) {
+        // We only need the floorDiv if the dimSize
+        // is larger than the stride
+        res[i] = res[i].floorDiv(originalStridesDimsBeingReassociated[i]);
+      } else if (postReassociatedDimSizes[i] <
+                 originalStridesDimsBeingReassociated[i]) {
+        // if the shape is smaller than the stride
+        // expr might as well be zero.
+        res[i] = res[i] * 0;
       }
 
       // The resultExpr has to propagated anyway for
       // other dimensions where the recording in the above
       // will do the neccesary checks to remove the modulo
-      resultExpr = resultExpr.floorDiv(dim);
-      originalSize /= dim;
+      if (i - 1 >= 0) {
+        resultExpr = resultExpr % originalStridesDimsBeingReassociated[i - 1];
+      }
+      resultExpr = resultExpr.floorDiv(originalStridesDimsBeingReassociated[i]);
     }
   }
   return;
@@ -90,9 +111,6 @@ static void getDelinearizedAffineExpr(
 
 // This function will create a affine map that represent the mapping
 // from higher rank memref type to lower rank memref type.
-// Eg:
-//   IN:  <12x12x32xf32> -> <12x384xf32>
-//   OUT: (d0, d1) -> (d0, d1 / 32, d1 % 32)
 static AffineMap createHigherToLowerRankViewAffineMap(
     PatternRewriter &rewriter,
     ArrayRef<ReassociationIndices> reassociationIndices,
@@ -102,17 +120,20 @@ static AffineMap createHigherToLowerRankViewAffineMap(
   for (const SmallVector<int64_t, 2> &groups : reassociationIndices) {
     assert(!groups.empty() && "association indices groups cannot be empty");
     unsigned groupSize = groups.size();
-    int64_t dimSize = 1;
+    SmallVector<int64_t> suffixProduct(groupSize);
+    // Calculate suffix product for all collapse op source dimension sizes.
+    suffixProduct[groupSize - 1] = 1;
+    for (unsigned i = groupSize - 1; i > 0; i--)
+      suffixProduct[i - 1] =
+          suffixProduct[i] * higherRankType.getDimSize(groups[i]);
     SmallVector<int64_t> shapes(groupSize);
     for (unsigned i = 0; i < groupSize; i++) {
       shapes[i] = higherRankType.getDimSize(groups[i]);
-      dimSize *= shapes[i];
     }
-    assert(dimSize == lowerRankType.getShape()[iDimCount]);
     // Derive the index values along all dimensions of the source
     // corresponding to the index wrt to collapsed shape op output.
-    SmallVector<AffineExpr, 4> srcIndexExpr(shapes.size());
-    getDelinearizedAffineExpr(dimSize, shapes, rewriter, iDimCount++,
+    SmallVector<AffineExpr, 4> srcIndexExpr(suffixProduct.size());
+    getDelinearizedAffineExpr(suffixProduct, shapes, rewriter, iDimCount++,
                               srcIndexExpr);
     for (unsigned i = 0; i < groupSize; i++) {
       resultExprs.push_back(srcIndexExpr[i]);
@@ -124,50 +145,6 @@ static AffineMap createHigherToLowerRankViewAffineMap(
   }
   auto representativeMap = AffineMap::get(
       /*numDims=*/lowerRankType.cast<ShapedType>().getShape().size(),
-      /*numSymbols=*/0, resultExprs, rewriter.getContext());
-  return representativeMap;
-}
-
-static AffineExpr getGroupedAffineExpr(Builder &b, ArrayRef<int64_t> strides,
-                                       uint32_t pos) {
-  AffineExpr resultExpr = b.getAffineConstantExpr(0);
-  for (auto stride : strides) {
-    AffineExpr dimExpr = b.getAffineDimExpr(pos++);
-
-    resultExpr = resultExpr + (dimExpr * stride);
-  }
-  return resultExpr;
-}
-
-// This function will create a affine map that represent the mapping
-// from lower rank memref type to higher rank memref type.
-// Eg:
-//   IN:  <12x384xf32> -> <12x12x32xf32>
-//   RE:  [[0], [1, 2]]
-//   OUT: (d0, d1, d2) -> (d0, d1 * 32 + d2)
-static AffineMap createLowerToHigherRankViewAffineMap(
-    PatternRewriter &rewriter,
-    ArrayRef<ReassociationIndices> reassociationIndices,
-    const MemRefType &lowerRankType, const MemRefType &higherRankType) {
-  SmallVector<AffineExpr, 4> resultExprs;
-  int iDimCount = 0;
-  for (const SmallVector<int64_t, 2> &groups : reassociationIndices) {
-    assert(!groups.empty() && "association indices groups cannot be empty");
-    unsigned groupSize = groups.size();
-    SmallVector<int64_t> strides(groupSize);
-    // Calculate suffix product for all collapse op source dimension sizes.
-    strides[groupSize - 1] = 1;
-    for (unsigned i = groupSize - 1; i > 0; i--)
-      strides[i - 1] = strides[i] * higherRankType.getDimSize(groups[i]);
-    // Derive the index values along all dimensions of the source
-    // corresponding to the index wrt to collapsed shape op output.
-    AffineExpr srcIndexExpr =
-        getGroupedAffineExpr(rewriter, strides, iDimCount);
-    resultExprs.push_back(srcIndexExpr);
-    iDimCount += strides.size();
-  }
-  auto representativeMap = AffineMap::get(
-      /*numDims=*/higherRankType.cast<ShapedType>().getShape().size(),
       /*numSymbols=*/0, resultExprs, rewriter.getContext());
   return representativeMap;
 }
@@ -198,8 +175,11 @@ foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
         expandOp.getReassociationIndices();
     MemRefType higherRankType = expandOp.getType();
     MemRefType lowerRankType = expandOp.getSrcType();
-    auto representativeMap = createLowerToHigherRankViewAffineMap(
-        rewriter, reassociationIndices, lowerRankType, higherRankType);
+    auto representativeMap = createHigherToLowerRankViewAffineMap(
+        rewriter, reassociationIndices, higherRankType, lowerRankType);
+    // We take the inverse here because in expand shape it is going from lower
+    // to higher rank.
+    representativeMap = inversePermutation(representativeMap);
     foldedMap = representativeMap.compose(foldedMap);
     toBeErasedViewLikeOps.push_back(expandOp);
     return foldViewLikeOperands(rewriter, expandOp.getViewSource(), foldedMap,
@@ -338,7 +318,6 @@ struct RemoveTrivialTransposePattern
     }
 
     // 0.2. linalg.generic lowered from tosa.transpose should have memref.alloc
-    //       or func parameter
     Value out = *laGeneric.outputs().begin();
     auto allocToDel = out.getDefiningOp<memref::AllocOp>();
     if (!allocToDel) {
@@ -397,13 +376,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
         continue;
 
       AffineMap inpIdxMap = laGeneric.getTiedIndexingMap(&operand);
-      // (d0, d1, d2) -> (0, d1, d0 * 32 + d2)
-      // (d0, d1, d2) -> ??? (d0 % 1, d1, d0 / 32 + d2 % 32)
       auto invertInpIdxMap = inversePermutation(inpIdxMap);
-      if (!invertInpIdxMap) {
-        LLVM_DEBUG(llvm::dbgs() << "AffineMap invert failed\n");
-        return failure();
-      }
       auto inToOutIdxMap = laGenericOutIdxMap.compose(invertInpIdxMap);
       SmallVector<uint32_t, 4> permutation;
       if (!inToOutIdxMap.isPermutationOfMinorIdentityWithBroadcasting(
