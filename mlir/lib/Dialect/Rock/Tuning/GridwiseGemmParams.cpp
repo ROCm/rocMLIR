@@ -1,9 +1,9 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/SqliteDb.h"
@@ -373,13 +373,20 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   }
 
   // Reject invalid KPACK values.
-  if (!XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
-                                param.gemmNPerWave)
-           .isValid(param.gemmKPack, param.gemmKPerBlock)) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Invalid kPack value " << param.gemmKPack << "\n");
+  auto maybeMfmaInsnGroup =
+      MfmaInsnGroup::select(dataType, param.gemmMPerWave, param.gemmNPerWave);
+  if (failed(maybeMfmaInsnGroup)) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
   }
+  MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+  if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Mfma instruction group selection is not compatible with k.\n");
+    return failure();
+  }
+
   return success();
 }
 
@@ -508,12 +515,20 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
   }
   std::vector<InitParamsXDL> res;
   // Only return valid XDLOp params
-  std::copy_if(params.begin(), params.end(), std::back_inserter(res),
-               [&](const InitParamsXDL &param) {
-                 return XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
-                                                 param.gemmNPerWave)
-                     .isValid(param.gemmKPack, param.gemmKPerBlock);
-               });
+  std::copy_if(
+      params.begin(), params.end(), std::back_inserter(res),
+      [&](const InitParamsXDL &param) {
+        auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+            dataType, param.gemmMPerWave, param.gemmNPerWave);
+        if (failed(maybeMfmaInsnGroup)) {
+          return false;
+        }
+        MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+        if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
+          return false;
+        }
+        return true;
+      });
   return res;
 }
 

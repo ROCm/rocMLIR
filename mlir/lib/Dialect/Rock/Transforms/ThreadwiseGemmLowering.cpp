@@ -24,9 +24,9 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -183,15 +183,15 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // Obtain critical information.
     int64_t KPack = tuningParams.getKpack();
     int64_t K = tuningParams.getKPerBlock();
-    int64_t MPerWave = tuningParams.getMPerWave();
-    int64_t NPerWave = tuningParams.getNPerWave();
+    int64_t mPerWave = tuningParams.getMPerWave();
+    int64_t nPerWave = tuningParams.getNPerWave();
 
-    // Workload of either MPerWave and NPerWave that are larger
+    // Workload of either mPerWave and nPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
     int64_t waveSize = 64;
-    int64_t MPerXdlops = (MPerWave > waveSize) ? waveSize : MPerWave;
-    int64_t NPerXdlops = (NPerWave > waveSize) ? waveSize : NPerWave;
+    int64_t MPerXdlops = (mPerWave > waveSize) ? waveSize : mPerWave;
+    int64_t NPerXdlops = (nPerWave > waveSize) ? waveSize : nPerWave;
 
     auto dataType =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -199,24 +199,24 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       dataType = dataType.cast<VectorType>().getElementType();
     }
 
-    // Logic to do XDLOPS code selection.
-    LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
-                            << "dataType: " << dataType << "\n"
-                            << "MPerXdlops: " << MPerXdlops << "\n"
-                            << "NPerXdlops: " << NPerXdlops << "\n");
+    auto maybeMfmaInsnGroup =
+        MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
+    if (failed(maybeMfmaInsnGroup)) {
+      return emitError(loc) << "Failed to select xdlops instruction group.\n";
+    }
+    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
 
-    XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
+    VectorType vectorType = mfmaGroup.getRetType();
+    auto imms = mfmaGroup.getImms();
+    int64_t nResultVectors = imms.size();
+    Type argType = mfmaGroup.getArgType();
 
-    VectorType vectorType = xcs.vectorType;
-    int64_t nResultVectors = xcs.nResultVectors;
-    ArrayRef<MFMAParams> imms(xcs.imms);
-    Type argType = xcs.argType;
+    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
-    int64_t mfmaNonKDim = xcs.mfmaNonKDim;
-    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
-    int64_t k_base = xcs.k_base;
+    int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
+    int64_t k_base = mfmaAttr.k_base;
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
@@ -230,12 +230,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     ArrayRef<int64_t> aShape = matrixAType.getShape();
     ArrayRef<int64_t> bShape = matrixBType.getShape();
-    int64_t MRepeats = aShape[0];
-    int64_t NRepeats = bShape[0];
+    int64_t mRepeats = aShape[0];
+    int64_t nRepeats = bShape[0];
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
-    SmallVector<int64_t> dimensions = {MRepeats, NRepeats, KPerThread,
+    SmallVector<int64_t> dimensions = {mRepeats, nRepeats, KPerThread,
                                        nResultVectors};
     TopDownTMBuilder aView(b, {"m", "n", "k", "v"}, dimensions, loc);
     aView.ignore("n");
@@ -273,8 +273,9 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         auto vectorC =
             b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaNonKDim, mfmaNonKDim, xcs.k, xcs.blocksMfma,
-            argA, argB, vectorC, /*cbsz=*/imms[i].cbsz, /*abid=*/imms[i].abid,
+            loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+            mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
+            /*abid=*/imms[i].abid,
             /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
             /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.getDestD();
@@ -326,8 +327,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         //   for(index_t ki_i = 0; ki_i < k_base * KRepeats; ki_i += k_base)
         //     argA = &matrixAElement[ki_i];
         //     argB = &matrixAElement[ki_i];
-        //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
-        //                                         NPerXdlops * NRepeats,
+        //     p_c_thread = mfma_type.template run<MPerXlops * mRepeats,
+        //                                         NPerXdlops * nRepeats,
         //                                         AStride,
         //                                         BStride>(argA, argB,
         //       p_c_thread);
