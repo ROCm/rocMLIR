@@ -1194,7 +1194,7 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t m = mfmaAttr.mfmaNonKDim;
     // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
-    int64_t n = mfmaAttr.mfmaNonKDim;
+    int64_t n = mfmaAttr.inputSpanLen;
 
     int64_t rowGroupSize = mfmaAttr.rowGroupSize;
     int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
