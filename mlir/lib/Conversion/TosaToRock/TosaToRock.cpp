@@ -310,7 +310,12 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     }
     if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
       auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-      return SmallVector<int32_t>(cattr.getValues<int32_t>());
+      auto vals = cattr.tryGetValues<int32_t>();
+      if (succeeded(vals))
+        return SmallVector<int32_t>(*vals);
+      auto vals64 = cattr.tryGetValues<int64_t>();
+      if (succeeded(vals64))
+        return SmallVector<int32_t>(*vals64);
     }
     // May be bufferization cast
     //  but this is no longer a bufferization pass, so assert
