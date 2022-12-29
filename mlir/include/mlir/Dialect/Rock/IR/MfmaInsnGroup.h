@@ -51,9 +51,6 @@ struct MfmaInsnAttr {
 
 class MfmaInsn {
 private:
-  static const llvm::StringMap<MfmaInsnInfo> mfmaInsnInfoMap;
-  static const llvm::StringMap<MfmaInsnAttr> mfmaInsnAttrMap;
-  static MfmaInsnAttr deriveAttr(MfmaInsnInfo info);
   MfmaInsnAttr attr;
 
 public:
@@ -117,9 +114,6 @@ struct MfmaInsnGroupAttr {
 
 class MfmaInsnGroup {
 private:
-  static const llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
-                              MfmaInsnGroupSelectKeyInfo>
-      mfmaInsnGroupAttrMap;
   Type elementType;
   MfmaInsn insn;
   MfmaInsnGroupAttr groupAttr;
