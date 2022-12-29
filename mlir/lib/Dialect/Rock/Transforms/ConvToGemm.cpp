@@ -331,10 +331,6 @@ struct ConvertingCopyKernelRewritePattern final
 /// underlying memory in order to match another tensor, we cannot do this
 /// and so must flag when we have performed such a relayout.
 ///
-/// This is a nominally temporary hack that should be removed once we can more
-/// precisely handle Unfold{} by static analysis instead of by heuristic.
-/// As such, it'll probably presist for quite some time.
-constexpr llvm::StringLiteral dontUnfoldAttrName("has_relayout_do_not_unfold");
 /// Make the dimensions that are the values in `mapping` and exist within
 /// `toLayout` be in the same relative order as the dimensions that the keys of
 /// `mappping` have within `fromLayout`, where both layout are given by the
@@ -414,8 +410,6 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
       operand.set(transformed);
 
   op->setAttr(toLayoutAttrName, b.getArrayAttr(newToLayout));
-  if (toLayoutAttrName == "filter_layout")
-    op->setAttr(dontUnfoldAttrName, b.getUnitAttr());
   return success();
 }
 
@@ -536,17 +530,11 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     // Here, we merge the KBlock dimension into the G dimension
     // keeping the kBlock dimension as the minor index
     // and send K to the M dimension and CYX to the N dimension as usual
-    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
-    bool isUnfold = (addKBlockTransform.endIndex("c") + 1 ==
-                     addKBlockTransform.endIndex("y")) &&
-                    (addKBlockTransform.endIndex("y") + 1 ==
-                     addKBlockTransform.endIndex("x")) &&
-                    !forceNoUnfold;
     auto gemmTransform =
         BottomUpTMBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
-    gemmTransform.merge("gemmN", 2, nonKDims, isUnfold);
+    gemmTransform.merge("gemmN", 2, nonKDims);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter = b.create<TransformOp>(loc, withKBlock, gemmTransformAttr);
@@ -986,19 +974,14 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     BottomUpTMBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
-    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
-    bool isUnfold = filterTransform.startIndex("g") == 0 &&
-                    (filterTransform.startIndex("k") == 1 ||
-                     filterTransform.startIndex("k") == 4) &&
-                    noNonKPad && !forceNoUnfold;
     switch (convOpType) {
     case ConvOpType::Fwd:
-      filterTransform.merge("gemmK", 1, filterNonKDims, isUnfold);
+      filterTransform.merge("gemmK", 1, filterNonKDims);
       filterTransform.passThrough({"gemmM"}, {2}, {"k"});
       break;
     case ConvOpType::BwdWeight:
       filterTransform.passThrough({"gemmM"}, {1}, {"k"});
-      filterTransform.merge("gemmN", 2, filterNonKDims, isUnfold);
+      filterTransform.merge("gemmN", 2, filterNonKDims);
       break;
     case ConvOpType::BwdData:
       llvm_unreachable("Backward data has been sent elsewhere");

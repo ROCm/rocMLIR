@@ -352,31 +352,17 @@ propagateUnmergeVectorization(T &&dimAndLength,
 using MergePairKey = std::pair<TransformMapAttr, TransformAttr>;
 
 using DimToMergeMap =
-    llvm::DenseMap<int, std::pair<TransformMapAttr, TransformAttr>>;
+    llvm::DenseMap<uint32_t, std::pair<TransformMapAttr, TransformAttr>>;
 
 using DimRemapMap = llvm::DenseMap<uint32_t, uint32_t>;
 
 using ContiguousMergesMap =
     llvm::DenseMap<MergePairKey, SmallVector<SmallVector<uint32_t>>>;
-  
-template <typename T> void printVector(ArrayRef<T> toPrint) {
-  for (auto e : toPrint) {
-    llvm::errs() << e << " ";
-  }
-  llvm::errs() << "\n";
-}
-
-template <typename T> void printVector(const SmallVector<T> &toPrint) {
-  for (auto e : toPrint) {
-    llvm::errs() << e << " ";
-  }
-  llvm::errs() << "\n";
-}
 
 // Utility data structure to save information about a specific merge
-struct MergeInfo{
-  MergeInfo(){}
-  MergeInfo(MergePairKey mergePair){
+struct MergeInfo {
+  MergeInfo() {}
+  MergeInfo(MergePairKey mergePair) {
     auto mergeLowerDims = mergePair.second.getLowerDims();
     for (auto pair : llvm::zip(mergeLowerDims, mergePair.second.getParams())) {
       paramMap[std::get<0>(pair)] = std::get<1>(pair);
@@ -387,7 +373,7 @@ struct MergeInfo{
     }
   }
 
-  // Given a dimension this map tells us what is the parameter 
+  // Given a dimension this map tells us what is the parameter
   // associated to that dimension
   llvm::DenseMap<uint32_t, int64_t> paramMap;
   // Given a dimension, this map tells us what is its position
@@ -398,77 +384,65 @@ struct MergeInfo{
 // Given dimensions and parameters of an unmerge, scan the merges
 // to flag group of dimensions that are known to be contiguous
 // in the unmerge
-void scanForContiguousDimensions(ArrayRef<uint32_t> unmergeDims,
-                                 ArrayRef<int64_t> unmergeParams,
-                                 DimRemapMap &dimRemap,
-                                 DimToMergeMap &dimToMerge,
-                                 DenseMap<MergePairKey, MergeInfo>& mergeInfoMap,
-                                 ContiguousMergesMap &result) {
+void scanForContiguousDimensions(
+    ArrayRef<uint32_t> unmergeDimsMaybe, ArrayRef<int64_t> unmergeParams,
+    DimRemapMap &dimRemap, DenseSet<uint32_t> &dimToDelete,
+    DimToMergeMap &dimToMerge, DenseMap<MergePairKey, MergeInfo> &mergeInfoMap,
+    ContiguousMergesMap &result) {
 
-
-  DenseMap<uint32_t, int64_t> unmergeParamsMap;
-  for (auto pair : llvm::zip(unmergeDims, unmergeParams)){
-    unmergeParamsMap[std::get<0>(pair)] = std::get<1>(pair);
+  // Shrink the dimension space if some dimensions are not real
+  SmallVector<size_t> realIndices;
+  size_t inc = 0;
+  for (size_t i = 0; i < unmergeDimsMaybe.size(); i++) {
+    while (dimToDelete.contains(i + inc)) {
+      inc++;
+    }
+    realIndices.push_back(i + inc);
   }
 
-  SmallVector<uint32_t> unmergeDimsRemapped;
-  DenseMap<int64_t, size_t> dimRemapPosition;
-
-  for (size_t i = 0; i< unmergeDims.size(); i++){
-    uint32_t d = unmergeDims[i];
-    if (dimRemap.count(d)){
-      d = dimRemap[d]; 
-    } 
-    unmergeDimsRemapped.push_back(d);
-    int64_t p = unmergeParamsMap[d];
-    dimRemapPosition[p] = d;
+  SmallVector<uint32_t> unmergeDims;
+  for (size_t i = 0; i < unmergeDimsMaybe.size(); i++) {
+    unmergeDims.push_back(realIndices[unmergeDimsMaybe[i]]);
   }
-
-  SmallVector<int64_t> unmergeParamsRemapped(unmergeParams);
-  std::sort(unmergeParamsRemapped.begin(), unmergeParamsRemapped.end(), [&](int64_t a, int64_t b){return dimRemapPosition[a] < dimRemapPosition[b];});
 
   size_t i = 0;
-  while (i < unmergeDimsRemapped.size()) {
+  // Analyze the unmerge dimensions, one by one
+  while (i < unmergeDims.size()) {
+    auto unmergeDimI = dimRemap[i];
 
-    if (!dimToMerge.count(unmergeDimsRemapped[i])) {
+    // Get the mergePair
+    if (!dimToMerge.count(unmergeDimI)) {
       i++;
       continue;
     }
-    auto mergePair = dimToMerge[unmergeDimsRemapped[i]];
+    auto mergePair = dimToMerge[unmergeDimI];
 
-    auto& paramMatcher = mergeInfoMap[mergePair].paramMap;
-    auto& reshuffler = mergeInfoMap[mergePair].dimPosition;
-
+    auto &paramMatcher = mergeInfoMap[mergePair].paramMap;
+    auto &reshuffler = mergeInfoMap[mergePair].dimPosition;
     SmallVector<uint32_t> outputDims;
 
     // Keep adding dimensions until either:
     // - they don't belong to the same merge anymore
     // - their parameters don't match
-    // - they belong to the same merge but are unmerged in the wrong order
+    // - they are unmerged in the wrong order
     // - skip over singleton dimensions
-    for (size_t j = i; j < unmergeDimsRemapped.size(); j++) {
+    for (size_t j = i; j < unmergeDims.size(); j++) {
       // Protect against broadcasts
-      if (unmergeParamsRemapped[j] == 1) {
+      if (unmergeParams[j] == 1) {
         continue;
       }
 
-      auto it = dimToMerge.find(unmergeDimsRemapped[j]);
+      auto it = dimToMerge.find(dimRemap[j]);
       if (it == dimToMerge.end() || it->second != mergePair ||
-          paramMatcher[unmergeDimsRemapped[j]] != unmergeParamsRemapped[j]){
+          (paramMatcher[dimRemap[j]] != unmergeParams[j]) ||
+          dimRemap[j] != unmergeDims[j]) {
         break;
       }
 
-      // Verify that we are merging contiguous dimensions in the merge
-      if (j>i){
-        auto posCurrent = reshuffler[unmergeDimsRemapped[j]];
-        auto posPrevious = reshuffler[unmergeDimsRemapped[j-1]];
-        if (posCurrent != posPrevious + 1){
-          break;
-        }
-      }
-
-      outputDims.push_back(unmergeDimsRemapped[j]);
+      outputDims.push_back(dimRemap[j]);
     }
+    std::sort(outputDims.begin(), outputDims.end(),
+              [&](auto a, auto b) { return reshuffler[a] < reshuffler[b]; });
 
     // Now we know outputDims contain a group of contiguous dimensions
     i += std::max(size_t(1), outputDims.size());
@@ -483,26 +457,24 @@ void scanForContiguousDimensions(ArrayRef<uint32_t> unmergeDims,
   }
 }
 
-
-
-
-/** This is an analysis pass to group the lower dimensions of a Merge
- * transformation into contiguous groups. E.g., if we have a Merge{8,8,3} [0] ->
- * [0,2,3] and we know that [2,3] are contiguous in the final representation, we
- * can split the merge group in
- * [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
- * vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
- * In other words, every group of dimensions is treated as a single group
- */
+// This is an analysis pass to group the lower dimensions of a Merge
+// transformation into contiguous groups. E.g., if we have a Merge{8,8,3} [0] ->
+// [0,2,3] and we know that [2,3] are contiguous in the final representation, we
+// can split the merge group in
+// [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
+// vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
+// In other words, every group of dimensions is treated as a single group
 ContiguousMergesMap findContiguousMerges(ArrayAttr transforms,
                                          ArrayRef<int64_t> outputShape) {
   DimToMergeMap dimToMerge;
   DimRemapMap dimensionMap;
   DenseMap<MergePairKey, MergeInfo> mergeInfoMap;
+  DenseSet<uint32_t> dimToDelete;
   ContiguousMergesMap result;
 
   for (TransformMapAttr transformMap :
        transforms.getAsRange<TransformMapAttr>()) {
+    auto upperBounds = transformMap.getUpperBounds();
     for (TransformAttr transform : transformMap.getOps()) {
       auto transformType = transform.getType();
       ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
@@ -515,32 +487,71 @@ ContiguousMergesMap findContiguousMerges(ArrayAttr transforms,
           auto key = std::make_pair(transformMap, transform);
           dimToMerge[d] = key;
           mergeInfoMap[key] = MergeInfo(key);
+          dimensionMap[d] = d;
         }
         break;
       case TransformType::AddDim:
+        dimToDelete.insert(upperDims[0]);
         break;
       case TransformType::Embed: {
-        // auto &&zip = llvm::zip(params, upperDims);
-        // SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
-        // std::sort(data.begin(), data.end());
+        // Sort the parameters
+        auto &&zip = llvm::zip(params, upperDims);
+        SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
+        std::sort(data.begin(), data.end());
 
+        // Verify that the Embed is an Unmerge operation and
+        // at the same time create the sorted unmerge params
+        bool maybeUnmerge = true;
         SmallVector<int64_t> unmergeParams;
-        for (size_t i = 0; i < params.size() - 1; i++) {
-          unmergeParams.push_back(params[i + 1] / params[i]);
+        SmallVector<uint32_t> unmergeDims;
+        for (size_t i = 0; i < data.size() - 1; i++) {
+          auto paramI = std::get<0>(data[i]);
+          auto paramI1 = std::get<0>(data[i + 1]);
+          auto dim = std::get<1>(data[i]);
+          auto unmergeParam = paramI1 / paramI;
+          if (unmergeParam * paramI != paramI1) {
+            maybeUnmerge = false;
+            break;
+          }
+          unmergeParams.push_back(unmergeParam);
+          unmergeDims.push_back(dim);
         }
-        unmergeParams.push_back(params.back());
-        scanForContiguousDimensions(
-            upperDims, unmergeParams, dimensionMap,
-            dimToMerge, mergeInfoMap, result);
+
+        // We are not done yet. To be sure this is an unmerge
+        // the faster parameter needs to be 1 and the upper bounds
+        // have to be set
+        auto fasterParam = std::get<0>(data[0]);
+        if (maybeUnmerge && fasterParam == 1 && upperBounds.size()) {
+          auto slowerDim = std::get<1>(data.back());
+          unmergeParams.push_back(upperBounds[slowerDim]);
+          unmergeDims.push_back(slowerDim);
+
+          // Shuffle the sorted unmerge params
+          auto &&zip = llvm::zip(unmergeDims, unmergeParams);
+          SmallVector<std::tuple<uint32_t, int64_t>> data(zip.begin(),
+                                                          zip.end());
+          std::sort(data.begin(), data.end());
+
+          SmallVector<int64_t> unmergeParamsReshuffled;
+          for (auto pair : data) {
+            unmergeParamsReshuffled.push_back(std::get<1>(pair));
+          }
+
+          // Now we can use the parameters as unmerge parameters and see if
+          // there are contiguous dimensions to be folded together.
+          scanForContiguousDimensions(upperDims, unmergeParamsReshuffled,
+                                      dimensionMap, dimToDelete, dimToMerge,
+                                      mergeInfoMap, result);
+        }
         break;
       }
 
       case TransformType::PassThrough:
       case TransformType::Pad:
       case TransformType::Broadcast:
-      printVector(lowerDims);
-      printVector(upperDims);
-        for (auto pair: llvm::zip(upperDims, lowerDims)){
+        // Map the lower dimensions to the dimensions originally
+        // used (i.e., upper dimensions)
+        for (auto pair : llvm::zip(upperDims, lowerDims)) {
           auto u = std::get<0>(pair);
           auto l = std::get<1>(pair);
           dimensionMap[l] = u;
@@ -550,9 +561,9 @@ ContiguousMergesMap findContiguousMerges(ArrayAttr transforms,
       case TransformType::Unfold: // TODO: remove Unfold
         break;
       case TransformType::Unmerge:
-        scanForContiguousDimensions(
-            upperDims, params, dimensionMap,
-            dimToMerge, mergeInfoMap, result);
+        scanForContiguousDimensions(upperDims, params, dimensionMap,
+                                    dimToDelete, dimToMerge, mergeInfoMap,
+                                    result);
       }
     }
   }
@@ -560,9 +571,8 @@ ContiguousMergesMap findContiguousMerges(ArrayAttr transforms,
   // Last global unmerge
   SmallVector<uint32_t> outputDims(outputShape.size());
   std::iota(outputDims.begin(), outputDims.end(), 0);
-  scanForContiguousDimensions(
-      outputDims, outputShape, dimensionMap,
-      dimToMerge, mergeInfoMap, result);
+  scanForContiguousDimensions(outputDims, outputShape, dimensionMap,
+                              dimToDelete, dimToMerge, mergeInfoMap, result);
 
   // Add singleton dimensions
   for (auto d : dimToMerge) {
