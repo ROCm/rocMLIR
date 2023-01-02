@@ -29,6 +29,22 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     buildMIOpen(cmakeOpts)
 }
 
+void buildMIGraphX(String cmakeOpts) {
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: "${cmakeOpts}"
+    sh 'cd build; make -j $(nproc)'
+}
+
+void getAndBuildMIGraphX(String cmakeOpts) {
+    git branch: params.MIGraphXBranch, poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    buildMIGraphX(cmakeOpts)
+}
+
 void buildMIOpenWithMLIR() {
     buildProject('librockCompiler',
                     '-DBUILD_FAT_LIBROCKCOMPILER=ON')
@@ -67,6 +83,10 @@ String dockerArgs() {
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
     return 'rocm/mlir:rocm5.3-latest'
+}
+
+String dockerImageCIMIGraphX() {
+    return 'rocm/mlir-migraphx-ci:rocm5.3-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -298,6 +318,9 @@ pipeline {
                      description: 'Run weekly-only jobs')
         string(name: 'MIOpenBranch', defaultValue: 'develop',
                description: 'The MIOpen branch to be used with the job')
+        string(name: 'MIGraphXBranch', defaultValue: 'develop',
+               description: 'The MIGraphX branch/commit to verify against.')
+
 
         // Each below control whether to run a individual stage from parallel run
         // They default to true or empty but deverloper can toggle them for debugging purpose
@@ -307,6 +330,8 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+        booleanParam(name: 'checkMIGraphX', defaultValue: false,
+                     description: 'Run the MIGraphX integration tests')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -805,6 +830,79 @@ pipeline {
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                             }
                             postProcessPerfRes("${CHIP}")
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage ("MIGraphX") {
+            when {
+                beforeAgent true;
+                anyOf {
+                    equals expected: true, actual: params.checkMIGraphX;
+                    equals expected: true, actual: params.nightly;
+                }
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImageCIMIGraphX()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Install MIGraphX Dependencies") {
+                        steps {
+                            // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_MIXR_TARGET=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
+                        }
+                    }
+                    stage("Build MIGraphX with MLIR") {
+                        steps {
+                            sh 'rm -rf MIGraphX'
+                            dir('MIGraphX') {
+                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='/MIGraphXDeps;${WORKSPACE}/MIGraphXDeps' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++")
+                            }
+                        }
+                    }
+                    stage("Verify MIGraphX with MLIR") {
+                        steps {
+                            dir('MIGraphX/build') {
+                                // Verify MLIR unit tests
+                                sh 'make -j$(nproc) test_gpu_mlir'
+                                sh 'ctest -R test_gpu_mlir'
+                                // Verify ResNet50
+                                sh './bin/driver verify --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                            }
                         }
                     }
                 }

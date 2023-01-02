@@ -18,9 +18,9 @@
 // This pass converts rock.gridwise_gemm[_v2] into block- and threadwise ops
 //
 //===-----------------------------------------------------===//
+#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -1169,29 +1169,38 @@ struct GridwiseGemmV2RewritePattern
 
     // -----
 
-    // Logic to do XDLOPS code selection.
-    XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(elementType, mPerWave, nPerWave);
-    if (!xcs.isValid(kpack, kPerBlock)) {
-      return emitError(loc) << "XdlopsCodeSelection is not valid.\n";
+    // Mfma instruction group selection.
+    auto maybeMfmaInsnGroup =
+        MfmaInsnGroup::select(elementType, mPerWave, nPerWave);
+    if (failed(maybeMfmaInsnGroup)) {
+      return emitError(loc) << "Failed to select xdlops instruction group.\n";
+    }
+    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+    if (!mfmaGroup.isCoherentWithK(kpack, kPerBlock)) {
+      return emitError(loc)
+             << "Mfma instruction group selection is not compatible with k.\n";
     }
 
-    // Extract values from XdlopsCodeSelection.
-    int64_t mRepeats = xcs.MRepeats;
-    int64_t nRepeats = xcs.NRepeats;
+    int64_t mRepeats = mfmaGroup.getMRepeats();
+    int64_t nRepeats = mfmaGroup.getNRepeats();
+    auto imms = mfmaGroup.getImms();
+
+    int64_t nResultVectors = imms.size();
     int64_t mPerRepeat = mPerWave / mRepeats;
     int64_t nPerRepeat = nPerWave / nRepeats;
 
-    VectorType vectorType = xcs.vectorType;
-    int64_t nResultVectors = xcs.nResultVectors;
-    int64_t rowGroupSize = xcs.rowGroupSize;
-    int64_t rowGroupsPerBlock = xcs.rowGroupsPerBlock;
-    int64_t inputSpanLen = xcs.inputSpanLen;
-    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
-    int64_t m = xcs.mfmaNonKDim;
+    VectorType vectorType = mfmaGroup.getRetType();
+    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+
+    int64_t m = mfmaAttr.mfmaNonKDim;
     // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
-    int64_t n = xcs.inputSpanLen;
+    int64_t n = mfmaAttr.inputSpanLen;
+
+    int64_t rowGroupSize = mfmaAttr.rowGroupSize;
+    int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
+    int64_t inputSpanLen = mfmaAttr.inputSpanLen;
+    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
 
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
     // -----

@@ -148,8 +148,8 @@ gpu.module @mfma {
     //
     // Based on the following information:
     // - Data type : fp32 / fp16 / bf16
-    // - MPerWave attribute.
-    // - NPerWave attribute.
+    // - mPerWave attribute.
+    // - nPerWave attribute.
     //
     // All the code selection process will be carried out at rock.gridwise_gemm level now.
 

@@ -4,10 +4,12 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   LINK_LIBS PUBLIC
   MLIRGPUToROCDLTransforms
   MLIRTensorToLinalg
+  MLIRTosaToArith
   MLIRTosaToRock
+  MLIRTosaToArith
   MLIRTosaToLinalg
   MLIRTosaToSCF
-  MLIRTosaToArith
+  MLIRTosaToTensor
   MLIRRockToGPU
   MLIRRockOps
   MLIRRockTransforms
