@@ -146,7 +146,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
          --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
          --convert-rock-to-gpu
      */
-    pm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
+    pm.addPass(rock::createRockBlockwiseGemmToThreadwisePass()); 
     pm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     pm.addPass(rock::createRockSugarToLoopsPass());
     pm.addPass(rock::createRockCleanMathPass());
@@ -173,7 +173,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    */
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
+      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP));
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
                                            options.features, options.optLevel));
 }

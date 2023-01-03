@@ -255,6 +255,7 @@ void mlir::populateGpuToROCDLConversionPatterns(
       converter, /*allocaAddrSpace=*/5,
       StringAttr::get(&converter.getContext(),
                       ROCDL::ROCDLDialect::getKernelFuncAttrName()));
+  llvm::errs()<<"runtime:"<<runtime<<"\n";
   if (Runtime::HIP == runtime) {
     patterns.add<GPUPrintfOpToHIPLowering>(converter);
   } else if (Runtime::OpenCL == runtime) {

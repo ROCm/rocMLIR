@@ -327,10 +327,14 @@ struct BlockwiseGemmV2RewritePattern
     // static constexpr index_t NPerXdlops =
     // (GemmNPerWave > 64) ? 64 : GemmNPerWave;
 
-    int64_t mRepeats = (mPerWave > 64) ? (mPerWave / 64) : 1;
-    int64_t nRepeats = (nPerWave > 64) ? (nPerWave / 64) : 1;
-    int64_t MPerXdlops = (mPerWave > 64) ? 64 : mPerWave;
-    int64_t NPerXdlops = (nPerWave > 64) ? 64 : nPerWave;
+    // int64_t mRepeats = 2; //(mPerWave > 64) ? (mPerWave / 64) : 2;
+    // int64_t nRepeats = 2; //(nPerWave > 64) ? (nPerWave / 64) : 2;
+    int64_t MPerXdlops = 32; //(mPerWave > 64) ? 64 : mPerWave;
+    int64_t NPerXdlops = 32; //(nPerWave > 64) ? 64 : nPerWave;
+    // llvm::errs()<<mRepeats<<"\n";
+    // llvm::errs()<<nRepeats<<"\n";
+    llvm::errs()<<MPerXdlops<<"\n";
+    llvm::errs()<<NPerXdlops<<"\n";
 
     int64_t ldsOffsetA = op.getLdsBufferOffsetA().getSExtValue();
     int64_t ldsOffsetB = op.getLdsBufferOffsetB().getSExtValue();
@@ -365,6 +369,8 @@ struct BlockwiseGemmV2RewritePattern
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
     MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+    int64_t mRepeats = mfmaGroup.getMRepeats();
+    int64_t nRepeats = mfmaGroup.getNRepeats();
 
     Type argType = mfmaGroup.getArgType();
 
@@ -375,6 +381,7 @@ struct BlockwiseGemmV2RewritePattern
     int64_t k_base = mfmaAttr.k_base;
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+    llvm::errs()<<"IsKRecution?"<<IsKReduction<<"\n";
 
     if (KPack > 1 && (KPack < k_base || KPack % k_base != 0)) {
       llvm_unreachable(
@@ -418,6 +425,9 @@ struct BlockwiseGemmV2RewritePattern
     Type bufferBElementType = bufferBType.getElementType();
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
+    llvm::errs()<<"KPerThread:"<<KPerThread<<"\n";
+    adaptor.getBufferA().dump();
+    bufferAElementType.dump();
 
     if (!IsKReduction) {
 
@@ -574,8 +584,15 @@ struct BlockwiseGemmV2RewritePattern
 
     Value reshapedARegisters = reshapeBuffer(
         b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
+
+
     Value reshapedBRegisters = reshapeBuffer(
         b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
+    llvm::errs()<<"it is getting here\n";
+    adaptor.getMatrixC().dump();
+    MemRefType bufferType = adaptor.getMatrixC().getType().cast<MemRefType>();
+    ArrayRef<int64_t> outShape = bufferType.getShape();
+    llvm::errs()<<outShape[0]<<" "<<nRepeats*mRepeats*nResultVectors<<"\n";
     Value reshapedCRegisters =
         reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
                       {mRepeats, nRepeats, nResultVectors});

@@ -170,7 +170,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     pm.addPass(
         createLowerGpuOpsToROCDLOpsPass(/*chipset=*/devName.getChip().str(),
                                         /*indexBitWidth=*/32,
-                                        /*useBarePtrCallConv*/ barePointers));
+                                        /*useBarePtrCallConv*/ barePointers,gpu::amd::Runtime::HIP));
   }
   if (kernelPipelineSet.contains("binary")) {
     // Set up the lowering pipeline which goes down to ELF Binary

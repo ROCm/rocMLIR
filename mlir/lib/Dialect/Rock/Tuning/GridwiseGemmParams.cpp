@@ -345,6 +345,7 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
     // clang-format on
   }
 
+  llvm::errs()<<"getting here\n";
   if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
                    [param](const auto it) noexcept -> bool {
                      int validMPerWave, validNPerWave, validKPerWave;
@@ -357,8 +358,10 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
 
   // fail with blockSize >= 512
   /// \todo fix the issue with blockSize >= 512
+  llvm::errs()<<"blocksize = "<< blockSize <<"\n";
   if (blockSize < 64 || blockSize > 256)
     return failure();
+  llvm::errs()<<"but not here: blocksize = "<< blockSize <<"\n";
 
   if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
     return failure();
@@ -411,7 +414,6 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
 
   LogicalResult res = isValidBlockwiseGemmXDLOPS(params, op, blockSize);
   if (failed(res)) {
-      llvm::errs()<<"here\n";
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
   }

@@ -985,6 +985,9 @@ struct GridwiseGemmV2RewritePattern
     bool forceUnroll = tuningParams.getForceUnroll();
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
+    llvm::errs()<<"kpack:"<<kpack<<"\n";
+    llvm::errs()<<"kpacksPerBlock:"<<kpacksPerBlock<<"\n";
+    llvm::errs()<<"kPerBlock:"<<kPerBlock<<"\n";
 
     int64_t aVectorLen = 0;
     int64_t bVectorLen = 0;
@@ -1203,6 +1206,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
 
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
+    llvm::errs()<<"blocksPerRepeat:"<<blocksPerRepeat<<"\n";
     // -----
 
     // Logic to setup blockwise_gemm_v2 parameters.
@@ -1225,7 +1229,11 @@ struct GridwiseGemmV2RewritePattern
 
     // Logic to setup buffers for blockwise_gemm_v2.
 
+    // This is a reduction if (and only if) each thread is computing more than one 
+    // value (inputSpansPerMfmaIn>1, e.g., waveSize/32 = 2) but the output contains only one block (bloksInOutRegs==1). 
+    // This means that those two results get accumulated
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+
     int64_t arrayASize =
         (!isKReduction) ? (kpacksPerBlock * mRepeats)
                         : (kpacksPerBlock / inputSpansPerMfmaIn * mRepeats);
@@ -1248,6 +1256,7 @@ struct GridwiseGemmV2RewritePattern
     }
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
+    arrayA.dump();
 
     // -----
     // Logic to allocate 0-initialized vectors for C.

@@ -68,27 +68,37 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   int64_t mfmaNonKDim = info.mfmaNonKDim;
   int64_t k = info.k;
   int64_t blocksMfma = info.blocksMfma;
+  llvm::errs()<<"mfma"<<mfmaNonKDim<<"x"<<mfmaNonKDim<<"x"<<k<<"_"<<blocksMfma<<"B\n";
 
   constexpr int64_t waveSize = 64;
   // Derived properties of the individual MFMA. These are computed here
   // and used in places throughout the code and may not all be needed.
+
+  // How many k values are stored in each input item across the lanes?
   int64_t kPerMfmaInput =
       math_util::integer_divide_ceil(waveSize, mfmaNonKDim * blocksMfma);
+  llvm::errs()<<"kPerMfmaInput:"<<kPerMfmaInput<<"\n";
+
   // k_base is the number of times you need to step in the k dimension on each
-  // lane in a wave.
+  // lane in a wave: each lane has access to a single VGPR. This variable 
+  // tells us how many Ks we step when we move from VGPR i to VGPR i+1
   int64_t k_base = k / kPerMfmaInput;
+  llvm::errs()<<"k_base:"<<k_base<<"\n";
 
   // Number of logical values each thread needs to pass in to the MFMA in
   // order for the correct number of input values to be passed to the MFMA.
+  // This is basically the number of VGPRs per thread that contain the input/output
   int64_t nInputsToMfma = (mfmaNonKDim * blocksMfma * k) / waveSize;
   int64_t nOutputsOfMfma = (mfmaNonKDim * mfmaNonKDim * blocksMfma) / waveSize;
+  llvm::errs()<<"nInputsToMfma:"<<nInputsToMfma<<"\n";
+  llvm::errs()<<"nOutputsToMfma:"<<nOutputsOfMfma<<"\n";
 
   constexpr int64_t rowGroupSize = 4;
   // The number of rows in each MFMA output item (usually a VGPR, except in
   // the case of double-precision). Note, a "row" is a complete output row of
   // one of blocks produced by the MFMA.
 
-  // For most MFMAs, this is bounded by the number of retitions of n_mfma
+  // For most MFMAs, this is bounded by the number of repetitions of n_mfma
   // that you can fit into a wave (ex. a 32x32x2 mfma can fit two rows per
   // result). However, in the case of 4x4xk (16 blocks) MFMAs, counting that
   // number would produce the inaccurate result 64 / 4 = 16 rows per output,
@@ -98,6 +108,8 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // the number of rows per output.
   int64_t rowsPerMfmaOutput = std::min(waveSize / /*n_mfma=*/mfmaNonKDim,
                                        /*m_mfma=*/mfmaNonKDim / rowGroupSize);
+  llvm::errs()<<"rowsPerMfmaOutput:"<<rowsPerMfmaOutput<<"\n";
+
   // The number of blocks in each MFMA output. If rowsPerMfmaOutput followed
   // the typical case and was computed using waveSize / n_mfma, this will
   // be 1. However, in the 4x4 case, where we do have 16 blocks packed into
@@ -113,6 +125,7 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // Number of output blocks that can be accessed by going through the
   // registers on any given lane.
   int64_t blocksInOutRegs = blocksMfma / blocksPerMfmaOutput;
+  llvm::errs()<<"blocksInOutRegs:"<<blocksInOutRegs<<"\n";
 
   // Because the 4x4xk instructions are the only ones with blocksPerOutput > 1
   // and because they're only used for broadcast operations, we have
@@ -120,8 +133,9 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // "block" instead of 16 tiny ones. So, the length of an input span
   // (row for A, column for B) is usually equal to mfmaNonKDim, but is
   // more generally equal to mfmaNonKDim * blocksPerOutput in order to
-  // enable the math throughout our code to note break.
+  // enable the math throughout our code to not break.
   int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
+  llvm::errs()<<"inputSpanLen:"<<inputSpanLen<<"\n";
   int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
   return {
@@ -237,10 +251,14 @@ auto getMfmaInsnGroupAttrMap = []() {
                       {1, 0, MFMAPermB::none},
                       {1, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName(),
+                     2,
+                     2,
+                     {{0, 0, MFMAPermB::none},
+                     {0, 0, MFMAPermB::none},
+                     {0, 0, MFMAPermB::none},
+                     {0, 0, MFMAPermB::none}
+                     }}},
                    {{MfmaTypeId::Fp16TyId, 64, 32},
                     {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
                      1,

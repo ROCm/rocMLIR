@@ -177,7 +177,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
   LogicalResult matchAndRewrite(XdlopsGemmV2Op op,
                                 XdlopsGemmV2OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
-    llvm::errs()<<"hereeeeeeeee\n";
     Location loc = op.getLoc();
 
     XdlopsGemmParamsAttr tuningParams = op.getParams();
@@ -190,6 +189,9 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // Workload of either mPerWave and nPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
+    llvm::errs()<<"mPerWave:"<<mPerWave<<"\n";
+    llvm::errs()<<"nPerWave:"<<nPerWave<<"\n";
+
     int64_t waveSize = 64;
     int64_t MPerXdlops = (mPerWave > waveSize) ? waveSize : mPerWave;
     int64_t NPerXdlops = (nPerWave > waveSize) ? waveSize : nPerWave;
@@ -200,7 +202,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       dataType = dataType.cast<VectorType>().getElementType();
     }
 
-<<<<<<< HEAD
     auto maybeMfmaInsnGroup =
         MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
     if (failed(maybeMfmaInsnGroup)) {
@@ -212,11 +213,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     auto imms = mfmaGroup.getImms();
     int64_t nResultVectors = imms.size();
     Type argType = mfmaGroup.getArgType();
-=======
-    // Logic to do XDLOPS code selection.
-    XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
->>>>>>> 4565abe22442 (Adding a Composable Kernel driver)
 
     MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
@@ -250,8 +246,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t nRepeats = bShape[0];
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-    LLVM_DEBUG(llvm::dbgs() << "MRepeats: " << MRepeats << "\n"
-                            << "NRepeats: " << NRepeats << "\n"
+    LLVM_DEBUG(llvm::dbgs() << "mRepeats: " << mRepeats << "\n"
+                            << "nRepeats: " << nRepeats << "\n"
                             << "MPerXdlops: " << MPerXdlops << "\n"
                             << "NPerXdlops: " << NPerXdlops << "\n");
 
