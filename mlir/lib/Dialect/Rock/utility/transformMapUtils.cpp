@@ -391,18 +391,17 @@ void scanForContiguousDimensions(
     ContiguousMergesMap &result) {
 
   // Shrink the dimension space if some dimensions are not real
-  SmallVector<size_t> realIndices;
-  size_t inc = 0;
-  for (size_t i = 0; i < unmergeDimsMaybe.size(); i++) {
-    while (dimToDelete.contains(i + inc)) {
-      inc++;
-    }
-    realIndices.push_back(i + inc);
-  }
+  // DenseMap<size_t, size_t> realIndices;
+  SmallVector<uint32_t> unmergeDimsMaybeSorted(unmergeDimsMaybe);
+  std::sort(unmergeDimsMaybeSorted.begin(), unmergeDimsMaybeSorted.begin());
 
   SmallVector<uint32_t> unmergeDims;
-  for (size_t i = 0; i < unmergeDimsMaybe.size(); i++) {
-    unmergeDims.push_back(realIndices[unmergeDimsMaybe[i]]);
+  size_t inc = 0;
+  for (auto dim : unmergeDimsMaybeSorted) {
+    while (dimToDelete.contains(dim + inc)) {
+      inc++;
+    }
+    unmergeDims.push_back(dim + inc);
   }
 
   size_t i = 0;
@@ -509,7 +508,7 @@ ContiguousMergesMap findContiguousMerges(ArrayAttr transforms,
           auto paramI1 = std::get<0>(data[i + 1]);
           auto dim = std::get<1>(data[i]);
           auto unmergeParam = paramI1 / paramI;
-          if (unmergeParam * paramI != paramI1) {
+          if (unmergeParam * paramI != paramI1 || paramI == paramI1) {
             maybeUnmerge = false;
             break;
           }
