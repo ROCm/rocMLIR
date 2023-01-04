@@ -105,13 +105,14 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, MlirModule module,
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, char *probCStr,
                                char *perfCStr, float time) {
+  MlirStringRef probStringRef = mlirStringRefCreateFromCString(probCStr);
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
+  std::string problem = unwrap(probStringRef).str();
   std::string perfConfig = unwrap(perfStringRef).str();
   auto pTable = unwrap(perfTable);
-  auto mod = unwrap(module);
-  return rock::tuningTableUpdate(pTable, mod, perfConfig, time);
+  return rock::tuningTableUpdate(pTable, problem, perfConfig, time);
 }
 
 MLIR_CAPI_EXPORTED

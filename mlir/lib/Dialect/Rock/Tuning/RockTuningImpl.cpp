@@ -322,9 +322,8 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   return problemStr;
 }
 
-bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
+bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
                        std::string perfConfig, float time) {
-  std::string problem = getTuningProblemStr(mod);
   if (problem.empty())
     return false;
   auto search = perfTable->tuningMap.find(problem);
