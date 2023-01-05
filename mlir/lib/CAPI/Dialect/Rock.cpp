@@ -121,6 +121,8 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
   auto pTable = unwrap(perfTable);
   auto mod = unwrap(module);
   std::string perfConfig = rock::tuningTableLookup(pTable, mod);
+  if (perfConfg.empty())
+    return false;
   return rock::tuningSetStr(mod, perfConfig);
 }
 
