@@ -2182,15 +2182,16 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       // generate generic kernels
       const auto &genConfig = **genParams.convConfig;
       rock::Conv2dGenerator conv2dGenerator(genConfig);
-      if (heuristicValidation)
+      if (heuristicValidation || hasXdlops)
         conv2dGenerator.setPerfConfig("");
       // use non-xdlops kernels to verify xdlops kernels except when
       // verifying a tuning case
-      else if (hasXdlops)
+      if (hasXdlops)
         conv2dGenerator.flipXdlops();
-      if (!hasXdlops || genConfig.dataTypeStr != "i8")
+      if (!heuristicValidation && (!hasXdlops || genConfig.dataTypeStr != "i8"))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
-        // except that i8 xdlops is verified with i8 non-xdlops
+        // except that i8 xdlops is verified with i8 non-xdlops. Heuristic
+        // validation of kernels with perfConfigs keeps their original types.
         conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
@@ -2229,15 +2230,17 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     } else { // gemm GPU validation
       GenParams newParams = genParams;
 
-      if (heuristicValidation)
+      if (heuristicValidation || hasXdlops)
         newParams.perfConfig = "";
-      else if (hasXdlops)
+      if (hasXdlops)
         newParams.features =
             genParams.features ^ mlir::rock::GemmFeatures::mfma;
 
-      if (!hasXdlops || !genParams.dtype.isInteger(8))
+      if (!heuristicValidation && (!hasXdlops || !genParams.dtype.isInteger(8)))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
-        // except that i8 xdlops is verified with i8 non-xdlops
+        // except that i8 xdlops is verified with i8 non-xdlops. Heuristic
+        // validation of kernels with a perfConfig present keep their original
+        // types.
         newParams.dtype = b.getF32Type();
 
       KernelIF kernel(

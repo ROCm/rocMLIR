@@ -24,7 +24,7 @@
 // GEMM-HEURISTIC-CHECK: call @rock_gemm_gpu({{.*}}) : (memref<[[ADIMS]]xf32>, memref<[[BDIMS]]xf32>, memref<[[CDIMS]]xf32>) -> ()
 // GEMM-HEURISTIC-CHECK: call @rock_gemm_ver_gpu({{.*}}) : (memref<[[ADIMS]]xf32>, memref<[[BDIMS]]xf32>, memref<[[CDIMS]]xf32>) -> ()
 // GEMM-HEURISTIC-CHECK: func.func @rock_gemm_ver({{.*}}) attributes {kernel, xmodel.arch = "{{.*}}"} {
-// GEMM-HEURISTIC-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = mfma|dot|atomic_add storeMethod = {{.*}} : memref<[[CDIMS]]xf32> = memref<[[ADIMS]]xf32> * memref<[[BDIMS]]xf32>
+// GEMM-HEURISTIC-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = dot|atomic_add storeMethod = {{.*}} : memref<[[CDIMS]]xf32> = memref<[[ADIMS]]xf32> * memref<[[BDIMS]]xf32>
 
 // RUN: rocmlir-gen --arch gfx908 -mfma=off -atomic_add=off -dot=on  -p -t f16 -pv_with_gpu | FileCheck %s --check-prefix=F16-CHECK
 
