@@ -327,10 +327,9 @@ struct BlockwiseGemmV2RewritePattern
     // static constexpr index_t NPerXdlops =
     // (GemmNPerWave > 64) ? 64 : GemmNPerWave;
 
-    int64_t mRepeats = (mPerWave > 64) ? (mPerWave / 64) : 1;
-    int64_t nRepeats = (nPerWave > 64) ? (nPerWave / 64) : 1;
-    int64_t MPerXdlops = (mPerWave > 64) ? 64 : mPerWave;
-    int64_t NPerXdlops = (nPerWave > 64) ? 64 : nPerWave;
+    // Note: Hack!!!
+    int64_t MPerXdlops = 32;
+    int64_t NPerXdlops = 32;
 
     int64_t ldsOffsetA = op.getLdsBufferOffsetA().getSExtValue();
     int64_t ldsOffsetB = op.getLdsBufferOffsetB().getSExtValue();
@@ -365,6 +364,8 @@ struct BlockwiseGemmV2RewritePattern
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
     MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+    int64_t mRepeats = mfmaGroup.getMRepeats();
+    int64_t nRepeats = mfmaGroup.getNRepeats();
 
     Type argType = mfmaGroup.getArgType();
 
