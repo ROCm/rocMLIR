@@ -186,21 +186,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     return std::string();
   }
 
-  // Data type
-  problemOS << "-t ";
-  Type elemType = gemmIF.getInputType();
-  if (elemType.isF32()) {
-    problemOS << "f32";
-  } else if (elemType.isF16()) {
-    problemOS << "f16";
-  } else if (elemType.isInteger(8)) {
-    problemOS << "i8";
-  } else {
-    // Unknown data type
-    return std::string();
-  }
-  problemOS << sep;
-
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
@@ -316,6 +301,20 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-k " << gemmIF.getGemmSize().k << sep;
   } else {
     // Unknown op type, unreachable.
+    return std::string();
+  }
+
+  // Data type
+  problemOS << "-t ";
+  Type elemType = gemmIF.getInputType();
+  if (elemType.isF32()) {
+    problemOS << "f32";
+  } else if (elemType.isF16()) {
+    problemOS << "f16";
+  } else if (elemType.isInteger(8)) {
+    problemOS << "i8";
+  } else {
+    // Unknown data type
     return std::string();
   }
 
