@@ -9,6 +9,7 @@
 #define ROCK_UTILITY_TRANSFORMMAPUTILS_H
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 namespace mlir {
 class AffineMap;
@@ -68,6 +69,11 @@ AffineMap composeTransforms(ArrayAttr transforms);
 Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
                                             ArrayRef<int64_t> outShape,
                                             Value inp, AffineMap inpIdxMap);
+
+// This function will take an input TransformMapAttr and invert the
+// shapes and transforms.
+TransformMapAttr invertTransformMap(OpBuilder &b,
+                                    TransformMapAttr originalTransformMap);
 
 } // end namespace rock
 } // end namespace mlir

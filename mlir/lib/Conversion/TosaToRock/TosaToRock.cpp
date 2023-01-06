@@ -16,9 +16,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -304,48 +304,20 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
   SmallVector<int32_t> getTransposeDims(Value v) const {
-    if (Operation *cval = v.getDefiningOp<arith::ConstantOp>()) {
-      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-      return SmallVector<int32_t>(cattr.getValues<int64_t>());
-    }
-    if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
+    Operation *cval = v.getDefiningOp();
+    if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
       auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
       auto vals = cattr.tryGetValues<int32_t>();
       if (succeeded(vals))
         return SmallVector<int32_t>(*vals);
       auto vals64 = cattr.tryGetValues<int64_t>();
-      if (succeeded(vals64))
-        return SmallVector<int32_t>(*vals64);
+      assert(succeeded(vals64));
+      return SmallVector<int32_t>(*vals64);
     }
     // May be bufferization cast
     //  but this is no longer a bufferization pass, so assert
     assert(0);
     return getTransposeDims(v.getDefiningOp()->getOperand(0));
-  }
-
-  void permuteLayout(Operation *op, const char *attrKey,
-                     const char *layoutDefault, ArrayRef<int32_t> permDims,
-                     bool isInput = false) const {
-    StringRef currentLayout(layoutDefault);
-    if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
-      currentLayout = attr.getValue();
-    SmallString<4> layout(currentLayout);
-    if (isInput) {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[permDims[i]] = currentLayout[i];
-    } else {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[i] = currentLayout[permDims[i]];
-    }
-    op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
-  }
-
-  void setTranspose(Operation *op, StringRef name, bool isNonTrivial) const {
-    bool currentValue = false;
-    if (auto attr = op->getAttrOfType<BoolAttr>(name))
-      currentValue = attr.getValue();
-    bool newValue = currentValue ^ isNonTrivial;
-    op->setAttr(name, BoolAttr::get(op->getContext(), newValue));
   }
 
   // Fold transpose ops and convert convolution into changed layout.
@@ -354,75 +326,136 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    auto dims = getTransposeDims(top.getOperand(1));
+    auto perms = getTransposeDims(top.getOperand(1));
 
-    bool isConvDims = dims.size() == 4;
-    bool isMatmulDims = dims.size() == 3;
-    if (!(isConvDims || isMatmulDims)) {
-      return b.notifyMatchFailure(top, [&](::mlir::Diagnostic &diag) {
-        diag << "Bad constant transpose dims";
-      });
+    Location loc = top.getLoc();
+    Value inp = top.getOperand(0);
+    ShapedType inpType = inp.getType().template cast<ShapedType>();
+    ArrayRef<int64_t> inpShape = inpType.getShape();
+    assert(perms.size() == inpShape.size());
+
+    SmallVector<uint32_t, 8> endDims;
+    SmallVector<uint32_t, 8> startDims;
+    for (uint32_t i = 0, e = inpShape.size(); i < e; ++i) {
+      startDims.push_back(perms[i]);
+      endDims.push_back(i);
     }
-    bool matmulNonTrivial = false;
-    if (isMatmulDims) {
-      if (dims[0] != 0) {
-        return b.notifyMatchFailure(top, [&](Diagnostic &diag) {
-          diag << "Can't transpose the batch dimension out of place";
-        });
+    rock::BottomUpTMBuilder transform(b, inpShape, loc);
+    transform.passThrough(endDims, startDims);
+    b.replaceOpWithNewOp<rock::TransformOp>(top, inp, transform.get());
+
+    return success();
+  }
+};
+
+struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
+  using OpRewritePattern<tosa::ReshapeOp>::OpRewritePattern;
+
+  static void collectMerges(ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape,
+                            SmallVector<SmallVector<uint32_t>> &merges) {
+    SmallVector<uint32_t> mergeDims;
+    uint32_t inpIdx = 0;
+    int64_t inpCur = inpShape[0];
+    for (const auto &idxAndValue : llvm::enumerate(outShape)) {
+      uint64_t idx = idxAndValue.index();
+      int64_t outDimSize = idxAndValue.value();
+      mergeDims.push_back(idx);
+      if (inpCur > outDimSize) {
+        inpCur /= outDimSize;
+      } else {
+        if (++inpIdx < inpShape.size())
+          inpCur = inpShape[inpIdx];
+        merges.push_back(mergeDims);
+        mergeDims.clear();
       }
-      matmulNonTrivial = (dims[1] == 2 && dims[2] == 1);
     }
+    assert(mergeDims.empty());
+  }
+  static void expandTensor(PatternRewriter &b, tosa::ReshapeOp rop,
+                           ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape) {
+    // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} : (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
+    //    - inpShape = [1, 12, 384]
+    //    - outShape = [1, 12, 12, 32]
+    SmallVector<SmallVector<uint32_t>> merges;
+    collectMerges(inpShape, outShape, merges);
 
-    Value tInput = top.getOperand(0);
-    Value tOutput = top.getResult();
-
-    if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
-      // tosa.conv2d output is transpose
-      permuteLayout(convOp, "output_layout", "nhwk", dims);
-      convOp->getResult(0).setType(tOutput.getType());
-      top->replaceAllUsesWith(convOp);
-    } else if (tosa::MatMulOp matMulOp =
-                   tInput.getDefiningOp<tosa::MatMulOp>()) {
-      setTranspose(matMulOp, "transpose_c", matmulNonTrivial);
-      matMulOp->getResult(0).setType(tOutput.getType());
-      top->replaceAllUsesWith(matMulOp);
-    } else {
-      // trace output to tosa.conv2d
-      for (auto &use : tOutput.getUses()) {
-        if (auto op = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          convOp = op;
-        } else if (auto op = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          matMulOp = op;
-        } else {
-          return failure();
+    rock::BottomUpTMBuilder transform(b, inpShape, rop.getLoc());
+    for (auto idxAndMerge : llvm::enumerate(merges)) {
+      uint32_t idx = idxAndMerge.index();
+      auto mergeDims = idxAndMerge.value();
+      if (mergeDims.size() == 1) {
+        transform.passThrough({mergeDims[0]}, {idx});
+      } else {
+        SmallVector<SmallString<8>> mergeNames;
+        SmallVector<int64_t> mergeSizes;
+        SmallVector<StringRef> mergeNameRefs;
+        for (auto midx : mergeDims) {
+          SmallString<8> mname(Twine("exp" + Twine(midx)).str());
+          mergeNames.push_back(mname);
+          mergeNameRefs.push_back(mergeNames.back());
+          mergeSizes.push_back(outShape[midx]);
         }
-      }
-
-      // conv Input Modifier
-      if (convOp && convOp.getOperand(0) == tOutput) {
-        // input feature map
-        permuteLayout(convOp, "input_layout", "nhwc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (convOp) {
-        // filter
-        assert(convOp.getOperand(1) == tOutput);
-        permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp && matMulOp.getA() == tOutput) {
-        setTranspose(matMulOp, "transpose_a", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp) {
-        assert(matMulOp.getB() == tOutput);
-        setTranspose(matMulOp, "transpose_b", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
+        transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx), mergeSizes);
       }
     }
 
-    top.erase();
+    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform.get());
+  }
+
+  static void collapseTensor(PatternRewriter &b, tosa::ReshapeOp rop,
+                             ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape) {
+    // %5 = "tosa.reshape"(%4) {new_shape = [1, 12, 12, 32]} : (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
+    //    - inpShape = [1, 12, 12, 32]
+    //    - outShape = [12, 12, 32]
+    SmallVector<SmallVector<uint32_t>> merges;
+    collectMerges(outShape, inpShape, merges);
+
+    rock::TopDownTMBuilder transform(b, outShape, rop.getLoc());
+    for (auto idxAndMerge : llvm::enumerate(merges)) {
+      uint32_t idx = idxAndMerge.index();
+      auto mergeDims = idxAndMerge.value();
+      if (mergeDims.size() == 1) {
+        transform.passThrough({mergeDims[0]}, {idx});
+      } else {
+        SmallVector<SmallString<8>> mergeNames;
+        SmallVector<int64_t> mergeSizes;
+        SmallVector<StringRef> mergeNameRefs;
+        for (auto midx : mergeDims) {
+          SmallString<8> mname(Twine("m" + Twine(midx)).str());
+          mergeNames.push_back(mname);
+          mergeNameRefs.push_back(mergeNames.back());
+          mergeSizes.push_back(inpShape[midx]);
+        }
+        transform.merge(mergeNameRefs, mergeDims, transform.startName(idx), mergeSizes);
+      }
+    }
+
+    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform.get());
+  }
+
+  // Fold transpose ops and convert convolution into changed layout.
+  // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
+  //           rock.conv.NCHW
+  // Pattern match start from the output transpose
+  LogicalResult matchAndRewrite(tosa::ReshapeOp rop,
+                                PatternRewriter &b) const final {
+    auto cattr = rop->getAttr("new_shape").cast<ArrayAttr>();
+    SmallVector<int64_t> outShape;
+    for (auto sattr : cattr) {
+      outShape.push_back(sattr.cast<IntegerAttr>().getInt());
+    }
+
+    Value inp = rop.getOperand();
+    ShapedType inpType = inp.getType().template cast<ShapedType>();
+    ArrayRef<int64_t> inpShape = inpType.getShape();
+
+    if (outShape.size() > inpShape.size()) {
+      // Expand
+      expandTensor(b, rop, inpShape, outShape);
+    } else if (outShape.size() < inpShape.size()) {
+      // Collapse
+      collapseTensor(b, rop, inpShape, outShape);
+    }
     return success();
   }
 };
@@ -436,5 +469,5 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
 
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<TransposeRewritePattern>(context);
+  patterns.add<TransposeRewritePattern, ReshapeRewritePattern>(context);
 }

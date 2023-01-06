@@ -919,10 +919,13 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       MutableAffineMap newInpIdxMap = AffineMap::getMinorIdentityMap(
           outShape.size(), outShape.size(), b.getContext());
       uint32_t newIdx = 0;
+      SmallVector<int64_t> newInpShape;
+      int64_t newInpDimSize = 1;
       SmallVector<SmallVector<uint32_t>> merges;
       SmallVector<uint32_t> mergeDims;
       for (const auto &idxAndValue : llvm::enumerate(inpIdxMap.getResults())) {
         uint32_t idx = idxAndValue.index();
+        newInpDimSize *= inpShape[idx];
         AffineExpr resultExpr = idxAndValue.value();
         mergeDims.push_back(idx);
         if (diff != 0 && resultExpr.isa<AffineConstantExpr>() &&
@@ -932,12 +935,14 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           newInpIdxMap.setResult(newIdx++, resultExpr);
           merges.push_back(mergeDims);
           mergeDims.clear();
+          newInpShape.push_back(newInpDimSize);
+          newInpDimSize = 1;
         }
       }
       if (mergeDims.size())
         merges.back().append(mergeDims);
 
-      TopDownTMBuilder collapseTransform(b, outShape, loc);
+      TopDownTMBuilder collapseTransform(b, newInpShape, loc);
       for (auto idxAndMerge : llvm::enumerate(merges)) {
         uint32_t idx = idxAndMerge.index();
         auto merge = idxAndMerge.value();
@@ -1046,4 +1051,60 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     }
   }
   return inp;
+}
+
+TransformMapAttr mlir::rock::invertTransformMap(
+              OpBuilder &b, mlir::rock::TransformMapAttr transformMap) {
+
+    auto lowShape = transformMap.getLowerBounds();
+    auto uppShape = transformMap.getUpperBounds();
+
+    rock::TopDownTMBuilder transform(b, lowShape, b.getUnknownLoc());
+    for (auto tattr : transformMap.getOps()) {
+      switch (tattr.getType()) {
+      case rock::TransformType::PassThrough:
+        transform.passThrough(tattr.getUpperDims(), tattr.getLowerDims());
+        break;
+      case rock::TransformType::Pad:
+      case rock::TransformType::Slice:
+      case rock::TransformType::Embed:
+      case rock::TransformType::AddDim:
+      case rock::TransformType::Broadcast: // Unsupported
+        return rock::TransformMapAttr();
+      
+      case rock::TransformType::Unmerge: {
+        auto lowDims = tattr.getLowerDims();
+        assert(lowDims.size() == 1);
+        SmallVector<SmallString<8>> mergeNames;
+        SmallVector<int64_t> mergeSizes;
+        SmallVector<StringRef> mergeNameRefs;
+        for (auto midx : tattr.getUpperDims()) {
+          SmallString<8> mname(Twine("m" + Twine(midx)).str());
+          mergeNames.push_back(mname);
+          mergeNameRefs.push_back(mergeNames.back());
+          mergeSizes.push_back(uppShape[midx]);
+        }
+        transform.merge(mergeNameRefs, tattr.getUpperDims(), transform.startName(lowDims[0]), mergeSizes);
+        break;
+      }
+      case rock::TransformType::Merge:
+      case rock::TransformType::Unfold: {
+        auto uppDims = tattr.getUpperDims();
+        assert(uppDims.size() == 1);
+        SmallVector<SmallString<8>> mergeNames;
+        SmallVector<int64_t> mergeSizes;
+        SmallVector<StringRef> mergeNameRefs;
+        for (auto midx : tattr.getLowerDims()) {
+          SmallString<8> mname(Twine("dim" + Twine(midx)).str());
+          mergeNames.push_back(mname);
+          mergeNameRefs.push_back(mergeNames.back());
+          mergeSizes.push_back(lowShape[midx]);
+        }
+        transform.unmerge(transform.startName(uppDims[0]), uppDims[0], mergeNameRefs, mergeSizes);
+        break;
+      }
+      }
+    }
+
+    return transform.get();
 }

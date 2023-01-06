@@ -25,6 +25,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -55,78 +56,130 @@ struct RockCopyOptPass
 struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
-  // This function finds the destination-passing style
-  // argument that the kernel will copy into it. It might
-  // encounter view-like ops : CollapseShapeOp or ExpandShapeOp
-  // where the reverse expression need to be built up for
-  // the users of the found destination arg.
-  LogicalResult findCopyDestArg(PatternRewriter &rewriter, Operation *op,
-                                Value &copyDestArg,
-                                memref::CopyOp &copyDest) const {
+  template <typename... TArgs>
+  bool getForwardChain(Operation *op, SmallVector<Operation*> &chain) const {
+    chain.push_back(op);
     if (auto copyOp = dyn_cast<memref::CopyOp>(op)) {
-      return findCopyDestArg(rewriter, copyOp, copyDestArg, copyDest);
+      // Source = chain.back()
+      // Target = func arg
+      return copyOp.getTarget().getDefiningOp() == nullptr;
     }
-    if (auto collapseOp = dyn_cast<memref::CollapseShapeOp>(op)) {
-      return findCopyDestArg(rewriter, collapseOp, copyDestArg, copyDest);
+    if (isa<TArgs...>(op) && op->hasOneUse()) {
+      // Follow def-use chain
+      Operation *result = op->getUses().begin()->getOwner();
+      return getForwardChain<TArgs...>(result, chain);
     }
-    if (auto expandOp = dyn_cast<memref::ExpandShapeOp>(op)) {
-      return findCopyDestArg(rewriter, expandOp, copyDestArg, copyDest);
-    }
-    return failure();
+    return false;
   }
 
-  // Finds the destination arg when the copy op is found
-  LogicalResult findCopyDestArg(PatternRewriter &rewriter,
-                                memref::CopyOp &copyOp, Value &copyDestArg,
-                                memref::CopyOp &copyDest) const {
-    if (copyDestArg) {
-      return failure();
+  /////////////////////////////////////////////////////////////////////
+
+  // %5 = memref.alloc
+  // Uses:
+  //   %6 = linalg.generic ... outs (%5)
+  //   %7 = rock.transform %5
+  //     %8 = memref.expand_shape %7
+  //        memref.copy (%8, %arg3) ... must be source
+
+  bool isWriter(linalg::GenericOp op, Value mem) const {
+    // must be an output
+    for (auto out : op.outputs()) {
+      if (out == mem)
+        return true;
     }
-    if (copyOp.getTarget().getDefiningOp()) {
-      // If the target is defined within the kernel it should
-      // not be optimized out.
-      return failure();
-    }
-    copyDestArg = copyOp.getTarget();
-    copyDest = copyOp;
-    return success();
+    return false;
   }
 
-  // If there is a view-like op, the reverse expression needs to
+  bool isWriter(rock::RockGemmWrapperInterface op, Value mem) const {
+    // 1.1 Direct output of a gemm-wrapping operation (mainly gemm itself,
+    // which doesn't get transform()s after it)
+    return op.getOutArgument()->get() == mem;
+  }
+
+  bool isWriter(rock::TransformOp op, Value mem) const {
+    // 1.2 Input of rock.transform
+    Value mrval = op.getResult();
+    // Dig through chains of transposes
+    // TODO: convert to forwardChain check
+    while (mrval.hasOneUse() && (op = dyn_cast_or_null<rock::TransformOp>(mrval.getUses().begin()->getOwner())))
+      mrval = op.getResult();
+    // 1.2.0 Confirm output of a gemm-like operation
+    int cnt = 0;
+    for (auto &mruse : mrval.getUses()) {
+      if (auto gemmLike =
+          dyn_cast<rock::RockGemmWrapperInterface>(mruse.getOwner())) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Found gemm-like op " << gemmLike << "\n");
+        if (gemmLike.getOutArgument()->get() != mrval)
+          return false;
+      }
+      cnt++;
+    }
+    return (cnt == 1);
+  }
+
+  bool isWriter(CallOpInterface op, Value mem) const {
+    // 1.3 Assume call is the writer (fails for multiple calls)
+    // TODO(sjw): check for writeonly!
+    return true;
+  }
+  
+  template <int T = 0>
+  bool getWriter(Operation *op, Value mem) const {
+    return false;
+  }
+
+  template <typename T, typename... TArgs>
+  bool getWriter(Operation *op, Value mem) const {
+    if (auto wop = dyn_cast<T>(op))
+      return isWriter(wop, mem);
+    return getWriter<TArgs...>(op, mem);
+  }
+
+  /////////////////////////////////////////////////////////////////////
+  // If there is a view-like op, the inverse expression needs to
   // be built up when the copy destination arg is found.
-  template <typename ReassociativeReshapeOp>
-  LogicalResult findCopyDestArg(PatternRewriter &rewriter,
-                                ReassociativeReshapeOp &reassociativeReshapeOp,
-                                Value &copyDestArg,
-                                memref::CopyOp &copyDest) const {
-    if (!reassociativeReshapeOp->hasOneUse()) {
-      return failure();
-    }
-    if (findCopyDestArg(rewriter,
-                        reassociativeReshapeOp->getUses().begin()->getOwner(),
-                        copyDestArg, copyDest)
-            .failed()) {
-      return failure();
-    }
-
-    if (std::is_same<ReassociativeReshapeOp, memref::ExpandShapeOp>()) {
-      copyDestArg = rewriter.create<memref::CollapseShapeOp>(
-          reassociativeReshapeOp.getLoc(),
-          reassociativeReshapeOp->getOperand(0).getType(), copyDestArg,
-          reassociativeReshapeOp.getReassociation());
-    } else if (std::is_same<ReassociativeReshapeOp,
-                            memref::CollapseShapeOp>()) {
-      copyDestArg = rewriter.create<memref::ExpandShapeOp>(
-          reassociativeReshapeOp.getLoc(),
-          reassociativeReshapeOp->getOperand(0).getType(), copyDestArg,
-          reassociativeReshapeOp.getReassociation());
-    } else {
-      return failure();
-    }
-
-    return success();
+  bool invertOp(PatternRewriter &b, memref::CollapseShapeOp &op,
+                Value &chainVal) const {
+    chainVal = b.create<memref::ExpandShapeOp>(
+          op.getLoc(),
+          op.getOperand().getType(), chainVal,
+          op.getReassociation());
+    return true;
+  }
+  bool invertOp(PatternRewriter &b, memref::ExpandShapeOp &op,
+                Value &chainVal) const {
+    chainVal = b.create<memref::CollapseShapeOp>(
+          op.getLoc(),
+          op.getOperand().getType(), chainVal,
+          op.getReassociation());
+    return true;
   }
 
+  bool invertOp(PatternRewriter &b, rock::TransformOp &op,
+                Value &chainVal) const {
+    auto transformMap = rock::invertTransformMap(b, op.getTransform());
+    if (!transformMap)
+      return false;
+
+    chainVal = b.create<rock::TransformOp>(op.getLoc(), chainVal, transformMap);
+    return true;
+  }
+
+  template <int T = 0>
+  bool invertChain(PatternRewriter &b, Operation *op, Value& chainVal) const {
+    return false;
+  }
+
+  template <typename T, typename... TArgs>
+  bool invertChain(PatternRewriter &b, Operation *op, Value& chainVal) const {
+    if (auto wop = dyn_cast<T>(op))
+      return invertOp(b, wop, chainVal);
+    return invertChain<TArgs...>(b, op, chainVal);
+  }
+
+  /////////////////////////////////////////////////////////////////////
+  // matchAndRewrite
   LogicalResult matchAndRewrite(memref::AllocOp op,
                                 PatternRewriter &b) const override {
     LogicalResult fail = failure();
@@ -143,79 +196,45 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
 
     // 1. Capture allocation->copy pattern
     Operation *writer = nullptr;
-    memref::CopyOp copyDest;
-    Value copyDestArg;
+    SmallVector<Operation*> forwardChain;
+
     for (auto &use : allocaMem.getUses()) {
       Operation *useOp = use.getOwner();
-      if (auto laop = dyn_cast<linalg::GenericOp>(useOp)) {
-        // 1.0 Output of linalg.generic
+      if (getWriter<linalg::GenericOp, rock::RockGemmWrapperInterface,
+          rock::TransformOp, CallOpInterface>(useOp, allocaMem)) {
         if (writer)
           return fail;
-        for (auto out : laop.outputs()) {
-          if (out == allocaMem)
-            writer = laop;
-        }
-        if (!writer)
-          return fail;
-      } else if (auto mrop = dyn_cast<rock::RockGemmWrapperInterface>(useOp)) {
-        // 1.1 Direct output of a gemm-wrapping operation (mainly gemm itself,
-        // which doesn't get transform()s after it)
-        if (writer)
-          return fail;
-        if (mrop.getOutArgument()->get() != allocaMem) {
-          LLVM_DEBUG(
-              llvm::dbgs()
-              << "Allocation argument isn't in output position on gemm-like op"
-              << mrop << "\n");
-          return fail;
-        }
-        writer = mrop;
-      } else if (auto mrop = dyn_cast<rock::TransformOp>(useOp)) {
-        // 1.2 Input of rock.transform
-        if (writer)
-          return fail;
-        rock::TransformOp originalMrop = mrop;
-        Value mrval = mrop.getResult();
-        // Dig through chains of transposes
-        while (mrval.hasOneUse() && (mrop = dyn_cast_or_null<rock::TransformOp>(
-                                         mrval.getUses().begin()->getOwner())))
-          mrval = mrop.getResult();
-        // 1.2.0 Confirm output of a gemm-like operation
-        int cnt = 0;
-        for (auto &mruse : mrval.getUses()) {
-          if (auto gemmLike =
-                  dyn_cast<rock::RockGemmWrapperInterface>(mruse.getOwner())) {
-            LLVM_DEBUG(llvm::dbgs()
-                       << "Found gemm-like op " << gemmLike << "\n");
-            if (gemmLike.getOutArgument()->get() != mrval)
-              return fail;
-          }
-          cnt++;
-        }
-        if (cnt != 1)
-          return fail;
-        writer = originalMrop;
-      } else if (auto callop = dyn_cast<CallOpInterface>(useOp)) {
-        // 1.3 Assume call is the writer (fails for multiple calls)
-        if (writer)
-          return fail;
-        writer = callop;
+        writer = useOp;
       } else {
         // The remaining uses of the allocate node should lead to
         // a copy node that copies the data to destination passing-style
         // argument, if not fail the pass.
-        if (findCopyDestArg(b, useOp, copyDestArg, copyDest).failed()) {
+        if (!forwardChain.empty())
           return fail;
-        }
+        if (!getForwardChain<memref::ExpandShapeOp, memref::CollapseShapeOp,
+            rock::TransformOp>(useOp, forwardChain))
+          return fail;
       }
     }
-    LLVM_DEBUG(llvm::dbgs() << "Found copy dest arg = " << copyDestArg
+    LLVM_DEBUG(llvm::dbgs() << "Found copy chain = " << forwardChain.size()
                             << " and writer " << writer << "\n");
     // 2. do it
-    if (copyDestArg && writer) {
-      if (copyDest)
-        copyDest->erase();
-      allocaMem.replaceAllUsesWith(copyDestArg);
+    if (writer) {
+
+      // 2.0. reverse forwardChain
+      auto copyOp = dyn_cast<memref::CopyOp>(forwardChain.back());
+      Value chainVal = copyOp.getTarget();
+      forwardChain.pop_back();
+      
+      for (auto op : llvm::reverse(forwardChain)) {
+        if (!invertChain<memref::ExpandShapeOp, memref::CollapseShapeOp,
+            rock::TransformOp>(b, op, chainVal))
+          return fail;
+      }
+      
+      // 2.1. replace mem with copy dest
+      copyOp->erase();
+      allocaMem.replaceAllUsesWith(chainVal);
       return success();
     }
 
