@@ -1185,7 +1185,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t nRepeats = mfmaGroup.getNRepeats();
     auto imms = mfmaGroup.getImms();
 
-    int64_t nResultVectors = imms.size();
+    int64_t nResultVectors = imms.size() * mRepeats * nRepeats;
     int64_t mPerRepeat = mPerWave / mRepeats;
     int64_t nPerRepeat = nPerWave / nRepeats;
 

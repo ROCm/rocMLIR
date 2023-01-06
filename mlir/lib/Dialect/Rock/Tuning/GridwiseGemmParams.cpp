@@ -324,7 +324,7 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   } else {
     // clang-format off
     validWaveGemmSize = {
-      // std::make_tuple(128, 128, 1),
+      std::make_tuple(128, 128, 1),
       std::make_tuple(128, 64, 1),
       // std::make_tuple(128, 32, 1),
       // std::make_tuple(128, 16, 1),

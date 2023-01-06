@@ -564,8 +564,7 @@ struct BlockwiseGemmV2RewritePattern
     // Workload of either mPerWave and nPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
-    maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
+    maybeMfmaInsnGroup = MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }

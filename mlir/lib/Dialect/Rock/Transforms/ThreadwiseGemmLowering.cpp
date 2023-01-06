@@ -200,7 +200,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     }
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
+        MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
