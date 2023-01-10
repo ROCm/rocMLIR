@@ -346,10 +346,10 @@ public:
         // support when batchB dimension is broadcast
         if (rankB == 3 && orgDimsB[0] == 1) {
           // modify [g, m, k, n] to [1, g*m, k, n]
-          batchSizeA = 1;
-          batchSizeC = 1;
           orgDimsA[rankA - 2] *= batchSizeA;
           orgOutDims[outRank - 2] *= batchSizeC;
+          batchSizeA = 1;
+          batchSizeC = 1;
         } else {
           // currently not supporting the other case, broadcast A could be
           // supported with an additional transpose.
