@@ -41,7 +41,7 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
                                mlir::Location loc, Type elemType,
-                               Args &&... args) {
+                               Args &&...args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -324,13 +324,36 @@ public:
     if (outRank != 3) { // A, B, Out have the same rank. rank=2 assumes batch=1
       ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
       ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
-      int64_t batchSize = 1;
+      size_t rankA = orgDimsA.size();
+      size_t rankB = orgDimsB.size();
+      int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
       for (size_t i = 0; i < outRank - 2; i++) {
-        batchSize *= orgOutDims[i];
+        batchSizeC *= orgOutDims[i];
       }
-      int64_t newDimsA[3] = {batchSize, orgDimsA[outRank - 2],
+      for (size_t i = 0; i < rankA - 2; i++) {
+        batchSizeA *= orgDimsA[i];
+      }
+      for (size_t i = 0; i < rankB - 2; i++) {
+        batchSizeB *= orgDimsB[i];
+      }
+
+      if (batchSizeA != batchSizeB) {
+        // support when batchB dimension is broadcast
+        if (RankB == 3 && orgDimsB[0] == 1) {
+          // modify [g, m, k, n] to [1, g*m, k, n]
+          batchSizeA = 1;
+          batchSize = 1;
+          orgDimsA[rankA - 2] *= batchSizeA;
+          orgOutDims[outRank - 2] *= batchSize;
+        } else {
+          // currently not supporting the other case, broadcast A could be
+          // supported with an additional transpose.
+          return failure();
+        }
+      }
+      int64_t newDimsA[3] = {batchSizeA, orgDimsA[outRank - 2],
                              orgDimsA[outRank - 1]};
-      int64_t newDimsB[3] = {batchSize, orgDimsB[outRank - 2],
+      int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
                              orgDimsB[outRank - 1]};
       int64_t newDimsOut[3] = {batchSize, orgOutDims[outRank - 2],
                                orgOutDims[outRank - 1]};
