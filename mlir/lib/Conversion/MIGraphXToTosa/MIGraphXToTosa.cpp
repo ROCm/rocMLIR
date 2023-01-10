@@ -342,26 +342,26 @@ public:
         batchSizeB *= orgDimsB[i];
       }
 
-      if (batchSizeA != batchSizeB) {
-        // support when batchB dimension is broadcast
-        if (rankB == 3 && orgDimsB[0] == 1) {
-          // modify [g, m, k, n] to [1, g*m, k, n]
-          orgDimsA[rankA - 2] *= batchSizeA;
-          orgOutDims[outRank - 2] *= batchSizeC;
-          batchSizeA = 1;
-          batchSizeC = 1;
-        } else {
-          // currently not supporting the other case, broadcast A could be
-          // supported with an additional transpose.
-          return failure();
-        }
-      }
       int64_t newDimsA[3] = {batchSizeA, orgDimsA[outRank - 2],
                              orgDimsA[outRank - 1]};
       int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
                              orgDimsB[outRank - 1]};
       int64_t newDimsOut[3] = {batchSizeC, orgOutDims[outRank - 2],
                                orgOutDims[outRank - 1]};
+      if (batchSizeA != batchSizeB) {
+        // support when batchB dimension is broadcast
+        if (rankB == 3 && orgDimsB[0] == 1) {
+          // modify [g, m, k, n] to [1, g*m, k, n]
+          newDimsA[0] = 1;
+          newDimsA[1] *= batchSizeA;
+          newDimsOut[0] = 1;
+          newDimsOut[1] *= batchSizeC;
+        } else {
+          // currently not supporting the other case, broadcast A could be
+          // supported with an additional transpose.
+          return failure();
+        }
+      }
       RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
       RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
       newOutType = RankedTensorType::get(newDimsOut, elementTy);
