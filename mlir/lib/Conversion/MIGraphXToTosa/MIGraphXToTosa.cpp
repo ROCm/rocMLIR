@@ -383,7 +383,8 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       mop->setAttr("perf_config", attr);
 
-    if (outRank != 3) {
+    if (outRank != 3 || rankA != rankB ||
+        (outRank == 3 && orgDimsA != orgDimsB)) {
       auto rop = rewriter.create<tosa::ReshapeOp>(
           loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));
       rewriter.replaceOp(op, {rop});
