@@ -339,12 +339,12 @@ public:
 
       if (batchSizeA != batchSizeB) {
         // support when batchB dimension is broadcast
-        if (RankB == 3 && orgDimsB[0] == 1) {
+        if (rankB == 3 && orgDimsB[0] == 1) {
           // modify [g, m, k, n] to [1, g*m, k, n]
           batchSizeA = 1;
-          batchSize = 1;
+          batchSizeC = 1;
           orgDimsA[rankA - 2] *= batchSizeA;
-          orgOutDims[outRank - 2] *= batchSize;
+          orgOutDims[outRank - 2] *= batchSizeC;
         } else {
           // currently not supporting the other case, broadcast A could be
           // supported with an additional transpose.
@@ -355,7 +355,7 @@ public:
                              orgDimsA[outRank - 1]};
       int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
                              orgDimsB[outRank - 1]};
-      int64_t newDimsOut[3] = {batchSize, orgOutDims[outRank - 2],
+      int64_t newDimsOut[3] = {batchSizeC, orgOutDims[outRank - 2],
                                orgOutDims[outRank - 1]};
       RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
       RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
