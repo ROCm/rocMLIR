@@ -1514,6 +1514,33 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                      SetIntRangeFn setResultRanges) {
   setResultRanges(getResult(), getIdRange("block_size", getOperation()));
 }
+
+//===-----------------------------------------------------===//
+// ReduceSumOp
+//===-----------------------------------------------------===//
+
+LogicalResult ReduceOp::verify() {
+  ReduceOp &op = *this;
+  auto axis = op.getAxis();
+  auto inpShape = op.getIn().getType().cast<ShapedType>().getShape();
+  for (const auto &dimAndSize :
+       llvm::enumerate(op.getOut().getType().cast<ShapedType>().getShape())) {
+    auto dim = dimAndSize.index();
+    auto dimSize = dimAndSize.value();
+    if (dim == axis) {
+      if (dimSize != 1) {
+        return op.emitError("The size of the reduction dimension should be 1.");
+      }
+    } else {
+      if (dimSize != inpShape[dim]) {
+        return op.emitError(
+            "The size of the non-reduction dimension should match the input.");
+      }
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//

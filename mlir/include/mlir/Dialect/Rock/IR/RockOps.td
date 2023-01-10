@@ -50,6 +50,12 @@ class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
              /*summary=*/"",
              "::mlir::ShapedType">;
 
+class TensorOrMemRefOf<list<Type> allowedTypes> :
+  AnyTypeOf<[TensorOf<allowedTypes>,
+             MemRefOf<allowedTypes>],
+             /*summary=*/"Constraints the type to be either a Tensor or MemRef of certain types of elements.",
+             "::mlir::ShapedType">;
+
 class I32ArrayLength<int n> : ConfinedAttr<I32ArrayAttr, [ArrayCount<n>]>;
 
 class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
@@ -165,6 +171,30 @@ def Rock_GemmOp :
     (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
     `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
+  }];
+}
+
+
+def Rock_ReduceOp :
+  Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
+  Arguments<(ins
+    Arg<TensorOrMemRefOf<[F32]>, "input", [MemRead]>:$in,
+    Arg<TensorOrMemRefOf<[F32]>, "output", [MemRead, MemWrite]>:$out,
+    ReduceMethodAttr:$reduceMethod,
+    IndexAttr:$axis,
+    I32Attr:$blockSize,
+    I32Attr:$gridSize,
+    UnitAttr:$useLDS,
+    UnitAttr:$useDPP
+  )>,
+  Results<(outs Optional<TensorOf<[F32]>>:$result)> {
+  let summary = "Axes-wide reduction operation";
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $reduceMethod $in `into` $out attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
+  }];
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
   }];
 }
 
