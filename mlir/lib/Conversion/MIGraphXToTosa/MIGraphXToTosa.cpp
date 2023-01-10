@@ -320,14 +320,17 @@ public:
     SmallVector<int64_t, 5> orgOutDims(outputTy.getShape());
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
+    SmallVector<int64_t, 5> orgDimsA(
+        in_A.getType().cast<ShapedType>().getShape());
+    SmallVector<int64_t, 5> orgDimsB(
+        in_B.getType().cast<ShapedType>().getShape());
+    size_t rankA = orgDimsA.size();
+    size_t rankB = orgDimsB.size();
 
-    if (outRank != 3) { // A, B, Out have the same rank. rank=2 assumes batch=1
-      SmallVector<int64_t, 5> orgDimsA(
-          in_A.getType().cast<ShapedType>().getShape());
-      SmallVector<int64_t, 5> orgDimsB(
-          in_B.getType().cast<ShapedType>().getShape());
-      size_t rankA = orgDimsA.size();
-      size_t rankB = orgDimsB.size();
+    // A, B, Out have the same rank. rank=2 assumes batch=1.
+    // Here handling special cases.
+    if (outRank != 3 || rankA != rankB ||
+        (outRank == 3 && orgDimsA != orgDimsB)) {
       int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
       for (size_t i = 0; i < outRank - 2; i++) {
         batchSizeC *= orgOutDims[i];
