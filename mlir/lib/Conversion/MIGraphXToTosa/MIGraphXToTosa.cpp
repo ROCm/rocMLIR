@@ -317,13 +317,15 @@ public:
 
     // check batch dimension. Tosa matmul only allow a single dimension for it,
     // add reshape ops to flatten and restore the original dimension.
-    ArrayRef<int64_t> orgOutDims = outputTy.getShape();
+    SmallVector<int64_t, 5> orgOutDims = outputTy.getShape();
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
 
     if (outRank != 3) { // A, B, Out have the same rank. rank=2 assumes batch=1
-      SmallVector orgDimsA(in_A.getType().cast<ShapedType>().getShape());
-      SmallVector orgDimsB(in_B.getType().cast<ShapedType>().getShape());
+      SmallVector<int64_t, 5> orgDimsA(
+          in_A.getType().cast<ShapedType>().getShape());
+      SmallVector<int64_t, 5> orgDimsB(
+          in_B.getType().cast<ShapedType>().getShape());
       size_t rankA = orgDimsA.size();
       size_t rankB = orgDimsB.size();
       int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
