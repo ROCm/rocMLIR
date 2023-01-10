@@ -322,8 +322,8 @@ public:
     size_t outRank = orgOutDims.size();
 
     if (outRank != 3) { // A, B, Out have the same rank. rank=2 assumes batch=1
-      ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
-      ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
+      SmallVector orgDimsA(in_A.getType().cast<ShapedType>().getShape());
+      SmallVector orgDimsB(in_B.getType().cast<ShapedType>().getShape());
       size_t rankA = orgDimsA.size();
       size_t rankB = orgDimsB.size();
       int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
