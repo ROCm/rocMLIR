@@ -317,7 +317,7 @@ public:
 
     // check batch dimension. Tosa matmul only allow a single dimension for it,
     // add reshape ops to flatten and restore the original dimension.
-    SmallVector<int64_t, 5> orgOutDims = outputTy.getShape();
+    SmallVector<int64_t, 5> orgOutDims(outputTy.getShape());
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
 
