@@ -186,13 +186,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
-    // Workload of either mPerWave and nPerWave that are larger
-    // than wave size of 64 will be executed by repeats
-    // TODO: amend this for tuning parameter selection as well
-    int64_t waveSize = 64;
-    int64_t MPerXdlops = (mPerWave > waveSize) ? waveSize : mPerWave;
-    int64_t NPerXdlops = (nPerWave > waveSize) ? waveSize : nPerWave;
-
     auto dataType =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
     if (dataType.isa<VectorType>()) {

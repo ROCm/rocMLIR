@@ -396,8 +396,8 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
                           << "nPerWave: " << nPerWave << "\n");
 
   // Use 64x64 as base unit in large waves
-  int64_t mPerMfmaGroup = (mPerWave > 64) ? 64 : mPerWave;
-  int64_t nPerMfmaGroup = (nPerWave > 64) ? 64 : nPerWave;
+  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
+  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
 
   MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
                                 nPerMfmaGroup};
@@ -434,6 +434,10 @@ MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
 int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
 
 int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
+
+int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
+  return (lenPerWave > 64) ? 64 : lenPerWave;
+}
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
 
