@@ -156,8 +156,17 @@ LogicalResult
 foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
                      Value &rootOp,
                      SmallVectorImpl<Operation *> &toBeErasedViewLikeOps) {
-  if (memref::CollapseShapeOp collapseOp =
-          op.getDefiningOp<memref::CollapseShapeOp>()) {
+  if (auto transformOp = op.getDefiningOp<rock::TransformOp>()) {
+    auto transformMap = transformOp->getAttrOfType<TransformMapAttr>("transform");
+    //transformMap = rock::invertTransformMap(rewriter, transformMap);
+    //if (transformMap) {
+      auto representativeMap = transformMap.getMap().getValue();
+      foldedMap = representativeMap.compose(foldedMap);
+      toBeErasedViewLikeOps.push_back(transformOp);
+      return foldViewLikeOperands(rewriter, transformOp.getInput(), foldedMap,
+                                  rootOp, toBeErasedViewLikeOps);
+      //}
+  } else if (auto collapseOp = op.getDefiningOp<memref::CollapseShapeOp>()) {
     SmallVector<ReassociationIndices, 4U> reassociationIndices =
         collapseOp.getReassociationIndices();
     MemRefType lowerRankType = collapseOp.getType();
