@@ -116,6 +116,15 @@ TunableParams *createTunableParamSpace(ModuleOp &mod) {
   return newSpace;
 }
 
+bool tuningGetParam(TunableParams *tuningSpace, int pos,
+                    ParamEntry *paramEntry) {
+  // out of bound check.
+  if (pos < 0 || (unsigned int)pos > tuningSpace->tuningRange.size() - 1)
+    return false;
+  paramEntry->param = tuningSpace->tuningRange[pos];
+  return true;
+}
+
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {

@@ -35,6 +35,8 @@ struct TunableParams {
 };
 
 TunableParams *createTunableParamSpace(ModuleOp &mod);
+bool tuningGetParam(TunableParams *tuningSpace, int pos,
+                    ParamEntry *paramEntry);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 

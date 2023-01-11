@@ -64,11 +64,7 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
                             MlirRockTuningParam param) {
   auto tuningSpace = unwrap(params);
   auto paramEntry = unwrap(param);
-  // out of bound check.
-  if (pos < 0 || (unsigned int)pos > tuningSpace->tuningRange.size() - 1)
-    return false;
-  paramEntry->param = tuningSpace->tuningRange[pos];
-  return true;
+  return rock::tuningGetParam(tuningSpace, pos, paramEntry);
 }
 
 MLIR_CAPI_EXPORTED
