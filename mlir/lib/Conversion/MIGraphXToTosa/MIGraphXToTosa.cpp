@@ -317,13 +317,11 @@ public:
 
     // check batch dimension. Tosa matmul only allow a single dimension for it,
     // add reshape ops to flatten and restore the original dimension.
-    SmallVector<int64_t, 5> orgOutDims(outputTy.getShape());
+    ArrayRef<int64_t> orgOutDims = outputTy.getShape();
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
-    SmallVector<int64_t, 5> orgDimsA(
-        in_A.getType().cast<ShapedType>().getShape());
-    SmallVector<int64_t, 5> orgDimsB(
-        in_B.getType().cast<ShapedType>().getShape());
+    ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
+    ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
     size_t rankA = orgDimsA.size();
     size_t rankB = orgDimsB.size();
 
@@ -359,7 +357,7 @@ public:
         } else {
           // currently not supporting the other case, broadcast A could be
           // supported with an additional transpose.
-          return failure();
+          return op->emitError("tosa.matmul can't broadcast input.");
         }
       }
       RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
