@@ -1344,6 +1344,25 @@ LogicalResult InBoundsStoreOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// ThreadwiseWriteAllOp
+//===-----------------------------------------------------===//
+LogicalResult ThreadwiseWriteAllOp::verify() {
+  MemRefType sourceType = getSource().getType();
+  if (sourceType.getMemorySpaceAsInt() != 5)
+    return emitOpError("source must be private registers");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getDest().getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+
+  if (inputShape.size() != 3)
+    return emitOpError("input must accept (bid, tid, iter) coordinates");
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
