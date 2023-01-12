@@ -447,7 +447,7 @@ struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
     // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} : (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
     //    - inpShape = [1, 12, 384]
     //    - outShape = [1, 12, 12, 32]
-    SmallVector<SmallVector<uint32_t>> merges;
+    SmallVector<SmallVector<uint32_t>> merges(inpShape.size(), {});
     collectMatches(inpShape, outShape, merges);
 
     rock::BottomUpTMBuilder transform(b, inpShape, rop.getLoc());
