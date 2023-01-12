@@ -35,6 +35,8 @@ struct TunableParams {
 };
 
 TunableParams *createTunableParamSpace(ModuleOp &mod);
+bool tuningGetParam(TunableParams *tuningSpace, int pos,
+                    ParamEntry *paramEntry);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
@@ -46,7 +48,7 @@ struct TuningTable {
 TuningTable *tuningTableCreate();
 size_t getTuningHash(ModuleOp &mod);
 std::string getTuningProblemStr(ModuleOp &mod);
-bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
+bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod);
 

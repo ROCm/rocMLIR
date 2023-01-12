@@ -116,6 +116,15 @@ TunableParams *createTunableParamSpace(ModuleOp &mod) {
   return newSpace;
 }
 
+bool tuningGetParam(TunableParams *tuningSpace, int pos,
+                    ParamEntry *paramEntry) {
+  // out of bound check.
+  if (pos < 0 || (unsigned int)pos > tuningSpace->tuningRange.size() - 1)
+    return false;
+  paramEntry->param = tuningSpace->tuningRange[pos];
+  return true;
+}
+
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
@@ -185,21 +194,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   default: // Unknown op type?
     return std::string();
   }
-
-  // Data type
-  problemOS << "-t ";
-  Type elemType = gemmIF.getInputType();
-  if (elemType.isF32()) {
-    problemOS << "f32";
-  } else if (elemType.isF16()) {
-    problemOS << "f16";
-  } else if (elemType.isInteger(8)) {
-    problemOS << "i8";
-  } else {
-    // Unknown data type
-    return std::string();
-  }
-  problemOS << sep;
 
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases
@@ -319,12 +313,25 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     return std::string();
   }
 
+  // Data type
+  problemOS << "-t ";
+  Type elemType = gemmIF.getInputType();
+  if (elemType.isF32()) {
+    problemOS << "f32";
+  } else if (elemType.isF16()) {
+    problemOS << "f16";
+  } else if (elemType.isInteger(8)) {
+    problemOS << "i8";
+  } else {
+    // Unknown data type
+    return std::string();
+  }
+
   return problemStr;
 }
 
-bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
+bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
                        std::string perfConfig, float time) {
-  std::string problem = getTuningProblemStr(mod);
   if (problem.empty())
     return false;
   auto search = perfTable->tuningMap.find(problem);
