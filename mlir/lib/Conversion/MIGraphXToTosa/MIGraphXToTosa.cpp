@@ -348,7 +348,7 @@ public:
                                orgOutDims[outRank - 1]};
       if (batchSizeA != batchSizeB) {
         // support when batchB dimension is broadcast
-        if (rankB == 3 && orgDimsB[0] == 1) {
+        if (batchSizeB == 1) {
           // modify [g, m, k, n] to [1, g*m, k, n]
           newDimsA[0] = 1;
           newDimsA[1] *= batchSizeA;
