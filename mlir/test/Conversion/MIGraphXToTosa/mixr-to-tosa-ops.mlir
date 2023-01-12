@@ -34,6 +34,18 @@ module  {
     return %2 : tensor<64x64x2304xf16>
   }
 
+  // CHECK-LABEL: func.func @matmul_broadcast_R5
+  func.func @matmul_broadcast_R5(%arg0: tensor<2x4x8x64x2304xf16>, %arg1: tensor<2x4x8x64x768xf16>, %arg2: tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x64x2304xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [1, 1, 64, 768, 2304]} : (tensor<1x1x1x768x2304xf16>) -> tensor<1x1x64x768x2304xf16>
+    // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) {new_shape = [1, 4096, 768]}
+    // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%arg2) {new_shape = [1, 768, 2304]}
+    %1 = migraphx.dot(%arg1, %0) : tensor<2x4x8x64x768xf16>, tensor<1x1x64x768x2304xf16> -> tensor<2x4x8x64x2304xf16>
+    // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
+    // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) {new_shape = [2, 4, 8, 64, 2304]}
+    %2 = migraphx.add(%1, %arg0) : (tensor<2x4x8x64x2304xf16>, tensor<2x4x8x64x2304xf16>) -> tensor<2x4x8x64x2304xf16>
+    return %2 : tensor<2x4x8x64x2304xf16>
+  }
+
   // CHECK-LABEL: func.func @func_power
   // CHECK: tosa.pow
   func.func @func_power(%arg0: tensor<16xf32>, %arg1: tensor<16xf32>) -> tensor<16xf32> {
