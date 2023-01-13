@@ -37,6 +37,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -812,14 +813,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
-    TopDownTMBuilder toRegisterC(b, {"bid", "tid", "iter"},
-                                 {gridSize, blockSize, threadCNumRegisters},
-                                 loc);
-    toRegisterC.ignore("bid");
-    toRegisterC.ignore("tid");
-    toRegisterC.passThrough({"iter"}, {0}, {"iter"});
-    TransformMapAttr toRegisterCAttr = toRegisterC.get();
-
     Value registerC = registerMatrixCAllocOp;
     // If we need to type-convert the accumulator (currently this is only
     // fp32->f16) then we must do so before the writeback loop in which fusion
@@ -848,37 +841,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     ArrayAttr idToMatrixCMaps =
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
-    Value tensorC;
-    ArrayAttr idToTensorCMaps;
-    std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.getC(), idToMatrixCMaps);
-    auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
-    ArrayRef<int64_t> tensorCShape =
-        tensorC.getType().cast<MemRefType>().getShape();
-    int64_t tensorCDataPerCopy = getMaxVectorization(
-        idToTensorCMaps, /*dim=*/2, threadCNumRegisters, tensorCShape);
-
-    SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
-
-    auto outLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
-        ArrayRef<Attribute>{b.getArrayAttr({toRegisterCAttr}), idToTensorCMaps},
-        ArrayRef<int64_t>{1, 1, threadCNumRegisters},
-        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(outLoop.getBody());
-      b.create<GlobalStoreOp>(
-          loc, registerC, tensorC,
-          /*length=*/b.getIndexAttr(tensorCDataPerCopy),
-          StoreMethodAttr::get(op.getContext(), StoreMethod::Set),
-          std::get<0>(writeOobDims), std::get<1>(writeOobDims),
-          outLoop.getLowerCoords(/*domain=*/0)[0],
-          outLoop.getLowerCoords(/*domain=*/1));
-    }
-
+    b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
+                                   StoreMethod::Set,
+                                   /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
 
     return success();
@@ -1397,6 +1363,11 @@ struct GridwiseGemmV2RewritePattern
 
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(
         {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+    // We compute the full map chain here in order to determine if we should
+    // apply swizzles. The final vectorization computation for the store loop
+    // will happen later. However, between now and then, the sequence of maps
+    // from the matrix output to the underlying buffer must not change, but the
+    // nature of said buffer can.
     Value tensorC;
     ArrayAttr idToTensorCMaps;
     std::tie(tensorC, idToTensorCMaps) =
@@ -1436,20 +1407,9 @@ struct GridwiseGemmV2RewritePattern
 
       SmallVector<Attribute, 8> newTransforms = {indexSplitAttr,
                                                  indexCombineAttr};
-      llvm::copy(idToTensorCMaps, std::back_inserter(newTransforms));
-      idToTensorCMaps = b.getArrayAttr(newTransforms);
+      llvm::copy(idToMatrixCMaps, std::back_inserter(newTransforms));
+      idToMatrixCMaps = b.getArrayAttr(newTransforms);
     }
-
-    // Make the vector slice starting point jump in units of the vectorization.
-    TopDownTMBuilder correctVectorCoords(
-        b, {"bid", "tid", "item"}, {gridSize, blockSize, numElements}, loc);
-    correctVectorCoords.ignore("bid");
-    correctVectorCoords.ignore("tid");
-    correctVectorCoords.passThrough({"index"}, {0}, {"item"});
-    TransformMapAttr correctVectorCoordsAttr = correctVectorCoords.get();
-
-    // Having set up the maps from [block, thread, i] space to gemm space,
-    // do all the prep work to make the copy loop correct.
 
     // Emit vector swizzles if applicable
     SmallVector<Value, 4> transformedTail;
@@ -1506,33 +1466,75 @@ struct GridwiseGemmV2RewritePattern
     }
     registerC = convertedC;
 
-    auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
-
-    SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
-
-    auto outLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
-        ArrayRef<Attribute>{b.getArrayAttr({correctVectorCoordsAttr}),
-                            idToTensorCMaps},
-        ArrayRef<int64_t>{1, 1, numElements},
-        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy}, forceUnroll,
-        /*useIndexDiffs=*/useIndexDiffs);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(outLoop.getBody());
-      b.create<GlobalStoreOp>(
-          loc, registerC, tensorC, b.getIndexAttr(tensorCDataPerCopy),
-          op.getStoreMethodAttr(), std::get<0>(writeOobDims),
-          std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
-          outLoop.getLowerCoords(/*domain=*/1));
-    }
-
+    b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
+                                   op.getStoreMethod(), forceUnroll,
+                                   useIndexDiffs);
     b.eraseOp(op);
     return success();
   }
 };
 
 } // end anonymous namespace
+
+/// FIXME: This rewrite should be after fusion. However, since the fusion
+/// refactor hasn't landed yet and since we need to preserve the structure of
+/// the existing fusion code, put the threadwise_write_all expander here.
+namespace {
+struct ThreadwiseWriteAllRewritePattern
+    : public OpConversionPattern<ThreadwiseWriteAllOp> {
+  using OpConversionPattern<ThreadwiseWriteAllOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+} // end anonymous namespace
+
+LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
+    ThreadwiseWriteAllOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  TypedValue<MemRefType> source = adaptor.getSource();
+  TypedValue<MemRefType> destView = adaptor.getDest();
+
+  auto [buffer, transforms] = untransform(b, destView, op.getExtraViews());
+
+  int64_t numValues = source.getType().getNumElements();
+  ArrayRef<int64_t> bufferShape =
+      buffer.getType().cast<ShapedType>().getShape();
+
+  // We are vectorizing in the iter dimension, not block ID or thread ID
+  int64_t vectorLen =
+      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
+                          << "\n");
+  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
+
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  // Constant / consistent arguments
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
+  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+
+  SmallVector<Value, 3> writeStartCoords = {bid, tid, zero};
+
+  auto outLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+      ArrayRef<Attribute>{b.getArrayAttr({}), transforms},
+      ArrayRef<int64_t>{1, 1, numValues}, ArrayRef<int64_t>{1, 1, vectorLen},
+      forceUnroll, useIndexDiffs);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(outLoop.getBody());
+    b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
+                            op.getStoreMethodAttr(), leftOobDims, rightOobDims,
+                            outLoop.getLowerCoords(/*domain=*/0)[2],
+                            outLoop.getLowerCoords(/*domain=*/1));
+  }
+  b.eraseOp(op);
+  return success();
+}
 
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
@@ -1548,6 +1550,16 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
+
+  // FIXME: Move this into a later pass after the fusion refactoring.
+  ConversionTarget writeAllTarget(*ctx);
+  writeAllTarget.addIllegalOp<ThreadwiseWriteAllOp>();
+  writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
+  RewritePatternSet writeAllPatterns(ctx);
+  writeAllPatterns.add<ThreadwiseWriteAllRewritePattern>(ctx);
+  if (failed(applyPartialConversion(getOperation(), writeAllTarget,
+                                    std::move(writeAllPatterns))))
+    signalPassFailure();
 
   OpPassManager cleanupPasses("func.func");
   cleanupPasses.addPass(mlir::createCanonicalizerPass());
