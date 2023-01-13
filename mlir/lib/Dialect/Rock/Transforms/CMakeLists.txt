@@ -5,7 +5,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   BufferLoadMerge.cpp
   BufferizableOpInterfaceImpl.cpp
   CleanMath.cpp
-  CopyOpt.cpp
   ConvToGemm.cpp
   GemmToGridwise.cpp
   RegularizeKernel.cpp

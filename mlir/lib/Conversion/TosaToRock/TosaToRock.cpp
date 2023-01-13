@@ -16,9 +16,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -63,24 +64,11 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
         op, "tosa to rock conversion expects statically shaped tensors");
     return Value();
   }
-  ArrayRef<int64_t> shape = oprType.getShape();
-
-  uint32_t idx = shape.size() - 1;
-  SmallVector<uint32_t, 8> endDims;
-  SmallVector<uint32_t, 8> startDims;
-  for (uint32_t i = 0, e = shape.size() - 1; i < e; ++i) {
-    startDims.push_back(i);
-    endDims.push_back(i);
-  }
-  rock::BottomUpTMBuilder transform(rw, shape, loc);
-  transform.passThrough(endDims, startDims);
-  SmallVector<uint32_t> mergeDims{idx, idx + 1};
-  SmallVector<int64_t> mergeSizes{shape[idx], 1};
-  SmallVector<StringRef> mergeNameRefs{"exp0", "exp1"};
-  transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx),
-                    mergeSizes);
-
-  return rw.create<rock::TransformOp>(loc, operand, transform.get());
+  ArrayRef<int64_t> inpShape = oprType.getShape();
+  SmallVector<int64_t> outShape(inpShape);
+  outShape.push_back(1);
+  auto transform = rock::transformExpandShape(rw, inpShape, outShape);
+  return rw.create<rock::TransformOp>(loc, operand, transform);
 }
 
 static std::tuple<StringAttr, Optional<uint32_t>, rock::GemmFeatures>
@@ -363,159 +351,6 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
   using OpRewritePattern<tosa::ReshapeOp>::OpRewritePattern;
 
-  static int64_t lookup(int64_t val, SmallVector<std::tuple<int64_t, uint32_t>, 8> &pairs) {
-    for (auto ii = pairs.begin(); ii != pairs.end(); ++ii) {
-      if (std::get<0>(*ii) == val) {
-        auto idx = std::get<1>(*ii);
-        pairs.erase(ii);
-        return idx;
-      }
-    }
-    return -1;
-  }
-
-  static bool findCombination(int64_t inpSize, SmallVector<std::tuple<int64_t, uint32_t>, 8> &outPairs, uint32_t reqLen,
-                       uint32_t start, uint32_t curLen, bool check[], SmallVector<uint32_t> &mergeDims) {
-    if (curLen > reqLen)
-      return false;
-    else if (curLen == reqLen) {
-      int64_t outSize = 1;
-      for (size_t i = 0; i < outPairs.size(); i++) {
-        if (check[i])
-          outSize *= std::get<0>(outPairs[i]);
-      }
-      if (outSize == inpSize) {
-        for (size_t i = 0; i < outPairs.size(); i++) {
-          if (check[i])
-            mergeDims.push_back(std::get<1>(outPairs[i]));
-        }
-        return true;
-      }
-      return false;
-    }
-    if (start+curLen == mergeDims.size()) {
-      // terminate
-      return false;
-    }
-    check[start] = true;
-    if (findCombination(inpSize, outPairs, reqLen, start + 1, curLen + 1, check, mergeDims))
-      return true;
-    check[start] = false;
-    if (findCombination(inpSize, outPairs, reqLen, start + 1, curLen, check, mergeDims))
-      return true;
-    return false;
-  }
-  
-  static void collectMatches(ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape,
-                             SmallVector<SmallVector<uint32_t>> &merges) {
-    SmallVector<std::tuple<int64_t, uint32_t>, 8> outPairs;
-    for (auto &pair : llvm::enumerate(outShape))
-      outPairs.push_back({pair.value(), pair.index()});
-
-    // 0. find all exact matches
-    for (const auto &pair : llvm::enumerate(inpShape)) {
-      auto inpSize = pair.value();
-      int64_t fidx = lookup(inpSize, outPairs);
-      if (fidx >= 0) {
-        merges[pair.index()] = {fidx};
-      }
-    }
-
-    // 1. look for adjacent matches
-    assert(outPairs.size() <= 8);
-    bool check[8] = {false,};
-    for (const auto &pair : llvm::enumerate(inpShape)) {
-      auto inpIdx = pair.index();
-      if (merges[inpIdx].empty()) {
-        auto inpSize = pair.value();
-        SmallVector<uint32_t> mergeDims;
-        for (uint32_t i = 2; i < outPairs.size(); ++i) {
-          if (findCombination(inpSize, outPairs, i, 0, 0, check, mergeDims))
-            break;
-        }
-        assert(!mergeDims.empty());
-        merges[inpIdx] = mergeDims;
-      }
-    }
-
-    // 2. remove all 1s from outPairs
-    auto oit = outPairs.begin();
-    for (uint32_t i = 0, e = outPairs.size(); i < e; ++i) {
-      if (std::get<0>(*oit) == 1) {
-        uint32_t outIdx = std::get<1>(*oit);
-        uint32_t inpIdx = 0;
-        while (merges[inpIdx].empty())
-          inpIdx++;
-        merges[inpIdx].push_back(outIdx);
-        outPairs.erase(oit);
-      } else
-        ++oit;
-    }
-    assert(outPairs.empty());
-  }
-  
-  static void expandTensor(PatternRewriter &b, tosa::ReshapeOp rop,
-                           ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape) {
-    // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} : (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
-    //    - inpShape = [1, 12, 384]
-    //    - outShape = [1, 12, 12, 32]
-    SmallVector<SmallVector<uint32_t>> merges(inpShape.size(), {});
-    collectMatches(inpShape, outShape, merges);
-
-    rock::BottomUpTMBuilder transform(b, inpShape, rop.getLoc());
-    for (auto idxAndMerge : llvm::enumerate(merges)) {
-      uint32_t idx = idxAndMerge.index();
-      auto mergeDims = idxAndMerge.value();
-      if (mergeDims.size() == 1) {
-        transform.passThrough({mergeDims[0]}, {idx});
-      } else {
-        SmallVector<SmallString<8>> mergeNames;
-        SmallVector<int64_t> mergeSizes;
-        SmallVector<StringRef> mergeNameRefs;
-        for (auto midx : mergeDims) {
-          SmallString<8> mname(Twine("exp" + Twine(midx)).str());
-          mergeNames.push_back(mname);
-          mergeNameRefs.push_back(mergeNames.back());
-          mergeSizes.push_back(outShape[midx]);
-        }
-        transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx), mergeSizes);
-      }
-    }
-
-    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform.get());
-  }
-
-  static void collapseTensor(PatternRewriter &b, tosa::ReshapeOp rop,
-                             ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape) {
-    // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} : (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
-    //    - inpShape = [1, 12, 12, 32]
-    //    - outShape = [12, 12, 32]
-    SmallVector<SmallVector<uint32_t>> merges(outShape.size(), {});
-    collectMatches(outShape, inpShape, merges);
-
-    rock::TopDownTMBuilder transform(b, outShape, rop.getLoc());
-    for (auto idxAndMerge : llvm::enumerate(merges)) {
-      uint32_t idx = idxAndMerge.index();
-      auto mergeDims = idxAndMerge.value();
-      if (mergeDims.size() == 1) {
-        transform.passThrough({mergeDims[0]}, {idx});
-      } else {
-        SmallVector<SmallString<8>> mergeNames;
-        SmallVector<int64_t> mergeSizes;
-        SmallVector<StringRef> mergeNameRefs;
-        for (auto midx : mergeDims) {
-          SmallString<8> mname(Twine("m" + Twine(midx)).str());
-          mergeNames.push_back(mname);
-          mergeNameRefs.push_back(mergeNames.back());
-          mergeSizes.push_back(inpShape[midx]);
-        }
-        transform.merge(mergeNameRefs, mergeDims, transform.startName(idx), mergeSizes);
-      }
-    }
-
-    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform.get());
-  }
-
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
@@ -535,13 +370,13 @@ struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
     ShapedType inpType = inp.getType().template cast<ShapedType>();
     ArrayRef<int64_t> inpShape = inpType.getShape();
 
+    rock::TransformMapAttr transform;
     if (outShape.size() > inpShape.size()) {
-      // Expand
-      expandTensor(b, rop, inpShape, outShape);
-    } else if (outShape.size() < inpShape.size()) {
-      // Collapse
-      collapseTensor(b, rop, inpShape, outShape);
+      transform = rock::transformExpandShape(b, inpShape, outShape);
+    } else {
+      transform = rock::transformCollapseShape(b, inpShape, outShape);
     }
+    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform);
     return success();
   }
 };

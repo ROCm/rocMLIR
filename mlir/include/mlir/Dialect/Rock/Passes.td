@@ -11,7 +11,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockRegularizeKernelPass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> {
+def RockRegularizeKernelPass : Pass<"rock-regularize-kernel", "::mlir::func::FuncOp"> {
   let summary = "fold transposes to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
 }
@@ -50,11 +50,6 @@ def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", ":
 def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
   let summary = "expand linalg ops aligned with threadwise copy";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
-}
-
-def RockCopyOptPass : Pass<"rock-copy-opt", "::mlir::func::FuncOp"> {
-  let summary = "Optimize global tensor allocations";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "gpu::GPUDialect", "memref::MemRefDialect"];
 }
 
 def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {

@@ -1212,8 +1212,9 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
   assert(outPairs.empty());
 }
 
-TransformMapAttr transformExpandShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
-                                      ArrayRef<int64_t> outShape) {
+TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b,
+                                                  ArrayRef<int64_t> inpShape,
+                                                  ArrayRef<int64_t> outShape) {
   // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} :
   // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
   //    - inpShape = [1, 12, 384]
@@ -1245,9 +1246,9 @@ TransformMapAttr transformExpandShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
   return transform.get();
 }
 
-TransformMapAttr transformCollapseShape(OpBuilder &b,
-                                        ArrayRef<int64_t> inpShape,
-                                        ArrayRef<int64_t> outShape) {
+TransformMapAttr
+mlir::rock::transformCollapseShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
+                                   ArrayRef<int64_t> outShape) {
   // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
   // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
   //    - inpShape = [1, 12, 12, 32]
