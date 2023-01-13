@@ -55,7 +55,7 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, uint32_t idx = 4) {
+                          Value operand) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape()) {
@@ -65,15 +65,20 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   }
   ArrayRef<int64_t> shape = oprType.getShape();
 
+  uint32_t idx = shape.size() - 1;
   SmallVector<uint32_t, 8> endDims;
   SmallVector<uint32_t, 8> startDims;
-  for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
+  for (uint32_t i = 0, e = shape.size() - 1; i < e; ++i) {
     startDims.push_back(i);
-    endDims.push_back(i < idx ? i : i + 1);
+    endDims.push_back(i);
   }
   rock::BottomUpTMBuilder transform(rw, shape, loc);
   transform.passThrough(endDims, startDims);
-  transform.addDim("g", idx, 1);
+  SmallVector<uint32_t> mergeDims{idx, idx + 1};
+  SmallVector<int64_t> mergeSizes{shape[idx], 1};
+  SmallVector<StringRef> mergeNameRefs{"exp0", "exp1"};
+  transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx),
+                    mergeSizes);
 
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
@@ -217,8 +222,12 @@ public:
     FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
         rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
         op.getPad(), op.getStride(), op.getDilation());
+
     if (failed(rockConv))
       return failure();
+
+    // disable layout changes since will be transforms
+    (*rockConv)->setAttr("has_relayout_do_not_unfold", rw.getUnitAttr());
 
     Value result = rw.create<rock::TensorUntransformCastOp>(
         loc, outputType, rockConv->getResult(), rockConv->getOutput());
@@ -290,6 +299,9 @@ public:
         rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+
+    // disable layout changes since will be transforms
+    rockGemm->setAttr("has_relayout_do_not_unfold", rw.getUnitAttr());
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       rockGemm->setAttr("perf_config", attr);
@@ -539,9 +551,5 @@ struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter, MatMulConverter>(context);
-}
-
-void tosa::populateTosaToRockTensorConversionPatterns(
-    MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, ReshapeRewritePattern>(context);
 }

@@ -11,7 +11,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockFoldTransposePass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> {
+def RockRegularizeKernelPass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> {
   let summary = "fold transposes to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
 }

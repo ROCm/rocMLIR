@@ -108,7 +108,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // copy opt (cleanup from high-level transforms)
   /* rocmlir-opt --rock-copy-opt
    */
-  pm.addNestedPass<func::FuncOp>(rock::createRockCopyOptPass());
+  // pm.addNestedPass<func::FuncOp>(rock::createRockCopyOptPass());
 }
 
 void rock::buildKernelPipeline(OpPassManager &pm,
@@ -116,9 +116,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   // Pre kernel lowering fixups for patterns that aren't amenable to lawer
   // fusion
   /* rocmlir-opt --rock-fold-transpose */
-  if (options.enableFusion) {
-    pm.addNestedPass<func::FuncOp>(rock::createRockFoldTransposePass());
-  }
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params  --rock-conv-to-gemm
    * --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise
@@ -128,6 +125,10 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                                  options.tuningFallback}));
   pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
+
+  //
+  pm.addNestedPass<func::FuncOp>(rock::createRockRegularizeKernelPass());
+
   pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {

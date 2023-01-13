@@ -7,8 +7,8 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   CleanMath.cpp
   CopyOpt.cpp
   ConvToGemm.cpp
-  FoldTranspose.cpp
   GemmToGridwise.cpp
+  RegularizeKernel.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   LoopsToCf.cpp

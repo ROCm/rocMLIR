@@ -75,6 +75,13 @@ Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
 TransformMapAttr invertTransformMap(OpBuilder &b,
                                     TransformMapAttr originalTransformMap);
 
+TransformMapAttr transformCollapseShape(OpBuilder &b,
+                                        ArrayRef<int64_t> inpShape,
+                                        ArrayRef<int64_t> outShape);
+
+TransformMapAttr transformExpandShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
+                                      ArrayRef<int64_t> outShape);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
