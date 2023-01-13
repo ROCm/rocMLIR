@@ -74,7 +74,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
   mlirOperationSetAttributeByName(
       func, mlirStringRefCreateFromCString("arch"),
-      mlirStringAttrGet(ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
+      mlirStringAttrGet(
+          ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution
@@ -186,9 +187,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     float fakeTime = (float)(i + 1);
     char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
     char *problemKey = strdup(mlirRockTuningGetKey(tuningTable, module));
-    printf("Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
-           problemKey, paramStr, fakeTime);
-    if (!mlirRockTuningUpdateTable(tuningTable, module, paramStr, fakeTime)) {
+    printf(
+        "Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
+        problemKey, paramStr, fakeTime);
+    if (!mlirRockTuningUpdateTable(tuningTable,
+                                   mlirRockTuningGetKey(tuningTable, module),
+                                   paramStr, fakeTime)) {
       printf("fails to update table, maybe existing config is faster\n");
     }
     free(paramStr);
