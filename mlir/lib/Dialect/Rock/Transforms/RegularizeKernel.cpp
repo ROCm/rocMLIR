@@ -114,8 +114,10 @@ LogicalResult ShuffleTransformsUpRewritePattern::applyTransforms(
   SmallVector<TransformMapAttr> transforms;
   while (auto top = dyn_cast<rock::TransformOp>(forwOp)) {
     result = top.getResult();
-    if (!result.hasOneUse())
+    if (!result.hasOneUse()) {
+      assert(0);        // TODO: fix when encountered
       return failure(); // currently restricted to 1 reader
+    }
     auto tmap = rock::invertTransformMap(b, top.getTransform());
     if (!tmap)
       return failure(); // not invertible
@@ -124,7 +126,18 @@ LogicalResult ShuffleTransformsUpRewritePattern::applyTransforms(
   }
   if (transforms.size()) {
     // check forwOp is reader
-    // apply transformation
+    if (auto laop = dyn_cast<linalg::GenericOp>(forwOp)) {
+      if (!llvm::is_contained(laop.getInputs(), result))
+        return failure();
+    } else if (auto mcop = dyn_cast<memref::CopyOp>(forwOp)) {
+      if (mcop.getSource() != result)
+        return failure();
+    } else {
+      assert(0); // TODO: check when encountered
+      return failure();
+    }
+
+    // apply inverse transforms to reader aligned alloc
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPoint(alloc.getDefiningOp());
     Value val = b.create<memref::AllocOp>(forwOp->getLoc(),
