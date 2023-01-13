@@ -373,15 +373,6 @@ struct BlockwiseGemmV2RewritePattern
           "this should never happen");
     }
 
-    // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
-    // FloatA a[KPerThread * mRepeats];
-    // FloatB b[KPerThread * nRepeats];
-    // constexpr index_t KRepeats = KPack / mfma_type.k_base;
-    // auto pa = reinterpret_cast<const data_type*>(&a);
-    // auto pb = reinterpret_cast<const data_type*>(&b);
-    // constexpr index_t AStride = KPerThread * KRepeats;
-    // constexpr index_t BStride = KPerThread * KRepeats;
-
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     constexpr int64_t waveSize = 64;
     auto laneId =
@@ -396,7 +387,6 @@ struct BlockwiseGemmV2RewritePattern
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
-    auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
     auto mPerMfmaGroupConstantOp =
         b.create<ConstantIndexOp>(loc, mPerMfmaGroup);
@@ -412,163 +402,183 @@ struct BlockwiseGemmV2RewritePattern
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
+    auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
+    auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
+                                                        b.getListener());
+    auto olmiv = outerLoopM.getInductionVar();
+    auto mOffset = olmb.create<AddIOp>(
+        loc, aBase, olmb.create<MulIOp>(loc, mPerMfmaGroupConstantOp, olmiv));
+
+    auto outerLoopN = olmb.create<AffineForOp>(loc, 0, nRepeats);
+    auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
+                                                        b.getListener());
+    auto olniv = outerLoopN.getInductionVar();
+    auto nOffset = olnb.create<AddIOp>(
+        loc, bBase, olnb.create<MulIOp>(loc, nPerMfmaGroupConstantOp, olniv));
+
+    auto innerLoopK = olnb.create<AffineForOp>(loc, 0, KPerThread);
+    auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody(),
+                                                        olmb.getListener());
+    auto ilkiv = innerLoopK.getInductionVar();
+
+    Value zeroConstantOp = ilkb.createOrFold<ConstantIndexOp>(loc, 0);
+
+    // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
+    //   for(index_t n_i = 0; n_i < nRepeats; ++n_i)
+    //     for(index_t k_i      = 0; k_i < K; ++k_i)
+
     if (!IsKReduction) {
+      // aOffset = k_i * M + laneId + mPerMfmaGroup * m_i;
+      // bOffset = k_i * N + laneId + mPerMfmaGroup * n_i;
+      // if (kPack == 1) {
+      //   a[0] = p_a_wave[aOffset];
+      //   b[0] = p_a_wave[bOffset];
+      // } else {
+      //   for (index_t i = 0; i < k_base; ++i) {
+      //     aOffset += i * M;
+      //     bOffset += i * N;
+      //     a[i] = p_a_wave[aOffset];
+      //     b[i] = p_a_wave[bOffset];
+      //   }
+      // }
+      // xdlopsgemm(a, b);
+      // p_a_wave need to be offseted by waveOffsetA.
+      // p_b_wave need to be offseted by waveOffsetB.
 
-      // store bufferA logic.
-      // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
-      //   for(index_t k_i      = 0; k_i < K; ++k_i)
-      //     a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + mPerMfmaGroup *
-      //     m_i];
-      // Note: p_a_wave need to be offseted by waveOffsetA.
-
-      auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
-      auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
-                                                          b.getListener());
-      auto olmiv = outerLoopM.getInductionVar();
-      auto mOffset = olmb.create<AddIOp>(
-          loc, aBase, olmb.create<MulIOp>(loc, mPerMfmaGroupConstantOp, olmiv));
-      auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
-
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilmkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopMK.getBody(), olmb.getListener());
-      auto ilmkiv = innerLoopMK.getInductionVar();
-
-      Value sourceOffsetA = ilmkb.create<AddIOp>(
+      Value sourceOffsetA = ilkb.create<AddIOp>(
           loc,
-          ilmkb.create<AddIOp>(
-              loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
+          ilkb.create<AddIOp>(loc, ilkb.create<MulIOp>(loc, ilkiv, MConstantOp),
+                              laneId),
           mOffset);
-
-      if (KPack > 1)
-        sourceOffsetA = ilmkb.create<MulIOp>(
-            loc, sourceOffsetA, ilmkb.create<ConstantIndexOp>(loc, KPack));
-
-      auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
-
-      Value valueA = ilmkb.create<InBoundsLoadOp>(
-          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
-      ilmkb.create<memref::StoreOp>(loc, valueA, bufferA,
-                                    ValueRange{destOffsetA});
-
-      // store bufferB logic.
-      // for(index_t n_i = 0; n_i < nRepeats; ++n_i)
-      //   for(index_t k_i      = 0; k_i < KPerThread; ++k_i)
-      //     b[k_i + n_i * KPerThread] = p_b_wave[k_i * N + laneId +
-      //     nPerMfmaGroup
-      //     * n_i];
-      // Note: p_b_wave need to be offseted by waveOffsetB.
-
-      auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
-      auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
-                                                          b.getListener());
-      auto olniv = outerLoopN.getInductionVar();
-      auto nOffset = olnb.create<AddIOp>(
-          loc, bBase, olnb.create<MulIOp>(loc, nPerMfmaGroupConstantOp, olniv));
-      auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
-
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilnkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopNK.getBody(), olnb.getListener());
-      auto ilnkiv = innerLoopNK.getInductionVar();
-
-      Value sourceOffsetB = ilnkb.create<AddIOp>(
+      Value sourceOffsetB = ilkb.create<AddIOp>(
           loc,
-          ilnkb.create<AddIOp>(
-              loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
+          ilkb.create<AddIOp>(loc, ilkb.create<MulIOp>(loc, ilkiv, NConstantOp),
+                              laneId),
           nOffset);
 
-      if (KPack > 1)
-        sourceOffsetB = ilnkb.create<MulIOp>(
-            loc, sourceOffsetB, ilnkb.create<ConstantIndexOp>(loc, KPack));
+      if (KPack > 1) {
+        sourceOffsetA = ilkb.create<MulIOp>(
+            loc, sourceOffsetA, ilkb.create<ConstantIndexOp>(loc, KPack));
+        sourceOffsetB = ilkb.create<MulIOp>(
+            loc, sourceOffsetB, ilkb.create<ConstantIndexOp>(loc, KPack));
+        Value valueA = ilkb.create<InBoundsLoadOp>(
+            loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
+        ilkb.create<memref::StoreOp>(loc, valueA, bufferA,
+                                     ValueRange{zeroConstantOp});
+        Value valueB = ilkb.create<InBoundsLoadOp>(
+            loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
+        ilkb.create<memref::StoreOp>(loc, valueB, bufferB,
+                                     ValueRange{zeroConstantOp});
 
-      auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
+      } else {
+        auto innerLoopKBase = ilkb.create<AffineForOp>(loc, 0, k_base);
+        auto ilkbase = ConversionPatternRewriter::atBlockBegin(
+            innerLoopKBase.getBody(), olmb.getListener());
+        auto ilkbaseiv = innerLoopKBase.getInductionVar();
 
-      Value valueB = ilnkb.create<InBoundsLoadOp>(
-          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
-      ilnkb.create<memref::StoreOp>(loc, valueB, bufferB,
-                                    ValueRange{destOffsetB});
+        sourceOffsetA = ilkbase.create<AddIOp>(
+            loc, sourceOffsetA,
+            ilkbase.create<MulIOp>(loc, ilkbaseiv, MConstantOp));
+        sourceOffsetB = ilkbase.create<AddIOp>(
+            loc, sourceOffsetB,
+            ilkbase.create<MulIOp>(loc, ilkbaseiv, NConstantOp));
+        Value valueA = ilkbase.create<InBoundsLoadOp>(
+            loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
+        ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
+                                        ValueRange{zeroConstantOp});
+        Value valueB = ilkbase.create<InBoundsLoadOp>(
+            loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
+        ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
+                                        ValueRange{zeroConstantOp});
+      }
     } else {
       // const index_t blk_id = laneId / mfma_type.num_threads_blk;
       // const index_t blk_td = laneId % mfma_type.num_threads_blk;
       auto inputSpanLenConstantOp =
-          b.create<ConstantIndexOp>(loc, inputSpanLen);
-      auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-      auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
+          ilkb.create<ConstantIndexOp>(loc, inputSpanLen);
+      auto blk_id = ilkb.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+      auto blk_td = ilkb.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
-      Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
-      Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
+      Value kBaseA = ilkb.create<AddIOp>(loc, aBase, blk_td);
+      Value kBaseB = ilkb.create<AddIOp>(loc, bBase, blk_td);
 
-      // for(index_t k_i = 0; k_i < KPerThread; k_i += mfma_type.num_input_blks)
-      // {
-      //     a[k_i] = p_a_wave[(k_i * num_input_blks + blk_id) * M + blk_td];
-      //     b[k_i] = p_b_wave[(k_i * num_input_blks + blk_id) * N + blk_td];
+      // for(index_t k_i = 0; k_i < KPerThread; k_i +=
+      // mfma_type.num_input_blks) {
+      //   a[k_i] = p_a_wave[(k_i * num_input_blks + blk_id) * M + blk_td];
+      //   b[k_i] = p_b_wave[(k_i * num_input_blks + blk_id) * N + blk_td];
       // }
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
       auto inputSpansPerMfmaInConstantOp =
-          b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
+          ilkb.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
 
-      auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
-      auto lklb = ConversionPatternRewriter::atBlockBegin(loopKLoad.getBody(),
-                                                          b.getListener());
-      auto lkliv = loopKLoad.getInductionVar();
-
-      Value sourceOffsetA = lklb.create<AddIOp>(
+      Value sourceOffsetA = ilkb.create<AddIOp>(
           loc,
-          lklb.create<MulIOp>(
+          ilkb.create<MulIOp>(
               loc,
-              lklb.create<AddIOp>(
+              ilkb.create<AddIOp>(
                   loc,
-                  lklb.create<MulIOp>(loc, lkliv,
+                  ilkb.create<MulIOp>(loc, ilkiv,
                                       inputSpansPerMfmaInConstantOp),
                   blk_id),
               MConstantOp),
           kBaseA);
-
-      if (KPack > 1)
-        sourceOffsetA = lklb.create<MulIOp>(
-            loc, sourceOffsetA, lklb.create<ConstantIndexOp>(loc, KPack));
-
-      Value valueA = lklb.create<InBoundsLoadOp>(
-          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
-      lklb.create<memref::StoreOp>(loc, valueA, bufferA, ValueRange{lkliv});
-
-      Value sourceOffsetB = lklb.create<AddIOp>(
+      Value sourceOffsetB = ilkb.create<AddIOp>(
           loc,
-          lklb.create<MulIOp>(
+          ilkb.create<MulIOp>(
               loc,
-              lklb.create<AddIOp>(
+              ilkb.create<AddIOp>(
                   loc,
-                  lklb.create<MulIOp>(loc, lkliv,
+                  ilkb.create<MulIOp>(loc, ilkiv,
                                       inputSpansPerMfmaInConstantOp),
                   blk_id),
               NConstantOp),
           kBaseB);
 
-      if (KPack > 1)
-        sourceOffsetB = lklb.create<MulIOp>(
-            loc, sourceOffsetB, lklb.create<ConstantIndexOp>(loc, KPack));
+      if (KPack > 1) {
+        sourceOffsetA = ilkb.create<MulIOp>(
+            loc, sourceOffsetA, ilkb.create<ConstantIndexOp>(loc, KPack));
+        sourceOffsetB = ilkb.create<MulIOp>(
+            loc, sourceOffsetB, ilkb.create<ConstantIndexOp>(loc, KPack));
 
-      Value valueB = lklb.create<InBoundsLoadOp>(
-          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
-      lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
+        Value valueA = ilkb.create<InBoundsLoadOp>(
+            loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
+        ilkb.create<memref::StoreOp>(loc, valueA, bufferA,
+                                     ValueRange{zeroConstantOp});
+        Value valueB = ilkb.create<InBoundsLoadOp>(
+            loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
+        ilkb.create<memref::StoreOp>(loc, valueB, bufferB,
+                                     ValueRange{zeroConstantOp});
+      } else {
+        auto innerLoopKBase = ilkb.create<AffineForOp>(loc, 0, k_base);
+        auto ilkbase = ConversionPatternRewriter::atBlockBegin(
+            innerLoopKBase.getBody(), olmb.getListener());
+        auto ilkbaseiv = innerLoopKBase.getInductionVar();
+
+        sourceOffsetA = ilkbase.create<AddIOp>(
+            loc, sourceOffsetA,
+            ilkbase.create<MulIOp>(loc, ilkbaseiv,
+                                   inputSpansPerMfmaInConstantOp));
+        sourceOffsetB = ilkbase.create<AddIOp>(
+            loc, sourceOffsetB,
+            ilkbase.create<MulIOp>(loc, ilkbaseiv,
+                                   inputSpansPerMfmaInConstantOp));
+        Value valueA = ilkbase.create<InBoundsLoadOp>(
+            loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
+        ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
+                                        ValueRange{zeroConstantOp});
+        Value valueB = ilkbase.create<InBoundsLoadOp>(
+            loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
+        ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
+                                        ValueRange{zeroConstantOp});
+      }
     }
 
-    int64_t nResultVectors = mfmaGroup.getImms().size();
-
-    Value reshapedARegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
-    Value reshapedBRegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
-    Value reshapedCRegisters =
-        reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
-                      {mRepeats, nRepeats, nResultVectors});
-
-    b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
-                                         reshapedBRegisters, reshapedCRegisters,
-                                         tuningParams);
+    ilkb.create<XdlopsGemmV2Op>(loc, olmiv, olniv, adaptor.getBufferA(),
+                                adaptor.getBufferB(), adaptor.getMatrixC(),
+                                tuningParams);
+    b.eraseOp(op);
     return success();
   }
 };
