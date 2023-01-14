@@ -158,23 +158,7 @@ auto getMfmaInsnGroupAttrMap = []() {
   using amdgpu::MFMAPermB;
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
-      groupAttrMap{{{MfmaTypeId::Fp32TyId, 128, 64},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
-                     2,
-                     1,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Fp32TyId, 64, 128},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
-                     1,
-                     2,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Fp32TyId, 64, 64},
+      groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
                      1,
                      1,
@@ -220,22 +204,6 @@ auto getMfmaInsnGroupAttrMap = []() {
                      1,
                      {{0, 0, MFMAPermB::none}}}},
 
-                   {{MfmaTypeId::Fp16TyId, 128, 64},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     2,
-                     1,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Fp16TyId, 64, 128},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     1,
-                     2,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
                      1,
@@ -282,22 +250,6 @@ auto getMfmaInsnGroupAttrMap = []() {
                      1,
                      {{0, 0, MFMAPermB::none}}}},
 
-                   {{MfmaTypeId::Bf16TyId, 128, 64},
-                    {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
-                     2,
-                     1,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Bf16TyId, 64, 128},
-                    {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
-                     1,
-                     2,
-                     {{1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none},
-                      {1, 0, MFMAPermB::none},
-                      {1, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Bf16TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
                      1,
@@ -443,12 +395,25 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
 
-  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerWave,
-                                nPerWave};
+  // Use 64x64 as base unit in large waves
+  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
+  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
+
+  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
+                                nPerMfmaGroup};
   auto mfmaInsnGroupAttrMap = getMfmaInsnGroupAttrMap();
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
+    // Override the repeat information in case this is for larger wave
+    if (mPerWave > 64) {
+      groupAttr.mRepeats = mPerWave / 64;
+    }
+
+    if (nPerWave > 64) {
+      groupAttr.nRepeats = nPerWave / 64;
+    }
+
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -469,6 +434,10 @@ MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
 int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
 
 int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
+
+int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
+  return (lenPerWave > 64) ? 64 : lenPerWave;
+}
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
 
