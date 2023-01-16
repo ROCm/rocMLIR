@@ -395,9 +395,11 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
 
-  // Use 64x64 as base unit in large waves
-  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
-  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
+  // Decision on how we want to "compose" tiles: there is a maximal legnth,
+  // after which we want to iterate over each tile.
+  int64_t maximalLen = getMaximalLenPerWave(elementType);
+  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave, maximalLen);
+  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave, maximalLen);
 
   MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
                                 nPerMfmaGroup};
@@ -405,14 +407,10 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
-    // Override the repeat information in case this is for larger wave
-    if (mPerWave > 64) {
-      groupAttr.mRepeats = mPerWave / 64;
-    }
 
-    if (nPerWave > 64) {
-      groupAttr.nRepeats = nPerWave / 64;
-    }
+    // Override the repeat information in case this is for larger wave
+    groupAttr.mRepeats = mPerWave / maximalLen;
+    groupAttr.nRepeats = nPerWave / maximalLen;
 
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
@@ -435,8 +433,17 @@ int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
 
 int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
 
-int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
-  return (lenPerWave > 64) ? 64 : lenPerWave;
+int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave,
+                                          int64_t minimalLenPerWave) {
+  return (lenPerWave > minimalLenPerWave) ? minimalLenPerWave : lenPerWave;
+}
+
+int64_t MfmaInsnGroup::getMaximalLenPerWave(Type elementType) {
+  if (elementType.isF16()) {
+    return 32;
+  } else {
+    return 64;
+  }
 }
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
