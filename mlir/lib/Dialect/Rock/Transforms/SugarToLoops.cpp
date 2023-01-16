@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/PassManager.h"
@@ -1094,9 +1095,6 @@ struct InWarpTransposeRewritePattern
                                              shouldParticipateVal, zeroConst);
       }
 
-// TODO(kdrewnia): xplicitly emit selects until SWDEV-302607 and SWDEV-302609
-// are fixed
-#if 0
       scf::IfOp ifb = b.create<scf::IfOp>(
           loc, vector.getType(), shouldParticipate, /*withElseRegion=*/true);
       OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
@@ -1130,35 +1128,7 @@ struct InWarpTransposeRewritePattern
       elseb.create<scf::YieldOp>(loc, result);
 
       result = ifb.getResult(0);
-#endif
-
-      SmallVector<Value> extracted;
-      for (uint32_t i = 0; i < totalSize; ++i) {
-        extracted.push_back(
-            b.create<vector::ExtractElementOp>(loc, result, indexConsts[i]));
-      }
-      for (uint32_t group = 0; group < totalSize; group += groupSize) {
-        for (uint32_t i = 0; i < groupSize; ++i) {
-          uint32_t dest = 0xdeadbeef;
-          switch (dir) {
-          case Left:
-            // We use groupSize - rotation to prevent underflow
-            dest = (i + (groupSize - rotation)) % groupSize;
-            break;
-          case Right:
-            dest = (i + rotation) % groupSize;
-            break;
-          }
-          Value whenRotating = extracted[group + i];
-          Value stable = extracted[group + dest];
-          Value toInsert =
-              b.create<SelectOp>(loc, shouldParticipate, whenRotating, stable);
-          result = b.create<vector::InsertElementOp>(loc, toInsert, result,
-                                                     indexConsts[group + dest]);
-        }
-      }
     }
-
     return result;
   }
 
