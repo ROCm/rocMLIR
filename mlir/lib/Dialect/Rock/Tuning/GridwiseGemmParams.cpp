@@ -368,7 +368,7 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (param.gemmAThreadCopyMoreGemmK == false) {
+  if (0&&param.gemmAThreadCopyMoreGemmK == false) {
     return failure();
   }
 

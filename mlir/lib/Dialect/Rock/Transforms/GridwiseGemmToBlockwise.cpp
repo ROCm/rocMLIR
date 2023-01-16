@@ -1085,9 +1085,11 @@ struct GridwiseGemmV2RewritePattern
 
     // Allocate LDS.
     auto ldsMemRefType =
-        MemRefType::get({ldsBlockSize}, elementType, {},
-                        gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
+        MemRefType::get({ldsBlockSize}, elementType);
+        //MemRefType::get({ldsBlockSize}, elementType, {},
+        //                gpu::GPUDialect::getWorkgroupAddressSpace());
+    //auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
+    auto ldsGpuAllocOp = b.create<memref::AllocaOp>(loc, ldsMemRefType);
 
     // Subviews for Matrix A.
     int64_t ldsBlockAOffset = 0;
@@ -1198,22 +1200,28 @@ struct GridwiseGemmV2RewritePattern
     int64_t arrayBSize =
         (!isKReduction) ? (kpacksPerBlock * nRepeats)
                         : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
-    Type arrayAType, arrayBType;
+    MemRefType arrayAType, arrayBType;
     if (kpack > 1) {
       arrayAType =
-          MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType));
+          //MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
+          //                {}, gpu::GPUDialect::getPrivateAddressSpace());
       arrayBType =
-          MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType));
+          //MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
+          //                {}, gpu::GPUDialect::getPrivateAddressSpace());
     } else {
-      arrayAType = MemRefType::get({arrayASize}, elementType, {},
-                                   gpu::GPUDialect::getPrivateAddressSpace());
-      arrayBType = MemRefType::get({arrayBSize}, elementType, {},
-                                   gpu::GPUDialect::getPrivateAddressSpace());
+      arrayAType = MemRefType::get({arrayASize}, elementType);
+      arrayBType = MemRefType::get({arrayBSize}, elementType);
+      //arrayAType = MemRefType::get({arrayASize}, elementType, {},
+      //                             gpu::GPUDialect::getPrivateAddressSpace());
+      //arrayBType = MemRefType::get({arrayBSize}, elementType, {},
+      //                             gpu::GPUDialect::getPrivateAddressSpace());
     }
-    auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
-    auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
+    //auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
+    //auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
+    auto arrayA = b.create<memref::AllocaOp>(loc, arrayAType);
+    auto arrayB = b.create<memref::AllocaOp>(loc, arrayBType);
 
     // -----
     // Logic to allocate 0-initialized vectors for C.
@@ -1223,9 +1231,11 @@ struct GridwiseGemmV2RewritePattern
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
-        nResultVectors, accumulatorVectorType, {},
-        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
+        nResultVectors, accumulatorVectorType);
+        //nResultVectors, accumulatorVectorType, {},
+        ///*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    //Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
+    Value regCAllocOp = b.create<memref::AllocaOp>(loc, regCAllocType);
 
     Value zeroConstantCOp = createZeroConstantOp(b, loc, vectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
@@ -1433,9 +1443,11 @@ struct GridwiseGemmV2RewritePattern
 
     Value registerC = regCAllocOp;
     auto convertedCType = MemRefType::get(
-        numElements, destType, {},
-        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+        numElements, destType);
+        //numElements, destType, {},
+        ///*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    //Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+    Value convertedC = b.create<memref::AllocaOp>(loc, convertedCType);
 
     BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
     toRegCScalar.embed({"vector"}, {0}, {nResultVectors}, "scalar",
