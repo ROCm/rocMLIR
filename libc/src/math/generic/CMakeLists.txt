@@ -138,6 +138,7 @@ add_entrypoint_object(
     ../tanf.h
   DEPENDS
     .range_reduction
+    .sincosf_utils
     libc.include.math
     libc.src.errno.errno
     libc.src.__support.FPUtil.fenv_impl
@@ -755,6 +756,22 @@ add_object_library(
     common_constants.cpp
 )
 
+# TODO(lntue): Make log10 correctly rounded for non-FMA targets.
+add_entrypoint_object(
+  log10
+  SRCS
+    log10.cpp
+  HDRS
+    ../log10.h
+  DEPENDS
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.multiply_add
+    libc.src.__support.FPUtil.double_double
+    libc.src.__support.FPUtil.dyadic_float
+  COMPILE_OPTIONS
+    -O3
+)
+
 add_entrypoint_object(
   log10f
   SRCS
@@ -1325,6 +1342,18 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  asin
+  SRCS
+    asin.cpp
+  HDRS
+    ../asin.h
+  DEPENDS
+    .asinf
+  COMPILE_OPTIONS
+    -O3
+)
+
+add_entrypoint_object(
   acosf
   SRCS
     acosf.cpp
@@ -1355,3 +1384,15 @@ add_entrypoint_object(
     -O3
 )
 
+add_entrypoint_object(
+  pow
+  SRCS
+    pow.cpp
+  HDRS
+    ../pow.h
+  DEPENDS
+    .expf
+    .logf
+  COMPILE_OPTIONS
+    -O3
+)

@@ -133,6 +133,12 @@ def SharedVar : SubsetSubject<Var,
 def GlobalVar : SubsetSubject<Var,
                              [{S->hasGlobalStorage()}], "global variables">;
 
+def ExternalGlobalVar : SubsetSubject<Var,
+                             [{S->hasGlobalStorage() &&
+                               S->getStorageClass()!=StorageClass::SC_Static &&
+                               !S->isLocalExternDecl()}],
+                             "external global variables">;
+
 def InlineFunction : SubsetSubject<Function,
                              [{S->isInlineSpecified()}], "inline functions">;
 
@@ -145,6 +151,9 @@ def HLSLEntry
     : SubsetSubject<Function,
                     [{S->isExternallyVisible() && !isa<CXXMethodDecl>(S)}],
                     "global functions">;
+def HLSLBufferObj : SubsetSubject<HLSLBuffer,
+                    [{isa<HLSLBufferDecl>(S)}],
+                    "cbuffer/tbuffer">;
 
 def ClassTmpl : SubsetSubject<CXXRecord, [{S->getDescribedClassTemplate()}],
                               "class templates">;
@@ -2694,10 +2703,6 @@ def Target : InheritableAttr {
   let Subjects = SubjectList<[Function], ErrorDiag>;
   let Documentation = [TargetDocs];
   let AdditionalMembers = [{
-    ParsedTargetAttr parse() const {
-      return parse(getFeaturesStr());
-    }
-
     StringRef getArchitecture() const {
       StringRef Features = getFeaturesStr();
       if (Features == "default") return {};
@@ -2731,56 +2736,31 @@ def Target : InheritableAttr {
       }
     }
 
-    template<class Compare>
-    ParsedTargetAttr parse(Compare cmp) const {
-      ParsedTargetAttr Attrs = parse();
-      llvm::sort(Attrs.Features, cmp);
-      return Attrs;
-    }
-
     bool isDefaultVersion() const { return getFeaturesStr() == "default"; }
+  }];
+}
 
-    static ParsedTargetAttr parse(StringRef Features) {
-      ParsedTargetAttr Ret;
-      if (Features == "default") return Ret;
-      SmallVector<StringRef, 1> AttrFeatures;
-      Features.split(AttrFeatures, ",");
+def TargetVersion : InheritableAttr {
+  let Spellings = [GCC<"target_version">];
+  let Args = [StringArgument<"NamesStr">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Documentation = [TargetVersionDocs];
+  let AdditionalMembers = [{
+    StringRef getName() const { return getNamesStr().trim(); }
+    bool isDefaultVersion() const {
+      return getName() == "default";
+    }
+    void getFeatures(llvm::SmallVectorImpl<StringRef> &Out) const {
+      if (isDefaultVersion()) return;
+      StringRef Features = getName();
 
-      // Grab the various features and prepend a "+" to turn on the feature to
-      // the backend and add them to our existing set of features.
+      SmallVector<StringRef, 8> AttrFeatures;
+      Features.split(AttrFeatures, "+");
+
       for (auto &Feature : AttrFeatures) {
-        // Go ahead and trim whitespace rather than either erroring or
-        // accepting it weirdly.
         Feature = Feature.trim();
-
-        // TODO: Support the fpmath option. It will require checking
-        // overall feature validity for the function with the rest of the
-        // attributes on the function.
-        if (Feature.startswith("fpmath="))
-          continue;
-
-        if (Feature.startswith("branch-protection=")) {
-          Ret.BranchProtection = Feature.split('=').second.trim();
-          continue;
-        }
-
-        // While we're here iterating check for a different target cpu.
-        if (Feature.startswith("arch=")) {
-          if (!Ret.Architecture.empty())
-            Ret.DuplicateArchitecture = true;
-          else
-            Ret.Architecture = Feature.split("=").second.trim();
-        } else if (Feature.startswith("tune=")) {
-          if (!Ret.Tune.empty())
-            Ret.DuplicateTune = true;
-          else
-            Ret.Tune = Feature.split("=").second.trim();
-        } else if (Feature.startswith("no-"))
-          Ret.Features.push_back("-" + Feature.split("-").second.str());
-        else
-          Ret.Features.push_back("+" + Feature.str());
+        Out.push_back(Feature);
       }
-      return Ret;
     }
   }];
 }
@@ -2818,11 +2798,12 @@ def TargetClones : InheritableAttr {
       return 0 == std::count_if(
                       featuresStrs_begin(), featuresStrs_begin() + Index,
                       [FeatureStr](StringRef S) { return S == FeatureStr; });
+
     }
   }];
 }
 
-def : MutualExclusions<[TargetClones, Target, CPUDispatch, CPUSpecific]>;
+def : MutualExclusions<[TargetClones, TargetVersion, Target, CPUDispatch, CPUSpecific]>;
 
 def MinVectorWidth : InheritableAttr {
   let Spellings = [Clang<"min_vector_width">];
@@ -3794,8 +3775,8 @@ def OMPDeclareTargetDecl : InheritableAttr {
   let Documentation = [OMPDeclareTargetDocs];
   let Args = [
     EnumArgument<"MapType", "MapTypeTy",
-                 [ "to", "link" ],
-                 [ "MT_To", "MT_Link" ]>,
+                 [ "to", "enter", "link" ],
+                 [ "MT_To", "MT_Enter", "MT_Link" ]>,
     EnumArgument<"DevType", "DevTypeTy",
                  [ "host", "nohost", "any" ],
                  [ "DT_Host", "DT_NoHost", "DT_Any" ]>,
@@ -3805,11 +3786,11 @@ def OMPDeclareTargetDecl : InheritableAttr {
   ];
   let AdditionalMembers = [{
     void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const;
-    static llvm::Optional<MapTypeTy>
+    static std::optional<MapTypeTy>
     isDeclareTargetDeclaration(const ValueDecl *VD);
-    static llvm::Optional<OMPDeclareTargetDeclAttr*> getActiveAttr(const ValueDecl *VD);
-    static llvm::Optional<DevTypeTy> getDeviceType(const ValueDecl *VD);
-    static llvm::Optional<SourceLocation> getLocation(const ValueDecl *VD);
+    static std::optional<OMPDeclareTargetDeclAttr*> getActiveAttr(const ValueDecl *VD);
+    static std::optional<DevTypeTy> getDeviceType(const ValueDecl *VD);
+    static std::optional<SourceLocation> getLocation(const ValueDecl *VD);
   }];
 }
 
@@ -4041,6 +4022,21 @@ def HLSLSV_GroupIndex: HLSLAnnotationAttr {
   let Documentation = [HLSLSV_GroupIndexDocs];
 }
 
+def HLSLResourceBinding: InheritableAttr {
+  let Spellings = [HLSLSemantic<"register">];
+  let Subjects = SubjectList<[HLSLBufferObj, ExternalGlobalVar]>;
+  let LangOpts = [HLSL];
+  let Args = [StringArgument<"Slot">, StringArgument<"Space", 1>];
+  let Documentation = [HLSLResourceBindingDocs];
+}
+
+def HLSLSV_DispatchThreadID: HLSLAnnotationAttr {
+  let Spellings = [HLSLSemantic<"SV_DispatchThreadID">];
+  let Subjects = SubjectList<[ParmVar, Field]>;
+  let LangOpts = [HLSL];
+  let Documentation = [HLSLSV_DispatchThreadIDDocs];
+}
+
 def HLSLShader : InheritableAttr {
   let Spellings = [Microsoft<"shader">];
   let Subjects = SubjectList<[HLSLEntry]>;
@@ -4074,8 +4070,31 @@ def HLSLResource : InheritableAttr {
   let Args = [EnumArgument<"ResourceType", "ResourceClass",
                            ["SRV", "UAV", "CBuffer", "Sampler"],
                            ["SRV", "UAV", "CBuffer", "Sampler"]
-                           >];
+                           >,
+              EnumArgument<"ResourceShape", "ResourceKind",
+                           ["Texture1D", "Texture2D", "Texture2DMS",
+                            "Texture3D", "TextureCube", "Texture1DArray",
+                            "Texture2DArray", "Texture2DMSArray",
+                            "TextureCubeArray", "TypedBuffer", "RawBuffer",
+                            "StructuredBuffer", "CBufferKind", "SamplerKind",
+                            "TBuffer", "RTAccelerationStructure", "FeedbackTexture2D",
+                            "FeedbackTexture2DArray"],
+                           ["Texture1D", "Texture2D", "Texture2DMS",
+                            "Texture3D", "TextureCube", "Texture1DArray",
+                            "Texture2DArray", "Texture2DMSArray",
+                            "TextureCubeArray", "TypedBuffer", "RawBuffer",
+                            "StructuredBuffer", "CBufferKind", "SamplerKind",
+                            "TBuffer", "RTAccelerationStructure", "FeedbackTexture2D",
+                            "FeedbackTexture2DArray"]
+                            >
+              ];
   let Documentation = [InternalOnly];
+}
+
+def HLSLGroupSharedAddressSpace : TypeAttr {
+  let Spellings = [Keyword<"groupshared">];
+  let Subjects = SubjectList<[Var]>;
+  let Documentation = [HLSLGroupSharedAddressSpaceDocs];
 }
 
 def RandomizeLayout : InheritableAttr {
@@ -4102,4 +4121,9 @@ def FunctionReturnThunks : InheritableAttr,
   >];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [FunctionReturnThunksDocs];
+}
+def ReadOnlyPlacement : InheritableAttr {
+  let Spellings = [Clang<"enforce_read_only_placement">];
+  let Subjects = SubjectList<[Record]>;
+  let Documentation = [ReadOnlyPlacementDocs];
 }

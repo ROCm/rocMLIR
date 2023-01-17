@@ -29,6 +29,7 @@
 #include "clang/Analysis/Analyses/ReachableCode.h"
 #include "clang/Analysis/Analyses/ThreadSafety.h"
 #include "clang/Analysis/Analyses/UninitializedValues.h"
+#include "clang/Analysis/Analyses/UnsafeBufferUsage.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/CFGStmtMap.h"
@@ -47,6 +48,7 @@
 #include <algorithm>
 #include <deque>
 #include <iterator>
+#include <optional>
 
 using namespace clang;
 
@@ -326,7 +328,7 @@ static void visitReachableThrows(
     if (!Reachable[B->getBlockID()])
       continue;
     for (CFGElement &E : *B) {
-      Optional<CFGStmt> S = E.getAs<CFGStmt>();
+      std::optional<CFGStmt> S = E.getAs<CFGStmt>();
       if (!S)
         continue;
       if (auto *Throw = dyn_cast<CXXThrowExpr>(S->getStmt()))
@@ -1113,19 +1115,19 @@ namespace {
 
         if (!ReachableBlocks.count(P)) {
           for (const CFGElement &Elem : llvm::reverse(*P)) {
-            if (Optional<CFGStmt> CS = Elem.getAs<CFGStmt>()) {
-              if (const AttributedStmt *AS = asFallThroughAttr(CS->getStmt())) {
-                // Don't issue a warning for an unreachable fallthrough
-                // attribute in template instantiations as it may not be
-                // unreachable in all instantiations of the template.
-                if (!IsTemplateInstantiation)
-                  S.Diag(AS->getBeginLoc(),
-                         diag::warn_unreachable_fallthrough_attr);
-                markFallthroughVisited(AS);
-                ++AnnotatedCnt;
-                break;
-              }
-              // Don't care about other unreachable statements.
+            if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>()) {
+            if (const AttributedStmt *AS = asFallThroughAttr(CS->getStmt())) {
+              // Don't issue a warning for an unreachable fallthrough
+              // attribute in template instantiations as it may not be
+              // unreachable in all instantiations of the template.
+              if (!IsTemplateInstantiation)
+                S.Diag(AS->getBeginLoc(),
+                       diag::warn_unreachable_fallthrough_attr);
+              markFallthroughVisited(AS);
+              ++AnnotatedCnt;
+              break;
+            }
+            // Don't care about other unreachable statements.
             }
           }
           // If there are no unreachable statements, this may be a special
@@ -1198,7 +1200,7 @@ namespace {
       if (const Stmt *Term = B.getTerminatorStmt())
         return Term;
       for (const CFGElement &Elem : llvm::reverse(B))
-        if (Optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
+        if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
           return CS->getStmt();
       // Workaround to detect a statement thrown out by CFGBuilder:
       //   case X: {} case Y:
@@ -2139,6 +2141,33 @@ public:
 } // namespace clang
 
 //===----------------------------------------------------------------------===//
+// Unsafe buffer usage analysis.
+//===----------------------------------------------------------------------===//
+
+namespace {
+class UnsafeBufferUsageReporter : public UnsafeBufferUsageHandler {
+  Sema &S;
+
+public:
+  UnsafeBufferUsageReporter(Sema &S) : S(S) {}
+
+  void handleUnsafeOperation(const Stmt *Operation) override {
+    S.Diag(Operation->getBeginLoc(), diag::warn_unsafe_buffer_expression)
+        << Operation->getSourceRange();
+  }
+
+  void handleFixableVariable(const VarDecl *Variable,
+                             FixItList &&Fixes) override {
+    const auto &D =
+        S.Diag(Variable->getBeginLoc(), diag::warn_unsafe_buffer_variable);
+    D << Variable << Variable->getSourceRange();
+    for (const auto &F: Fixes)
+      D << F;
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // AnalysisBasedWarnings - Worker object used by Sema to execute analysis-based
 //  warnings on a function, method, or block.
 //===----------------------------------------------------------------------===//
@@ -2269,7 +2298,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   }
 
   // Install the logical handler.
-  llvm::Optional<LogicalErrorHandler> LEH;
+  std::optional<LogicalErrorHandler> LEH;
   if (LogicalErrorHandler::hasActiveDiagnostics(Diags, D->getBeginLoc())) {
     LEH.emplace(S);
     AC.getCFGBuildOptions().Observer = &*LEH;
@@ -2429,6 +2458,13 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D))
       if (S.getLangOpts().CPlusPlus && isNoexcept(FD))
         checkThrowInNonThrowingFunc(S, FD, AC);
+
+  // Emit unsafe buffer usage warnings and fixits.
+  if (!Diags.isIgnored(diag::warn_unsafe_buffer_expression, D->getBeginLoc()) ||
+      !Diags.isIgnored(diag::warn_unsafe_buffer_variable, D->getBeginLoc())) {
+    UnsafeBufferUsageReporter R(S);
+    checkUnsafeBufferUsage(D, R);
+  }
 
   // If none of the previous checks caused a CFG build, trigger one here
   // for the logical error handler.

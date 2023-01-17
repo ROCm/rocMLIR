@@ -8,7 +8,7 @@
 
 #include "mlir/Conversion/MathToLibm/MathToLibm.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -18,6 +18,7 @@
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include <optional>
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTMATHTOLIBM
@@ -79,8 +80,7 @@ VecOpToScalarOp<Op>::matchAndRewrite(Op op, PatternRewriter &rewriter) const {
   Value result = rewriter.create<arith::ConstantOp>(
       loc, DenseElementsAttr::get(
                vecType, FloatAttr::get(vecType.getElementType(), 0.0)));
-  SmallVector<int64_t> ones(shape.size(), 1);
-  SmallVector<int64_t> strides = computeStrides(shape, ones);
+  SmallVector<int64_t> strides = computeStrides(shape);
   for (auto linearIndex = 0; linearIndex < numElements; ++linearIndex) {
     SmallVector<int64_t> positions = delinearize(strides, linearIndex);
     SmallVector<Value> operands;
@@ -154,24 +154,27 @@ ScalarOpToLibmCall<Op>::matchAndRewrite(Op op,
 
 void mlir::populateMathToLibmConversionPatterns(
     RewritePatternSet &patterns, PatternBenefit benefit,
-    llvm::Optional<PatternBenefit> log1pBenefit) {
-  patterns.add<VecOpToScalarOp<math::Atan2Op>, VecOpToScalarOp<math::ExpM1Op>,
-               VecOpToScalarOp<math::TanhOp>, VecOpToScalarOp<math::CosOp>,
-               VecOpToScalarOp<math::SinOp>, VecOpToScalarOp<math::ErfOp>,
-               VecOpToScalarOp<math::RoundEvenOp>,
+    std::optional<PatternBenefit> log1pBenefit) {
+  patterns.add<VecOpToScalarOp<math::Atan2Op>, VecOpToScalarOp<math::CbrtOp>,
+               VecOpToScalarOp<math::ExpM1Op>, VecOpToScalarOp<math::TanhOp>,
+               VecOpToScalarOp<math::CosOp>, VecOpToScalarOp<math::SinOp>,
+               VecOpToScalarOp<math::ErfOp>, VecOpToScalarOp<math::RoundEvenOp>,
                VecOpToScalarOp<math::RoundOp>, VecOpToScalarOp<math::AtanOp>,
                VecOpToScalarOp<math::TanOp>, VecOpToScalarOp<math::TruncOp>>(
       patterns.getContext(), benefit);
-  patterns.add<PromoteOpToF32<math::Atan2Op>, PromoteOpToF32<math::ExpM1Op>,
-               PromoteOpToF32<math::TanhOp>, PromoteOpToF32<math::CosOp>,
-               PromoteOpToF32<math::SinOp>, PromoteOpToF32<math::ErfOp>,
-               PromoteOpToF32<math::RoundEvenOp>, PromoteOpToF32<math::RoundOp>,
-               PromoteOpToF32<math::AtanOp>, PromoteOpToF32<math::TanOp>,
-               PromoteOpToF32<math::TruncOp>>(patterns.getContext(), benefit);
+  patterns.add<PromoteOpToF32<math::Atan2Op>, PromoteOpToF32<math::CbrtOp>,
+               PromoteOpToF32<math::ExpM1Op>, PromoteOpToF32<math::TanhOp>,
+               PromoteOpToF32<math::CosOp>, PromoteOpToF32<math::SinOp>,
+               PromoteOpToF32<math::ErfOp>, PromoteOpToF32<math::RoundEvenOp>,
+               PromoteOpToF32<math::RoundOp>, PromoteOpToF32<math::AtanOp>,
+               PromoteOpToF32<math::TanOp>, PromoteOpToF32<math::TruncOp>>(
+      patterns.getContext(), benefit);
   patterns.add<ScalarOpToLibmCall<math::AtanOp>>(patterns.getContext(), "atanf",
                                                  "atan", benefit);
   patterns.add<ScalarOpToLibmCall<math::Atan2Op>>(patterns.getContext(),
                                                   "atan2f", "atan2", benefit);
+  patterns.add<ScalarOpToLibmCall<math::CbrtOp>>(patterns.getContext(), "cbrtf",
+                                                 "cbrt", benefit);
   patterns.add<ScalarOpToLibmCall<math::ErfOp>>(patterns.getContext(), "erff",
                                                 "erf", benefit);
   patterns.add<ScalarOpToLibmCall<math::ExpM1Op>>(patterns.getContext(),
@@ -212,8 +215,8 @@ void ConvertMathToLibmPass::runOnOperation() {
   populateMathToLibmConversionPatterns(patterns, /*benefit=*/1);
 
   ConversionTarget target(getContext());
-  target.addLegalDialect<arith::ArithmeticDialect, BuiltinDialect,
-                         func::FuncDialect, vector::VectorDialect>();
+  target.addLegalDialect<arith::ArithDialect, BuiltinDialect, func::FuncDialect,
+                         vector::VectorDialect>();
   target.addIllegalDialect<math::MathDialect>();
   if (failed(applyPartialConversion(module, target, std::move(patterns))))
     signalPassFailure();

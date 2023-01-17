@@ -514,7 +514,9 @@ public:
 
   StringRef getFileFormatName() const override;
   Triple::ArchType getArch() const override;
-  SubtargetFeatures getFeatures() const override { return SubtargetFeatures(); }
+  Expected<SubtargetFeatures> getFeatures() const override {
+    return SubtargetFeatures();
+  }
   Triple getArchTriple(const char **McpuDefault = nullptr) const;
 
   relocation_iterator section_rel_begin(unsigned Index) const;
@@ -711,22 +713,24 @@ public:
   ArrayRef<uint8_t> getDyldInfoBindOpcodes() const;
   ArrayRef<uint8_t> getDyldInfoWeakBindOpcodes() const;
   ArrayRef<uint8_t> getDyldInfoLazyBindOpcodes() const;
+  ArrayRef<uint8_t> getDyldInfoExportsTrie() const;
+
   /// If the optional is None, no header was found, but the object was
   /// well-formed.
-  Expected<Optional<MachO::dyld_chained_fixups_header>>
+  Expected<std::optional<MachO::dyld_chained_fixups_header>>
   getChainedFixupsHeader() const;
   Expected<std::vector<ChainedFixupTarget>> getDyldChainedFixupTargets() const;
 
   // Note: This is a limited, temporary API, which will be removed when Apple
   // upstreams their implementation. Please do not rely on this.
-  Expected<Optional<MachO::linkedit_data_command>>
+  Expected<std::optional<MachO::linkedit_data_command>>
   getChainedFixupsLoadCommand() const;
   // Returns the number of sections listed in dyld_chained_starts_in_image, and
   // a ChainedFixupsSegment for each segment that has fixups.
   Expected<std::pair<size_t, std::vector<ChainedFixupsSegment>>>
   getChainedFixupsSegments() const;
+  ArrayRef<uint8_t> getDyldExportsTrie() const;
 
-  ArrayRef<uint8_t> getDyldInfoExportsTrie() const;
   SmallVector<uint64_t> getFunctionStarts() const;
   ArrayRef<uint8_t> getUuid() const;
 
@@ -856,6 +860,7 @@ private:
   const char *DyldInfoLoadCmd = nullptr;
   const char *FuncStartsLoadCmd = nullptr;
   const char *DyldChainedFixupsLoadCmd = nullptr;
+  const char *DyldExportsTrieLoadCmd = nullptr;
   const char *UuidLoadCmd = nullptr;
   bool HasPageZeroSegment = false;
 };

@@ -6,7 +6,7 @@
 set(ALL_CPU_FEATURES "")
 
 if(${LIBC_TARGET_ARCHITECTURE_IS_X86})
-  set(ALL_CPU_FEATURES SSE2 SSE4_2 AVX2 AVX512F FMA)
+  set(ALL_CPU_FEATURES SSE2 SSE4_2 AVX2 AVX512F AVX512BW FMA)
   set(LIBC_COMPILE_OPTIONS_NATIVE -march=native)
 elseif(${LIBC_TARGET_ARCHITECTURE_IS_AARCH64})
   set(LIBC_COMPILE_OPTIONS_NATIVE -mcpu=native)
@@ -61,7 +61,7 @@ _generate_check_code()
 
 set(LIBC_CPU_FEATURES "" CACHE PATH "Host supported CPU features")
 
-if(CMAKE_CROSSCOMPILING)
+if(LIBC_CROSSBUILD)
   _intersection(cpu_features "${ALL_CPU_FEATURES}" "${LIBC_CPU_FEATURES}")
   if(NOT "${cpu_features}" STREQUAL "${LIBC_CPU_FEATURES}")
     message(FATAL_ERROR "Unsupported CPU features: ${cpu_features}")

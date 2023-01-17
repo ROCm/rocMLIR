@@ -584,6 +584,13 @@ namespace llvm {
     VFCMULCSH,
     VFCMULCSH_RND,
 
+    VPDPBSUD,
+    VPDPBSUDS,
+    VPDPBUUD,
+    VPDPBUUDS,
+    VPDPBSSD,
+    VPDPBSSDS,
+
     // Compress and expand.
     COMPRESS,
     EXPAND,
@@ -660,7 +667,6 @@ namespace llvm {
     PROBED_ALLOCA,
 
     // Memory barriers.
-    MEMBARRIER,
     MFENCE,
 
     // Get a random integer and indicate whether it is valid in CF.
@@ -773,7 +779,7 @@ namespace llvm {
     STRICT_CVTPS2PH,
     STRICT_CVTPH2PS,
 
-    // WARNING: Only add nodes here if they are stric FP nodes. Non-memory and
+    // WARNING: Only add nodes here if they are strict FP nodes. Non-memory and
     // non-strict FP nodes should be above FIRST_TARGET_STRICTFP_OPCODE.
 
     // Compare and swap.
@@ -792,6 +798,16 @@ namespace llvm {
     LBTS,
     LBTC,
     LBTR,
+    LBTS_RM,
+    LBTC_RM,
+    LBTR_RM,
+
+    /// RAO arithmetic instructions.
+    /// OUTCHAIN = AADD(INCHAIN, PTR, RHS)
+    AADD,
+    AOR,
+    AXOR,
+    AAND,
 
     // Load, scalar_to_vector, and zero extend.
     VZEXT_LOAD,
@@ -868,6 +884,12 @@ namespace llvm {
     AESDECWIDE128KL,
     AESENCWIDE256KL,
     AESDECWIDE256KL,
+
+    /// Compare and Add if Condition is Met. Compare value in operand 2 with
+    /// value in memory of operand 1. If condition of operand 4 is met, add value
+    /// operand 3 to m32 and write new value in operand 1. Operand 2 is
+    /// always updated with the original value from operand 1.
+    CMPCCXADD,
 
     // Save xmm argument registers to the stack, according to %al. An operator
     // is needed so that this can be expanded with control flow.
@@ -985,7 +1007,7 @@ namespace llvm {
     /// specified type. Returns whether it is "fast" in the last argument.
     bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, Align Alignment,
                                         MachineMemOperand::Flags Flags,
-                                        bool *Fast) const override;
+                                        unsigned *Fast) const override;
 
     /// Provide custom lowering hooks for some operations.
     ///
@@ -1072,6 +1094,8 @@ namespace llvm {
         unsigned OldShiftOpcode, unsigned NewShiftOpcode,
         SelectionDAG &DAG) const override;
 
+    bool preferScalarizeSplat(unsigned Opc) const override;
+
     bool shouldFoldConstantShiftPairToMask(const SDNode *N,
                                            CombineLevel Level) const override;
 
@@ -1095,7 +1119,9 @@ namespace llvm {
       return VTIsOk(XVT) && VTIsOk(KeptBitsVT);
     }
 
-    bool shouldExpandShift(SelectionDAG &DAG, SDNode *N) const override;
+    ShiftLegalizationStrategy
+    preferredShiftLegalizationStrategy(SelectionDAG &DAG, SDNode *N,
+                                       unsigned ExpansionFactor) const override;
 
     bool shouldSplatInsEltVarIndex(EVT VT) const override;
 
@@ -1158,8 +1184,16 @@ namespace llvm {
         SDValue Op, const APInt &DemandedBits, const APInt &DemandedElts,
         SelectionDAG &DAG, unsigned Depth) const override;
 
+    bool isGuaranteedNotToBeUndefOrPoisonForTargetNode(
+        SDValue Op, const APInt &DemandedElts, const SelectionDAG &DAG,
+        bool PoisonOnly, unsigned Depth) const override;
+
+    bool canCreateUndefOrPoisonForTargetNode(
+        SDValue Op, const APInt &DemandedElts, const SelectionDAG &DAG,
+        bool PoisonOnly, bool ConsiderFlags, unsigned Depth) const override;
+
     bool isSplatValueForTargetNode(SDValue Op, const APInt &DemandedElts,
-                                   APInt &UndefElts,
+                                   APInt &UndefElts, const SelectionDAG &DAG,
                                    unsigned Depth) const override;
 
     bool isTargetCanonicalConstantNode(SDValue Op) const override {
@@ -1455,15 +1489,18 @@ namespace llvm {
 
     bool supportKCFIBundles() const override { return true; }
 
-    bool hasStackProbeSymbol(MachineFunction &MF) const override;
-    bool hasInlineStackProbe(MachineFunction &MF) const override;
-    StringRef getStackProbeSymbolName(MachineFunction &MF) const override;
+    bool hasStackProbeSymbol(const MachineFunction &MF) const override;
+    bool hasInlineStackProbe(const MachineFunction &MF) const override;
+    StringRef getStackProbeSymbolName(const MachineFunction &MF) const override;
 
-    unsigned getStackProbeSize(MachineFunction &MF) const;
+    unsigned getStackProbeSize(const MachineFunction &MF) const;
 
     bool hasVectorBlend() const override { return true; }
 
     unsigned getMaxSupportedInterleaveFactor() const override { return 4; }
+
+    bool isInlineAsmTargetBranch(const SmallVectorImpl<StringRef> &AsmStrs,
+                                 unsigned OpNo) const override;
 
     /// Lower interleaved load(s) into target specific
     /// instructions/intrinsics.
@@ -1482,6 +1519,12 @@ namespace llvm {
                                    const override;
 
     Align getPrefLoopAlignment(MachineLoop *ML) const override;
+
+    EVT getTypeToTransformTo(LLVMContext &Context, EVT VT) const override {
+      if (VT == MVT::f80)
+        return EVT::getIntegerVT(Context, 96);
+      return TargetLoweringBase::getTypeToTransformTo(Context, VT);
+    }
 
   protected:
     std::pair<const TargetRegisterClass *, uint8_t>
@@ -1582,7 +1625,7 @@ namespace llvm {
     SDValue lowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerEH_SJLJ_SETUP_DISPATCH(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINIT_TRAMPOLINE(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerFLT_ROUNDS_(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGET_ROUNDING(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSET_ROUNDING(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerWin64_i128OP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerWin64_FP_TO_INT128(SDValue Op, SelectionDAG &DAG,
@@ -1617,16 +1660,15 @@ namespace llvm {
       MachineBasicBlock *Entry,
       const SmallVectorImpl<MachineBasicBlock *> &Exits) const override;
 
-    bool
-    splitValueIntoRegisterParts(SelectionDAG &DAG, const SDLoc &DL, SDValue Val,
-                                SDValue *Parts, unsigned NumParts, MVT PartVT,
-                                Optional<CallingConv::ID> CC) const override;
+    bool splitValueIntoRegisterParts(
+        SelectionDAG & DAG, const SDLoc &DL, SDValue Val, SDValue *Parts,
+        unsigned NumParts, MVT PartVT, std::optional<CallingConv::ID> CC)
+        const override;
 
-    SDValue
-    joinRegisterPartsIntoValue(SelectionDAG &DAG, const SDLoc &DL,
-                               const SDValue *Parts, unsigned NumParts,
-                               MVT PartVT, EVT ValueVT,
-                               Optional<CallingConv::ID> CC) const override;
+    SDValue joinRegisterPartsIntoValue(
+        SelectionDAG & DAG, const SDLoc &DL, const SDValue *Parts,
+        unsigned NumParts, MVT PartVT, EVT ValueVT,
+        std::optional<CallingConv::ID> CC) const override;
 
     bool isUsedByReturnOnly(SDNode *N, SDValue &Chain) const override;
 
@@ -1651,6 +1693,7 @@ namespace llvm {
     TargetLoweringBase::AtomicExpansionKind
     shouldExpandLogicAtomicRMWInIR(AtomicRMWInst *AI) const;
     void emitBitTestAtomicRMWIntrinsic(AtomicRMWInst *AI) const override;
+    void emitCmpArithAtomicRMWIntrinsic(AtomicRMWInst *AI) const override;
 
     LoadInst *
     lowerIdempotentRMWIntoFencedLoad(AtomicRMWInst *AI) const override;

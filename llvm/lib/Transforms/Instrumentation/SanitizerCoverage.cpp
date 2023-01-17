@@ -251,7 +251,7 @@ private:
                                                 Type *Ty);
 
   void SetNoSanitizeMetadata(Instruction *I) {
-    I->setMetadata(LLVMContext::MD_nosanitize, MDNode::get(*C, None));
+    I->setMetadata(LLVMContext::MD_nosanitize, MDNode::get(*C, std::nullopt));
   }
 
   std::string getSectionName(const std::string &Section) const;
@@ -522,7 +522,7 @@ bool ModuleSanitizerCoverage::instrumentModule(
   }
 
   if (Ctor && Options.CollectControlFlow) {
-    auto SecStartEnd = CreateSecStartEnd(M, SanCovCFsSectionName, IntptrPtrTy);
+    auto SecStartEnd = CreateSecStartEnd(M, SanCovCFsSectionName, IntptrTy);
     FunctionCallee InitFunction = declareSanitizerInitFunction(
         M, SanCovCFsInitName, {IntptrPtrTy, IntptrPtrTy});
     IRBuilder<> IRBCtor(Ctor->getEntryBlock().getTerminator());
@@ -722,7 +722,7 @@ GlobalVariable *ModuleSanitizerCoverage::CreateFunctionLocalArrayInSection(
     if (auto Comdat = getOrCreateFunctionComdat(F, TargetTriple))
       Array->setComdat(Comdat);
   Array->setSection(getSectionName(Section));
-  Array->setAlignment(Align(DL->getTypeStoreSize(Ty).getFixedSize()));
+  Array->setAlignment(Align(DL->getTypeStoreSize(Ty).getFixedValue()));
 
   // sancov_pcs parallels the other metadata section(s). Optimizers (e.g.
   // GlobalOpt/ConstantMerge) may not discard sancov_pcs and the other

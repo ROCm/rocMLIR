@@ -14,7 +14,6 @@
 
 #include "llvm/Transforms/IPO/Inliner.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PriorityWorklist.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -109,7 +108,9 @@ static cl::opt<bool>
     EnablePostSCCAdvisorPrinting("enable-scc-inline-advisor-printing",
                                  cl::init(false), cl::Hidden);
 
+namespace llvm {
 extern cl::opt<InlinerFunctionImportStatsOpts> InlinerFunctionImportStats;
+}
 
 static cl::opt<std::string> CGSCCInlineReplayFile(
     "cgscc-inline-replay", cl::init(""), cl::value_desc("filename"),
@@ -315,9 +316,9 @@ static InlineResult inlineCallIfPossible(
 
   // Try to inline the function.  Get the list of static allocas that were
   // inlined.
-  InlineResult IR = InlineFunction(CB, IFI, &AAR, InsertLifetime,
-                                   /*ForwardVarArgsTo=*/nullptr,
-                                   /*MergeAttributes=*/true);
+  InlineResult IR =
+      InlineFunction(CB, IFI,
+                     /*MergeAttributes=*/true, &AAR, InsertLifetime);
   if (!IR.isSuccess())
     return IR;
 
@@ -915,10 +916,8 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
           &FAM.getResult<BlockFrequencyAnalysis>(Callee));
 
       InlineResult IR =
-          InlineFunction(*CB, IFI, &FAM.getResult<AAManager>(*CB->getCaller()),
-                         /*InsertLifetime=*/true,
-                         /*ForwardVarArgsTo=*/nullptr,
-                         /*MergeAttributes=*/true);
+          InlineFunction(*CB, IFI, /*MergeAttributes=*/true,
+                         &FAM.getResult<AAManager>(*CB->getCaller()));
       if (!IR.isSuccess()) {
         Advice->recordUnsuccessfulInlining(IR);
         continue;

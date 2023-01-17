@@ -30,6 +30,7 @@
 #include "llvm/Support/BranchProbability.h"
 #include "llvm/Support/InstructionCost.h"
 #include <functional>
+#include <optional>
 #include <utility>
 
 namespace llvm {
@@ -65,7 +66,6 @@ class User;
 class Value;
 class VPIntrinsic;
 struct KnownBits;
-template <typename T> class Optional;
 
 /// Information about a load/store intrinsic defined by the target.
 struct MemIntrinsicInfo {
@@ -372,6 +372,8 @@ public:
 
   unsigned getAssumedAddrSpace(const Value *V) const;
 
+  bool isSingleThreaded() const;
+
   std::pair<const Value *, unsigned>
   getPredicatedAddrSpace(const Value *V) const;
 
@@ -549,22 +551,21 @@ public:
   /// intrinsics. This function will be called from the InstCombine pass every
   /// time a target-specific intrinsic is encountered.
   ///
-  /// \returns None to not do anything target specific or a value that will be
-  /// returned from the InstCombiner. It is possible to return null and stop
-  /// further processing of the intrinsic by returning nullptr.
-  Optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
-                                               IntrinsicInst &II) const;
+  /// \returns std::nullopt to not do anything target specific or a value that
+  /// will be returned from the InstCombiner. It is possible to return null and
+  /// stop further processing of the intrinsic by returning nullptr.
+  std::optional<Instruction *> instCombineIntrinsic(InstCombiner & IC,
+                                                    IntrinsicInst & II) const;
   /// Can be used to implement target-specific instruction combining.
   /// \see instCombineIntrinsic
-  Optional<Value *>
-  simplifyDemandedUseBitsIntrinsic(InstCombiner &IC, IntrinsicInst &II,
-                                   APInt DemandedMask, KnownBits &Known,
-                                   bool &KnownBitsComputed) const;
+  std::optional<Value *> simplifyDemandedUseBitsIntrinsic(
+      InstCombiner & IC, IntrinsicInst & II, APInt DemandedMask,
+      KnownBits & Known, bool &KnownBitsComputed) const;
   /// Can be used to implement target-specific instruction combining.
   /// \see instCombineIntrinsic
-  Optional<Value *> simplifyDemandedVectorEltsIntrinsic(
-      InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts, APInt &UndefElts,
-      APInt &UndefElts2, APInt &UndefElts3,
+  std::optional<Value *> simplifyDemandedVectorEltsIntrinsic(
+      InstCombiner & IC, IntrinsicInst & II, APInt DemandedElts,
+      APInt & UndefElts, APInt & UndefElts2, APInt & UndefElts3,
       std::function<void(Instruction *, unsigned, APInt, APInt &)>
           SimplifyAndSetOp) const;
   /// @}
@@ -803,6 +804,9 @@ public:
   MemCmpExpansionOptions enableMemCmpExpansion(bool OptSize,
                                                bool IsZeroCmp) const;
 
+  /// Should the Select Optimization pass be enabled and ran.
+  bool enableSelectOptimize() const;
+
   /// Enable matching of interleaved access groups.
   bool enableInterleavedAccessVectorization() const;
 
@@ -824,7 +828,7 @@ public:
   bool allowsMisalignedMemoryAccesses(LLVMContext &Context, unsigned BitWidth,
                                       unsigned AddressSpace = 0,
                                       Align Alignment = Align(1),
-                                      bool *Fast = nullptr) const;
+                                      unsigned *Fast = nullptr) const;
 
   /// Return hardware support for population count.
   PopcntSupportKind getPopcntSupport(unsigned IntTyWidthInBit) const;
@@ -909,7 +913,11 @@ public:
   };
 
   /// Additional properties of an operand's values.
-  enum OperandValueProperties { OP_None = 0, OP_PowerOf2 = 1 };
+  enum OperandValueProperties {
+    OP_None = 0,
+    OP_PowerOf2 = 1,
+    OP_NegatedPowerOf2 = 2,
+  };
 
   // Describe the values an operand can take.  We're in the process
   // of migrating uses of OperandValueKind and OperandValueProperties
@@ -926,6 +934,9 @@ public:
     }
     bool isPowerOf2() const {
       return Properties == OP_PowerOf2;
+    }
+    bool isNegatedPowerOf2() const {
+      return Properties == OP_NegatedPowerOf2;
     }
 
     OperandValueInfo getNoProps() const {
@@ -961,11 +972,11 @@ public:
   unsigned getMinVectorRegisterBitWidth() const;
 
   /// \return The maximum value of vscale if the target specifies an
-  ///  architectural maximum vector length, and None otherwise.
-  Optional<unsigned> getMaxVScale() const;
+  ///  architectural maximum vector length, and std::nullopt otherwise.
+  std::optional<unsigned> getMaxVScale() const;
 
   /// \return the value of vscale to tune the cost model for.
-  Optional<unsigned> getVScaleForTuning() const;
+  std::optional<unsigned> getVScaleForTuning() const;
 
   /// \return True if the vectorization factor should be chosen to
   /// make the vector of the smallest element type match the size of a
@@ -1018,10 +1029,10 @@ public:
   };
 
   /// \return The size of the cache level in bytes, if available.
-  Optional<unsigned> getCacheSize(CacheLevel Level) const;
+  std::optional<unsigned> getCacheSize(CacheLevel Level) const;
 
   /// \return The associativity of the cache level, if available.
-  Optional<unsigned> getCacheAssociativity(CacheLevel Level) const;
+  std::optional<unsigned> getCacheAssociativity(CacheLevel Level) const;
 
   /// \return How much before a load we should place the prefetch
   /// instruction.  This is currently measured in number of
@@ -1101,10 +1112,11 @@ public:
   /// cases, like in broadcast loads.
   /// NOTE: For subvector extractions Tp represents the source type.
   InstructionCost
-  getShuffleCost(ShuffleKind Kind, VectorType *Tp, ArrayRef<int> Mask = None,
+  getShuffleCost(ShuffleKind Kind, VectorType *Tp,
+                 ArrayRef<int> Mask = std::nullopt,
                  TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput,
                  int Index = 0, VectorType *SubTp = nullptr,
-                 ArrayRef<const Value *> Args = None) const;
+                 ArrayRef<const Value *> Args = std::nullopt) const;
 
   /// Represents a hint about the context in which a cast is used.
   ///
@@ -1152,10 +1164,10 @@ public:
                    const Instruction *I = nullptr) const;
 
   /// \return The expected cost of a sign- or zero-extended vector extract. Use
-  /// -1 to indicate that there is no information about the index value.
+  /// Index = -1 to indicate that there is no information about the index value.
   InstructionCost getExtractWithExtendCost(unsigned Opcode, Type *Dst,
                                            VectorType *VecTy,
-                                           unsigned Index = -1) const;
+                                           unsigned Index) const;
 
   /// \return The expected cost of control-flow related instructions such as
   /// Phi, Ret, Br, Switch.
@@ -1181,7 +1193,8 @@ public:
   /// case is to provision the cost of vectorization/scalarization in
   /// vectorizer passes.
   InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val,
-                                     unsigned Index = -1) const;
+                                     unsigned Index = -1, Value *Op0 = nullptr,
+                                     Value *Op1 = nullptr) const;
 
   /// \return The expected cost of vector Insert and Extract.
   /// This is used when instruction is available, and implementation
@@ -1254,8 +1267,8 @@ public:
 
   /// A helper function to determine the type of reduction algorithm used
   /// for a given \p Opcode and set of FastMathFlags \p FMF.
-  static bool requiresOrderedReduction(Optional<FastMathFlags> FMF) {
-    return FMF != None && !(*FMF).allowReassoc();
+  static bool requiresOrderedReduction(std::optional<FastMathFlags> FMF) {
+    return FMF && !(*FMF).allowReassoc();
   }
 
   /// Calculate the cost of vector reduction intrinsics.
@@ -1283,7 +1296,7 @@ public:
   ///   allowed.
   ///
   InstructionCost getArithmeticReductionCost(
-      unsigned Opcode, VectorType *Ty, Optional<FastMathFlags> FMF,
+      unsigned Opcode, VectorType *Ty, std::optional<FastMathFlags> FMF,
       TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput) const;
 
   InstructionCost getMinMaxReductionCost(
@@ -1305,7 +1318,7 @@ public:
   /// ResTy vecreduce.opcode(ext(Ty A)).
   InstructionCost getExtendedReductionCost(
       unsigned Opcode, bool IsUnsigned, Type *ResTy, VectorType *Ty,
-      Optional<FastMathFlags> FMF,
+      std::optional<FastMathFlags> FMF,
       TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput) const;
 
   /// \returns The cost of Intrinsic instructions. Analyses the real arguments.
@@ -1359,11 +1372,10 @@ public:
                                            Type *ExpectedType) const;
 
   /// \returns The type to use in a loop expansion of a memcpy call.
-  Type *
-  getMemcpyLoopLoweringType(LLVMContext &Context, Value *Length,
-                            unsigned SrcAddrSpace, unsigned DestAddrSpace,
-                            unsigned SrcAlign, unsigned DestAlign,
-                            Optional<uint32_t> AtomicElementSize = None) const;
+  Type *getMemcpyLoopLoweringType(
+      LLVMContext &Context, Value *Length, unsigned SrcAddrSpace,
+      unsigned DestAddrSpace, unsigned SrcAlign, unsigned DestAlign,
+      std::optional<uint32_t> AtomicElementSize = std::nullopt) const;
 
   /// \param[out] OpsOut The operand types to copy RemainingBytes of memory.
   /// \param RemainingBytes The number of bytes to copy.
@@ -1375,7 +1387,7 @@ public:
       SmallVectorImpl<Type *> &OpsOut, LLVMContext &Context,
       unsigned RemainingBytes, unsigned SrcAddrSpace, unsigned DestAddrSpace,
       unsigned SrcAlign, unsigned DestAlign,
-      Optional<uint32_t> AtomicCpySize = None) const;
+      std::optional<uint32_t> AtomicCpySize = std::nullopt) const;
 
   /// \returns True if the two functions have compatible attributes for inlining
   /// purposes.
@@ -1468,6 +1480,10 @@ public:
   /// by the target, this can lead to cleaner code generation.
   bool preferPredicatedReductionSelect(unsigned Opcode, Type *Ty,
                                        ReductionFlags Flags) const;
+
+  /// Return true if the loop vectorizer should consider vectorizing an
+  /// otherwise scalar epilogue loop.
+  bool preferEpilogueVectorization() const;
 
   /// \returns True if the target wants to expand the given reduction intrinsic
   /// into a shuffle sequence.
@@ -1574,6 +1590,7 @@ public:
   virtual bool
   canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const = 0;
   virtual unsigned getAssumedAddrSpace(const Value *V) const = 0;
+  virtual bool isSingleThreaded() const = 0;
   virtual std::pair<const Value *, unsigned>
   getPredicatedAddrSpace(const Value *V) const = 0;
   virtual Value *rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
@@ -1595,15 +1612,14 @@ public:
                               DominatorTree *DT, LoopVectorizationLegality *LVL,
                               InterleavedAccessInfo *IAI) = 0;
   virtual PredicationStyle emitGetActiveLaneMask() = 0;
-  virtual Optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
-                                                       IntrinsicInst &II) = 0;
-  virtual Optional<Value *>
-  simplifyDemandedUseBitsIntrinsic(InstCombiner &IC, IntrinsicInst &II,
-                                   APInt DemandedMask, KnownBits &Known,
-                                   bool &KnownBitsComputed) = 0;
-  virtual Optional<Value *> simplifyDemandedVectorEltsIntrinsic(
-      InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts, APInt &UndefElts,
-      APInt &UndefElts2, APInt &UndefElts3,
+  virtual std::optional<Instruction *> instCombineIntrinsic(
+      InstCombiner &IC, IntrinsicInst &II) = 0;
+  virtual std::optional<Value *> simplifyDemandedUseBitsIntrinsic(
+      InstCombiner &IC, IntrinsicInst &II, APInt DemandedMask,
+      KnownBits & Known, bool &KnownBitsComputed) = 0;
+  virtual std::optional<Value *> simplifyDemandedVectorEltsIntrinsic(
+      InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts,
+      APInt &UndefElts, APInt &UndefElts2, APInt &UndefElts3,
       std::function<void(Instruction *, unsigned, APInt, APInt &)>
           SimplifyAndSetOp) = 0;
   virtual bool isLegalAddImmediate(int64_t Imm) = 0;
@@ -1670,6 +1686,7 @@ public:
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
   virtual MemCmpExpansionOptions
   enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const = 0;
+  virtual bool enableSelectOptimize() = 0;
   virtual bool enableInterleavedAccessVectorization() = 0;
   virtual bool enableMaskedInterleavedAccessVectorization() = 0;
   virtual bool isFPVectorizationPotentiallyUnsafe() = 0;
@@ -1677,7 +1694,7 @@ public:
                                               unsigned BitWidth,
                                               unsigned AddressSpace,
                                               Align Alignment,
-                                              bool *Fast) = 0;
+                                              unsigned *Fast) = 0;
   virtual PopcntSupportKind getPopcntSupport(unsigned IntTyWidthInBit) = 0;
   virtual bool haveFastSqrt(Type *Ty) = 0;
   virtual bool isExpensiveToSpeculativelyExecute(const Instruction *I) = 0;
@@ -1700,8 +1717,8 @@ public:
   virtual const char *getRegisterClassName(unsigned ClassID) const = 0;
   virtual TypeSize getRegisterBitWidth(RegisterKind K) const = 0;
   virtual unsigned getMinVectorRegisterBitWidth() const = 0;
-  virtual Optional<unsigned> getMaxVScale() const = 0;
-  virtual Optional<unsigned> getVScaleForTuning() const = 0;
+  virtual std::optional<unsigned> getMaxVScale() const = 0;
+  virtual std::optional<unsigned> getVScaleForTuning() const = 0;
   virtual bool
   shouldMaximizeVectorBandwidth(TargetTransformInfo::RegisterKind K) const = 0;
   virtual ElementCount getMinimumVF(unsigned ElemWidth,
@@ -1712,8 +1729,9 @@ public:
   virtual bool shouldConsiderAddressTypePromotion(
       const Instruction &I, bool &AllowPromotionWithoutCommonHeader) = 0;
   virtual unsigned getCacheLineSize() const = 0;
-  virtual Optional<unsigned> getCacheSize(CacheLevel Level) const = 0;
-  virtual Optional<unsigned> getCacheAssociativity(CacheLevel Level) const = 0;
+  virtual std::optional<unsigned> getCacheSize(CacheLevel Level) const = 0;
+  virtual std::optional<unsigned> getCacheAssociativity(CacheLevel Level)
+      const = 0;
 
   /// \return How much before a load we should place the prefetch
   /// instruction.  This is currently measured in number of
@@ -1769,7 +1787,8 @@ public:
                                              TTI::TargetCostKind CostKind,
                                              const Instruction *I) = 0;
   virtual InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val,
-                                             unsigned Index) = 0;
+                                             unsigned Index, Value *Op0,
+                                             Value *Op1) = 0;
   virtual InstructionCost getVectorInstrCost(const Instruction &I, Type *Val,
                                              unsigned Index) = 0;
 
@@ -1803,14 +1822,14 @@ public:
       bool UseMaskForCond = false, bool UseMaskForGaps = false) = 0;
   virtual InstructionCost
   getArithmeticReductionCost(unsigned Opcode, VectorType *Ty,
-                             Optional<FastMathFlags> FMF,
+                             std::optional<FastMathFlags> FMF,
                              TTI::TargetCostKind CostKind) = 0;
   virtual InstructionCost
   getMinMaxReductionCost(VectorType *Ty, VectorType *CondTy, bool IsUnsigned,
                          TTI::TargetCostKind CostKind) = 0;
   virtual InstructionCost getExtendedReductionCost(
       unsigned Opcode, bool IsUnsigned, Type *ResTy, VectorType *Ty,
-      Optional<FastMathFlags> FMF,
+      std::optional<FastMathFlags> FMF,
       TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput) = 0;
   virtual InstructionCost getMulAccReductionCost(
       bool IsUnsigned, Type *ResTy, VectorType *Ty,
@@ -1831,17 +1850,16 @@ public:
   virtual unsigned getAtomicMemIntrinsicMaxElementSize() const = 0;
   virtual Value *getOrCreateResultFromMemIntrinsic(IntrinsicInst *Inst,
                                                    Type *ExpectedType) = 0;
-  virtual Type *
-  getMemcpyLoopLoweringType(LLVMContext &Context, Value *Length,
-                            unsigned SrcAddrSpace, unsigned DestAddrSpace,
-                            unsigned SrcAlign, unsigned DestAlign,
-                            Optional<uint32_t> AtomicElementSize) const = 0;
+  virtual Type *getMemcpyLoopLoweringType(
+      LLVMContext &Context, Value *Length, unsigned SrcAddrSpace,
+      unsigned DestAddrSpace, unsigned SrcAlign, unsigned DestAlign,
+      std::optional<uint32_t> AtomicElementSize) const = 0;
 
   virtual void getMemcpyLoopResidualLoweringType(
       SmallVectorImpl<Type *> &OpsOut, LLVMContext &Context,
       unsigned RemainingBytes, unsigned SrcAddrSpace, unsigned DestAddrSpace,
       unsigned SrcAlign, unsigned DestAlign,
-      Optional<uint32_t> AtomicCpySize) const = 0;
+      std::optional<uint32_t> AtomicCpySize) const = 0;
   virtual bool areInlineCompatible(const Function *Caller,
                                    const Function *Callee) const = 0;
   virtual bool areTypesABICompatible(const Function *Caller,
@@ -1871,6 +1889,8 @@ public:
                                      ReductionFlags) const = 0;
   virtual bool preferPredicatedReductionSelect(unsigned Opcode, Type *Ty,
                                                ReductionFlags) const = 0;
+  virtual bool preferEpilogueVectorization() const = 0;
+
   virtual bool shouldExpandReduction(const IntrinsicInst *II) const = 0;
   virtual unsigned getGISelRematGlobalCost() const = 0;
   virtual unsigned getMinTripCountTailFoldingThreshold() const = 0;
@@ -1952,6 +1972,8 @@ public:
     return Impl.getAssumedAddrSpace(V);
   }
 
+  bool isSingleThreaded() const override { return Impl.isSingleThreaded(); }
+
   std::pair<const Value *, unsigned>
   getPredicatedAddrSpace(const Value *V) const override {
     return Impl.getPredicatedAddrSpace(V);
@@ -1989,18 +2011,18 @@ public:
   PredicationStyle emitGetActiveLaneMask() override {
     return Impl.emitGetActiveLaneMask();
   }
-  Optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
-                                               IntrinsicInst &II) override {
+  std::optional<Instruction *>
+  instCombineIntrinsic(InstCombiner &IC, IntrinsicInst &II) override {
     return Impl.instCombineIntrinsic(IC, II);
   }
-  Optional<Value *>
+  std::optional<Value *>
   simplifyDemandedUseBitsIntrinsic(InstCombiner &IC, IntrinsicInst &II,
                                    APInt DemandedMask, KnownBits &Known,
                                    bool &KnownBitsComputed) override {
     return Impl.simplifyDemandedUseBitsIntrinsic(IC, II, DemandedMask, Known,
                                                  KnownBitsComputed);
   }
-  Optional<Value *> simplifyDemandedVectorEltsIntrinsic(
+  std::optional<Value *> simplifyDemandedVectorEltsIntrinsic(
       InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts, APInt &UndefElts,
       APInt &UndefElts2, APInt &UndefElts3,
       std::function<void(Instruction *, unsigned, APInt, APInt &)>
@@ -2156,6 +2178,9 @@ public:
   bool enableInterleavedAccessVectorization() override {
     return Impl.enableInterleavedAccessVectorization();
   }
+  bool enableSelectOptimize() override {
+    return Impl.enableSelectOptimize();
+  }
   bool enableMaskedInterleavedAccessVectorization() override {
     return Impl.enableMaskedInterleavedAccessVectorization();
   }
@@ -2164,7 +2189,7 @@ public:
   }
   bool allowsMisalignedMemoryAccesses(LLVMContext &Context, unsigned BitWidth,
                                       unsigned AddressSpace, Align Alignment,
-                                      bool *Fast) override {
+                                      unsigned *Fast) override {
     return Impl.allowsMisalignedMemoryAccesses(Context, BitWidth, AddressSpace,
                                                Alignment, Fast);
   }
@@ -2220,10 +2245,10 @@ public:
   unsigned getMinVectorRegisterBitWidth() const override {
     return Impl.getMinVectorRegisterBitWidth();
   }
-  Optional<unsigned> getMaxVScale() const override {
+  std::optional<unsigned> getMaxVScale() const override {
     return Impl.getMaxVScale();
   }
-  Optional<unsigned> getVScaleForTuning() const override {
+  std::optional<unsigned> getVScaleForTuning() const override {
     return Impl.getVScaleForTuning();
   }
   bool shouldMaximizeVectorBandwidth(
@@ -2247,10 +2272,11 @@ public:
         I, AllowPromotionWithoutCommonHeader);
   }
   unsigned getCacheLineSize() const override { return Impl.getCacheLineSize(); }
-  Optional<unsigned> getCacheSize(CacheLevel Level) const override {
+  std::optional<unsigned> getCacheSize(CacheLevel Level) const override {
     return Impl.getCacheSize(Level);
   }
-  Optional<unsigned> getCacheAssociativity(CacheLevel Level) const override {
+  std::optional<unsigned>
+  getCacheAssociativity(CacheLevel Level) const override {
     return Impl.getCacheAssociativity(Level);
   }
 
@@ -2334,9 +2360,9 @@ public:
                                      const Instruction *I) override {
     return Impl.getCmpSelInstrCost(Opcode, ValTy, CondTy, VecPred, CostKind, I);
   }
-  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val,
-                                     unsigned Index) override {
-    return Impl.getVectorInstrCost(Opcode, Val, Index);
+  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index,
+                                     Value *Op0, Value *Op1) override {
+    return Impl.getVectorInstrCost(Opcode, Val, Index, Op0, Op1);
   }
   InstructionCost getVectorInstrCost(const Instruction &I, Type *Val,
                                      unsigned Index) override {
@@ -2388,7 +2414,7 @@ public:
   }
   InstructionCost
   getArithmeticReductionCost(unsigned Opcode, VectorType *Ty,
-                             Optional<FastMathFlags> FMF,
+                             std::optional<FastMathFlags> FMF,
                              TTI::TargetCostKind CostKind) override {
     return Impl.getArithmeticReductionCost(Opcode, Ty, FMF, CostKind);
   }
@@ -2399,7 +2425,7 @@ public:
   }
   InstructionCost getExtendedReductionCost(
       unsigned Opcode, bool IsUnsigned, Type *ResTy, VectorType *Ty,
-      Optional<FastMathFlags> FMF,
+      std::optional<FastMathFlags> FMF,
       TTI::TargetCostKind CostKind = TTI::TCK_RecipThroughput) override {
     return Impl.getExtendedReductionCost(Opcode, IsUnsigned, ResTy, Ty, FMF,
                                          CostKind);
@@ -2442,7 +2468,7 @@ public:
   Type *getMemcpyLoopLoweringType(
       LLVMContext &Context, Value *Length, unsigned SrcAddrSpace,
       unsigned DestAddrSpace, unsigned SrcAlign, unsigned DestAlign,
-      Optional<uint32_t> AtomicElementSize) const override {
+      std::optional<uint32_t> AtomicElementSize) const override {
     return Impl.getMemcpyLoopLoweringType(Context, Length, SrcAddrSpace,
                                           DestAddrSpace, SrcAlign, DestAlign,
                                           AtomicElementSize);
@@ -2451,7 +2477,7 @@ public:
       SmallVectorImpl<Type *> &OpsOut, LLVMContext &Context,
       unsigned RemainingBytes, unsigned SrcAddrSpace, unsigned DestAddrSpace,
       unsigned SrcAlign, unsigned DestAlign,
-      Optional<uint32_t> AtomicCpySize) const override {
+      std::optional<uint32_t> AtomicCpySize) const override {
     Impl.getMemcpyLoopResidualLoweringType(OpsOut, Context, RemainingBytes,
                                            SrcAddrSpace, DestAddrSpace,
                                            SrcAlign, DestAlign, AtomicCpySize);
@@ -2514,6 +2540,10 @@ public:
                                        ReductionFlags Flags) const override {
     return Impl.preferPredicatedReductionSelect(Opcode, Ty, Flags);
   }
+  bool preferEpilogueVectorization() const override {
+    return Impl.preferEpilogueVectorization();
+  }
+
   bool shouldExpandReduction(const IntrinsicInst *II) const override {
     return Impl.shouldExpandReduction(II);
   }
@@ -2618,7 +2648,7 @@ private:
 /// and is queried by passes.
 class TargetTransformInfoWrapperPass : public ImmutablePass {
   TargetIRAnalysis TIRA;
-  Optional<TargetTransformInfo> TTI;
+  std::optional<TargetTransformInfo> TTI;
 
   virtual void anchor();
 

@@ -310,7 +310,7 @@ SelectionDAGLegalize::ExpandConstantFP(ConstantFPSDNode *CFP, bool UseCP) {
   // We don't want to shrink SNaNs. Converting the SNaN back to its real type
   // can cause it to be changed into a QNaN on some platforms (e.g. on SystemZ).
   if (!APF.isSignaling()) {
-    while (SVT != MVT::f32 && SVT != MVT::f16) {
+    while (SVT != MVT::f32 && SVT != MVT::f16 && SVT != MVT::bf16) {
       SVT = (MVT::SimpleValueType)(SVT.getSimpleVT().SimpleTy - 1);
       if (ConstantFPSDNode::isValueValidForType(SVT, APF) &&
           // Only do this if the target has a native EXTLOAD instruction from
@@ -552,16 +552,16 @@ void SelectionDAGLegalize::LegalizeStoreOps(SDNode *Node) {
     // Promote to a byte-sized store with upper bits zero if not
     // storing an integral number of bytes.  For example, promote
     // TRUNCSTORE:i1 X -> TRUNCSTORE:i8 (and X, 1)
-    EVT NVT = EVT::getIntegerVT(*DAG.getContext(), StSize.getFixedSize());
+    EVT NVT = EVT::getIntegerVT(*DAG.getContext(), StSize.getFixedValue());
     Value = DAG.getZeroExtendInReg(Value, dl, StVT);
     SDValue Result =
         DAG.getTruncStore(Chain, dl, Value, Ptr, ST->getPointerInfo(), NVT,
                           ST->getOriginalAlign(), MMOFlags, AAInfo);
     ReplaceNode(SDValue(Node, 0), Result);
-  } else if (!StVT.isVector() && !isPowerOf2_64(StWidth.getFixedSize())) {
+  } else if (!StVT.isVector() && !isPowerOf2_64(StWidth.getFixedValue())) {
     // If not storing a power-of-2 number of bits, expand as two stores.
     assert(!StVT.isVector() && "Unsupported truncstore!");
-    unsigned StWidthBits = StWidth.getFixedSize();
+    unsigned StWidthBits = StWidth.getFixedValue();
     unsigned LogStWidth = Log2_32(StWidthBits);
     assert(LogStWidth < 32);
     unsigned RoundWidth = 1 << LogStWidth;
@@ -769,10 +769,10 @@ void SelectionDAGLegalize::LegalizeLoadOps(SDNode *Node) {
 
     Value = Result;
     Chain = Ch;
-  } else if (!isPowerOf2_64(SrcWidth.getKnownMinSize())) {
+  } else if (!isPowerOf2_64(SrcWidth.getKnownMinValue())) {
     // If not loading a power-of-2 number of bits, expand as two loads.
     assert(!SrcVT.isVector() && "Unsupported extload!");
-    unsigned SrcWidthBits = SrcWidth.getFixedSize();
+    unsigned SrcWidthBits = SrcWidth.getFixedValue();
     unsigned LogSrcWidth = Log2_32(SrcWidthBits);
     assert(LogSrcWidth < 32);
     unsigned RoundWidth = 1 << LogSrcWidth;
@@ -1037,12 +1037,14 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
   case ISD::STRICT_FSETCC:
   case ISD::STRICT_FSETCCS:
   case ISD::SETCC:
+  case ISD::SETCCCARRY:
   case ISD::VP_SETCC:
   case ISD::BR_CC: {
     unsigned Opc = Node->getOpcode();
     unsigned CCOperand = Opc == ISD::SELECT_CC                         ? 4
                          : Opc == ISD::STRICT_FSETCC                   ? 3
                          : Opc == ISD::STRICT_FSETCCS                  ? 3
+                         : Opc == ISD::SETCCCARRY                      ? 3
                          : (Opc == ISD::SETCC || Opc == ISD::VP_SETCC) ? 2
                                                                        : 1;
     unsigned CompareOperand = Opc == ISD::BR_CC            ? 2
@@ -1076,7 +1078,7 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     SimpleFinishLegalizing = false;
     break;
   case ISD::EXTRACT_ELEMENT:
-  case ISD::FLT_ROUNDS_:
+  case ISD::GET_ROUNDING:
   case ISD::MERGE_VALUES:
   case ISD::EH_RETURN:
   case ISD::FRAME_TO_ARGS_OFFSET:
@@ -2739,7 +2741,7 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
                                   FA, Offset));
     break;
   }
-  case ISD::FLT_ROUNDS_:
+  case ISD::GET_ROUNDING:
     Results.push_back(DAG.getConstant(1, dl, Node->getValueType(0)));
     Results.push_back(Node->getOperand(0));
     break;
@@ -2906,8 +2908,16 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     break;
   case ISD::BF16_TO_FP: {
     // Always expand bf16 to f32 casts, they lower to ext + shift.
-    SDValue Op = DAG.getNode(ISD::BITCAST, dl, MVT::i16, Node->getOperand(0));
-    Op = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i32, Op);
+    //
+    // Note that the operand of this code can be bf16 or an integer type in case
+    // bf16 is not supported on the target and was softened.
+    SDValue Op = Node->getOperand(0);
+    if (Op.getValueType() == MVT::bf16) {
+      Op = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i32,
+                       DAG.getNode(ISD::BITCAST, dl, MVT::i16, Op));
+    } else {
+      Op = DAG.getAnyExtOrTrunc(Op, dl, MVT::i32);
+    }
     Op = DAG.getNode(
         ISD::SHL, dl, MVT::i32, Op,
         DAG.getConstant(16, dl,
@@ -2916,6 +2926,26 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     // Add fp_extend in case the output is bigger than f32.
     if (Node->getValueType(0) != MVT::f32)
       Op = DAG.getNode(ISD::FP_EXTEND, dl, Node->getValueType(0), Op);
+    Results.push_back(Op);
+    break;
+  }
+  case ISD::FP_TO_BF16: {
+    SDValue Op = Node->getOperand(0);
+    if (Op.getValueType() != MVT::f32)
+      Op = DAG.getNode(ISD::FP_ROUND, dl, MVT::f32, Op,
+                       DAG.getIntPtrConstant(0, dl, /*isTarget=*/true));
+    Op = DAG.getNode(
+        ISD::SRL, dl, MVT::i32, DAG.getNode(ISD::BITCAST, dl, MVT::i32, Op),
+        DAG.getConstant(16, dl,
+                        TLI.getShiftAmountTy(MVT::i32, DAG.getDataLayout())));
+    // The result of this node can be bf16 or an integer type in case bf16 is
+    // not supported on the target and was softened to i16 for storage.
+    if (Node->getValueType(0) == MVT::bf16) {
+      Op = DAG.getNode(ISD::BITCAST, dl, MVT::bf16,
+                       DAG.getNode(ISD::TRUNCATE, dl, MVT::i16, Op));
+    } else {
+      Op = DAG.getAnyExtOrTrunc(Op, dl, Node->getValueType(0));
+    }
     Results.push_back(Op);
     break;
   }

@@ -2150,6 +2150,12 @@ public:
     case llvm::omp::Directive::OMPD_teams_distribute_simd:
       Word("TEAMS DISTRIBUTE SIMD ");
       break;
+    case llvm::omp::Directive::OMPD_tile:
+      Word("TILE ");
+      break;
+    case llvm::omp::Directive::OMPD_unroll:
+      Word("UNROLL ");
+      break;
     default:
       break;
     }
@@ -2229,6 +2235,21 @@ public:
       break;
     }
   }
+
+  void Unparse(const OmpAtomicDefaultMemOrderClause &x) {
+    switch (x.v) {
+    case OmpAtomicDefaultMemOrderClause::Type::SeqCst:
+      Word("SEQ_CST");
+      break;
+    case OmpAtomicDefaultMemOrderClause::Type::AcqRel:
+      Word("ACQ_REL");
+      break;
+    case OmpAtomicDefaultMemOrderClause::Type::Relaxed:
+      Word("RELAXED");
+      break;
+    }
+  }
+
   void Unparse(const OmpAtomicClauseList &x) { Walk(" ", x.v, " "); }
 
   void Unparse(const OmpAtomic &x) {
@@ -2392,6 +2413,13 @@ public:
             [&](const OpenMPDeclareTargetConstruct &) {
               Word("DECLARE TARGET ");
               return true;
+            },
+            [&](const OpenMPRequiresConstruct &y) {
+              Word("REQUIRES ");
+              Walk(std::get<OmpClauseList>(y.t));
+              Put("\n");
+              EndOpenMP();
+              return false;
             },
             [&](const OpenMPThreadprivate &) {
               Word("THREADPRIVATE (");
@@ -2599,6 +2627,7 @@ private:
   void PutKeywordLetter(char);
   void Word(const char *);
   void Word(const std::string &);
+  void Word(const std::string_view &);
   void Indent() { indent_ += indentationAmount_; }
   void Outdent() {
     CHECK(indent_ >= indentationAmount_);
@@ -2754,6 +2783,12 @@ void UnparseVisitor::Word(const char *str) {
 }
 
 void UnparseVisitor::Word(const std::string &str) { Word(str.c_str()); }
+
+void UnparseVisitor::Word(const std::string_view &str) {
+  for (std::size_t j{0}; j < str.length(); ++j) {
+    PutKeywordLetter(str[j]);
+  }
+}
 
 template <typename A>
 void Unparse(llvm::raw_ostream &out, const A &root, Encoding encoding,

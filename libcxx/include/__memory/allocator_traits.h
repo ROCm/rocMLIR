@@ -13,9 +13,16 @@
 #include <__config>
 #include <__memory/construct_at.h>
 #include <__memory/pointer_traits.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_empty.h>
+#include <__type_traits/is_move_constructible.h>
+#include <__type_traits/make_unsigned.h>
+#include <__type_traits/remove_reference.h>
+#include <__type_traits/void_t.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -28,7 +35,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #define _LIBCPP_ALLOCATOR_TRAITS_HAS_XXX(NAME, PROPERTY)                \
     template <class _Tp, class = void> struct NAME : false_type { };    \
-    template <class _Tp>               struct NAME<_Tp, typename __void_t<typename _Tp:: PROPERTY >::type> : true_type { }
+    template <class _Tp>               struct NAME<_Tp, __void_t<typename _Tp:: PROPERTY > > : true_type { }
 
 // __pointer
 _LIBCPP_ALLOCATOR_TRAITS_HAS_XXX(__has_pointer, pointer);
@@ -152,13 +159,12 @@ _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Tp, class _Up, class = void>
 struct __has_rebind_other : false_type { };
 template <class _Tp, class _Up>
-struct __has_rebind_other<_Tp, _Up, typename __void_t<
-    typename _Tp::template rebind<_Up>::other
->::type> : true_type { };
+struct __has_rebind_other<_Tp, _Up, __void_t<typename _Tp::template rebind<_Up>::other> > : true_type { };
 
 template <class _Tp, class _Up, bool = __has_rebind_other<_Tp, _Up>::value>
 struct __allocator_traits_rebind {
-    using type _LIBCPP_NODEBUG = typename _Tp::template rebind<_Up>::other;
+  static_assert(__has_rebind_other<_Tp, _Up>::value, "This allocator has to implement rebind");
+  using type _LIBCPP_NODEBUG = typename _Tp::template rebind<_Up>::other;
 };
 template <template <class, class...> class _Alloc, class _Tp, class ..._Args, class _Up>
 struct __allocator_traits_rebind<_Alloc<_Tp, _Args...>, _Up, true> {
@@ -181,7 +187,7 @@ struct __has_allocate_hint : false_type { };
 
 template <class _Alloc, class _SizeType, class _ConstVoidPtr>
 struct __has_allocate_hint<_Alloc, _SizeType, _ConstVoidPtr, decltype(
-    (void)declval<_Alloc>().allocate(declval<_SizeType>(), declval<_ConstVoidPtr>())
+    (void)std::declval<_Alloc>().allocate(std::declval<_SizeType>(), std::declval<_ConstVoidPtr>())
 )> : true_type { };
 
 // __has_construct
@@ -190,7 +196,7 @@ struct __has_construct_impl : false_type { };
 
 template <class _Alloc, class ..._Args>
 struct __has_construct_impl<decltype(
-    (void)declval<_Alloc>().construct(declval<_Args>()...)
+    (void)std::declval<_Alloc>().construct(std::declval<_Args>()...)
 ), _Alloc, _Args...> : true_type { };
 
 template <class _Alloc, class ..._Args>
@@ -202,7 +208,7 @@ struct __has_destroy : false_type { };
 
 template <class _Alloc, class _Pointer>
 struct __has_destroy<_Alloc, _Pointer, decltype(
-    (void)declval<_Alloc>().destroy(declval<_Pointer>())
+    (void)std::declval<_Alloc>().destroy(std::declval<_Pointer>())
 )> : true_type { };
 
 // __has_max_size
@@ -211,7 +217,7 @@ struct __has_max_size : false_type { };
 
 template <class _Alloc>
 struct __has_max_size<_Alloc, decltype(
-    (void)declval<_Alloc&>().max_size()
+    (void)std::declval<_Alloc&>().max_size()
 )> : true_type { };
 
 // __has_select_on_container_copy_construction
@@ -220,7 +226,7 @@ struct __has_select_on_container_copy_construction : false_type { };
 
 template <class _Alloc>
 struct __has_select_on_container_copy_construction<_Alloc, decltype(
-    (void)declval<_Alloc>().select_on_container_copy_construction()
+    (void)std::declval<_Alloc>().select_on_container_copy_construction()
 )> : true_type { };
 
 _LIBCPP_SUPPRESS_DEPRECATED_POP
@@ -349,14 +355,13 @@ struct _LIBCPP_TEMPLATE_VIS allocator_traits
     }
 };
 
-template <class _Traits, class _Tp>
-struct __rebind_alloc_helper {
 #ifndef _LIBCPP_CXX03_LANG
-    using type _LIBCPP_NODEBUG = typename _Traits::template rebind_alloc<_Tp>;
+template <class _Traits, class _Tp>
+using __rebind_alloc _LIBCPP_NODEBUG = typename _Traits::template rebind_alloc<_Tp>;
 #else
-    using type = typename _Traits::template rebind_alloc<_Tp>::other;
+template <class _Traits, class _Tp>
+using __rebind_alloc = typename _Traits::template rebind_alloc<_Tp>::other;
 #endif
-};
 
 // __is_default_allocator
 template <class _Tp>

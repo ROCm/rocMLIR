@@ -44,6 +44,7 @@
 #include "lldb/Target/Thread.h"
 #include "lldb/Target/ThreadList.h"
 #include "lldb/Utility/AnsiTerminal.h"
+#include "lldb/Utility/Diagnostics.h"
 #include "lldb/Utility/Event.h"
 #include "lldb/Utility/LLDBLog.h"
 #include "lldb/Utility/Listener.h"
@@ -51,13 +52,13 @@
 #include "lldb/Utility/State.h"
 #include "lldb/Utility/Stream.h"
 #include "lldb/Utility/StreamString.h"
+#include "lldb/lldb-enumerations.h"
 
 #if defined(_WIN32)
 #include "lldb/Host/windows/PosixApi.h"
 #include "lldb/Host/windows/windows.h"
 #endif
 
-#include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator.h"
@@ -74,6 +75,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <system_error>
@@ -146,6 +148,16 @@ static constexpr OptionEnumValueElement g_language_enumerators[] = {
         "default",
         "Select the lldb default as the default scripting language.",
     },
+};
+
+static constexpr OptionEnumValueElement g_dwim_print_verbosities[] = {
+    {eDWIMPrintVerbosityNone, "none",
+     "Use no verbosity when running dwim-print."},
+    {eDWIMPrintVerbosityExpression, "expression",
+     "Use partial verbosity when running dwim-print - display a message when "
+     "`expression` evaluation is used."},
+    {eDWIMPrintVerbosityFull, "full",
+     "Use full verbosity when running dwim-print."},
 };
 
 static constexpr OptionEnumValueElement s_stop_show_column_values[] = {
@@ -517,6 +529,13 @@ uint32_t Debugger::GetTabSize() const {
 bool Debugger::SetTabSize(uint32_t tab_size) {
   const uint32_t idx = ePropertyTabSize;
   return m_collection_sp->SetPropertyAtIndexAsUInt64(nullptr, idx, tab_size);
+}
+
+lldb::DWIMPrintVerbosity Debugger::GetDWIMPrintVerbosity() const {
+  const uint32_t idx = ePropertyDWIMPrintVerbosity;
+  return (lldb::DWIMPrintVerbosity)
+      m_collection_sp->GetPropertyAtIndexAsEnumeration(
+          nullptr, idx, g_debugger_properties[idx].default_uint_value);
 }
 
 #pragma mark Debugger
@@ -1282,7 +1301,7 @@ static void PrivateReportProgress(Debugger &debugger, uint64_t progress_id,
 
 void Debugger::ReportProgress(uint64_t progress_id, const std::string &message,
                               uint64_t completed, uint64_t total,
-                              llvm::Optional<lldb::user_id_t> debugger_id) {
+                              std::optional<lldb::user_id_t> debugger_id) {
   // Check if this progress is for a specific debugger.
   if (debugger_id) {
     // It is debugger specific, grab it and deliver the event if the debugger
@@ -1310,6 +1329,9 @@ static void PrivateReportDiagnostic(Debugger &debugger,
                                     bool debugger_specific) {
   uint32_t event_type = 0;
   switch (type) {
+  case DiagnosticEventData::Type::Info:
+    assert(false && "DiagnosticEventData::Type::Info should not be broadcast");
+    return;
   case DiagnosticEventData::Type::Warning:
     event_type = Debugger::eBroadcastBitWarning;
     break;
@@ -1335,10 +1357,19 @@ static void PrivateReportDiagnostic(Debugger &debugger,
 
 void Debugger::ReportDiagnosticImpl(DiagnosticEventData::Type type,
                                     std::string message,
-                                    llvm::Optional<lldb::user_id_t> debugger_id,
+                                    std::optional<lldb::user_id_t> debugger_id,
                                     std::once_flag *once) {
   auto ReportDiagnosticLambda = [&]() {
-    // Check if this progress is for a specific debugger.
+    // The diagnostic subsystem is optional but we still want to broadcast
+    // events when it's disabled.
+    if (Diagnostics::Enabled())
+      Diagnostics::Instance().Report(message);
+
+    // We don't broadcast info events.
+    if (type == DiagnosticEventData::Type::Info)
+      return;
+
+    // Check if this diagnostic is for a specific debugger.
     if (debugger_id) {
       // It is debugger specific, grab it and deliver the event if the debugger
       // still exists.
@@ -1347,8 +1378,8 @@ void Debugger::ReportDiagnosticImpl(DiagnosticEventData::Type type,
         PrivateReportDiagnostic(*debugger_sp, type, std::move(message), true);
       return;
     }
-    // The progress event is not debugger specific, iterate over all debuggers
-    // and deliver a progress event to each one.
+    // The diagnostic event is not debugger specific, iterate over all debuggers
+    // and deliver a diagnostic event to each one.
     if (g_debugger_list_ptr && g_debugger_list_mutex_ptr) {
       std::lock_guard<std::recursive_mutex> guard(*g_debugger_list_mutex_ptr);
       for (const auto &debugger : *g_debugger_list_ptr)
@@ -1363,17 +1394,23 @@ void Debugger::ReportDiagnosticImpl(DiagnosticEventData::Type type,
 }
 
 void Debugger::ReportWarning(std::string message,
-                             llvm::Optional<lldb::user_id_t> debugger_id,
+                             std::optional<lldb::user_id_t> debugger_id,
                              std::once_flag *once) {
   ReportDiagnosticImpl(DiagnosticEventData::Type::Warning, std::move(message),
                        debugger_id, once);
 }
 
 void Debugger::ReportError(std::string message,
-                           llvm::Optional<lldb::user_id_t> debugger_id,
+                           std::optional<lldb::user_id_t> debugger_id,
                            std::once_flag *once) {
-
   ReportDiagnosticImpl(DiagnosticEventData::Type::Error, std::move(message),
+                       debugger_id, once);
+}
+
+void Debugger::ReportInfo(std::string message,
+                          std::optional<lldb::user_id_t> debugger_id,
+                          std::once_flag *once) {
+  ReportDiagnosticImpl(DiagnosticEventData::Type::Info, std::move(message),
                        debugger_id, once);
 }
 
@@ -1457,7 +1494,7 @@ bool Debugger::EnableLog(llvm::StringRef channel,
 
 ScriptInterpreter *
 Debugger::GetScriptInterpreter(bool can_create,
-                               llvm::Optional<lldb::ScriptLanguage> language) {
+                               std::optional<lldb::ScriptLanguage> language) {
   std::lock_guard<std::recursive_mutex> locker(m_script_interpreter_mutex);
   lldb::ScriptLanguage script_language =
       language ? *language : GetScriptLanguage();
@@ -1695,7 +1732,7 @@ lldb::thread_result_t Debugger::DefaultEventHandler() {
   bool done = false;
   while (!done) {
     EventSP event_sp;
-    if (listener_sp->GetEvent(event_sp, llvm::None)) {
+    if (listener_sp->GetEvent(event_sp, std::nullopt)) {
       if (event_sp) {
         Broadcaster *broadcaster = event_sp->GetBroadcaster();
         if (broadcaster) {
@@ -1790,7 +1827,7 @@ bool Debugger::StartEventHandlerThread() {
     // event, we just need to wait an infinite amount of time for it (nullptr
     // timeout as the first parameter)
     lldb::EventSP event_sp;
-    listener_sp->GetEvent(event_sp, llvm::None);
+    listener_sp->GetEvent(event_sp, std::nullopt);
   }
   return m_event_handler_thread.IsJoinable();
 }

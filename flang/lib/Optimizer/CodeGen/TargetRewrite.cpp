@@ -29,6 +29,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
+#include <optional>
 
 namespace fir {
 #define GEN_PASS_DEF_TARGETREWRITEPASS
@@ -64,7 +65,7 @@ struct FixupTy {
   Codes code;
   std::size_t index;
   std::size_t second{};
-  llvm::Optional<std::function<void(mlir::func::FuncOp)>> finalizer{};
+  std::optional<std::function<void(mlir::func::FuncOp)>> finalizer{};
 }; // namespace
 
 /// Target-specific rewriting of the FIR. This is a prerequisite pass to code
@@ -209,10 +210,12 @@ public:
         newOpers.push_back(callOp.getOperand(0));
         dropFront = 1;
       }
+    } else {
+      dropFront = 1; // First operand is the polymorphic object.
     }
 
     // Determine the rewrite function, `wrap`, for the result value.
-    llvm::Optional<std::function<mlir::Value(mlir::Operation *)>> wrap;
+    std::optional<std::function<mlir::Value(mlir::Operation *)>> wrap;
     if (fnTy.getResults().size() == 1) {
       mlir::Type ty = fnTy.getResult(0);
       llvm::TypeSwitch<mlir::Type>(ty)
@@ -231,6 +234,7 @@ public:
 
     llvm::SmallVector<mlir::Type> trailingInTys;
     llvm::SmallVector<mlir::Value> trailingOpers;
+    unsigned passArgShift = 0;
     for (auto e : llvm::enumerate(
              llvm::zip(fnTy.getInputs().drop_front(dropFront),
                        callOp.getOperands().drop_front(dropFront)))) {
@@ -314,6 +318,10 @@ public:
             }
           })
           .Default([&](mlir::Type ty) {
+            if constexpr (std::is_same_v<std::decay_t<A>, fir::DispatchOp>) {
+              if (callOp.getPassArgPos() && *callOp.getPassArgPos() == index)
+                passArgShift = newOpers.size() - *callOp.getPassArgPos();
+            }
             newInTys.push_back(ty);
             newOpers.push_back(oper);
           });
@@ -338,8 +346,14 @@ public:
       else
         replaceOp(callOp, newCall.getResults());
     } else {
-      // A is fir::DispatchOp
-      TODO(loc, "dispatch not implemented");
+      fir::DispatchOp dispatchOp = rewriter->create<A>(
+          loc, newResTys, rewriter->getStringAttr(callOp.getMethod()),
+          callOp.getOperands()[0], newOpers,
+          rewriter->getI32IntegerAttr(*callOp.getPassArgPos() + passArgShift));
+      if (wrap)
+        replaceOp(callOp, (*wrap)(dispatchOp.getOperation()));
+      else
+        replaceOp(callOp, dispatchOp.getResults());
     }
   }
 
@@ -488,7 +502,8 @@ public:
     // correctly.
     for (auto e : llvm::enumerate(funcTy.getInputs())) {
       unsigned index = e.index();
-      llvm::ArrayRef<mlir::NamedAttribute> attrs = func.getArgAttrs(index);
+      llvm::ArrayRef<mlir::NamedAttribute> attrs =
+          mlir::function_interface_impl::getArgAttrs(func, index);
       for (mlir::NamedAttribute attr : attrs) {
         savedAttrs.push_back({index, attr});
       }
@@ -841,17 +856,17 @@ public:
       auto argNo = newInTys.size();
       if (attr.isByVal()) {
         if (auto align = attr.getAlignment())
-          fixups.emplace_back(
-              FixupTy::Codes::ArgumentAsLoad, argNo,
-              [=](mlir::func::FuncOp func) {
-                auto elemType = fir::dyn_cast_ptrOrBoxEleTy(
-                    func.getFunctionType().getInput(argNo));
-                func.setArgAttr(argNo, "llvm.byval",
-                                mlir::TypeAttr::get(elemType));
-                func.setArgAttr(argNo, "llvm.align",
-                                rewriter->getIntegerAttr(
-                                    rewriter->getIntegerType(32), align));
-              });
+          fixups.emplace_back(FixupTy::Codes::ArgumentAsLoad, argNo,
+                              [=](mlir::func::FuncOp func) {
+                                auto elemType = fir::dyn_cast_ptrOrBoxEleTy(
+                                    func.getFunctionType().getInput(argNo));
+                                func.setArgAttr(argNo, "llvm.byval",
+                                                mlir::TypeAttr::get(elemType));
+                                func.setArgAttr(
+                                    argNo, "llvm.align",
+                                    rewriter->getIntegerAttr(
+                                        rewriter->getIntegerType(32), align));
+                              });
         else
           fixups.emplace_back(FixupTy::Codes::ArgumentAsLoad, newInTys.size(),
                               [=](mlir::func::FuncOp func) {

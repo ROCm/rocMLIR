@@ -9,6 +9,7 @@
 #include "mlir-c/Dialect/SparseTensor.h"
 #include "mlir-c/IR.h"
 #include "mlir/Bindings/Python/PybindAdaptors.h"
+#include <optional>
 
 namespace py = pybind11;
 using namespace llvm;
@@ -33,16 +34,18 @@ static void populateDialectSparseTensorSubmodule(const py::module &m) {
           "get",
           [](py::object cls,
              std::vector<MlirSparseTensorDimLevelType> dimLevelTypes,
-             llvm::Optional<MlirAffineMap> dimOrdering, int pointerBitWidth,
+             std::optional<MlirAffineMap> dimOrdering,
+             std::optional<MlirAffineMap> higherOrdering, int pointerBitWidth,
              int indexBitWidth, MlirContext context) {
             return cls(mlirSparseTensorEncodingAttrGet(
                 context, dimLevelTypes.size(), dimLevelTypes.data(),
                 dimOrdering ? *dimOrdering : MlirAffineMap{nullptr},
+                higherOrdering ? *higherOrdering : MlirAffineMap{nullptr},
                 pointerBitWidth, indexBitWidth));
           },
           py::arg("cls"), py::arg("dim_level_types"), py::arg("dim_ordering"),
-          py::arg("pointer_bit_width"), py::arg("index_bit_width"),
-          py::arg("context") = py::none(),
+          py::arg("higher_ordering"), py::arg("pointer_bit_width"),
+          py::arg("index_bit_width"), py::arg("context") = py::none(),
           "Gets a sparse_tensor.encoding from parameters.")
       .def_property_readonly(
           "dim_level_types",
@@ -57,9 +60,18 @@ static void populateDialectSparseTensorSubmodule(const py::module &m) {
           })
       .def_property_readonly(
           "dim_ordering",
-          [](MlirAttribute self) -> llvm::Optional<MlirAffineMap> {
+          [](MlirAttribute self) -> std::optional<MlirAffineMap> {
             MlirAffineMap ret =
                 mlirSparseTensorEncodingAttrGetDimOrdering(self);
+            if (mlirAffineMapIsNull(ret))
+              return {};
+            return ret;
+          })
+      .def_property_readonly(
+          "higher_ordering",
+          [](MlirAttribute self) -> std::optional<MlirAffineMap> {
+            MlirAffineMap ret =
+                mlirSparseTensorEncodingAttrGetHigherOrdering(self);
             if (mlirAffineMapIsNull(ret))
               return {};
             return ret;

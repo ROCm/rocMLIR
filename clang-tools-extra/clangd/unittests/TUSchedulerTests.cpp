@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -891,7 +892,7 @@ TEST_F(TUSchedulerTests, MissingHeader) {
                         << "Didn't expect new diagnostics when adding a/foo.h";
                   });
 
-  // Forcing the reload should should cause a rebuild.
+  // Forcing the reload should cause a rebuild.
   Inputs.ForceRebuild = true;
   updateWithDiags(
       S, Source, Inputs, WantDiagnostics::Yes,
@@ -1203,10 +1204,10 @@ TEST_F(TUSchedulerTests, IncluderCache) {
                      OK = testPath("ok.h"),
                      NotIncluded = testPath("not_included.h");
   struct NoHeadersCDB : public GlobalCompilationDatabase {
-    llvm::Optional<tooling::CompileCommand>
+    std::optional<tooling::CompileCommand>
     getCompileCommand(PathRef File) const override {
       if (File == NoCmd || File == NotIncluded || FailAll)
-        return llvm::None;
+        return std::nullopt;
       auto Basic = getFallbackCommand(File);
       Basic.Heuristic.clear();
       if (File == Unreliable) {
@@ -1386,7 +1387,7 @@ TEST_F(TUSchedulerTests, PreambleThrottle) {
     std::vector<RequestID> Releases;
     llvm::DenseMap<RequestID, Callback> Callbacks;
     // If set, the notification is signalled after acquiring the specified ID.
-    llvm::Optional<std::pair<RequestID, Notification *>> Notify;
+    std::optional<std::pair<RequestID, Notification *>> Notify;
 
     RequestID acquire(llvm::StringRef Filename, Callback CB) override {
       RequestID ID;

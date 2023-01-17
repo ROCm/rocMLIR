@@ -33,6 +33,11 @@ struct AllocateStmt;
 struct DeallocateStmt;
 } // namespace parser
 
+namespace semantics {
+class Symbol;
+class DerivedTypeSpec;
+} // namespace semantics
+
 namespace lower {
 struct SymbolBox;
 
@@ -49,7 +54,8 @@ void genDeallocateStmt(AbstractConverter &converter,
                        const parser::DeallocateStmt &stmt, mlir::Location loc);
 
 void genDeallocateBox(AbstractConverter &converter,
-                      const fir::MutableBoxValue &box, mlir::Location loc);
+                      const fir::MutableBoxValue &box, mlir::Location loc,
+                      mlir::Value declaredTypeDesc = {});
 
 /// Create a MutableBoxValue for an allocatable or pointer entity.
 /// If the variables is a local variable that is not a dummy, it will be
@@ -74,6 +80,17 @@ bool isWholeAllocatable(const SomeExpr &expr);
 
 /// Is \p expr a reference to an entity with the POINTER attribute?
 bool isWholePointer(const SomeExpr &expr);
+
+/// Read the length from \p box for an assumed length character allocatable or
+/// pointer dummy argument given by \p sym.
+mlir::Value getAssumedCharAllocatableOrPointerLen(
+    fir::FirOpBuilder &builder, mlir::Location loc,
+    const Fortran::semantics::Symbol &sym, mlir::Value box);
+
+/// Retrieve the address of a type descriptor from its derived type spec.
+mlir::Value
+getTypeDescAddr(fir::FirOpBuilder &builder, mlir::Location loc,
+                const Fortran::semantics::DerivedTypeSpec &typeSpec);
 
 } // namespace lower
 } // namespace Fortran

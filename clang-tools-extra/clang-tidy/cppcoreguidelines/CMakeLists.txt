@@ -5,8 +5,10 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_library(clangTidyCppCoreGuidelinesModule
   AvoidConstOrRefDataMembersCheck.cpp
+  AvoidDoWhileCheck.cpp
   AvoidGotoCheck.cpp
   AvoidNonConstGlobalVariablesCheck.cpp
+  AvoidReferenceCoroutineParametersCheck.cpp
   CppCoreGuidelinesTidyModule.cpp
   InitVariablesCheck.cpp
   InterfacesGlobalInitCheck.cpp

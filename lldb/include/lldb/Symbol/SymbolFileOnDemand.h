@@ -10,6 +10,7 @@
 #define LLDB_SYMBOL_SYMBOLFILEONDEMAND_H
 
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include "lldb/Symbol/ObjectFile.h"
@@ -96,7 +97,7 @@ public:
   ParseVariablesForContext(const lldb_private::SymbolContext &sc) override;
 
   lldb_private::Type *ResolveTypeUID(lldb::user_id_t type_uid) override;
-  llvm::Optional<ArrayInfo> GetDynamicArrayInfoForUID(
+  std::optional<ArrayInfo> GetDynamicArrayInfoForUID(
       lldb::user_id_t type_uid,
       const lldb_private::ExecutionContext *exe_ctx) override;
 
@@ -116,6 +117,9 @@ public:
   uint32_t ResolveSymbolContext(const lldb_private::Address &so_addr,
                                 lldb::SymbolContextItem resolve_scope,
                                 lldb_private::SymbolContext &sc) override;
+
+  lldb_private::Status
+  CalculateFrameVariableError(lldb_private::StackFrame &frame) override;
 
   uint32_t ResolveSymbolContext(
       const lldb_private::SourceLocationSpec &src_location_spec,
@@ -164,7 +168,7 @@ public:
                 lldb::TypeClass type_mask,
                 lldb_private::TypeList &type_list) override;
 
-  llvm::Expected<lldb_private::TypeSystem &>
+  llvm::Expected<lldb::TypeSystemSP>
   GetTypeSystemForLanguage(lldb::LanguageType language) override;
 
   lldb_private::CompilerDeclContext FindNamespace(
@@ -215,6 +219,12 @@ public:
   }
   void SetDebugInfoIndexWasSavedToCache() override {
     m_sym_file_impl->SetDebugInfoIndexWasSavedToCache();
+  }
+  bool GetDebugInfoHadFrameVariableErrors() const override {
+    return m_sym_file_impl->GetDebugInfoHadFrameVariableErrors();
+  }
+  void SetDebugInfoHadFrameVariableErrors() override {
+    return m_sym_file_impl->SetDebugInfoHadFrameVariableErrors();
   }
 
 private:

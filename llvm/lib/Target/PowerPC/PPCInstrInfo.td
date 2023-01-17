@@ -83,6 +83,9 @@ def SDT_PPClbrx : SDTypeProfile<1, 2, [
 def SDT_PPCstbrx : SDTypeProfile<0, 3, [
   SDTCisInt<0>, SDTCisPtrTy<1>, SDTCisVT<2, OtherVT>
 ]>;
+def SDT_StoreCond : SDTypeProfile<0, 3, [
+  SDTCisPtrTy<0>, SDTCisInt<1>, SDTCisPtrTy<2>
+]>;
 
 def SDT_PPCTC_ret : SDTypeProfile<0, 2, [
   SDTCisPtrTy<0>, SDTCisVT<1, i32>
@@ -375,6 +378,9 @@ def PPClbrx       : SDNode<"PPCISD::LBRX", SDT_PPClbrx,
                            [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 def PPCstbrx      : SDNode<"PPCISD::STBRX", SDT_PPCstbrx,
                            [SDNPHasChain, SDNPMayStore]>;
+def PPCStoreCond  : SDNode<"PPCISD::STORE_COND", SDT_StoreCond,
+                           [SDNPHasChain, SDNPMayStore,
+                            SDNPMemOperand, SDNPOutGlue]>;
 
 // Instructions to set/unset CR bit 6 for SVR4 vararg calls
 def PPCcr6set   : SDNode<"PPCISD::CR6SET", SDTNone,
@@ -406,6 +412,24 @@ def PPCtlslocalexecmataddr : SDNode<"PPCISD::TLS_LOCAL_EXEC_MAT_ADDR",
 def nzFPImmAsi32 : PatLeaf<(fpimm), [{
   APFloat APFloatOfN = N->getValueAPF();
   return convertToNonDenormSingle(APFloatOfN) && !N->isExactlyValue(+0.0);
+}]>;
+
+// A floating point immediate that is exactly an integer (for example 3.0, -5.0)
+// and can be represented in 5 bits (range of [-16, 15]).
+def nzFPImmExactInti5 : PatLeaf<(fpimm), [{
+  APFloat FloatValue = N->getValueAPF();
+  bool IsExact;
+  APSInt IntResult(16, false);
+  FloatValue.convertToInteger(IntResult, APFloat::rmTowardZero, &IsExact);
+  return IsExact && IntResult <= 15 && IntResult >= -16 && !FloatValue.isZero();
+}]>;
+
+def getFPAs5BitExactInt : SDNodeXForm<fpimm, [{
+  APFloat FloatValue = N->getValueAPF();
+  bool IsExact;
+  APSInt IntResult(32, false);
+  FloatValue.convertToInteger(IntResult, APFloat::rmTowardZero, &IsExact);
+  return CurDAG->getTargetConstant(IntResult, SDLoc(N), MVT::i32);
 }]>;
 
 // Convert the floating point immediate into a 32 bit floating point immediate
@@ -563,30 +587,30 @@ def imm64ZExt32  : Operand<i64>, ImmLeaf<i64, [{
 // an alignment check into the relevant patterns.
 
 def DSFormLoad : PatFrag<(ops node:$ptr), (load node:$ptr), [{
-  return isOffsetMultipleOf(N, 4) || cast<LoadSDNode>(N)->getAlignment() >= 4;
+  return isOffsetMultipleOf(N, 4) || cast<LoadSDNode>(N)->getAlign() >= 4;
 }]>;
 def DSFormStore : PatFrag<(ops node:$val, node:$ptr),
                             (store node:$val, node:$ptr), [{
-  return isOffsetMultipleOf(N, 4) || cast<StoreSDNode>(N)->getAlignment() >= 4;
+  return isOffsetMultipleOf(N, 4) || cast<StoreSDNode>(N)->getAlign() >= 4;
 }]>;
 def DSFormSextLoadi32 : PatFrag<(ops node:$ptr), (sextloadi32 node:$ptr), [{
-  return isOffsetMultipleOf(N, 4) || cast<LoadSDNode>(N)->getAlignment() >= 4;
+  return isOffsetMultipleOf(N, 4) || cast<LoadSDNode>(N)->getAlign() >= 4;
 }]>;
 def DSFormPreStore : PatFrag<
                           (ops node:$val, node:$base, node:$offset),
                           (pre_store node:$val, node:$base, node:$offset), [{
-  return isOffsetMultipleOf(N, 4) || cast<StoreSDNode>(N)->getAlignment() >= 4;
+  return isOffsetMultipleOf(N, 4) || cast<StoreSDNode>(N)->getAlign() >= 4;
 }]>;
 
 def NonDSFormLoad : PatFrag<(ops node:$ptr), (load node:$ptr), [{
-  return cast<LoadSDNode>(N)->getAlignment() < 4 && !isOffsetMultipleOf(N, 4);
+  return cast<LoadSDNode>(N)->getAlign() < 4 && !isOffsetMultipleOf(N, 4);
 }]>;
 def NonDSFormStore : PatFrag<(ops node:$val, node:$ptr),
                               (store node:$val, node:$ptr), [{
-  return cast<StoreSDNode>(N)->getAlignment() < 4 && !isOffsetMultipleOf(N, 4);
+  return cast<StoreSDNode>(N)->getAlign() < 4 && !isOffsetMultipleOf(N, 4);
 }]>;
 def NonDSFormSextLoadi32 : PatFrag<(ops node:$ptr), (sextloadi32 node:$ptr), [{
-  return cast<LoadSDNode>(N)->getAlignment() < 4 && !isOffsetMultipleOf(N, 4);
+  return cast<LoadSDNode>(N)->getAlign() < 4 && !isOffsetMultipleOf(N, 4);
 }]>;
 
 // This is a somewhat weaker condition than actually checking for 16-byte
@@ -705,6 +729,7 @@ def ModernAs: Predicate<"!Subtarget->isAIXABI() || Subtarget->HasModernAIXAs">,
 def IsAIX : Predicate<"Subtarget->isAIXABI()">;
 def NotAIX : Predicate<"!Subtarget->isAIXABI()">;
 def IsISAFuture : Predicate<"Subtarget->isISAFuture()">;
+def IsNotISAFuture : Predicate<"!Subtarget->isISAFuture()">;
 
 //===----------------------------------------------------------------------===//
 // PowerPC Multiclass Definitions.
@@ -1770,13 +1795,13 @@ def STWAT : X_RD5_RS5_IM5<31, 710, (outs), (ins gprc:$rS, gprc:$rA, u5imm:$FC),
 let isTerminator = 1, isBarrier = 1, hasCtrlDep = 1 in
 def TRAP  : XForm_24<31, 4, (outs), (ins), "trap", IIC_LdStLoad, [(trap)]>;
 
-def TWI : DForm_base<3, (outs), (ins u5imm:$to, gprc:$rA, s16imm:$imm),
+def TWI : DForm_base<3, (outs), (ins u5imm:$to, gprc:$rA, s16imm:$imm, variable_ops),
                      "twi $to, $rA, $imm", IIC_IntTrapW, []>;
-def TW : XForm_1<31, 4, (outs), (ins u5imm:$to, gprc:$rA, gprc:$rB),
+def TW : XForm_1<31, 4, (outs), (ins u5imm:$to, gprc:$rA, gprc:$rB, variable_ops),
                  "tw $to, $rA, $rB", IIC_IntTrapW, []>;
-def TDI : DForm_base<2, (outs), (ins u5imm:$to, g8rc:$rA, s16imm:$imm),
+def TDI : DForm_base<2, (outs), (ins u5imm:$to, g8rc:$rA, s16imm:$imm, variable_ops),
                      "tdi $to, $rA, $imm", IIC_IntTrapD, []>;
-def TD : XForm_1<31, 68, (outs), (ins u5imm:$to, g8rc:$rA, g8rc:$rB),
+def TD : XForm_1<31, 68, (outs), (ins u5imm:$to, g8rc:$rA, g8rc:$rB, variable_ops),
                  "td $to, $rA, $rB", IIC_IntTrapD, []>;
 
 def POPCNTB : XForm_11<31, 122, (outs gprc:$rA), (ins gprc:$rS),
@@ -2475,12 +2500,16 @@ def CRNOR  : XLForm_1<19, 33, (outs crbitrc:$CRD),
                               (ins crbitrc:$CRA, crbitrc:$CRB),
                       "crnor $CRD, $CRA, $CRB", IIC_BrCR,
                       [(set i1:$CRD, (not (or i1:$CRA, i1:$CRB)))]>;
-
 def CREQV  : XLForm_1<19, 289, (outs crbitrc:$CRD),
                                (ins crbitrc:$CRA, crbitrc:$CRB),
                       "creqv $CRD, $CRA, $CRB", IIC_BrCR,
                       [(set i1:$CRD, (not (xor i1:$CRA, i1:$CRB)))]>;
 } // isCommutable
+
+let isCodeGenOnly = 1 in
+def CRNOT  : XLForm_1s<19, 33, (outs crbitrc:$CRD), (ins crbitrc:$CRA),
+                       "crnot $CRD, $CRA", IIC_BrCR,
+                       [(set i1:$CRD, (not i1:$CRA))]>;
 
 def CRANDC : XLForm_1<19, 129, (outs crbitrc:$CRD),
                                (ins crbitrc:$CRA, crbitrc:$CRB),
@@ -3261,13 +3290,15 @@ include "PPCInstrVSX.td"
 include "PPCInstrHTM.td"
 
 def crnot : OutPatFrag<(ops node:$in),
-                       (CRNOR $in, $in)>;
+                       (CRNOT $in)>;
 def       : Pat<(not i1:$in),
                 (crnot $in)>;
 
 // Prefixed instructions may require access to the above defs at a later
 // time so we include this after the def.
 include "PPCInstrP10.td"
+include "PPCInstrFutureMMA.td"
+include "PPCInstrFuture.td"
 include "PPCInstrMMA.td"
 
 // Patterns for arithmetic i1 operations.
@@ -3296,9 +3327,9 @@ def : Pat<(i64 (sext i1:$in)),
 // FIXME: We should choose either a zext or a sext based on other constants
 // already around.
 def : Pat<(i32 (anyext i1:$in)),
-          (SELECT_I4 $in, (LI 1), (LI 0))>;
+          (SELECT_I4 crbitrc:$in, (LI 1), (LI 0))>;
 def : Pat<(i64 (anyext i1:$in)),
-          (SELECT_I8 $in, (LI8 1), (LI8 0))>;
+          (SELECT_I8 crbitrc:$in, (LI8 1), (LI8 0))>;
 
 // match setcc on i1 variables.
 // CRANDC is:
@@ -3704,34 +3735,34 @@ defm : CRNotPat<(i1 (setcc i64:$s1, i64:$s2, SETNE)),
 
 multiclass FSetCCPat<SDPatternOperator SetCC, ValueType Ty, I FCmp> {
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETUGE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_lt)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_lt)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETGE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_lt)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_lt)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETULE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_gt)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_gt)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETLE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_gt)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_gt)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETUNE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_eq)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_eq)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETNE)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_eq)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_eq)>;
   defm : CRNotPat<(i1 (SetCC Ty:$s1, Ty:$s2, SETO)),
-                  (EXTRACT_SUBREG (FCmp $s1, $s2), sub_un)>;
+                  (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_un)>;
 
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETOLT)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_lt)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_lt)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETLT)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_lt)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_lt)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETOGT)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_gt)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_gt)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETGT)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_gt)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_gt)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETOEQ)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_eq)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_eq)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETEQ)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_eq)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_eq)>;
   def : Pat<(i1 (SetCC Ty:$s1, Ty:$s2, SETUO)),
-            (EXTRACT_SUBREG (FCmp $s1, $s2), sub_un)>;
+            (EXTRACT_SUBREG (FCmp Ty:$s1, Ty:$s2), sub_un)>;
 }
 
 let Predicates = [HasFPU] in {
@@ -5083,10 +5114,12 @@ def : Pat<(i64 (bitreverse i64:$A)),
 
 def : Pat<(int_ppc_stwcx ForceXForm:$dst, gprc:$A),
           (STWCX gprc:$A, ForceXForm:$dst)>;
+def : Pat<(PPCStoreCond ForceXForm:$dst, gprc:$A, 4),
+          (STWCX gprc:$A, ForceXForm:$dst)>;
 def : Pat<(int_ppc_stbcx ForceXForm:$dst, gprc:$A),
           (STBCX gprc:$A, ForceXForm:$dst)>;
-def : Pat<(int_ppc_trap gprc:$A),
-          (TWI 24, $A, 0)>;
+def : Pat<(PPCStoreCond ForceXForm:$dst, gprc:$A, 1),
+          (STBCX gprc:$A, ForceXForm:$dst)>;
 
 def : Pat<(int_ppc_fcfid f64:$A),
         (XSCVSXDDP $A)>;
@@ -5116,7 +5149,9 @@ def : Pat<(int_ppc_mtmsr gprc:$RS),
 
 let Predicates = [IsISA2_07] in {
   def : Pat<(int_ppc_sthcx ForceXForm:$dst, gprc:$A),
-          (STHCX gprc:$A, ForceXForm:$dst)>;
+            (STHCX gprc:$A, ForceXForm:$dst)>;
+  def : Pat<(PPCStoreCond ForceXForm:$dst, gprc:$A, 2),
+            (STHCX gprc:$A, ForceXForm:$dst)>;
 }
 def : Pat<(int_ppc_dcbtstt ForceXForm:$dst),
           (DCBTST 16, ForceXForm:$dst)>;

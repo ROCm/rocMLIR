@@ -28,6 +28,7 @@
 #include "llvm/Support/Errc.h"
 
 #include <mutex>
+#include <optional>
 
 #if defined(LLDB_CONFIGURATION_DEBUG)
 #define ASSERT_MODULE_LOCK(expr) (expr->AssertModuleLock())
@@ -204,7 +205,7 @@ public:
   /// To support variable-length array types, this function takes an
   /// optional \p ExecutionContext. If \c exe_ctx is non-null, the
   /// dynamic characteristics for that context are returned.
-  virtual llvm::Optional<ArrayInfo>
+  virtual std::optional<ArrayInfo>
   GetDynamicArrayInfoForUID(lldb::user_id_t type_uid,
                             const lldb_private::ExecutionContext *exe_ctx) = 0;
 
@@ -251,7 +252,19 @@ public:
   /// \returns
   ///   An error specifying why there should have been debug info with variable
   ///   information but the variables were not able to be resolved.
-  virtual Status GetFrameVariableError(StackFrame &frame) {
+  Status GetFrameVariableError(StackFrame &frame) {
+    Status err = CalculateFrameVariableError(frame);
+    if (err.Fail())
+      SetDebugInfoHadFrameVariableErrors();
+    return err;
+  }
+
+  /// Subclasses will override this function to for GetFrameVariableError().
+  ///
+  /// This allows GetFrameVariableError() to set the member variable
+  /// m_debug_info_had_variable_errors correctly without users having to do it
+  /// manually which is error prone.
+  virtual Status CalculateFrameVariableError(StackFrame &frame) {
     return Status();
   }
   virtual uint32_t
@@ -298,7 +311,7 @@ public:
 
   virtual void PreloadSymbols();
 
-  virtual llvm::Expected<lldb_private::TypeSystem &>
+  virtual llvm::Expected<lldb::TypeSystemSP>
   GetTypeSystemForLanguage(lldb::LanguageType language) = 0;
 
   virtual CompilerDeclContext
@@ -393,6 +406,12 @@ public:
   virtual void SetDebugInfoIndexWasSavedToCache() = 0;
   /// \}
 
+  /// Accessors for the bool that indicates if there was debug info, but errors
+  /// stopped variables from being able to be displayed correctly. See
+  /// GetFrameVariableError() for details on what are considered errors.
+  virtual bool GetDebugInfoHadFrameVariableErrors() const = 0;
+  virtual void SetDebugInfoHadFrameVariableErrors() = 0;
+
 protected:
   void AssertModuleLock();
 
@@ -447,7 +466,7 @@ public:
   uint32_t GetNumCompileUnits() override;
   lldb::CompUnitSP GetCompileUnitAtIndex(uint32_t idx) override;
 
-  llvm::Expected<lldb_private::TypeSystem &>
+  llvm::Expected<lldb::TypeSystemSP>
   GetTypeSystemForLanguage(lldb::LanguageType language) override;
 
   void Dump(Stream &s) override;
@@ -466,6 +485,12 @@ public:
   void SetDebugInfoIndexWasSavedToCache() override {
     m_index_was_saved_to_cache = true;
   }
+  bool GetDebugInfoHadFrameVariableErrors() const override {
+    return m_debug_info_had_variable_errors;
+  }
+  void SetDebugInfoHadFrameVariableErrors() override {
+     m_debug_info_had_variable_errors = true;
+  }
 
 protected:
   virtual uint32_t CalculateNumCompileUnits() = 0;
@@ -477,17 +502,24 @@ protected:
                                    // case it isn't the same as the module
                                    // object file (debug symbols in a separate
                                    // file)
-  llvm::Optional<std::vector<lldb::CompUnitSP>> m_compile_units;
+  std::optional<std::vector<lldb::CompUnitSP>> m_compile_units;
   TypeList m_type_list;
-  Symtab *m_symtab = nullptr;
   uint32_t m_abilities = 0;
   bool m_calculated_abilities = false;
   bool m_index_was_loaded_from_cache = false;
   bool m_index_was_saved_to_cache = false;
+  /// Set to true if any variable feteching errors have been found when calling
+  /// GetFrameVariableError(). This will be emitted in the "statistics dump"
+  /// information for a module.
+  bool m_debug_info_had_variable_errors = false;
 
 private:
   SymbolFileCommon(const SymbolFileCommon &) = delete;
   const SymbolFileCommon &operator=(const SymbolFileCommon &) = delete;
+
+  /// Do not use m_symtab directly, as it may be freed. Use GetSymtab()
+  /// to access it instead.
+  Symtab *m_symtab = nullptr;
 };
 
 } // namespace lldb_private
