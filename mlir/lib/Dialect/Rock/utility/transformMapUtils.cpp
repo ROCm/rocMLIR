@@ -1111,6 +1111,7 @@ TransformMapAttr mlir::rock::invertTransformMap(
   return transform.get();
 }
 
+////////////////////////////////////////////////////////////////////////
 static int64_t
 lookupExact(int64_t val, SmallVector<std::tuple<int64_t, uint32_t>, 8> &pairs) {
   for (auto ii = pairs.begin(); ii != pairs.end(); ++ii) {

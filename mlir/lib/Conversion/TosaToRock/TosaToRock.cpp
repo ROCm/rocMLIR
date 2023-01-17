@@ -226,20 +226,12 @@ public:
       if (!biasType.hasStaticShape())
         return failure();
 
-      SmallVector<int64_t, 4> biasShape{1, 1, 1};
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
+      auto inpShape = biasType.getShape();
+      SmallVector<int64_t, 4> outShape{1, 1, 1};
+      outShape.push_back(inpShape[0]);
 
-      SmallVector<ReassociationExprs, 1> reassociations;
-
-      // [[0, 1, 2, 3]]
-      reassociations.push_back(
-          {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
-           getAffineDimExpr(2, context), getAffineDimExpr(3, context)});
-
-      auto biasExpand =
-          rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
+      auto tx = rock::transformExpandShape(rw, inpShape, outShape);
+      auto biasExpand = rw.create<rock::TransformOp>(loc, bias, tx);
 
       result = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{result, biasExpand});

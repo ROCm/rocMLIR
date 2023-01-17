@@ -137,8 +137,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       /* rocmlir-opt --rock-linalg-align
        * --convert-linalg-to-affine-loops
        */
-      pm.addPass(rock::createRockLinalgAlignPass());
-      pm.addPass(createConvertLinalgToAffineLoopsPass());
+      pm.addNestedPass<func::FuncOp>(rock::createRockLinalgAlignPass());
+      pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+      pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
     }
     pm.addPass(rock::createRockLowerReducePass());
 
@@ -148,12 +149,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
          --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
          --convert-rock-to-gpu
      */
-    pm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-    pm.addPass(rock::createRockThreadwiseGemmLoweringPass());
-    pm.addPass(rock::createRockSugarToLoopsPass());
-    pm.addPass(rock::createRockCleanMathPass());
-    pm.addPass(rock::createRockBufferLoadMergePass());
-    pm.addPass(rock::createRockLoopsToCfPass());
+    pm.addNestedPass<func::FuncOp>(
+        rock::createRockBlockwiseGemmToThreadwisePass());
+    pm.addNestedPass<func::FuncOp>(
+        rock::createRockThreadwiseGemmLoweringPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockSugarToLoopsPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockCleanMathPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockBufferLoadMergePass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
 
     // lowering linalg to cf
