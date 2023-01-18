@@ -1345,6 +1345,25 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ThreadwiseReadIntoOp
+//===-----------------------------------------------------===//
+LogicalResult ThreadwiseReadIntoOp::verify() {
+  MemRefType destType = getDest().getType();
+  if (destType.getMemorySpaceAsInt() != 5)
+    return emitOpError("source must be private registers");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getSource().getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+
+  if (inputShape.size() != 3)
+    return emitOpError("source view must accept (bid, tid, iter) coordinates");
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
@@ -1352,14 +1371,15 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   if (sourceType.getMemorySpaceAsInt() != 5)
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> inputShape;
+  ArrayRef<int64_t> viewInputShape;
   if (extraViews.empty())
-    inputShape = getDest().getType().getShape();
+    viewInputShape = getDest().getType().getShape();
   else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    viewInputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (inputShape.size() != 3)
-    return emitOpError("input must accept (bid, tid, iter) coordinates");
+  if (viewInputShape.size() != 3)
+    return emitOpError(
+        "destination view must accept (bid, tid, iter) coordinates");
   return success();
 }
 

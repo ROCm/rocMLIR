@@ -1480,6 +1480,14 @@ struct GridwiseGemmV2RewritePattern
 /// refactor hasn't landed yet and since we need to preserve the structure of
 /// the existing fusion code, put the threadwise_write_all expander here.
 namespace {
+struct ThreadwiseReadIntoRewritePattern
+    : public OpConversionPattern<ThreadwiseReadIntoOp> {
+  using OpConversionPattern<ThreadwiseReadIntoOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseReadIntoOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
 struct ThreadwiseWriteAllRewritePattern
     : public OpConversionPattern<ThreadwiseWriteAllOp> {
   using OpConversionPattern<ThreadwiseWriteAllOp>::OpConversionPattern;
@@ -1488,6 +1496,56 @@ struct ThreadwiseWriteAllRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 } // end anonymous namespace
+
+LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
+    ThreadwiseReadIntoOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  TypedValue<MemRefType> sourceView = adaptor.getSource();
+  TypedValue<MemRefType> dest = adaptor.getDest();
+
+  auto [buffer, transforms] = untransform(b, sourceView, op.getExtraViews());
+
+  int64_t numValues = dest.getType().getNumElements();
+  ArrayRef<int64_t> bufferShape =
+      buffer.getType().cast<ShapedType>().getShape();
+
+  // We are vectorizing in the iter dimension, not block ID or thread ID
+  int64_t vectorLen =
+      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
+                          << "\n");
+  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
+
+  Type loadType =
+      vectorTypeOrSelf(sourceView.getType().getElementType(), vectorLen);
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  // Constant / consistent arguments
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
+  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+
+  SmallVector<Value, 3> readStartCoords = {bid, tid, zero};
+
+  auto loadLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
+      ArrayRef<Attribute>{transforms, b.getArrayAttr({})},
+      ArrayRef<int64_t>{1, 1, numValues}, ArrayRef<int64_t>{1, 1, vectorLen},
+      forceUnroll, useIndexDiffs);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loadLoop.getBody());
+    Value loaded =
+        b.create<GlobalLoadOp>(loc, loadType, buffer, leftOobDims, rightOobDims,
+                               loadLoop.getLowerCoords(/*domain=*/0));
+    b.create<InBoundsStoreOp>(loc, loaded, dest,
+                              loadLoop.getLowerCoords(/*domain=*/1)[2]);
+  }
+  b.eraseOp(op);
+  return success();
+}
 
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
@@ -1553,10 +1611,12 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
 
   // FIXME: Move this into a later pass after the fusion refactoring.
   ConversionTarget writeAllTarget(*ctx);
-  writeAllTarget.addIllegalOp<ThreadwiseWriteAllOp>();
+  writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
   writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
   RewritePatternSet writeAllPatterns(ctx);
-  writeAllPatterns.add<ThreadwiseWriteAllRewritePattern>(ctx);
+  writeAllPatterns
+      .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern>(
+          ctx);
   if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                     std::move(writeAllPatterns))))
     signalPassFailure();

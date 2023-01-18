@@ -862,11 +862,67 @@ def Rock_GlobalStoreOp :
   }];
 }
 
+// threadwise_read_into
+def Rock_ThreadwiseReadIntoOp :
+    Rock_Op<"threadwise_read_into">,
+    AllElementTypesMatch<["source", "dest"]>,
+    Arguments<(ins Arg<AnyMemRef, "source view", [MemRead]>:$source,
+      Arg<MemRefRankOf<[F32, F16, BF16, I32], [1]>,
+        "destination registers", [MemWrite]>:$dest,
+      TransformMapArrayAttr:$extraViews,
+      UnitAttr:$forceUnroll,
+      UnitAttr:$useIndexDiffs
+    )> {
+  let summary = "Read values from transformed source into destination";
+
+  let description = [{
+    A high-level representation of a global -> register read loop that
+    accounts for coordinate transformations.
+
+    If `%source = rock.transform #transform_mapN %buffer`
+    (with the one transformation representing an entire sequence),
+    and `%buffer` is in global memory, the operation
+
+    ```mlir
+    rock.threadwise_read_into [#transform_mapM](%source) -> %dest
+    ```
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for (%_, %_, %i) = [](%c0, %c0, %c0)
+      (%args, ...) = MAPS(%bid, %tid, %c0)
+      bounds = [1, 1, L], strides = [1, 1, V] {
+        %v = rock.global_load  {length = V, oobDims=...} %buffer[%args]
+        rock.in_bounds_store %v -> %dest[%i]
+    }
+    ```
+    where MAPS is `[#transform_mapM, #transform_mapN]`,
+    L is the length of `%dest`, V is the maximum vectorization computed
+    for MAPS, and the oob dimensions are those combputed on MAPS.
+
+    The input to extraViews ; (the transforms on %source) must have the form
+    (workgroup_id, workitem_id, iteration_number)
+
+    This is used during fusion to represent loads from addition arguments like
+    bias tensors.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $extraViews `(` $source `)` `->` $dest
+    `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+}
+
 // threadwise_write_all
 def Rock_ThreadwiseWriteAllOp :
     Rock_Op<"threadwise_write_all">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
-      AnyMemRef:$dest,
+    AllElementTypesMatch<["source", "dest"]>,
+    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I32], [1]>,
+      "source registers", [MemRead]>:$source,
+      Arg<AnyMemRef, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       StoreMethodAttr:$storeMethod,
       UnitAttr:$forceUnroll,
@@ -883,7 +939,7 @@ def Rock_ThreadwiseWriteAllOp :
     and `%buffer` is in global memory, the operation
 
     ```mlir
-    rock.threadwise_write_all [#transform_mapM](%source) -> %dest by set
+    rock.threadwise_write_all %source -> [#transform_mapM](%dest) by set
     ```
 
     will lower to
@@ -919,7 +975,7 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    attr-dict $extraViews `(` $source `)` `->` $dest `by` $storeMethod
+    attr-dict $source  `->` $extraViews `(` $dest `)` `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
