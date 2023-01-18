@@ -84,10 +84,10 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
                                       Value src, Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType() << " dest type: "
                           << gemmStoreOp.getDest().getType() << "\n");
-  BlockAndValueMapping cmap;
-  cmap.map(gemmStoreOp.getSource(), src);
-  cmap.map(gemmStoreOp.getDest(), dest);
-  Operation *cop = b.clone(*gemmStoreOp, cmap);
+
+  Operation *cop = b.create<ThreadwiseReadIntoOp>(
+      loc, src, dest, gemmStoreOp.getExtraViews(), gemmStoreOp.getForceUnroll(),
+      gemmStoreOp.getUseIndexDiffs());
 
   while (auto sop = src.getDefiningOp()) {
     if (auto rtop = dyn_cast<rock::TransformOp>(sop)) {
@@ -589,7 +589,6 @@ void RockLinalgAlignPass::runOnOperation() {
       signalPassFailure();
   }
 
-  // FIXME: Move this into a later pass after the fusion refactoring.
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();

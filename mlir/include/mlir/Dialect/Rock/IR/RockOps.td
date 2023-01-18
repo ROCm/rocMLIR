@@ -1000,7 +1000,7 @@ def Rock_ThreadwiseWriteAllOp :
     to
     ```mlir
     linalg.generic (%result) -> (%result_2) { ... }
-    rock.thredawise_write_all [...](%result_2) -> %out
+    rock.threadwise_write_all [...](%result_2) -> %out
     ```
   }];
 

@@ -113,29 +113,23 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
 void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
-  // Pre kernel lowering fixups for patterns that aren't amenable to lawer
-  // fusion
-  /* rocmlir-opt --rock-fold-transpose */
   // rock lowering (tuning, global to block)
-  /* rocmlir-opt --rock-affix-params  --rock-conv-to-gemm
-   * --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise
+  /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
+   *   --rock-gemm-to-gridwise --rock-regularize
+   *   --rock-gridwise-gemm-to-blockwise
    */
   pm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{0, 0,
                                                  options.tuningFallback}));
   pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
-
-  //
   pm.addNestedPass<func::FuncOp>(rock::createRockRegularizePass());
-
   pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
       // align linalg tiling
-      /* rocmlir-opt --rock-linalg-align
-       * --convert-linalg-to-affine-loops
+      /* rocmlir-opt --rock-linalg-align --convert-linalg-to-affine-loops
        */
       pm.addNestedPass<func::FuncOp>(rock::createRockLinalgAlignPass());
       pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
@@ -145,9 +139,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
-         --rock-threadwise-gemm-lowering
-         --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
-         --convert-rock-to-gpu
+     *   --rock-threadwise-gemm-lowering
+     *   --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
+     *   --convert-rock-to-gpu
      */
     pm.addNestedPass<func::FuncOp>(
         rock::createRockBlockwiseGemmToThreadwisePass());
@@ -161,7 +155,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
     // lowering linalg to cf
     /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine
-     * --convert-scf-to-cf
+     *   --convert-scf-to-cf
      */
     pm.addPass(createConvertLinalgToAffineLoopsPass());
     pm.addPass(createLowerAffinePass());
