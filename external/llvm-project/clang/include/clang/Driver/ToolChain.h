@@ -181,9 +181,9 @@ private:
     EffectiveTriple = std::move(ET);
   }
 
-  mutable llvm::Optional<CXXStdlibType> cxxStdlibType;
-  mutable llvm::Optional<RuntimeLibType> runtimeLibType;
-  mutable llvm::Optional<UnwindLibType> unwindLibType;
+  mutable std::optional<CXXStdlibType> cxxStdlibType;
+  mutable std::optional<RuntimeLibType> runtimeLibType;
+  mutable std::optional<UnwindLibType> unwindLibType;
 
 protected:
   MultilibSet Multilibs;
@@ -191,6 +191,10 @@ protected:
 
   ToolChain(const Driver &D, const llvm::Triple &T,
             const llvm::opt::ArgList &Args);
+
+  /// Executes the given \p Executable and returns the stdout.
+  llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>>
+  executeToolChainProgram(StringRef Executable) const;
 
   void setTripleEnvironment(llvm::Triple::EnvironmentType Env);
 
@@ -637,6 +641,11 @@ public:
                                      llvm::opt::ArgStringList &CC1Args,
                                      Action::OffloadKind DeviceOffloadKind) const;
 
+  /// Add options that need to be passed to cc1as for this target.
+  virtual void
+  addClangCC1ASTargetOptions(const llvm::opt::ArgList &Args,
+                             llvm::opt::ArgStringList &CC1ASArgs) const;
+
   /// Add warning options that need to be passed to cc1 for this target.
   virtual void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args) const;
 
@@ -699,6 +708,10 @@ public:
   bool addFastMathRuntimeIfAvailable(
     const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CmdArgs) const;
 
+  /// getSystemGPUArchs - Use a tool to detect the user's availible GPUs.
+  virtual Expected<SmallVector<std::string>>
+  getSystemGPUArchs(const llvm::opt::ArgList &Args) const;
+
   /// addProfileRTLibs - When -fprofile-instr-profile is specified, try to pass
   /// a suitable profile runtime library to the linker.
   virtual void addProfileRTLibs(const llvm::opt::ArgList &Args,
@@ -748,10 +761,6 @@ public:
       const llvm::opt::ArgList &DriverArgs, const JobAction &JA,
       const llvm::fltSemantics *FPType = nullptr) const {
     return llvm::DenormalMode::getIEEE();
-  }
-
-  virtual Optional<llvm::Triple> getTargetVariantTriple() const {
-    return llvm::None;
   }
 
   // We want to expand the shortened versions of the triples passed in to

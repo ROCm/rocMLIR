@@ -86,7 +86,7 @@ private:
                raw_ostream &O);
   void printR128A16(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                  raw_ostream &O);
-  void printGFX10A16(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
+  void printA16(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                 raw_ostream &O);
   void printLWE(const MCInst *MI, unsigned OpNo,
                 const MCSubtargetInfo &STI, raw_ostream &O);
@@ -136,8 +136,8 @@ private:
                     raw_ostream &O);
   void printBankMask(const MCInst *MI, unsigned OpNo,
                      const MCSubtargetInfo &STI, raw_ostream &O);
-  void printBoundCtrl(const MCInst *MI, unsigned OpNo,
-                      const MCSubtargetInfo &STI, raw_ostream &O);
+  void printDppBoundCtrl(const MCInst *MI, unsigned OpNo,
+                         const MCSubtargetInfo &STI, raw_ostream &O);
   void printFI(const MCInst *MI, unsigned OpNo,
                const MCSubtargetInfo &STI, raw_ostream &O);
   void printSDWASel(const MCInst *MI, unsigned OpNo, raw_ostream &O);

@@ -395,7 +395,7 @@ exit:
   ret void
 }
 
-define void @test_chained_first_order_recurrence_sink_users_1(double* %ptr) {
+define void @test_chained_first_order_recurrence_sink_users_1(ptr %ptr) {
 ; CHECK-LABEL: @test_chained_first_order_recurrence_sink_users_1
 ; CHECK:       vector.body:
 ; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %vector.ph ], [ [[INDEX_NEXT:%.*]], %vector.body ]
@@ -431,9 +431,9 @@ loop:
   %add.1 = fadd double 10.0, %for.2
   %add.2 = fadd double %add.1, %for.1
   %iv.next = add nuw nsw i64 %iv, 1
-  %gep.ptr = getelementptr inbounds double, double* %ptr, i64 %iv
-  %for.1.next  = load double, double* %gep.ptr, align 8
-  store double %add.2, double* %gep.ptr
+  %gep.ptr = getelementptr inbounds double, ptr %ptr, i64 %iv
+  %for.1.next  = load double, ptr %gep.ptr, align 8
+  store double %add.2, ptr %gep.ptr
   %exitcond.not = icmp eq i64 %iv.next, 1000
   br i1 %exitcond.not, label %exit, label %loop
 
@@ -635,5 +635,32 @@ loop:
   br i1 %exitcond.not, label %exit, label %loop
 
 exit:
+  ret void
+}
+
+; Make sure LLVM doesn't generate wrong data in SinkAfter, and causes crash in
+; loop vectorizer.
+define void @test_crash(ptr %p) {
+; CHECK-LABEL: @test_crash
+; CHECK-NOT:   vector.body:
+; CHECK:       ret
+Entry:
+  br label %Loop
+
+Loop:
+  %for.1 = phi double [ %iv1, %Loop ], [ 0.000000e+00, %Entry ]
+  %for.2 = phi double [ %iv2, %Loop ], [ 0.000000e+00, %Entry ]
+  %for.3 = phi double [ %for.2, %Loop ], [ 0.000000e+00, %Entry ]
+  %for.4 = phi i64 [ %count, %Loop ], [ 0, %Entry ]
+  %USE_2_INDVARS = fdiv double %for.3, %for.1
+  %div = fdiv double 0.000000e+00, %for.1
+  %iv1 = load double, ptr null, align 8
+  %count = add nuw nsw i64 %for.4, 1
+  %iv2 = load double, ptr null, align 8
+  store double %div, ptr %p, align 8
+  %cond = icmp eq i64 %count, 0
+  br i1 %cond, label %End, label %Loop
+
+End:
   ret void
 }

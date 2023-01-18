@@ -392,9 +392,9 @@ func.func @copy_different_eltype(%arg0: memref<2xf32>, %arg1: memref<2xf16>) {
 
 // -----
 
-func.func @expand_shape(%arg0: memref<f32>) {
-  // expected-error @+1 {{invalid number of reassociation groups: found 1, expected 0}}
-  %0 = memref.expand_shape %arg0 [[0]] : memref<f32> into memref<f32>
+func.func @expand_shape(%arg0: memref<?x?xf32>) {
+  // expected-error @+1 {{invalid number of reassociation groups: found 1, expected 2}}
+  %0 = memref.expand_shape %arg0 [[0, 1]] : memref<?x?xf32> into memref<?x5x?xf32>
   return
 }
 
@@ -408,16 +408,30 @@ func.func @expand_shape(%arg0: memref<f32>) {
 
 // -----
 
-func.func @collapse_shape_to_higher_rank(%arg0: memref<f32>) {
-  // expected-error @+1 {{op reassociation index 0 is out of bounds}}
-  %0 = memref.collapse_shape %arg0 [[0]] : memref<f32> into memref<1xf32>
+func.func @collapse_shape_out_of_bounds(%arg0: memref<?x?xf32>) {
+  // expected-error @+1 {{op reassociation index 2 is out of bounds}}
+  %0 = memref.collapse_shape %arg0 [[0, 1, 2]] : memref<?x?xf32> into memref<?xf32>
 }
 
 // -----
 
-func.func @expand_shape_to_smaller_rank(%arg0: memref<1xf32>) {
-  // expected-error @+1 {{op reassociation index 0 is out of bounds}}
-  %0 = memref.expand_shape %arg0 [[0]] : memref<1xf32> into memref<f32>
+func.func @expand_shape_invalid_ranks(%arg0: memref<?x?xf32>) {
+  // expected-error @+1 {{op expected rank expansion, but found source rank 2 >= result rank 2}}
+  %0 = memref.expand_shape %arg0 [[0], [1]] : memref<?x?xf32> into memref<?x?xf32>
+}
+
+// -----
+
+func.func @collapse_shape_invalid_ranks(%arg0: memref<?x?xf32>) {
+  // expected-error @+1 {{op expected rank reduction, but found source rank 2 <= result rank 2}}
+  %0 = memref.collapse_shape %arg0 [[0], [1]] : memref<?x?xf32> into memref<?x?xf32>
+}
+
+// -----
+
+func.func @expand_shape_out_of_bounds(%arg0: memref<?xf32>) {
+  // expected-error @+1 {{op reassociation index 2 is out of bounds}}
+  %0 = memref.expand_shape %arg0 [[0, 1, 2]] : memref<?xf32> into memref<4x?xf32>
 }
 
 // -----
@@ -991,4 +1005,38 @@ func.func @atomic_yield_type_mismatch(%I: memref<10xf32>, %i : index) {
       memref.atomic_yield %c1 : i32
   }
   return
+}
+
+// -----
+
+#map0 = affine_map<(d0) -> (d0 floordiv 8, d0 mod 8)>
+func.func @memref_realloc_layout(%src : memref<256xf32, #map0>) -> memref<?xf32>{
+  // expected-error@+1 {{unsupported layout}}
+  %0 = memref.realloc %src : memref<256xf32, #map0> to memref<?xf32>
+  return %0 : memref<?xf32>
+}
+
+// -----
+
+func.func @memref_realloc_sizes_1(%src : memref<2xf32>) -> memref<?xf32>{
+  // expected-error@+1 {{missing dimension operand}}
+  %0 = memref.realloc %src : memref<2xf32> to memref<?xf32>
+  return %0 : memref<?xf32>
+}
+
+// -----
+
+func.func @memref_realloc_sizes_2(%src : memref<?xf32>, %d : index)
+  -> memref<4xf32>{
+  // expected-error@+1 {{unnecessary dimension operand}}
+  %0 = memref.realloc %src(%d) : memref<?xf32> to memref<4xf32>
+  return %0 : memref<4xf32>
+}
+
+// -----
+
+func.func @memref_realloc_type(%src : memref<256xf32>) -> memref<?xi32>{
+  // expected-error@+1 {{different element types}}
+  %0 = memref.realloc %src : memref<256xf32> to memref<?xi32>
+  return %0 : memref<?xi32>
 }

@@ -58,6 +58,7 @@
 
 #if defined(_WIN32)
 #include "llvm/Config/llvm-config.h"
+#include <optional>
 #endif
 
 using namespace lldb;
@@ -318,8 +319,9 @@ SymbolFilePDB::ParseCompileUnitFunctionForPDBFunc(const PDBSymbolFunc &pdb_func,
     return nullptr;
   }
 
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_type_system =
-    llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+    llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_type_system)
     return nullptr;
   clang_type_system->GetPDBParser()->GetDeclForSymbol(pdb_func);
@@ -568,8 +570,9 @@ lldb_private::Type *SymbolFilePDB::ResolveTypeUID(lldb::user_id_t type_uid) {
     return nullptr;
   }
 
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_type_system =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_type_system)
     return nullptr;
   PDBASTParser *pdb = clang_type_system->GetPDBParser();
@@ -588,9 +591,9 @@ lldb_private::Type *SymbolFilePDB::ResolveTypeUID(lldb::user_id_t type_uid) {
   return result.get();
 }
 
-llvm::Optional<SymbolFile::ArrayInfo> SymbolFilePDB::GetDynamicArrayInfoForUID(
+std::optional<SymbolFile::ArrayInfo> SymbolFilePDB::GetDynamicArrayInfoForUID(
     lldb::user_id_t type_uid, const lldb_private::ExecutionContext *exe_ctx) {
-  return llvm::None;
+  return std::nullopt;
 }
 
 bool SymbolFilePDB::CompleteType(lldb_private::CompilerType &compiler_type) {
@@ -604,9 +607,9 @@ bool SymbolFilePDB::CompleteType(lldb_private::CompilerType &compiler_type) {
                    "Unable to get dynamic array info for UID");
     return false;
   }
-
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_ast_ctx =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
 
   if (!clang_ast_ctx)
     return false;
@@ -626,9 +629,9 @@ lldb_private::CompilerDecl SymbolFilePDB::GetDeclForUID(lldb::user_id_t uid) {
                    "Unable to get decl for UID");
     return CompilerDecl();
   }
-
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_ast_ctx =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_ast_ctx)
     return CompilerDecl();
 
@@ -657,8 +660,9 @@ SymbolFilePDB::GetDeclContextForUID(lldb::user_id_t uid) {
     return CompilerDeclContext();
   }
 
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_ast_ctx =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_ast_ctx)
     return CompilerDeclContext();
 
@@ -687,8 +691,9 @@ SymbolFilePDB::GetDeclContextContainingUID(lldb::user_id_t uid) {
     return CompilerDeclContext();
   }
 
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_ast_ctx =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_ast_ctx)
     return CompilerDeclContext();
 
@@ -716,8 +721,9 @@ void SymbolFilePDB::ParseDeclsForContext(
     return;
   }
 
+  auto ts = *type_system_or_err;
   TypeSystemClang *clang_ast_ctx =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_ast_ctx)
     return;
 
@@ -1464,8 +1470,9 @@ void SymbolFilePDB::DumpClangAST(Stream &s) {
     return;
   }
 
-  auto *clang_type_system =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+  auto ts = *type_system_or_err;
+  TypeSystemClang *clang_type_system =
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_type_system)
     return;
   clang_type_system->Dump(s.AsRawOstream());
@@ -1656,12 +1663,13 @@ void SymbolFilePDB::GetTypes(lldb_private::SymbolContextScope *sc_scope,
   }
 }
 
-llvm::Expected<lldb_private::TypeSystem &>
+llvm::Expected<lldb::TypeSystemSP>
 SymbolFilePDB::GetTypeSystemForLanguage(lldb::LanguageType language) {
   auto type_system_or_err =
       m_objfile_sp->GetModule()->GetTypeSystemForLanguage(language);
   if (type_system_or_err) {
-    type_system_or_err->SetSymbolFile(this);
+    if (auto ts = *type_system_or_err)
+      ts->SetSymbolFile(this);
   }
   return type_system_or_err;
 }
@@ -1675,8 +1683,9 @@ PDBASTParser *SymbolFilePDB::GetPDBAstParser() {
     return nullptr;
   }
 
+  auto ts = *type_system_or_err;
   auto *clang_type_system =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_type_system)
     return nullptr;
 
@@ -1694,9 +1703,9 @@ SymbolFilePDB::FindNamespace(lldb_private::ConstString name,
                    "Unable to find namespace {}", name.AsCString());
     return CompilerDeclContext();
   }
-
+  auto ts = *type_system_or_err;
   auto *clang_type_system =
-      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(ts.get());
   if (!clang_type_system)
     return CompilerDeclContext();
 
@@ -1990,7 +1999,7 @@ bool SymbolFilePDB::DeclContextMatchesThisSymbolFile(
     return false;
   }
 
-  if (decl_ctx_type_system == &type_system_or_err.get())
+  if (decl_ctx_type_system == type_system_or_err->get())
     return true; // The type systems match, return true
 
   return false;

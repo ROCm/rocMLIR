@@ -21,9 +21,7 @@ namespace {
 #include "Confusables.inc"
 } // namespace
 
-namespace clang {
-namespace tidy {
-namespace misc {
+namespace clang::tidy::misc {
 
 ConfusableIdentifierCheck::ConfusableIdentifierCheck(StringRef Name,
                                                      ClangTidyContext *Context)
@@ -78,8 +76,7 @@ std::string ConfusableIdentifierCheck::skeleton(StringRef Name) {
       UTF8 *BufferStart = std::begin(Buffer);
       UTF8 *IBuffer = BufferStart;
       const UTF32 *ValuesStart = std::begin(Where->values);
-      const UTF32 *ValuesEnd =
-          std::find(std::begin(Where->values), std::end(Where->values), '\0');
+      const UTF32 *ValuesEnd = llvm::find(Where->values, '\0');
       if (ConvertUTF32toUTF8(&ValuesStart, ValuesEnd, &IBuffer,
                              std::end(Buffer),
                              strictConversion) != conversionOK) {
@@ -170,6 +167,4 @@ void ConfusableIdentifierCheck::registerMatchers(
   Finder->addMatcher(ast_matchers::namedDecl().bind("nameddecl"), this);
 }
 
-} // namespace misc
-} // namespace tidy
-} // namespace clang
+} // namespace clang::tidy::misc

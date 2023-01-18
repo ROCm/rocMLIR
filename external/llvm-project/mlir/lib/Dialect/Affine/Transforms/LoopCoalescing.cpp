@@ -10,7 +10,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
@@ -80,8 +80,7 @@ struct LoopCoalescingPass
         LLVM_DEBUG(llvm::dbgs() << "  found coalesceable band from " << start
                                 << " to " << end << '\n');
 
-        auto band =
-            llvm::makeMutableArrayRef(loops.data() + start, end - start);
+        auto band = llvm::MutableArrayRef(loops.data() + start, end - start);
         (void)coalesceLoops(band);
         break;
       }

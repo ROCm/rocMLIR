@@ -3,7 +3,7 @@
 
 declare <vscale x 2 x i32> @llvm.vp.merge.nxv2i32(<vscale x 2 x i1>, <vscale x 2 x i32>, <vscale x 2 x i32>, i32)
 declare <vscale x 2 x i32> @llvm.vp.select.nxv2i32(<vscale x 2 x i1>, <vscale x 2 x i32>, <vscale x 2 x i32>, i32)
-declare <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0nxv2i32(<vscale x 2 x i32> *, <vscale x 2 x i1>, i32)
+declare <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0(<vscale x 2 x i32> *, <vscale x 2 x i1>, i32)
 
 ; Test result has chain output of true operand of merge.vvm.
 define void @vpmerge_vpload_store(<vscale x 2 x i32> %passthru, <vscale x 2 x i32> * %p, <vscale x 2 x i1> %m, i32 zeroext %vl) {
@@ -21,7 +21,7 @@ define void @vpmerge_vpload_store(<vscale x 2 x i32> %passthru, <vscale x 2 x i3
   ; CHECK-NEXT:   PseudoRET
   %splat = insertelement <vscale x 2 x i1> poison, i1 -1, i32 0
   %mask = shufflevector <vscale x 2 x i1> %splat, <vscale x 2 x i1> poison, <vscale x 2 x i32> zeroinitializer
-  %a = call <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0nxv2i32(<vscale x 2 x i32> * %p, <vscale x 2 x i1> %mask, i32 %vl)
+  %a = call <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0(<vscale x 2 x i32> * %p, <vscale x 2 x i1> %mask, i32 %vl)
   %b = call <vscale x 2 x i32> @llvm.vp.merge.nxv2i32(<vscale x 2 x i1> %m, <vscale x 2 x i32> %a, <vscale x 2 x i32> %passthru, i32 %vl)
   store <vscale x 2 x i32> %b, <vscale x 2 x i32> * %p
   ret void
@@ -35,15 +35,14 @@ define void @vpselect_vpload_store(<vscale x 2 x i32> %passthru, <vscale x 2 x i
   ; CHECK-NEXT:   [[COPY:%[0-9]+]]:gprnox0 = COPY $x11
   ; CHECK-NEXT:   [[COPY1:%[0-9]+]]:vr = COPY $v0
   ; CHECK-NEXT:   [[COPY2:%[0-9]+]]:gpr = COPY $x10
-  ; CHECK-NEXT:   [[COPY3:%[0-9]+]]:vr = COPY $v8
-  ; CHECK-NEXT:   [[PseudoVLE32_V_M1_:%[0-9]+]]:vr = PseudoVLE32_V_M1 [[COPY2]], [[COPY]], 5 /* e32 */ :: (load unknown-size from %ir.p, align 8)
+  ; CHECK-NEXT:   [[COPY3:%[0-9]+]]:vrnov0 = COPY $v8
   ; CHECK-NEXT:   $v0 = COPY [[COPY1]]
-  ; CHECK-NEXT:   [[PseudoVMERGE_VVM_M1_:%[0-9]+]]:vrnov0 = PseudoVMERGE_VVM_M1 [[COPY3]], killed [[PseudoVLE32_V_M1_]], $v0, [[COPY]], 5 /* e32 */
-  ; CHECK-NEXT:   VS1R_V killed [[PseudoVMERGE_VVM_M1_]], [[COPY2]] :: (store unknown-size into %ir.p, align 8)
+  ; CHECK-NEXT:   [[PseudoVLE32_V_M1_MASK:%[0-9]+]]:vrnov0 = PseudoVLE32_V_M1_MASK [[COPY3]], [[COPY2]], $v0, [[COPY]], 5 /* e32 */, 1 /* ta, mu */
+  ; CHECK-NEXT:   VS1R_V killed [[PseudoVLE32_V_M1_MASK]], [[COPY2]] :: (store unknown-size into %ir.p, align 8)
   ; CHECK-NEXT:   PseudoRET
   %splat = insertelement <vscale x 2 x i1> poison, i1 -1, i32 0
   %mask = shufflevector <vscale x 2 x i1> %splat, <vscale x 2 x i1> poison, <vscale x 2 x i32> zeroinitializer
-  %a = call <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0nxv2i32(<vscale x 2 x i32> * %p, <vscale x 2 x i1> %mask, i32 %vl)
+  %a = call <vscale x 2 x i32> @llvm.vp.load.nxv2i32.p0(<vscale x 2 x i32> * %p, <vscale x 2 x i1> %mask, i32 %vl)
   %b = call <vscale x 2 x i32> @llvm.vp.select.nxv2i32(<vscale x 2 x i1> %m, <vscale x 2 x i32> %a, <vscale x 2 x i32> %passthru, i32 %vl)
   store <vscale x 2 x i32> %b, <vscale x 2 x i32> * %p
   ret void

@@ -43,11 +43,12 @@ add_llvm_unittest(ADTTests
   ImmutableSetTest.cpp
   IntEqClassesTest.cpp
   IntervalMapTest.cpp
+  IntervalTreeTest.cpp
   IntrusiveRefCntPtrTest.cpp
   IteratorTest.cpp
   MappedIteratorTest.cpp
   MapVectorTest.cpp
-  OptionalTest.cpp
+  MoveOnly.cpp
   PackedVectorTest.cpp
   PointerEmbeddedIntTest.cpp
   PointerIntPairTest.cpp
@@ -77,7 +78,6 @@ add_llvm_unittest(ADTTests
   StringSetTest.cpp
   StringSwitchTest.cpp
   TinyPtrVectorTest.cpp
-  TripleTest.cpp
   TwineTest.cpp
   TypeSwitchTest.cpp
   TypeTraitsTest.cpp

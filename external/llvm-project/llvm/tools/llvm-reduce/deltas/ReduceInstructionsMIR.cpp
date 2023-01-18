@@ -36,7 +36,7 @@ static Register getPrevDefOfRCInMBB(MachineBasicBlock &MBB,
       if (!MO.isReg() || !MO.isDef() || MO.isDead())
         continue;
       auto Reg = MO.getReg();
-      if (Register::isPhysicalRegister(Reg))
+      if (Reg.isPhysical())
         continue;
 
       if (MRI->getRegClassOrRegBank(Reg) == RC && MRI->getType(Reg) == Ty &&
@@ -92,7 +92,7 @@ static void extractInstrFromFunction(Oracle &O, MachineFunction &MF) {
       if (!MO.isReg() || !MO.isDef() || MO.isDead())
         continue;
       auto Reg = MO.getReg();
-      if (Register::isPhysicalRegister(Reg))
+      if (Reg.isPhysical())
         continue;
       auto UI = MRI->use_begin(Reg);
       auto UE = MRI->use_end();
@@ -158,6 +158,5 @@ static void extractInstrFromModule(Oracle &O, ReducerWorkItem &WorkItem) {
 }
 
 void llvm::reduceInstructionsMIRDeltaPass(TestRunner &Test) {
-  outs() << "*** Reducing Instructions...\n";
-  runDeltaPass(Test, extractInstrFromModule);
+  runDeltaPass(Test, extractInstrFromModule, "Reducing Instructions");
 }

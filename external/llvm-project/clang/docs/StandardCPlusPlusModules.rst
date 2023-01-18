@@ -223,7 +223,27 @@ The ``-fmodules-ts`` option is deprecated and is planned to be removed.
 How to produce a BMI
 ~~~~~~~~~~~~~~~~~~~~
 
-It is possible to generate a BMI for an importable module unit by specifying the ``--precompile`` option.
+We can generate a BMI for an importable module unit by either ``--precompile``
+or ``-fmodule-output`` flags.
+
+The ``--precompile`` option generates the BMI as the output of the compilation and the output path
+can be specified using the ``-o`` option. 
+
+The ``-fmodule-output`` option generates the BMI as a by-product of the compilation.
+If ``-fmodule-output=`` is specified, the BMI will be emitted the specified location. Then if
+``-fmodule-output`` and ``-c`` are specified, the BMI will be emitted in the directory of the
+output file with the name of the input file with the new extension ``.pcm``. Otherwise, the BMI
+will be emitted in the working directory with the name of the input file with the new extension
+``.pcm``.
+
+The style to generate BMIs by ``--precompile`` is called two-phase compilation since it takes
+2 steps to compile a source file to an object file. The style to generate BMIs by ``-fmodule-output``
+is called one-phase compilation respectively. The one-phase compilation model is simpler
+for build systems to implement and the two-phase compilation has the potential to compile faster due
+to higher parallelism. As an example, if there are two module units A and B, and B depends on A, the
+one-phase compilation model would need to compile them serially, whereas the two-phase compilation
+model may be able to compile them simultaneously if the compilation from A.pcm to A.o takes a long
+time.
 
 File name requirement
 ~~~~~~~~~~~~~~~~~~~~~
@@ -269,6 +289,42 @@ we can't compile them by the original command lines. But we are still able to do
   $ clang++ -std=c++20 use.cpp -fprebuilt-module-path=. Hello.pcm -o Hello.out
   $ ./Hello.out
   Hello World!
+
+Module name requirement
+~~~~~~~~~~~~~~~~~~~~~~~
+
+[module.unit]p1 says:
+
+::
+
+  All module-names either beginning with an identifier consisting of std followed by zero
+  or more digits or containing a reserved identifier ([lex.name]) are reserved and shall not
+  be specified in a module-declaration; no diagnostic is required. If any identifier in a reserved
+  module-name is a reserved identifier, the module name is reserved for use by C++ implementations;
+  otherwise it is reserved for future standardization.
+
+So all of the following name is not valid by default:
+
+.. code-block:: text
+
+    std
+    std1
+    std.foo
+    __test
+    // and so on ...
+
+If you still want to use the reserved module names for any reason, currently you can add a special line marker
+in the front of the module declaration like:
+
+.. code-block:: c++
+
+  # __LINE_NUMBER__ __FILE__ 1 3
+  export module std;
+
+Here the `__LINE_NUMBER__` is the actual line number of the corresponding line. The `__FILE__` means the filename
+of the translation unit. The `1` means the following is a new file. And `3` means this is a system header/file so
+the certain warnings should be suppressed. You could find more details at:
+https://gcc.gnu.org/onlinedocs/gcc-3.0.2/cpp_9.html.
 
 How to specify the dependent BMIs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -874,3 +930,10 @@ purposes of optimization (but definitions of these functions are still not inclu
 this means the build speedup at higher optimization levels may be lower than expected given ``O0`` experience, 
 but does provide by more optimization opportunities.
 
+Interoperability with Clang Modules
+-----------------------------------
+
+We **wish** to support clang modules and standard c++ modules at the same time,
+but the mixed using form is not well used/tested yet.
+
+Please file new github issues as you find interoperability problems.

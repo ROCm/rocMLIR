@@ -26,6 +26,7 @@
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/SubtargetFeature.h"
+#include <optional>
 
 namespace llvm {
 
@@ -118,9 +119,9 @@ public:
     return !ST->isTargetDarwin() && !ST->hasMVEFloatOps();
   }
 
-  Optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
-                                               IntrinsicInst &II) const;
-  Optional<Value *> simplifyDemandedVectorEltsIntrinsic(
+  std::optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
+                                                    IntrinsicInst &II) const;
+  std::optional<Value *> simplifyDemandedVectorEltsIntrinsic(
       InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts, APInt &UndefElts,
       APInt &UndefElts2, APInt &UndefElts3,
       std::function<void(Instruction *, unsigned, APInt, APInt &)>
@@ -215,7 +216,7 @@ public:
                                  ArrayRef<int> Mask,
                                  TTI::TargetCostKind CostKind, int Index,
                                  VectorType *SubTp,
-                                 ArrayRef<const Value *> Args = None);
+                                 ArrayRef<const Value *> Args = std::nullopt);
 
   bool preferInLoopReduction(unsigned Opcode, Type *Ty,
                              TTI::ReductionFlags Flags) const;
@@ -239,8 +240,8 @@ public:
                                      const Instruction *I = nullptr);
 
   using BaseT::getVectorInstrCost;
-  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val,
-                                     unsigned Index);
+  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index,
+                                     Value *Op0, Value *Op1);
 
   InstructionCost getAddressComputationCost(Type *Val, ScalarEvolution *SE,
                                             const SCEV *Ptr);
@@ -274,11 +275,11 @@ public:
                                          const Instruction *I = nullptr);
 
   InstructionCost getArithmeticReductionCost(unsigned Opcode, VectorType *ValTy,
-                                             Optional<FastMathFlags> FMF,
+                                             std::optional<FastMathFlags> FMF,
                                              TTI::TargetCostKind CostKind);
   InstructionCost getExtendedReductionCost(unsigned Opcode, bool IsUnsigned,
                                            Type *ResTy, VectorType *ValTy,
-                                           Optional<FastMathFlags> FMF,
+                                           std::optional<FastMathFlags> FMF,
                                            TTI::TargetCostKind CostKind);
   InstructionCost getMulAccReductionCost(bool IsUnsigned, Type *ResTy,
                                          VectorType *ValTy,

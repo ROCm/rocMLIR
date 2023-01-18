@@ -57,6 +57,7 @@
 #include "llvm/Transforms/IPO/Internalize.h"
 
 #include <mutex>
+#include <optional>
 
 using namespace mlir;
 
@@ -95,7 +96,7 @@ private:
   void getDependentDialects(DialectRegistry &registry) const override;
 
   // Loads LLVM bitcode libraries
-  Optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
+  std::optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
   loadLibraries(SmallVectorImpl<char> &path,
                 SmallVectorImpl<StringRef> &libraries,
                 llvm::LLVMContext &context);
@@ -148,7 +149,7 @@ void SerializeToHsacoPass::getDependentDialects(
   gpu::SerializeToBlobPass::getDependentDialects(registry);
 }
 
-Optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
+std::optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
 SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
                                     SmallVectorImpl<StringRef> &libraries,
                                     llvm::LLVMContext &context) {
@@ -158,7 +159,7 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
   if (!llvm::sys::fs::is_directory(path)) {
     getOperation().emitRemark() << "Bitcode path: " << path
                                 << " does not exist or is not a directory\n";
-    return llvm::None;
+    return std::nullopt;
   }
 
   for (const StringRef file : libraries) {
@@ -171,7 +172,7 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
     if (!library) {
       getOperation().emitError() << "Failed to load library " << file
                                  << " from " << path << error.getMessage();
-      return llvm::None;
+      return std::nullopt;
     }
     // Some ROCM builds don't strip this like they should
     if (auto *openclVersion = library->getNamedMetadata("opencl.ocl.version"))
@@ -182,7 +183,7 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
     ret.push_back(std::move(library));
   }
 
-  return ret;
+  return std::move(ret);
 }
 
 std::unique_ptr<llvm::Module>
@@ -281,7 +282,7 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   if (needOckl)
     libraries.push_back("ockl.bc");
 
-  Optional<SmallVector<std::unique_ptr<llvm::Module>, 3>> mbModules;
+  std::optional<SmallVector<std::unique_ptr<llvm::Module>, 3>> mbModules;
   std::string theRocmPath = getRocmPath();
   llvm::SmallString<32> bitcodePath(theRocmPath);
   llvm::sys::path::append(bitcodePath, "amdgcn", "bitcode");

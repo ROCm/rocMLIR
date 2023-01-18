@@ -9,12 +9,15 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "Commands/CommandObjectApropos.h"
 #include "Commands/CommandObjectBreakpoint.h"
 #include "Commands/CommandObjectCommands.h"
+#include "Commands/CommandObjectDWIMPrint.h"
+#include "Commands/CommandObjectDiagnostics.h"
 #include "Commands/CommandObjectDisassemble.h"
 #include "Commands/CommandObjectExpression.h"
 #include "Commands/CommandObjectFrame.h"
@@ -166,6 +169,17 @@ bool CommandInterpreter::GetSaveSessionOnQuit() const {
 
 void CommandInterpreter::SetSaveSessionOnQuit(bool enable) {
   const uint32_t idx = ePropertySaveSessionOnQuit;
+  m_collection_sp->SetPropertyAtIndexAsBoolean(nullptr, idx, enable);
+}
+
+bool CommandInterpreter::GetOpenTranscriptInEditor() const {
+  const uint32_t idx = ePropertyOpenTranscriptInEditor;
+  return m_collection_sp->GetPropertyAtIndexAsBoolean(
+      nullptr, idx, g_interpreter_properties[idx].default_uint_value != 0);
+}
+
+void CommandInterpreter::SetOpenTranscriptInEditor(bool enable) {
+  const uint32_t idx = ePropertyOpenTranscriptInEditor;
   m_collection_sp->SetPropertyAtIndexAsBoolean(nullptr, idx, enable);
 }
 
@@ -518,7 +532,9 @@ void CommandInterpreter::LoadCommandDictionary() {
   REGISTER_COMMAND_OBJECT("apropos", CommandObjectApropos);
   REGISTER_COMMAND_OBJECT("breakpoint", CommandObjectMultiwordBreakpoint);
   REGISTER_COMMAND_OBJECT("command", CommandObjectMultiwordCommands);
+  REGISTER_COMMAND_OBJECT("diagnostics", CommandObjectDiagnostics);
   REGISTER_COMMAND_OBJECT("disassemble", CommandObjectDisassemble);
+  REGISTER_COMMAND_OBJECT("dwim-print", CommandObjectDWIMPrint);
   REGISTER_COMMAND_OBJECT("expression", CommandObjectExpression);
   REGISTER_COMMAND_OBJECT("frame", CommandObjectMultiwordFrame);
   REGISTER_COMMAND_OBJECT("gui", CommandObjectGUI);
@@ -1749,7 +1765,7 @@ Status CommandInterpreter::PreprocessCommand(std::string &command) {
     options.SetIgnoreBreakpoints(true);
     options.SetKeepInMemory(false);
     options.SetTryAllThreads(true);
-    options.SetTimeout(llvm::None);
+    options.SetTimeout(std::nullopt);
 
     ExpressionResults expr_result =
         target.EvaluateExpression(expr_str.c_str(), exe_ctx.GetFramePtr(),
@@ -1991,7 +2007,7 @@ bool CommandInterpreter::HandleCommand(const char *command_line,
     // repeat command, even though we don't add repeat commands to the history.
     if (add_to_history || empty_command) {
       Args command_args(command_string);
-      llvm::Optional<std::string> repeat_command =
+      std::optional<std::string> repeat_command =
           cmd_obj->GetRepeatCommand(command_args, 0);
       if (repeat_command)
         m_repeat_command.assign(*repeat_command);
@@ -2095,17 +2111,17 @@ void CommandInterpreter::HandleCompletion(CompletionRequest &request) {
   HandleCompletionMatches(request);
 }
 
-llvm::Optional<std::string>
+std::optional<std::string>
 CommandInterpreter::GetAutoSuggestionForCommand(llvm::StringRef line) {
   if (line.empty())
-    return llvm::None;
+    return std::nullopt;
   const size_t s = m_command_history.GetSize();
   for (int i = s - 1; i >= 0; --i) {
     llvm::StringRef entry = m_command_history.GetStringAtIndex(i);
     if (entry.consume_front(line))
       return entry.str();
   }
-  return llvm::None;
+  return std::nullopt;
 }
 
 void CommandInterpreter::UpdatePrompt(llvm::StringRef new_prompt) {
@@ -2471,8 +2487,12 @@ bool CommandInterpreter::DidProcessStopAbnormally() const {
 
   for (const auto &thread_sp : process_sp->GetThreadList().Threads()) {
     StopInfoSP stop_info = thread_sp->GetStopInfo();
-    if (!stop_info)
-      return false;
+    if (!stop_info) {
+      // If there's no stop_info, keep iterating through the other threads;
+      // it's enough that any thread has got a stop_info that indicates
+      // an abnormal stop, to consider the process to be stopped abnormally.
+      continue;
+    }
 
     const StopReason reason = stop_info->GetStopReason();
     if (reason == eStopReasonException ||
@@ -3172,8 +3192,8 @@ bool CommandInterpreter::IOHandlerInterrupt(IOHandler &io_handler) {
 }
 
 bool CommandInterpreter::SaveTranscript(
-    CommandReturnObject &result, llvm::Optional<std::string> output_file) {
-  if (output_file == llvm::None || output_file->empty()) {
+    CommandReturnObject &result, std::optional<std::string> output_file) {
+  if (output_file == std::nullopt || output_file->empty()) {
     std::string now = llvm::to_string(std::chrono::system_clock::now());
     std::replace(now.begin(), now.end(), ' ', '_');
     const std::string file_name = "lldb_session_" + now + ".log";
@@ -3219,6 +3239,13 @@ bool CommandInterpreter::SaveTranscript(
   result.SetStatus(eReturnStatusSuccessFinishNoResult);
   result.AppendMessageWithFormat("Session's transcripts saved to %s\n",
                                  output_file->c_str());
+
+  if (GetOpenTranscriptInEditor() && Host::IsInteractiveGraphicSession()) {
+    const FileSpec file_spec;
+    error = file->GetFileSpec(const_cast<FileSpec &>(file_spec));
+    if (error.Success())
+      Host::OpenFileInExternalEditor(file_spec, 1);
+  }
 
   return true;
 }

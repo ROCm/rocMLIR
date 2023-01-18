@@ -93,7 +93,6 @@ def : WriteRes<WriteLDH, [RocketUnitMem]>;
 
 let Latency = 2 in {
 def : WriteRes<WriteLDW, [RocketUnitMem]>;
-def : WriteRes<WriteLDWU, [RocketUnitMem]>;
 def : WriteRes<WriteLDD, [RocketUnitMem]>;
 def : WriteRes<WriteFLD32, [RocketUnitMem]>;
 def : WriteRes<WriteFLD64, [RocketUnitMem]>;
@@ -243,11 +242,8 @@ defm : UnsupportedSchedZba;
 defm : UnsupportedSchedZbb;
 defm : UnsupportedSchedZbc;
 defm : UnsupportedSchedZbs;
-defm : UnsupportedSchedZbe;
-defm : UnsupportedSchedZbf;
-defm : UnsupportedSchedZbm;
-defm : UnsupportedSchedZbp;
-defm : UnsupportedSchedZbr;
-defm : UnsupportedSchedZbt;
+defm : UnsupportedSchedZbkb;
+defm : UnsupportedSchedZbkx;
 defm : UnsupportedSchedZfh;
+defm : UnsupportedSchedSFB;
 }

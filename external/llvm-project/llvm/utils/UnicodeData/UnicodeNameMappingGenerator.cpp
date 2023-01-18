@@ -8,10 +8,9 @@
 //
 // This file is used to generate lib/Support/UnicodeNameToCodepointGenerated.cpp
 // using UnicodeData.txt and NameAliases.txt available at
-// https://unicode.org/Public/14.0.0/ucd/
+// https://unicode.org/Public/15.0.0/ucd/
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -20,6 +19,7 @@
 #include <deque>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -43,7 +43,7 @@ loadDataFiles(const std::string &NamesFile, const std::string &AliasesFile) {
       if (FirstSemiPos == std::string::npos)
         continue;
       auto SecondSemiPos = Line.find(';', FirstSemiPos + 1);
-      if (FirstSemiPos == std::string::npos)
+      if (SecondSemiPos == std::string::npos)
         continue;
       unsigned long long CodePoint;
       if (llvm::getAsUnsignedInteger(
@@ -327,7 +327,7 @@ private:
     std::vector<std::unique_ptr<Node>> Children;
     std::string Name;
     Node *Parent = nullptr;
-    llvm::Optional<char32_t> Value;
+    std::optional<char32_t> Value;
   };
 
   std::unique_ptr<Node> Root = std::make_unique<Node>("");
@@ -340,9 +340,9 @@ int main(int argc, char **argv) {
          "Usage: %s UnicodeData.txt NameAliases.txt output\n\n",
          argv[0]);
   printf("NameAliases.txt can be found at "
-         "https://unicode.org/Public/14.0.0/ucd/NameAliases.txt\n"
+         "https://unicode.org/Public/15.0.0/ucd/NameAliases.txt\n"
          "UnicodeData.txt can be found at "
-         "https://unicode.org/Public/14.0.0/ucd/UnicodeData.txt\n\n");
+         "https://unicode.org/Public/15.0.0/ucd/UnicodeData.txt\n\n");
 
   if (argc != 4)
     return EXIT_FAILURE;

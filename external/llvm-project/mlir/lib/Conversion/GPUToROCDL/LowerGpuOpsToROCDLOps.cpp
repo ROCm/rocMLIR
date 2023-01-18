@@ -15,7 +15,7 @@
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
-#include "mlir/Conversion/ArithmeticToLLVM/ArithmeticToLLVM.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
@@ -124,19 +124,51 @@ struct LowerGpuOpsToROCDLOpsPass
       }
     }
 
-    LLVMTypeConverter converter(ctx, options);
+    // Apply in-dialect lowering. In-dialect lowering will replace
+    // ops which need to be lowered further, which is not supported by a
+    // single conversion pass.
+    {
+      RewritePatternSet patterns(ctx);
+      populateGpuRewritePatterns(patterns);
+      (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
+    }
+
+    // Apply memory space lowering. The target uses 3 for workgroup memory and 5
+    // for private memory.
+    {
+      RewritePatternSet patterns(ctx);
+      TypeConverter typeConverter;
+      typeConverter.addConversion([](Type t) { return t; });
+      gpu::populateMemorySpaceAttributeTypeConversions(
+          typeConverter, [](gpu::AddressSpace space) {
+            switch (space) {
+            case gpu::AddressSpace::Global:
+              return 1;
+            case gpu::AddressSpace::Workgroup:
+              return 3;
+            case gpu::AddressSpace::Private:
+              return 5;
+            }
+            llvm_unreachable("unknown address space enum value");
+            return 0;
+          });
+      ConversionTarget target(getContext());
+      gpu::populateLowerMemorySpaceOpLegality(target);
+      gpu::populateMemorySpaceLoweringPatterns(typeConverter, patterns);
+      if (failed(applyFullConversion(m, target, std::move(patterns))))
+        return signalPassFailure();
+    }
 
     RewritePatternSet patterns(ctx);
-    RewritePatternSet llvmPatterns(ctx);
     RewritePatternSet bf16fixupPatterns(ctx);
-
-    populateGpuRewritePatterns(patterns);
-    (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
+    LLVMTypeConverter converter(ctx, options);
+    RewritePatternSet llvmPatterns(ctx);
 
     vector::populateVectorMaskMaterializationPatterns(llvmPatterns, true);
     vector::populateVectorTransferLoweringPatterns(llvmPatterns);
     mlir::arith::populateArithmeticToLLVMConversionPatterns(converter,
                                                             llvmPatterns);
+    mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
@@ -231,6 +263,13 @@ struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
   }
 };
 } // namespace mlir
+template <typename OpTy>
+static void populateOpPatterns(LLVMTypeConverter &converter,
+                               RewritePatternSet &patterns, StringRef f32Func,
+                               StringRef f64Func) {
+  patterns.add<ScalarizeVectorOpLowering<OpTy>>(converter);
+  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func);
+}
 
 void mlir::populateGpuToROCDLConversionPatterns(
     LLVMTypeConverter &converter, RewritePatternSet &patterns,
@@ -252,7 +291,9 @@ void mlir::populateGpuToROCDLConversionPatterns(
                                        ROCDL::GridDimYOp, ROCDL::GridDimZOp>,
            GPUReturnOpLowering>(converter);
   patterns.add<GPUFuncOpLowering>(
-      converter, /*allocaAddrSpace=*/5,
+      converter,
+      /*allocaAddrSpace=*/ROCDL::ROCDLDialect::kPrivateMemoryAddressSpace,
+      /*workgroupAddrSpace=*/ROCDL::ROCDLDialect::kSharedMemoryAddressSpace,
       StringAttr::get(&converter.getContext(),
                       ROCDL::ROCDLDialect::getKernelFuncAttrName()));
   if (Runtime::HIP == runtime) {
@@ -262,44 +303,48 @@ void mlir::populateGpuToROCDLConversionPatterns(
     patterns.add<GPUPrintfOpToLLVMCallLowering>(converter, /*addressSpace=*/4);
   }
 
-  patterns.add<OpToFuncCallLowering<math::AbsFOp>>(converter, "__ocml_fabs_f32",
-                                                   "__ocml_fabs_f64");
-  patterns.add<OpToFuncCallLowering<math::AtanOp>>(converter, "__ocml_atan_f32",
-                                                   "__ocml_atan_f64");
-  patterns.add<OpToFuncCallLowering<math::Atan2Op>>(
-      converter, "__ocml_atan2_f32", "__ocml_atan2_f64");
-  patterns.add<OpToFuncCallLowering<math::CeilOp>>(converter, "__ocml_ceil_f32",
-                                                   "__ocml_ceil_f64");
-  patterns.add<OpToFuncCallLowering<math::CosOp>>(converter, "__ocml_cos_f32",
-                                                  "__ocml_cos_f64");
-  patterns.add<OpToFuncCallLowering<math::ExpOp>>(converter, "__ocml_exp_f32",
-                                                  "__ocml_exp_f64");
-  patterns.add<OpToFuncCallLowering<math::Exp2Op>>(converter, "__ocml_exp2_f32",
-                                                   "__ocml_exp2_f64");
-  patterns.add<OpToFuncCallLowering<math::ExpM1Op>>(
-      converter, "__ocml_expm1_f32", "__ocml_expm1_f64");
-  patterns.add<OpToFuncCallLowering<math::FloorOp>>(
-      converter, "__ocml_floor_f32", "__ocml_floor_f64");
-  patterns.add<OpToFuncCallLowering<math::LogOp>>(converter, "__ocml_log_f32",
-                                                  "__ocml_log_f64");
-  patterns.add<OpToFuncCallLowering<math::Log10Op>>(
-      converter, "__ocml_log10_f32", "__ocml_log10_f64");
-  patterns.add<OpToFuncCallLowering<math::Log1pOp>>(
-      converter, "__ocml_log1p_f32", "__ocml_log1p_f64");
-  patterns.add<OpToFuncCallLowering<math::Log2Op>>(converter, "__ocml_log2_f32",
-                                                   "__ocml_log2_f64");
-  patterns.add<OpToFuncCallLowering<math::PowFOp>>(converter, "__ocml_pow_f32",
-                                                   "__ocml_pow_f64");
-  patterns.add<OpToFuncCallLowering<math::RsqrtOp>>(
-      converter, "__ocml_rsqrt_f32", "__ocml_rsqrt_f64");
-  patterns.add<OpToFuncCallLowering<math::SinOp>>(converter, "__ocml_sin_f32",
-                                                  "__ocml_sin_f64");
-  patterns.add<OpToFuncCallLowering<math::SqrtOp>>(converter, "__ocml_sqrt_f32",
-                                                   "__ocml_sqrt_f64");
-  patterns.add<OpToFuncCallLowering<math::TanhOp>>(converter, "__ocml_tanh_f32",
-                                                   "__ocml_tanh_f64");
-
   patterns.add<WarpSwizzleOpLowering>(converter);
+  
+  populateOpPatterns<math::AbsFOp>(converter, patterns, "__ocml_fabs_f32",
+                                   "__ocml_fabs_f64");
+  populateOpPatterns<math::AtanOp>(converter, patterns, "__ocml_atan_f32",
+                                   "__ocml_atan_f64");
+  populateOpPatterns<math::Atan2Op>(converter, patterns, "__ocml_atan2_f32",
+                                    "__ocml_atan2_f64");
+  populateOpPatterns<math::CbrtOp>(converter, patterns, "__ocml_cbrt_f32",
+                                   "__ocml_cbrt_f64");
+  populateOpPatterns<math::CeilOp>(converter, patterns, "__ocml_ceil_f32",
+                                   "__ocml_ceil_f64");
+  populateOpPatterns<math::CosOp>(converter, patterns, "__ocml_cos_f32",
+                                  "__ocml_cos_f64");
+  populateOpPatterns<math::ExpOp>(converter, patterns, "__ocml_exp_f32",
+                                  "__ocml_exp_f64");
+  populateOpPatterns<math::Exp2Op>(converter, patterns, "__ocml_exp2_f32",
+                                   "__ocml_exp2_f64");
+  populateOpPatterns<math::ExpM1Op>(converter, patterns, "__ocml_expm1_f32",
+                                    "__ocml_expm1_f64");
+  populateOpPatterns<math::FloorOp>(converter, patterns, "__ocml_floor_f32",
+                                    "__ocml_floor_f64");
+  populateOpPatterns<math::LogOp>(converter, patterns, "__ocml_log_f32",
+                                  "__ocml_log_f64");
+  populateOpPatterns<math::Log10Op>(converter, patterns, "__ocml_log10_f32",
+                                    "__ocml_log10_f64");
+  populateOpPatterns<math::Log1pOp>(converter, patterns, "__ocml_log1p_f32",
+                                    "__ocml_log1p_f64");
+  populateOpPatterns<math::Log2Op>(converter, patterns, "__ocml_log2_f32",
+                                   "__ocml_log2_f64");
+  populateOpPatterns<math::PowFOp>(converter, patterns, "__ocml_pow_f32",
+                                   "__ocml_pow_f64");
+  populateOpPatterns<math::RsqrtOp>(converter, patterns, "__ocml_rsqrt_f32",
+                                    "__ocml_rsqrt_f64");
+  populateOpPatterns<math::SinOp>(converter, patterns, "__ocml_sin_f32",
+                                  "__ocml_sin_f64");
+  populateOpPatterns<math::SqrtOp>(converter, patterns, "__ocml_sqrt_f32",
+                                   "__ocml_sqrt_f64");
+  populateOpPatterns<math::TanhOp>(converter, patterns, "__ocml_tanh_f32",
+                                   "__ocml_tanh_f64");
+  populateOpPatterns<math::TanOp>(converter, patterns, "__ocml_tan_f32",
+                                  "__ocml_tan_f64");
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <utility>
+#include <optional>
 
 #include "IRModule.h"
 
@@ -19,7 +20,6 @@ namespace py = pybind11;
 using namespace mlir;
 using namespace mlir::python;
 
-using llvm::Optional;
 using llvm::SmallVector;
 using llvm::Twine;
 
@@ -545,8 +545,9 @@ public:
   using PyConcreteAttribute::PyConcreteAttribute;
 
   static PyDenseElementsAttribute
-  getFromBuffer(py::buffer array, bool signless, Optional<PyType> explicitType,
-                Optional<std::vector<int64_t>> explicitShape,
+  getFromBuffer(py::buffer array, bool signless,
+                std::optional<PyType> explicitType,
+                std::optional<std::vector<int64_t>> explicitShape,
                 DefaultingPyMlirContext contextWrapper) {
     // Request a contiguous view. In exotic cases, this will cause a copy.
     int flags = PyBUF_C_CONTIGUOUS | PyBUF_FORMAT;
@@ -572,7 +573,7 @@ public:
     // Notably, this excludes, bool (which needs to be bit-packed) and
     // other exotics which do not have a direct representation in the buffer
     // protocol (i.e. complex, etc).
-    Optional<MlirType> bulkLoadElementType;
+    std::optional<MlirType> bulkLoadElementType;
     if (explicitType) {
       bulkLoadElementType = *explicitType;
     } else if (arrayInfo.format == "f") {
@@ -1031,6 +1032,58 @@ public:
   }
 };
 
+/// Strided layout attribute subclass.
+class PyStridedLayoutAttribute
+    : public PyConcreteAttribute<PyStridedLayoutAttribute> {
+public:
+  static constexpr IsAFunctionTy isaFunction = mlirAttributeIsAStridedLayout;
+  static constexpr const char *pyClassName = "StridedLayoutAttr";
+  using PyConcreteAttribute::PyConcreteAttribute;
+
+  static void bindDerived(ClassTy &c) {
+    c.def_static(
+        "get",
+        [](int64_t offset, const std::vector<int64_t> strides,
+           DefaultingPyMlirContext ctx) {
+          MlirAttribute attr = mlirStridedLayoutAttrGet(
+              ctx->get(), offset, strides.size(), strides.data());
+          return PyStridedLayoutAttribute(ctx->getRef(), attr);
+        },
+        py::arg("offset"), py::arg("strides"), py::arg("context") = py::none(),
+        "Gets a strided layout attribute.");
+    c.def_static(
+        "get_fully_dynamic",
+        [](int64_t rank, DefaultingPyMlirContext ctx) {
+          auto dynamic = mlirShapedTypeGetDynamicStrideOrOffset();
+          std::vector<int64_t> strides(rank);
+          std::fill(strides.begin(), strides.end(), dynamic);
+          MlirAttribute attr = mlirStridedLayoutAttrGet(
+              ctx->get(), dynamic, strides.size(), strides.data());
+          return PyStridedLayoutAttribute(ctx->getRef(), attr);
+        },
+        py::arg("rank"), py::arg("context") = py::none(),
+        "Gets a strided layout attribute with dynamic offset and strides of a "
+        "given rank.");
+    c.def_property_readonly(
+        "offset",
+        [](PyStridedLayoutAttribute &self) {
+          return mlirStridedLayoutAttrGetOffset(self);
+        },
+        "Returns the value of the float point attribute");
+    c.def_property_readonly(
+        "strides",
+        [](PyStridedLayoutAttribute &self) {
+          intptr_t size = mlirStridedLayoutAttrGetNumStrides(self);
+          std::vector<int64_t> strides(size);
+          for (intptr_t i = 0; i < size; i++) {
+            strides[i] = mlirStridedLayoutAttrGetStride(self, i);
+          }
+          return strides;
+        },
+        "Returns the value of the float point attribute");
+  }
+};
+
 } // namespace
 
 void mlir::python::populateIRAttributes(py::module &m) {
@@ -1065,4 +1118,6 @@ void mlir::python::populateIRAttributes(py::module &m) {
   PyStringAttribute::bind(m);
   PyTypeAttribute::bind(m);
   PyUnitAttribute::bind(m);
+
+  PyStridedLayoutAttribute::bind(m);
 }

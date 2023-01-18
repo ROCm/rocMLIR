@@ -1,4 +1,4 @@
-//===- ReducerWorkItem.h - Wrapper for Module and MachineFunction ---------===//
+//===- ReducerWorkItem.h - Wrapper for Module -------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -33,18 +33,17 @@ public:
 
   /// Return a number to indicate whether there was any reduction progress.
   uint64_t getComplexityScore() const {
-    return isMIR() ? computeMIRComplexityScore() : getIRSize();
+    return isMIR() ? computeMIRComplexityScore() : computeIRComplexityScore();
   }
 
 private:
+  uint64_t computeIRComplexityScore() const;
   uint64_t computeMIRComplexityScore() const;
-  uint64_t getIRSize() const;
 };
 
-std::unique_ptr<ReducerWorkItem>
-parseReducerWorkItem(const char *ToolName, StringRef Filename,
-                     LLVMContext &Ctxt, std::unique_ptr<TargetMachine> &TM,
-                     bool IsMIR);
+std::pair<std::unique_ptr<ReducerWorkItem>, bool>
+parseReducerWorkItem(StringRef ToolName, StringRef Filename, LLVMContext &Ctxt,
+                     std::unique_ptr<TargetMachine> &TM, bool IsMIR);
 
 std::unique_ptr<ReducerWorkItem>
 cloneReducerWorkItem(const ReducerWorkItem &MMM, const TargetMachine *TM);

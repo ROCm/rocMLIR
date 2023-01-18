@@ -25,6 +25,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/KnownBits.h"
 #include <cctype>
+#include <optional>
 
 using namespace llvm;
 
@@ -842,7 +843,7 @@ bool SystemZTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT,
 }
 
 /// Returns true if stack probing through inline assembly is requested.
-bool SystemZTargetLowering::hasInlineStackProbe(MachineFunction &MF) const {
+bool SystemZTargetLowering::hasInlineStackProbe(const MachineFunction &MF) const {
   // If the function specifically requests inline stack probes, emit them.
   if (MF.getFunction().hasFnAttribute("probe-stack"))
     return MF.getFunction().getFnAttribute("probe-stack").getValueAsString() ==
@@ -861,12 +862,12 @@ bool SystemZTargetLowering::isLegalAddImmediate(int64_t Imm) const {
 }
 
 bool SystemZTargetLowering::allowsMisalignedMemoryAccesses(
-    EVT VT, unsigned, Align, MachineMemOperand::Flags, bool *Fast) const {
+    EVT VT, unsigned, Align, MachineMemOperand::Flags, unsigned *Fast) const {
   // Unaligned accesses should never be slower than the expanded version.
   // We check specifically for aligned accesses in the few cases where
   // they are required.
   if (Fast)
-    *Fast = true;
+    *Fast = 1;
   return true;
 }
 
@@ -1021,8 +1022,8 @@ EVT SystemZTargetLowering::getOptimalMemOpType(const MemOp &Op,
 bool SystemZTargetLowering::isTruncateFree(Type *FromType, Type *ToType) const {
   if (!FromType->isIntegerTy() || !ToType->isIntegerTy())
     return false;
-  unsigned FromBits = FromType->getPrimitiveSizeInBits().getFixedSize();
-  unsigned ToBits = ToType->getPrimitiveSizeInBits().getFixedSize();
+  unsigned FromBits = FromType->getPrimitiveSizeInBits().getFixedValue();
+  unsigned ToBits = ToType->getPrimitiveSizeInBits().getFixedValue();
   return FromBits > ToBits;
 }
 
@@ -1450,7 +1451,7 @@ static SDValue lowerGR128ToI128(SelectionDAG &DAG, SDValue In) {
 
 bool SystemZTargetLowering::splitValueIntoRegisterParts(
     SelectionDAG &DAG, const SDLoc &DL, SDValue Val, SDValue *Parts,
-    unsigned NumParts, MVT PartVT, Optional<CallingConv::ID> CC) const {
+    unsigned NumParts, MVT PartVT, std::optional<CallingConv::ID> CC) const {
   EVT ValueVT = Val.getValueType();
   assert((ValueVT != MVT::i128 ||
           ((NumParts == 1 && PartVT == MVT::Untyped) ||
@@ -1466,7 +1467,7 @@ bool SystemZTargetLowering::splitValueIntoRegisterParts(
 
 SDValue SystemZTargetLowering::joinRegisterPartsIntoValue(
     SelectionDAG &DAG, const SDLoc &DL, const SDValue *Parts, unsigned NumParts,
-    MVT PartVT, EVT ValueVT, Optional<CallingConv::ID> CC) const {
+    MVT PartVT, EVT ValueVT, std::optional<CallingConv::ID> CC) const {
   assert((ValueVT != MVT::i128 ||
           ((NumParts == 1 && PartVT == MVT::Untyped) ||
            (NumParts == 2 && PartVT == MVT::i64))) &&
@@ -1627,8 +1628,8 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
       }
       // Join the stores, which are independent of one another.
       Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other,
-                          makeArrayRef(&MemOps[NumFixedFPRs],
-                                       SystemZ::ELFNumArgFPRs-NumFixedFPRs));
+                          ArrayRef(&MemOps[NumFixedFPRs],
+                                   SystemZ::ELFNumArgFPRs - NumFixedFPRs));
     }
   }
 
@@ -2488,8 +2489,8 @@ static void adjustICmpTruncate(SelectionDAG &DAG, const SDLoc &DL,
       C.Op1.getOpcode() == ISD::Constant &&
       cast<ConstantSDNode>(C.Op1)->getZExtValue() == 0) {
     auto *L = cast<LoadSDNode>(C.Op0.getOperand(0));
-    if (L->getMemoryVT().getStoreSizeInBits().getFixedSize() <=
-        C.Op0.getValueSizeInBits().getFixedSize()) {
+    if (L->getMemoryVT().getStoreSizeInBits().getFixedValue() <=
+        C.Op0.getValueSizeInBits().getFixedValue()) {
       unsigned Type = L->getExtensionType();
       if ((Type == ISD::ZEXTLOAD && C.ICmpType != SystemZICMP::SignedOnly) ||
           (Type == ISD::SEXTLOAD && C.ICmpType != SystemZICMP::UnsignedOnly)) {
@@ -3671,7 +3672,7 @@ SystemZTargetLowering::lowerDYNAMIC_STACKALLOC_XPLINK(SDValue Op,
   bool IsReturnValueUsed = false;
   EVT VT = Op.getValueType();
   SDValue AllocaCall =
-      makeExternalCall(Chain, DAG, "@@ALCAXP", VT, makeArrayRef(NeededSpace),
+      makeExternalCall(Chain, DAG, "@@ALCAXP", VT, ArrayRef(NeededSpace),
                        CallingConv::C, IsSigned, DL, DoesNotReturn,
                        IsReturnValueUsed)
           .first;
@@ -4145,7 +4146,7 @@ SDValue SystemZTargetLowering::lowerATOMIC_FENCE(SDValue Op,
   }
 
   // MEMBARRIER is a compiler barrier; it codegens to a no-op.
-  return DAG.getNode(SystemZISD::MEMBARRIER, DL, MVT::Other, Op.getOperand(0));
+  return DAG.getNode(ISD::MEMBARRIER, DL, MVT::Other, Op.getOperand(0));
 }
 
 // Op is an atomic load.  Lower it into a normal volatile load.
@@ -5943,7 +5944,6 @@ const char *SystemZTargetLowering::getTargetNodeName(unsigned Opcode) const {
     OPCODE(STRCMP);
     OPCODE(SEARCH_STRING);
     OPCODE(IPM);
-    OPCODE(MEMBARRIER);
     OPCODE(TBEGIN);
     OPCODE(TBEGIN_NOFLOAT);
     OPCODE(TEND);
@@ -7038,6 +7038,8 @@ SDValue SystemZTargetLowering::combineGET_CCMASK(
   int CCMaskVal = CCMask->getZExtValue();
 
   SDValue Select = N->getOperand(0);
+  if (Select->getOpcode() == ISD::TRUNCATE)
+    Select = Select->getOperand(0);
   if (Select->getOpcode() != SystemZISD::SELECT_CCMASK)
     return SDValue();
 
@@ -7052,9 +7054,9 @@ SDValue SystemZTargetLowering::combineGET_CCMASK(
   auto *FalseVal = dyn_cast<ConstantSDNode>(Select->getOperand(1));
   if (!TrueVal || !FalseVal)
     return SDValue();
-  if (TrueVal->getZExtValue() != 0 && FalseVal->getZExtValue() == 0)
+  if (TrueVal->getZExtValue() == 1 && FalseVal->getZExtValue() == 0)
     ;
-  else if (TrueVal->getZExtValue() == 0 && FalseVal->getZExtValue() != 0)
+  else if (TrueVal->getZExtValue() == 0 && FalseVal->getZExtValue() == 1)
     SelectCCMaskVal ^= SelectCCValidVal;
   else
     return SDValue();
@@ -7439,19 +7441,15 @@ SystemZTargetLowering::ComputeNumSignBitsForTargetNode(
 }
 
 unsigned
-SystemZTargetLowering::getStackProbeSize(MachineFunction &MF) const {
+SystemZTargetLowering::getStackProbeSize(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = Subtarget.getFrameLowering();
   unsigned StackAlign = TFI->getStackAlignment();
   assert(StackAlign >=1 && isPowerOf2_32(StackAlign) &&
          "Unexpected stack alignment");
   // The default stack probe size is 4096 if the function has no
   // stack-probe-size attribute.
-  unsigned StackProbeSize = 4096;
-  const Function &Fn = MF.getFunction();
-  if (Fn.hasFnAttribute("stack-probe-size"))
-    Fn.getFnAttribute("stack-probe-size")
-        .getValueAsString()
-        .getAsInteger(0, StackProbeSize);
+  unsigned StackProbeSize =
+      MF.getFunction().getFnAttributeAsParsedInteger("stack-probe-size", 4096);
   // Round down to the stack alignment.
   StackProbeSize &= ~(StackAlign - 1);
   return StackProbeSize ? StackProbeSize : StackAlign;

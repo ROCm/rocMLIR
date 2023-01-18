@@ -10,8 +10,8 @@ from lldbsuite.test import lldbutil
 class TestBasicVector(TestBase):
 
     @add_test_categories(["libc++"])
-    @expectedFailureDarwin # FIXME: May need to force system libcxx here.
     @skipIf(compiler=no_match("clang"))
+    @skipIf(bugnumber="rdar://100741983")
     def test(self):
         self.build()
 
@@ -29,7 +29,7 @@ class TestBasicVector(TestBase):
         iterator_children = [ValueCheck(name="item")]
         riterator = "reverse_iterator"
         riterator_children = [
-            ValueCheck(name="__t"),
+            ValueCheck(), # Deprecated __t_ member; no need to check
             ValueCheck(name="current")
         ]
 

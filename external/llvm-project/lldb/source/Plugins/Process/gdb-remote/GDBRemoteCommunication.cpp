@@ -221,23 +221,6 @@ GDBRemoteCommunication::PacketResult GDBRemoteCommunication::GetAck() {
 }
 
 GDBRemoteCommunication::PacketResult
-GDBRemoteCommunication::ReadPacketWithOutputSupport(
-    StringExtractorGDBRemote &response, Timeout<std::micro> timeout,
-    bool sync_on_timeout,
-    llvm::function_ref<void(llvm::StringRef)> output_callback) {
-  auto result = ReadPacket(response, timeout, sync_on_timeout);
-  while (result == PacketResult::Success && response.IsNormalResponse() &&
-         response.PeekChar() == 'O') {
-    response.GetChar();
-    std::string output;
-    if (response.GetHexByteString(output))
-      output_callback(output);
-    result = ReadPacket(response, timeout, sync_on_timeout);
-  }
-  return result;
-}
-
-GDBRemoteCommunication::PacketResult
 GDBRemoteCommunication::ReadPacket(StringExtractorGDBRemote &response,
                                    Timeout<std::micro> timeout,
                                    bool sync_on_timeout) {
@@ -1233,7 +1216,7 @@ GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
           listen_socket.Listen("localhost:0", backlog).ToError())
     return error;
 
-  Socket *accept_socket;
+  Socket *accept_socket = nullptr;
   std::future<Status> accept_status = std::async(
       std::launch::async, [&] { return listen_socket.Accept(accept_socket); });
 

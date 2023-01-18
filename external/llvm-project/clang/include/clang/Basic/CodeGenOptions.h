@@ -102,6 +102,12 @@ public:
     IAD_Intel,
   };
 
+  enum DebugSrcHashKind {
+    DSH_MD5,
+    DSH_SHA1,
+    DSH_SHA256,
+  };
+
   // This field stores one of the allowed values for the option
   // -fbasic-block-sections=.  The allowed values with this option are:
   // {"labels", "all", "list=<file>", "none"}.
@@ -129,6 +135,19 @@ public:
     NonLeaf,     // Keep non-leaf frame pointers.
     All,         // Keep all frame pointers.
   };
+
+  static StringRef getFramePointerKindName(FramePointerKind Kind) {
+    switch (Kind) {
+    case FramePointerKind::None:
+      return "none";
+    case FramePointerKind::NonLeaf:
+      return "non-leaf";
+    case FramePointerKind::All:
+      return "all";
+    }
+
+    llvm_unreachable("invalid FramePointerKind");
+  }
 
   enum class SwiftAsyncFramePointerKind {
     Auto, // Choose Swift async extended frame info based on deployment target.
@@ -420,11 +439,14 @@ public:
   ///                    compilation.
   ///
   /// If threshold option is not specified, it is disabled by default.
-  Optional<uint64_t> DiagnosticsHotnessThreshold = 0;
+  std::optional<uint64_t> DiagnosticsHotnessThreshold = 0;
 
   /// The maximum percentage profiling weights can deviate from the expected
   /// values in order to be included in misexpect diagnostics.
-  Optional<uint32_t> DiagnosticsMisExpectTolerance = 0;
+  std::optional<uint32_t> DiagnosticsMisExpectTolerance = 0;
+
+  /// The name of a file to use with \c .secure_log_unique directives.
+  std::string AsSecureLogFile;
 
 public:
   // Define accessors/mutators for code generation options of enumeration type.
@@ -488,7 +510,8 @@ public:
 
   // Check if any one of SanitizeBinaryMetadata* is enabled.
   bool hasSanitizeBinaryMetadata() const {
-    return SanitizeBinaryMetadataCovered || SanitizeBinaryMetadataAtomics;
+    return SanitizeBinaryMetadataCovered || SanitizeBinaryMetadataAtomics ||
+           SanitizeBinaryMetadataUAR;
   }
 };
 

@@ -1,5 +1,6 @@
 set(LLVM_LINK_COMPONENTS
   Support
+  TargetParser
   )
 
 find_first_existing_vc_file("${LLVM_MAIN_SRC_DIR}" llvm_vc)
@@ -109,5 +110,10 @@ add_clang_library(clangBasic
 
   DEPENDS
   omp_gen
+  RISCVTargetParserTableGen
   )
 
+target_link_libraries(clangBasic
+  PRIVATE
+  ${LLVM_ATOMIC_LIB}
+)

@@ -23,7 +23,12 @@ def AMDGPU_Dialect : Dialect {
     that will eventually be executed on AMD hardware.
   }];
 
+
+  let dependentDialects = [
+    "arith::ArithDialect"
+  ];
   let useDefaultAttributePrinterParser = 1;
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 //===----------------------------------------------------------------------===//
@@ -219,7 +224,7 @@ def MFMAOutTypes : AnyTypeOf<[F64,
 def AMDGPU_MFMAOp :
     AMDGPU_Op<"mfma", [AllTypesMatch<["sourceA", "sourceB"]>,
                         AllTypesMatch<["destC", "destD"]>,
-                        NoSideEffect]>,
+                        Pure]>,
     Arguments<(ins
                    I32Attr:$m,
                    I32Attr:$n,

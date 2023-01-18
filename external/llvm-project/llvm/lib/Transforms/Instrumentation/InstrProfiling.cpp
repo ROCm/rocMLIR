@@ -529,10 +529,11 @@ bool InstrProfiling::run(
   if (NeedsRuntimeHook)
     MadeChange = emitRuntimeHook();
 
-  // Improve compile time by avoiding linear scans when there is no work.
+  bool ContainsProfiling = containsProfilingIntrinsics(M);
   GlobalVariable *CoverageNamesVar =
       M.getNamedGlobal(getCoverageUnusedNamesVarName());
-  if (!containsProfilingIntrinsics(M) && !CoverageNamesVar)
+  // Improve compile time by avoiding linear scans when there is no work.
+  if (!ContainsProfiling && !CoverageNamesVar)
     return MadeChange;
 
   // We did not know how many value sites there would be inside
@@ -567,11 +568,11 @@ bool InstrProfiling::run(
   emitVNodes();
   emitNameData();
 
-  // Emit runtime hook except for the cases where coverage is enabled on
-  // code that is eliminated by the front-end, e.g. unused functions with
-  // internal linkage, and the target does not require pulling in profile
-  // runtime.
-  if (containsProfilingIntrinsics(M) || !CoverageNamesVar || NeedsRuntimeHook)
+  // Emit runtime hook for the cases where the target does not unconditionally
+  // require pulling in profile runtime, and coverage is enabled on code that is
+  // not eliminated by the front-end, e.g. unused functions with internal
+  // linkage.
+  if (!NeedsRuntimeHook && ContainsProfiling)
     emitRuntimeHook();
 
   emitRegistration();
@@ -598,7 +599,7 @@ static FunctionCallee getOrInsertValueProfilingCall(
 #include "llvm/ProfileData/InstrProfData.inc"
   };
   auto *ValueProfilingCallTy =
-      FunctionType::get(ReturnTy, makeArrayRef(ParamTypes), false);
+      FunctionType::get(ReturnTy, ArrayRef(ParamTypes), false);
   StringRef FuncName = CallType == ValueProfilingCallType::Default
                            ? getInstrProfValueProfFuncName()
                            : getInstrProfValueProfMemOpFuncName();
@@ -822,6 +823,36 @@ static inline bool shouldRecordFunctionAddr(Function *F) {
   return F->hasAddressTaken() || F->hasLinkOnceLinkage();
 }
 
+static inline Constant *getFuncAddrForProfData(Function *Fn) {
+  auto *Int8PtrTy = Type::getInt8PtrTy(Fn->getContext());
+  // Store a nullptr in __llvm_profd, if we shouldn't use a real address
+  if (!shouldRecordFunctionAddr(Fn))
+    return ConstantPointerNull::get(Int8PtrTy);
+
+  // If we can't use an alias, we must use the public symbol, even though this
+  // may require a symbolic relocation. When the function has local linkage, we
+  // can use the symbol directly without introducing relocations.
+  if (Fn->isDeclarationForLinker() || Fn->hasLocalLinkage())
+    return ConstantExpr::getBitCast(Fn, Int8PtrTy);
+
+  // When possible use a private alias to avoid symbolic relocations.
+  auto *GA = GlobalAlias::create(GlobalValue::LinkageTypes::PrivateLinkage,
+                                 Fn->getName() + ".local", Fn);
+
+  // When the instrumented function is a COMDAT function, we cannot use a
+  // private alias. If we did, we would create reference to a local label in
+  // this function's section. If this version of the function isn't selected by
+  // the linker, then the metadata would introduce a reference to a discarded
+  // section. So, for COMDAT functions, we need to adjust the linkage of the
+  // alias. Using hidden visibility avoids a dynamic relocation and an entry in
+  // the dynamic symbol table.
+  if (Fn->hasComdat()) {
+    GA->setLinkage(Fn->getLinkage());
+    GA->setVisibility(GlobalValue::VisibilityTypes::HiddenVisibility);
+  }
+  return ConstantExpr::getBitCast(GA, Int8PtrTy);
+}
+
 static bool needsRuntimeRegistrationOfSectionRange(const Triple &TT) {
   // Don't do this for Darwin.  compiler-rt uses linker magic.
   if (TT.isOSDarwin())
@@ -1011,11 +1042,9 @@ InstrProfiling::getOrCreateRegionCounters(InstrProfInstBase *Inc) {
 #define INSTR_PROF_DATA(Type, LLVMType, Name, Init) LLVMType,
 #include "llvm/ProfileData/InstrProfData.inc"
   };
-  auto *DataTy = StructType::get(Ctx, makeArrayRef(DataTypes));
+  auto *DataTy = StructType::get(Ctx, ArrayRef(DataTypes));
 
-  Constant *FunctionAddr = shouldRecordFunctionAddr(Fn)
-                               ? ConstantExpr::getBitCast(Fn, Int8PtrTy)
-                               : ConstantPointerNull::get(Int8PtrTy);
+  Constant *FunctionAddr = getFuncAddrForProfData(Fn);
 
   Constant *Int16ArrayVals[IPVK_Last + 1];
   for (uint32_t Kind = IPVK_First; Kind <= IPVK_Last; ++Kind)
@@ -1107,7 +1136,7 @@ void InstrProfiling::emitVNodes() {
 #define INSTR_PROF_VALUE_NODE(Type, LLVMType, Name, Init) LLVMType,
 #include "llvm/ProfileData/InstrProfData.inc"
   };
-  auto *VNodeTy = StructType::get(Ctx, makeArrayRef(VNodeTypes));
+  auto *VNodeTy = StructType::get(Ctx, ArrayRef(VNodeTypes));
 
   ArrayType *VNodesTy = ArrayType::get(VNodeTy, NumCounters);
   auto *VNodesVar = new GlobalVariable(
@@ -1184,7 +1213,7 @@ void InstrProfiling::emitRegistration() {
   if (NamesVar) {
     Type *ParamTypes[] = {VoidPtrTy, Int64Ty};
     auto *NamesRegisterTy =
-        FunctionType::get(VoidTy, makeArrayRef(ParamTypes), false);
+        FunctionType::get(VoidTy, ArrayRef(ParamTypes), false);
     auto *NamesRegisterF =
         Function::Create(NamesRegisterTy, GlobalVariable::ExternalLinkage,
                          getInstrProfNamesRegFuncName(), M);
@@ -1198,7 +1227,7 @@ void InstrProfiling::emitRegistration() {
 bool InstrProfiling::emitRuntimeHook() {
   // We expect the linker to be invoked with -u<hook_var> flag for Linux
   // in which case there is no need to emit the external variable.
-  if (TT.isOSLinux())
+  if (TT.isOSLinux() || TT.isOSAIX())
     return false;
 
   // If the module's provided its own runtime, we don't need to do anything.

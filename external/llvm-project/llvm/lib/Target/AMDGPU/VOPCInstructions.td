@@ -108,9 +108,8 @@ class VOPC_NoSdst_Profile<list<SchedReadWrite> sched, ValueType vt0,
   let InsSDWA = (ins Src0ModSDWA:$src0_modifiers, Src0SDWA:$src0,
                      Src1ModSDWA:$src1_modifiers, Src1SDWA:$src1,
                      src0_sel:$src0_sel, src1_sel:$src1_sel);
-  let Asm64 = !if(isFloatType<Src0VT>.ret, "$src0_modifiers, $src1_modifiers$clamp",
+  let AsmVOP3Base = !if(isFloatType<Src0VT>.ret, "$src0_modifiers, $src1_modifiers$clamp",
                                            "$src0, $src1");
-  let AsmVOP3DPPBase = Asm64;
   let AsmSDWA9 = "$src0_modifiers, $src1_modifiers $src0_sel $src1_sel";
   let EmitDst = 0;
 }
@@ -674,8 +673,8 @@ defm V_CMPX_GT_I16 : VOPCX_I16 <"v_cmpx_gt_i16">;
 defm V_CMPX_NE_I16 : VOPCX_I16 <"v_cmpx_ne_i16">;
 defm V_CMPX_GE_I16 : VOPCX_I16 <"v_cmpx_ge_i16">;
 defm V_CMPX_T_I16 : VOPCX_I16 <"v_cmpx_t_i16">;
-defm V_CMPX_F_U16 : VOPCX_I16 <"v_cmpx_f_u16">;
 
+defm V_CMPX_F_U16 : VOPCX_I16 <"v_cmpx_f_u16">;
 defm V_CMPX_LT_U16 : VOPCX_I16 <"v_cmpx_lt_u16", "v_cmpx_gt_u16">;
 defm V_CMPX_EQ_U16 : VOPCX_I16 <"v_cmpx_eq_u16">;
 defm V_CMPX_LE_U16 : VOPCX_I16 <"v_cmpx_le_u16", "v_cmpx_ge_u16">;
@@ -774,8 +773,7 @@ class VOPC_Class_Profile<list<SchedReadWrite> sched, ValueType src0VT, ValueType
   dag InsPartVOP3DPP = (ins FPVRegInputMods:$src0_modifiers, VGPRSrc_32:$src0, VGPRSrc_32:$src1);
   let InsVOP3Base = !con(InsPartVOP3DPP, !if(HasOpSel, (ins op_sel0:$op_sel),
                                                        (ins)));
-  let Asm64 = "$sdst, $src0_modifiers, $src1";
-  let AsmVOP3DPPBase = Asm64;
+  let AsmVOP3Base = "$sdst, $src0_modifiers, $src1";
 
   let InsSDWA = (ins Src0ModSDWA:$src0_modifiers, Src0SDWA:$src0,
                      Src1ModSDWA:$src1_modifiers, Src1SDWA:$src1,
@@ -792,6 +790,7 @@ multiclass VOPC_Class_Profile_t16<list<SchedReadWrite> sched> {
   def _t16 : VOPC_Class_Profile<sched, f16, i16> {
     let IsTrue16 = 1;
     let Src1RC32 = RegisterOperand<getVregSrcForVT_t16<Src1VT>.ret>;
+    let Src1RC64 = VSrc_b32;
     let Src0DPP = getVregSrcForVT_t16<Src0VT>.ret;
     let Src1DPP = getVregSrcForVT_t16<Src1VT>.ret;
     let Src2DPP = getVregSrcForVT_t16<Src2VT>.ret;
@@ -808,8 +807,7 @@ class VOPC_Class_NoSdst_Profile<list<SchedReadWrite> sched, ValueType src0VT, Va
   let InsSDWA = (ins Src0ModSDWA:$src0_modifiers, Src0SDWA:$src0,
                      Src1ModSDWA:$src1_modifiers, Src1SDWA:$src1,
                      src0_sel:$src0_sel, src1_sel:$src1_sel);
-  let Asm64 = "$src0_modifiers, $src1";
-  let AsmVOP3DPPBase = Asm64;
+  let AsmVOP3Base = "$src0_modifiers, $src1";
   let AsmSDWA9 = "$src0_modifiers, $src1_modifiers $src0_sel $src1_sel";
   let EmitDst = 0;
 }
@@ -819,6 +817,7 @@ multiclass VOPC_Class_NoSdst_Profile_t16<list<SchedReadWrite> sched> {
   def _t16 : VOPC_Class_NoSdst_Profile<sched, f16, i16> {
     let IsTrue16 = 1;
     let Src1RC32 = RegisterOperand<getVregSrcForVT_t16<Src1VT>.ret>;
+    let Src1RC64 = VSrc_b32;
     let Src0DPP = getVregSrcForVT_t16<Src0VT>.ret;
     let Src1DPP = getVregSrcForVT_t16<Src1VT>.ret;
     let Src2DPP = getVregSrcForVT_t16<Src2VT>.ret;
@@ -1022,6 +1021,20 @@ defm : ICMP_Pattern <COND_SGE, V_CMP_GE_I64_e64, i64>;
 defm : ICMP_Pattern <COND_SLT, V_CMP_LT_I64_e64, i64>;
 defm : ICMP_Pattern <COND_SLE, V_CMP_LE_I64_e64, i64>;
 
+let OtherPredicates = [HasTrue16BitInsts] in {
+defm : ICMP_Pattern <COND_EQ, V_CMP_EQ_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_NE, V_CMP_NE_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_UGT, V_CMP_GT_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_UGE, V_CMP_GE_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_ULT, V_CMP_LT_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_ULE, V_CMP_LE_U16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_SGT, V_CMP_GT_I16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_SGE, V_CMP_GE_I16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_SLT, V_CMP_LT_I16_t16_e64, i16>;
+defm : ICMP_Pattern <COND_SLE, V_CMP_LE_I16_t16_e64, i16>;
+} // End OtherPredicates = [HasTrue16BitInsts]
+
+let OtherPredicates = [NotHasTrue16BitInsts] in {
 defm : ICMP_Pattern <COND_EQ, V_CMP_EQ_U16_e64, i16>;
 defm : ICMP_Pattern <COND_NE, V_CMP_NE_U16_e64, i16>;
 defm : ICMP_Pattern <COND_UGT, V_CMP_GT_U16_e64, i16>;
@@ -1032,6 +1045,7 @@ defm : ICMP_Pattern <COND_SGT, V_CMP_GT_I16_e64, i16>;
 defm : ICMP_Pattern <COND_SGE, V_CMP_GE_I16_e64, i16>;
 defm : ICMP_Pattern <COND_SLT, V_CMP_LT_I16_e64, i16>;
 defm : ICMP_Pattern <COND_SLE, V_CMP_LE_I16_e64, i16>;
+} // End OtherPredicates = [NotHasTrue16BitInsts]
 
 multiclass FCMP_Pattern <PatFrags cond, Instruction inst, ValueType vt> {
   let WaveSizePredicate = isWave64 in
@@ -1065,14 +1079,6 @@ defm : FCMP_Pattern <COND_OGE, V_CMP_GE_F64_e64, f64>;
 defm : FCMP_Pattern <COND_OLT, V_CMP_LT_F64_e64, f64>;
 defm : FCMP_Pattern <COND_OLE, V_CMP_LE_F64_e64, f64>;
 
-defm : FCMP_Pattern <COND_OEQ, V_CMP_EQ_F16_e64, f16>;
-defm : FCMP_Pattern <COND_ONE, V_CMP_NEQ_F16_e64, f16>;
-defm : FCMP_Pattern <COND_OGT, V_CMP_GT_F16_e64, f16>;
-defm : FCMP_Pattern <COND_OGE, V_CMP_GE_F16_e64, f16>;
-defm : FCMP_Pattern <COND_OLT, V_CMP_LT_F16_e64, f16>;
-defm : FCMP_Pattern <COND_OLE, V_CMP_LE_F16_e64, f16>;
-
-
 defm : FCMP_Pattern <COND_UEQ, V_CMP_NLG_F32_e64, f32>;
 defm : FCMP_Pattern <COND_UNE, V_CMP_NEQ_F32_e64, f32>;
 defm : FCMP_Pattern <COND_UGT, V_CMP_NLE_F32_e64, f32>;
@@ -1087,12 +1093,37 @@ defm : FCMP_Pattern <COND_UGE, V_CMP_NLT_F64_e64, f64>;
 defm : FCMP_Pattern <COND_ULT, V_CMP_NGE_F64_e64, f64>;
 defm : FCMP_Pattern <COND_ULE, V_CMP_NGT_F64_e64, f64>;
 
+let OtherPredicates = [HasTrue16BitInsts] in {
+defm : FCMP_Pattern <COND_OEQ, V_CMP_EQ_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_ONE, V_CMP_NEQ_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_OGT, V_CMP_GT_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_OGE, V_CMP_GE_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_OLT, V_CMP_LT_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_OLE, V_CMP_LE_F16_t16_e64, f16>;
+
+defm : FCMP_Pattern <COND_UEQ, V_CMP_NLG_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_UNE, V_CMP_NEQ_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_UGT, V_CMP_NLE_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_UGE, V_CMP_NLT_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_ULT, V_CMP_NGE_F16_t16_e64, f16>;
+defm : FCMP_Pattern <COND_ULE, V_CMP_NGT_F16_t16_e64, f16>;
+} // End OtherPredicates = [HasTrue16BitInsts]
+
+let OtherPredicates = [NotHasTrue16BitInsts] in {
+defm : FCMP_Pattern <COND_OEQ, V_CMP_EQ_F16_e64, f16>;
+defm : FCMP_Pattern <COND_ONE, V_CMP_NEQ_F16_e64, f16>;
+defm : FCMP_Pattern <COND_OGT, V_CMP_GT_F16_e64, f16>;
+defm : FCMP_Pattern <COND_OGE, V_CMP_GE_F16_e64, f16>;
+defm : FCMP_Pattern <COND_OLT, V_CMP_LT_F16_e64, f16>;
+defm : FCMP_Pattern <COND_OLE, V_CMP_LE_F16_e64, f16>;
+
 defm : FCMP_Pattern <COND_UEQ, V_CMP_NLG_F16_e64, f16>;
 defm : FCMP_Pattern <COND_UNE, V_CMP_NEQ_F16_e64, f16>;
 defm : FCMP_Pattern <COND_UGT, V_CMP_NLE_F16_e64, f16>;
 defm : FCMP_Pattern <COND_UGE, V_CMP_NLT_F16_e64, f16>;
 defm : FCMP_Pattern <COND_ULT, V_CMP_NGE_F16_e64, f16>;
 defm : FCMP_Pattern <COND_ULE, V_CMP_NGT_F16_e64, f16>;
+} // End OtherPredicates = [NotHasTrue16BitInsts]
 
 //===----------------------------------------------------------------------===//
 // DPP Encodings
@@ -1370,14 +1401,14 @@ let AssemblerPredicate = isGFX11Only in {
         VOPCe<op{7-0}>,
         MnemonicAlias<!if(!empty(pseudo_mnemonic), ps32.Mnemonic,
                           pseudo_mnemonic),
-                      asm_name>,
+                      asm_name, ps32.AsmVariantName>,
         Requires<[isGFX11Plus]>;
       def _e64_gfx11 :
             VOP3_Real<ps64, SIEncodingFamily.GFX11, asm_name>,
             VOP3a_gfx11<{0, op}, ps64.Pfl>,
             MnemonicAlias<!if(!empty(pseudo_mnemonic), ps64.Mnemonic,
                               pseudo_mnemonic),
-                          asm_name>,
+                          asm_name, ps64.AsmVariantName>,
             Requires<[isGFX11Plus]> {
         // Encoding used for VOPC instructions encoded as VOP3 differs from
         // VOP3e by destination name (sdst) as VOPC doesn't have vector dst.
@@ -1534,7 +1565,7 @@ let AssemblerPredicate = isGFX11Only in {
           : VOPC_Real<ps32, SIEncodingFamily.GFX11, asm_name>,
             MnemonicAlias<!if(!empty(pseudo_mnemonic), !subst("_nosdst", "", ps32.Mnemonic),
                               pseudo_mnemonic),
-                          asm_name>,
+                          asm_name, ps32.AsmVariantName>,
             Requires<[isGFX11Plus]>,
             VOPCe<op{7-0}> {
         let AsmString = asm_name # "{_e32} " # ps32.AsmOperands;
@@ -1543,7 +1574,7 @@ let AssemblerPredicate = isGFX11Only in {
           : VOP3_Real<ps64, SIEncodingFamily.GFX11, asm_name>,
             MnemonicAlias<!if(!empty(pseudo_mnemonic), !subst("_nosdst", "", ps64.Mnemonic),
                               pseudo_mnemonic),
-                          asm_name>,
+                          asm_name, ps64.AsmVariantName>,
             Requires<[isGFX11Plus]>,
             VOP3a_gfx11<{0, op}, ps64.Pfl> {
         let Inst{7-0} = ? ; // sdst

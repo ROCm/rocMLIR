@@ -59,9 +59,7 @@ elseif( CMAKE_HOST_UNIX )
   if( LLVM_ENABLE_TERMINFO )
     set(imported_libs ${imported_libs} Terminfo::terminfo)
   endif()
-  if( LLVM_ENABLE_THREADS AND (HAVE_LIBATOMIC OR HAVE_CXX_LIBATOMICS64) )
-    set(system_libs ${system_libs} atomic)
-  endif()
+  set(system_libs ${system_libs} ${LLVM_ATOMIC_LIB})
   set(system_libs ${system_libs} ${LLVM_PTHREAD_LIB})
   if( UNIX AND NOT (BEOS OR HAIKU) )
     set(system_libs ${system_libs} m)
@@ -120,9 +118,7 @@ add_subdirectory(BLAKE3)
 
 add_llvm_component_library(LLVMSupport
   AddressRanges.cpp
-  AArch64TargetParser.cpp
   ABIBreak.cpp
-  ARMTargetParser.cpp
   AMDGPUMetadata.cpp
   APFixedPoint.cpp
   APFloat.cpp
@@ -155,7 +151,6 @@ add_llvm_component_library(LLVMSupport
   CrashRecoveryContext.cpp
   CSKYAttributes.cpp
   CSKYAttributeParser.cpp
-  CSKYTargetParser.cpp
   DataExtractor.cpp
   Debug.cpp
   DebugCounter.cpp
@@ -226,13 +221,11 @@ add_llvm_component_library(LLVMSupport
   SymbolRemappingReader.cpp
   SystemUtils.cpp
   TarWriter.cpp
-  TargetParser.cpp
   ThreadPool.cpp
   TimeProfiler.cpp
   Timer.cpp
   ToolOutputFile.cpp
   TrigramIndex.cpp
-  Triple.cpp
   Twine.cpp
   TypeSize.cpp
   Unicode.cpp
@@ -242,7 +235,6 @@ add_llvm_component_library(LLVMSupport
   VersionTuple.cpp
   VirtualFileSystem.cpp
   WithColor.cpp
-  X86TargetParser.cpp
   YAMLParser.cpp
   YAMLTraits.cpp
   raw_os_ostream.cpp
@@ -262,14 +254,12 @@ add_llvm_component_library(LLVMSupport
   Atomic.cpp
   DynamicLibrary.cpp
   Errno.cpp
-  Host.cpp
   Memory.cpp
   Path.cpp
   Process.cpp
   Program.cpp
   RWMutex.cpp
   Signals.cpp
-  ThreadLocal.cpp
   Threading.cpp
   Valgrind.cpp
   Watchdog.cpp
