@@ -159,10 +159,10 @@ auto getMfmaInsnGroupAttrMap = []() {
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
       groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+                    {ROCDL::mfma_f32_32x32x2f32::getOperationName(),
                      1,
                      1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                     {{0, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp32TyId, 64, 32},
                     {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
                      1,
@@ -205,10 +205,10 @@ auto getMfmaInsnGroupAttrMap = []() {
                      {{0, 0, MFMAPermB::none}}}},
 
                    {{MfmaTypeId::Fp16TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName(),
                      1,
                      1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                     {{0, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 64, 32},
                     {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
                      1,
@@ -395,11 +395,9 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
 
-  // Decision on how we want to "compose" tiles: there is a maximal legnth,
-  // after which we want to iterate over each tile.
-  int64_t maximalLen = getMaximalLenPerWave(elementType);
-  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave, maximalLen);
-  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave, maximalLen);
+  // Use 64x64 as base unit in large waves
+  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
+  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
 
   MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
                                 nPerMfmaGroup};
@@ -407,10 +405,7 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
-
     // Override the repeat information in case this is for larger wave
-    groupAttr.mRepeats = mPerWave / mPerMfmaGroup;
-    groupAttr.nRepeats = nPerWave / nPerMfmaGroup;
 
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
@@ -418,6 +413,15 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
                  << "Unsupported instruction: " << groupAttr.insn << "\n");
       return failure();
     }
+
+    auto mfmaInsnAttr = (*maybeInsn).getAttr();
+    groupAttr.mRepeats =
+        std::max(int64_t(1), mPerWave / (mfmaInsnAttr.mfmaNonKDim *
+                                         mfmaInsnAttr.blocksMfma));
+    groupAttr.nRepeats =
+        std::max(int64_t(1), nPerWave / (mfmaInsnAttr.mfmaNonKDim *
+                                         mfmaInsnAttr.blocksMfma));
+
     return MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Unsupported combination\n");
@@ -433,17 +437,8 @@ int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
 
 int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
 
-int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave,
-                                          int64_t minimalLenPerWave) {
-  return (lenPerWave > minimalLenPerWave) ? minimalLenPerWave : lenPerWave;
-}
-
-int64_t MfmaInsnGroup::getMaximalLenPerWave(Type elementType) {
-  if (elementType.isF16()) {
-    return 32;
-  } else {
-    return 64;
-  }
+int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
+  return (lenPerWave > 64) ? 64 : lenPerWave;
 }
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }

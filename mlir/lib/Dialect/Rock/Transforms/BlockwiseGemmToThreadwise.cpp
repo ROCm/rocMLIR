@@ -337,10 +337,10 @@ struct BlockwiseGemmV2RewritePattern
     // easily participate in adress calculations (instead of adding it on at the
     // end) we must divide it by KPack here. Fortunately, this offset will be
     // KPack-alligned and so this is safe
-    Value aBase =
+    Value sourceOffsetA =
         b.create<AddIOp>(loc, adaptor.getWaveOffsetA(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetA / KPack));
-    Value bBase =
+    Value sourceOffsetB =
         b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
@@ -396,7 +396,6 @@ struct BlockwiseGemmV2RewritePattern
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
-    auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
     auto mPerMfmaGroupConstantOp =
         b.create<ConstantIndexOp>(loc, mPerMfmaGroup);
@@ -413,195 +412,137 @@ struct BlockwiseGemmV2RewritePattern
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
     auto KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
 
-    if (!IsKReduction) {
+    // store bufferA logic.
+    // for(index_t m_i = 0; n_i < mRepeats; ++n_i)
+    //   for(index_t k_i      = 0; k_i < K; ++k_i)
+    //     if (!Reduction) a[k_i + m_i * KPerThread] = p_a_wave[k_i * N + laneId
+    //     +  mPerMfmaGroup* m_i]; if (Reduction)  a[k_i + m_i * KPerThread] =
+    //     p_a_wave[(k_i * num_input_blks + blk_id) * N + blk_td +
+    //     m_i*num_input_blks];
+    // Note: p_a_wave need to be offseted by waveOffsetA.
+    auto inputSpanLenConstantOp = b.create<ConstantIndexOp>(loc, inputSpanLen);
+    auto inputSpansPerMfmaInConstantOp =
+        b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
 
-      // store bufferA logic.
-      // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
-      //   for(index_t k_i      = 0; k_i < K; ++k_i)
-      //     a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + mPerMfmaGroup *
-      //     m_i];
-      // Note: p_a_wave need to be offseted by waveOffsetA.
+    auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+    auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
-      auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
-      auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
-                                                          b.getListener());
-      auto olmiv = outerLoopM.getInductionVar();
-      auto mOffset = olmb.create<AddIOp>(
-          loc, aBase, olmb.create<MulIOp>(loc, mPerMfmaGroupConstantOp, olmiv));
-      auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
-
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilmkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopMK.getBody(), olmb.getListener());
-      auto ilmkiv = innerLoopMK.getInductionVar();
-
-      Value sourceOffsetA = ilmkb.create<AddIOp>(
-          loc,
-          ilmkb.create<AddIOp>(
-              loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
-          mOffset);
-
-      if (KPack > 1)
-        sourceOffsetA = ilmkb.create<MulIOp>(
-            loc, sourceOffsetA, ilmkb.create<ConstantIndexOp>(loc, KPack));
-
-      auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
-
-      Value valueA = ilmkb.create<InBoundsLoadOp>(
-          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
-      ilmkb.create<memref::StoreOp>(loc, valueA, bufferA,
-                                    ValueRange{destOffsetA});
-
-      // store bufferB logic.
-      // for(index_t n_i = 0; n_i < nRepeats; ++n_i)
-      //   for(index_t k_i      = 0; k_i < KPerThread; ++k_i)
-      //     b[k_i + n_i * KPerThread] = p_b_wave[k_i * N + laneId +
-      //     nPerMfmaGroup
-      //     * n_i];
-      // Note: p_b_wave need to be offseted by waveOffsetB.
-
-      auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
-      auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
-                                                          b.getListener());
-      auto olniv = outerLoopN.getInductionVar();
-      auto nOffset = olnb.create<AddIOp>(
-          loc, bBase, olnb.create<MulIOp>(loc, nPerMfmaGroupConstantOp, olniv));
-      auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
-
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilnkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopNK.getBody(), olnb.getListener());
-      auto ilnkiv = innerLoopNK.getInductionVar();
-
-      Value sourceOffsetB = ilnkb.create<AddIOp>(
-          loc,
-          ilnkb.create<AddIOp>(
-              loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
-          nOffset);
-
-      if (KPack > 1)
-        sourceOffsetB = ilnkb.create<MulIOp>(
-            loc, sourceOffsetB, ilnkb.create<ConstantIndexOp>(loc, KPack));
-
-      auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
-
-      Value valueB = ilnkb.create<InBoundsLoadOp>(
-          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
-      ilnkb.create<memref::StoreOp>(loc, valueB, bufferB,
-                                    ValueRange{destOffsetB});
+    // Constant offsets calculation
+    if (IsKReduction) {
+      // p_a_wave += blk_td
+      // p_b_wave += blk_td
+      sourceOffsetA = b.create<AddIOp>(loc, sourceOffsetA, blk_td);
+      sourceOffsetB = b.create<AddIOp>(loc, sourceOffsetB, blk_td);
     } else {
-      // const index_t blk_id = laneId / mfma_type.num_threads_blk;
-      // const index_t blk_td = laneId % mfma_type.num_threads_blk;
-      auto inputSpanLenConstantOp =
-          b.create<ConstantIndexOp>(loc, inputSpanLen);
-      auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-      auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
-
-      Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
-      Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
-
-      // for(index_t k_i = 0; k_i < KPerThread; k_i += mfma_type.num_input_blks)
-      // {
-      //   for (index_t mr = 0; mr < mRepeats; mr++)
-      //   {
-      //     a[mr*KPerThread + k_i] = p_a_wave[(k_i * num_input_blks + blk_id) *
-      //     M + blk_td + mr*num_input_blks];
-      //   }
-      //   for (index_t nr = 0; nr < nRepeats; nr++)
-      //   {
-      //     b[nr*KPerThread + k_i] = p_b_wave[(k_i * num_input_blks + blk_id) *
-      //     N + blk_td + nr*num_input_blks];
-      //   }
-      // }
-      // p_a_wave need to be offseted by waveOffsetA.
-      // p_b_wave need to be offseted by waveOffsetB.
-
-      auto inputSpansPerMfmaInConstantOp =
-          b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
-
-      auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
-      auto lklb = ConversionPatternRewriter::atBlockBegin(loopKLoad.getBody(),
-                                                          b.getListener());
-      auto loopMRepeats = lklb.create<AffineForOp>(loc, 0, mRepeats);
-      auto lmrb = ConversionPatternRewriter::atBlockBegin(
-          loopMRepeats.getBody(), b.getListener());
-      auto lmriv = loopMRepeats.getInductionVar();
-
-      auto lkliv = loopKLoad.getInductionVar();
-      Value sourceOffsetA = lmrb.create<AddIOp>(
-          loc,
-          lmrb.create<MulIOp>(
-              loc,
-              lmrb.create<AddIOp>(
-                  loc,
-                  lmrb.create<MulIOp>(loc, lkliv,
-                                      inputSpansPerMfmaInConstantOp),
-                  blk_id),
-              MConstantOp),
-          kBaseA);
-
-      if (mRepeats > 1)
-        sourceOffsetA = lmrb.create<AddIOp>(
-            loc, sourceOffsetA,
-            lmrb.create<MulIOp>(loc, lmriv, inputSpanLenConstantOp));
-
-      if (KPack > 1)
-        sourceOffsetA = lmrb.create<MulIOp>(
-            loc, sourceOffsetA, lmrb.create<ConstantIndexOp>(loc, KPack));
-
-      Value valueA = lmrb.create<InBoundsLoadOp>(
-          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
-
-      auto storeMOffset = lmrb.create<AddIOp>(
-          loc, lkliv, lmrb.create<MulIOp>(loc, KPerThreadConstantOp, lmriv));
-
-      lmrb.create<memref::StoreOp>(loc, valueA, bufferA,
-                                   ValueRange{storeMOffset});
-
-      auto loopNRepeats = lklb.create<AffineForOp>(loc, 0, nRepeats);
-      auto lnrb = ConversionPatternRewriter::atBlockBegin(
-          loopNRepeats.getBody(), b.getListener());
-      auto lnriv = loopNRepeats.getInductionVar();
-
-      Value sourceOffsetB = lnrb.create<AddIOp>(
-          loc,
-          lnrb.create<MulIOp>(
-              loc,
-              lnrb.create<AddIOp>(
-                  loc,
-                  lnrb.create<MulIOp>(loc, lkliv,
-                                      inputSpansPerMfmaInConstantOp),
-                  blk_id),
-              NConstantOp),
-          kBaseB);
-
-      if (nRepeats > 1)
-        sourceOffsetB = lnrb.create<AddIOp>(
-            loc, sourceOffsetB,
-            lnrb.create<MulIOp>(loc, lnriv, inputSpanLenConstantOp));
-
-      if (KPack > 1)
-        sourceOffsetB = lnrb.create<MulIOp>(
-            loc, sourceOffsetB, lnrb.create<ConstantIndexOp>(loc, KPack));
-
-      Value valueB = lnrb.create<InBoundsLoadOp>(
-          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
-
-      auto storeNOffset = lnrb.create<AddIOp>(
-          loc, lkliv, lnrb.create<MulIOp>(loc, KPerThreadConstantOp, lnriv));
-      lnrb.create<memref::StoreOp>(loc, valueB, bufferB,
-                                   ValueRange{storeNOffset});
+      // p_a_wave += laneId
+      // p_b_wave += laneId
+      sourceOffsetA = b.create<AddIOp>(loc, sourceOffsetA, laneId);
+      sourceOffsetB = b.create<AddIOp>(loc, sourceOffsetB, laneId);
     }
+
+    auto computeKOffsetForReduction = [&](OpBuilder b, Value kiv) {
+      return b.create<AddIOp>(
+          loc, b.create<MulIOp>(loc, kiv, inputSpansPerMfmaInConstantOp),
+          blk_id);
+    };
+
+    auto mPerXdl =
+        IsKReduction ? inputSpanLenConstantOp : mPerMfmaGroupConstantOp;
+    auto nPerXdl =
+        IsKReduction ? inputSpanLenConstantOp : nPerMfmaGroupConstantOp;
+
+    auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
+    auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
+                                                        b.getListener());
+    auto olmiv = outerLoopM.getInductionVar();
+    // p_a_wave += mPerXdl * m_i
+    sourceOffsetA = olmb.create<AddIOp>(
+        loc, sourceOffsetA, olmb.create<MulIOp>(loc, mPerXdl, olmiv));
+
+    // mOffsetDstA = m_i * KPerThread
+    auto mOffsetDstA = olmb.create<MulIOp>(loc, olmiv, KPerThreadConstantOp);
+
+    auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
+    auto ilmkb = ConversionPatternRewriter::atBlockBegin(innerLoopMK.getBody(),
+                                                         olmb.getListener());
+    auto ilmkiv = innerLoopMK.getInductionVar();
+    Value kOffsetSrcA =
+        IsKReduction ? computeKOffsetForReduction(ilmkb, ilmkiv).getResult()
+                     : ilmkiv;
+
+    // p_a_wave += kOffsetSrcA*M
+    sourceOffsetA = ilmkb.create<AddIOp>(
+        loc, sourceOffsetA,
+        ilmkb.create<MulIOp>(loc, kOffsetSrcA, MConstantOp));
+
+    if (KPack > 1)
+      sourceOffsetA = ilmkb.create<MulIOp>(
+          loc, sourceOffsetA, ilmkb.create<ConstantIndexOp>(loc, KPack));
+
+    Value valueA = ilmkb.create<InBoundsLoadOp>(loc, bufferAElementType,
+                                                op.getMatrixA(), sourceOffsetA);
+
+    auto kOffsetDstA = ilmkb.create<AddIOp>(loc, mOffsetDstA, ilmkiv);
+    ilmkb.create<memref::StoreOp>(loc, valueA, bufferA,
+                                  ValueRange{kOffsetDstA});
+
+    // store bufferB logic.
+    // for(index_t n_i = 0; n_i < nRepeats; ++n_i)
+    //   for(index_t k_i      = 0; k_i < K; ++k_i)
+    //     if (!Reduction) b[k_i + n_i * KPerThread] = p_b_wave[k_i * N + laneId
+    //     +  nPerMfmaGroup* n_i]; if (Reduction)  b[k_i + n_i * KPerThread] =
+    //     p_b_wave[(k_i * num_input_blks + blk_id) * N + blk_td +
+    //     n_i*num_input_blks];
+    // Note: p_b_wave need to be offseted by waveOffsetB.
+
+    auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
+    auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
+                                                        b.getListener());
+    auto olniv = outerLoopN.getInductionVar();
+    // p_b_wave += nPerXdl * n_i
+    sourceOffsetB = olnb.create<AddIOp>(
+        loc, sourceOffsetB, olnb.create<MulIOp>(loc, nPerXdl, olniv));
+
+    // nOffsetDst = n_i * KPerThread
+    auto nOffsetDst = olnb.create<MulIOp>(loc, olniv, KPerThreadConstantOp);
+
+    auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
+    auto ilnkb = ConversionPatternRewriter::atBlockBegin(innerLoopNK.getBody(),
+                                                         olnb.getListener());
+    auto ilnkiv = innerLoopNK.getInductionVar();
+    auto kOffsetSrcB =
+        IsKReduction ? computeKOffsetForReduction(ilnkb, ilnkiv).getResult()
+                     : ilnkiv;
+
+    // p_b_wave += kOffsetSrcB*N
+    sourceOffsetB = ilnkb.create<AddIOp>(
+        loc, sourceOffsetB,
+        ilnkb.create<MulIOp>(loc, kOffsetSrcB, NConstantOp));
+
+    // b += nOfsetDst + k_i
+    auto kOffsetDstB = ilnkb.create<AddIOp>(loc, ilnkiv, nOffsetDst);
+
+    if (KPack > 1)
+      sourceOffsetB = ilnkb.create<MulIOp>(
+          loc, sourceOffsetB, ilnkb.create<ConstantIndexOp>(loc, KPack));
+    Value valueB = ilnkb.create<InBoundsLoadOp>(loc, bufferBElementType,
+                                                op.getMatrixB(), sourceOffsetB);
+    ilnkb.create<memref::StoreOp>(loc, valueB, bufferB,
+                                  ValueRange{kOffsetDstB});
 
     int64_t nResultVectors = mfmaGroup.getImms().size();
 
     Value reshapedARegisters = reshapeBuffer(
         b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
+    llvm::errs()<<"reshaped A\n";
     Value reshapedBRegisters = reshapeBuffer(
         b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
+    llvm::errs()<<"reshaped B\n";
+
     Value reshapedCRegisters =
         reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
                       {mRepeats, nRepeats, nResultVectors});
+    llvm::errs()<<"reshaped C\n";
 
     b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
                                          reshapedBRegisters, reshapedCRegisters,
