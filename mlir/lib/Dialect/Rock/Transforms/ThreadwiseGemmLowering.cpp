@@ -182,7 +182,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     XdlopsGemmParamsAttr tuningParams = op.getParams();
     // Obtain critical information.
     int64_t KPack = tuningParams.getKpack();
-    int64_t K = tuningParams.getKPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
@@ -203,59 +202,23 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     auto imms = mfmaGroup.getImms();
     int64_t nResultVectors = imms.size();
     Type argType = mfmaGroup.getArgType();
+    int64_t nRepeats = mfmaGroup.getNRepeats();
 
     MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
     int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
-    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
     int64_t k_base = mfmaAttr.k_base;
 
-    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-
-    Value matrixA = adaptor.getMatrixA();
-    Value matrixB = adaptor.getMatrixB();
-    Value matrixC = adaptor.getMatrixC();
-    auto matrixAType = matrixA.getType().cast<MemRefType>();
-    auto matrixBType = matrixB.getType().cast<MemRefType>();
+    Value bufferA = adaptor.getMatrixA();
+    Value bufferB = adaptor.getMatrixB();
+    Value bufferC = adaptor.getMatrixC();
+    auto matrixAType = bufferA.getType().cast<MemRefType>();
+    auto matrixBType = bufferB.getType().cast<MemRefType>();
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
 
-    ArrayRef<int64_t> aShape = matrixAType.getShape();
-    ArrayRef<int64_t> bShape = matrixBType.getShape();
-    int64_t mRepeats = aShape[0];
-    int64_t nRepeats = bShape[0];
-
-    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-
-    SmallVector<int64_t> dimensions = {mRepeats, nRepeats, KPerThread,
-                                       nResultVectors};
-    TopDownTMBuilder aView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    aView.ignore("n");
-    aView.ignore("v");
-    aView.passThrough({"m", "k"}, {0, 1}, {"m", "k"});
-    TransformMapAttr aViewAttr = aView.get();
-
-    TopDownTMBuilder bView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    bView.ignore("m");
-    bView.ignore("v");
-    bView.passThrough({"n", "k"}, {0, 1}, {"n", "k"});
-    TransformMapAttr bViewAttr = bView.get();
-
-    TopDownTMBuilder cView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    cView.ignore("k");
-    cView.passThrough({"m", "n", "v"}, {0, 1, 2}, {"m", "n", "v"});
-    TransformMapAttr cViewAttr = cView.get();
-
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
-
-    ArrayAttr aTransforms, bTransforms, cTransforms;
-    Value bufferA, bufferB, bufferC;
-    // Use linear coordinate on original 1d buffer
-    std::tie(bufferA, aTransforms) = untransform(b, matrixA, {aViewAttr});
-    std::tie(bufferB, bTransforms) = untransform(b, matrixB, {bViewAttr});
-    std::tie(bufferC, cTransforms) = untransform(b, matrixC, {cViewAttr});
 
     auto populateMfma = [&](OpBuilder &b, Value &argA, Value &argB,
                             Value &regCOffset) {
@@ -279,66 +242,32 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     auto generateMfmaOnKDim = [&](Value &regAOffset, Value &regBOffset,
                                   Value &regCOffset) {
+      // Doesn't work for now
       if (KPack == 1) {
-        auto mfmaLoop = b.create<TransformingForOp>(
-            loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-            ArrayRef<Attribute>{b.getArrayAttr({})},
-            /*bounds=*/ArrayRef<int64_t>{KPerThread},
-            /*strides=*/ArrayRef<int64_t>{k_base},
-            /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-        {
-          OpBuilder::InsertionGuard guard(b);
-          b.setInsertionPointToStart(mfmaLoop.getBody());
-          Value coord = mfmaLoop.getLowerCoords(/*domain=*/0)[0];
-
-          auto loadArg = [&](Value regOffset, Value matrix) {
-            Value regIdx = b.create<AddIOp>(loc, regOffset, coord);
-            Value arg;
-            if (k_base == 1) {
-              // xdlops needs only 1 element, load directly from buffer.
-              arg = b.create<InBoundsLoadOp>(loc, argType, matrix,
-                                             ValueRange{regIdx});
-            } else {
-              // k_base > 1, use transferRead to load a vector length equivalent
-              // with a xdlops argument.
-              arg = b.create<vector::TransferReadOp>(
-                  loc, argType.cast<VectorType>(), matrix, ValueRange{regIdx},
-                  /*InBounds*/ ArrayRef<bool>(true));
-            }
-            return arg;
-          };
-
-          Value argA = loadArg(regAOffset, bufferA);
-          Value argB = loadArg(regBOffset, bufferB);
-          populateMfma(b, argA, argB, regCOffset);
+        auto loadArg = [&](Value regOffset, Value matrix) {
+          Value arg;
+          if (k_base == 1) {
+            // xdlops needs only 1 element, load directly from buffer.
+            arg = b.create<InBoundsLoadOp>(loc, argType, matrix,
+                                           ValueRange{regOffset});
+          } else {
+            // k_base > 1, use transferRead to load a vector length equivalent
+            // with a xdlops argument.
+            arg = b.create<vector::TransferReadOp>(
+                loc, argType.cast<VectorType>(), matrix, ValueRange{regOffset},
+                /*InBounds*/ ArrayRef<bool>(true));
+          }
+          return arg;
         };
+
+        Value argA = loadArg(regAOffset, bufferA);
+        Value argB = loadArg(regBOffset, bufferB);
+        populateMfma(b, argA, argB, regCOffset);
       } else {
-        // for(index_t k_i = 0; k_i < KPerThread; ++k_i) {
-        //   matrixAElement = a[k_i];
-        //   matrixBElement = b[k_i];
-        //   // Loop within a kpack
-        //   for(index_t ki_i = 0; ki_i < k_base * KRepeats; ki_i += k_base)
-        //     argA = &matrixAElement[ki_i];
-        //     argB = &matrixAElement[ki_i];
-        //     p_c_thread = mfma_type.template run<MPerXlops * mRepeats,
-        //                                         NPerXdlops * nRepeats,
-        //                                         AStride,
-        //                                         BStride>(argA, argB,
-        //       p_c_thread);
-        // }
-        int64_t outerLoopUpperBound = KPerThread;
-        int64_t KRepeats = KPack / k_base;
-
-        auto outerLoop = b.create<AffineForOp>(loc, 0, outerLoopUpperBound);
-        auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
-            outerLoop.getBody(), b.getListener());
-        auto outerLoopiv = outerLoop.getInductionVar();
-
         auto loadSingleKPack = [&](Value regOffset, Type elementType,
                                    Value matrix) {
-          Value regIdx = outerLoopb.create<AddIOp>(loc, regOffset, outerLoopiv);
-          Value element = outerLoopb.create<memref::LoadOp>(
-              loc, elementType, matrix, ValueRange{regIdx});
+          Value element = b.create<memref::LoadOp>(loc, elementType, matrix,
+                                                   ValueRange{regOffset});
           return element;
         };
 
@@ -347,10 +276,11 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         Value matrixBElement =
             loadSingleKPack(regBOffset, matrixBElementType, bufferB);
 
+        int64_t KRepeats = KPack / k_base;
         auto innerLoop =
-            outerLoopb.create<AffineForOp>(loc, 0, KRepeats * k_base, k_base);
+            b.create<AffineForOp>(loc, 0, KRepeats * k_base, k_base);
         auto innerLoopb = ConversionPatternRewriter::atBlockBegin(
-            innerLoop.getBody(), outerLoopb.getListener());
+            innerLoop.getBody(), b.getListener());
         auto innerLoopiv = innerLoop.getInductionVar();
 
         // At this point, we are guaranteed that buffer element vectorization
@@ -364,20 +294,21 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       }
     };
 
-    auto gemmLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
-        ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
-        /*strides=*/ArrayRef<int64_t>{1, 1, KPerThread, nResultVectors},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/false);
-    {
-      Value regAOffset = gemmLoop.getLowerCoords(/*domain=*/0)[0];
-      Value regBOffset = gemmLoop.getLowerCoords(/*domain=*/1)[0];
-      Value regCOffset = gemmLoop.getLowerCoords(/*domain=*/2)[0];
+    auto mRepeat = op.getMRepeat();
+    auto nRepeat = op.getNRepeat();
+    Value nResultVectorsConstantOp =
+        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
+    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
 
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(gemmLoop.getBody());
-      generateMfmaOnKDim(regAOffset, regBOffset, regCOffset);
-    };
+    Value regAOffset = zeroConstantOp;
+    Value regBOffset = zeroConstantOp;
+    Value regCOffset = b.create<MulIOp>(
+        loc,
+        b.create<AddIOp>(
+            loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
+        nResultVectorsConstantOp);
+
+    generateMfmaOnKDim(regAOffset, regBOffset, regCOffset);
 
     b.eraseOp(op);
     return success();

@@ -1161,6 +1161,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t m = mfmaAttr.mfmaNonKDim;
     // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
     int64_t n = mfmaAttr.inputSpanLen;
+    int64_t k_base = mfmaAttr.k_base;
 
     int64_t rowGroupSize = mfmaAttr.rowGroupSize;
     int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
@@ -1191,25 +1192,18 @@ struct GridwiseGemmV2RewritePattern
 
     // Logic to setup buffers for blockwise_gemm_v2.
 
-    bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t arrayASize =
-        (!isKReduction) ? (kpacksPerBlock * mRepeats)
-                        : (kpacksPerBlock / inputSpansPerMfmaIn * mRepeats);
-    int64_t arrayBSize =
-        (!isKReduction) ? (kpacksPerBlock * nRepeats)
-                        : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
     Type arrayAType, arrayBType;
     if (kpack > 1) {
       arrayAType =
-          MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({1}, VectorType::get({kpack}, elementType), {},
+                          gpu::GPUDialect::getPrivateAddressSpace());
       arrayBType =
-          MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({1}, VectorType::get({kpack}, elementType), {},
+                          gpu::GPUDialect::getPrivateAddressSpace());
     } else {
-      arrayAType = MemRefType::get({arrayASize}, elementType, {},
+      arrayAType = MemRefType::get({k_base}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
-      arrayBType = MemRefType::get({arrayBSize}, elementType, {},
+      arrayBType = MemRefType::get({k_base}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
     }
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);

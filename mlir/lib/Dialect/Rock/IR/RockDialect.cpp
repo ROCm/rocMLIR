@@ -1406,15 +1406,10 @@ LogicalResult ThreadwiseGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 LogicalResult XdlopsGemmV2Op::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape(),
-                    cShape = getMatrixC().getType().getShape();
+                    bShape = getMatrixB().getType().getShape();
 
-  if (aShape[1] != bShape[1])
+  if (aShape != bShape)
     return emitOpError("K dimensions don't match");
-  if (aShape[0] != cShape[0])
-    return emitOpError("M dimensions don't match");
-  if (bShape[0] != cShape[1])
-    return emitOpError("N dimensions don't match");
   return success();
 }
 //===----------------------------------------------------------------------===//
