@@ -213,49 +213,17 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
-    Value matrixA = adaptor.getMatrixA();
-    Value matrixB = adaptor.getMatrixB();
-    Value matrixC = adaptor.getMatrixC();
-    auto matrixAType = matrixA.getType().cast<MemRefType>();
-    auto matrixBType = matrixB.getType().cast<MemRefType>();
+    Value bufferA = adaptor.getMatrixA();
+    Value bufferB = adaptor.getMatrixB();
+    Value bufferC = adaptor.getMatrixC();
+    auto matrixAType = bufferA.getType().cast<MemRefType>();
+    auto matrixBType = bufferB.getType().cast<MemRefType>();
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
 
-    ArrayRef<int64_t> aShape = matrixAType.getShape();
-    ArrayRef<int64_t> bShape = matrixBType.getShape();
-    int64_t mRepeats = aShape[0];
-    int64_t nRepeats = bShape[0];
-
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-
-    SmallVector<int64_t> dimensions = {mRepeats, nRepeats, KPerThread,
-                                       nResultVectors};
-    TopDownTMBuilder aView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    aView.ignore("n");
-    aView.ignore("v");
-    aView.passThrough({"m", "k"}, {0, 1}, {"m", "k"});
-    TransformMapAttr aViewAttr = aView.get();
-
-    TopDownTMBuilder bView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    bView.ignore("m");
-    bView.ignore("v");
-    bView.passThrough({"n", "k"}, {0, 1}, {"n", "k"});
-    TransformMapAttr bViewAttr = bView.get();
-
-    TopDownTMBuilder cView(b, {"m", "n", "k", "v"}, dimensions, loc);
-    cView.ignore("k");
-    cView.passThrough({"m", "n", "v"}, {0, 1, 2}, {"m", "n", "v"});
-    TransformMapAttr cViewAttr = cView.get();
-
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
-
-    ArrayAttr aTransforms, bTransforms, cTransforms;
-    Value bufferA, bufferB, bufferC;
-    // Use linear coordinate on original 1d buffer
-    std::tie(bufferA, aTransforms) = untransform(b, matrixA, {aViewAttr});
-    std::tie(bufferB, bTransforms) = untransform(b, matrixB, {bViewAttr});
-    std::tie(bufferC, cTransforms) = untransform(b, matrixC, {cViewAttr});
 
     auto populateMfma = [&](OpBuilder &b, Value &argA, Value &argB,
                             Value &regCOffset) {
@@ -364,20 +332,22 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       }
     };
 
-    auto gemmLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
-        ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
-        /*strides=*/ArrayRef<int64_t>{1, 1, KPerThread, nResultVectors},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/false);
-    {
-      Value regAOffset = gemmLoop.getLowerCoords(/*domain=*/0)[0];
-      Value regBOffset = gemmLoop.getLowerCoords(/*domain=*/1)[0];
-      Value regCOffset = gemmLoop.getLowerCoords(/*domain=*/2)[0];
+    auto mRepeat = op.getMRepeat();
+    auto nRepeat = op.getNRepeat();
+    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
+    Value nResultVectorsConstantOp =
+        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
+    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
 
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(gemmLoop.getBody());
-      generateMfmaOnKDim(regAOffset, regBOffset, regCOffset);
-    };
+    Value regAOffset = zeroConstantOp;
+    Value regBOffset = zeroConstantOp;
+    Value regCOffset = b.create<MulIOp>(
+        loc,
+        b.create<AddIOp>(
+            loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
+        nResultVectorsConstantOp);
+
+    generateMfmaOnKDim(regAOffset, regBOffset, regCOffset);
 
     b.eraseOp(op);
     return success();

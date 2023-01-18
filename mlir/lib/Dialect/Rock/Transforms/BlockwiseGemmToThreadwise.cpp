@@ -373,15 +373,7 @@ struct BlockwiseGemmV2RewritePattern
           "this should never happen");
     }
 
-    // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
-    // FloatA a[KPerThread * mRepeats];
-    // FloatB b[KPerThread * nRepeats];
-    // constexpr index_t KRepeats = KPack / mfma_type.k_base;
-    // auto pa = reinterpret_cast<const data_type*>(&a);
-    // auto pb = reinterpret_cast<const data_type*>(&b);
-    // constexpr index_t AStride = KPerThread * KRepeats;
-    // constexpr index_t BStride = KPerThread * KRepeats;
-    Value tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     constexpr int64_t waveSize = 64;
     auto laneId =
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
@@ -407,7 +399,6 @@ struct BlockwiseGemmV2RewritePattern
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
     Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
 
-    // Load values from LDS into local registers
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
                                  Value k_i, Value K, Value mnPerMfmaGroup,
@@ -449,10 +440,7 @@ struct BlockwiseGemmV2RewritePattern
         sourceOffset = kb.create<MulIOp>(
             loc, sourceOffset, kb.create<ConstantIndexOp>(loc, KPack));
 
-      // Compute dest offset
-      // dstOffset = k_i + mn_i * KPerThread
-      Value destOffset = mnb.create<MulIOp>(loc, mn_i, KPerThreadConstantOp);
-      destOffset = kb.create<AddIOp>(loc, destOffset, k_i);
+      Value destOffset = k_i;
 
       // Emit load/store
       auto bufferType = regDest.getType().cast<MemRefType>();
@@ -475,6 +463,7 @@ struct BlockwiseGemmV2RewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(outerLoopM);
+      OpBuilder::InsertionGuard guardBody(olmb);
       olmb.setInsertionPointToStart(outerLoopM.getBody());
       ldsToRegisterCopy(loc, olmb, ilmkb, sourceOffsetA,
                         outerLoopM.getInductionVar(), MConstantOp,
@@ -486,15 +475,16 @@ struct BlockwiseGemmV2RewritePattern
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[n_i, k_i]
-    auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
+    auto outerLoopN = olmb.create<AffineForOp>(loc, 0, nRepeats);
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
-                                                        b.getListener());
+                                                        olmb.getListener());
     auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
     auto ilnkb = ConversionPatternRewriter::atBlockBegin(innerLoopNK.getBody(),
                                                          olnb.getListener());
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(outerLoopN);
+      OpBuilder::InsertionGuard guardBody(olnb);
       olnb.setInsertionPointToStart(outerLoopN.getBody());
       ldsToRegisterCopy(loc, olnb, ilnkb, sourceOffsetB,
                         outerLoopN.getInductionVar(), NConstantOp,
@@ -502,21 +492,11 @@ struct BlockwiseGemmV2RewritePattern
                         nPerMfmaGroupConstantOp, op.getMatrixB(), bufferB);
     }
 
-    // Reshape the destination registers and issue the Xdlops
-    int64_t nResultVectors = mfmaGroup.getImms().size();
-    Value reshapedARegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
-    Value reshapedBRegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
-
-    Value reshapedCRegisters =
-        reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
-                      {mRepeats, nRepeats, nResultVectors});
-
-    b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
-                                         reshapedBRegisters, reshapedCRegisters,
-                                         tuningParams);
-
+    b.eraseOp(op);
+    olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
+                                outerLoopN.getInductionVar(),
+                                adaptor.getBufferA(), adaptor.getBufferB(),
+                                adaptor.getMatrixC(), tuningParams);
     return success();
   }
 };

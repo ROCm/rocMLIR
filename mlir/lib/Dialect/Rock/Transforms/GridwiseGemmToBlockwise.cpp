@@ -1188,12 +1188,13 @@ struct GridwiseGemmV2RewritePattern
     // Logic to setup buffers for blockwise_gemm_v2.
 
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t arrayASize =
-        (!isKReduction) ? (kpacksPerBlock * mRepeats)
-                        : (kpacksPerBlock / inputSpansPerMfmaIn * mRepeats);
-    int64_t arrayBSize =
-        (!isKReduction) ? (kpacksPerBlock * nRepeats)
-                        : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
+    int64_t arrayASize = (!isKReduction)
+                             ? (kpacksPerBlock)
+                             : (kpacksPerBlock / inputSpansPerMfmaIn);
+    int64_t arrayBSize = (!isKReduction)
+                             ? (kpacksPerBlock)
+                             : (kpacksPerBlock / inputSpansPerMfmaIn);
+
     Type arrayAType, arrayBType;
     if (kpack > 1) {
       arrayAType =
