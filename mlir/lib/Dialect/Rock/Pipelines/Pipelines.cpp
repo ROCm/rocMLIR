@@ -127,7 +127,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
 
   //
-  pm.addNestedPass<func::FuncOp>(rock::createRockRegularizeKernelPass());
+  pm.addNestedPass<func::FuncOp>(rock::createRockRegularizePass());
 
   pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
 

@@ -913,6 +913,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
 
+    // first expand/collapse the input to match the output rank
     if (diff < 0) {
       // collapse non-dim exprs
       // inp = rock.transform(inp) {[0, 1], 2, 3}
@@ -966,6 +967,24 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       auto inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
+    } else if (diff > 0) {
+      assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
+      MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
+      BottomUpTMBuilder addDimtransform(b, inpShape, loc);
+      for (uint32_t i = 0; i < outShape.size(); ++i) {
+        if (inpIdxMap.isFunctionOfDim(i)) {
+          addDimtransform.passThrough({i}, {i - diff});
+          newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
+        } else {
+          SmallString<8> name;
+          ("exp" + Twine(i)).toVector(name);
+          addDimtransform.addDim(name, i, 1);
+          newInpIdxMap.setResult(i, b.getAffineConstantExpr(0));
+        }
+      }
+      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+      inpShape = inp.getType().cast<ShapedType>().getShape();
+      inpIdxMap = newInpIdxMap.getAffineMap();
     }
 
     SmallVector<uint32_t> bcastDims;
@@ -990,47 +1009,22 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       if (!llvm::is_contained(bcastDims, i)) {
         // Here the diff correspond to leading dropped dimensions when going
         // from output co-ordinates to input co-ordinates.
-        assert(inpIdxMap.getDimPosition(i) == diff + i);
-        passThroughInDims.push_back(diff + i);
+        assert(inpIdxMap.getDimPosition(i) == i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
-      } else if (outShape[perm[diff + i]] == 1) {
+      } else if (outShape[perm[i]] == 1) {
         // We can pass-through if the outshape is 1 and it is not realistically
         // a broadcast.
-        passThroughInDims.push_back(diff + i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
       } else {
         hasBcast = true;
-        bcastInDims.push_back(diff + i);
-        bcastTransform.broadcast({i}, {outShape[perm[diff + i]]});
+        bcastInDims.push_back(i);
+        bcastTransform.broadcast({i}, {outShape[perm[i]]});
       }
     }
     if (hasBcast) {
       inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
-    }
-
-    // Then, add dimensions that are present in the writeback coordinates but
-    // are not present in the additional fusion argument with matching sizes.
-    // This, combined with the previous step, ensures that the view of the
-    // fusion argument has the same dimensions as the gemm output, though they
-    // are not necessarily in the same order.
-    bool isDimAdded = false;
-    BottomUpTMBuilder addDimtransform(
-        b, inp.getType().cast<ShapedType>().getShape(), loc);
-    for (uint32_t i = 0; i < outShape.size(); ++i) {
-      unsigned int startIdx = i - diff;
-      if (llvm::is_contained(bcastInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else if (llvm::is_contained(passThroughInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else {
-        isDimAdded = true;
-        SmallString<8> name;
-        ("exp" + Twine(i)).toVector(name);
-        addDimtransform.addDim(name, i, outShape[perm[i]]);
-      }
-    }
-    if (isDimAdded) {
-      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
     }
 
     // Permute the dimensions of the fusion argument to match those of the gemm

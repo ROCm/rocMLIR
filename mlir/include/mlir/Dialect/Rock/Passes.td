@@ -11,11 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockRegularizeKernelPass : Pass<"rock-regularize-kernel", "::mlir::func::FuncOp"> {
-  let summary = "fold transposes to enable fusion with convolution and GEMM";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
-}
-
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
@@ -40,6 +35,11 @@ def RockAffixTuningParametersPass : Pass<"rock-affix-params", "::mlir::func::Fun
 def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp"> {
   let summary = "convert gemm to gridwise gemm, adding padding";
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
+def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
+  let summary = "fold transposes to enable fusion with convolution and GEMM";
+  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
 }
 
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
