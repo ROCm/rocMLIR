@@ -409,8 +409,8 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
     MfmaInsnGroupAttr groupAttr = (*it).second;
 
     // Override the repeat information in case this is for larger wave
-    groupAttr.mRepeats = mPerWave / maximalLen;
-    groupAttr.nRepeats = nPerWave / maximalLen;
+    groupAttr.mRepeats = mPerWave / mPerMfmaGroup;
+    groupAttr.nRepeats = nPerWave / nPerMfmaGroup;
 
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
