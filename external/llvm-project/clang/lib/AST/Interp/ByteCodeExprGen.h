@@ -106,29 +106,12 @@ protected:
   // If the function does not exist yet, it is compiled.
   const Function *getFunction(const FunctionDecl *FD);
 
-  /// Returns the size int bits of an integer.
-  unsigned getIntWidth(QualType Ty) {
-    auto &ASTContext = Ctx.getASTContext();
-    return ASTContext.getIntWidth(Ty);
-  }
-
-  /// Returns the value of CHAR_BIT.
-  unsigned getCharBit() const {
-    auto &ASTContext = Ctx.getASTContext();
-    return ASTContext.getTargetInfo().getCharWidth();
-  }
-
   /// Classifies a type.
   std::optional<PrimType> classify(const Expr *E) const {
     return E->isGLValue() ? PT_Ptr : classify(E->getType());
   }
   std::optional<PrimType> classify(QualType Ty) const {
     return Ctx.classify(Ty);
-  }
-
-  /// Checks if a pointer needs adjustment.
-  bool needsAdjust(QualType Ty) const {
-    return true;
   }
 
   /// Classifies a known primitive type
@@ -149,6 +132,8 @@ protected:
   bool visitArrayInitializer(const Expr *Initializer);
   /// Compiles a record initializer.
   bool visitRecordInitializer(const Expr *Initializer);
+  /// Creates and initializes a variable from the given decl.
+  bool visitVarDecl(const VarDecl *VD);
 
   /// Visits an expression and converts it to a boolean.
   bool visitBool(const Expr *E);
@@ -249,6 +234,12 @@ private:
     if (const auto *RD = T->getPointeeCXXRecordDecl())
       return RD;
     return T->getAsCXXRecordDecl();
+  }
+
+  /// Returns whether we should create a global variable for the
+  /// given VarDecl.
+  bool shouldBeGloballyIndexed(const VarDecl *VD) const {
+    return VD->hasGlobalStorage() || VD->isConstexpr();
   }
 
 protected:

@@ -2871,6 +2871,21 @@ struct LLVMInlinerInterface : public DialectInlinerInterface {
         })
         .Default([](auto) { return false; });
   }
+  /// Handle the given inlined terminator by replacing it with a new operation
+  /// as necessary. Required when the region has only one block.
+  void handleTerminator(Operation *op,
+                        ArrayRef<Value> valuesToRepl) const final {
+
+    // Only handle "llvm.return" here.
+    auto returnOp = dyn_cast<ReturnOp>(op);
+    if (!returnOp)
+      return;
+
+    // Replace the values directly with the return operands.
+    assert(returnOp.getNumOperands() == valuesToRepl.size());
+    for (const auto &it : llvm::enumerate(returnOp.getOperands()))
+      valuesToRepl[it.index()].replaceAllUsesWith(it.value());
+  }
 };
 } // end anonymous namespace
 
@@ -2973,17 +2988,6 @@ LogicalResult LLVMDialect::verifyOperationAttribute(Operation *op,
       return op->emitOpError()
              << "expected '" << LLVMDialect::getLoopOptionsAttrName()
              << "' to be a `loopopts` attribute";
-  }
-
-  if (attr.getName() == LLVMDialect::getReadnoneAttrName()) {
-    const auto attrName = LLVMDialect::getReadnoneAttrName();
-    if (!isa<FunctionOpInterface>(op))
-      return op->emitOpError()
-             << "'" << attrName
-             << "' is permitted only on FunctionOpInterface operations";
-    if (!attr.getValue().isa<UnitAttr>())
-      return op->emitOpError()
-             << "expected '" << attrName << "' to be a unit attribute";
   }
 
   if (attr.getName() == LLVMDialect::getStructAttrsAttrName()) {
