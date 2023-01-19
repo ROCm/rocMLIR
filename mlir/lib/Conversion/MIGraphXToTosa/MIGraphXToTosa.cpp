@@ -41,7 +41,7 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
                                mlir::Location loc, Type elemType,
-                               Args &&...args) {
+                               Args &&... args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
