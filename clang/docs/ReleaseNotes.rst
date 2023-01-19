@@ -348,6 +348,8 @@ Bug Fixes
 - Fix issue that the standard C++ modules importer will call global
   constructor/destructor for the global varaibles in the importing modules.
   This fixes `Issue 59765 <https://github.com/llvm/llvm-project/issues/59765>`_
+- Reject in-class defaulting of previosly declared comparison operators. Fixes
+  `Issue 51227 <https://github.com/llvm/llvm-project/issues/51227>`_.
 
 Improvements to Clang's diagnostics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -502,7 +504,8 @@ Non-comprehensive list of changes in this release
 - Clang can now generate a PCH when using ``-fdelayed-template-parsing`` for
   code with templates containing loop hint pragmas, OpenMP pragmas, and
   ``#pragma unused``.
-
+- Now diagnoses use of a member access expression or array subscript expression
+  within ``__builtin_offsetof`` and ``offsetof`` as being a Clang extension.
 
 New Compiler Flags
 ------------------
@@ -544,12 +547,21 @@ New Compiler Flags
   `Standard C++ Modules <https://clang.llvm.org/docs/StandardCPlusPlusModules.html>`_
   for more information.
 
+- Added ``-Rpass-analysis=stack-frame-layout`` which will emit new diagnostic
+  information about the layout of stack frames through the remarks
+  infrastructure. Since it uses remarks the diagnostic information is available
+  both on the CLI, and in a machine readable format.
+
 Deprecated Compiler Flags
 -------------------------
 - ``-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang``
   has been deprecated. The flag will be removed in Clang 18.
   ``-ftrivial-auto-var-init=zero`` is now available unconditionally, to be
   compatible with GCC.
+- ``-fcoroutines-ts`` has been deprecated. The flag will be removed in Clang 17.
+  Please use ``-std=c++20`` or higher to use standard C++ coroutines instead.
+- ``-fmodules-ts`` has been deprecated. The flag will be removed in Clang 17.
+  Please use ``-std=c++20`` or higher to use standard C++ modules instead.
 
 Modified Compiler Flags
 -----------------------
@@ -677,6 +689,12 @@ C2x Feature Support
       va_start(list); // Invalid in C17 and earlier, valid in C2x and later.
       va_end(list);
     }
+
+- Diagnose type definitions in the ``type`` argument of ``__builtin_offsetof``
+  as a conforming C extension according to
+  `WG14 N2350 <https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2350.htm>`_.
+  Also documents the builtin appropriately. Note, a type definition in C++
+  continues to be rejected.
 
 C++ Language Changes in Clang
 -----------------------------

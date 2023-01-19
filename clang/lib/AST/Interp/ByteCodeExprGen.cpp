@@ -525,8 +525,8 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
     const CompoundAssignOperator *E) {
   const Expr *LHS = E->getLHS();
   const Expr *RHS = E->getRHS();
-  std::optional<PrimType> LT = classify(E->getLHS()->getType());
-  std::optional<PrimType> RT = classify(E->getRHS()->getType());
+  std::optional<PrimType> LT = classify(E->getComputationLHSType());
+  std::optional<PrimType> RT = classify(E->getComputationResultType());
 
   if (!LT || !RT)
     return false;
@@ -552,10 +552,18 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
     if (!this->emitSub(*LT, E))
       return false;
     break;
-
   case BO_MulAssign:
+    if (!this->emitMul(*LT, E))
+      return false;
+    break;
   case BO_DivAssign:
+    if (!this->emitDiv(*LT, E))
+      return false;
+    break;
   case BO_RemAssign:
+    if (!this->emitRem(*LT, E))
+      return false;
+    break;
   case BO_ShlAssign:
     if (!this->emitShl(*LT, *RT, E))
       return false;
@@ -565,8 +573,17 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
       return false;
     break;
   case BO_AndAssign:
+    if (!this->emitBitAnd(*LT, E))
+      return false;
+    break;
   case BO_XorAssign:
+    if (!this->emitBitXor(*LT, E))
+      return false;
+    break;
   case BO_OrAssign:
+    if (!this->emitBitOr(*LT, E))
+      return false;
+    break;
   default:
     llvm_unreachable("Unimplemented compound assign operator");
   }
@@ -802,7 +819,18 @@ unsigned ByteCodeExprGen<Emitter>::allocateLocalPrimitive(DeclTy &&Src,
                                                           PrimType Ty,
                                                           bool IsConst,
                                                           bool IsExtended) {
-  Descriptor *D = P.createDescriptor(Src, Ty, IsConst, Src.is<const Expr *>());
+  // Make sure we don't accidentally register the same decl twice.
+  if (const auto *VD =
+          dyn_cast_if_present<ValueDecl>(Src.dyn_cast<const Decl *>())) {
+    assert(!P.getGlobal(VD));
+    assert(Locals.find(VD) == Locals.end());
+  }
+
+  // FIXME: There are cases where Src.is<Expr*>() is wrong, e.g.
+  //   (int){12} in C. Consider using Expr::isTemporaryObject() instead
+  //   or isa<MaterializeTemporaryExpr>().
+  Descriptor *D = P.createDescriptor(Src, Ty, Descriptor::InlineDescMD, IsConst,
+                                     Src.is<const Expr *>());
   Scope::Local Local = this->createLocal(D);
   if (auto *VD = dyn_cast_or_null<ValueDecl>(Src.dyn_cast<const Decl *>()))
     Locals.insert({VD, Local});
@@ -813,8 +841,14 @@ unsigned ByteCodeExprGen<Emitter>::allocateLocalPrimitive(DeclTy &&Src,
 template <class Emitter>
 std::optional<unsigned>
 ByteCodeExprGen<Emitter>::allocateLocal(DeclTy &&Src, bool IsExtended) {
-  QualType Ty;
+  // Make sure we don't accidentally register the same decl twice.
+  if (const auto *VD =
+          dyn_cast_if_present<ValueDecl>(Src.dyn_cast<const Decl *>())) {
+    assert(!P.getGlobal(VD));
+    assert(Locals.find(VD) == Locals.end());
+  }
 
+  QualType Ty;
   const ValueDecl *Key = nullptr;
   const Expr *Init = nullptr;
   bool IsTemporary = false;
@@ -831,7 +865,8 @@ ByteCodeExprGen<Emitter>::allocateLocal(DeclTy &&Src, bool IsExtended) {
   }
 
   Descriptor *D = P.createDescriptor(
-      Src, Ty.getTypePtr(), Ty.isConstQualified(), IsTemporary, false, Init);
+      Src, Ty.getTypePtr(), Descriptor::InlineDescMD, Ty.isConstQualified(),
+      IsTemporary, /*IsMutable=*/false, Init);
   if (!D)
     return {};
 
@@ -1123,41 +1158,87 @@ bool ByteCodeExprGen<Emitter>::visitExpr(const Expr *Exp) {
     return this->emitRetValue(Exp);
 }
 
+/// Toplevel visitDecl().
+/// We get here from evaluateAsInitializer().
+/// We need to evaluate the initializer and return its value.
 template <class Emitter>
 bool ByteCodeExprGen<Emitter>::visitDecl(const VarDecl *VD) {
-  const Expr *Init = VD->getInit();
+  std::optional<PrimType> VarT = classify(VD->getType());
 
-  if (std::optional<unsigned> I = P.createGlobal(VD, Init)) {
-    if (std::optional<PrimType> T = classify(VD->getType())) {
-      {
-        // Primitive declarations - compute the value and set it.
-        DeclScope<Emitter> LocalScope(this, VD);
-        if (!visit(Init))
-          return false;
-      }
+  // Create and initialize the variable.
+  if (!this->visitVarDecl(VD))
+    return false;
 
-      // If the declaration is global, save the value for later use.
-      if (!this->emitDup(*T, VD))
-        return false;
-      if (!this->emitInitGlobal(*T, *I, VD))
-        return false;
-      return this->emitRet(*T, VD);
-    } else {
-      {
-        // Composite declarations - allocate storage and initialize it.
-        DeclScope<Emitter> LocalScope(this, VD);
-        if (!visitGlobalInitializer(Init, *I))
-          return false;
-      }
-
-      // Return a pointer to the global.
-      if (!this->emitGetPtrGlobal(*I, VD))
-        return false;
-      return this->emitRetValue(VD);
-    }
+  // Get a pointer to the variable
+  if (shouldBeGloballyIndexed(VD)) {
+    auto GlobalIndex = P.getGlobal(VD);
+    assert(GlobalIndex); // visitVarDecl() didn't return false.
+    if (!this->emitGetPtrGlobal(*GlobalIndex, VD))
+      return false;
+  } else {
+    auto Local = Locals.find(VD);
+    assert(Local != Locals.end()); // Same here.
+    if (!this->emitGetPtrLocal(Local->second.Offset, VD))
+      return false;
   }
 
-  return this->bail(VD);
+  // Return the value
+  if (VarT) {
+    if (!this->emitLoadPop(*VarT, VD))
+      return false;
+
+    return this->emitRet(*VarT, VD);
+  }
+
+  return this->emitRetValue(VD);
+}
+
+template <class Emitter>
+bool ByteCodeExprGen<Emitter>::visitVarDecl(const VarDecl *VD) {
+  const Expr *Init = VD->getInit();
+  std::optional<PrimType> VarT = classify(VD->getType());
+
+  if (shouldBeGloballyIndexed(VD)) {
+    std::optional<unsigned> GlobalIndex = P.getOrCreateGlobal(VD, Init);
+
+    if (!GlobalIndex)
+      return this->bail(VD);
+
+    assert(Init);
+    {
+      DeclScope<Emitter> LocalScope(this, VD);
+
+      if (VarT) {
+        if (!this->visit(Init))
+          return false;
+        return this->emitInitGlobal(*VarT, *GlobalIndex, VD);
+      }
+      return this->visitGlobalInitializer(Init, *GlobalIndex);
+    }
+  } else {
+    DeclScope<Emitter> LocalScope(this, VD);
+
+    if (VarT) {
+      unsigned Offset = this->allocateLocalPrimitive(
+          VD, *VarT, VD->getType().isConstQualified());
+      // Compile the initializer in its own scope.
+      if (Init) {
+        ExprScope<Emitter> Scope(this);
+        if (!this->visit(Init))
+          return false;
+
+        return this->emitSetLocal(*VarT, Offset, VD);
+      }
+    } else {
+      if (std::optional<unsigned> Offset = this->allocateLocal(VD)) {
+        if (Init)
+          return this->visitLocalInitializer(Init, *Offset);
+      }
+    }
+    return true;
+  }
+
+  return false;
 }
 
 template <class Emitter>
