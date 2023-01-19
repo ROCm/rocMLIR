@@ -570,7 +570,11 @@ pipeline {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
-                                sh 'python3 ./bin/tuningRunner.py --operation gemm --config="-g 1 -m 1 -k 1 -n 1 -t f32 -transA 0 -transB 0" -d'
+                                // Tune BERT, fail if the DB is not created
+                                sh """python3 ./bin/tuningRunner.py --operation gemm \
+--configs_file=../mlir/utils/performance/bert-configs \
+--output=mlir_tuning_${ARCH}.tsv
+[ -f mlir_tuning_${ARCH}.tsv ]"""
                             }
                             sh 'rm build/CMakeCache.txt'
                         }
@@ -588,6 +592,9 @@ pipeline {
                         steps {
                             tuneMLIRKernels()
                             // Save user database for nightly jobs
+                            // Hack: move the GEMM tuning DB to MIOpenUserDB
+                            // to make all the stashes work
+                            sh "cp ${WORKSPACE}/build/mlir_tuning_${ARCH}.tsv ${WORKSPACE}/MIOpen/build/MIOpenUserDB/"
                             dir ('MIOpen/build/MIOpenUserDB') {
                                 stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
                             }
@@ -749,6 +756,12 @@ pipeline {
                                 selector: lastSuccessful(),\
                                 target: 'MIOpen/build/MIOpenUserDB'
                                 sh 'ls MIOpen/build/MIOpenUserDB'
+                                // Move GEMM tuning DB out of the way if it exists
+                                // This is needed because the tuned vs. untuned MIOpen
+                                // code will delete the MIOpenUserBD directory
+                                catchError (buildResult: null) {
+                                    sh "mv MIOpen/build/MIOpenUserDB/*.tsv ${WORKSPACE}"
+                                }
                                 sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
                         }
                     }
@@ -791,7 +804,9 @@ pipeline {
                                 sh 'date --utc +%Y-%m-%d > perf-run-date'
                                 // Run MLIR perf benchmarks
                                 sh 'python3 ./bin/perfRunner.py'
-                                sh 'python3 ./bin/perfRunner.py --op=gemm --batch_both --configs_file=../mlir/utils/performance/bert-configs'
+                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
                     }

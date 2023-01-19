@@ -446,6 +446,11 @@ static llvm::cl::opt<bool>
                        }
                      }));
 
+static llvm::cl::opt<bool> genVerifierKeepPerfConfig(
+    "verifier-keep-perf-config", llvm::cl::init(false),
+    llvm::cl::desc(
+        "whether to clear perf config on verification with GPU kernels"));
+
 static llvm::cl::opt<bool>
     genCPUKernel("cpu-kernels", llvm::cl::desc("Generate CPU kernel for test"),
                  llvm::cl::init(false), llvm::cl::Optional,
@@ -569,6 +574,7 @@ struct GenParams {
   rock::GemmFeatures features = rock::GemmFeatures::none;
   llvm::Optional<const rock::Conv2dGenerator::Config *> convConfig = llvm::None;
   StringRef arch;
+  StringRef perfConfig;
 };
 
 namespace test {
@@ -1718,7 +1724,7 @@ static void getGemmTypes(Type inType, SmallVectorImpl<Type> &result) {
 
 static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                         const GenParams &params,
-                                        bool is_verifier = false) {
+                                        bool isVerifier = false) {
   MLIRContext *ctx = module.getContext();
   Location loc = module->getLoc();
   OpBuilder b(ctx);
@@ -1737,7 +1743,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("xmodel.arch", archAttr)};
   auto func =
-      b.create<func::FuncOp>(loc, is_verifier ? kernelNameVerifier : kernelName,
+      b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
 
   Block *block = func.addEntryBlock();
@@ -1752,8 +1758,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       transposeB, transposeC, archAttr.getValue(), numCuAttr, params.features,
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
-  if (!perfConfig.empty())
-    gemm->setAttr("perf_config", b.getStringAttr(perfConfig));
+  if (!params.perfConfig.empty())
+    gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);
@@ -2165,19 +2171,27 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   auto loc = b.getUnknownLoc();
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
-  if (validationType == "gpu" &&
-      (hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16())) {
-
+  bool heuristicValidation =
+      genVerifierKeepPerfConfig == false && !genParams.perfConfig.empty();
+  bool gpuValidation =
+      validationType == "gpu" &&
+      ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
+       heuristicValidation);
+  if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
       const auto &genConfig = **genParams.convConfig;
       rock::Conv2dGenerator conv2dGenerator(genConfig);
-      // use non-xdlops kernels to verify xdlops kernels
+      if (heuristicValidation || hasXdlops)
+        conv2dGenerator.setPerfConfig("");
+      // use non-xdlops kernels to verify xdlops kernels except when
+      // verifying a tuning case
       if (hasXdlops)
         conv2dGenerator.flipXdlops();
-      if (!hasXdlops || genConfig.dataTypeStr != "i8")
+      if (!((hasXdlops || heuristicValidation) &&
+            genConfig.dataTypeStr == "i8"))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
-        // except that i8 xdlops is verified with i8 non-xdlops
+        // except that i8 xdlops or tuned is verified with i8 non-xdlops.
         conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
@@ -2214,27 +2228,24 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       conv2dGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
-      bool hasXdlops = rock::bitEnumContainsAll(genParams.features,
-                                                rock::GemmFeatures::mfma);
+      GenParams newParams = genParams;
 
-      if (validationType == "gpu" &&
-          (hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16())) {
-        GenParams newParams = genParams;
+      if (heuristicValidation || hasXdlops)
+        newParams.perfConfig = "";
+      if (hasXdlops)
+        newParams.features =
+            genParams.features ^ mlir::rock::GemmFeatures::mfma;
 
-        if (hasXdlops)
-          newParams.features =
-              genParams.features ^ mlir::rock::GemmFeatures::mfma;
+      if (!((heuristicValidation || hasXdlops) && genParams.dtype.isInteger(8)))
+        // use f32 data type to verify non-f32 or xdlops f32 kernels
+        // except that i8 xdops is verified with i8 non-xdolps and tuned i8 is
+        // verified with itself in heuristic mode.
+        newParams.dtype = b.getF32Type();
 
-        if (!hasXdlops || !genParams.dtype.isInteger(8))
-          // use f32 data type to verify non-f32 or xdlops f32 kernels
-          // except that i8 xdlops is verified with i8 non-xdlops
-          newParams.dtype = b.getF32Type();
-
-        KernelIF kernel(
-            createGpuGemmKernel(module, newParams, /*is_verifier=*/true));
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
-      }
+      KernelIF kernel(
+          createGpuGemmKernel(module, newParams, /*is_verifier=*/true));
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
     // Emit call to host_<conv>
@@ -2613,6 +2624,7 @@ int main(int argc, char **argv) {
       genParams.features = convConfig->features;
       genParams.operation =
           rock::kernelTypeFromConvOpType(convConfig->operation.value());
+      genParams.perfConfig = convConfig->perfConfig;
       // Scenario 2: We use llvm::cl::opt to initialize everything
     } else {
       if (arch.getValue().empty()) {
@@ -2649,11 +2661,12 @@ int main(int argc, char **argv) {
                        atomicAddFeature == FeatureToggle::on);
       genParams.operation = operation;
       genParams.features = enabledFeatures;
+      genParams.arch = arch;
+      genParams.perfConfig = perfConfig;
       if (isGemm) {
         Type elemType = typeFromString(tensorDataType, &context);
         genParams.dtype = elemType;
         genParams.convConfig = llvm::None;
-        genParams.arch = arch;
         (void)createGpuGemmKernel(module, genParams);
       } else {
         conv2dGenerator = rock::Conv2dGenerator(

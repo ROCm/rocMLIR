@@ -23,6 +23,7 @@ from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar,
 import perfRunner
 from perfRunner import ConvConfiguration
 from perfRunner import Paths
+from perfCommonUtils import CORRECT_RESULT_RE
 
 @dataclass(frozen=True)
 class Options:
@@ -119,8 +120,6 @@ class MLIROnlyConfig(ConvConfiguration):
         self.ho = math.floor((self.hi + self.paddingHL + self.paddingHR - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingWL + self.paddingWR * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
-
-CORRECT_RESULT_RE = re.compile('\[1\s*1\s*1\]')
 
 class TestResult(enum.Enum):
     PASS = 1
