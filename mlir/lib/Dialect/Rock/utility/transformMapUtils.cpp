@@ -757,6 +757,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       // as a Merge, automatically finding the contiguous groups. However,
       // we can use the knowledge stemming from Unfold to assert that
       // the contiguous detection actually worked
+      llvm::errs()<<"maxLen:"<<maxLen<<"\n";
       if (transform.getType() == TransformType::Unfold) {
         int64_t lowerDimsLen = 1;
         for (int64_t length : params)
