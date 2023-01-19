@@ -131,7 +131,7 @@ void postProcessPerfRes(String chip) {
         allowMissing: false,
         alwaysLinkToLastBuild: false,
         keepAll: true,
-        reportDir: 'build',
+        reportDir: 'build/reports',
         reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html",
         reportName: "Performance report for ${chip}"
     ])
@@ -828,6 +828,7 @@ pipeline {
                                 sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
+                                sh 'mkdir -p reports && cp ./*.html reports'
                             }
                             postProcessPerfRes("${CHIP}")
                         }
