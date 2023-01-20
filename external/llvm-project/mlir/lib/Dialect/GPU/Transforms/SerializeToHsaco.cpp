@@ -340,6 +340,7 @@ SerializeToHsacoPass::optimizeLlvm(llvm::Module &llvmModule,
     return getOperation().emitError()
            << "Invalid HSA optimization level" << optLevel << "\n";
 
+  // HSA optimization level applied here
   targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
 
   auto transformer =
