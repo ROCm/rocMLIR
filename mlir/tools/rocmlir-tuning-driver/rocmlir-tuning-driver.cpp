@@ -89,7 +89,8 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
 
 // Note, that this simplified init value handling will flood int8 output buffers
 // with 0x01010101, but that's fine, since they get overwritten and we don't
-// actulaly care too much what the values are, so long as they're legal for the type
+// actulaly care too much what the values are, so long as they're legal for the
+// type
 static std::pair<uint32_t, uint32_t> getInitValue(Type inputType) {
   APInt ret;
   if (auto intType = inputType.dyn_cast<IntegerType>()) {
@@ -98,7 +99,8 @@ static std::pair<uint32_t, uint32_t> getInitValue(Type inputType) {
     // Avoid getting to inf so as to prevent overly unrealistic benchmarks
     APFloat val(0.01);
     bool dontCare;
-    val.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven, &dontCare);
+    val.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
+                &dontCare);
     ret = val.bitcastToAPInt();
   } else {
     llvm_unreachable("Kernels only accept ints or floats");
@@ -133,16 +135,16 @@ static FailureOr<double> benchmarkKernel(const char *binary,
     HIPCHECK(hipMalloc(&buffer, byteLen))
     switch (bitWidth) {
     case 8:
-    HIPCHECK(hipMemsetD8Async(buffer, initValue, byteLen, stream))
-    break;
+      HIPCHECK(hipMemsetD8Async(buffer, initValue, byteLen, stream))
+      break;
     case 16:
-    HIPCHECK(hipMemsetD16Async(buffer, initValue, byteLen / 2, stream));
-    break;
+      HIPCHECK(hipMemsetD16Async(buffer, initValue, byteLen / 2, stream));
+      break;
     case 32:
-    HIPCHECK(hipMemsetD32Async(buffer, initValue, byteLen / 4, stream))
-    break;
+      HIPCHECK(hipMemsetD32Async(buffer, initValue, byteLen / 4, stream))
+      break;
     default:
-    llvm_unreachable("Unsupported initial vaule bitwidth");
+      llvm_unreachable("Unsupported initial vaule bitwidth");
     }
     gpuBuffers.push_back(buffer);
   }
