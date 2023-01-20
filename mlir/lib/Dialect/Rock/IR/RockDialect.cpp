@@ -1366,9 +1366,9 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
-LogicalResult ThreadwiseReadIntoOp::verify() {
-  MemRefType destType = getDest().getType();
-  if (destType.getMemorySpaceAsInt() != 5)
+LogicalResult ThreadwiseWriteAllOp::verify() {
+  MemRefType sourceType = getSource().getType();
+  if (sourceType.getMemorySpaceAsInt() != 5)
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;
