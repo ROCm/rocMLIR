@@ -1,5 +1,4 @@
-//===- AlignTiling.cpp - Align Linalg ops with Rock ops
-//------------------===//
+//===- AlignTiling.cpp - Align Linalg ops with Rock ops -------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -98,79 +97,6 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
       assert(0);
     }
   }
-
-#if 0
-  SmallVector<Value, 6> loadCoord = gemmStoreOp.getDestCoord();
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
-  auto writeCLoop = gemmStoreOp->getParentOfType<TransformingForOp>();
-  assert(writeCLoop && "global_store must be in a transforming_for");
-
-  // Handle broadcasts introduced during fusion.
-  ArrayAttr sourceTransformsFromOp;
-  Value source;
-  std::tie(source, sourceTransformsFromOp) = untransform(b, srcOp);
-
-  int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
-  Type destElemType = dest.getType().cast<MemRefType>().getElementType();
-
-  ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
-  ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
-
-  // In general, note that keeping the vectorization of the writeback is safe
-  // on account of the fact that vectorization means that the maps for the
-  // gemm output (and thus the extra argument) are contiguous in the
-  // underlying memory.
-
-  // If there are no broadcasts, re-use the coordianes for the writeback
-  if (sourceTransformsFromOp.empty()) {
-    Type typeToLoad = destElemType;
-    if (copyLength > 1)
-      typeToLoad = VectorType::get({copyLength}, typeToLoad);
-
-    Value loaded = b.create<GlobalLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
-    b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
-  } else {
-    // Note: the vectorization of extra argument may be smaller than the
-    // vectorization of the convolution.
-    size_t extraMapInSize = loadCoord.size();
-    std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
-        b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
-
-    int64_t lastDim = extraMapInSize - 1;
-    int64_t maxVectorLen =
-        getMaxVectorization(sourceTransformsFromOp, lastDim, copyLength,
-                            source.getType().cast<MemRefType>().getShape());
-
-    SmallVector<int64_t> bounds(extraMapInSize, 1LL),
-        strides(extraMapInSize, 1LL);
-    bounds[lastDim] = copyLength;
-    strides[lastDim] = maxVectorLen;
-
-    SmallVector<Value> zeroes(extraMapInSize, zero);
-
-    Type typeToLoad = destElemType;
-    if (maxVectorLen > 1)
-      typeToLoad = VectorType::get(maxVectorLen, typeToLoad);
-
-    auto copyLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{loadCoord, zeroes},
-        ArrayRef<Attribute>{sourceTransformsFromOp, b.getArrayAttr({})},
-        /*bounds=*/ArrayRef<int64_t>(bounds),
-        /*strides=*/ArrayRef<int64_t>(strides), /*forceUnroll=*/true,
-        /*useIndexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(copyLoop.getBody());
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
-      b.create<InBoundsStoreOp>(loc, loaded, dest,
-                                copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
-    }
-  }
-#endif
 }
 
 static Value makeTransformingCopyLoop(PatternRewriter &b,
@@ -448,7 +374,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   return failure();
 }
 
-static bool isUnfusedKernelStore(rock::GlobalStoreOp store) {
+static bool isUnfusedKernelStore(rock::ThreadwiseWriteAllOp store) {
   bool ret = isa_and_nonnull<memref::AllocOp>(store.getDest().getDefiningOp());
   if (ret) {
     store.getDest().getDefiningOp()->emitOpError(
@@ -590,6 +516,16 @@ void RockLinalgAlignPass::runOnOperation() {
   }
 
   {
+    WalkResult verifyAllStores =
+        getOperation().walk([](rock::ThreadwiseWriteAllOp store) {
+          return isUnfusedKernelStore(store) ? WalkResult::interrupt()
+                                             : WalkResult::advance();
+        });
+    if (verifyAllStores.wasInterrupted())
+      signalPassFailure();
+  }
+
+  {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
     writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
@@ -604,15 +540,5 @@ void RockLinalgAlignPass::runOnOperation() {
     OpPassManager cleanupPasses("func.func");
     cleanupPasses.addPass(mlir::createCanonicalizerPass());
     (void)runPipeline(cleanupPasses, getOperation());
-  }
-
-  {
-    WalkResult verifyAllStores =
-      getOperation().walk([](rock::GlobalStoreOp store) {
-          return isUnfusedKernelStore(store) ? WalkResult::interrupt()
-          : WalkResult::advance();
-        });
-    if (verifyAllStores.wasInterrupted())
-      signalPassFailure();
   }
 }

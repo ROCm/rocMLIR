@@ -973,7 +973,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       BottomUpTMBuilder addDimtransform(b, inpShape, loc);
       for (uint32_t i = 0; i < outShape.size(); ++i) {
         if (inpIdxMap.isFunctionOfDim(i)) {
-          addDimtransform.passThrough({i}, {i - diff});
+          addDimtransform.passThrough({i}, {static_cast<uint32_t>(i - diff)});
           newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
         } else {
           SmallString<8> name;
@@ -1069,6 +1069,7 @@ TransformMapAttr mlir::rock::invertTransformMap(
     case rock::TransformType::Unmerge: {
       auto lowDims = tattr.getLowerDims();
       assert(lowDims.size() == 1);
+      SmallVector<uint32_t> uppDims(tattr.getUpperDims());
       SmallVector<SmallString<8>> mergeNames;
       SmallVector<int64_t> mergeSizes;
       SmallVector<StringRef> mergeNameRefs;
@@ -1106,13 +1107,10 @@ TransformMapAttr mlir::rock::invertTransformMap(
 }
 
 ////////////////////////////////////////////////////////////////////////
-static int64_t
-lookupExact(int64_t val, SmallVector<std::tuple<int64_t, uint32_t>, 8> &pairs) {
-  for (auto ii = pairs.begin(); ii != pairs.end(); ++ii) {
-    if (std::get<0>(*ii) == val) {
-      auto idx = std::get<1>(*ii);
-      pairs.erase(ii);
-      return idx;
+static int64_t lookupExact(int64_t val, ArrayRef<int64_t> dims) {
+  for (int64_t i = 0; i < dims.size(); ++i) {
+    if (dims[i] == val) {
+      return i;
     }
   }
   return -1;
@@ -1159,16 +1157,27 @@ findCombination(int64_t inpSize,
 static void collectMerges(ArrayRef<int64_t> inpShape,
                           ArrayRef<int64_t> outShape,
                           SmallVector<SmallVector<uint32_t>> &merges) {
+  SmallVector<int64_t> localInpShape(inpShape);
   SmallVector<std::tuple<int64_t, uint32_t>, 8> outPairs;
   for (auto &pair : llvm::enumerate(outShape))
     outPairs.push_back({pair.value(), pair.index()});
 
-  // 0. find all exact matches
-  for (const auto &pair : llvm::enumerate(inpShape)) {
-    auto inpSize = pair.value();
-    int64_t fidx = lookupExact(inpSize, outPairs);
-    if (fidx >= 0) {
-      merges[pair.index()] = {fidx};
+  // 0. match all exact and merge 1s from outPairs
+  auto oit = outPairs.begin();
+  for (size_t i = 0, e = outPairs.size(); i < e; ++i) {
+    int64_t outDim = std::get<0>(*oit);
+    uint32_t outIdx = std::get<1>(*oit);
+    int64_t fid = lookupExact(outDim, localInpShape);
+    if (fid != -1) {
+      merges[fid].push_back(outIdx);
+      localInpShape[fid] = -1;
+      outPairs.erase(oit);
+    } else if (outDim == 1) {
+      fid = std::min(i, inpShape.size() - 1);
+      merges[fid].push_back(outIdx);
+      outPairs.erase(oit);
+    } else {
+      ++oit;
     }
   }
 
@@ -1191,19 +1200,6 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
     }
   }
 
-  // 2. remove all 1s from outPairs
-  auto oit = outPairs.begin();
-  for (uint32_t i = 0, e = outPairs.size(); i < e; ++i) {
-    if (std::get<0>(*oit) == 1) {
-      uint32_t outIdx = std::get<1>(*oit);
-      uint32_t inpIdx = 0;
-      while (merges[inpIdx].empty())
-        inpIdx++;
-      merges[inpIdx].push_back(outIdx);
-      outPairs.erase(oit);
-    } else
-      ++oit;
-  }
   assert(outPairs.empty());
 }
 
