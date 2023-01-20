@@ -416,7 +416,10 @@ struct BlockwiseGemmV2RewritePattern
     auto nOffset = olnb.create<AddIOp>(
         loc, bBase, olnb.create<MulIOp>(loc, nPerMfmaGroupConstantOp, olniv));
 
-    auto innerLoopK = olnb.create<AffineForOp>(loc, 0, KPerThread);
+    int64_t kStep = 1;
+    if (KPack == 1)
+      kStep = k_base;
+    auto innerLoopK = olnb.create<AffineForOp>(loc, 0, KPerThread, kStep);
     auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody(),
                                                         olmb.getListener());
     auto ilkiv = innerLoopK.getInductionVar();
@@ -485,11 +488,11 @@ struct BlockwiseGemmV2RewritePattern
         Value valueA = ilkbase.create<InBoundsLoadOp>(
             loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
         ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
         Value valueB = ilkbase.create<InBoundsLoadOp>(
             loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
         ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
       }
     } else {
       // const index_t blk_id = laneId / mfma_type.num_threads_blk;
@@ -567,11 +570,11 @@ struct BlockwiseGemmV2RewritePattern
         Value valueA = ilkbase.create<InBoundsLoadOp>(
             loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
         ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
         Value valueB = ilkbase.create<InBoundsLoadOp>(
             loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
         ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
       }
     }
 
