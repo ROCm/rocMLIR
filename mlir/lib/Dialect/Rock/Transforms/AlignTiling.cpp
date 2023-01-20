@@ -120,12 +120,11 @@ Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp gemmStoreOp,
 
   // 1. insert broadcast op if necessary
   // MemRefType outType = gemmStoreOp.getDest().getType();
+  // assert(outType == inp.getType());
   // ret = insertTransposeAndBroadcastTransforms(b, outType.getShape(), ret,
   //                                             outToInpMap);
 
   // 2. also create global_store from global to regs
-  //    TODO(sjw): make sure output buffer writes (means these inputs will be
-  //    buffer reads)
   return makeTransformingCopyLoop(b, gemmStoreOp, ret);
 }
 
@@ -242,6 +241,21 @@ static Value findGlobalStore(linalg::GenericOp laGeneric,
   return Value();
 }
 
+static Value transformGenericOutput(PatternRewriter &b, Value nOut,
+                                    Value gemmOut) {
+  if (auto rtop = dyn_cast<rock::TransformOp>(gemmOut.getDefiningOp())) {
+    nOut = transformGenericOutput(b, nOut, rtop.getOperand());
+
+    // clone
+    BlockAndValueMapping cmap;
+    cmap.map(rtop.getOperand(), nOut);
+    auto ntop = dyn_cast<rock::TransformOp>(b.clone(*rtop, cmap));
+    nOut = ntop.getResult();
+  }
+
+  return nOut;
+}
+
 LogicalResult
 LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                          PatternRewriter &b) const {
@@ -316,8 +330,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
   }
   // 2. Apply if input found
-  Value gemmOuts = gemmStoreOp.getOperand(0);
-  auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
+  Value gemmOut = gemmStoreOp.getOperand(0);
+  auto gemmOutType = gemmOut.getType().cast<MemRefType>();
 
   PatternRewriter::InsertionGuard guard(b);
   // 2.0. Reset insertion point to before the copy.
@@ -325,7 +339,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 2.1. Take out a slice of the result vector to create a vector-sized
   // slice to enable creating the fusion section.
-  Value fusionRegs = b.create<GpuAllocOp>(loc, gemmOutsType);
+  Value fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
 
   // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
   Value laOutRegs =
@@ -338,6 +352,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 2.3. Replace twcopy inputs with la.generic result vgprs
 
   gemmStoreOp.setOperand(0, laOutRegs);
+
+  out = transformGenericOutput(b, out, gemmStoreOp.getOperand(1));
   gemmStoreOp.setOperand(1, out);
 
   if (auto outAlloc = out.getDefiningOp<memref::AllocOp>()) {
@@ -362,6 +378,11 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   }
 
   if (gemmStoreOp && isa<rock::ThreadwiseWriteAllOp>(gemmStoreOp)) {
+    PatternRewriter::InsertionGuard guard(b);
+    // 2.0. Reset insertion point to before the copy.
+    b.setInsertionPoint(gemmStoreOp);
+
+    trg = transformGenericOutput(b, trg, gemmStoreOp->getOperand(1));
     gemmStoreOp->setOperand(1, trg);
 
     if (auto outAlloc = trg.getDefiningOp<memref::AllocOp>())

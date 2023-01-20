@@ -104,6 +104,8 @@ struct PushTransformsUpRewritePattern
       return mcop.getTarget() == result;
     } else if (auto rgop = dyn_cast<rock::GridwiseGemmOp>(forwOp)) {
       return rgop.getC() == result;
+    } else if (auto rgop = dyn_cast<rock::GridwiseGemmV2Op>(forwOp)) {
+      return rgop.getC() == result;
     }
     assert(0); // unknown op
     return false;
@@ -185,9 +187,9 @@ struct PushTransformsUpRewritePattern
           ArrayRef<Attribute>(nIterators.begin(), nIterators.end())));
 
       return success();
-    } else if (auto rgop = dyn_cast<rock::GridwiseGemmOp>(op)) {
+    } else if (isa<rock::GridwiseGemmOp, rock::GridwiseGemmV2Op>(op)) {
       // apply to gemm output buffer
-      Location loc = rgop.getLoc();
+      Location loc = op->getLoc();
       Value val = nbuffer;
       for (auto tx : llvm::reverse(transforms)) {
         auto itx = rock::invertTransformMap(rw, tx);
@@ -204,7 +206,7 @@ struct PushTransformsUpRewritePattern
         top->replaceUsesOfWith(top.getOperand(), val);
       } else {
         // replace gemm result with new transforms
-        rgop->replaceUsesOfWith(rgop.getC(), val);
+        op->replaceUsesOfWith(op->getOperand(2), val);
       }
       return success();
     }
