@@ -21,6 +21,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -343,6 +344,10 @@ struct BlockwiseGemmV2RewritePattern
     Value bBase =
         b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
+    //Value bBase =
+    //    b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
+    //                     b.create<ConstantIndexOp>(loc, ldsOffsetB));
+    //bBase = b.create<DivUIOp>(loc, bBase, b.create<ConstantIndexOp>(loc, KPack));
 
     auto maybeMfmaInsnGroup =
         MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
@@ -416,7 +421,9 @@ struct BlockwiseGemmV2RewritePattern
     auto nOffset = olnb.create<AddIOp>(
         loc, bBase, olnb.create<MulIOp>(loc, nPerMfmaGroupConstantOp, olniv));
 
-    auto innerLoopK = olnb.create<AffineForOp>(loc, 0, KPerThread);
+    int64_t kStep = 1;
+    if (KPack == 1) kStep = k_base;
+    auto innerLoopK = olnb.create<AffineForOp>(loc, 0, KPerThread, kStep);
     auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody(),
                                                         olmb.getListener());
     auto ilkiv = innerLoopK.getInductionVar();
@@ -461,6 +468,17 @@ struct BlockwiseGemmV2RewritePattern
             loc, sourceOffsetA, ilkb.create<ConstantIndexOp>(loc, KPack));
         sourceOffsetB = ilkb.create<MulIOp>(
             loc, sourceOffsetB, ilkb.create<ConstantIndexOp>(loc, KPack));
+
+        //Value cond = ilkb.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, tid, 
+        //    ilkb.create<ConstantIndexOp>(loc, 64));
+        //ilkb.create<scf::IfOp>(
+        //loc, cond,
+        ///*thenBuilder=*/
+        //[&](OpBuilder &b, Location loc) {
+        //b.create<gpu::PrintfOp>(loc, " %d, %d\n", ValueRange{bBase, sourceOffsetB});
+        //b.create<scf::YieldOp>(loc, ValueRange{});
+        //});
+        //
         Value valueA = ilkb.create<InBoundsLoadOp>(
             loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
         ilkb.create<memref::StoreOp>(loc, valueA, bufferA,
@@ -485,11 +503,11 @@ struct BlockwiseGemmV2RewritePattern
         Value valueA = ilkbase.create<InBoundsLoadOp>(
             loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
         ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
         Value valueB = ilkbase.create<InBoundsLoadOp>(
             loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
         ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
       }
     } else {
       // const index_t blk_id = laneId / mfma_type.num_threads_blk;
@@ -567,11 +585,11 @@ struct BlockwiseGemmV2RewritePattern
         Value valueA = ilkbase.create<InBoundsLoadOp>(
             loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
         ilkbase.create<memref::StoreOp>(loc, valueA, bufferA,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
         Value valueB = ilkbase.create<InBoundsLoadOp>(
             loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
         ilkbase.create<memref::StoreOp>(loc, valueB, bufferB,
-                                        ValueRange{zeroConstantOp});
+                                        ValueRange{ilkbaseiv});
       }
     }
 
@@ -707,7 +725,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
                       GlobalStoreOp>();
   target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
-                         AffineDialect, memref::MemRefDialect>();
+                         AffineDialect, memref::MemRefDialect, gpu::GPUDialect, scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,

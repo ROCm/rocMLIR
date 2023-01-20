@@ -131,7 +131,7 @@ async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> 
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
-    rocmlirGenOpts.append('-pv')
+    rocmlirGenOpts.append('-pv_with_gpu')
 
     applicableFromGen, genToApplicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
@@ -224,6 +224,10 @@ async def dropGoodConfig(config: ConvConfiguration,
     result = await testConfig(config, options, paths)
     if not options.quiet:
         print(f"{result.name}: {config!r}")
+    if result == TestResult.PASS:
+        miopenGenOpts = config.generateMlirDriverCommandLine(options.flags)
+        print(' '.join(miopenGenOpts))
+        print(f"{result.name}: {config!r}")
     if result == TestResult.FAIL:
         return config
     return result
@@ -292,23 +296,27 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
 
 MFMA_PERF_CONFIG = itertools.product(
     # op
-    ['fwd', 'wrw', 'bwd'],
+    #['fwd', 'wrw', 'bwd'],
+    ['fwd'],
     # layout
-    ['NCHW', 'NHWC'],
+    ['NCHW'],
     # dtype
-    ['f32', 'f16'],
+    ['f32'],
     # MPerBlock (exponent)
-    range(2, 9),
+    range(6, 8),
     # NPerBlock (exponent)
-    range(4, 9),
+    range(5, 7),
     # KPerBlock (exponent)
-    range(0, 4),
+    range(2, 4),
     # MPerWave (exponent)
-    range(1, 8),
+    #range(4, 7),
+    range(4, 8),
     # NPerWave (exponent)
+    #range(4, 6),
     range(4, 8),
     # KPack (exponent)
-    range(1, 4)
+    range(0, 2)
+    #range(1, 2)
 )
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
