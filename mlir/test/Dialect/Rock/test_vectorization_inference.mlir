@@ -117,14 +117,21 @@
   by [<Embed{128, 4, 2, 1} ["Wo", "Ho", "K", "N"] at [3, 2, 1, 0] -> ["x"] at [0]>]
   bounds = [128, 32, 2, 2] -> [16384]>
 
-#transform_map_merge_4 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, d0 mod 3)>
+#transform_merge_5 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, d0 mod 3)>
   by [<Merge{4, 3} ["x"] at [0] -> ["a", "b"] at [0, 1]>]
   bounds = [12] -> [4, 3]>
 
-#transform_map_unmerge_4 = #rock.transform_map<affine_map<(d0,d1) -> (d0*3+d1)>
+#transform_unmerge_5 = #rock.transform_map<affine_map<(d0,d1) -> (d0*3+d1)>
   by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["x"] at [0]>]
   bounds = [4,3] -> [12]>
 
+#transform_merge_6 = #rock.transform_map<affine_map<(d0, d1) -> (d0 floordiv 3, d0 mod 3, d1 floordiv 7, d1 mod 7)>
+  by [<Merge{4, 3} ["x"] at [0] -> ["a", "b"] at [0, 1]>, <Merge{8,7} ["y"] at [1] -> ["c", "d"] at [2, 3]>]
+  bounds = [12, 56] -> [4, 3, 8, 7]>
+
+#transform_unmerge_6 = #rock.transform_map<affine_map<(d0,d1,d2,d3) -> (d0*3+d1,d2*7+d3)>
+  by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["x"] at [0]>, <Embed{7,1} ["b","c"] at [2,3] -> ["y"] at [1]>]
+  bounds = [4,3,8,7] -> [12,56]>
 
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
@@ -220,11 +227,17 @@ func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
   %31 = "get_length"() {transforms = [#transform_merge_3, #transform_shuffle_3], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<8x1x3xf32>)
 
+  // Unfold detection with embed
   // CHECK-NEXT: result = 4
   %32 = "get_length"() {transforms = [#transform_merge_2, #transform_shuffle, #transform_unmerge_3], in_dim = 1 : index, max_len = 4: index} : () -> (memref<16384xf32>)
 
   // CHECK-NEXT: result = 4
-  %33 = "get_length"() {transforms = [#transform_merge_4, #transform_unmerge_4], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<12xf32>)
+  %33 = "get_length"() {transforms = [#transform_merge_5, #transform_unmerge_5], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<12xf32>)
+
+  // Partial unfold detection
+  // CHECK-NEXT: result = 4
+  %34 = "get_length"() {transforms = [#transform_merge_6, #transform_unmerge_6], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<12x56xf32>)
+
  func.return
 }
 

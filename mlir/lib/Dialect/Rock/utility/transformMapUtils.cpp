@@ -440,6 +440,7 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
   for (TransformMapAttr transformMap :
        transforms.getAsRange<TransformMapAttr>()) {
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
+    size_t upperBoundIdx = 0;
 
     DimToMergeMap thisDimToMerge;
 
@@ -460,11 +461,6 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
       case TransformType::AddDim:
         break;
       case TransformType::Embed: {
-        // TODO: we don't support stacked embed/embed. So we want to make sure
-        // that the embed we met covers all the dimensions we are working on
-        if (upperDims.size() != dimToMerge.size()) {
-          return ContiguousMergesMap{};
-        }
         // Sort the parameters
         auto &&zip = llvm::zip(params, upperDims);
         SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
@@ -502,7 +498,7 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         auto fasterParam = std::get<0>(data[0]);
         if (maybeUnmerge && fasterParam == 1 && upperBounds.size()) {
           uint32_t slowerDim = std::get<1>(data.back());
-          unmergeParams.push_back(upperBounds[0]);
+          unmergeParams.push_back(upperBounds[upperBoundIdx]);
           unmergeDims.push_back(slowerDim);
 
           // We have the unmerge dimensions/params going from the faster
@@ -532,16 +528,11 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         break;
         break;
       case TransformType::Unmerge:
-        // TODO: we don't support stacked unmerge/unmerge. So we want to make
-        // sure that the unmerge we met covers all the dimensions we are working
-        // on
-        if (upperDims.size() != dimToMerge.size()) {
-          return ContiguousMergesMap{};
-        }
         findCountiguousGroupsUnmerge(upperDims, params, dimToMerge,
                                      contiguousGroups);
         break;
       }
+      upperBoundIdx += upperDims.size();
     }
     dimToMerge = thisDimToMerge;
   }
@@ -554,7 +545,6 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
   std::sort(sortedDims.begin(), sortedDims.end());
   findCountiguousGroupsUnmerge(sortedDims, outputShape, dimToMerge,
                                contiguousGroups);
-
   return contiguousGroups;
 }
 
@@ -752,16 +742,11 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       int64_t align = input[upperDim]->alignment;
       int64_t stride = 1;
 
-      // If no groups were found, just use singletons
-      auto groups = contiguousMerges[{map, transform}];
-      if (groups.empty())
-        for (auto d : lowerDims)
-          groups.insert(d);
-
       // Group the lengths of the dimensions of the merge. This is basically
       // saying that if we have Merge{a,b,c,d} and c,d are in the same group
       // they should be treated a single dimension d whose length is
       // param[C]*param[D]
+      auto groups = contiguousMerges[{map, transform}];
       uint32_t groupID = lowerDims.back();
       llvm::SmallDenseMap<uint32_t, int64_t> groupLengths;
       groupLengths[groupID] = 1;
