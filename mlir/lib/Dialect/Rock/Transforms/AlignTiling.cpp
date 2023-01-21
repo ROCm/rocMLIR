@@ -78,25 +78,48 @@ struct MemcpyRewritePattern : public OpRewritePattern<memref::CopyOp> {
 };
 } // end anonymous namespace
 
+static void moveTransformsBefore(PatternRewriter &b, Value val) {
+  if (auto defOp = val.getDefiningOp()) {
+    if (auto rtop = dyn_cast<rock::TransformOp>(defOp)) {
+      moveTransformsBefore(b, rtop.getOperand());
+      //
+      defOp->remove();
+      b.insert(defOp);
+    } else {
+      assert(0);
+      // must trace to func.arg
+    }
+  }
+}
+
+static Value transformAccordingly(PatternRewriter &b, Value nOut, Value refOp) {
+  if (auto rtop = dyn_cast<rock::TransformOp>(refOp.getDefiningOp())) {
+    nOut = transformAccordingly(b, nOut, rtop.getOperand());
+
+    // clone
+    BlockAndValueMapping cmap;
+    cmap.map(rtop.getOperand(), nOut);
+    auto ntop = dyn_cast<rock::TransformOp>(b.clone(*rtop, cmap));
+    nOut = ntop.getResult();
+  }
+
+  return nOut;
+}
+
 static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
                                       ThreadwiseWriteAllOp gemmStoreOp,
                                       Value src, Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType() << " dest type: "
                           << gemmStoreOp.getDest().getType() << "\n");
 
-  Operation *cop = b.create<ThreadwiseReadIntoOp>(
-      loc, src, dest, gemmStoreOp.getExtraViews(), gemmStoreOp.getForceUnroll(),
-      gemmStoreOp.getUseIndexDiffs());
+  // move all transforms up
+  moveTransformsBefore(b, src);
 
-  while (auto sop = src.getDefiningOp()) {
-    if (auto rtop = dyn_cast<rock::TransformOp>(sop)) {
-      sop->moveBefore(cop);
-      cop = sop;
-      src = rtop.getOperand();
-    } else {
-      assert(0);
-    }
-  }
+  src = transformAccordingly(b, src, gemmStoreOp.getOperand(1));
+
+  b.create<ThreadwiseReadIntoOp>(loc, src, dest, gemmStoreOp.getExtraViews(),
+                                 gemmStoreOp.getForceUnroll(),
+                                 gemmStoreOp.getUseIndexDiffs());
 }
 
 static Value makeTransformingCopyLoop(PatternRewriter &b,
@@ -241,21 +264,6 @@ static Value findGlobalStore(linalg::GenericOp laGeneric,
   return Value();
 }
 
-static Value transformGenericOutput(PatternRewriter &b, Value nOut,
-                                    Value gemmOut) {
-  if (auto rtop = dyn_cast<rock::TransformOp>(gemmOut.getDefiningOp())) {
-    nOut = transformGenericOutput(b, nOut, rtop.getOperand());
-
-    // clone
-    BlockAndValueMapping cmap;
-    cmap.map(rtop.getOperand(), nOut);
-    auto ntop = dyn_cast<rock::TransformOp>(b.clone(*rtop, cmap));
-    nOut = ntop.getResult();
-  }
-
-  return nOut;
-}
-
 LogicalResult
 LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                          PatternRewriter &b) const {
@@ -353,7 +361,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   gemmStoreOp.setOperand(0, laOutRegs);
 
-  out = transformGenericOutput(b, out, gemmStoreOp.getOperand(1));
+  out = transformAccordingly(b, out, gemmStoreOp.getOperand(1));
   gemmStoreOp.setOperand(1, out);
 
   if (auto outAlloc = out.getDefiningOp<memref::AllocOp>()) {
@@ -382,7 +390,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
     // 2.0. Reset insertion point to before the copy.
     b.setInsertionPoint(gemmStoreOp);
 
-    trg = transformGenericOutput(b, trg, gemmStoreOp->getOperand(1));
+    trg = transformAccordingly(b, trg, gemmStoreOp->getOperand(1));
     gemmStoreOp->setOperand(1, trg);
 
     if (auto outAlloc = trg.getDefiningOp<memref::AllocOp>())
