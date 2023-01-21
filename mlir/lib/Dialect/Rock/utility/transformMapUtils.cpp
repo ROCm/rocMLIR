@@ -1139,7 +1139,7 @@ findCombination(int64_t inpSize,
     }
     return false;
   }
-  if (start + curLen == mergeDims.size()) {
+  if (start + curLen > outPairs.size()) {
     // terminate
     return false;
   }
@@ -1181,7 +1181,7 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
     }
   }
 
-  // 1. look for adjacent matches
+  // 1. look for combinations that match
   assert(outPairs.size() <= 8);
   bool check[8] = {
       false,
@@ -1191,9 +1191,15 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
     if (merges[inpIdx].empty()) {
       auto inpSize = pair.value();
       SmallVector<uint32_t> mergeDims;
-      for (uint32_t i = 2; i < outPairs.size(); ++i) {
-        if (findCombination(inpSize, outPairs, i, 0, 0, check, mergeDims))
+      for (uint32_t i = 2; i <= outPairs.size(); ++i) {
+        if (findCombination(inpSize, outPairs, i, 0, 0, check, mergeDims)) {
+          // remove matches
+          for (int32_t i = outPairs.size() - 1; i >= 0; --i) {
+            if (check[i])
+              outPairs.erase(outPairs.begin() + i);
+          }
           break;
+        }
       }
       assert(!mergeDims.empty());
       merges[inpIdx] = mergeDims;
