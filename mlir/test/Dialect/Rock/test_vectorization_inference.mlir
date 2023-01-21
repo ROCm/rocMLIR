@@ -133,6 +133,35 @@
   by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["x"] at [0]>, <Embed{7,1} ["b","c"] at [2,3] -> ["y"] at [1]>]
   bounds = [4,3,8,7] -> [12,56]>
 
+#transform_merge_7 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, 0, d0 mod 3)>
+  by [<Merge{8, 1, 3} ["x"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
+  bounds = [24] -> [8, 1, 3]>
+
+#transform_shuffle_5 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d2)>
+  by [<AddDim{1} ["b"] at [1] -> [] at []>, <PassThrough ["a", "c"] at [0, 2] -> ["a", "b"] at [0,1]>]
+  bounds = [8, 1, 3] -> [8, 3]>
+
+#transform_unmerge_7 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0*3 + d1 + d0)>
+  by [<Unmerge{8, 1, 3} ["a", "b", "c"] at [0, 1, 2] -> ["x"] at [0]>]
+  bounds = [8,1,3] -> [24]>
+
+#transform_unmerge_8 = #rock.transform_map<affine_map<(d0, d1) -> (d0*3 + d1)>
+  by [<Unmerge{8, 3} ["a", "c"] at [0, 1] -> ["x"] at [0]>]
+  bounds = [8,3] -> [24]>
+
+#transform_merge_9 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, 0, d0 mod 3)>
+  by [<Merge{8, 2, 3} ["x"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
+  bounds = [48] -> [8, 2, 3]>
+
+#transform_shuffle_6 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, 0, d2)>
+  by [<Broadcast{1} ["b"] at [1] -> ["b"] at [1]>, <PassThrough ["a", "c"] at [0, 2] -> ["a", "c"] at [0,2]>]
+  bounds = [8, 2, 3] -> [8, 1, 3]>
+
+#transform_unmerge_9 = #rock.transform_map<affine_map<(d0, d1) -> (d0 + d1*3)>
+  by [<Embed{1, 3} ["a", "c"] at [0, 1] -> ["x"] at [0]>]
+  bounds = [3, 8] -> [24]>
+
+
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
@@ -234,9 +263,22 @@ func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
   %33 = "get_length"() {transforms = [#transform_merge_5, #transform_unmerge_5], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<12xf32>)
 
-  // Partial unfold detection
   // CHECK-NEXT: result = 4
-  %34 = "get_length"() {transforms = [#transform_merge_6, #transform_unmerge_6], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<12x56xf32>)
+  %34 = "get_length"() {transforms = [#transform_merge, #transform_transpose, #transform_unmerge_9], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<12xf32>)
+
+  // Partial unfold detection with embed
+  // CHECK-NEXT: result = 4
+  %35 = "get_length"() {transforms = [#transform_merge_6, #transform_unmerge_6], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<12x56xf32>)
+
+  // More broadcast examples
+  // CHECK-NEXT: result = 4
+  %36 = "get_length"() {transforms = [#transform_merge_7, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
+  // CHECK-NEXT: result = 4
+  %37 = "get_length"() {transforms = [#transform_merge_7, #transform_shuffle_5, #transform_unmerge_8], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
+  // CHECK-NEXT: result = 4
+  %38 = "get_length"() {transforms = [#transform_merge_9, #transform_shuffle_6, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
+
+
 
  func.return
 }

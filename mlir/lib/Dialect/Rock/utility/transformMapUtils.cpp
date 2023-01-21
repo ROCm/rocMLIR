@@ -351,8 +351,9 @@ propagateUnmergeVectorization(T &&dimAndLength,
 // Key data structures for vectorization analysis
 struct DimInfo {
   TransformMapAttr transformMap; // Map to which the dimension belongs
-  TransformAttr transform;       // transform to which the dimension belongs
-  size_t positionInMerge; // position of the dimension inside the transform
+  TransformAttr transform;       // Transform to which the dimension belongs
+  size_t positionInMerge; // Position of the dimension inside the transform
+  bool isBroadcast;       // Is this a broadcast dimension?
 
   // Utility function to return a transform pair <map,transform>
   std::pair<TransformMapAttr, TransformAttr> transformPair() {
@@ -386,9 +387,8 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
     for (size_t j = i; j < upperDims.size(); j++) {
 
       // Unit lengths don't affect the mergeability logic
-      if (params[j] == 1) {
+      if (params[j] == 1)
         continue;
-      }
 
       auto keyJ = dimToMerge[upperDims[j]];
 
@@ -417,8 +417,19 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
         std::is_sorted(dimPosition.begin(), dimPosition.end())) {
 
       uint32_t lowerDim = groupCandidate.back();
-      for (auto d : groupCandidate) {
+      for (auto d : groupCandidate)
         contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+
+      // We also want to add the singleton/broadcast dimensions of the merge the
+      // groupCandidate belongs to. In this way we cover for situations like
+      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
+      // - Merge{8,2,3}, <Broadcast at [1]>, <Unmerge{8,1,3}>
+      for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
+                                 keyI.transform.getParams())) {
+        int64_t d = std::get<0>(pair);
+        int64_t p = std::get<1>(pair);
+        if (p == 1 || dimToMerge[d].isBroadcast)
+          contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
       }
     }
   }
@@ -440,8 +451,6 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
   for (TransformMapAttr transformMap :
        transforms.getAsRange<TransformMapAttr>()) {
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-    size_t upperBoundIdx = 0;
-
     DimToMergeMap thisDimToMerge;
 
     for (TransformAttr transform : transformMap.getOps()) {
@@ -455,7 +464,7 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
       case TransformType::Unfold:
       case TransformType::Merge:
         for (size_t i = 0; i < lowerDims.size(); i++) {
-          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i};
+          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
         }
         break;
       case TransformType::AddDim:
@@ -498,7 +507,7 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         auto fasterParam = std::get<0>(data[0]);
         if (maybeUnmerge && fasterParam == 1 && upperBounds.size()) {
           uint32_t slowerDim = std::get<1>(data.back());
-          unmergeParams.push_back(upperBounds[upperBoundIdx]);
+          unmergeParams.push_back(upperBounds[slowerDim]);
           unmergeDims.push_back(slowerDim);
 
           // We have the unmerge dimensions/params going from the faster
@@ -516,7 +525,6 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
 
       case TransformType::PassThrough:
       case TransformType::Pad:
-      case TransformType::Broadcast:
       case TransformType::Slice:
         // We only care about how these transformations shuffle
         // the dimensions
@@ -526,23 +534,30 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
           thisDimToMerge[l] = dimToMerge[u];
         }
         break;
+      case TransformType::Broadcast:
+        // Flag the dimensions we are broadcasting, if the broadcast
+        // parameter is 1
+        for (auto pair : llvm::zip(upperDims, lowerDims, params)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          uint32_t p = std::get<2>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+          if (p == 1)
+            thisDimToMerge[l].isBroadcast = true;
+        }
         break;
       case TransformType::Unmerge:
         findCountiguousGroupsUnmerge(upperDims, params, dimToMerge,
                                      contiguousGroups);
         break;
       }
-      upperBoundIdx += upperDims.size();
     }
     dimToMerge = thisDimToMerge;
   }
 
   // Last global unmerge
-  SmallVector<uint32_t> sortedDims;
-  for (auto pair : dimToMerge) {
-    sortedDims.push_back(pair.first);
-  }
-  std::sort(sortedDims.begin(), sortedDims.end());
+  SmallVector<uint32_t> sortedDims(outputShape.size());
+  std::iota(sortedDims.begin(), sortedDims.end(), 0);
   findCountiguousGroupsUnmerge(sortedDims, outputShape, dimToMerge,
                                contiguousGroups);
   return contiguousGroups;
@@ -754,6 +769,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
            llvm::zip(llvm::reverse(lowerDims), llvm::reverse(params))) {
         uint32_t lowerDim = std::get<0>(pair);
         int64_t lowerLen = std::get<1>(pair);
+
         if (groups.isEquivalent(lowerDim, groupID)) {
           groupLengths[groupID] *= lowerLen;
         } else {
