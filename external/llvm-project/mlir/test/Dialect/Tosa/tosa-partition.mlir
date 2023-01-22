@@ -1,4 +1,4 @@
-// RUN: mlir-opt --split-input-file --tosa-partition %s -verify-each=0 -o - | FileCheck %s
+// RUN: mlir-opt --split-input-file --tosa-partition='trailing-only=false' %s -verify-each=0 -o - | FileCheck %s
 
 // CHECK-LABEL: func private @test_fusion__part_0
 // CHECK: tosa.conv2d
@@ -57,12 +57,12 @@ func.func @test_fusion4(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3x
 
 
 // CHECK-LABEL: func private @test_fusion5__part_0
+// CHECK-NEXT: tosa.abs
 // CHECK-NEXT: tosa.conv2d
 // CHECK-NEXT: tosa.add
 // CHECK-NEXT: return
 // CHECK: func private @test_fusion5__part_1
 // CHECK-NEXT: tosa.conv2d
-// CHECK-NEXT: tosa.abs
 // CHECK-NEXT: return
 // CHECK: func @test_fusion5
 // CHECK-NEXT: call @test_fusion5__part_1
@@ -88,10 +88,10 @@ func.func @test_fusion6(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3x
 }
 
 // CHECK-LABEL: func private @test_fusion7__part_0
+// CHECK-NEXT: tosa.abs
 // CHECK-NEXT: tosa.conv2d
 // CHECK-NEXT: return
 // CHECK: func @test_fusion7
-// CHECK-NEXT: tosa.abs
 // CHECK-NEXT: call @test_fusion7__part_0
 // CHECK-NEXT: return
 func.func @test_fusion7(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>, %arg2: tensor<8xf32>) -> tensor<128x128x30x30xf32> {

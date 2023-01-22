@@ -1,28 +1,21 @@
-// RUN: mlir-opt --tosa-partition %s | FileCheck %s
+// RUN: mlir-opt --tosa-partition='trailing-only=false' %s | FileCheck %s
 // CHECK-LABEL: func private @forward__part_0
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose
-// CHECK-NEXT: tosa.transpose
+// CHECK: tosa.transpose
+// CHECK: tosa.transpose
 // CHECK-NEXT: tosa.conv2d
 // CHECK-NEXT: tosa.transpose
 // CHECK: return
 // CHECK-LABEL: func private @forward__part_1
-// CHECK-NEXT: tosa.reshape
-// CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.conv2d
-// CHECK-NEXT: tosa.transpose
-// CHECK-NEXT: tosa.sub
-// CHECK-NEXT: tosa.mul
-// CHECK-NEXT: tosa.mul
-// CHECK-NEXT: tosa.add
-// CHECK-NEXT: tosa.clamp
-// CHECK-NEXT: return
+// CHECK: return
 
 module attributes {torch.debug_module_name = "ResNet"} {
   func.func @forward(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {

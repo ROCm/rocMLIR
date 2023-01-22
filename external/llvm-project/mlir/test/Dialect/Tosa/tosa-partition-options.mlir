@@ -10,11 +10,11 @@
 // RUN: mlir-opt --test-tosa-partition-options=attr-one %s | FileCheck %s --check-prefix=ONE
 // RUN: mlir-opt --test-tosa-partition-options=nofront-arg %s | FileCheck %s --check-prefix=THREE
 
-// CHECK: func private @test_fusion8__part_0
+// CHECK-LABEL: func private @test_fusion8__part_0
 // CHECK-NEXT: tosa.conv2d
 // CHECK-NEXT: tosa.add
 // CHECK-NEXT: return
-// CHECK-LABEL: func private @test_fusion8__part_1
+// CHECK: func private @test_fusion8__part_1
 // CHECK-SAME: attributes {{{.*}}kernel}
 // CHECK-NEXT: arith.constant
 // CHECK-NEXT: tosa.transpose

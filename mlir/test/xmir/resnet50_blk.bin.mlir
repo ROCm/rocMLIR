@@ -21,4 +21,3 @@ module {
     return %4 : tensor<1x32x32x64xf32>
   }
 }
-
