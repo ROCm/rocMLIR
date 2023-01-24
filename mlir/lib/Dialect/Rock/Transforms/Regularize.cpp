@@ -125,6 +125,11 @@ struct RegularizeGenericRewritePattern
         }
       }
     }
+
+    // reset idxmaps
+    SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
+    lgop.indexing_mapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
+    
     return lres;
   }
 };

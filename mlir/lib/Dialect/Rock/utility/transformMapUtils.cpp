@@ -976,7 +976,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     } else if (diff > 0) {
-      // map = (d0, d1, d2) -> (d0)
+      // map = (d0, d1, d2) -> (d1)
       assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
       MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
       BottomUpTMBuilder addDimtransform(b, inpShape, loc);
@@ -985,7 +985,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           // find location in results
           auto inpIdx = getResultPosition(inpIdxMap, i);
           addDimtransform.passThrough({i}, {inpIdx});
-          newInpIdxMap.setResult(i, b.getAffineDimExpr(inpIdx));
+          newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
         } else {
           SmallString<8> name;
           ("exp" + Twine(i)).toVector(name);

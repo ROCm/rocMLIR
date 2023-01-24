@@ -302,13 +302,19 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   Value gemmOut = gemmStoreOp.getOperand(0);
   auto gemmOutType = gemmOut.getType().cast<MemRefType>();
 
+  Value fusionRegs;
+  {
+    PatternRewriter::InsertionGuard guard(b);
+    // 2.0. Reset insertion point to before the copy.
+    b.setInsertionPoint(gemmOut.getDefiningOp());
+    // 2.1. Take out a slice of the result vector to create a vector-sized
+    // slice to enable creating the fusion section.
+    fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
+  }
+
   PatternRewriter::InsertionGuard guard(b);
   // 2.0. Reset insertion point to before the copy.
   b.setInsertionPoint(gemmStoreOp);
-
-  // 2.1. Take out a slice of the result vector to create a vector-sized
-  // slice to enable creating the fusion section.
-  Value fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
 
   // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
   Value laOutRegs = reconfigureLAGeneric(b, laGeneric, fusionRegs, gemmStoreOp);
@@ -316,6 +322,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // the copy loops for other inputs before the generic due to insertion
   // order.
   laGeneric->moveBefore(gemmStoreOp);
+
+  gemmOut.replaceAllUsesWith(fusionRegs);
 
   // 2.3. Replace twcopy inputs with la.generic result vgprs
 
