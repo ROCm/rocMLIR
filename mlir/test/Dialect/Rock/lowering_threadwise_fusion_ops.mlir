@@ -1,5 +1,5 @@
 // Note: this should be in a post-fusion pass
-// RUN: rocmlir-opt -rock-gridwise-gemm-to-blockwise %s | FileCheck --enable-var-scope %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck --enable-var-scope %s
 
 // CHECK-DAG: #[[$ON_OP:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 // CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
@@ -22,9 +22,10 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][[[args]]]
+  // CHECK: [[tmp:%.+]] = rock.buffer_load [[source]][[[args]]]
   // CHECK-SAME: leftOobDims = [2 : i32], rightOobDims = []
-  // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
+  // CHECK: [[tmp1:%.+]] = rock.insert_slice [[tmp]]
+  // CHECK: rock.in_bounds_store [[tmp1]] -> [[dest]][[[i]]]
 
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
@@ -45,8 +46,9 @@ func.func @threadwise_write_all(%source: memref<32xf32, 5>, %dest: memref<2x64x3
   // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
-  // CHECK-NEXT: rock.global_store [[source]][[[i]]] -> [[dest]][[[args]]]
-  // CHECK-SAME: leftOobDims = [2 : i32], length = 2 : index, rightOobDims = []
+  // CHECK: %[[ldval:.*]] = rock.in_bounds_load [[source]][[[i]]]
+  // CHECK: rock.buffer_store  set %[[ldval]] -> [[dest]][[[args]]]
+  // CHECK-SAME: leftOobDims = [2 : i32], rightOobDims = []
 
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_write_all {forceUnroll, useIndexDiffs}

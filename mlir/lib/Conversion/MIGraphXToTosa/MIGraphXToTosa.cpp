@@ -65,10 +65,8 @@ public:
   Value getZeroBias(Location loc, Type elemType, int64_t filterOutputChannels,
                     ConversionPatternRewriter &rewriter) const {
     auto biasTy = RankedTensorType::get({filterOutputChannels}, elemType);
-    auto arithZero =
-        rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elemType));
-    auto biasTensor = rewriter.create<tensor::SplatOp>(loc, biasTy, arithZero);
-    return biasTensor;
+    return rewriter.create<arith::ConstantOp>(loc,
+                                              rewriter.getZeroAttr(biasTy));
   }
 
   tosa::TransposeOp getRank4TransposeOp(Location loc, Value input,

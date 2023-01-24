@@ -1139,7 +1139,7 @@ findCombination(int64_t inpSize,
     }
     return false;
   }
-  if (start + curLen > outPairs.size()) {
+  if (curLen > outPairs.size() || start >= 7) {
     // terminate
     return false;
   }
@@ -1172,10 +1172,6 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
       merges[fid].push_back(outIdx);
       localInpShape[fid] = -1;
       outPairs.erase(oit);
-    } else if (outDim == 1) {
-      fid = std::min(i, inpShape.size() - 1);
-      merges[fid].push_back(outIdx);
-      outPairs.erase(oit);
     } else {
       ++oit;
     }
@@ -1202,11 +1198,17 @@ static void collectMerges(ArrayRef<int64_t> inpShape,
         }
       }
       assert(!mergeDims.empty());
-      merges[inpIdx] = mergeDims;
+      merges[inpIdx].append(mergeDims);
     }
   }
 
-  assert(outPairs.empty());
+  // 2. the rest are 1s
+  for (auto &pair : outPairs) {
+    assert(std::get<0>(pair) == 1);
+    size_t outIdx = std::get<1>(pair);
+    uint32_t fid = std::min(outIdx, inpShape.size() - 1);
+    merges[fid].push_back(outIdx);
+  }
 }
 
 TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b,

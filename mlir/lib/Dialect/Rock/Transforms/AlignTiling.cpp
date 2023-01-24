@@ -26,7 +26,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
@@ -369,127 +368,9 @@ static bool isUnfusedKernelStore(rock::ThreadwiseWriteAllOp store) {
   if (ret) {
     store.getDest().getDefiningOp()->emitOpError(
         "could not use fusion to eliminate this intermediate buffer. Kernel "
-        "compilation canot proceed");
+        "compilation cannot proceed");
   }
   return ret;
-}
-
-/// FIXME: This rewrite should be after fusion. However, since the fusion
-/// refactor hasn't landed yet and since we need to preserve the structure of
-/// the existing fusion code, put the threadwise_write_all expander here.
-namespace {
-struct ThreadwiseReadIntoRewritePattern
-    : public OpConversionPattern<ThreadwiseReadIntoOp> {
-  using OpConversionPattern<ThreadwiseReadIntoOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseReadIntoOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const final;
-};
-
-struct ThreadwiseWriteAllRewritePattern
-    : public OpConversionPattern<ThreadwiseWriteAllOp> {
-  using OpConversionPattern<ThreadwiseWriteAllOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const final;
-};
-} // end anonymous namespace
-
-LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
-    ThreadwiseReadIntoOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  TypedValue<MemRefType> sourceView = adaptor.getSource();
-  TypedValue<MemRefType> dest = adaptor.getDest();
-
-  auto [buffer, transforms] = untransform(b, sourceView, op.getExtraViews());
-
-  int64_t numValues = dest.getType().getNumElements();
-  ArrayRef<int64_t> bufferShape =
-      buffer.getType().cast<ShapedType>().getShape();
-
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t vectorLen =
-      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
-                          << "\n");
-  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
-
-  Type loadType =
-      vectorTypeOrSelf(sourceView.getType().getElementType(), vectorLen);
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-
-  SmallVector<Value, 3> readStartCoords = {bid, tid, zero};
-
-  auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
-      ArrayRef<Attribute>{transforms, b.getArrayAttr({})},
-      ArrayRef<int64_t>{1, 1, numValues}, ArrayRef<int64_t>{1, 1, vectorLen},
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loadLoop.getBody());
-    Value loaded =
-        b.create<GlobalLoadOp>(loc, loadType, buffer, leftOobDims, rightOobDims,
-                               loadLoop.getLowerCoords(/*domain=*/0));
-    b.create<InBoundsStoreOp>(loc, loaded, dest,
-                              loadLoop.getLowerCoords(/*domain=*/1)[2]);
-  }
-  b.eraseOp(op);
-  return success();
-}
-
-LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
-    ThreadwiseWriteAllOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  TypedValue<MemRefType> source = adaptor.getSource();
-  TypedValue<MemRefType> destView = adaptor.getDest();
-
-  auto [buffer, transforms] = untransform(b, destView, op.getExtraViews());
-
-  int64_t numValues = source.getType().getNumElements();
-  ArrayRef<int64_t> bufferShape =
-      buffer.getType().cast<ShapedType>().getShape();
-
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t vectorLen =
-      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
-                          << "\n");
-  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
-
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-
-  SmallVector<Value, 3> writeStartCoords = {bid, tid, zero};
-
-  auto outLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
-      ArrayRef<Attribute>{b.getArrayAttr({}), transforms},
-      ArrayRef<int64_t>{1, 1, numValues}, ArrayRef<int64_t>{1, 1, vectorLen},
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(outLoop.getBody());
-    b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                            op.getStoreMethodAttr(), leftOobDims, rightOobDims,
-                            outLoop.getLowerCoords(/*domain=*/0)[2],
-                            outLoop.getLowerCoords(/*domain=*/1));
-  }
-  b.eraseOp(op);
-  return success();
 }
 
 void RockLinalgAlignPass::runOnOperation() {
@@ -513,22 +394,5 @@ void RockLinalgAlignPass::runOnOperation() {
         });
     if (verifyAllStores.wasInterrupted())
       signalPassFailure();
-  }
-
-  {
-    ConversionTarget writeAllTarget(*ctx);
-    writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
-    writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
-    RewritePatternSet writeAllPatterns(ctx);
-    writeAllPatterns
-      .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern>(
-                                                                               ctx);
-    if (failed(applyPartialConversion(getOperation(), writeAllTarget,
-                                      std::move(writeAllPatterns))))
-      signalPassFailure();
-
-    OpPassManager cleanupPasses("func.func");
-    cleanupPasses.addPass(mlir::createCanonicalizerPass());
-    (void)runPipeline(cleanupPasses, getOperation());
   }
 }
