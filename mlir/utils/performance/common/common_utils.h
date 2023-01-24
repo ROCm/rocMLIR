@@ -68,11 +68,10 @@ struct BenchmarkArgs {
   llvm::cl::opt<std::string> arch{"arch",
                                   llvm::cl::desc("Arch (ignored, MLIR compat)"),
                                   llvm::cl::init("gemm")};
-   llvm::cl::opt<std::string>
-    perfConfig("perf_config",
-               llvm::cl::desc("Perf config (ignored, MLIR compat)"),
-               llvm::cl::init(""));
-
+  llvm::cl::opt<std::string>
+      perfConfig("perf_config",
+                 llvm::cl::desc("Perf config (ignored, MLIR compat)"),
+                 llvm::cl::init(""));
 };
 
 #define HIP_ABORT_IF_FAIL(expr)                                                \

@@ -23,6 +23,7 @@
 
 // System includes
 #include <iostream>
+#include <string>
 
 // CK specific definitions
 using Row = ck::tensor_layout::gemm::RowMajor;
@@ -97,8 +98,8 @@ struct BatchedGemmRunner {
   }
 };
 
-/** Given the layout of A and B and the data type, loop over the different
- * instances for a given problem size and pick the best configuration */
+// Given the layout of A and B and the data type, loop over the different
+// instances for a given problem size and pick the best configuration
 template <typename OpRunner>
 void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
 
@@ -107,6 +108,8 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
 
   float bestTflops = 0;
   float bestAveTime = 0.0;
+  size_t bestId = 0;
+  std::string bestKernelName = "";
   bool found = false;
 
   // find the best config
@@ -126,6 +129,8 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
       if (tflops > bestTflops) {
         bestTflops = tflops;
         bestAveTime = aveTime;
+        bestKernelName = opOptr->getTypeString();
+        bestKernelId = i;
       }
     }
   }
@@ -133,6 +138,8 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
     bestAveTime = std::nan("");
   }
   std::cout << "Best kernel time: " << bestAveTime << "\n";
+  std::cout << "Best kernel name: " << bestKernelName << "\n";
+  std::cout << "Best kernel ID: " << bestKernelId << "\n";
 }
 
 template <typename ALayout, typename BLayout, typename DT>
