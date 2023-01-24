@@ -1,6 +1,4 @@
 find_package(composable_kernel CONFIG 1.0.0 COMPONENTS device_operations)
-find_package(hip REQUIRED PATHS /opt/rocm)
-
 if(NOT composable_kernel_FOUND)
   message(WARNING "Could not find composable-kernels, not building a CK benchmark driver")
 endif()
@@ -12,9 +10,8 @@ if (composable_kernel_FOUND)
 
   set(LLVM_LINK_COMPONENTS
     Support)
-
-  # set(LIBS ${composable_kernel::device_operations})
-  # set(INCLUDES ${composable_kernel_INCLUDE})
+  
+  set(LIBS ${composable_kernel_LIBRARY})
 
   set(EXCLUDE_FROM_ALL TRUE)
   add_llvm_executable(ck-benchmark-driver

@@ -698,16 +698,10 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, tuningDb: MaybeTun
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-<<<<<<< HEAD
 #Generate MLIR vs. MIOpen or rocBLAS performance results
 def generatePerformanceResults(configs, confClass, paths: Paths, arch, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
     # Never pass tuning DB to this run
     mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, None, rocmlir_gen_flags)
-=======
-#Generate MLIR vs. MIOpen or rocBLAS or CK performance results
-def generatePerformanceResults(configs, confClass, paths: Paths, arch, rocmlir_gen_flags):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, rocmlir_gen_flags)
->>>>>>> 0ca6a3cf3ad1... Adding a Composable Kernel driver
         for testVector in configs)
     tuned_df = None
     if tuningDb:
