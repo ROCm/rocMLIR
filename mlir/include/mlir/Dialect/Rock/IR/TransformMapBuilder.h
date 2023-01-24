@@ -42,6 +42,7 @@ public:
   // Only valid after the transformation has been built.
   // The names live as long as the TransformMapBuilder
   void getEndNames(SmallVectorImpl<StringRef> &names);
+  void getStartNames(SmallVectorImpl<StringRef> &names);
 
   SmallString<8> startName(uint32_t dim);
   SmallString<8> endName(uint32_t dim);
@@ -93,8 +94,6 @@ protected:
                              SmallVectorImpl<int64_t> &lowerBounds) = 0;
 
   virtual int64_t paddingSign() const = 0;
-
-  llvm::SmallVector<SmallString<8>, 8> &getStartNames() { return startNames; }
 
   uint32_t nStartDims();
   uint32_t nEndDims();

@@ -71,23 +71,20 @@ static ArrayAttr createThreadViewMaps(Value redInput, int64_t blockSize,
   int64_t elementCount = inpShape.getNumElements();
   int64_t dataPerThread = (elementCount + (totalThreads - 1)) / totalThreads;
 
-  SmallVector<SmallString<8>> topNames;
   SmallVector<int64_t> topSizes;
   int64_t topSizeProduct = 1;
   SmallVector<unsigned int> topDims;
-  SmallVector<StringRef> topNameRefs;
   for (auto dimAndSize : llvm::enumerate(inpShape.getShape())) {
     size_t dim = dimAndSize.index();
     int64_t dimSize = dimAndSize.value();
-    SmallString<8> mname(Twine("m" + Twine(dim)).str());
-    topNames.push_back(mname);
-    topNameRefs.push_back(topNames.back());
     topSizes.push_back(dimSize);
     topSizeProduct *= dimSize;
     topDims.push_back(dim);
   }
 
-  BottomUpTMBuilder threadsToInpTensor(rewriter, topNameRefs, topSizes, loc);
+  BottomUpTMBuilder threadsToInpTensor(rewriter, topSizes, loc);
+  SmallVector<StringRef, 4> topNameRefs;
+  threadsToInpTensor.getStartNames(topNameRefs);
   threadsToInpTensor.merge("flatDim", 0, topNameRefs);
   TransformMapAttr mergeTrMap = threadsToInpTensor.get();
 
