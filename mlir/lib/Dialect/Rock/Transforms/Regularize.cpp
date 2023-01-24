@@ -77,6 +77,59 @@ struct ExpandRewritePattern : public OpRewritePattern<memref::ExpandShapeOp> {
 };
 
 ////////////////////////////////////////////////////////////////////////
+////  Regularize linalg.generic inputs
+////////////////////////////////////////////////////////////////////////
+struct RegularizeGenericRewritePattern
+    : public OpRewritePattern<linalg::GenericOp> {
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp lgop,
+                                PatternRewriter &rw) const override {
+    LogicalResult lres = failure();
+    Location loc = lgop.getLoc();
+
+    // parallel
+    for (StringRef iterType :
+           lgop.iterator_types().getAsValueRange<StringAttr>())
+      if (iterType != "parallel")
+        return failure();
+
+    // 1 output
+    auto outs = lgop.getOutputs();
+    if (outs.size() > 1)
+      return failure();
+    Value out = outs[0];
+    auto outType = out.getType().cast<ShapedType>();
+
+    // all index maps must be identity
+    auto idxMaps = lgop.getIndexingMapsArray();
+    auto outIdxMap = idxMaps.back();
+    if (!outIdxMap.isIdentity()) {
+      assert(0); // does this happen
+      return lres;
+    }
+
+    // apply transforms to inputs
+    SmallVector<Value> inps(lgop.getInputs());
+    for (auto pair : llvm::zip(inps, idxMaps)) {
+      if (auto inp = std::get<0>(pair)) {
+        auto imap = std::get<1>(pair);
+        Value val = inp;
+        if (imap != outIdxMap) {
+          // inject a broadcast
+          auto invertOutIdxMap = inversePermutation(outIdxMap);
+          auto outToInpMap = imap.compose(invertOutIdxMap);
+          val = rock::insertTransposeAndBroadcastTransforms(rw, outType.getShape(), val, outToInpMap);
+          lgop->replaceUsesOfWith(inp, val);
+          lres = success();
+        }
+      }
+    }
+    return lres;
+  }
+};
+
+////////////////////////////////////////////////////////////////////////
 ////  Push Transforms Up To GEMM output
 ////////////////////////////////////////////////////////////////////////
 struct PushTransformsUpRewritePattern
@@ -132,42 +185,34 @@ struct PushTransformsUpRewritePattern
 
       // all index maps must be identity
       auto idxMaps = lgop.getIndexingMapsArray();
+      auto outIdxMap = idxMaps.back();
       for (auto imap : idxMaps) {
-        if (!imap.isMinorIdentity())
+        if (imap != outIdxMap) {
+          assert(0); // should have been fixed above (RegularizeGeneric)
           return failure();
+        }
       }
 
       Location loc = lgop.getLoc();
 
       // apply transforms to inputs
       SmallVector<Value> inps(lgop.getInputs());
-      auto outIdxMap = idxMaps.back();
-      for (auto pair : llvm::zip(inps, idxMaps)) {
-        if (auto inp = std::get<0>(pair)) {
-          auto imap = std::get<1>(pair);
-          Value val = inp;
-          if (imap != outIdxMap) {
-            // inject a broadcast
-            auto invertOutIdxMap = inversePermutation(outIdxMap);
-            auto outToInpMap = imap.compose(invertOutIdxMap);
-            val = rock::insertTransposeAndBroadcastTransforms(
-                rw, outType.getShape(), val, outToInpMap);
+      for (auto inp : inps) {
+        Value val = inp;
+        for (auto writeOp : llvm::reverse(writer)) {
+          if (auto top = dyn_cast<rock::TransformOp>(writeOp)) {
+            auto tx = rock::invertTransformMap(rw, top.getTransform());
+            if (!tx)
+              return failure();
+            auto ntop = rw.create<rock::TransformOp>(loc, val, tx);
+            val = ntop.getResult();
           }
-          for (auto writeOp : llvm::reverse(writer)) {
-            if (auto top = dyn_cast<rock::TransformOp>(writeOp)) {
-              auto tx = rock::invertTransformMap(rw, top.getTransform());
-              if (!tx)
-                return failure();
-              auto ntop = rw.create<rock::TransformOp>(loc, val, tx);
-              val = ntop.getResult();
-            }
-          }
-          for (auto tx : transforms) {
-            auto top = rw.create<rock::TransformOp>(loc, val, tx);
-            val = top.getResult();
-          }
-          lgop->replaceUsesOfWith(inp, val);
         }
+        for (auto tx : transforms) {
+          auto top = rw.create<rock::TransformOp>(loc, val, tx);
+          val = top.getResult();
+        }
+        lgop->replaceUsesOfWith(inp, val);
       }
       // update the output with the new buffer
       lgop->replaceUsesOfWith(out, nbuffer);
@@ -285,7 +330,8 @@ void RockRegularizePass::runOnOperation() {
 
   {
     RewritePatternSet patterns(ctx);
-    patterns.add<CollapseRewritePattern, ExpandRewritePattern>(ctx);
+    patterns.add<CollapseRewritePattern, ExpandRewritePattern,
+                 RegularizeGenericRewritePattern>(ctx);
     if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
       signalPassFailure();
   }

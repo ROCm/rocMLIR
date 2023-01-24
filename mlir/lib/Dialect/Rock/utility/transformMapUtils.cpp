@@ -902,6 +902,14 @@ static void createPermutationForMinorIdentityWithBroadcast(
   }
 }
 
+static unsigned getResultPosition(AffineMap map, unsigned input) {
+  for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++)
+    if (map.getDimPosition(i) == input)
+      return i;
+  llvm_unreachable("incorrect result request");
+  return 0;
+}
+
 Value mlir::rock::insertTransposeAndBroadcastTransforms(
     OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
@@ -968,13 +976,16 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     } else if (diff > 0) {
+      // map = (d0, d1, d2) -> (d0)
       assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
       MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
       BottomUpTMBuilder addDimtransform(b, inpShape, loc);
       for (uint32_t i = 0; i < outShape.size(); ++i) {
         if (inpIdxMap.isFunctionOfDim(i)) {
-          addDimtransform.passThrough({i}, {static_cast<uint32_t>(i - diff)});
-          newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
+          // find location in results
+          auto inpIdx = getResultPosition(inpIdxMap, i);
+          addDimtransform.passThrough({i}, {inpIdx});
+          newInpIdxMap.setResult(i, b.getAffineDimExpr(inpIdx));
         } else {
           SmallString<8> name;
           ("exp" + Twine(i)).toVector(name);
