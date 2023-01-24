@@ -96,7 +96,8 @@ RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https:
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
 # As of 2022-08-17, the rocm/rock images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
 # Note that the mlir minimum is 3.18.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
+  apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
   rocprofiler-dev \
@@ -111,6 +112,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   netcat-openbsd \
   cmake-data=3.22.1-0kitware1ubuntu20.04.1 \
   cmake=3.22.1-0kitware1ubuntu20.04.1 \
+  kitware-archive-keyring \
   libsqlite3-dev \
   parallel && \
   apt-get clean && \
