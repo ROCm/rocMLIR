@@ -1229,10 +1229,17 @@ TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b,
   // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
   //    - inpShape = [1, 12, 384]
   //    - outShape = [1, 12, 12, 32]
-  SmallVector<SmallVector<uint32_t>> merges(inpShape.size(), {});
-  collectMerges(inpShape, outShape, merges);
 
-  rock::BottomUpTMBuilder transform(b, inpShape, b.getUnknownLoc());
+  SmallVector<int64_t> linpShape(inpShape);
+  if (linpShape.empty())
+    linpShape.push_back(1);
+  SmallVector<int64_t> loutShape(outShape);
+  if (loutShape.empty())
+    loutShape.push_back(1);
+  SmallVector<SmallVector<uint32_t>> merges(linpShape.size(), {});
+  collectMerges(linpShape, loutShape, merges);
+
+  rock::BottomUpTMBuilder transform(b, linpShape, b.getUnknownLoc());
   for (auto idxAndMerge : llvm::enumerate(merges)) {
     uint32_t idx = idxAndMerge.index();
     auto mergeDims = idxAndMerge.value();
@@ -1246,7 +1253,7 @@ TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b,
         SmallString<8> mname(Twine("exp" + Twine(midx)).str());
         mergeNames.push_back(mname);
         mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(outShape[midx]);
+        mergeSizes.push_back(loutShape[midx]);
       }
       transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx),
                         mergeSizes);
@@ -1263,10 +1270,17 @@ mlir::rock::transformCollapseShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
   // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
   //    - inpShape = [1, 12, 12, 32]
   //    - outShape = [12, 12, 32]
-  SmallVector<SmallVector<uint32_t>> merges(outShape.size(), {});
-  collectMerges(outShape, inpShape, merges);
+  SmallVector<int64_t> linpShape(inpShape);
+  if (linpShape.empty())
+    linpShape.push_back(1);
+  SmallVector<int64_t> loutShape(outShape);
+  if (loutShape.empty())
+    loutShape.push_back(1);
 
-  rock::TopDownTMBuilder transform(b, outShape, b.getUnknownLoc());
+  SmallVector<SmallVector<uint32_t>> merges(loutShape.size(), {});
+  collectMerges(loutShape, linpShape, merges);
+
+  rock::TopDownTMBuilder transform(b, loutShape, b.getUnknownLoc());
   for (auto idxAndMerge : llvm::enumerate(merges)) {
     uint32_t idx = idxAndMerge.index();
     auto mergeDims = idxAndMerge.value();
@@ -1280,7 +1294,7 @@ mlir::rock::transformCollapseShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
         SmallString<8> mname(Twine("m" + Twine(midx)).str());
         mergeNames.push_back(mname);
         mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(inpShape[midx]);
+        mergeSizes.push_back(linpShape[midx]);
       }
       transform.merge(mergeNameRefs, mergeDims, transform.startName(idx),
                       mergeSizes);

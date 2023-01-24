@@ -92,12 +92,12 @@ struct RegularizeGenericRewritePattern
     for (StringRef iterType :
            lgop.iterator_types().getAsValueRange<StringAttr>())
       if (iterType != "parallel")
-        return failure();
+        return lgop.emitError("Only fully parallel supported");
 
     // 1 output
     auto outs = lgop.getOutputs();
     if (outs.size() > 1)
-      return failure();
+      return lgop.emitError("Only 1 output supported");
     Value out = outs[0];
     auto outType = out.getType().cast<ShapedType>();
 
@@ -105,8 +105,7 @@ struct RegularizeGenericRewritePattern
     auto idxMaps = lgop.getIndexingMapsArray();
     auto outIdxMap = idxMaps.back();
     if (!outIdxMap.isIdentity()) {
-      assert(0); // does this happen
-      return lres;
+      return lgop.emitError("Only output identity map supported");
     }
 
     // apply transforms to inputs
@@ -175,31 +174,17 @@ struct PushTransformsUpRewritePattern
                                     Value nbuffer) {
     Operation *op = writer.back();
     if (auto lgop = dyn_cast<linalg::GenericOp>(op)) {
-      // parallel
-      for (StringRef iterType :
-           lgop.iterator_types().getAsValueRange<StringAttr>())
-        if (iterType != "parallel")
-          return failure();
-
       // 1 output
-      auto outs = lgop.getOutputs();
-      if (outs.size() > 1)
-        return failure();
-      Value out = outs[0];
+      Value out = lgop.getOutputs()[0];
       auto outType = out.getType().cast<ShapedType>();
 
       // all index maps must be identity
       auto idxMaps = lgop.getIndexingMapsArray();
       auto outIdxMap = idxMaps.back();
-      for (auto imap : idxMaps) {
-        if (imap != outIdxMap) {
-          assert(0); // should have been fixed above (RegularizeGeneric)
-          return failure();
-        }
-      }
-
       Location loc = lgop.getLoc();
 
+      PatternRewriter::InsertionGuard guard(rw);
+      rw.setInsertionPoint(lgop);
       // apply transforms to inputs
       SmallVector<Value> inps(lgop.getInputs());
       for (auto inp : inps) {
@@ -208,7 +193,7 @@ struct PushTransformsUpRewritePattern
           if (auto top = dyn_cast<rock::TransformOp>(writeOp)) {
             auto tx = rock::invertTransformMap(rw, top.getTransform());
             if (!tx)
-              return failure();
+              return lgop.emitError("Non-invertible transform");
             auto ntop = rw.create<rock::TransformOp>(loc, val, tx);
             val = ntop.getResult();
           }
