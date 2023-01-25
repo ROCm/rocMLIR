@@ -139,6 +139,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       pm.addPass(rock::createRockLinalgAlignPass());
       pm.addPass(createConvertLinalgToAffineLoopsPass());
     }
+    pm.addPass(rock::createRockLowerReducePass());
 
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise

@@ -209,6 +209,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     Conv2DBwdWeightOp::attachInterface<GemmLikeInterface<Conv2DBwdWeightOp>>(
         *ctx);
     GemmOp::attachInterface<GemmLikeInterface<GemmOp>>(*ctx);
+    ReduceOp::attachInterface<GemmLikeInterface<ReduceOp>>(*ctx);
 
     // While these utility kernels aren't gemm wrappers, strictly, they still
     // bufferize like them

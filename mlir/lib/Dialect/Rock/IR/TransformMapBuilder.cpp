@@ -204,6 +204,13 @@ void TransformMapBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
   }
 }
 
+void TransformMapBuilder::getStartNames(SmallVectorImpl<StringRef> &names) {
+  names.reserve(startNames.size());
+  for (const auto &name : startNames) {
+    names.emplace_back(name);
+  }
+}
+
 SmallString<8> TransformMapBuilder::startName(uint32_t dim) {
   return startNames[dim];
 }
@@ -631,7 +638,7 @@ void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
   for (auto tuple : llvm::zip(endDims, endSizes)) {
     uint32_t dim = std::get<0>(tuple);
     int64_t size = std::get<1>(tuple);
-    auto &name = getStartNames()[dim];
+    auto name = startName(dim);
     params.push_back(startSize(dim));
     lowerNames.push_back(name);
     upperNames.push_back(name);

@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -18,6 +19,7 @@
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <iterator>
 #include <numeric>
 #include <utility>
@@ -346,9 +348,224 @@ propagateUnmergeVectorization(T &&dimAndLength,
   return result;
 }
 
+// Key data structures for vectorization analysis
+struct DimInfo {
+  TransformMapAttr transformMap; // Map to which the dimension belongs
+  TransformAttr transform;       // Transform to which the dimension belongs
+  size_t positionInMerge; // Position of the dimension inside the transform
+  bool isBroadcast;       // Is this a broadcast dimension?
+
+  // Utility function to return a transform pair <map,transform>
+  std::pair<TransformMapAttr, TransformAttr> transformPair() {
+    return std::make_pair(transformMap, transform);
+  }
+};
+using DimToMergeMap = llvm::SmallDenseMap<uint32_t, DimInfo>;
+
+using ContiguousMergesMap =
+    llvm::DenseMap<std::pair<TransformMapAttr, TransformAttr>,
+                   llvm::EquivalenceClasses<uint32_t>>;
+
+void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
+                                  const ArrayRef<int64_t> params,
+                                  DimToMergeMap &dimToMerge,
+                                  ContiguousMergesMap &contiguousGroups) {
+
+  size_t i = 0;
+  while (i < upperDims.size()) {
+    // The i-th dimension (i.e., dimension upperDims[i])
+    // uses params[i]
+
+    auto keyI = dimToMerge[upperDims[i]];
+    if (!keyI.transform) {
+      i++;
+      continue;
+    }
+
+    SmallVector<uint32_t> groupCandidate;
+    SmallVector<size_t> dimPosition;
+    for (size_t j = i; j < upperDims.size(); j++) {
+
+      // Unit lengths don't affect the mergeability logic
+      if (params[j] == 1)
+        continue;
+
+      auto keyJ = dimToMerge[upperDims[j]];
+
+      if (!keyJ.transform) {
+        break;
+      }
+      auto mergeJParams = keyJ.transform.getParams();
+      auto mergeJDims = keyJ.transform.getLowerDims();
+      size_t posJ = keyJ.positionInMerge;
+
+      // a) Dimensions need to come from the same merge
+      // b) Unmerge parameters need to match merge parameters
+      if (keyJ.transformPair() != keyI.transformPair() ||
+          params[j] != mergeJParams[posJ]) {
+        break;
+      }
+
+      groupCandidate.push_back(mergeJDims[posJ]);
+      dimPosition.push_back(posJ);
+    }
+
+    i += std::max(size_t(1), groupCandidate.size());
+
+    // Update the result with the current group for the mergePair key
+    if (groupCandidate.size() > 1 &&
+        std::is_sorted(dimPosition.begin(), dimPosition.end())) {
+
+      uint32_t lowerDim = groupCandidate.back();
+      for (auto d : groupCandidate)
+        contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+
+      // We also want to add the singleton/broadcast dimensions of the merge the
+      // groupCandidate belongs to. In this way we cover for situations like
+      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
+      // - Merge{8,2,3}, <Broadcast at [1]>, <Unmerge{8,1,3}>
+      for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
+                                 keyI.transform.getParams())) {
+        int64_t d = std::get<0>(pair);
+        int64_t p = std::get<1>(pair);
+        if (p == 1 || dimToMerge[d].isBroadcast)
+          contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+      }
+    }
+  }
+}
+
+// This is an analysis pass to group the lower dimensions of a Merge
+// transformation into contiguous groups. E.g., if we have a Merge{8,8,3} [0] ->
+// [0,2,3] and we know that [2,3] are contiguous in the final representation, we
+// can split the merge group in
+// [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
+// vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
+// In other words, every group of dimensions is treated as a single group
+ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
+                                         ArrayRef<int64_t> outputShape) {
+  // Transform table. Will be overwritten after processing each transform_map
+  DimToMergeMap dimToMerge;
+  ContiguousMergesMap contiguousGroups;
+
+  for (TransformMapAttr transformMap :
+       transforms.getAsRange<TransformMapAttr>()) {
+    ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
+    DimToMergeMap thisDimToMerge;
+
+    for (TransformAttr transform : transformMap.getOps()) {
+      TransformType transformType = transform.getType();
+
+      ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
+      ArrayRef<uint32_t> upperDims = transform.getUpperDims();
+      ArrayRef<int64_t> params = transform.getParams();
+
+      switch (transformType) {
+      case TransformType::Unfold:
+      case TransformType::Merge:
+        for (size_t i = 0; i < lowerDims.size(); i++) {
+          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
+        }
+        break;
+      case TransformType::AddDim:
+        break;
+      case TransformType::Embed: {
+        // Sort the parameters
+        auto &&zip = llvm::zip(params, upperDims);
+        SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
+        std::sort(data.begin(), data.end());
+        bool maybeUnmerge = true;
+
+        // Verify that the Embed is an Unmerge operation and
+        // at the same time create the sorted unmerge params
+        if (!std::all_of(params.begin(), params.end(),
+                         [](auto p) { return p > 0; })) {
+          break;
+        }
+
+        SmallVector<int64_t> unmergeParams;
+        SmallVector<uint32_t> unmergeDims;
+        // Embed parameters should be in the form of
+        // [1, l_0, l_0*l_1, ...] to be considered a valid
+        // unmerge
+        for (size_t i = 0; i < data.size() - 1; i++) {
+          int64_t paramI = std::get<0>(data[i]);
+          int64_t paramI1 = std::get<0>(data[i + 1]);
+          uint32_t dim = std::get<1>(data[i]);
+          int64_t unmergeParam = paramI1 / paramI;
+          if (unmergeParam * paramI != paramI1) {
+            maybeUnmerge = false;
+            break;
+          }
+          unmergeParams.push_back(unmergeParam);
+          unmergeDims.push_back(dim);
+        }
+
+        // We are not done yet. To be sure this is an unmerge
+        // the faster parameter needs to be 1 and we should set
+        // the upper bound
+        auto fasterParam = std::get<0>(data[0]);
+        if (maybeUnmerge && fasterParam == 1 && upperBounds.size()) {
+          uint32_t slowerDim = std::get<1>(data.back());
+          unmergeParams.push_back(upperBounds[slowerDim]);
+          unmergeDims.push_back(slowerDim);
+
+          // We have the unmerge dimensions/params going from the faster
+          // to the slower, but they should be in the exact reverse order
+          std::reverse(unmergeParams.begin(), unmergeParams.end());
+          std::reverse(unmergeDims.begin(), unmergeDims.end());
+
+          // Now we can use the parameters as unmerge parameters and see if
+          // there are contiguous dimensions to be folded together.
+          findCountiguousGroupsUnmerge(unmergeDims, unmergeParams, dimToMerge,
+                                       contiguousGroups);
+        }
+        break;
+      }
+
+      case TransformType::PassThrough:
+      case TransformType::Pad:
+      case TransformType::Slice:
+        // We only care about how these transformations shuffle
+        // the dimensions
+        for (auto pair : llvm::zip(upperDims, lowerDims)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+        }
+        break;
+      case TransformType::Broadcast:
+        // Flag the dimensions we are broadcasting, if the broadcast
+        // parameter is 1
+        for (auto pair : llvm::zip(upperDims, lowerDims, params)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          uint32_t p = std::get<2>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+          if (p == 1)
+            thisDimToMerge[l].isBroadcast = true;
+        }
+        break;
+      case TransformType::Unmerge:
+        findCountiguousGroupsUnmerge(upperDims, params, dimToMerge,
+                                     contiguousGroups);
+        break;
+      }
+    }
+    dimToMerge = thisDimToMerge;
+  }
+
+  // Last global unmerge
+  SmallVector<uint32_t> sortedDims(outputShape.size());
+  std::iota(sortedDims.begin(), sortedDims.end(), 0);
+  findCountiguousGroupsUnmerge(sortedDims, outputShape, dimToMerge,
+                               contiguousGroups);
+  return contiguousGroups;
+}
+
 static VectorizationData
-propagateVectorizationInfo(TransformMapAttr map,
-                           const VectorizationData &input) {
+propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
+                           ContiguousMergesMap &contiguousMerges) {
   VectorizationData result;
   result.grow(map.getMap().getValue().getNumResults());
   for (TransformAttr transform : map.getOps()) {
@@ -523,6 +740,13 @@ propagateVectorizationInfo(TransformMapAttr map,
     // of 6 gets the results [1, 2] and not [3, 2]. While this might be
     // optimistic, if the dimesions don't get put back togther with the correct
     // coefficients, their vectorization will disappear.
+    // Note: unfold is a promise about the fact that the merge dimensions
+    // are contiguous in memory, which leads to a better vectorization.
+    // We are capable of automatically detecting continuous groups of dimensions
+    // so we will treat unfol as merge, but we will assert that the resulting
+    // vectorization is the same of the unfold. In a future ticket, Unfold
+    // should be completely removed.
+    case TransformType::Unfold:
     case TransformType::Merge: {
       int64_t upperDim = upperDims[0];
       if (!input[upperDim].has_value()) {
@@ -530,42 +754,55 @@ propagateVectorizationInfo(TransformMapAttr map,
       }
       int64_t maxLen = input[upperDim]->maxLength;
       int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t align = input[upperDim]->alignment;
       int64_t stride = 1;
+
+      // Group the lengths of the dimensions of the merge. This is basically
+      // saying that if we have Merge{a,b,c,d} and c,d are in the same group
+      // they should be treated a single dimension d whose length is
+      // param[C]*param[D]
+      auto groups = contiguousMerges[{map, transform}];
+      uint32_t groupID = lowerDims.back();
+      llvm::SmallDenseMap<uint32_t, int64_t> groupLengths;
+      groupLengths[groupID] = 1;
       for (auto pair :
            llvm::zip(llvm::reverse(lowerDims), llvm::reverse(params))) {
         uint32_t lowerDim = std::get<0>(pair);
         int64_t lowerLen = std::get<1>(pair);
+
+        if (groups.isEquivalent(lowerDim, groupID)) {
+          groupLengths[groupID] *= lowerLen;
+        } else {
+          groupID = lowerDim;
+          groupLengths[groupID] = lowerLen;
+        }
+      }
+
+      // Use the aggregated lengths to compute the correct vectorization info
+      for (auto lowerDim : llvm::reverse(lowerDims)) {
+        if (!groupLengths.count(lowerDim)) {
+          continue;
+        }
+        int64_t lowerLen = groupLengths[lowerDim];
         int64_t thisMaxLen = math_util::gcd(maxLen, lowerLen);
-        int64_t thisAlignment =
-            std::max(input[upperDim]->alignment / stride, 1l);
+        int64_t thisAlignment = std::max(align / stride, 1l);
         result[lowerDim] =
             VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
         maxLen = std::max(maxLen / lowerLen, 1L);
         stride *= lowerLen;
       }
-      break;
-    }
-    // Unfold is a promise to the coordinate transforms engine that
-    // the dimensions that are being "merged" are contiguous in the underlying
-    // memory. When someone is able to make this promise, we take advantage
-    // of it by putting all the vectorization on the fastest-moving of the
-    // dimmensions.
-    case TransformType::Unfold: {
-      int64_t upperDim = upperDims[0];
-      if (!input[upperDim].has_value()) {
-        break;
+
+      // If the transformation is Unfold, we should still able to treat it
+      // as a Merge, automatically finding the contiguous groups. However,
+      // we can use the knowledge stemming from Unfold to assert that
+      // the contiguous detection actually worked
+      if (transform.getType() == TransformType::Unfold) {
+        int64_t lowerDimsLen = 1;
+        for (int64_t length : params)
+          lowerDimsLen *= length;
+        int64_t unfoldMaxLen = math_util::gcd(maxLen, lowerDimsLen);
+        assert(unfoldMaxLen == maxLen && "Failing to detect the unfold!");
       }
-      int64_t maxLen = input[upperDim]->maxLength;
-      int64_t coeff = input[upperDim]->needsCoefficient;
-      int64_t align = input[upperDim]->alignment;
-      int64_t lastLowerDim = lowerDims.back();
-      int64_t lowerDimsLen = 1;
-      for (int64_t length : params)
-        lowerDimsLen *= length;
-      int64_t resultMaxLen = math_util::gcd(maxLen, lowerDimsLen);
-      int64_t resultAlignment = math_util::gcd(align, lowerDimsLen);
-      result[lastLowerDim] =
-          VectorizationInfo(resultMaxLen, coeff, resultAlignment);
       break;
     }
     }
@@ -583,6 +820,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
                                                     .getValue()
                                                     .getNumInputs();
   VectorizationData data;
+  auto contiguousMerges = findContiguousGroups(transforms, outputShape);
   // grow() takes the last index, not the length
   data.grow(numInitialDims);
   data[dim] = VectorizationInfo(/*maxLength=*/len, /*needsCoefficient=*/1,
@@ -590,7 +828,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
     data.debugPrint();
-    data = propagateVectorizationInfo(transformMap, data);
+    data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
   }
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();

@@ -1345,6 +1345,25 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ThreadwiseReadIntoOp
+//===-----------------------------------------------------===//
+LogicalResult ThreadwiseReadIntoOp::verify() {
+  MemRefType destType = getDest().getType();
+  if (destType.getMemorySpaceAsInt() != 5)
+    return emitOpError("source must be private registers");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getSource().getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+
+  if (inputShape.size() != 3)
+    return emitOpError("source view must accept (bid, tid, iter) coordinates");
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
@@ -1352,14 +1371,15 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   if (sourceType.getMemorySpaceAsInt() != 5)
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> inputShape;
+  ArrayRef<int64_t> viewInputShape;
   if (extraViews.empty())
-    inputShape = getDest().getType().getShape();
+    viewInputShape = getDest().getType().getShape();
   else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    viewInputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (inputShape.size() != 3)
-    return emitOpError("input must accept (bid, tid, iter) coordinates");
+  if (viewInputShape.size() != 3)
+    return emitOpError(
+        "destination view must accept (bid, tid, iter) coordinates");
   return success();
 }
 
@@ -1494,6 +1514,32 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                      SetIntRangeFn setResultRanges) {
   setResultRanges(getResult(), getIdRange("block_size", getOperation()));
 }
+
+//===-----------------------------------------------------===//
+// ReduceOp
+//===-----------------------------------------------------===//
+
+LogicalResult ReduceOp::verify() {
+  APInt axis = getAxis();
+  ArrayRef<int64_t> inpShape = getIn().getType().cast<ShapedType>().getShape();
+  for (const auto &dimAndSize :
+       llvm::enumerate(getOut().getType().cast<ShapedType>().getShape())) {
+    size_t dim = dimAndSize.index();
+    int64_t dimSize = dimAndSize.value();
+    if (dim == axis) {
+      if (dimSize != 1) {
+        return emitError("The size of the reduction dimension should be 1.");
+      }
+    } else {
+      if (dimSize != inpShape[dim]) {
+        return emitError(
+            "The size of the non-reduction dimension should match the input.");
+      }
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//

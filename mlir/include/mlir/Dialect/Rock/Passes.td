@@ -86,4 +86,9 @@ def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
 }
 
+def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.reduce operator";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

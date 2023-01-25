@@ -26,11 +26,14 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
 
@@ -132,7 +135,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   };
 
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
-                                  func::FuncOp &theFunc) -> gpu::GPUFuncOp {
+                                  func::FuncOp &theFunc) -> LogicalResult {
     // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(gpuMod);
     // Reset builder insertion point to the beginning of the GPU module,
@@ -181,6 +184,31 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
+    // Clone in global constants
+    llvm::SmallDenseMap<SymbolRefAttr, FlatSymbolRefAttr> clonedConsts;
+    WalkResult result = funcBody.walk([&](memref::GetGlobalOp op)
+                                          -> WalkResult {
+      SymbolRefAttr globalSym = op.getNameAttr();
+      auto toClone = dyn_cast_or_null<memref::GlobalOp>(
+          SymbolTable::lookupNearestSymbolFrom(op, globalSym));
+      if (!toClone)
+        return WalkResult::interrupt();
+      if (toClone->getParentOfType<gpu::GPUModuleOp>() == gpuMod)
+        // Already cloned, continue
+        return WalkResult::advance();
+      auto maybeMapped = clonedConsts.find(globalSym);
+      if (maybeMapped == clonedConsts.end()) {
+        OpBuilder::InsertionGuard guard(b);
+        Operation *cloned = toClone.clone();
+        // There probably shouldn't be any renames, but let's be careful.
+        StringAttr newNameAttr = gpuModuleSymbolTable.insert(cloned);
+        clonedConsts.insert({globalSym, FlatSymbolRefAttr::get(newNameAttr)});
+      }
+      op.setNameAttr(clonedConsts.find(globalSym)->second);
+      return WalkResult::advance();
+    });
+    if (result.wasInterrupted())
+      return theFunc.emitOpError("failed to clone referenced global constants");
     // copy original_func attribute
     const char *attrName = "original_func";
     if (auto attr = theFunc->getAttrOfType<SymbolRefAttr>(attrName)) {
@@ -215,7 +243,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       call.erase();
     }
 
-    return gpuFunc;
+    return success();
   };
 
   SmallVector<func::FuncOp, 1> processedFuncs;
@@ -225,7 +253,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);
-      processGpuKernelFunc(gpuMod, func);
+      if (failed(processGpuKernelFunc(gpuMod, func)))
+        signalPassFailure();
 
       processedFuncs.push_back(func);
     }

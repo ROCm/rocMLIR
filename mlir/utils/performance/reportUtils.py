@@ -14,6 +14,8 @@ MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
 MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
+## In order to prevent issues with the tuning data reporting, 'PerfConfig'
+## MUST STAY LAST!
 CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
                         'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
