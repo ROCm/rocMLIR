@@ -82,7 +82,7 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'pcf0/mlir:5.4.2'
+    return 'rocm/mlir:rocm5.4.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
