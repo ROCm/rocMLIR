@@ -91,6 +91,16 @@ def StoreMethod : Rock_I32Enum<"StoreMethod",
 
 def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
 
+/// ReduceMethod
+
+def ReduceMethod_Sum : I32EnumAttrCase<"Sum", 0, "sum">;
+
+def ReduceMethod : Rock_I32Enum<"ReduceMethod",
+    "What operation should be used for the reduction",
+    [ReduceMethod_Sum]>;
+
+def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
+
 /// TransformAttr
 def Rock_TransformAttr : Rock_Attr<"Transform"> {
     let mnemonic = "transform";
