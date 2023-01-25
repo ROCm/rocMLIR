@@ -1286,7 +1286,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise GEMM for the loop tail.
     BlockAndValueMapping tailGemmCloneMap;
-    auto blockwiseGemmV2TailOp = b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
+    b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
     // results properly, remove them ourselves.
@@ -1296,7 +1296,6 @@ struct GridwiseGemmV2RewritePattern
     // -----
 
     // Matrix C write out logic.
-    const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = blockSize / waveSize;
 
     int64_t numElements = regCVectorLen * nResultVectors;
@@ -1359,73 +1358,6 @@ struct GridwiseGemmV2RewritePattern
 
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(
         {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
-    // We compute the full map chain here in order to determine if we should
-    // apply swizzles. The final vectorization computation for the store loop
-    // will happen later. However, between now and then, the sequence of maps
-    // from the matrix output to the underlying buffer must not change, but the
-    // nature of said buffer can.
-    Value tensorC;
-    ArrayAttr idToTensorCMaps;
-    std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.getC(), idToMatrixCMaps);
-
-    constexpr int64_t swizzleGroup = 4;
-    ArrayRef<int64_t> tensorCShape =
-        tensorC.getType().cast<MemRefType>().getShape();
-    int64_t tensorCDataPerCopy = getMaxVectorization(idToTensorCMaps, /*dim=*/2,
-                                                     numElements, tensorCShape);
-    int64_t threadsWithConsecutiveElems = getMaxVectorization(
-        idToTensorCMaps, /*dim=*/1, swizzleGroup, tensorCShape);
-    bool enableOutSwizzles = (tensorCDataPerCopy == 1) &&
-                             (threadsWithConsecutiveElems == swizzleGroup);
-    if (enableOutSwizzles) {
-      // Add the coordinate transformations that reflect the transpose we'll be
-      // doing in the emitted kernel.
-      tensorCDataPerCopy = threadsWithConsecutiveElems;
-      auto indexSplit = TopDownTMBuilder(
-          b, {"bid", "tid", "iter"}, {gridSize, blockSize, numElements}, loc);
-      indexSplit.passThrough("bid");
-      indexSplit.merge({"tid_group", "tid_item"}, {1, 2}, "tid",
-                       {blockSize / 4, 4});
-      indexSplit.merge({"vec_group", "vec_item"}, {3, 4}, "iter",
-                       {numElements / 4, 4});
-      TransformMapAttr indexSplitAttr = indexSplit.get();
-
-      // Note that we switch the positions of tid_item and vec_item when
-      // recombining the coordinates.
-      auto indexCombine = TopDownTMBuilder::below(indexSplit, indexSplitAttr);
-      indexCombine.passThrough("bid");
-      indexCombine.embed("tid", 1, blockSize, {"tid_group", "vec_item"},
-                         {4, 1});
-      indexCombine.embed("iter", 2, numElements, {"vec_group", "tid_item"},
-                         {4, 1});
-      TransformMapAttr indexCombineAttr = indexCombine.get();
-
-      SmallVector<Attribute, 8> newTransforms = {indexSplitAttr,
-                                                 indexCombineAttr};
-      llvm::copy(idToMatrixCMaps, std::back_inserter(newTransforms));
-      idToMatrixCMaps = b.getArrayAttr(newTransforms);
-    }
-
-    // Emit vector swizzles if applicable
-    SmallVector<Value, 4> transformedTail;
-    transformedTail.reserve(tailResults.size());
-
-    if (enableOutSwizzles) {
-      Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
-      for (int i = 0; i < nResultVectors; ++i) {
-        Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i);
-        Value loaded =
-            b.create<memref::LoadOp>(loc, vectorType, regCAllocOp, indexOp);
-        Value swizzle = b.create<InWarpTransposeOp>(
-            loc, vectorType, loaded, laneId, b.getI32IntegerAttr(rowGroupSize),
-            b.getI32ArrayAttr({0, 1, 2, 3}));
-        transformedTail.push_back(swizzle);
-        b.create<memref::StoreOp>(loc, swizzle, regCAllocOp, indexOp);
-      }
-    } else {
-      llvm::copy(tailResults, std::back_inserter(transformedTail));
-    }
 
     Value registerC = regCAllocOp;
     auto convertedCType = MemRefType::get(
