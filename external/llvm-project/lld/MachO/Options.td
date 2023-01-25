@@ -1357,3 +1357,6 @@ def objc_abi_version : Separate<["-"], "objc_abi_version">,
     HelpText<"This option only applies to i386 in ld64">,
     Flags<[HelpHidden]>,
     Group<grp_ignored_silently>;
+
+// Flag that selects the driver, it should be ignored.
+def flavor : Separate<["-"], "flavor">;

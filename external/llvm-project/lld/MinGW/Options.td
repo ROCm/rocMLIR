@@ -175,3 +175,6 @@ defm: EqNoHelp<"plugin">;
 defm: EqNoHelp<"plugin-opt">;
 defm: EqNoHelp<"sysroot">;
 def: F<"start-group">;
+
+// Flag that selects the driver, it should be ignored.
+def flavor : Separate<["-"], "flavor">;

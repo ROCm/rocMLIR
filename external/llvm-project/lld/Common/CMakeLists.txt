@@ -32,6 +32,7 @@ add_lld_library(lldCommon
   DWARF.cpp
   ErrorHandler.cpp
   Filesystem.cpp
+  DriversMain.cpp
   Memory.cpp
   Reproduce.cpp
   Strings.cpp

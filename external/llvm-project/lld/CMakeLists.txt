@@ -195,6 +195,12 @@ add_subdirectory(Common)
 add_subdirectory(tools/lld)
 
 if (LLVM_INCLUDE_TESTS)
+  add_custom_target(LLDUnitTests)
+  if (EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest/googletest/include/gtest/gtest.h)
+    add_subdirectory(unittests)
+  else()
+    message(WARNING "gtest not found, unittests will not be available")
+  endif()
   add_subdirectory(test)
 endif()
 

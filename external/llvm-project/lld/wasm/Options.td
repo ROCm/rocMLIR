@@ -249,3 +249,6 @@ def lto_debug_pass_manager: FF<"lto-debug-pass-manager">,
 // Experimental PIC mode.
 def experimental_pic: FF<"experimental-pic">,
   HelpText<"Enable Experimental PIC">;
+
+// Flag that selects the driver, it should be ignored.
+def flavor : Separate<["-"], "flavor">;

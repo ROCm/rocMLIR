@@ -290,6 +290,9 @@ def map_file : P_priv<"map">;
 def show_timing : F<"time">;
 def summary : F<"summary">;
 
+// Flag that selects the driver, it should be ignored.
+def flavor : Separate<["-"], "flavor">;
+
 //==============================================================================
 // The flags below do nothing. They are defined only for link.exe compatibility.
 //==============================================================================

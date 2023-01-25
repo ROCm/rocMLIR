@@ -25,7 +25,8 @@ struct SafeReturn {
 // and re-entry would not be possible anymore. Use exitLld() in that case to
 // properly exit your application and avoid intermittent crashes on exit caused
 // by cleanup.
-SafeReturn safeLldMain(int argc, const char **argv, llvm::raw_ostream &stdoutOS,
+SafeReturn safeLldMain(llvm::ArrayRef<const char *> args,
+                       llvm::raw_ostream &stdoutOS,
                        llvm::raw_ostream &stderrOS);
 
 namespace coff {
@@ -53,5 +54,21 @@ bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
           llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
 }
 } // namespace lld
+
+// It is also possible to selectively use a subset of the LLD drivers in
+// applications that use LLD as a library. Simply link the required libs, such
+// as lldELF and lldCommon; then use the macro below at global scope to force
+// definition of symbols for the missing drivers.
+#define LLD_IMPLEMENT_SHALLOW_DRIVER(driver)                                   \
+  namespace lld {                                                              \
+  namespace driver {                                                           \
+  bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,    \
+            llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput) { \
+    llvm::errs() << "The LLD " #driver                                         \
+                    " driver is not available in this build.\n";               \
+    return false;                                                              \
+  }                                                                            \
+  } /* namespace driver */                                                     \
+  } /* namespace lld */
 
 #endif
