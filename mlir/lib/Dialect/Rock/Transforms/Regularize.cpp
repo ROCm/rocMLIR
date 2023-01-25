@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Debug.h"
@@ -314,7 +315,8 @@ struct RockRegularizePass
 void RockRegularizePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->getAttrOfType<UnitAttr>("kernel")) {
+    // disable for non-kernels (and all multi kernels)
     return;
   }
 
