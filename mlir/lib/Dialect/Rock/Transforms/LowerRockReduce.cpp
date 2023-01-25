@@ -71,26 +71,26 @@ static ArrayAttr createThreadViewMaps(Value redInput, int64_t blockSize,
   int64_t elementCount = inpShape.getNumElements();
   int64_t dataPerThread = (elementCount + (totalThreads - 1)) / totalThreads;
 
-  SmallVector<int64_t> topSizes;
-  int64_t topSizeProduct = 1;
-  SmallVector<unsigned int> topDims;
+  SmallVector<int64_t> lowerSizes;
+  int64_t lowerSizeProduct = 1;
+  SmallVector<unsigned int> lowerDims;
   for (auto dimAndSize : llvm::enumerate(inpShape.getShape())) {
     size_t dim = dimAndSize.index();
     int64_t dimSize = dimAndSize.value();
-    topSizes.push_back(dimSize);
-    topSizeProduct *= dimSize;
-    topDims.push_back(dim);
+    lowerSizes.push_back(dimSize);
+    lowerSizeProduct *= dimSize;
+    lowerDims.push_back(dim);
   }
 
-  BottomUpTMBuilder threadsToInpTensor(rewriter, topSizes, loc);
-  SmallVector<StringRef, 4> topNameRefs;
-  threadsToInpTensor.getStartNames(topNameRefs);
-  threadsToInpTensor.merge("flatDim", 0, topNameRefs);
+  BottomUpTMBuilder threadsToInpTensor(rewriter, lowerSizes, loc);
+  SmallVector<StringRef, 4> lowerNameRefs;
+  threadsToInpTensor.getStartNames(lowerNameRefs);
+  threadsToInpTensor.merge("flatDim", 0, lowerNameRefs);
   TransformMapAttr mergeTrMap = threadsToInpTensor.get();
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, mergeTrMap);
   threadsToInpTensor.pad({"flatDim"},
-                         {0, totalThreads * dataPerThread - topSizeProduct});
+                         {0, totalThreads * dataPerThread - lowerSizeProduct});
   TransformMapAttr padTrMap = threadsToInpTensor.get();
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, padTrMap);
