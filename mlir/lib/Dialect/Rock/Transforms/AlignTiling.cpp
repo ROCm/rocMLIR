@@ -78,6 +78,13 @@ struct MemcpyRewritePattern : public OpRewritePattern<memref::CopyOp> {
   LogicalResult matchAndRewrite(memref::CopyOp copy,
                                 PatternRewriter &b) const override;
 };
+
+struct ReduceRewritePattern : public OpRewritePattern<rock::ReduceOp> {
+  using OpRewritePattern<rock::ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::ReduceOp reduceOp,
+                                PatternRewriter &rewriter) const override;
+};
 } // end anonymous namespace
 
 static void moveTransformsBefore(PatternRewriter &b, Value val) {
@@ -521,11 +528,57 @@ static bool isUnfusedKernelStore(ThreadwiseWriteAllOp store) {
   return ret;
 }
 
+static SmallVector<Attribute> extractVector(ArrayAttr arrayAttr) {
+  return llvm::to_vector<4>(arrayAttr.getAsRange<Attribute>());
+}
+
+LogicalResult
+ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
+                                      PatternRewriter &rewriter) const {
+  Location loc = reduceOp.getLoc();
+  ThreadwiseWriteAllOp threadwiseWriteOp =
+      traceToThreadwiseWrite(reduceOp.getIn());
+  if (reduceOp.getReduceMethod() != ReduceMethod::Sum) {
+    return reduceOp.emitError("We only support sum reductions.!");
+  }
+  if (!threadwiseWriteOp) {
+    LLVM_DEBUG(llvm::dbgs() << "rock.reduce input is not leading to "
+                               "ThreadwiseWriteAllOp of the previous op.");
+    return failure();
+  }
+  int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  TypedValue<ShapedType> redIn = reduceOp.getIn();
+  ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
+  TopDownTMBuilder dropReductionDim(rewriter, reduceInShape, loc);
+  for (uint32_t i = 0; i < reduceInShape.size(); ++i) {
+    if (i == reductionAxis) {
+      dropReductionDim.constDim("reduction_dim", i, 0, 1);
+    } else {
+      dropReductionDim.passThrough({i}, {i});
+    }
+  }
+  TransformMapAttr trAttr = dropReductionDim.get();
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(threadwiseWriteOp);
+    redIn = rewriter.create<TransformOp>(loc, redIn, trAttr);
+    threadwiseWriteOp.getDestMutable().assign(reduceOp.getOut());
+    threadwiseWriteOp.setStoreMethodAttr(
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd));
+    auto extraViews = extractVector(threadwiseWriteOp.getExtraViews());
+    extraViews.push_back(trAttr);
+    threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr(extraViews));
+  }
+  rewriter.eraseOp(reduceOp);
+  return success();
+}
+
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   {
     RewritePatternSet patterns(ctx);
     patterns.add<LAGenericRewritePattern>(ctx);
+    patterns.add<ReduceRewritePattern>(ctx);
     patterns.add<MemcpyRewritePattern>(ctx);
     GreedyRewriteConfig config;
     config.useTopDownTraversal = true;
