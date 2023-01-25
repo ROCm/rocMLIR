@@ -1380,8 +1380,8 @@ struct GridwiseGemmV2RewritePattern
                                                      numElements, tensorCShape);
     int64_t threadsWithConsecutiveElems = getMaxVectorization(
         idToTensorCMaps, /*dim=*/1, swizzleGroup, tensorCShape);
-    bool enableOutSwizzles = (tensorCDataPerCopy == 1) &&
-                             (threadsWithConsecutiveElems == swizzleGroup);
+    bool enableOutSwizzles = false; //(tensorCDataPerCopy == 1) &&
+                             //(threadsWithConsecutiveElems == swizzleGroup);
     if (enableOutSwizzles) {
       // Add the coordinate transformations that reflect the transpose we'll be
       // doing in the emitted kernel.
