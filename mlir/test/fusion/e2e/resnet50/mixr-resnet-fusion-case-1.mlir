@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | rocmlir-opt --rock-fold-transpose | FileCheck %s
+// RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | FileCheck %s
 // CHECK: linalg.conv_2d
 // CHECK: %[[ALLOC:.*]] = memref.alloc() {{.*}}
 // CHECK-DAG: %[[ARG0_TR:.*]] = rock.transform %[[ARG0:.*]]

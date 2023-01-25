@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-driver --rock-fold-transpose --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
 module {
   func.func @main(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
