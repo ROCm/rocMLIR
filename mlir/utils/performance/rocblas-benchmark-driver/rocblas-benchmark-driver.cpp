@@ -11,7 +11,8 @@
 // With much credit to
 // https://github.com/ROCmSoftwarePlatform/rocBLAS-Examples/blob/develop/Level-3/gemm_strided_batched/gemm_strided_batched.cpp
 
-#include "../common/common_utils.h"
+// Include common utility functions
+#include "../common/benchmarkUtils.h"
 
 #include "rocblas/rocblas.h"
 // Drop weird backcompat macro

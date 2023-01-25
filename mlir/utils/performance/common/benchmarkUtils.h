@@ -1,5 +1,4 @@
-//===- common_utils.h common utility functions shared between the drivers
-//--------===//
+//===-------- benchmarkUtils.h - common benchmark utility functions -------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -8,6 +7,10 @@
 // Copyright (c) 2022 Advanced Micro Devices Inc.
 //
 //===----------------------------------------------------------------------===//
+
+#ifndef MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H
+#define MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H
+
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemAlloc.h"
@@ -16,13 +19,7 @@
 
 enum class DataType : uint32_t { F32, F16, BF16, I8 };
 
-struct BatchInfo {
-  size_t groups;
-  size_t batchStrideA;
-  size_t batchStrideB;
-  size_t batchStrideC;
-};
-
+// Common options to the different benchmark drivers
 struct BenchmarkArgs {
   llvm::cl::opt<uint64_t> gemmG{"g", llvm::cl::desc("G dimennsion of gemm()"),
                                 llvm::cl::value_desc("positive integer"),
@@ -68,10 +65,9 @@ struct BenchmarkArgs {
   llvm::cl::opt<std::string> arch{"arch",
                                   llvm::cl::desc("Arch (ignored, MLIR compat)"),
                                   llvm::cl::init("gemm")};
-  llvm::cl::opt<std::string>
-      perfConfig("perf_config",
-                 llvm::cl::desc("Perf config (ignored, MLIR compat)"),
-                 llvm::cl::init(""));
+  llvm::cl::opt<std::string> perfConfig{
+      "perf_config", llvm::cl::desc("Perf config (ignored, MLIR compat)"),
+      llvm::cl::init("")};
 };
 
 #define HIP_ABORT_IF_FAIL(expr)                                                \
@@ -84,69 +80,16 @@ struct BenchmarkArgs {
     }                                                                          \
   } while (0)
 
-static llvm::APFloat::Semantics getLlvmFltSemantics(DataType dataType) {
-  switch (dataType) {
-  case DataType::F32:
-    return llvm::APFloat::S_IEEEsingle;
-  case DataType::F16:
-    return llvm::APFloat::S_IEEEhalf;
-  case DataType::BF16:
-    return llvm::APFloat::S_BFloat;
-  case DataType::I8:
-    assert(0 && "Can't have i8 floats");
-  }
-}
+// Map custom data types to LLVM data types
+llvm::APFloat::Semantics getLlvmFltSemantics(DataType dataType);
 
-static void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
-  uint8_t *ret = reinterpret_cast<uint8_t *>(llvm::safe_malloc(byteSize));
-  std::vector<llvm::APInt> intPattern;
-  if (dataType != DataType::I8) {
-    std::vector<llvm::APFloat> pattern = {
-        llvm::APFloat(0.5), llvm::APFloat(-1.0), llvm::APFloat(0.75)};
+// Allocate and fill an area of memory
+void *allocAndFill(DataType dataType, size_t byteSize, bool isOut);
 
-    llvm::APFloat::Semantics sem = getLlvmFltSemantics(dataType);
+// Return sizeof(dataType) in bytes
+size_t getByteSize(DataType dataType, size_t elems, bool isOut);
 
-    for (auto &flt : pattern) {
-      bool dontCare = false;
-      flt.convert(llvm::APFloat::EnumToSemantics(sem),
-                  llvm::APFloat::rmNearestTiesToEven, &dontCare);
-      intPattern.push_back(flt.bitcastToAPInt());
-    }
-  } else { // int8
-    size_t bitWidth = (isOut ? 32 : 8);
-    for (int64_t i : {1, -1, 2}) {
-      intPattern.emplace_back(bitWidth, i);
-    }
-  }
+// Allocate a device buffer and copy the date from host memory
+void *getGpuBuffer(const void *hostMem, size_t byteSize);
 
-  size_t bytesPerElem = intPattern[0].getBitWidth() / 8;
-  size_t elems = byteSize / bytesPerElem;
-  for (size_t i = 0; i < elems; ++i) {
-    const llvm::APInt &elem = intPattern[i % intPattern.size()];
-    for (size_t byte = 0; i < bytesPerElem; ++i) {
-      uint8_t value = elem.extractBitsAsZExtValue(8, byte * 8);
-      ret[byte + bytesPerElem * i] = value;
-    }
-  }
-  return ret;
-}
-
-static size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
-  switch (dataType) {
-  case DataType::F32:
-    return elems * 4;
-  case DataType::F16:
-  case DataType::BF16:
-    return elems * 2;
-  case DataType::I8:
-    return elems * (isOut ? 4 : 1);
-  }
-}
-
-static void *getGpuBuffer(const void *hostMem, size_t byteSize) {
-  void *gpuBuffer;
-  HIP_ABORT_IF_FAIL(hipMalloc(&gpuBuffer, byteSize));
-  HIP_ABORT_IF_FAIL(
-      hipMemcpy(gpuBuffer, hostMem, byteSize, hipMemcpyHostToDevice));
-  return gpuBuffer;
-}
+#endif // MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H

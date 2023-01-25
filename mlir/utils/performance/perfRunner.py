@@ -810,12 +810,16 @@ def getArch():
         agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
     return agents
 
-def foundExternalTool(paths: Paths, opType: Operation):
+def foundExternalTool(paths: Paths, opType: Operation, gemmLibrary : Optional[GEMMLibrary] = None):
     if opType == Operation.CONV and not paths.miopen_driver_path:
         return False
-    if opType == Operation.GEMM and \
-            (not paths.mlir_paths and (not paths.mlir_paths.rocblas_benchmark_driver_path or not paths.mlir_paths.ck_benchmark_driver_path)):
-        return False
+    if opType == Operation.GEMM:
+        if not paths.mlir_paths:
+            return False
+        if gemmLibrary == GEMMLibrary.CK and not paths.mlir_paths.ck_benchmark_driver_path:
+            return False
+        if gemmLibrary == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
+            return False
     return True
 
 # Main function.
@@ -967,6 +971,7 @@ def main(args=None):
     opType = Operation.fromName(parsed_args.op)
     if opType == Operation.CONV:
         confClass = ConvConfiguration
+        externalLib = None
     elif opType == Operation.GEMM:
         externalLib = GEMMLibrary.fromName(parsed_args.external_gemm_library)
         if externalLib == GEMMLibrary.ROCBLAS:
@@ -983,7 +988,7 @@ def main(args=None):
         configs = getGemmConfigurations(paths.configuration_file_path)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
-        if not foundExternalTool(paths, opType):
+        if not foundExternalTool(paths, opType, externalLib):
             raise RuntimeError("External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
 
     if parsed_args.miopen_use_tuned_mlir or parsed_args.miopen_use_untuned_mlir \

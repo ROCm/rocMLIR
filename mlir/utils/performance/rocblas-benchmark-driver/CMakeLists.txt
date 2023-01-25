@@ -16,6 +16,7 @@ if (rocblas_FOUND)
   add_llvm_executable(rocblas-benchmark-driver
 
     rocblas-benchmark-driver.cpp
+    ../common/benchmarkUtils.cpp
     DEPENDS ${LIBS})
 
   target_link_libraries(rocblas-benchmark-driver PRIVATE ${LIBS})

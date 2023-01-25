@@ -1,5 +1,4 @@
-//===- ck-benchmark-driver.cpp - Composable Kernel benchmark driver
-//--------===//
+//===---------- ck-benchmark-driver.cpp - CK benchmark driver ------------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -8,9 +7,13 @@
 // Copyright (c) 2022 Advanced Micro Devices Inc.
 //
 //===----------------------------------------------------------------------===//
+//
+// Performance driver to run GEMM kernels from the Composable Kernel library
+//
+//===----------------------------------------------------------------------===//
 
 // Include common utility functions
-#include "../common/common_utils.h"
+#include "../common/benchmarkUtils.h"
 
 // CK includes
 #include "ck/ck.hpp"

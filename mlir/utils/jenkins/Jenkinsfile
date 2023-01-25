@@ -29,7 +29,7 @@ void buildCK(String cmakeOpts) {
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
-        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/bin/hipcc
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc) device_operations'
@@ -338,6 +338,8 @@ pipeline {
                description: 'The MIOpen branch to be used with the job')
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
+        string(name: 'CKBranch', defaultValue: 'develop',
+            description: 'The Composable Kernel branch to be used with the job')
 
 
         // Each below control whether to run a individual stage from parallel run
@@ -817,8 +819,12 @@ pipeline {
                                     -DCMAKE_CXX_FLAGS="-O3"
                                     -DCMAKE_PREFIX_PATH="/opt/rocm"
                                     -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                    -DCMAKE_BUILD_TYPE=Release
                                     ''')
-                                sh 'cd build; make install'
+                                catchError (buildResult: null) {
+                                    sh 'cd build; make -j $(nproc)'
+                                    sh 'cd build; make install'
+                                }
                             }
                         }
                     }
@@ -827,7 +833,8 @@ pipeline {
                             // Clean up build settings to disable static library and allow
                             // ROCm testing
                             sh 'rm build/CMakeCache.txt'
-                            buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver', '')
+                            buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver ck-benchmark-driver', 
+                                         '-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {
@@ -839,7 +846,9 @@ pipeline {
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
 					--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
 					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
-                                sh 'python3 ./bin/perfRunner.py --op=gemm --batch_both --configs_file=../mlir/utils/performance/bert-configs --external-gemm-library CK'
+                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                    --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+                    --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --external-gemm-library CK"""
                             }
                         }
                     }

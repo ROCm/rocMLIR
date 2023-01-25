@@ -24,8 +24,8 @@ class GEMMLibrary(enum.IntEnum):
   def fromName(name: str) -> 'self':
     name = name.lower()
     if name == 'rocblas':
-      return Operation.CONV
+      return GEMMLibrary.ROCBLAS
     elif name == 'ck':
-      return Operation.GEMM
+      return GEMMLibrary.CK
     else:
       raise ValueError(f"Unknown library {name}")

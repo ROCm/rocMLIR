@@ -4,6 +4,7 @@ if(NOT composable_kernel_FOUND)
 endif()
 
 if (composable_kernel_FOUND)
+  find_package(hip REQUIRED PATHS /opt/rocm)
 
   set(LLVM_OPTIONAL_SOURCES
     null.cpp)
@@ -17,6 +18,7 @@ if (composable_kernel_FOUND)
   add_llvm_executable(ck-benchmark-driver
 
     ck-benchmark-driver.cpp
+    ../common/benchmarkUtils.cpp
     DEPENDS ${LIBS})
 
   target_link_libraries(ck-benchmark-driver PRIVATE composable_kernel::device_operations)
