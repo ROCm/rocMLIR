@@ -56,8 +56,9 @@ static void propagateTransformOob(TransformMapAttr transformMap,
     }
     case TransformType::PassThrough:
     case TransformType::Slice:
-    case TransformType::AddDim: {
-      // Zip ends at end of shortes array, allowing addDim here
+    case TransformType::AddDim:
+    case TransformType::ConstDim: {
+      // Zip ends at end of shortes array, allowing addDim and constDim here
       for (auto pair : llvm::zip(upperDims, lowerDims)) {
         uint32_t upper = std::get<0>(pair);
         uint32_t lower = std::get<1>(pair);
@@ -467,7 +468,11 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
           thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
         }
         break;
+      // AddDim drops dimensions down a hole, while ConstDim conjures them
+      // from nowhere. In either case, there is no merge that can be associated
+      // with them.
       case TransformType::AddDim:
+      case TransformType::ConstDim:
         break;
       case TransformType::Embed: {
         // Sort the parameters
@@ -576,6 +581,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
     switch (transform.getType()) {
     case TransformType::PassThrough:
     case TransformType::AddDim:
+    case TransformType::ConstDim:
       for (auto pair : llvm::zip(upperDims, lowerDims)) {
         result[std::get<1>(pair)] = input[std::get<0>(pair)];
       }

@@ -233,10 +233,10 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     return emitError() << "Have " << lowerNames.size() << " names for "
                        << lowerDims.size() << " dimensions";
   }
-  if (type != TransformType::AddDim && lowerDims.size() == 0) {
+  if (type != TransformType::AddDim && lowerDims.empty()) {
     return emitError() << "The transformation must define outputs";
   }
-  if (upperDims.size() == 0) {
+  if (type != TransformType::ConstDim && upperDims.empty()) {
     return emitError() << "The transformation must have at least one input";
   }
 
@@ -246,7 +246,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
       return emitError()
              << "PassThrough must have the same number of inputs and outputs";
     }
-    if (params.size() != 0) {
+    if (!params.empty()) {
       return emitError() << "PassThrough has no parameters";
     }
     break;
@@ -286,7 +286,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != upperDims.size()) {
       return emitError() << "Must supply a size parameter for each dimension";
     }
-    if (lowerDims.size() != 0) {
+    if (!lowerDims.empty()) {
       return emitError() << "The added dimension cannot be mapped anywhere";
     }
     break;
@@ -297,6 +297,21 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != lowerDims.size()) {
       return emitError()
              << "Broadcast must specify the output length for each dimension";
+    }
+    break;
+  case TransformType::ConstDim:
+    if (!upperDims.empty())
+      return emitError() << "ConstDim must not take any inputs";
+    if (params.size() != 2 * lowerDims.size())
+      return emitError()
+             << "ConstDim is parameterized by [value, length] pairs";
+    for (size_t i = 0, e = params.size(); i < e; i += 2) {
+      if (params[i] >= params[i + 1])
+        return emitError() << "For constant dimension " << lowerDims[i / 2]
+                           << " constant value " << params[i]
+                           << " must be less than dimension "
+                              "length "
+                           << params[i + 1];
     }
     break;
   }
