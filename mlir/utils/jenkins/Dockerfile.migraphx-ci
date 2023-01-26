@@ -1,4 +1,4 @@
-FROM rocm/mlir:rocm5.4.2-latest
+FROM rocm/mlir:rocm5.4-latest
 ARG ROCM_PATH=/opt/rocm-5.4.2
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
