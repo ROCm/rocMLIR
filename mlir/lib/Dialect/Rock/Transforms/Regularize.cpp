@@ -23,8 +23,10 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Debug.h"
@@ -137,6 +139,7 @@ struct RegularizeGenericRewritePattern
 ////////////////////////////////////////////////////////////////////////
 ////  Push Transforms Up To GEMM output
 ////////////////////////////////////////////////////////////////////////
+#if 0
 struct PushTransformsUpRewritePattern
     : public OpRewritePattern<memref::AllocOp> {
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
@@ -302,7 +305,105 @@ struct PushTransformsUpRewritePattern
     return lres;
   }
 };
+#else
+////////////////////////////////////////////////////////////////////////
+////  Push Transforms Up To GEMM output
+////////////////////////////////////////////////////////////////////////
+struct PushTransformsUpRewritePattern
+    : public OpRewritePattern<memref::AllocOp> {
+  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
+  /////////////////////////////////////////////////////////////////////
+  static bool collectChain(Value result, Operation *forwOp,
+                           SmallVector<Operation *> &chain) {
+    while (auto top = dyn_cast<rock::TransformOp>(forwOp)) {
+      result = top.getResult();
+      if (!result.hasOneUse()) {
+        return false; // TODO: fix when encountered
+        // return failure(); // currently restricted to 1 reader
+      }
+      chain.push_back(forwOp);
+      forwOp = (*result.getUses().begin()).getOwner();
+    }
+    chain.push_back(forwOp);
+    if (auto lgop = dyn_cast<linalg::GenericOp>(forwOp)) {
+      return llvm::is_contained(lgop.getOutputs(), result);
+    } else if (auto mcop = dyn_cast<memref::CopyOp>(forwOp)) {
+      // should never be output of memcpy?
+      assert(mcop.getTarget() != result);
+      return mcop.getTarget() == result;
+    } else if (auto rgop = dyn_cast<rock::GridwiseGemmOp>(forwOp)) {
+      return rgop.getC() == result;
+    } else if (auto rgop = dyn_cast<rock::GridwiseGemmV2Op>(forwOp)) {
+      return rgop.getC() == result;
+    }
+    assert(0); // unknown op
+    return false;
+  }
+
+  LogicalResult matchAndRewrite(memref::AllocOp alloc,
+                                PatternRewriter &rw) const override {
+    LogicalResult lres = failure();
+    Value buffer = alloc.getResult();
+
+    // find writer and readers (must be a transform)
+    bool hasTransforms = false;
+    Operation *writer = nullptr;
+    SmallVector<SmallVector<Operation *>> readers;
+    for (auto &use : buffer.getUses()) {
+      Operation *useOp = use.getOwner();
+      SmallVector<Operation *> chain;
+      bool isWriter = collectChain(buffer, useOp, chain);
+      if (isWriter) {
+        assert(writer == nullptr);
+        writer = useOp;
+      } else {
+        hasTransforms |= chain.size() > 1;
+        readers.push_back(chain);
+      }
+    }
+    if (hasTransforms) {
+      PatternRewriter::InsertionGuard guard(rw);
+      rw.setInsertionPoint(alloc);
+      Location loc = alloc.getLoc();
+      
+      for (auto reader : readers) {
+        if (reader.size() > 1) {
+          Operation *readOp = reader.back();
+          reader.pop_back();
+          assert(!isa<rock::TransformOp>(readOp));
+          Operation *lastTOp = reader.back();
+          Value readInp = lastTOp->getResult(0);
+          
+          // create new buffer (substitue in reader)
+          MemRefType nbufType = readInp.getType().cast<MemRefType>();
+          Value nbuffer = rw.create<memref::AllocOp>(loc, nbufType).getResult();
+
+          // update reader with new buffer input
+          readOp->replaceUsesOfWith(readInp, nbuffer);
+
+          // insert inverse transforms after new buffer to writer chain
+          Value val = nbuffer;
+          for (auto op : llvm::reverse(reader)) {
+            auto txOp = dyn_cast<rock::TransformOp>(op);
+            auto itx = rock::invertTransformMap(rw, txOp.getTransform());
+            if (!itx) {
+              assert(0);
+              return failure();
+            }
+            auto top = rw.create<rock::TransformOp>(loc, val, itx);
+            val = top.getResult();
+          }
+          writer->replaceUsesOfWith(alloc, val);
+          
+          lres = success();
+        }
+      }
+    }
+    return lres;
+  }
+};
+#endif  
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -321,11 +422,55 @@ void RockRegularizePass::runOnOperation() {
   }
 
   {
+#if 0
+    ConversionTarget target(*ctx);
+    target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
+                           memref::MemRefDialect, linalg::LinalgDialect>();
+    target.addIllegalOp<memref::ExpandShapeOp, memref::CollapseShapeOp>();
+    target.addDynamicallyLegalOp<linalg::GenericOp>([&](linalg::GenericOp lgop) {
+      // parallel
+      for (StringRef iterType :
+             lgop.iterator_types().getAsValueRange<StringAttr>())
+        if (iterType != "parallel")
+          return false; //"Only fully parallel supported"
+
+      // 1 output
+      auto outs = lgop.getOutputs();
+      if (outs.size() > 1)
+        return false; //"Only 1 output supported"
+      Value out = outs[0];
+      auto outType = out.getType().cast<ShapedType>();
+
+      // all index maps must be identity
+      auto idxMaps = lgop.getIndexingMapsArray();
+      auto outIdxMap = idxMaps.back();
+      if (!outIdxMap.isIdentity()) {
+        return false; //"Only output identity map supported"
+      }
+
+      for (auto idxMap : idxMaps) {
+        if (idxMap != outIdxMap)
+          return false; //"Must be same index maps"
+      }
+
+      return true;
+    });
+    
+    RewritePatternSet patterns(ctx);
+    patterns.add<CollapseRewritePattern, ExpandRewritePattern,
+                 RegularizeGenericRewritePattern>(ctx);
+    if (failed(applyPartialConversion(func, target,
+                                      std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+#else
     RewritePatternSet patterns(ctx);
     patterns.add<CollapseRewritePattern, ExpandRewritePattern,
                  RegularizeGenericRewritePattern>(ctx);
     if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
       signalPassFailure();
+#endif
   }
 
   {
