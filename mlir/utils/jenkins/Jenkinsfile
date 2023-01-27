@@ -823,7 +823,7 @@ pipeline {
                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                         -DCMAKE_BUILD_TYPE=Release
                                         ''')
-                                    sh 'cd build/library; make install'
+                                    sh 'cd build/library; make install; cp ../composable_kernelConfig*.cmake ${WORKSPACE}/composable_kernel/build/CKInstallDir/lib/cmake/composable_kernel'
                                 }
                             }
                         }
@@ -834,7 +834,7 @@ pipeline {
                             // ROCm testing
                             sh 'rm build/CMakeCache.txt'
                             buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver ck-benchmark-driver',
-                                         '-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir')
+                                         '-DLLVM_ENABLE_RTTI=ON -DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {
