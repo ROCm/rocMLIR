@@ -1,3 +1,4 @@
+add_subdirectory(common)
 add_subdirectory(rocblas-benchmark-driver)
 add_subdirectory(ck-benchmark-driver)
 

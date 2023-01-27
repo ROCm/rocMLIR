@@ -11,17 +11,16 @@ if (composable_kernel_FOUND)
 
   set(LLVM_LINK_COMPONENTS
     Support)
-  
-  set(LIBS ${composable_kernel_LIBRARY})
+
+  set(LIBS composable_kernel::device_operations hip::device benchmark-driver-utils)
 
   set(EXCLUDE_FROM_ALL TRUE)
   add_llvm_executable(ck-benchmark-driver
 
     ck-benchmark-driver.cpp
-    ../common/benchmarkUtils.cpp
     DEPENDS ${LIBS})
 
-  target_link_libraries(ck-benchmark-driver PRIVATE composable_kernel::device_operations)
+  target_link_libraries(ck-benchmark-driver PRIVATE ${LIBS})
   llvm_update_compile_flags(ck-benchmark-driver)
   mlir_check_all_link_libraries(ck-benchmark-driver)
 endif()

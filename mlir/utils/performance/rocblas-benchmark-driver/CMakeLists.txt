@@ -10,14 +10,14 @@ if (rocblas_FOUND)
   set(LLVM_LINK_COMPONENTS
     Support)
 
-  set(LIBS ${rocblas_LIBRARY})
+  set(LIBS ${rocblas_LIBRARY} benchmark-driver-utils)
 
   set(EXCLUDE_FROM_ALL TRUE)
-  add_llvm_executable(rocblas-benchmark-driver
 
+  add_llvm_executable(rocblas-benchmark-driver
     rocblas-benchmark-driver.cpp
-    ../common/benchmarkUtils.cpp
-    DEPENDS ${LIBS})
+    DEPENDS ${LIBS}
+  )
 
   target_link_libraries(rocblas-benchmark-driver PRIVATE ${LIBS})
   llvm_update_compile_flags(rocblas-benchmark-driver)

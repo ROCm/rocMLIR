@@ -111,7 +111,7 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
 
   float bestTflops = 0;
   float bestAveTime = 0.0;
-  size_t bestId = 0;
+  size_t bestKernelId = 0;
   std::string bestKernelName = "";
   bool found = false;
 
@@ -132,7 +132,7 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
       if (tflops > bestTflops) {
         bestTflops = tflops;
         bestAveTime = aveTime;
-        bestKernelName = opOptr->getTypeString();
+        bestKernelName = opPtr->GetTypeString();
         bestKernelId = i;
       }
     }
