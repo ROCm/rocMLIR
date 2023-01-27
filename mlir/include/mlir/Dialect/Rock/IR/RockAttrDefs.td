@@ -223,13 +223,14 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      perfStr =
-        std::to_string(getBlockSize()) + ","
-      + std::to_string(getMPerBlock()) + ","
-      + std::to_string(getNPerBlock()) + ","
-      + std::to_string(getKPerBlock()) + ","
-      + std::to_string(getMPerThread()) + ","
-      + std::to_string(getNPerThread());
+      const Twine paramsConcat =
+        Twine(getBlockSize()) + ","
+      + Twine(getMPerBlock()) + ","
+      + Twine(getNPerBlock()) + ","
+      + Twine(getKPerBlock()) + ","
+      + Twine(getMPerThread()) + ","
+      + Twine(getNPerThread());
+      perfStr = paramsConcat.str();
     }
   }];
 
@@ -257,15 +258,16 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      perfStr =
-          std::to_string(getMPerBlock()) + ","
-        + std::to_string(getNPerBlock()) + ","
-        + std::to_string(getKPerBlock()) + ","
-        + std::to_string(getMPerWave()) + ","
-        + std::to_string(getNPerWave()) + ","
-        + std::to_string(getKpack()) + ","
-        + std::to_string(getForceUnroll()) + ","
+      const Twine paramsConcat = 
+          Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getForceUnroll()) + ","
         + "1"; /* *ThreadCopyMore* */
+      perfStr = paramsConcat.str();
     }
   }];
 
