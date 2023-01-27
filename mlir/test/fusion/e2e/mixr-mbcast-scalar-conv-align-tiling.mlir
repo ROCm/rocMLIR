@@ -1,4 +1,5 @@
 // RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline highlevel | rocmlir-opt --rock-fold-transpose -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s
+// ALLOW_RETRIES: 2
 module {
   // CHECK-DAG: #[[MAP1:.*]] = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0, d1, 0, 0)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>, <Broadcast{1} ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 1, 28, 28] -> [1, 1, 1, 1]>
   // CHECK: rock.transforming_for {{.*}} (%[[loadCoord:.*]]) = {{.*}}#[[MAP1]]

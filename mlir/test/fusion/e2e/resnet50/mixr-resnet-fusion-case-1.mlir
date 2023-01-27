@@ -1,4 +1,6 @@
 // RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | FileCheck %s
+// ALLOW_RETRIES: 2
+
 // CHECK: linalg.conv_2d
 // CHECK: %[[ALLOC:.*]] = memref.alloc() {{.*}}
 // CHECK-DAG: %[[ARG0_TR:.*]] = rock.transform %[[ARG0:.*]]

@@ -684,6 +684,12 @@ struct IndexDiffUpdateRewritePattern
           lowerIndicesDiffMap[q[i]] = lowerDiff;
           lowerIndicesUpdatedMap[q[i]] = newLower;
         }
+      } else if (transformation == TransformType::ConstDim) {
+        for (uint32_t i = 0; i < q.size(); ++i) {
+          // A constant dimension has its original value and no difference
+          lowerIndicesDiffMap[q[i]] = zeroConstantOp;
+          lowerIndicesUpdatedMap[q[i]] = lowerIndicesOriginal[q[i]];
+        }
       }
     } // for (auto mapping : transforms.getOps())
 
