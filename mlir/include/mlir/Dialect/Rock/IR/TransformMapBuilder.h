@@ -243,11 +243,10 @@ public:
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
 
-  // NOTE: there is no builder for constDim but you can add one if you really
-  // want to. If you do so, put some sort of warning in the name, like
-  // assumeDimIsConst(), because, when working from the bottom up,
-  // that transformation is an assertion that a given dimension has a particular
-  // constant value.
+  // Sets `dim`'s entry in the output space / starting dimensions to be a
+  // constant value. Absolutely no checking that said dimension has that
+  // constant value will be performed anywhere in the system.
+  void uncheckedDeclareConstantOutput(StringRef name, int64_t constantVal);
 
   void broadcast(ArrayRef<uint32_t> endDims, ArrayRef<int64_t> endSizes);
 
