@@ -229,7 +229,7 @@ OutliningCandidate::OutliningCandidate(Operation *anchorOp_,
 //         use.set(arg);
 //       }
 //     }
-    params.push_back(val);
+//     params.push_back(val);
   }
   for (auto val : returnVals_) {
     returnVals.push_back(val);
@@ -249,10 +249,10 @@ unsigned OutliningCandidate::getOrderOf(Value value) const {
   // Arguments use the argument number as the order index.
   if (BlockArgument arg = value.dyn_cast<BlockArgument>())
     return arg.getArgNumber();
-  for (unsigned i = 0; i < params.size(); i++) {
-    if (params[i] == value)
-      return i;
-  }
+//   for (unsigned i = 0; i < params.size(); i++) {
+//     if (params[i] == value)
+//       return i;
+//   }
 
   // Otherwise, the result order is offset from the parent op's order.
   auto *definingOp = value.getDefiningOp();
@@ -306,11 +306,11 @@ bool outliningCandidatesEquivalent(OutliningCandidate &one,
     return false;
   }
 
-  if (one.params.size() != two.params.size()) {
+  if (one.dummyBlock->getNumArguments() != two.dummyBlock->getNumArguments()) {
     return false;
   }
-  for (unsigned i = 0; i < one.params.size(); i++) {
-    if (one.params[i].getType() != two.params[i].getType()) {
+  for (unsigned i = 0; i < one.dummyBlock->getNumArguments(); i++) {
+    if (one.dummyBlock->getArgument(i).getType() != two.dummyBlock->getArgument(i).getType()) {
       return false;
     }
   }
