@@ -164,6 +164,7 @@ struct OutliningCandidate {
 
   unsigned addOp(Operation *op, unsigned orderIt);
 
+  std::unique_ptr<Block> dummyBlock;
   Operation *anchorOp;
   SmallVector<Operation *> trailingOps;
   SmallVector<Operation *> leadingOps;
@@ -212,7 +213,22 @@ OutliningCandidate::OutliningCandidate(Operation *anchorOp_,
   for (auto *op : leadingOps_) {
     leadingOps.push_back(op);
   }
+  dummyBlock = std::make_unique<Block>();
   for (auto val : params_) {
+    BlockArgument arg = dummyBlock->addArgument(val.getType(), anchorOp->getLoc());
+    // +++pf: replace
+    auto inCandidate = [&](OpOperand &opnd) {
+                         return opnd.getOwner() == anchorOp ||
+                           llvm::is_contained(leadingOps, opnd.getOwner()) ||
+                           llvm::is_contained(trailingOps, opnd.getOwner());
+                       };
+    val.replaceUsesWithIf(arg, inCandidate);
+//     for (auto &use : val.getUses()) {
+//       if (use == anchorOp || llvm::is_contained(leadingOps, use) ||
+//           llvm::is_contained(trailingOps, use)) {
+//         use.set(arg);
+//       }
+//     }
     params.push_back(val);
   }
   for (auto val : returnVals_) {
@@ -403,7 +419,8 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // candidates.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
     BlockAndValueMapping bvm;
-    for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
+    for (auto it : llvm::zip(newCandidate.dummyBlock->getArguments(),
+                             outlinedFunc.getArguments()))
       bvm.map(std::get<0>(it), std::get<1>(it));
 
     newCandidate.leadingOps.clear();
@@ -438,7 +455,7 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // in numbers where there isn't one.
     b.create<func::ReturnOp>(loc, returnOperands);
 
-    candidates.push_back(newCandidate);
+    candidates.push_back(std::move(newCandidate));
   }
 
   // ------------------------------------------------------------
@@ -645,5 +662,8 @@ void TosaPartitionPass::runOnOperation() {
     // Walk until we've outlined all the anchor ops we can.
     while (func.walk(callback).wasInterrupted()) {
     }
+
+    for (auto &cand : candidates)
+      cand.dummyBlock->dropAllDefinedValueUses();
   }
 }
