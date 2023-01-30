@@ -9,56 +9,172 @@
 //===----------------------------------------------------------------------===//
 
 #include "benchmarkUtils.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/Support/MemAlloc.h"
 
-#include "hip/hip_runtime.h"
+#include <iostream>
+#include <string>
+#include <vector>
 
-llvm::APFloat::Semantics getLlvmFltSemantics(DataType dataType) {
+using namespace benchmark;
+
+namespace {
+
+// Conversion helpers for F16 and BF16
+
+// BF16 conversion
+typedef union cvt_bf16_fp32 {
+  uint32_t u32;
+  unsigned short ushortvec[2];
+  float f32;
+} cvt_bf16_fp32_t;
+
+uint16_t float_to_bfloat16(float src_val) {
+  cvt_bf16_fp32_t target_val;
+  target_val.f32 = src_val;
+  if ((~target_val.u32 & 0x7f800000) == 0) // Inf or NaN
+  {
+    if ((target_val.u32 & 0xffff) != 0) {
+      target_val.u32 |= 0x10000; // Preserve signaling NaN
+    }
+  } else {
+    target_val.u32 += (0x7fff + (target_val.ushortvec[1] &
+                                 1)); // Round to nearest, round to even
+  }
+  return target_val.ushortvec[1];
+}
+
+// F16 conversion (does not support Inf or NaN)
+uint16_t float_to_float16(float flt) {
+  uint32_t x = *(reinterpret_cast<uint32_t *>(&flt));
+
+  const uint32_t b = x + 0x00001000;            // round-to-nearest-even
+  const uint32_t e = (b & 0x7F800000) >> 23;    // exponent
+  const uint32_t m = b & 0x007FFFFF;            // mantissa
+  const uint32_t sign = (b & 0x80000000) >> 16; // sign
+
+  if (e > 112)
+    // normalized case
+    return sign | (((e - 112) << 10) & 0x7C00) | m >> 13;
+
+  if ((e > 101) && (e < 113))
+    // denormalized case
+    return sign | ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1);
+
+  if (e > 143)
+    // saturate
+    return 0x7FFF;
+
+  return sign;
+}
+
+// Print the help message
+void printUsage(const std::string &name) {
+  std::cout << "Usage: \n"
+            << name
+            << " -g numGroups -m numOutRows -n numOutCols -k numReductions -t "
+               "(f32|f16|bf16|i8) \n [--transposeA] [--transposeB] \n "
+               "[--kernel-repeats numKernelRepeats]\n";
+}
+
+// Get a pattern to fill the input tensors. This is because we want to avoid
+// testing things with random data or very simple patterns like all 0s or all 1s
+std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
+  std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
+  std::vector<int> patternInt{1, -1, 2};
+  std::vector<uint8_t> res;
   switch (dataType) {
   case DataType::F32:
-    return llvm::APFloat::S_IEEEsingle;
+    for (auto flt : patternFlt) {
+      auto *p = reinterpret_cast<unsigned char const *>(&flt);
+      res.push_back(p[0]);
+      res.push_back(p[1]);
+      res.push_back(p[2]);
+      res.push_back(p[3]);
+    }
+    break;
   case DataType::F16:
-    return llvm::APFloat::S_IEEEhalf;
+    for (auto flt : patternFlt) {
+      ushort f16flt = float_to_float16(flt);
+      auto *p = reinterpret_cast<unsigned char const *>(&f16flt);
+      res.push_back(p[0]);
+      res.push_back(p[1]);
+    }
+    break;
   case DataType::BF16:
-    return llvm::APFloat::S_BFloat;
+    for (auto flt : patternFlt) {
+      ushort bf16flt = float_to_bfloat16(flt);
+      auto *p = reinterpret_cast<unsigned char const *>(&bf16flt);
+      res.push_back(p[0]);
+      res.push_back(p[1]);
+    }
+    break;
   case DataType::I8:
-    assert(0 && "Can't have i8 floats");
+    for (auto i : patternFlt) {
+      auto *p = reinterpret_cast<unsigned char const *>(&i);
+      res.push_back(p[0]);
+      if (isOut) {
+        res.push_back(p[1]);
+        res.push_back(p[2]);
+        res.push_back(p[3]);
+      }
+    }
+    break;
+  case DataType::UNKNOWN:
+    break;
+  }
+  return res;
+}
+
+DataType parseDataType(const std::string &dataTypeStr) {
+  if (dataTypeStr == "f16") {
+    return DataType::F16;
+  } else if (dataTypeStr == "f32") {
+    return DataType::F32;
+  } else if (dataTypeStr == "bf16") {
+    return DataType::BF16;
+  } else if (dataTypeStr == "i8") {
+    return DataType::I8;
+  } else {
+    return DataType::UNKNOWN;
   }
 }
 
-void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
-  uint8_t *ret = reinterpret_cast<uint8_t *>(llvm::safe_malloc(byteSize));
-  std::vector<llvm::APInt> intPattern;
-  if (dataType != DataType::I8) {
-    std::vector<llvm::APFloat> pattern = {
-        llvm::APFloat(0.5), llvm::APFloat(-1.0), llvm::APFloat(0.75)};
+} // namespace
 
-    llvm::APFloat::Semantics sem = getLlvmFltSemantics(dataType);
+namespace benchmark {
 
-    for (auto &flt : pattern) {
-      bool dontCare = false;
-      flt.convert(llvm::APFloat::EnumToSemantics(sem),
-                  llvm::APFloat::rmNearestTiesToEven, &dontCare);
-      intPattern.push_back(flt.bitcastToAPInt());
+BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
+  BenchmarkArgs res;
+  int i = 1;
+  while (i < argc) {
+    std::string arg = argv[i];
+    if (arg == "-g") {
+      res.gemmG = atoi(argv[++i]);
+    } else if (arg == "-m") {
+      res.gemmM = atoi(argv[++i]);
+    } else if (arg == "-k") {
+      res.gemmK = atoi(argv[++i]);
+    } else if (arg == "-n") {
+      res.gemmN = atoi(argv[++i]);
+    } else if (arg == "--transposeA") {
+      res.transposeA = true;
+    } else if (arg == "--transposeB") {
+      res.transposeB = true;
+    } else if (arg == "-t") {
+      res.dataType = parseDataType(argv[++i]);
+    } else if (arg == "--perf-config" || arg == "--arch") {
+      i++;
+    } else {
+      break;
     }
-  } else { // int8
-    size_t bitWidth = (isOut ? 32 : 8);
-    for (int64_t i : {1, -1, 2}) {
-      intPattern.emplace_back(bitWidth, i);
-    }
+    i++;
   }
 
-  size_t bytesPerElem = intPattern[0].getBitWidth() / 8;
-  size_t elems = byteSize / bytesPerElem;
-  for (size_t i = 0; i < elems; ++i) {
-    const llvm::APInt &elem = intPattern[i % intPattern.size()];
-    for (size_t byte = 0; i < bytesPerElem; ++i) {
-      uint8_t value = elem.extractBitsAsZExtValue(8, byte * 8);
-      ret[byte + bytesPerElem * i] = value;
-    }
+  if (!res.gemmG || !res.gemmK || !res.gemmM || !res.gemmN ||
+      res.dataType == DataType::UNKNOWN) {
+    printUsage(name);
+    exit(1);
   }
-  return ret;
+  return res;
 }
 
 size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
@@ -70,7 +186,61 @@ size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
     return elems * 2;
   case DataType::I8:
     return elems * (isOut ? 4 : 1);
+  case DataType::UNKNOWN:
+    return 0;
   }
+}
+
+size_t getBytesPerElement(DataType dataType, bool isOut) {
+  switch (dataType) {
+  case DataType::F32:
+    return 4;
+  case DataType::F16:
+  case DataType::BF16:
+    return 2;
+  case DataType::I8:
+    return (isOut ? 4 : 1);
+  case DataType::UNKNOWN:
+    assert(0 && "Data type unknown");
+  }
+}
+
+void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
+  uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(byteSize));
+  std::vector<uint8_t> pattern = getPattern(dataType, isOut);
+  size_t patternLen = pattern.size();
+  size_t bytesPerElem = getBytesPerElement(dataType, isOut);
+  size_t elems = byteSize / bytesPerElem;
+  for (size_t i = 0; i < elems; ++i) {
+    for (size_t byte = 0; i < bytesPerElem; ++i) {
+      int elem = pattern[(i % patternLen) * bytesPerElem];
+      ret[bytesPerElem * i + byte] = elem;
+    }
+  }
+  return ret;
+}
+
+void *makeHostConstant(float flt, DataType dataType) {
+  uint32_t bytes = 0;
+  switch (dataType) {
+  case DataType::F32:
+    bytes = *(reinterpret_cast<uint32_t *>(&flt));
+    break;
+  case DataType::F16:
+    bytes = float_to_float16(flt);
+    break;
+  case DataType::BF16:
+    bytes = float_to_bfloat16(flt);
+    break;
+  case DataType::I8:
+    bytes = static_cast<int32_t>(flt);
+    break;
+  case DataType::UNKNOWN:
+    break;
+  }
+  uint32_t *ret = reinterpret_cast<uint32_t *>(malloc(4));
+  *ret = bytes;
+  return ret;
 }
 
 void *getGpuBuffer(const void *hostMem, size_t byteSize) {
@@ -80,3 +250,5 @@ void *getGpuBuffer(const void *hostMem, size_t byteSize) {
       hipMemcpy(gpuBuffer, hostMem, byteSize, hipMemcpyHostToDevice));
   return gpuBuffer;
 }
+
+} // namespace benchmark

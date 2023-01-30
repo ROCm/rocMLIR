@@ -4,21 +4,11 @@ if(NOT hip_FOUND)
 endif()
 
 if (hip_FOUND)
-  set(LLVM_OPTIONAL_SOURCES
-    null.cpp)
-
-  set(LLVM_LINK_COMPONENTS
-    Support)
-
   set(EXCLUDE_FROM_ALL TRUE)
-
-  llvm_add_library(benchmark-driver-utils
-    benchmarkUtils.cpp
-
-    LINK_LIBS
-    hip::device
+  add_library(benchmark-driver-utils benchmarkUtils.cpp)
+  target_link_libraries(benchmark-driver-utils hip::device)
+  set_target_properties(benchmark-driver-utils
+    PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
   )
-
-  llvm_update_compile_flags(benchmark-driver-utils)
-  mlir_check_all_link_libraries(benchmark-driver-utils)
 endif()

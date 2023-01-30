@@ -31,42 +31,25 @@
     }                                                                          \
   } while (0)
 
-static void *makeHostConstant(float val, DataType dataType) {
-  llvm::APInt bytes;
-  if (dataType != DataType::I8) {
-    llvm::APFloat flt(val);
-    llvm::APFloat::Semantics sem = getLlvmFltSemantics(dataType);
-    bool dontCare;
-    flt.convert(llvm::APFloat::EnumToSemantics(sem),
-                llvm::APFloat::rmNearestTiesToEven, &dontCare);
-    bytes = flt.bitcastToAPInt();
-  } else {
-    bytes = llvm::APInt(32, static_cast<int32_t>(val));
-  }
-  bytes = bytes.zextOrTrunc(32);
-  uint32_t memVal = bytes.getZExtValue();
-  uint32_t *ret = reinterpret_cast<uint32_t *>(llvm::safe_malloc(4));
-  *ret = memVal;
-  return ret;
-}
-
-static rocblas_datatype getRocblasType(bool isOut, DataType dataType) {
+static rocblas_datatype getRocblasType(bool isOut,
+                                       benchmark::DataType dataType) {
   switch (dataType) {
-  case DataType::F32:
+  case benchmark::DataType::F32:
     return rocblas_datatype_f32_r;
-  case DataType::F16:
+  case benchmark::DataType::F16:
     return rocblas_datatype_f16_r;
-  case DataType::BF16:
+  case benchmark::DataType::BF16:
     return rocblas_datatype_bf16_r;
-  case DataType::I8:
+  case benchmark::DataType::I8:
     return isOut ? rocblas_datatype_i32_r : rocblas_datatype_i8_r;
+  case benchmark::DataType::UNKNOWN:
+    assert(0 && "Data type unknown");
   }
 }
 
 int main(int argc, char **argv) {
-  auto args = BenchmarkArgs();
-  llvm::cl::ParseCommandLineOptions(argc, argv,
-                                    "rocMLIR rocBLAS benchmark driver");
+  auto args =
+      benchmark::parseCommandLine("rocblas-benchmark-driver", argc, argv);
 
   rocblas_operation blasTransA, blasTransB;
   size_t lda, ldb;
@@ -106,13 +89,13 @@ int main(int argc, char **argv) {
   rocblas_handle handle;
   ROCBLAS_ABORT_IF_FAIL(rocblas_create_handle(&handle));
 
-  void *aHost = allocAndFill(args.dataType, aBytes, false);
-  void *bHost = allocAndFill(args.dataType, bBytes, false);
-  void *cHost = allocAndFill(args.dataType, cBytes, true);
+  void *aHost = benchmark::allocAndFill(args.dataType, aBytes, false);
+  void *bHost = benchmark::allocAndFill(args.dataType, bBytes, false);
+  void *cHost = benchmark::allocAndFill(args.dataType, cBytes, true);
 
-  void *aDevice = getGpuBuffer(aHost, aBytes);
-  void *bDevice = getGpuBuffer(bHost, bBytes);
-  void *cDevice = getGpuBuffer(cHost, cBytes);
+  void *aDevice = benchmark::getGpuBuffer(aHost, aBytes);
+  void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
+  void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
   void *alpha = makeHostConstant(1.0, args.dataType);
   void *beta = makeHostConstant(0.0, args.dataType);

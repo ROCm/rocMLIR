@@ -17,6 +17,9 @@
 
 // CK includes
 #include "ck/ck.hpp"
+// CK __noinline__ definition clashes with the one in libc
+#undef __noinline__
+
 #include "ck/library/tensor_operation_instance/gpu/batched_gemm.hpp"
 #include "ck/library/tensor_operation_instance/gpu/gemm.hpp"
 #include "ck/tensor_operation/gpu/device/device_batched_gemm.hpp"
@@ -65,7 +68,7 @@ template <typename ALayout, typename BLayout, typename DT> struct GemmRunner {
   using Dptr = std::unique_ptr<D>;
 
   static auto makeArg(const Dptr &op_ptr, const GemmMemoryParameters &params,
-                      const BenchmarkArgs &args) {
+                      const benchmark::BenchmarkArgs &args) {
     return op_ptr->MakeArgumentPointer(
         params.aDevice, params.bDevice, params.cDevice, args.gemmM, args.gemmN,
         args.gemmK, params.strideA, params.strideB, params.strideC,
@@ -86,7 +89,7 @@ struct BatchedGemmRunner {
   using Dptr = std::unique_ptr<D>;
 
   static auto makeArg(const Dptr &opPtr, const GemmMemoryParameters &params,
-                      const BenchmarkArgs &args) {
+                      const benchmark::BenchmarkArgs &args) {
     return opPtr->MakeArgumentPointer(
         static_cast<DT *>(params.aDevice), static_cast<DT *>(params.bDevice),
         static_cast<DT *>(params.cDevice), args.gemmM, args.gemmN, args.gemmK,
@@ -104,7 +107,8 @@ struct BatchedGemmRunner {
 // Given the layout of A and B and the data type, loop over the different
 // instances for a given problem size and pick the best configuration
 template <typename OpRunner>
-void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
+void run(const GemmMemoryParameters &params,
+         const benchmark::BenchmarkArgs &args) {
 
   // All instances for a given A/B layout and data type
   const auto opPtrs = OpRunner::getInstances();
@@ -146,7 +150,8 @@ void run(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
 }
 
 template <typename ALayout, typename BLayout, typename DT>
-void runLayout(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
+void runLayout(const GemmMemoryParameters &params,
+               const benchmark::BenchmarkArgs &args) {
 
   assert(params.strideA != 0 && "stride of A should be set");
   assert(params.strideB != 0 && "stride of B should be set");
@@ -160,7 +165,8 @@ void runLayout(const GemmMemoryParameters &params, const BenchmarkArgs &args) {
 }
 
 template <typename DT>
-void runDataType(GemmMemoryParameters params, const BenchmarkArgs &args) {
+void runDataType(GemmMemoryParameters params,
+                 const benchmark::BenchmarkArgs &args) {
   params.strideC = args.gemmN;
   if (args.transposeA && args.transposeB) {
     params.strideA = args.gemmM;
@@ -182,35 +188,34 @@ void runDataType(GemmMemoryParameters params, const BenchmarkArgs &args) {
 }
 
 int main(int argc, char **argv) {
-  auto args = BenchmarkArgs();
-  llvm::cl::ParseCommandLineOptions(argc, argv, "rocMLIR CK benchmark driver");
+  auto args = benchmark::parseCommandLine("ck-benchmark-driver", argc, argv);
 
   size_t batchStrideA = args.gemmM * args.gemmK,
          batchStrideB = args.gemmK * args.gemmN,
          batchStrideC = args.gemmM * args.gemmN;
   size_t aElems = batchStrideA * args.gemmG, bElems = batchStrideB * args.gemmG,
          cElems = batchStrideC * args.gemmG;
-  size_t aBytes = getByteSize(args.dataType, aElems, false),
-         bBytes = getByteSize(args.dataType, bElems, false),
-         cBytes = getByteSize(args.dataType, cElems, true);
+  size_t aBytes = benchmark::getByteSize(args.dataType, aElems, false),
+         bBytes = benchmark::getByteSize(args.dataType, bElems, false),
+         cBytes = benchmark::getByteSize(args.dataType, cElems, true);
 
-  void *aHost = allocAndFill(args.dataType, aBytes, false);
-  void *bHost = allocAndFill(args.dataType, bBytes, false);
-  void *cHost = allocAndFill(args.dataType, cBytes, true);
+  void *aHost = benchmark::allocAndFill(args.dataType, aBytes, false);
+  void *bHost = benchmark::allocAndFill(args.dataType, bBytes, false);
+  void *cHost = benchmark::allocAndFill(args.dataType, cBytes, true);
 
-  void *aDevice = getGpuBuffer(aHost, aBytes);
-  void *bDevice = getGpuBuffer(bHost, bBytes);
-  void *cDevice = getGpuBuffer(cHost, cBytes);
+  void *aDevice = benchmark::getGpuBuffer(aHost, aBytes);
+  void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
+  void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
   auto gemmParams =
       GemmMemoryParameters{aDevice, bDevice,      cDevice,      0,           0,
                            0,       batchStrideA, batchStrideB, batchStrideC};
 
   switch (args.dataType) {
-  case DataType::F32:
+  case benchmark::DataType::F32:
     runDataType<float>(gemmParams, args);
     break;
-  case DataType::F16:
+  case benchmark::DataType::F16:
     runDataType<ck::half_t>(gemmParams, args);
     break;
   default:
