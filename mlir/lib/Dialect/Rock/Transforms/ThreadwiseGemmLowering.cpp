@@ -263,8 +263,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
         offset = b.create<AddIOp>(loc, offset, regCOffset);
 
-        vectorType.dump();
-        // bufferC.dump();
         auto vectorC =
             b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
         auto mfma = b.create<amdgpu::MFMAOp>(

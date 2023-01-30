@@ -534,15 +534,12 @@ struct BlockwiseGemmV2RewritePattern
 
     Value reshapedARegisters = reshapeBuffer(
         b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
-    llvm::errs()<<"reshaped A\n";
     Value reshapedBRegisters = reshapeBuffer(
         b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
-    llvm::errs()<<"reshaped B\n";
 
     Value reshapedCRegisters =
         reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
                       {mRepeats, nRepeats, nResultVectors});
-    llvm::errs()<<"reshaped C\n";
 
     b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
                                          reshapedBRegisters, reshapedCRegisters,
