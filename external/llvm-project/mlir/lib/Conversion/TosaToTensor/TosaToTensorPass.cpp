@@ -35,7 +35,7 @@ public:
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     ConversionTarget target(getContext());
-    target.addIllegalOp<tosa::SliceOp>();
+    target.addIllegalOp<tosa::ReshapeOp, tosa::SliceOp>();
     target.addLegalDialect<arith::ArithmeticDialect>();
     target.addLegalDialect<tensor::TensorDialect>();
 
