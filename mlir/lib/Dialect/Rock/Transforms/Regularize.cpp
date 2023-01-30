@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -52,13 +53,17 @@ struct CollapseRewritePattern
     : public OpRewritePattern<memref::CollapseShapeOp> {
   using OpRewritePattern<memref::CollapseShapeOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(memref::CollapseShapeOp collapse,
-                                PatternRewriter &rw) const override {
-    auto inpType = collapse.getOperand().getType().cast<ShapedType>();
-    auto outType = collapse.getResultType().cast<ShapedType>();
-    auto transform = rock::transformCollapseShape(rw, inpType.getShape(),
-                                                  outType.getShape());
-    rw.replaceOpWithNewOp<rock::TransformOp>(collapse, collapse.getOperand(),
+  LogicalResult matchAndRewrite(memref::CollapseShapeOp collapseOp,
+                                PatternRewriter &rw) const final {
+    Location loc = collapseOp.getLoc();
+    ArrayRef<int64_t> inpShape = collapseOp.getSrcType().getShape();
+    ArrayRef<int64_t> outShape = collapseOp.getResultType().getShape();
+    SmallVector<ReassociationIndices, 4> reassocs = collapseOp.getReassociationIndices();
+
+    rock::TransformMapAttr transform = rock::transformCollapseShape(rw, loc, inpShape, outShape, reassocs);
+    if (!transform)
+      return rw.notifyMatchFailure(loc, "could not translate memref collapse into rock transform");
+    rw.replaceOpWithNewOp<rock::TransformOp>(collapseOp, collapseOp.getSrc(),
                                              transform);
     return success();
   }
@@ -67,13 +72,17 @@ struct CollapseRewritePattern
 struct ExpandRewritePattern : public OpRewritePattern<memref::ExpandShapeOp> {
   using OpRewritePattern<memref::ExpandShapeOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(memref::ExpandShapeOp expand,
-                                PatternRewriter &rw) const override {
-    auto inpType = expand.getOperand().getType().cast<ShapedType>();
-    auto outType = expand.getResultType().cast<ShapedType>();
-    auto transform =
-        rock::transformExpandShape(rw, inpType.getShape(), outType.getShape());
-    rw.replaceOpWithNewOp<rock::TransformOp>(expand, expand.getOperand(),
+  LogicalResult matchAndRewrite(memref::ExpandShapeOp expandOp,
+                                PatternRewriter &rw) const final {
+    Location loc = expandOp.getLoc();
+    ArrayRef<int64_t> inpShape = expandOp.getSrcType().getShape();
+    ArrayRef<int64_t> outShape = expandOp.getResultType().getShape();
+    SmallVector<ReassociationIndices, 4> reassocs = expandOp.getReassociationIndices();
+
+    rock::TransformMapAttr transform = rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
+    if (!transform)
+      return rw.notifyMatchFailure(loc, "could not translate memref expansion into rock transform");
+    rw.replaceOpWithNewOp<rock::TransformOp>(expandOp, expandOp.getSrc(),
                                              transform);
     return success();
   }

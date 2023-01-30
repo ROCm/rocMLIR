@@ -8,8 +8,8 @@
 #ifndef ROCK_UTILITY_TRANSFORMMAPUTILS_H
 #define ROCK_UTILITY_TRANSFORMMAPUTILS_H
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 
 namespace mlir {
 class AffineMap;
@@ -76,12 +76,15 @@ TransformMapAttr invertTransformMap(OpBuilder &b,
                                     TransformMapAttr originalTransformMap,
                                     Location loc);
 
-TransformMapAttr transformCollapseShape(OpBuilder &b,
+TransformMapAttr transformCollapseShape(OpBuilder &b, Location loc,
                                         ArrayRef<int64_t> inpShape,
-                                        ArrayRef<int64_t> outShape);
+                                        ArrayRef<int64_t> outShape,
+                                        ArrayRef<ReassociationIndices> reassocs);
 
-TransformMapAttr transformExpandShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
-                                      ArrayRef<int64_t> outShape);
+TransformMapAttr transformExpandShape(OpBuilder &b, Location loc,
+                                      ArrayRef<int64_t> inpShape,
+                                      ArrayRef<int64_t> outShape,
+                                      ArrayRef<ReassociationIndices> reassocs);
 
 } // end namespace rock
 } // end namespace mlir

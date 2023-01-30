@@ -16,7 +16,9 @@ add_rocmlir_conversion_library(MLIRTosaToRock
   MLIRRockTransforms
   MLIRLinalgUtils
   MLIRPass
+  MLIRTosaToTensor
   MLIRTosaDialect
+  MLIRTensorDialect
   MLIRTosaTransforms
   MLIRSupport
   )

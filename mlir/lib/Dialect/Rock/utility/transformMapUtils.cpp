@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -18,6 +19,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
@@ -868,6 +870,10 @@ AffineMap mlir::rock::composeTransforms(ArrayAttr transforms) {
   return result;
 }
 
+//===----------------------------------------------------------------------===//
+// Converting general MLIR to transformations.
+//===----------------------------------------------------------------------===//
+
 // This function will create a permutation that will permute the originalMap to
 // be a MinorIdentityWithBroadcast. This is used to add a permutation later in
 // the chain.
@@ -1124,207 +1130,109 @@ TransformMapAttr mlir::rock::invertTransformMap(
   return transform.get();
 }
 
-////////////////////////////////////////////////////////////////////////
-static int64_t lookupExact(int64_t val, ArrayRef<int64_t> dims) {
-  for (int64_t i = 0; i < dims.size(); ++i) {
-    if (dims[i] == val) {
-      return i;
-    }
-  }
-  return -1;
-}
+TransformMapAttr mlir::rock::transformCollapseShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+  // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
+  // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
+  //    - inpShape = [1, 12, 12, 32]
+  //    - outShape = [12, 12, 32]
 
-// finds first combination equal to inpSize
-static bool
-findCombination(int64_t inpSize,
-                SmallVector<std::tuple<int64_t, uint32_t>, 8> &outPairs,
-                uint32_t reqLen, uint32_t start, uint32_t curLen, bool check[],
-                SmallVector<uint32_t> &mergeDims) {
-  if (curLen > reqLen)
-    return false;
-  else if (curLen == reqLen) {
-    int64_t outSize = 1;
-    for (size_t i = 0; i < outPairs.size(); i++) {
-      if (check[i])
-        outSize *= std::get<0>(outPairs[i]);
-    }
-    if (outSize == inpSize) {
-      for (size_t i = 0; i < outPairs.size(); i++) {
-        if (check[i])
-          mergeDims.push_back(std::get<1>(outPairs[i]));
-      }
-      return true;
-    }
-    return false;
-  }
-  if (curLen > outPairs.size() || start >= 7) {
-    // terminate
-    return false;
-  }
-  check[start] = true;
-  if (findCombination(inpSize, outPairs, reqLen, start + 1, curLen + 1, check,
-                      mergeDims))
-    return true;
-  check[start] = false;
-  if (findCombination(inpSize, outPairs, reqLen, start + 1, curLen, check,
-                      mergeDims))
-    return true;
-  return false;
-}
+  // This shouldn't happen, but we're checking anyway
+  if (outShape.size() != reassocs.size())
+    return TransformMapAttr();
 
-static void collectMerges(ArrayRef<int64_t> inpShape,
-                          ArrayRef<int64_t> outShape,
-                          SmallVector<SmallVector<uint32_t>> &merges) {
-  SmallVector<int64_t> localInpShape(inpShape);
-  SmallVector<std::tuple<int64_t, uint32_t>, 8> outPairs;
-  for (auto &pair : llvm::enumerate(outShape))
-    outPairs.push_back({pair.value(), pair.index()});
+  llvm::IndexedMap<bool> dimUsed;
+  dimUsed.grow(inpShape.size() - 1);
 
-  // 0. match all exact and merge 1s from outPairs
-  auto oit = outPairs.begin();
-  for (size_t i = 0, e = outPairs.size(); i < e; ++i) {
-    int64_t outDim = std::get<0>(*oit);
-    uint32_t outIdx = std::get<1>(*oit);
-    int64_t fid = lookupExact(outDim, localInpShape);
-    if (fid != -1) {
-      merges[fid].push_back(outIdx);
-      localInpShape[fid] = -1;
-      outPairs.erase(oit);
-    } else {
-      ++oit;
-    }
-  }
+  rock::TopDownTMBuilder transform(b, outShape, loc);
+  for (const auto& [outDim, inpDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : inpDims)
+      dimUsed[dim] = true;
 
-  // 1. look for combinations that match
-  // NO! - kd
-  assert(outPairs.size() <= 8);
-  bool check[8] = {
-      false,
-  };
-  for (const auto &pair : llvm::enumerate(inpShape)) {
-    auto inpIdx = pair.index();
-    if (merges[inpIdx].empty()) {
-      auto inpSize = pair.value();
+    if (inpDims.size() == 1)
+      transform.passThrough(inpDims[0], outDim);
+    else if (inpDims.empty())
+      transform.ignore(transform.startName(outDim));
+    else {
+      SmallVector<SmallString<8>> mergeNamesStore;
       SmallVector<uint32_t> mergeDims;
-      for (uint32_t i = 2; i <= outPairs.size(); ++i) {
-        if (findCombination(inpSize, outPairs, i, 0, 0, check, mergeDims)) {
-          // remove matches
-          for (int32_t i = outPairs.size() - 1; i >= 0; --i) {
-            if (check[i])
-              outPairs.erase(outPairs.begin() + i);
-          }
-          break;
-        }
+      SmallVector<StringRef> mergeNames;
+      SmallVector<int64_t> mergeSizes;
+      for (int64_t inpDim : inpDims) {
+        mergeNamesStore.emplace_back();
+        mergeNames.push_back((Twine("col") + Twine(inpDim)).toStringRef(mergeNamesStore.back()));
+        mergeDims.push_back(inpDim);
+        mergeSizes.push_back(inpShape[inpDim]);
       }
-      assert(!mergeDims.empty());
-      merges[inpIdx].append(mergeDims);
+      // Remove once Paul's asan cleanup lands, this'll just be a StringRef
+      auto startName = transform.startName(outDim);
+      transform.merge(mergeNames, mergeDims, startName, mergeSizes);
     }
   }
 
-  // 2. the rest are 1s
-  for (auto &pair : outPairs) {
-    assert(std::get<0>(pair) == 1);
-    size_t outIdx = std::get<1>(pair);
-    uint32_t fid = std::min(outIdx, inpShape.size() - 1);
-    merges[fid].push_back(outIdx);
+  // Dimensions not mentioned in the collapse are unit dimensions that need
+  // constant values.
+  for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
+    if (dimUsed[i])
+      continue;
+    if (inpShape[i] != 1)
+      LLVM_DEBUG(llvm::dbgs() << "Collapse omits a non-identity dimension, can't happen\n");
+      return TransformMapAttr();
+    SmallString<8> constDimNameStore;
+    StringRef constDimName = (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
+    transform.constDim(constDimName, i, /*constantVal=*/0, /*lowerSize=*/1);
   }
+  return transform.get();
 }
 
-// More commentary: actually pass in the location here.
-TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b,
-                                                  ArrayRef<int64_t> inpShape,
-                                                  ArrayRef<int64_t> outShape) {
+TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
   // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} :
   // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
   //    - inpShape = [1, 12, 384]
   //    - outShape = [1, 12, 12, 32]
 
-  assert(inpShape.size() < outShape.size() &&
-         "shape expansion must add dimensions");
+  // Shouldn't happen, but let's check anyway
+  if (inpShape.size() != reassocs.size())
+    return TransformMapAttr();
 
-  // Special case where a scalar memref is being given unit dimensions
-  if (inpShape.empty()) {
-    rock::BottomUpTMBuilder transform(b, {}, {}, b.getUnknownLoc());
-    for (size_t i = 0, e = outShape.size(); i < e; ++i) {
-      SmallString<8> name;
-      (Twine("exp") + Twine(i)).toVector(name);
-      transform.addDim(name, i, /*size=*/1);
+  llvm::IndexedMap<bool> dimDefined;
+  dimDefined.grow(outShape.size() - 1);
+
+  rock::BottomUpTMBuilder transform(b, inpShape, loc);
+  for (const auto& [inpDim, outDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : outDims)
+      dimDefined[dim] = true;
+
+    if (outDims.size() == 1)
+      transform.passThrough(outDims[0], inpDim);
+    else if (outDims.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "Empty reassocation list in expand_shape, shouldn't happen\n");
+      return TransformMapAttr();
     }
-    return transform.get();
-  }
-
-  SmallVector<SmallVector<uint32_t>> merges(inpShape.size(), {});
-  collectMerges(inpShape, outShape, merges);
-
-  rock::BottomUpTMBuilder transform(b, inpShape, b.getUnknownLoc());
-  for (auto idxAndMerge : llvm::enumerate(merges)) {
-    uint32_t idx = idxAndMerge.index();
-    auto mergeDims = idxAndMerge.value();
-    if (mergeDims.size() == 1) {
-      transform.passThrough({mergeDims[0]}, {idx});
-    } else {
-      SmallVector<SmallString<8>> mergeNames;
-      SmallVector<int64_t> mergeSizes;
-      SmallVector<StringRef> mergeNameRefs;
-      for (auto midx : mergeDims) {
-        SmallString<8> mname(Twine("exp" + Twine(midx)).str());
-        mergeNames.push_back(mname);
-        mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(outShape[midx]);
+    else {
+      SmallVector<SmallString<8>> unmergeNamesStore;
+      SmallVector<uint32_t> unmergeDims;
+      SmallVector<StringRef> unmergeNames;
+      SmallVector<int64_t> unmergeSizes;
+      for (int64_t outDim : outDims) {
+        unmergeNamesStore.emplace_back();
+        unmergeNames.push_back((Twine("exp") + Twine(outDim)).toStringRef(unmergeNamesStore.back()));
+        unmergeDims.push_back(outDim);
+        unmergeSizes.push_back(outShape[outDim]);
       }
-      transform.unmerge(mergeNameRefs, mergeDims, transform.startName(idx),
-                        mergeSizes);
+      transform.unmerge(unmergeNames, unmergeDims, transform.startName(inpDim), unmergeSizes);
     }
   }
 
-  return transform.get();
-}
-
-TransformMapAttr
-mlir::rock::transformCollapseShape(OpBuilder &b, ArrayRef<int64_t> inpShape,
-                                   ArrayRef<int64_t> outShape) {
-  // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
-  // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
-  //    - inpShape = [1, 12, 12, 32]
-  //    - outShape = [12, 12, 32]
-  assert(inpShape.size() > outShape.size() &&
-         "collapse_shape must reduce rank");
-
-  // Special case for a memref with N unit dimensions being collapsed to a scaar
-  // memref.
-  if (outShape.empty()) {
-    rock::TopDownTMBuilder transform(b, {}, outShape, b.getUnknownLoc());
-    for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
-      SmallString<8> name;
-      (Twine("cst") + Twine(i)).toVector(name);
-      transform.constDim(name, i, /*constantVal=*/0, /*lowerSize=*/1);
-    }
-    return transform.get();
+  // Dimensions not defined by the expansion rules are ignored unit dimensions.
+  for (size_t i = 0, e = outShape.size(); i < e; ++i) {
+    if (dimDefined[i])
+      continue;
+    if (outShape[i] != 1)
+      LLVM_DEBUG(llvm::dbgs() << "Memref expansion doesn't define a non-unit dimension in the view, can't happen\n");
+      return TransformMapAttr();
+    SmallString<8> unitDimNameStore;
+    StringRef unitDimName = (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
+    transform.addDim(unitDimName, i, 1);
   }
-
-  SmallVector<SmallVector<uint32_t>> merges(outShape.size(), {});
-  collectMerges(outShape, inpShape, merges);
-
-  rock::TopDownTMBuilder transform(b, outShape, b.getUnknownLoc());
-  for (auto idxAndMerge : llvm::enumerate(merges)) {
-    uint32_t idx = idxAndMerge.index();
-    auto mergeDims = idxAndMerge.value();
-    if (mergeDims.size() == 1) {
-      transform.passThrough({mergeDims[0]}, {idx});
-    } else {
-      SmallVector<SmallString<8>> mergeNames;
-      SmallVector<int64_t> mergeSizes;
-      SmallVector<StringRef> mergeNameRefs;
-      for (auto midx : mergeDims) {
-        SmallString<8> mname(Twine("m" + Twine(midx)).str());
-        mergeNames.push_back(mname);
-        mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(inpShape[midx]);
-      }
-      transform.merge(mergeNameRefs, mergeDims, transform.startName(idx),
-                      mergeSizes);
-    }
-  }
-
   return transform.get();
 }

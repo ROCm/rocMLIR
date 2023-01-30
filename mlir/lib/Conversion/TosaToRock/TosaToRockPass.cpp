@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -39,6 +40,15 @@ public:
     if (!func->hasAttr("kernel")) {
       return;
     }
+    // expand tosa.reshape to tensor.collapse_shape and tensor.expand_shape
+    // within kernel functions.
+    OpPassManager pm("func.func");
+    pm.addPass(mlir::tosa::createTosaToTensor());
+    if (failed(runPipeline(pm, func))) {
+      signalPassFailure();
+      return;
+    }
+
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
     RewritePatternSet patterns(&ctx);
@@ -47,8 +57,8 @@ public:
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tosa::ReshapeOp,
-                        tosa::TransposeOp>();
+    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tensor::CollapseShapeOp,
+                        tensor::ExpandShapeOp, tosa::TransposeOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

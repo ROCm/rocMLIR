@@ -22,6 +22,8 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
@@ -56,19 +58,27 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand) {
-  auto loc = op->getLoc();
+                          Value operand, uint32_t idx = 4) {
+  Location loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape()) {
     (void)rw.notifyMatchFailure(
         op, "tosa to rock conversion expects statically shaped tensors");
     return Value();
   }
-  ArrayRef<int64_t> inpShape = oprType.getShape();
-  SmallVector<int64_t> outShape(inpShape);
-  outShape.push_back(1);
-  auto transform = rock::transformExpandShape(rw, inpShape, outShape);
-  return rw.create<rock::TransformOp>(loc, operand, transform);
+  ArrayRef<int64_t> shape = oprType.getShape();
+
+  SmallVector<uint32_t, 8> endDims;
+  SmallVector<uint32_t, 8> startDims;
+  for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
+    startDims.push_back(i);
+    endDims.push_back(i < idx ? i : i + 1);
+  }
+  rock::BottomUpTMBuilder transform(rw, shape, loc);
+  transform.passThrough(endDims, startDims);
+  transform.addDim("g", idx, 1);
+
+  return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
 static std::tuple<StringAttr, Optional<uint32_t>, rock::GemmFeatures>
@@ -188,7 +198,6 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
-    auto *context = op->getContext();
     auto input = operands[0];
     auto filter = operands[1];
     auto bias = operands[2];
@@ -230,8 +239,12 @@ public:
       SmallVector<int64_t, 4> outShape{1, 1, 1};
       outShape.push_back(inpShape[0]);
 
-      auto tx = rock::transformExpandShape(rw, inpShape, outShape);
-      auto biasExpand = rw.create<rock::TransformOp>(loc, bias, tx);
+      // [[0, 1, 2, 3]]
+      SmallVector<ReassociationIndices> reassocs;
+      reassocs.push_back({0, 1, 2, 3});
+
+      rock::TransformMapAttr tx = rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
+      Value biasExpand = rw.create<rock::TransformOp>(loc, bias, tx);
 
       result = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{result, biasExpand});
@@ -292,6 +305,40 @@ public:
   }
 };
 
+struct CollapseShapeRewritePattern : public OpConversionPattern<tensor::CollapseShapeOp> {
+  using OpConversionPattern<tensor::CollapseShapeOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tensor::CollapseShapeOp collapseOp, OpAdaptor adaptor, ConversionPatternRewriter &b) const final {
+    Location loc = collapseOp.getLoc();
+    ArrayRef<int64_t> inpShape = collapseOp.getSrcType().getShape();
+    ArrayRef<int64_t> outShape = collapseOp.getResultType().getShape();
+    SmallVector<ReassociationIndices, 4> reassocs = collapseOp.getReassociationIndices();
+
+    rock::TransformMapAttr collapseAttr = rock::transformCollapseShape(b, loc, inpShape, outShape, reassocs);
+    if (!collapseAttr)
+      return b.notifyMatchFailure(loc, "couldn't translate tensor collapse into rock transforms");
+    b.replaceOpWithNewOp<rock::TransformOp>(collapseOp, adaptor.getSrc(), collapseAttr);
+    return success();
+  }
+};
+
+struct ExpandShapeRewritePattern : public OpConversionPattern<tensor::ExpandShapeOp> {
+  using OpConversionPattern<tensor::ExpandShapeOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tensor::ExpandShapeOp expandOp, OpAdaptor adaptor, ConversionPatternRewriter &b) const final {
+    Location loc = expandOp.getLoc();
+    ArrayRef<int64_t> inpShape = expandOp.getSrcType().getShape();
+    ArrayRef<int64_t> outShape = expandOp.getResultType().getShape();
+    SmallVector<ReassociationIndices, 4> reassocs = expandOp.getReassociationIndices();
+
+    rock::TransformMapAttr expandAttr = rock::transformExpandShape(b, loc, inpShape, outShape, reassocs);
+    if (!expandAttr)
+      return b.notifyMatchFailure(loc, "could not translate tensor expansion into rock transform");
+    b.replaceOpWithNewOp<rock::TransformOp>(expandOp, adaptor.getSrc(), expandAttr);
+    return success();
+  }
+};
+
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
@@ -339,44 +386,11 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     return success();
   }
 };
-
-struct ReshapeRewritePattern : public OpRewritePattern<tosa::ReshapeOp> {
-  using OpRewritePattern<tosa::ReshapeOp>::OpRewritePattern;
-
-  // Fold transpose ops and convert convolution into changed layout.
-  // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
-  //           rock.conv.NCHW
-  // Pattern match start from the output transpose
-
-  // %0 = "tosa.reshape"(%arg0) {new_shape = [1, 1, 512]} : (tensor<1x512x1x1xf32>) -> tensor<1x1x512xf32>
-  LogicalResult matchAndRewrite(tosa::ReshapeOp rop,
-                                PatternRewriter &b) const final {
-    // get from ResultType
-    auto cattr = rop->getAttr("new_shape").cast<ArrayAttr>();
-    SmallVector<int64_t> outShape;
-    for (auto sattr : cattr) {
-      outShape.push_back(sattr.cast<IntegerAttr>().getInt());
-    }
-
-    Value inp = rop.getOperand();
-    ShapedType inpType = inp.getType().template cast<ShapedType>();
-    ArrayRef<int64_t> inpShape = inpType.getShape();
-
-    rock::TransformMapAttr transform;
-    if (outShape.size() > inpShape.size()) {
-      transform = rock::transformExpandShape(b, inpShape, outShape);
-    } else {
-      transform = rock::transformCollapseShape(b, inpShape, outShape);
-    }
-    b.replaceOpWithNewOp<rock::TransformOp>(rop, rop.getOperand(), transform);
-    return success();
-  }
-};
-
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter, MatMulConverter>(context);
-  patterns.add<TransposeRewritePattern, ReshapeRewritePattern>(context);
+  patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
+    ExpandShapeRewritePattern>(context);
 }
