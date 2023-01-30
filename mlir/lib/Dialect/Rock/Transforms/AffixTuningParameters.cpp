@@ -58,6 +58,13 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
+  func.walk([&](ReduceOp op) {
+    func::FuncOp funcOp = getOperation();
+    if (!funcOp->hasAttr("block_size")) {
+      funcOp->setAttr("block_size", op.getBlockSizeAttr());
+      funcOp->setAttr("grid_size", op.getGridSizeAttr());
+    }
+  });
   func.walk(
       [&](ZeroInitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
