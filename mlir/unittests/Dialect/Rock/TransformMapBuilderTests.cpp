@@ -197,21 +197,14 @@ TEST_F(TMBuilderTest, AddDim) {
 
 TEST_F(TMBuilderTest, ConstDim) {
   auto buildDown = makeTopDown({}, {});
-  auto buildUp = makeBottomUp({"a", "b", "c"}, {1, 2, 3});
 
   buildDown.constDim("a", 0, 0, 1);
   buildDown.constDim({"b", "c"}, {1, 2}, {1, 2}, {2, 3});
 
-  buildUp.uncheckedDeclareConstantOutput("a", 0);
-  buildUp.uncheckedDeclareConstantOutput("b", 1);
-  buildUp.uncheckedDeclareConstantOutput("c", 2);
-
   TransformMapAttr resDown = buildDown.get();
-  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(resDown.getMap().getAffineMap(),
             AffineMap::get(0, 0, {affC(0), affC(1), affC(2)}, &context));
-  EXPECT_EQ(resDown.getMap().getAffineMap(), resUp.getMap().getAffineMap());
   SmallVector<int64_t> expectedLowerBounds = {1, 2, 3};
   EXPECT_ARRAY_EQ(int64_t, resDown.getLowerBounds(), expectedLowerBounds);
 }

@@ -674,14 +674,6 @@ void BottomUpTMBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
-void BottomUpTMBuilder::uncheckedDeclareConstantOutput(StringRef name,
-                                                       int64_t constantVal) {
-  uint32_t dim = startIndex(name);
-  int64_t size = startSize(name);
-  addTransform(TransformType::ConstDim, {constantVal, size}, {name}, {dim}, {},
-               {});
-}
-
 void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
                                   ArrayRef<int64_t> endSizes) {
   SmallVector<int64_t, 8> params;

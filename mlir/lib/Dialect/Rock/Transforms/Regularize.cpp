@@ -131,7 +131,7 @@ struct RegularizeGenericRewritePattern
     // reset idxmaps
     SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
     lgop.indexing_mapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
-    
+
     return lres;
   }
 };
@@ -366,7 +366,7 @@ struct PushTransformsUpRewritePattern
       PatternRewriter::InsertionGuard guard(rw);
       rw.setInsertionPoint(alloc);
       Location loc = alloc.getLoc();
-      
+
       for (auto reader : readers) {
         if (reader.size() > 1) {
           Operation *readOp = reader.back();
@@ -374,7 +374,7 @@ struct PushTransformsUpRewritePattern
           assert(!isa<rock::TransformOp>(readOp));
           Operation *lastTOp = reader.back();
           Value readInp = lastTOp->getResult(0);
-          
+
           // create new buffer (substitue in reader)
           MemRefType nbufType = readInp.getType().cast<MemRefType>();
           Value nbuffer = rw.create<memref::AllocOp>(loc, nbufType).getResult();
@@ -386,7 +386,7 @@ struct PushTransformsUpRewritePattern
           Value val = nbuffer;
           for (auto op : llvm::reverse(reader)) {
             auto txOp = dyn_cast<rock::TransformOp>(op);
-            auto itx = rock::invertTransformMap(rw, txOp.getTransform());
+            auto itx = rock::invertTransformMap(rw, txOp.getTransform(), loc);
             if (!itx) {
               assert(0);
               return failure();
@@ -395,7 +395,7 @@ struct PushTransformsUpRewritePattern
             val = top.getResult();
           }
           writer->replaceUsesOfWith(alloc, val);
-          
+
           lres = success();
         }
       }
@@ -403,7 +403,7 @@ struct PushTransformsUpRewritePattern
     return lres;
   }
 };
-#endif  
+#endif
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -455,7 +455,7 @@ void RockRegularizePass::runOnOperation() {
 
       return true;
     });
-    
+
     RewritePatternSet patterns(ctx);
     patterns.add<CollapseRewritePattern, ExpandRewritePattern,
                  RegularizeGenericRewritePattern>(ctx);

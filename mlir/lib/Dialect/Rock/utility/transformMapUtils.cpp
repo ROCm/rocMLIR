@@ -1065,59 +1065,59 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
 }
 
 TransformMapAttr mlir::rock::invertTransformMap(
-              OpBuilder &b, mlir::rock::TransformMapAttr transformMap) {
+    OpBuilder &b, mlir::rock::TransformMapAttr transformMap, Location loc) {
+  ArrayRef<int64_t> lowShape = transformMap.getLowerBounds();
+  llvm::IndexedMap<StringRef> lowNamesMap;
+  if (!lowShape.empty())
+    lowNamesMap.grow(lowShape.size() - 1); // grow takes largest index;
+  for (auto transform : transformMap.getOps()) {
+    for (const auto &[name, dim] :
+         llvm::zip(transform.getLowerNames(), transform.getLowerDims())) {
+      lowNamesMap[dim] = name;
+    }
+  }
+  SmallVector<StringRef> lowNames;
+  lowNames.reserve(lowNamesMap.size());
+  for (size_t i = 0, e = lowNamesMap.size(); i < e; ++i) {
+    lowNames.push_back(lowNamesMap[i]);
+  }
 
-  auto lowShape = transformMap.getLowerBounds();
-  auto uppShape = transformMap.getUpperBounds();
-
-  rock::TopDownTMBuilder transform(b, lowShape, b.getUnknownLoc());
+  rock::TopDownTMBuilder transform(b, lowNames, lowShape, loc);
   for (auto tattr : transformMap.getOps()) {
     switch (tattr.getType()) {
     case rock::TransformType::PassThrough:
-      transform.passThrough(tattr.getUpperDims(), tattr.getLowerDims());
+      transform.passThrough(tattr.getUpperNames(), tattr.getUpperDims(),
+                            tattr.getLowerNames());
       break;
     case rock::TransformType::Pad:
     case rock::TransformType::Slice:
     case rock::TransformType::Embed:
-    case rock::TransformType::AddDim:
-    case rock::TransformType::ConstDim:
     case rock::TransformType::Broadcast: // Unsupported
       return rock::TransformMapAttr();
-
-    case rock::TransformType::Unmerge: {
-      auto lowDims = tattr.getLowerDims();
-      assert(lowDims.size() == 1);
-      SmallVector<uint32_t> uppDims(tattr.getUpperDims());
-      SmallVector<SmallString<8>> mergeNames;
-      SmallVector<int64_t> mergeSizes;
-      SmallVector<StringRef> mergeNameRefs;
-      for (auto midx : tattr.getUpperDims()) {
-        SmallString<8> mname(Twine("m" + Twine(midx)).str());
-        mergeNames.push_back(mname);
-        mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(uppShape[midx]);
-      }
-      transform.merge(mergeNameRefs, tattr.getUpperDims(),
-                      transform.startName(lowDims[0]), mergeSizes);
+    case rock::TransformType::AddDim:
+      if (tattr.getParams()[0] != 1)
+        // AddDim of length > 1 has no coherent inverse.
+        return rock::TransformMapAttr();
+      transform.constDim(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                         /*constantVal=*/0, /*lowerSize=*/1);
       break;
-    }
+    case rock::TransformType::ConstDim:
+      for (size_t i = 0, e = tattr.getLowerDims().size(); i < e; ++i) {
+        // Only adding in constant unit dimensions is invertible
+        if (tattr.getParams()[2 * i] != 0 || tattr.getParams()[2 * i + 1] != 1)
+          return rock::TransformMapAttr();
+        transform.ignore(tattr.getLowerNames()[i]);
+      }
+      break;
+    case rock::TransformType::Unmerge:
+      transform.merge(tattr.getUpperNames(), tattr.getUpperDims(),
+                      tattr.getLowerNames()[0], tattr.getParams());
+      break;
     case rock::TransformType::Merge:
-    case rock::TransformType::Unfold: {
-      auto uppDims = tattr.getUpperDims();
-      assert(uppDims.size() == 1);
-      SmallVector<SmallString<8>> mergeNames;
-      SmallVector<int64_t> mergeSizes;
-      SmallVector<StringRef> mergeNameRefs;
-      for (auto midx : tattr.getLowerDims()) {
-        SmallString<8> mname(Twine("dim" + Twine(midx)).str());
-        mergeNames.push_back(mname);
-        mergeNameRefs.push_back(mergeNames.back());
-        mergeSizes.push_back(lowShape[midx]);
-      }
-      transform.unmerge(transform.startName(uppDims[0]), uppDims[0],
-                        mergeNameRefs, mergeSizes);
+    case rock::TransformType::Unfold:
+      transform.unmerge(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                        tattr.getLowerNames(), tattr.getParams());
       break;
-    }
     }
   }
 

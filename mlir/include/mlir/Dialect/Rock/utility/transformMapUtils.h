@@ -73,7 +73,8 @@ Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
 // This function will take an input TransformMapAttr and invert the
 // shapes and transforms.
 TransformMapAttr invertTransformMap(OpBuilder &b,
-                                    TransformMapAttr originalTransformMap);
+                                    TransformMapAttr originalTransformMap,
+                                    Location loc);
 
 TransformMapAttr transformCollapseShape(OpBuilder &b,
                                         ArrayRef<int64_t> inpShape,
