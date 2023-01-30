@@ -215,7 +215,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // ranks, dimensions of each arguments and kernel name.
   int argSize = 0;
   mlirGetKernelInfo(module, &argSize, NULL);
-  void *argInfo = malloc(argSize+1);
+  void *argInfo = malloc(argSize + 1);
   // get the data
   mlirGetKernelInfo(module, NULL, (void *)argInfo);
   int *argData = (int *)argInfo;
@@ -233,7 +233,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // The last part of the retrieved data contains the kernel name.
   char *nameData = (char *)(argData + idx);
-  ((char*)argInfo)[argSize] = '\0';
+  ((char *)argInfo)[argSize] = '\0';
   printf("kernel name : %s\n", nameData);
 
   // 2nd pipeline to call
