@@ -19,6 +19,7 @@ def printEscapedString(data, out):
             out.write('\\' + hex(ord(c) >> 4)[2:] + hex(ord(c) & 0x0F)[2:])
     print("mlir type: array<" + str(len(data)) + ", i8>")
 
+# This convert generate hsaco as attribute from args.i to args.o
 def genAttrFromHsaco(args):
     with open(args.i, 'rb') as f:
         # Read the entire contents of the file into a bytes object
@@ -40,7 +41,6 @@ def add_args():
 def main(args):
     if (args.o == None):
         args.o = args.i.rsplit('.', maxsplit=1)[0] + ".attr"
-    print("Converting from " + args.i + " to " + args.o)
     genAttrFromHsaco(args)
 
 if __name__ == "__main__":
