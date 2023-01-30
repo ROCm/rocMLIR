@@ -58,11 +58,14 @@ struct CollapseRewritePattern
     Location loc = collapseOp.getLoc();
     ArrayRef<int64_t> inpShape = collapseOp.getSrcType().getShape();
     ArrayRef<int64_t> outShape = collapseOp.getResultType().getShape();
-    SmallVector<ReassociationIndices, 4> reassocs = collapseOp.getReassociationIndices();
+    SmallVector<ReassociationIndices, 4> reassocs =
+        collapseOp.getReassociationIndices();
 
-    rock::TransformMapAttr transform = rock::transformCollapseShape(rw, loc, inpShape, outShape, reassocs);
+    rock::TransformMapAttr transform =
+        rock::transformCollapseShape(rw, loc, inpShape, outShape, reassocs);
     if (!transform)
-      return rw.notifyMatchFailure(loc, "could not translate memref collapse into rock transform");
+      return rw.notifyMatchFailure(
+          loc, "could not translate memref collapse into rock transform");
     rw.replaceOpWithNewOp<rock::TransformOp>(collapseOp, collapseOp.getSrc(),
                                              transform);
     return success();
@@ -77,11 +80,14 @@ struct ExpandRewritePattern : public OpRewritePattern<memref::ExpandShapeOp> {
     Location loc = expandOp.getLoc();
     ArrayRef<int64_t> inpShape = expandOp.getSrcType().getShape();
     ArrayRef<int64_t> outShape = expandOp.getResultType().getShape();
-    SmallVector<ReassociationIndices, 4> reassocs = expandOp.getReassociationIndices();
+    SmallVector<ReassociationIndices, 4> reassocs =
+        expandOp.getReassociationIndices();
 
-    rock::TransformMapAttr transform = rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
+    rock::TransformMapAttr transform =
+        rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
     if (!transform)
-      return rw.notifyMatchFailure(loc, "could not translate memref expansion into rock transform");
+      return rw.notifyMatchFailure(
+          loc, "could not translate memref expansion into rock transform");
     rw.replaceOpWithNewOp<rock::TransformOp>(expandOp, expandOp.getSrc(),
                                              transform);
     return success();
@@ -98,7 +104,6 @@ struct RegularizeGenericRewritePattern
   LogicalResult matchAndRewrite(linalg::GenericOp lgop,
                                 PatternRewriter &rw) const override {
     LogicalResult lres = failure();
-    Location loc = lgop.getLoc();
 
     // parallel
     for (StringRef iterType :

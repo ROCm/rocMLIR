@@ -76,10 +76,10 @@ TransformMapAttr invertTransformMap(OpBuilder &b,
                                     TransformMapAttr originalTransformMap,
                                     Location loc);
 
-TransformMapAttr transformCollapseShape(OpBuilder &b, Location loc,
-                                        ArrayRef<int64_t> inpShape,
-                                        ArrayRef<int64_t> outShape,
-                                        ArrayRef<ReassociationIndices> reassocs);
+TransformMapAttr
+transformCollapseShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+                       ArrayRef<int64_t> outShape,
+                       ArrayRef<ReassociationIndices> reassocs);
 
 TransformMapAttr transformExpandShape(OpBuilder &b, Location loc,
                                       ArrayRef<int64_t> inpShape,

@@ -1130,21 +1130,27 @@ TransformMapAttr mlir::rock::invertTransformMap(
   return transform.get();
 }
 
-TransformMapAttr mlir::rock::transformCollapseShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+TransformMapAttr mlir::rock::transformCollapseShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
   // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
   // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
   //    - inpShape = [1, 12, 12, 32]
   //    - outShape = [12, 12, 32]
 
   // This shouldn't happen, but we're checking anyway
-  if (outShape.size() != reassocs.size())
+  if (outShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Collapse output shape doesn't match number of reassociations\n");
     return TransformMapAttr();
+  }
 
   llvm::IndexedMap<bool> dimUsed;
   dimUsed.grow(inpShape.size() - 1);
 
   rock::TopDownTMBuilder transform(b, outShape, loc);
-  for (const auto& [outDim, inpDims] : llvm::enumerate(reassocs)) {
+  for (const auto &[outDim, inpDims] : llvm::enumerate(reassocs)) {
     for (int64_t dim : inpDims)
       dimUsed[dim] = true;
 
@@ -1159,7 +1165,8 @@ TransformMapAttr mlir::rock::transformCollapseShape(OpBuilder &b, Location loc, 
       SmallVector<int64_t> mergeSizes;
       for (int64_t inpDim : inpDims) {
         mergeNamesStore.emplace_back();
-        mergeNames.push_back((Twine("col") + Twine(inpDim)).toStringRef(mergeNamesStore.back()));
+        mergeNames.push_back(
+            (Twine("col") + Twine(inpDim)).toStringRef(mergeNamesStore.back()));
         mergeDims.push_back(inpDim);
         mergeSizes.push_back(inpShape[inpDim]);
       }
@@ -1174,52 +1181,64 @@ TransformMapAttr mlir::rock::transformCollapseShape(OpBuilder &b, Location loc, 
   for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
     if (dimUsed[i])
       continue;
-    if (inpShape[i] != 1)
-      LLVM_DEBUG(llvm::dbgs() << "Collapse omits a non-identity dimension, can't happen\n");
+    if (inpShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Collapse omits a non-identity dimension, can't happen\n");
       return TransformMapAttr();
+    }
     SmallString<8> constDimNameStore;
-    StringRef constDimName = (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
+    StringRef constDimName =
+        (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
     transform.constDim(constDimName, i, /*constantVal=*/0, /*lowerSize=*/1);
   }
   return transform.get();
 }
 
-TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape, ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+TransformMapAttr mlir::rock::transformExpandShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
   // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} :
   // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
   //    - inpShape = [1, 12, 384]
   //    - outShape = [1, 12, 12, 32]
 
   // Shouldn't happen, but let's check anyway
-  if (inpShape.size() != reassocs.size())
+  if (inpShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Expand input shape doesn't match number of reassociations\n");
     return TransformMapAttr();
+  }
 
   llvm::IndexedMap<bool> dimDefined;
   dimDefined.grow(outShape.size() - 1);
 
   rock::BottomUpTMBuilder transform(b, inpShape, loc);
-  for (const auto& [inpDim, outDims] : llvm::enumerate(reassocs)) {
+  for (const auto &[inpDim, outDims] : llvm::enumerate(reassocs)) {
     for (int64_t dim : outDims)
       dimDefined[dim] = true;
 
     if (outDims.size() == 1)
       transform.passThrough(outDims[0], inpDim);
     else if (outDims.empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "Empty reassocation list in expand_shape, shouldn't happen\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Empty reassocation list in expand_shape, shouldn't happen\n");
       return TransformMapAttr();
-    }
-    else {
+    } else {
       SmallVector<SmallString<8>> unmergeNamesStore;
       SmallVector<uint32_t> unmergeDims;
       SmallVector<StringRef> unmergeNames;
       SmallVector<int64_t> unmergeSizes;
       for (int64_t outDim : outDims) {
         unmergeNamesStore.emplace_back();
-        unmergeNames.push_back((Twine("exp") + Twine(outDim)).toStringRef(unmergeNamesStore.back()));
+        unmergeNames.push_back((Twine("exp") + Twine(outDim))
+                                   .toStringRef(unmergeNamesStore.back()));
         unmergeDims.push_back(outDim);
         unmergeSizes.push_back(outShape[outDim]);
       }
-      transform.unmerge(unmergeNames, unmergeDims, transform.startName(inpDim), unmergeSizes);
+      transform.unmerge(unmergeNames, unmergeDims, transform.startName(inpDim),
+                        unmergeSizes);
     }
   }
 
@@ -1227,11 +1246,14 @@ TransformMapAttr mlir::rock::transformExpandShape(OpBuilder &b, Location loc, Ar
   for (size_t i = 0, e = outShape.size(); i < e; ++i) {
     if (dimDefined[i])
       continue;
-    if (outShape[i] != 1)
-      LLVM_DEBUG(llvm::dbgs() << "Memref expansion doesn't define a non-unit dimension in the view, can't happen\n");
+    if (outShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "Memref expansion doesn't define a non-unit "
+                                 "dimension in the view, can't happen\n");
       return TransformMapAttr();
+    }
     SmallString<8> unitDimNameStore;
-    StringRef unitDimName = (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
+    StringRef unitDimName =
+        (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
     transform.addDim(unitDimName, i, 1);
   }
   return transform.get();

@@ -243,7 +243,8 @@ public:
       SmallVector<ReassociationIndices> reassocs;
       reassocs.push_back({0, 1, 2, 3});
 
-      rock::TransformMapAttr tx = rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
+      rock::TransformMapAttr tx =
+          rock::transformExpandShape(rw, loc, inpShape, outShape, reassocs);
       Value biasExpand = rw.create<rock::TransformOp>(loc, bias, tx);
 
       result = rw.create<tosa::AddOp>(loc, op.getType(),
@@ -305,36 +306,50 @@ public:
   }
 };
 
-struct CollapseShapeRewritePattern : public OpConversionPattern<tensor::CollapseShapeOp> {
+struct CollapseShapeRewritePattern
+    : public OpConversionPattern<tensor::CollapseShapeOp> {
   using OpConversionPattern<tensor::CollapseShapeOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(tensor::CollapseShapeOp collapseOp, OpAdaptor adaptor, ConversionPatternRewriter &b) const final {
+  LogicalResult matchAndRewrite(tensor::CollapseShapeOp collapseOp,
+                                OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final {
     Location loc = collapseOp.getLoc();
     ArrayRef<int64_t> inpShape = collapseOp.getSrcType().getShape();
     ArrayRef<int64_t> outShape = collapseOp.getResultType().getShape();
-    SmallVector<ReassociationIndices, 4> reassocs = collapseOp.getReassociationIndices();
+    SmallVector<ReassociationIndices, 4> reassocs =
+        collapseOp.getReassociationIndices();
 
-    rock::TransformMapAttr collapseAttr = rock::transformCollapseShape(b, loc, inpShape, outShape, reassocs);
+    rock::TransformMapAttr collapseAttr =
+        rock::transformCollapseShape(b, loc, inpShape, outShape, reassocs);
     if (!collapseAttr)
-      return b.notifyMatchFailure(loc, "couldn't translate tensor collapse into rock transforms");
-    b.replaceOpWithNewOp<rock::TransformOp>(collapseOp, adaptor.getSrc(), collapseAttr);
+      return b.notifyMatchFailure(
+          loc, "couldn't translate tensor collapse into rock transforms");
+    b.replaceOpWithNewOp<rock::TransformOp>(collapseOp, adaptor.getSrc(),
+                                            collapseAttr);
     return success();
   }
 };
 
-struct ExpandShapeRewritePattern : public OpConversionPattern<tensor::ExpandShapeOp> {
+struct ExpandShapeRewritePattern
+    : public OpConversionPattern<tensor::ExpandShapeOp> {
   using OpConversionPattern<tensor::ExpandShapeOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(tensor::ExpandShapeOp expandOp, OpAdaptor adaptor, ConversionPatternRewriter &b) const final {
+  LogicalResult matchAndRewrite(tensor::ExpandShapeOp expandOp,
+                                OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final {
     Location loc = expandOp.getLoc();
     ArrayRef<int64_t> inpShape = expandOp.getSrcType().getShape();
     ArrayRef<int64_t> outShape = expandOp.getResultType().getShape();
-    SmallVector<ReassociationIndices, 4> reassocs = expandOp.getReassociationIndices();
+    SmallVector<ReassociationIndices, 4> reassocs =
+        expandOp.getReassociationIndices();
 
-    rock::TransformMapAttr expandAttr = rock::transformExpandShape(b, loc, inpShape, outShape, reassocs);
+    rock::TransformMapAttr expandAttr =
+        rock::transformExpandShape(b, loc, inpShape, outShape, reassocs);
     if (!expandAttr)
-      return b.notifyMatchFailure(loc, "could not translate tensor expansion into rock transform");
-    b.replaceOpWithNewOp<rock::TransformOp>(expandOp, adaptor.getSrc(), expandAttr);
+      return b.notifyMatchFailure(
+          loc, "could not translate tensor expansion into rock transform");
+    b.replaceOpWithNewOp<rock::TransformOp>(expandOp, adaptor.getSrc(),
+                                            expandAttr);
     return success();
   }
 };
@@ -392,5 +407,5 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter, MatMulConverter>(context);
   patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
-    ExpandShapeRewritePattern>(context);
+               ExpandShapeRewritePattern>(context);
 }
