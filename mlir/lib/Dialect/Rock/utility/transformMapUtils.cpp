@@ -1170,9 +1170,8 @@ TransformMapAttr mlir::rock::transformCollapseShape(
         mergeDims.push_back(inpDim);
         mergeSizes.push_back(inpShape[inpDim]);
       }
-      // Remove once Paul's asan cleanup lands, this'll just be a StringRef
-      auto startName = transform.startName(outDim);
-      transform.merge(mergeNames, mergeDims, startName, mergeSizes);
+      transform.merge(mergeNames, mergeDims, transform.startName(outDim),
+                      mergeSizes);
     }
   }
 
