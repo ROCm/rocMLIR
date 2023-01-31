@@ -101,8 +101,9 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, char *probCStr,
-                               char *perfCStr, float time) {
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
+                               const char *probCStr, const char *perfCStr,
+                               float time) {
   MlirStringRef probStringRef = mlirStringRefCreateFromCString(probCStr);
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
   std::string problem = unwrap(probStringRef).str();

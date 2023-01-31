@@ -211,11 +211,11 @@ void TransformMapBuilder::getStartNames(SmallVectorImpl<StringRef> &names) {
   }
 }
 
-SmallString<8> TransformMapBuilder::startName(uint32_t dim) {
+StringRef TransformMapBuilder::startName(uint32_t dim) {
   return startNames[dim];
 }
 
-SmallString<8> TransformMapBuilder::endName(uint32_t dim) {
+StringRef TransformMapBuilder::endName(uint32_t dim) {
   assert(endNames.count(dim) == 1 &&
          "Dimension not defined in ending dimension space");
   return endNames[dim];
