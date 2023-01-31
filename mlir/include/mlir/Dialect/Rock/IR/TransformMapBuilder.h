@@ -44,8 +44,8 @@ public:
   void getEndNames(SmallVectorImpl<StringRef> &names);
   void getStartNames(SmallVectorImpl<StringRef> &names);
 
-  SmallString<8> startName(uint32_t dim);
-  SmallString<8> endName(uint32_t dim);
+  StringRef startName(uint32_t dim);
+  StringRef endName(uint32_t dim);
   uint32_t startIndex(StringRef name);
   uint32_t endIndex(StringRef name);
 

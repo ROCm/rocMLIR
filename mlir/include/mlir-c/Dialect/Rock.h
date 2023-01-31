@@ -88,8 +88,9 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table);
 // the best performing tuning parameter to simplify the underlying
 // implementation, which can be revisited in the future.
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, char *probCStr,
-                               char *perfCStr, float time);
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
+                               const char *probCStr, const char *perfCStr,
+                               float time);
 
 // Search the tuning table and get the stored best value for the given problem.
 // The definition of the tuning problem is internally described and opaque to
