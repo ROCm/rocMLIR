@@ -21,6 +21,7 @@ namespace {
 // Conversion helpers for F16 and BF16
 
 // BF16 conversion
+// Reference: mlir/tools/rocmlir-gen/bf16convert.hpp
 typedef union cvt_bf16_fp32 {
   uint32_t u32;
   unsigned short ushortvec[2];
@@ -43,6 +44,8 @@ uint16_t float_to_bfloat16(float src_val) {
 }
 
 // F16 conversion (does not support Inf or NaN)
+// Reference-1: https://stackoverflow.com/a/1659563/4066096
+// Reference-2: https://arxiv.org/pdf/2112.08926.pdf (page 28)
 uint16_t float_to_float16(float flt) {
   uint32_t x = *(reinterpret_cast<uint32_t *>(&flt));
 
@@ -108,7 +111,7 @@ std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
     }
     break;
   case DataType::I8:
-    for (auto i : patternFlt) {
+    for (auto i : patternInt) {
       auto *p = reinterpret_cast<unsigned char const *>(&i);
       res.push_back(p[0]);
       if (isOut) {
@@ -124,7 +127,8 @@ std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
   return res;
 }
 
-DataType parseDataType(const std::string &dataTypeStr) {
+// Utility function to convert a string to its correspondent DataType
+DataType strToDataType(const std::string &dataTypeStr) {
   if (dataTypeStr == "f16") {
     return DataType::F16;
   } else if (dataTypeStr == "f32") {
@@ -136,6 +140,30 @@ DataType parseDataType(const std::string &dataTypeStr) {
   } else {
     return DataType::UNKNOWN;
   }
+}
+
+// Utility function to convert a DataType to its string representation
+std::string dataTypeToStr(DataType dataType) {
+  switch (dataType) {
+  case DataType::F32:
+    return "f32";
+  case DataType::F16:
+    return "f16";
+  case DataType::BF16:
+    return "bf16";
+  case DataType::I8:
+    return "i8";
+  case DataType::UNKNOWN:
+    return "unknown";
+  }
+}
+
+// Utility function to convert "true"/"false" to boolean true/false
+bool atob(const std::string &arg) {
+  auto lowercaseArg = arg;
+  transform(lowercaseArg.begin(), lowercaseArg.end(), lowercaseArg.begin(),
+            ::tolower);
+  return (lowercaseArg == "true" ? true : false);
 }
 
 } // namespace
@@ -155,15 +183,16 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       res.gemmK = atoi(argv[++i]);
     } else if (arg == "-n") {
       res.gemmN = atoi(argv[++i]);
-    } else if (arg == "--transposeA") {
-      res.transposeA = true;
-    } else if (arg == "--transposeB") {
-      res.transposeB = true;
+    } else if (arg == "-transA") {
+      res.transposeA = atob(argv[++i]);
+    } else if (arg == "-transB") {
+      res.transposeB = atob(argv[++i]);
     } else if (arg == "-t") {
-      res.dataType = parseDataType(argv[++i]);
+      res.dataType = strToDataType(argv[++i]);
     } else if (arg == "--perf-config" || arg == "--arch") {
       i++;
     } else {
+      std::cerr << "Invalid argument!\n";
       break;
     }
     i++;
@@ -175,6 +204,16 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
     exit(1);
   }
   return res;
+}
+
+void printProblem(BenchmarkArgs args) {
+  std::cout << "G:" << args.gemmG << "\n"
+            << "M: " << args.gemmM << "\n"
+            << "N: " << args.gemmN << "\n"
+            << "K: " << args.gemmK << "\n"
+            << "transA: " << (args.transposeA ? "true" : "false") << "\n"
+            << "transB: " << (args.transposeB ? "true" : "false") << "\n"
+            << "DataType: " << dataTypeToStr(args.dataType) << "\n";
 }
 
 size_t getByteSize(DataType dataType, size_t elems, bool isOut) {

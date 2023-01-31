@@ -30,7 +30,11 @@ struct BenchmarkArgs {
   int kernelRepeats;
 };
 
+// Parse command line arguments
 BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv);
+
+// Display the problem we are testing (useful for debug)
+void printProblem(BenchmarkArgs args);
 
 #define HIP_ABORT_IF_FAIL(expr)                                                \
   do {                                                                         \
