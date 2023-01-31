@@ -110,6 +110,14 @@ struct MfmaInsnGroupAttr {
   int64_t mRepeats;
   int64_t nRepeats;
   SmallVector<MFMAParams, 2> imms;
+  // Reduction constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn)
+      : insn{insn}, mRepeats{1}, nRepeats{1},
+        imms{{{0, 0, amdgpu::MFMAPermB::none}}} {}
+  // Broadcast constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn,
+                    const SmallVector<MFMAParams, 2> &imms)
+      : insn{insn}, mRepeats{1}, nRepeats{1}, imms{imms} {}
 };
 
 class MfmaInsnGroup {
