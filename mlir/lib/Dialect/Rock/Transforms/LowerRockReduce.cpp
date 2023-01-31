@@ -124,8 +124,6 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
   Value source;
   std::tie(source, sourceTransformsFromOp) =
       untransform(rewriter, op.getIn(), trMaps);
-  std::tuple<ArrayAttr, ArrayAttr> loadOobDims =
-      computeOobFromTransforms(rewriter, sourceTransformsFromOp);
 
   ArrayRef<int64_t> threadViewShape =
       trMaps[0].cast<TransformMapAttr>().getUpperBounds();
@@ -160,9 +158,8 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointToStart(outLoop.getBody());
     Block::BlockArgListType loadCoords = outLoop.getLowerCoords(/*domain=*/0);
-    GlobalLoadOp loadVal = rewriter.create<GlobalLoadOp>(
-        loc, vectorType, op.getIn(), std::get<0>(loadOobDims),
-        std::get<1>(loadOobDims), loadCoords);
+    GlobalLoadOp loadVal =
+        rewriter.create<GlobalLoadOp>(loc, vectorType, op.getIn(), loadCoords);
     Value loadedReg = rewriter.create<GpuAllocOp>(
         loc, MemRefType::get({vectorLength}, elementType, {},
                              gpu::GPUDialect::getPrivateAddressSpace()));
@@ -187,8 +184,7 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     }
     rewriter.create<GlobalStoreOp>(
         loc, loadedReg, op.getOut(), rewriter.getIndexAttr(vectorLength),
-        StoreMethodAttr::get(rewriter.getContext(), stMethod),
-        std::get<0>(loadOobDims), std::get<1>(loadOobDims), zeroConstantOp,
+        StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
         storeCoords);
   }
   rewriter.eraseOp(op);

@@ -88,9 +88,6 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
   int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
   Type destElemType = dest.getType().cast<MemRefType>().getElementType();
 
-  ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
-  ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
-
   // In general, note that keeping the vectorization of the writeback is safe
   // on account of the fact that vectorization means that the maps for the
   // gemm output (and thus the extra argument) are contiguous in the
@@ -102,15 +99,12 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
     if (copyLength > 1)
       typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-    Value loaded = b.create<GlobalLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
+    Value loaded = b.create<GlobalLoadOp>(loc, typeToLoad, source, loadCoord);
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: the vectorization of extra argument may be smaller than the
     // vectorization of the convolution.
     size_t extraMapInSize = loadCoord.size();
-    std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
-        b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
 
     int64_t lastDim = extraMapInSize - 1;
     int64_t maxVectorLen =
@@ -138,8 +132,7 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(copyLoop.getBody());
       Value loaded = b.create<GlobalLoadOp>(
-          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
+          loc, typeToLoad, source, copyLoop.getLowerCoords(/*domain=*/0));
       b.create<InBoundsStoreOp>(loc, loaded, dest,
                                 copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
     }

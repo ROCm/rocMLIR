@@ -530,10 +530,11 @@ def Rock_TransformingForOp :
       IndexArrayAttr:$strides,
       // This is a derived attribute that holds where in the block arguments
       // the coordinates for each lower domain are stored. It contains
-      // one value for each iteration domain, and a final value for
-      // the start of the iteration arguments. That is, lowerStarts = [0, 2]
+      // one value for each iteration domain, and then two final values:
+      // one for the validity booleans and then a final value for
+      // the start of the iteration arguments. That is, lowerStarts = [0, 2, 3]
       // means there is one iteration domain with two lower coordinates,
-      // while with lowerStarts = [0, 3, 4], there are two iteration domains -
+      // while with lowerStarts = [0, 3, 4, 6], there are two iteration domains -
       // the first with three lower coordinates and the second with one
       I32ElementsAttr:$lowerStarts,
       OptionalAttr<UnitAttr>:$useIndexDiffs,
@@ -560,9 +561,10 @@ def Rock_TransformingForOp :
     That is, the loop
     ```mlir
     %res = rock.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
-      iter_args(%arg0 = %c0) -> (index) bounds [4, 8] {
-      %v = rock.buffer_load {...} %place[%a1, %a2, %a3]
-      rock.buffer_store {...} %v -> %buffer[%i, %j]
+      (%v1, %v2) = validity
+      iter_args(%arg0 = %c0) -> (index) bounds = [4, 8] strides = [1, 1]{
+      %v = rock.buffer_load {...} %place[%a1, %a2, %a3] if %v1
+      rock.buffer_store {...} %v -> %buffer[%i, %j] if %v2
       %cont = addi %arg0, %c1
       rock.yield %cont : index
     }
@@ -574,6 +576,8 @@ def Rock_TransformingForOp :
         %i0_shifted = arith.addi %i0, %d0
         %j0_shifted = arith.addi %j0, %d1
         %a1, %a2, %a3 = [expand affine map in #transform_map1 at %i0_shifted, %j0_shifted]
+        %v1 = [compute validity in #transform_map1 as needed]
+        %v2 = true
         %v = rock.buffer_load {...} %place[%a1, %a2, %a3]
         rock.buffer_store {...} %v -> %buffer[%d0, %d1]
         %cont = arith.addi %arg1, %c1 : index
@@ -648,8 +652,17 @@ def Rock_TransformingForOp :
       return getBody()->getArguments().slice(start, end - start);
     }
     Block::BlockArgListType getLowerCoords() {
-      assert(getLowerStarts().size() == 2 && "Ambiguous call to getLowerCoords() with multple iteration domains");
+      assert(getLowerStarts().size() == 3 && "Ambiguous call to getLowerCoords() with multple iteration domains");
       return getBody()->getArguments().take_front(getLowerStart(1));
+    }
+
+    Block::BlockArgListType getValidities() {
+      uint32_t validityDomain = getLowerStarts().size() - 2;
+      return getLowerCoords(validityDomain);
+    }
+
+    TypedValue<IntegerType> getValidity(uint32_t domain) {
+      return getValidities()[domain];
     }
 
     Block::BlockArgListType getIterArgs() {
@@ -713,8 +726,6 @@ def Rock_BufferLoadOp :
     Rock_Op<"buffer_load">,
     Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "buffer to load from", [MemRead]>:$source,
-      I32ArrayAttr:$leftOobDims,
-      I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
       OptionalAttr<IndexAttr>:$offset)>,
     Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
@@ -729,11 +740,8 @@ def Rock_BufferLoadOp :
     rock.buffer_load uses, if necessary, GPU buffer load intrinsics to
     ensure that out of bounds loads return 0 instead of a garbage value.
 
-    The bounds on each coordinate are zero on the left and
-    the size of the memref in that coordinate on the right.
-    Only dimensions present in `leftOobDims` or `rightOobDims` have their
-    bounds checked on the left or right, respectively.
-    If a load is determined to be out of bounds, its value is 0.
+    If `valid` is false, this operation will ignore the provided coordinates
+    and instead return 0.
 
     This op can perform vector reads.
 
@@ -760,8 +768,6 @@ def Rock_BufferStoreOp :
         VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
       Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "Buffer to store to", [MemWrite]>:$dest,
-      I32ArrayAttr:$leftOobDims,
-      I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
       StoreMethodAttr:$storeMethod,
       OptionalAttr<IndexAttr>:$offset)> {
@@ -770,16 +776,8 @@ def Rock_BufferStoreOp :
   let description = [{
     `rock.buffer_store` stores data to a global buffer, ignoring out of bounds writes.
 
-    A write is out of bounds on the left if a coordinate's value is less than zero,
-    and out of bounds on the right if the coordinate is greater than the size of
-    the memref in that coordinate.
-
-    Only coordinates listed in `leftOobDims` or `rightOobDims` are checked for
-    out of bounds accesses on the left or right, respectively. Coordinates that
-    aren't checked may still be out of bounds but the write will still be permitted
-    to occur.
-
-    Writes that are detected to be out of bounds are ignored.
+    If `valid` is false, the provided coordinates will be ignored and an out
+    of bounds write will be generated.
 
     This op supports vector writes and uses buffer store intrinsics if needed.
 
@@ -842,8 +840,6 @@ def Rock_InBoundsStoreOp :
 def Rock_GlobalLoadOp :
     Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
     Arguments<(ins Arg<AnyMemRef, "source memory", [MemRead]>:$source,
-                   I32ArrayAttr:$leftOobDims,
-                   I32ArrayAttr:$rightOobDims,
                    Variadic<Index>:$sourceCoord)>,
     Results<(outs AnyType:$result)> {
   let summary = "Marker for one or more vectorized global loads";
@@ -867,8 +863,6 @@ def Rock_GlobalStoreOp :
                    AnyMemRef:$dest,
                    IndexAttr:$length,
                    StoreMethodAttr:$storeMethod,
-                   I32ArrayAttr:$leftOobDims,
-                   I32ArrayAttr:$rightOobDims,
                    Index:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Marker for stores to global memory";
@@ -921,16 +915,18 @@ def Rock_ThreadwiseReadIntoOp :
     ```mlir
     %bid = rock.workgroup_id
     %tid = rock.workitem_id
-    rock.transforming_for (%_, %_, %i) = [](%c0, %c0, %c0)
+    rock.transforming_for
       (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%_, %_, %i) = [](%c0, %c0, %c0)
+      (%isValid, %isValid) = isValid
       bounds = [1, 1, L], strides = [1, 1, V] {
-        %v = rock.global_load  {length = V, oobDims=...} %buffer[%args]
+        %v = rock.global_load {length = V} %buffer[%args] if %isValid
         rock.in_bounds_store %v -> %dest[%i]
     }
     ```
     where MAPS is `[#transform_mapM, #transform_mapN]`,
     L is the length of `%dest`, V is the maximum vectorization computed
-    for MAPS, and the oob dimensions are those combputed on MAPS.
+    for MAPS.
 
     The input to extraViews ; (the transforms on %source) must have the form
     (workgroup_id, workitem_id, iteration_number)
@@ -978,8 +974,9 @@ def Rock_ThreadwiseWriteAllOp :
     %tid = rock.workitem_id
     rock.transforming_for (%_, %_, %i) = [](%c0, %c0, %c0)
       (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%na, %isValid) = validity
       bounds = [1, 1, L], strides = [1, 1, V] {
-        rock.global_store set {length = V, oobDims=...} %source[%i] -> %buffer[%args]
+        rock.global_store set {length = V} %source[%i] -> %buffer[%args] if %isValid
     }
     ```
     where MAPS is `[#transform_mapM, #transform_mapN]`,

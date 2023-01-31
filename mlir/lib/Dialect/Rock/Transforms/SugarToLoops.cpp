@@ -67,6 +67,7 @@ struct TransformingForRewritePattern
   using OpRewritePattern<TransformingForOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(TransformingForOp op,
                                 PatternRewriter &b) const override {
+    using AffineResults = SmallVector<Value, 8>;
     Location loc = op.getLoc();
     SmallVector<int64_t> bounds;
     bounds.reserve(op.getBounds().size());
@@ -86,42 +87,63 @@ struct TransformingForRewritePattern
     bool unroll = op.getForceUnroll().value_or(false);
 
     uint32_t nDomains = op.domains();
-    // Compute the initial output values of the lower coordinates.
-    // In the case of an index diff map-based loop, compute all intermediate
-    // results. When there are no index diff maps, use the composed affine map
-    SmallVector<AffineMap, 2> composedMaps;
-    SmallVector<SmallVector<SmallVector<Value, 8>, 2>, 2> lowerInits;
-    for (uint32_t i = 0; i < nDomains; ++i) {
-      SmallVector<SmallVector<Value, 8>, 2> lowerInit;
-      ArrayAttr transforms = op.getTransforms(i);
-      if (transforms.empty()) {
-        SmallVector<Value, 8> init;
-        llvm::copy(op.getUpperInits(i), std::back_inserter(init));
-        lowerInit.push_back(std::move(init));
-        composedMaps.push_back({}); // don't throw off composed maps count
-      } else if (useDiffs) {
+
+    // For each iteration domain, store the initial outputs of each affine map
+    // in the transform chain when using index diffs. When there are no index
+    // diffs, this value is ignored.
+    SmallVector<SmallVector<AffineResults>, 2> lowerInits;
+    // For each domain, store the sequence of composed affine maps needed to
+    // compute the result coordinate, along with the transform map that
+    // triggered each break in the chain. Such a break is created at any point
+    // where the validity of map coordinates is impacted.
+    SmallVector<SmallVector<std::pair<AffineMap, TransformMapAttr>>, 2>
+        allComposedMaps;
+
+    if (useDiffs) {
+      for (uint32_t i = 0; i < nDomains; ++i) {
+        lowerInits.emplace_back();
+        // Needed to handle the empty map case correctly.
+        allComposedMaps.emplace_back();
+        SmallVectorImpl<AffineResults> &lowerInit = lowerInits.back();
+        ArrayAttr transforms = op.getTransforms(i);
+        lowerInit.reserve(transforms.size());
+        if (transforms.empty()) {
+          AffineResults init(op.getUpperInits(i));
+          lowerInit.push_back(init);
+          continue;
+        }
         for (auto t : transforms.getAsRange<TransformMapAttr>()) {
           AffineMap map = t.getMap().getAffineMap();
-          Optional<SmallVector<Value, 8>> init;
-          if (lowerInit.size() == 0)
+          Optional<AffineResults> init;
+          if (lowerInit.empty())
             init = expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
             init =
                 expandAffineMap(b, loc, map, lowerInit[lowerInit.size() - 1]);
           if (!init)
             return failure();
-          lowerInit.push_back(std::move(*init));
+          lowerInit.push_back(*init);
         }
-      } else {
-        AffineMap composed = composeTransforms(transforms);
-        composedMaps.push_back(composed);
-        Optional<SmallVector<Value, 8>> init =
-            expandAffineMap(b, loc, composed, op.getUpperInits(i));
-        if (!init.has_value())
-          return failure();
-        lowerInit.push_back(std::move(*init));
       }
-      lowerInits.push_back(lowerInit);
+    } else { // !useDiffs
+      for (uint32_t i = 0; i < nDomains; ++i) {
+        allComposedMaps.emplace_back();
+        SmallVectorImpl<std::pair<AffineMap, TransformMapAttr>> &composedMaps =
+            allComposedMaps.back();
+        ArrayAttr transforms = op.getTransforms(i);
+        SmallVector<TransformMapAttr> toCompose;
+        for (auto t : transforms.getAsRange<TransformMapAttr>()) {
+          toCompose.push_back(t);
+          if (mapImpactsValidity(t)) {
+            AffineMap composed = composeTransforms(toCompose);
+            composedMaps.emplace_back(composed, t);
+            toCompose.clear();
+          }
+        }
+        // Account for all maps after the last validity impact.
+        AffineMap finalComposed = composeTransforms(toCompose);
+        composedMaps.emplace_back(finalComposed, nullptr);
+      }
     }
 
     // Having done pre-computation, create an affine loop nest over the upper
@@ -140,8 +162,8 @@ struct TransformingForRewritePattern
                    std::back_inserter(iterInits));
       auto loop = ilb.create<AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
-      if (iterInits
-              .empty()) // remove default affine.yield for cleaner code later
+      // remove default affine.yield for cleaner code later
+      if (iterInits.empty())
         b.eraseOp(loop.getBody()->getTerminator());
       ilb = OpBuilder::atBlockBegin(loop.getBody(), ilb.getListener());
       loops.push_back(loop);
@@ -149,41 +171,60 @@ struct TransformingForRewritePattern
 
     // Create code to actually transform the coordinates
     BlockAndValueMapping cloneMap;
+    Block::BlockArgListType validities = op.getValidities();
     for (uint32_t i = 0; i < nDomains; ++i) {
       Block::BlockArgListType lower = op.getLowerCoords(i);
       ArrayAttr transforms = op.getTransforms(i);
       if (!useDiffs || transforms.empty()) {
-        llvm::SmallVector<Value, 5> stepped;
+        AffineResults computed;
+        Value isValid =
+            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+        // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
-          stepped.push_back(
+          computed.push_back(
               ilb.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
         }
-        if (!transforms.empty()) {
-          Optional<SmallVector<Value, 8>> transformed =
-              expandAffineMap(ilb, loc, composedMaps[i], stepped);
+        for (const auto &[composedMap, transform] : allComposedMaps[i]) {
+          if (!composedMap) // empty transformations
+            continue;
+          Optional<AffineResults> transformed =
+              expandAffineMap(ilb, loc, composedMap, computed);
           if (!transformed)
             return failure();
-          stepped.clear();
-          stepped.assign(std::move(*transformed));
+          computed.assign(*transformed);
+          if (transform) { // Time for bounds checks or other validity updates
+            Value validityUpdate =
+                updateValidityAfter(ilb, loc, transform, computed);
+            isValid =
+                b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+          }
         }
-        for (auto p : llvm::zip(lower, stepped)) {
+        for (auto p : llvm::zip(lower, computed)) {
           cloneMap.map(std::get<0>(p), std::get<1>(p));
         }
+        cloneMap.map(validities[i], isValid);
       } else { // index diff maps
         IndexDiffUpdateOp lastDiff;
-        for (auto p : llvm::zip(transforms.getAsRange<TransformMapAttr>(),
-                                lowerInits[i])) {
-          TransformMapAttr t = std::get<0>(p);
-          SmallVector<Value, 8> &lowerInit = std::get<1>(p);
+        Value isValid =
+            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+        for (const auto &[t, lowerInit] : llvm::zip(
+                 transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
             lastDiff = ilb.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
           else
             lastDiff = ilb.create<IndexDiffUpdateOp>(
                 loc, t, lastDiff.getLowerDiff(), lowerInit);
+          if (mapImpactsValidity(t)) {
+            Value validityUpdate =
+                updateValidityAfter(ilb, loc, t, lastDiff.getLowerIndices());
+            isValid =
+                b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+          }
         }
         for (auto p : llvm::zip(lower, lastDiff.getLowerIndices())) {
           cloneMap.map(std::get<0>(p), std::get<1>(p));
         }
+        cloneMap.map(validities[i], isValid);
       }
     }
 
@@ -806,12 +847,6 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
     llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-    for (llvm::APInt leftOobDim :
-         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
-      leftOob.insert(leftOobDim.getZExtValue());
-    for (llvm::APInt rightOobDim :
-         op.getRightOobDims().getAsValueRange<IntegerAttr>())
-      rightOob.insert(rightOobDim.getZExtValue());
 
     // If a coordinate is out of bounds, set that coordinate to the number of
     // elements in the buffer over the stride in that dimension, ensuring
@@ -885,12 +920,6 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
     llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-    for (llvm::APInt leftOobDim :
-         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
-      leftOob.insert(leftOobDim.getZExtValue());
-    for (llvm::APInt rightOobDim :
-         op.getRightOobDims().getAsValueRange<IntegerAttr>())
-      rightOob.insert(rightOobDim.getZExtValue());
 
     // If a coordinate is out of bounds, set that coordinate to the number of
     // elements in the buffer over the stride in that dimension, ensuring
