@@ -25,9 +25,9 @@ struct BenchmarkArgs {
   uint64_t gemmN{0};
   DataType dataType{DataType::UNKNOWN};
 
-  bool transposeA;
-  bool transposeB;
-  int kernelRepeats;
+  bool transposeA{false};
+  bool transposeB{false};
+  int kernelRepeats{1};
 };
 
 // Parse command line arguments

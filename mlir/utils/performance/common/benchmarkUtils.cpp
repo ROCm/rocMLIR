@@ -74,7 +74,8 @@ void printUsage(const std::string &name) {
   std::cout << "Usage: \n"
             << name
             << " -g numGroups -m numOutRows -n numOutCols -k numReductions -t "
-               "(f32|f16|bf16|i8) \n [--transposeA] [--transposeB] \n "
+               "(f32|f16|bf16|i8) \n [-transA=(True|False)] "
+               "[-transB=(True|False)] \n "
                "[--kernel-repeats numKernelRepeats]\n";
 }
 
@@ -171,6 +172,14 @@ bool atob(const std::string &arg) {
 namespace benchmark {
 
 BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
+  // Note: this parsing function is only meant to parse arguments in this
+  // specific form:
+  //
+  // -operation gemm -t dataType --arch arch -g G -m M -k K -n K
+  // -transA={True/False} -transB={True/False} --kernel-repeats=reps
+  // --perf_config=
+  //
+  // issued by the perfRunner.py script
   BenchmarkArgs res;
   int i = 1;
   while (i < argc) {
@@ -183,26 +192,30 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       res.gemmK = atoi(argv[++i]);
     } else if (arg == "-n") {
       res.gemmN = atoi(argv[++i]);
-    } else if (arg == "-transA") {
-      res.transposeA = atob(argv[++i]);
-    } else if (arg == "-transB") {
-      res.transposeB = atob(argv[++i]);
     } else if (arg == "-t") {
       res.dataType = strToDataType(argv[++i]);
-    } else if (arg == "--perf-config" || arg == "--arch") {
+    } else if (arg.rfind("-transA=", 0) == 0) {
+      const int lenTransA = 9;
+      std::string value = arg.substr(lenTransA);
+      res.transposeA = atob(value);
+    } else if (arg.rfind("-transB=", 0) == 0) {
+      const int lenTransB = 9;
+      std::string value = arg.substr(lenTransB);
+      res.transposeB = atob(value);
+    } else if (arg == "--perf_config=" || arg == "--arch" ||
+               arg == "-operation") {
       i++;
+    } else if (arg == "--kernel-repeats") {
+      res.kernelRepeats = atoi(argv[++i]);
     } else {
       std::cerr << "Invalid argument!\n";
+      printUsage(name);
+      exit(1);
       break;
     }
     i++;
   }
 
-  if (!res.gemmG || !res.gemmK || !res.gemmM || !res.gemmN ||
-      res.dataType == DataType::UNKNOWN) {
-    printUsage(name);
-    exit(1);
-  }
   return res;
 }
 

@@ -834,7 +834,9 @@ pipeline {
                             // ROCm testing
                             sh 'rm build/CMakeCache.txt'
                             buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver ck-benchmark-driver',
-                                         '-DLLVM_ENABLE_RTTI=ON -DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir')
+                                         '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang''')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {
