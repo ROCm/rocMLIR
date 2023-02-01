@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRXModelPipeline
   MLIRTosaToArith
   MLIRLinalgToLLVM
   MLIRMathToLLVM
+  MLIRMathToLibm
   MLIRGPUToROCDLTransforms
   MLIRReconcileUnrealizedCasts
   MLIRXModelToGPU
