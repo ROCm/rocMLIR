@@ -28,7 +28,9 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -820,57 +822,44 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
 //===----------------------------------------------------------------------===//
 // BufferLoad lowering.
 //===----------------------------------------------------------------------===//
-// TODO(kdrewnia): use "OOB reads = 0" from hardware to remove
-// hardcoded zero value
+
+/// Return the number of elements in `memref`, accounting for the possibility
+/// of dynamic shapes.
+static Value computeMemRefNumElements(OpBuilder &b, Location loc, Value memref) {
+  auto type = memref.getType().cast<MemRefType>();
+  if (type.hasStaticShape())
+    return b.createOrFold<ConstantIndexOp>(loc, type.getNumElements());
+  Value result = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+  for (int64_t i = 0, e = type.getRank(); i < e; ++i) {
+    Value dimConst = b.createOrFold<arith::ConstantIndexOp>(loc, i);
+    Value dim = b.createOrFold<memref::DimOp>(loc, memref, dimConst);
+    result = b.createOrFold<arith::MulIOp>(loc, b.getIndexType(), dim, result);
+  }
+  return result;
+}
+
 struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
   using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(BufferLoadOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value source = op.getSource();
-    auto sourceType = source.getType().cast<MemRefType>();
-    ArrayRef<int64_t> sourceShape = sourceType.getShape();
-    int64_t sourceNumElems = sourceType.getNumElements();
-    SmallVector<int64_t, 5> sourceStrides;
-    int64_t sourceOffset;
-    if (failed(getStridesAndOffset(sourceType, sourceStrides, sourceOffset))) {
-      return op.emitOpError("Somehow we don't have static strides\n");
-    }
+    Value valid = op.getValid();
 
     Type loadedType = op.getResult().getType();
-    SmallVector<Value, 5> coords;
-    coords.reserve(op.getCoords().size());
-    llvm::copy(op.getCoords(), std::back_inserter(coords));
+    SmallVector<Value, 5> coords(op.getCoords());
 
-    Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
-
-    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-
-    // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer over the stride in that dimension, ensuring
-    // we get an out of bounds store
-    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
-      // oob checks on the right for dimension 0 are already handled by the
-      // buffer intrinsic
-      Value isOob = falseOp;
-      if (rightOob.contains(i) && i != 0) {
-        Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[i],
-            b.createOrFold<ConstantIndexOp>(loc, sourceShape[i]));
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    llvm::APInt validConst = APInt::getZero(1);
+    bool needOobChecks = !matchPattern(valid, m_ConstantInt(&validConst))
+    || validConst.isZero();
+    if (needOobChecks) {
+      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+      Value numElements = computeMemRefNumElements(b, loc, source);
+      for (Value& c : MutableArrayRef<Value>(coords).drop_back()) {
+        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      if (leftOob.contains(i)) {
-        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
-                                      zeroConstantOp);
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
-      }
-      if (isOob != falseOp) {
-        Value oobConst =
-            b.create<ConstantIndexOp>(loc, sourceNumElems / sourceStrides[i]);
-        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
-      }
+      Value& lastCoord = coords.back();
+      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
     // Emit load instruction
@@ -884,8 +873,9 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
               return b.getI32IntegerAttr(offset.getZExtValue());
             })
             .value_or(IntegerAttr());
+    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source, coordsI32, /*boundsCheck=*/true, indexOffset,
+        op, loadedType, source, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
         /*sgprOffset=*/nullptr);
     return success();
   }
@@ -903,47 +893,21 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
 
     Value data = op.getData();
     Value dest = op.getDest();
-    auto destType = dest.getType().cast<MemRefType>();
-    ArrayRef<int64_t> destShape = destType.getShape();
-    int64_t destNumElems = destType.getNumElements();
-    SmallVector<int64_t, 5> destStrides;
-    int64_t destOffset;
-    if (failed(getStridesAndOffset(destType, destStrides, destOffset))) {
-      return op.emitOpError("Somehow we don't have static strides\n");
-    }
+    Value valid = op.getValid();
 
-    SmallVector<Value, 5> coords;
-    coords.reserve(op.getCoords().size());
-    llvm::copy(op.getCoords(), std::back_inserter(coords));
+    SmallVector<Value, 5> coords(op.getCoords());
 
-    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
-
-    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-
-    // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer over the stride in that dimension, ensuring
-    // we get an out of bounds store
-    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
-      // oob checks on the right for dimension 0 are already handled by the
-      // buffer intrinsic
-      Value isOob = falseOp;
-      if (rightOob.contains(i) && i != 0) {
-        Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[i],
-            b.createOrFold<ConstantIndexOp>(loc, destShape[i]));
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    llvm::APInt validConst = APInt::getZero(1);
+    bool needOobChecks = !matchPattern(valid, m_ConstantInt(&validConst))
+    || validConst.isZero();
+    if (needOobChecks) {
+      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+      Value numElements = computeMemRefNumElements(b, loc, dest);
+      for (Value& c : MutableArrayRef<Value>(coords).drop_back()) {
+        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      if (leftOob.contains(i)) {
-        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
-                                      zeroConstantOp);
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
-      }
-      if (isOob != falseOp) {
-        Value oobConst =
-            b.create<ConstantIndexOp>(loc, destNumElems / destStrides[i]);
-        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
-      }
+      Value& lastCoord = coords.back();
+      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
     StoreMethod memoryOp = op.getStoreMethod();
@@ -957,6 +921,7 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
             })
             .value_or(IntegerAttr());
 
+    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     if (memoryOp == StoreMethod::AtomicAdd) {
       // TODO: test padding in atomic add kernels now that we can oob with them
       if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
@@ -970,19 +935,19 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
           b.create<amdgpu::RawBufferAtomicFaddOp>(
-              loc, item, dest, coordsI32, /*boundsCheck=*/true,
+              loc, item, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
               /*indexOffset=*/b.getI32IntegerAttr(i + offset),
               /*sgprOffset=*/nullptr);
         }
         b.eraseOp(op);
       } else {
         b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+            op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
             /*sgprOffset=*/nullptr);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+          op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
           /*sgprOffset=*/nullptr);
     }
     return success();
@@ -1355,8 +1320,15 @@ struct InWarpTransposeRewritePattern
 void RockSugarToLoopsPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   func::FuncOp op = getOperation();
+  // Expand transforming_for loops so that the load/store patterns have as much
+  // info about validity as possible.
+  RewritePatternSet initialLoopPatterns(ctx);
+  initialLoopPatterns.add<TransformingForRewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(initialLoopPatterns))))
+    signalPassFailure();
+
   RewritePatternSet patterns(ctx);
-  patterns.add<TransformingForRewritePattern, ExtractSliceRewritePattern,
+  patterns.add<ExtractSliceRewritePattern,
                InsertSliceRewritePattern, BufferLoadRewritePattern,
                BufferStoreRewritePattern, InBoundsLoadRewritePattern,
                InBoundsStoreRewritePattern, InWarpTransposeRewritePattern>(ctx);

@@ -158,8 +158,9 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointToStart(outLoop.getBody());
     Block::BlockArgListType loadCoords = outLoop.getLowerCoords(/*domain=*/0);
+    Value isValid = outLoop.getValidity(/*domain=*/0);
     GlobalLoadOp loadVal =
-        rewriter.create<GlobalLoadOp>(loc, vectorType, op.getIn(), loadCoords);
+        rewriter.create<GlobalLoadOp>(loc, vectorType, op.getIn(), isValid, loadCoords);
     Value loadedReg = rewriter.create<GpuAllocOp>(
         loc, MemRefType::get({vectorLength}, elementType, {},
                              gpu::GPUDialect::getPrivateAddressSpace()));
@@ -185,6 +186,7 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     rewriter.create<GlobalStoreOp>(
         loc, loadedReg, op.getOut(), rewriter.getIndexAttr(vectorLength),
         StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
+        isValid,
         storeCoords);
   }
   rewriter.eraseOp(op);

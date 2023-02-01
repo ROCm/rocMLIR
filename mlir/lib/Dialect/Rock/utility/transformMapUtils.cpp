@@ -699,6 +699,23 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   return result;
 }
 
+/// Embed operations can create some scenarios that lead to the need to
+/// check if their output falls with the expected range. The first is any
+/// subtraction. The second is the case where
+/// [coifficient] * [max size of upper dim] > [lower bound] for any upper
+/// dimension.
+static bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
+  assert(op.getType() == TransformType::Embed);
+  int64_t lowerBound = map.getLowerBounds()[op.getLowerDims()[0]];
+  ArrayRef<int64_t> dimSizes = map.getUpperBounds();
+  return llvm::any_of(llvm::zip(op.getParams(), op.getUpperDims()),
+      [&](const auto& pair) -> bool {
+    int64_t coefficient = std::get<0>(pair);
+    uint32_t dim = std::get<1>(pair);
+    return (coefficient < 0) || ((dimSizes[dim] * coefficient) > lowerBound);
+  });
+}
+
 bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
   bool result = false;
   for (TransformAttr op : map.getOps()) {
@@ -709,6 +726,8 @@ bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
         // Trivial padding doesn't impact validity
         result |= (params[i] != 0 || params[i + 1] != 0);
       }
+    } else if (type == TransformType::Embed) {
+      result |= embedCanBeInvalid(map, op);
     }
   }
   return result;
@@ -720,6 +739,17 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
   Value isValid =
       b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
+
+  // unsigned < catches both negatives (as all negatives are > the bound)
+  // and being too large on the right.
+  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+    int64_t bound = lowerBounds[lowerDim];
+    Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+    Value output = outputs[lowerDim];
+    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult, output, boundConst);
+    isValid = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
+  };
+
   for (TransformAttr op : map.getOps()) {
     TransformType type = op.getType();
     ArrayRef<uint32_t> lowerDims = op.getLowerDims();
@@ -732,16 +762,12 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
 
         if (params[leftParam] == 0 && params[rightParam] == 0)
           continue;
-        int64_t bound = lowerBounds[lowerDim];
-        Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
-        Value output = outputs[lowerDim];
-        // unsigned < catches both negatives (as all negatives are > the bound)
-        // and being too large on the right.
-        Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
-                                                 output, boundConst);
-        isValid = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds,
-                                                isValid);
+        addLowerDimUltClamp(lowerDim);
       }
+    } if (type == TransformType::Embed) {
+      if (!embedCanBeInvalid(map, op))
+        continue;
+      addLowerDimUltClamp(op.getLowerDims()[0]);
     }
   }
   return isValid;

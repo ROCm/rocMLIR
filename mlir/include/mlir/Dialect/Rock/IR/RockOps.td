@@ -726,8 +726,10 @@ def Rock_BufferLoadOp :
     Rock_Op<"buffer_load">,
     Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "buffer to load from", [MemRead]>:$source,
+      I1:$valid,
       Variadic<Index>:$coords,
-      OptionalAttr<IndexAttr>:$offset)>,
+      OptionalAttr<IndexAttr>:$offset,
+      UnitAttr:$oobIsOverflow)>,
     Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
               VectorOfLengthAndType<[2, 4], [F32]>,
               VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -748,10 +750,15 @@ def Rock_BufferLoadOp :
     If provided, `offset` is a constant offset (in units of the underlying scalar
     data type) that is added to the final coordinates.
 
+    If `oobIsOverflow` is set, then `valid` is ignored and the indices passed to
+    the load are used unconditionally, but the hardware bounds checking is enabled
+    even if if `valid` were always true. This is used to simplify the implementation
+    of elementwise kernels.
+
     The memref must be in global memory (memory space 0).
   }];
   let assemblyFormat = [{
-    $source `[` $coords `]` attr-dict
+    $source `[` $coords `]` `if` $valid attr-dict
     `:` type($source) `,` type($coords) `->` type($result)
   }];
   let hasVerifier = 1;
@@ -768,9 +775,11 @@ def Rock_BufferStoreOp :
         VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
       Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "Buffer to store to", [MemWrite]>:$dest,
+      I1:$valid,
       Variadic<Index>:$coords,
       StoreMethodAttr:$storeMethod,
-      OptionalAttr<IndexAttr>:$offset)> {
+      OptionalAttr<IndexAttr>:$offset,
+      UnitAttr:$oobIsOverflow)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -784,10 +793,15 @@ def Rock_BufferStoreOp :
     `storeMethod` controls whether the data is written to memory, overwriting
     existing contents, or whether it is added to the existing memory atomically.
 
+    If `oobIsOverflow` is set, then `valid` is ignored and the indices passed to
+    the load are used unconditionally, but the hardware bounds checking is enabled
+    even if if `valid` were always true. This is used to simplify the implementation
+    of elementwise kernels.
+
     The buffer must reside in global memory.
   }];
   let assemblyFormat = [{
-    $storeMethod $data `->` $dest `[` $coords `]` attr-dict
+    $storeMethod $data `->` $dest `[` $coords `]` `if` $valid attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
   }];
   let hasVerifier = 1;
@@ -840,6 +854,7 @@ def Rock_InBoundsStoreOp :
 def Rock_GlobalLoadOp :
     Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
     Arguments<(ins Arg<AnyMemRef, "source memory", [MemRead]>:$source,
+                   I1:$valid,
                    Variadic<Index>:$sourceCoord)>,
     Results<(outs AnyType:$result)> {
   let summary = "Marker for one or more vectorized global loads";
@@ -850,7 +865,7 @@ def Rock_GlobalLoadOp :
     instruction permits and to mark the global load loops to allow fusion.
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoord `]` attr-dict
+    $source `[` $sourceCoord `]` `if` $valid attr-dict
     `:` type($source) `->`
     type($result)
   }];
@@ -864,6 +879,7 @@ def Rock_GlobalStoreOp :
                    IndexAttr:$length,
                    StoreMethodAttr:$storeMethod,
                    Index:$sourceCoord,
+                   I1:$valid,
                    Variadic<Index>:$destCoord)> {
   let summary = "Marker for stores to global memory";
   let description = [{
@@ -879,7 +895,7 @@ def Rock_GlobalStoreOp :
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]`
-    `->` $dest `[` $destCoord `]`
+    `->` $dest `[` $destCoord `]` `if` $valid
     `storeMethod` `(` $storeMethod `)` attr-dict
     `:` type($source) `->`
     type($dest) `,` type($destCoord)

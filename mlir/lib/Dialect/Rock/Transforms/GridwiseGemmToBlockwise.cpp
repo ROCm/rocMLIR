@@ -315,7 +315,8 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToEnd(outerLoop.getBody());
     Value loaded = b.create<GlobalLoadOp>(
-        loc, loadType, tensor, outerLoop.getLowerCoords(/*domain=*/0));
+        loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
+        outerLoop.getLowerCoords(/*domain=*/0));
     auto innerLoop = b.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{zero,
@@ -1532,7 +1533,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
     Value loaded = b.create<GlobalLoadOp>(
-        loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+        loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0), loadLoop.getLowerCoords(/*domain=*/0));
     b.create<InBoundsStoreOp>(loc, loaded, dest,
                               loadLoop.getLowerCoords(/*domain=*/1)[2]);
   }
@@ -1577,9 +1578,11 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
-    b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
+    b.create<GlobalStoreOp>(loc, source, buffer,
+                            b.getIndexAttr(vectorLen),
                             op.getStoreMethodAttr(),
                             outLoop.getLowerCoords(/*domain=*/0)[2],
+                            outLoop.getValidity(/*domain=*/1),
                             outLoop.getLowerCoords(/*domain=*/1));
   }
   b.eraseOp(op);

@@ -969,7 +969,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
             parser.parseEqual()) {
           return failure();
         }
-        for (size_t i = 0; i < lowerArgs.size(); i++) {
+        for (size_t i = oldNLower; i < lowerArgs.size(); ++i) {
           lowerArgs[i].type = indexTy;
         }
         ArrayAttr theseTransforms;
@@ -979,7 +979,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         if (parser.parseOperandList(upperInits, Delimiter::Paren)) {
           return failure();
         }
-        if (theseTransforms.size() == 0) {
+        if (theseTransforms.empty()) {
           if (upperInits.size() - oldNUpper != lowerArgs.size() - oldNLower) {
             return parser.emitError(loopIterLoc,
                                     "Expected same number of lower and upper "
@@ -1034,6 +1034,9 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         validitiesLoc, "Expected " + Twine(transforms.size()) +
                            " validity arguments, one per domain, but found " +
                            Twine(lowerArgs.size() - preValiditiesNLower));
+  for (size_t i = preValiditiesNLower, e = lowerArgs.size(); i < e; ++i) {
+    lowerArgs[i].type = b.getI1Type();
+  }
 
   lowerStarts.push_back(lowerArgs.size());
   result.addAttribute(TransformingForOp::getTransformsAttrName(result.name),
@@ -1291,6 +1294,8 @@ LogicalResult BufferLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
 
+  if (nDims == 0)
+    return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   if (sourceType.getMemorySpaceAsInt() != 0)
@@ -1307,6 +1312,8 @@ LogicalResult BufferLoadOp::verify() {
 LogicalResult BufferStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
+  if (nDims == 0)
+    return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   if (destType.getMemorySpaceAsInt() != 0)
