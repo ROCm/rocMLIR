@@ -75,10 +75,12 @@ def Merge : I32EnumAttrCase<"Merge", 5>;
 def Unfold : I32EnumAttrCase<"Unfold", 6>;
 def AddDim : I32EnumAttrCase<"AddDim", 7>;
 def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
+def ConstDim : I32EnumAttrCase<"ConstDim", 9>;
 
 def TransformType : Rock_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast]>;
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast,
+     ConstDim]>;
 
 /// StoreMethod
 

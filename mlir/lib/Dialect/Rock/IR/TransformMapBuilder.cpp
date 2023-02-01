@@ -123,6 +123,13 @@ static AffineMapAttr assembleMapFor(Builder &b,
             b.getAffineDimExpr(upperDim) % b.getAffineConstantExpr(param);
         affExprsMap.insert({lowerDim, expr});
       }
+    } else if (type == TransformType::ConstDim) {
+      for (unsigned i = 0, e = lowerDims.size(); i < e; ++i) {
+        uint32_t lowerDim = lowerDims[i];
+        int64_t constant = params[2 * i];
+        AffineExpr expr = b.getAffineConstantExpr(constant);
+        affExprsMap.insert({lowerDim, expr});
+      }
     } else {
       llvm_unreachable("Handled all the cases in affine map building");
     }
@@ -469,6 +476,31 @@ void TopDownTMBuilder::ignore(StringRef name) {
   addTransform(TransformType::AddDim, {size}, {name}, {dim}, {}, {});
 }
 
+void TopDownTMBuilder::constDim(StringRef lowerName, uint32_t lowerDim,
+                                int64_t constantVal, int64_t lowerSize) {
+  defineDim(lowerName, lowerDim, lowerSize);
+  SmallVector<int64_t> params = {constantVal, lowerSize};
+  addTransform(TransformType::ConstDim, params, {}, {}, {lowerName},
+               {lowerDim});
+}
+
+void TopDownTMBuilder::constDim(ArrayRef<StringRef> lowerNames,
+                                ArrayRef<uint32_t> lowerDims,
+                                ArrayRef<int64_t> constantVals,
+                                ArrayRef<int64_t> lowerSizes) {
+  assert(constantVals.size() == lowerSizes.size() &&
+         "must have equal number of constant values and dimension lengths");
+  SmallVector<int64_t> params;
+  params.reserve(2 * constantVals.size());
+  for (const auto &[name, dim, val, size] :
+       llvm::zip(lowerNames, lowerDims, constantVals, lowerSizes)) {
+    params.emplace_back(val);
+    params.emplace_back(size);
+    defineDim(name, dim, size);
+  }
+  addTransform(TransformType::ConstDim, params, {}, {}, lowerNames, lowerDims);
+}
+
 void TopDownTMBuilder::embed(StringRef lowerName, uint32_t lowerDim,
                              int64_t lowerSize, ArrayRef<StringRef> upperNames,
                              ArrayRef<int64_t> coefficients) {
@@ -551,6 +583,18 @@ void TopDownTMBottomDimsWrapper::pad(ArrayRef<StringRef> outNames,
                                      ArrayRef<StringRef> inNames,
                                      ArrayRef<int64_t> params) {
   b.pad(outNames, toBottomDims(outNames), inNames, params);
+}
+
+void TopDownTMBottomDimsWrapper::constDim(StringRef lowerName,
+                                          int64_t constantVal,
+                                          int64_t lowerSize) {
+  b.constDim(lowerName, bottomDims[lowerName], constantVal, lowerSize);
+}
+
+void TopDownTMBottomDimsWrapper::constDim(ArrayRef<StringRef> lowerNames,
+                                          ArrayRef<int64_t> constantVals,
+                                          ArrayRef<int64_t> lowerSizes) {
+  b.constDim(lowerNames, toBottomDims(lowerNames), constantVals, lowerSizes);
 }
 
 void TopDownTMBottomDimsWrapper::embed(StringRef lowerName, int64_t lowerSize,
