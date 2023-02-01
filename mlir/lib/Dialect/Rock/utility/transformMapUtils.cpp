@@ -709,11 +709,12 @@ static bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
   int64_t lowerBound = map.getLowerBounds()[op.getLowerDims()[0]];
   ArrayRef<int64_t> dimSizes = map.getUpperBounds();
   return llvm::any_of(llvm::zip(op.getParams(), op.getUpperDims()),
-      [&](const auto& pair) -> bool {
-    int64_t coefficient = std::get<0>(pair);
-    uint32_t dim = std::get<1>(pair);
-    return (coefficient < 0) || ((dimSizes[dim] * coefficient) > lowerBound);
-  });
+                      [&](const auto &pair) -> bool {
+                        int64_t coefficient = std::get<0>(pair);
+                        uint32_t dim = std::get<1>(pair);
+                        return (coefficient < 0) ||
+                               ((dimSizes[dim] * coefficient) > lowerBound);
+                      });
 }
 
 bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
@@ -746,8 +747,10 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
     int64_t bound = lowerBounds[lowerDim];
     Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
     Value output = outputs[lowerDim];
-    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult, output, boundConst);
-    isValid = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
+    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
+                                             output, boundConst);
+    isValid =
+        b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
   };
 
   for (TransformAttr op : map.getOps()) {
@@ -764,7 +767,8 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
           continue;
         addLowerDimUltClamp(lowerDim);
       }
-    } if (type == TransformType::Embed) {
+    }
+    if (type == TransformType::Embed) {
       if (!embedCanBeInvalid(map, op))
         continue;
       addLowerDimUltClamp(op.getLowerDims()[0]);

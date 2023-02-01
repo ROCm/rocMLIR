@@ -152,7 +152,11 @@ struct TransformingForRewritePattern
     // rectangle. This'll be unrolled as needed.
     llvm::SmallVector<AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
-    OpBuilder ilb = b;
+
+    // We're about to setInsertionPointTo{Start,End} a bunch to jum around
+    // inside loops, so save the original insertion point to not mess up the
+    // rewriting infrastructure and to avoid copying builders around.
+    OpBuilder::InsertionGuard goingIntoLoopsGuard(b);
     for (const auto &pair : llvm::zip(bounds, strides)) {
       int64_t bound, stride;
       std::tie(bound, stride) = pair;
@@ -162,12 +166,12 @@ struct TransformingForRewritePattern
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
-      auto loop = ilb.create<AffineForOp>(loc, 0, bound, stride, iterInits);
+      auto loop = b.create<AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
       // remove default affine.yield for cleaner code later
       if (iterInits.empty())
         b.eraseOp(loop.getBody()->getTerminator());
-      ilb = OpBuilder::atBlockBegin(loop.getBody(), ilb.getListener());
+      b.setInsertionPointToStart(loop.getBody());
       loops.push_back(loop);
     }
 
@@ -184,19 +188,19 @@ struct TransformingForRewritePattern
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
-              ilb.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
+              b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
         }
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations
             continue;
           Optional<AffineResults> transformed =
-              expandAffineMap(ilb, loc, composedMap, computed);
+              expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
             return failure();
           computed.assign(*transformed);
           if (transform) { // Time for bounds checks or other validity updates
             Value validityUpdate =
-                updateValidityAfter(ilb, loc, transform, computed);
+                updateValidityAfter(b, loc, transform, computed);
             isValid =
                 b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
           }
@@ -212,13 +216,13 @@ struct TransformingForRewritePattern
         for (const auto &[t, lowerInit] : llvm::zip(
                  transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
-            lastDiff = ilb.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
+            lastDiff = b.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
           else
-            lastDiff = ilb.create<IndexDiffUpdateOp>(
+            lastDiff = b.create<IndexDiffUpdateOp>(
                 loc, t, lastDiff.getLowerDiff(), lowerInit);
           if (mapImpactsValidity(t)) {
             Value validityUpdate =
-                updateValidityAfter(ilb, loc, t, lastDiff.getLowerIndices());
+                updateValidityAfter(b, loc, t, lastDiff.getLowerIndices());
             isValid =
                 b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
           }
@@ -241,18 +245,17 @@ struct TransformingForRewritePattern
         for (Value v : op.getBody()->getTerminator()->getOperands()) {
           terminatorArgs.push_back(cloneMap.lookupOrDefault(v));
         }
-        ilb.create<AffineYieldOp>(loc, terminatorArgs);
+        b.create<AffineYieldOp>(loc, terminatorArgs);
       } else {
-        ilb.clone(bodyOp, cloneMap);
+        b.clone(bodyOp, cloneMap);
       }
     }
 
     if (loops.size() > 1) {
       for (size_t i = 0, e = loops.size() - 1; i < e; ++i) {
         AffineForOp inner = loops[i + 1];
-        OpBuilder lb =
-            OpBuilder::atBlockEnd(loops[i].getBody(), b.getListener());
-        lb.create<AffineYieldOp>(loc, inner.getResults());
+        b.setInsertionPointToEnd(loops[i].getBody());
+        b.create<AffineYieldOp>(loc, inner.getResults());
       }
     }
 
@@ -825,7 +828,8 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
 
 /// Return the number of elements in `memref`, accounting for the possibility
 /// of dynamic shapes.
-static Value computeMemRefNumElements(OpBuilder &b, Location loc, Value memref) {
+static Value computeMemRefNumElements(OpBuilder &b, Location loc,
+                                      Value memref) {
   auto type = memref.getType().cast<MemRefType>();
   if (type.hasStaticShape())
     return b.createOrFold<ConstantIndexOp>(loc, type.getNumElements());
@@ -850,15 +854,15 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     SmallVector<Value, 5> coords(op.getCoords());
 
     llvm::APInt validConst = APInt::getZero(1);
-    bool needOobChecks = !matchPattern(valid, m_ConstantInt(&validConst))
-    || validConst.isZero();
+    bool needOobChecks =
+        !matchPattern(valid, m_ConstantInt(&validConst)) || validConst.isZero();
     if (needOobChecks) {
       Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
       Value numElements = computeMemRefNumElements(b, loc, source);
-      for (Value& c : MutableArrayRef<Value>(coords).drop_back()) {
+      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
         c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      Value& lastCoord = coords.back();
+      Value &lastCoord = coords.back();
       lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
@@ -875,7 +879,8 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
             .value_or(IntegerAttr());
     bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
+        op, loadedType, source, coordsI32, /*boundsCheck=*/needHardwareOob,
+        indexOffset,
         /*sgprOffset=*/nullptr);
     return success();
   }
@@ -898,15 +903,15 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     SmallVector<Value, 5> coords(op.getCoords());
 
     llvm::APInt validConst = APInt::getZero(1);
-    bool needOobChecks = !matchPattern(valid, m_ConstantInt(&validConst))
-    || validConst.isZero();
+    bool needOobChecks =
+        !matchPattern(valid, m_ConstantInt(&validConst)) || validConst.isZero();
     if (needOobChecks) {
       Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
       Value numElements = computeMemRefNumElements(b, loc, dest);
-      for (Value& c : MutableArrayRef<Value>(coords).drop_back()) {
+      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
         c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      Value& lastCoord = coords.back();
+      Value &lastCoord = coords.back();
       lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
@@ -942,12 +947,14 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
         b.eraseOp(op);
       } else {
         b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
+            op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
+            indexOffset,
             /*sgprOffset=*/nullptr);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob, indexOffset,
+          op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
+          indexOffset,
           /*sgprOffset=*/nullptr);
     }
     return success();
@@ -1324,14 +1331,15 @@ void RockSugarToLoopsPass::runOnOperation() {
   // info about validity as possible.
   RewritePatternSet initialLoopPatterns(ctx);
   initialLoopPatterns.add<TransformingForRewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(initialLoopPatterns))))
+  if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                          std::move(initialLoopPatterns))))
     signalPassFailure();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ExtractSliceRewritePattern,
-               InsertSliceRewritePattern, BufferLoadRewritePattern,
-               BufferStoreRewritePattern, InBoundsLoadRewritePattern,
-               InBoundsStoreRewritePattern, InWarpTransposeRewritePattern>(ctx);
+  patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
+               BufferLoadRewritePattern, BufferStoreRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern,
+               InWarpTransposeRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

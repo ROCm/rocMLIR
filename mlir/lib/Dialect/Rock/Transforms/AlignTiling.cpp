@@ -100,7 +100,8 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
     if (copyLength > 1)
       typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-    Value loaded = b.create<GlobalLoadOp>(loc, typeToLoad, source, gemmStoreValid, loadCoord);
+    Value loaded = b.create<GlobalLoadOp>(loc, typeToLoad, source,
+                                          gemmStoreValid, loadCoord);
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: the vectorization of extra argument may be smaller than the
@@ -133,9 +134,12 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(copyLoop.getBody());
 
-      Value isValid = b.create<arith::AndIOp>(loc, b.getI1Type(), gemmStoreValid, copyLoop.getValidity(/*domain=*/0));
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, typeToLoad, source, isValid, copyLoop.getLowerCoords(/*domain=*/0));
+      Value isValid =
+          b.create<arith::AndIOp>(loc, b.getI1Type(), gemmStoreValid,
+                                  copyLoop.getValidity(/*domain=*/0));
+      Value loaded =
+          b.create<GlobalLoadOp>(loc, typeToLoad, source, isValid,
+                                 copyLoop.getLowerCoords(/*domain=*/0));
       b.create<InBoundsStoreOp>(loc, loaded, dest,
                                 copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
     }

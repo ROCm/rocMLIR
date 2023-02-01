@@ -257,11 +257,12 @@ struct ZeroInitKernelRewritePattern final
     Value zeroOp = createZeroConstantOp(b, loc, storeType);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
 
-    auto loopBody = [&zeroOp, &trueOp](OpBuilder &b, Location loc, ValueRange collapsed,
-                              Value index) {
-      b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], /*valid=*/trueOp, index,
-                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                              /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+    auto loopBody = [&zeroOp, &trueOp](OpBuilder &b, Location loc,
+                                       ValueRange collapsed, Value index) {
+      b.create<BufferStoreOp>(
+          loc, zeroOp, collapsed[0], /*valid=*/trueOp, index,
+          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
     LogicalResult res =
         createElementwiseLoop(b, loc, op, buffer, zeroInitVectorLen, loopBody);
@@ -297,13 +298,16 @@ struct ConvertingCopyKernelRewritePattern final
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
     auto loopBody = [&loadType, &storeType, &trueOp](OpBuilder &b, Location loc,
-                                            ValueRange collapsed, Value index) {
-      Value loaded = b.create<BufferLoadOp>(loc, loadType, collapsed[0], /*valid=*/trueOp, index,
-                                            /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+                                                     ValueRange collapsed,
+                                                     Value index) {
+      Value loaded = b.create<BufferLoadOp>(
+          loc, loadType, collapsed[0], /*valid=*/trueOp, index,
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-      b.create<BufferStoreOp>(loc, converted, collapsed[1], /*valid=*/trueOp, index,
-                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                              /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+      b.create<BufferStoreOp>(
+          loc, converted, collapsed[1], /*valid=*/trueOp, index,
+          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
                                               conversionVectorLen, loopBody);
