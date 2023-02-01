@@ -1146,7 +1146,7 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   p.printOperands(getValidities());
   p << ") = validity";
 
-  if (getIterInits().size() > 0) {
+  if (!getIterInits().empty()) {
     p << " iter_args (";
     llvm::interleaveComma(llvm::zip(getIterArgs(), getIterInits()), p,
                           [&](auto i) {
