@@ -13,7 +13,7 @@ values = ["-fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw", "-fil_layout=g
 
 [[axis]]
 name = "data type"
-values = ["f32", "f16", "i8"]
+values = ["f32", "f16", "bf16", "i8"]
 prefix = "-t "
 
 ## PaddedGemm
