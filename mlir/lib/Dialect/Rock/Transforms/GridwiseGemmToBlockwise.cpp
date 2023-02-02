@@ -295,10 +295,6 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
 
-  ArrayAttr leftOobDims, rightOobDims;
-  std::tie(leftOobDims, rightOobDims) =
-      computeOobFromTransforms(b, matrixToTensor);
-
   Type elementType =
       wrappedMatrix.getType().cast<MemRefType>().getElementType();
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
@@ -318,9 +314,9 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToEnd(outerLoop.getBody());
-    Value loaded =
-        b.create<GlobalLoadOp>(loc, loadType, tensor, leftOobDims, rightOobDims,
-                               outerLoop.getLowerCoords(/*domain=*/0));
+    Value loaded = b.create<GlobalLoadOp>(
+        loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
+        outerLoop.getLowerCoords(/*domain=*/0));
     auto innerLoop = b.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{zero,

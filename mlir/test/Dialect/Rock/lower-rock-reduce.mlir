@@ -8,11 +8,11 @@
 func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {kernel, arch = ""} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
-    // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]])
+    // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity
     // CHECK: %[[ld:.*]] = rock.global_load %arg0[%[[loadCoord0]], %[[loadCoord1]], %[[loadCoord2]]]
     // CHECK: %[[ldRed:.*]] = rock.alloc() : memref<1xf32, 5>
     // CHECK: rock.in_bounds_store %[[ld]] -> %[[ldRed]][%c0] : f32 -> memref<1xf32, 5>, index
-    // CHECK: rock.global_store %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] storeMethod( atomic_add)
+    // CHECK: rock.global_store %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]] storeMethod( atomic_add)
     rock.reduce sum %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf32>
     func.return
 }

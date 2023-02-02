@@ -8,6 +8,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
 
   LINK_LIBS PUBLIC
   MLIRDialect
+  MLIRArithmeticDialect
   MLIRFuncDialect
   MLIRRockOps
   MLIRIR

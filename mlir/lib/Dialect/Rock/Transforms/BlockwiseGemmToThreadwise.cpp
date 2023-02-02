@@ -617,9 +617,10 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       IntegerAttr offsetAttr =
           (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
 
-      Value loaded = b.create<BufferLoadOp>(
-          loc, typeToLoad, op.getSource(), op.getLeftOobDims(),
-          op.getRightOobDims(), op.getSourceCoord(), offsetAttr);
+      Value loaded =
+          b.create<BufferLoadOp>(loc, typeToLoad, op.getSource(), op.getValid(),
+                                 op.getSourceCoord(), offsetAttr,
+                                 /*oobIsOverload=*/nullptr);
       if (totalLength == 1) {
         result = loaded;
       } else {
@@ -681,9 +682,9 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
           b.create<InBoundsLoadOp>(loc, typeToLoad, source, loadCoord);
       IntegerAttr offsetAttr =
           (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
-      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getLeftOobDims(),
-                              op.getRightOobDims(), op.getDestCoord(),
-                              op.getStoreMethodAttr(), offsetAttr);
+      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getValid(),
+                              op.getDestCoord(), op.getStoreMethodAttr(),
+                              offsetAttr, /*oobIsOverflow=*/nullptr);
       remainingLength -= copyLength;
       offset += copyLength;
     }

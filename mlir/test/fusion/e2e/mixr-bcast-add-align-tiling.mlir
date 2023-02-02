@@ -7,6 +7,7 @@ module {
     // CHECK: rock.transforming_for {{.*}} (%[[loadCoord:.*]]) = {{.*}}#[[MAP1]], #[[MAP2]]
     // CHECK-SAME: bounds [1, 1, 1, 4]
     // CHECK-SAME: strides [1, 1, 1, 1]
+    // CHECK-NEXT: arith.andi
     // CHECK-NEXT: rock.global_load %arg0[%[[loadCoord]]]
     // CHECK: linalg.generic{{.*}} outs(%[[outBuf:.*]] : memref<4xf32, 5>)
     // CHECK: global_store %[[outBuf]]{{.*}} -> %arg3

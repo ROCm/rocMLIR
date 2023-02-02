@@ -20,10 +20,10 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
   // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
-  // CHECK: [[tmp:%.+]] = rock.buffer_load [[source]][[[args]]]
-  // CHECK-SAME: leftOobDims = [2 : i32], rightOobDims = []
+  // CHECK: [[tmp:%.+]] = rock.buffer_load [[source]][[[args]]] if [[valid]]
   // CHECK: [[tmp1:%.+]] = rock.insert_slice [[tmp]]
   // CHECK: rock.in_bounds_store [[tmp1]] -> [[dest]][[[i]]]
 
@@ -44,11 +44,11 @@ func.func @threadwise_write_all(%source: memref<32xf32, 5>, %dest: memref<2x64x3
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
   // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ({{%.*}}, [[valid:%.+]]) = validity
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
   // CHECK: %[[ldval:.*]] = rock.in_bounds_load [[source]][[[i]]]
-  // CHECK: rock.buffer_store  set %[[ldval]] -> [[dest]][[[args]]]
-  // CHECK-SAME: leftOobDims = [2 : i32], rightOobDims = []
+  // CHECK: rock.buffer_store  set %[[ldval]] -> [[dest]][[[args]]] if [[valid]]
 
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_write_all {forceUnroll, useIndexDiffs}

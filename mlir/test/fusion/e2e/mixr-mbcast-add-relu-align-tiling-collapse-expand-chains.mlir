@@ -4,6 +4,7 @@
 module {
     // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (0, d1, d2, d3)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [4, 4, 1, 1] -> [1, 4, 1, 1]>
     // CHECK: rock.transforming_for{{.*}}#[[MAP]]
+    // CHECK-NEXT: arith.andi
     // CHECK-NEXT: %[[ldVal:.*]] = rock.global_load{{.*}}: memref<1x4x1x1xf32> -> f32
     // CHECK-NEXT: rock.in_bounds_store %[[ldVal]]{{.*}}: f32 -> memref<1xf32, 5>, index
     func.func @test(%arg0: tensor<1x4x1x1xf32>, %arg1: tensor<4x3x3x3xf32>, %arg2: tensor<4x3x3x3xf32>) -> tensor<4x4x1x1xf32> attributes {arch = "gfx908:sramecc+:xnack-", kernel = "mixr"} {

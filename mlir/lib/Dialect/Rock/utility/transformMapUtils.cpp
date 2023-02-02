@@ -8,7 +8,9 @@
 
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "llvm/ADT/DenseMap.h"
@@ -30,165 +32,6 @@
 
 using namespace mlir;
 using namespace mlir::rock;
-
-using IntSet = llvm::SmallDenseSet<uint32_t>;
-
-//===----------------------------------------------------------------------===//
-// Out of bounds check computation.
-//===----------------------------------------------------------------------===//
-static void propagateTransformOob(TransformMapAttr transformMap,
-                                  const IntSet &upperLeft,
-                                  const IntSet &upperRight, IntSet &lowerLeft,
-                                  IntSet &lowerRight) {
-  for (TransformAttr transform : transformMap.getOps()) {
-    ArrayRef<uint32_t> upperDims = transform.getUpperDims();
-    ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
-    ArrayRef<int64_t> params = transform.getParams();
-
-    switch (transform.getType()) {
-    case TransformType::Broadcast: {
-      // Broadcast makes non-negative indices in-bounds, only check left bounds
-      for (auto pair : llvm::zip(upperDims, lowerDims)) {
-        uint32_t upper = std::get<0>(pair);
-        uint32_t lower = std::get<1>(pair);
-        if (upperLeft.contains(upper))
-          lowerLeft.insert(lower);
-      }
-      break;
-    }
-    case TransformType::PassThrough:
-    case TransformType::Slice:
-    case TransformType::AddDim:
-    case TransformType::ConstDim: {
-      // Zip ends at end of shortes array, allowing addDim and constDim here
-      for (auto pair : llvm::zip(upperDims, lowerDims)) {
-        uint32_t upper = std::get<0>(pair);
-        uint32_t lower = std::get<1>(pair);
-        if (upperLeft.contains(upper))
-          lowerLeft.insert(lower);
-        if (upperRight.contains(upper))
-          lowerRight.insert(lower);
-      }
-      break;
-    }
-    case TransformType::Pad: {
-      for (uint32_t i = 0, e = upperDims.size(); i < e; ++i) {
-        uint32_t upper = upperDims[i];
-        uint32_t lower = lowerDims[i];
-        if (upperLeft.contains(upper) || params[2 * i] > 0)
-          lowerLeft.insert(lower);
-        if (upperRight.contains(upper) || params[2 * i + 1] > 0)
-          lowerRight.insert(lower);
-      }
-      break;
-    }
-    case TransformType::Embed: {
-      bool shallLeft = false;
-      bool shallRight = false;
-      ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-      uint32_t lower = lowerDims[0];
-      int64_t lowerBound = transformMap.getLowerBounds()[lower];
-      for (auto pair : llvm::zip(upperDims, params)) {
-        uint32_t upper = std::get<0>(pair);
-        int64_t coeff = std::get<1>(pair);
-        if (coeff == 0)
-          continue;
-        bool negative = coeff < 0;
-        bool isLeft = upperLeft.contains(upper);
-        bool isRight = upperRight.contains(upper);
-        if (negative) {
-          // Pessimistically, substraction always risks underflow
-          shallLeft = true;
-          // However, the risk of overflow from the subtraction itself occurs
-          // only if the negative-coefficient argument could have been negative
-          // itself
-          if (isLeft)
-            shallRight = true;
-        } else {
-          shallLeft |= isLeft;
-          shallRight |= isRight;
-        }
-
-        // If the max of a dimension times its coefficient can overshoot
-        // the maximum size of the output, check bounds on the right
-        if (coeff * upperBounds[upper] > lowerBound)
-          shallRight = true;
-      }
-
-      if (shallLeft)
-        lowerLeft.insert(lower);
-      if (shallRight)
-        lowerRight.insert(lower);
-      break;
-    }
-    case TransformType::Unmerge: {
-      uint32_t lower = lowerDims[0];
-      bool shallLeft = false;
-      bool shallRight = false;
-      for (uint32_t upper : upperDims) {
-        shallLeft |= upperLeft.contains(upper);
-        shallRight |= upperRight.contains(upper);
-      }
-      if (shallLeft)
-        lowerLeft.insert(lower);
-      if (shallRight)
-        lowerRight.insert(lower);
-      break;
-    }
-    case TransformType::Merge:
-    case TransformType::Unfold: {
-      uint32_t upper = upperDims[0];
-      // Overflow goes to the biggest dimension. Unfold doesn't to carry checks,
-      // but the incoming index diffs (if applicable) are spread out to their
-      // respective coordinates before being added, so something that causes
-      // oob on the right will be assigned to lowerDims[0], since the point
-      // just to the right of the in-bounds region has 0 in the coordinates
-      // that aren't first.
-      if (upperRight.contains(upper))
-        lowerRight.insert(lowerDims[0]);
-      if (upperLeft.contains(upper)) {
-        assert(transform.getType() != TransformType::Unfold &&
-               "Can't corently bounds-check unfold from the left");
-        for (uint32_t lower : lowerDims)
-          lowerLeft.insert(lower);
-      }
-      break;
-    }
-    }
-  }
-}
-
-std::tuple<ArrayAttr, ArrayAttr> mlir::rock::computeOobFromTransforms(
-    Builder &b, ArrayAttr transforms,
-    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
-  IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
-  if (initialOob.has_value()) {
-    ArrayAttr initLeft, initRight;
-    std::tie(initLeft, initRight) = *initialOob;
-    for (APInt l : initLeft.getAsValueRange<IntegerAttr>())
-      upperOobLeft.insert(l.getZExtValue());
-    for (APInt r : initRight.getAsValueRange<IntegerAttr>())
-      upperOobRight.insert(r.getZExtValue());
-  }
-
-  for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
-    propagateTransformOob(transformMap, upperOobLeft, upperOobRight,
-                          lowerOobLeft, lowerOobRight);
-    upperOobLeft = std::move(lowerOobLeft);
-    upperOobRight = std::move(lowerOobRight);
-    // Clear after move just in case
-    lowerOobLeft.clear();
-    lowerOobRight.clear();
-  }
-  SmallVector<int32_t> leftValues(upperOobLeft.begin(), upperOobLeft.end()),
-      rightValues(upperOobRight.begin(), upperOobRight.end());
-
-  // Consisten output is nice
-  std::sort(leftValues.begin(), leftValues.end());
-  std::sort(rightValues.begin(), rightValues.end());
-
-  return {b.getI32ArrayAttr(leftValues), b.getI32ArrayAttr(rightValues)};
-}
 
 //===----------------------------------------------------------------------===//
 // General utilities.
@@ -858,9 +701,87 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   return result;
 }
 
-AffineMap mlir::rock::composeTransforms(ArrayAttr transforms) {
+/// Embed operations can create some scenarios that lead to the need to
+/// check if their output falls with the expected range. The first is any
+/// subtraction. The second is the case where
+/// [coifficient] * [max size of upper dim] > [lower bound] for any upper
+/// dimension.
+static bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
+  assert(op.getType() == TransformType::Embed);
+  int64_t lowerBound = map.getLowerBounds()[op.getLowerDims()[0]];
+  ArrayRef<int64_t> dimSizes = map.getUpperBounds();
+  return llvm::any_of(llvm::zip(op.getParams(), op.getUpperDims()),
+                      [&](const auto &pair) -> bool {
+                        int64_t coefficient = std::get<0>(pair);
+                        uint32_t dim = std::get<1>(pair);
+                        return (coefficient < 0) ||
+                               ((dimSizes[dim] * coefficient) > lowerBound);
+                      });
+}
+
+bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
+  bool result = false;
+  for (TransformAttr op : map.getOps()) {
+    TransformType type = op.getType();
+    ArrayRef<int64_t> params = op.getParams();
+    if (type == TransformType::Pad) {
+      for (size_t i = 0, e = params.size(); i < e; i += 2) {
+        // Trivial padding doesn't impact validity
+        result |= (params[i] != 0 || params[i + 1] != 0);
+      }
+    } else if (type == TransformType::Embed) {
+      result |= embedCanBeInvalid(map, op);
+    }
+  }
+  return result;
+}
+
+Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
+                                      TransformMapAttr map,
+                                      ValueRange outputs) {
+  Value isValid =
+      b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+  ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
+
+  // unsigned < catches both negatives (as all negatives are > the bound)
+  // and being too large on the right.
+  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+    int64_t bound = lowerBounds[lowerDim];
+    Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+    Value output = outputs[lowerDim];
+    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
+                                             output, boundConst);
+    isValid =
+        b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
+  };
+
+  for (TransformAttr op : map.getOps()) {
+    TransformType type = op.getType();
+    ArrayRef<uint32_t> lowerDims = op.getLowerDims();
+    ArrayRef<int64_t> params = op.getParams();
+    if (type == TransformType::Pad) {
+      for (const auto &pair : llvm::enumerate(lowerDims)) {
+        size_t leftParam = 2 * pair.index();
+        size_t rightParam = leftParam + 1;
+        uint32_t lowerDim = pair.value();
+
+        if (params[leftParam] == 0 && params[rightParam] == 0)
+          continue;
+        addLowerDimUltClamp(lowerDim);
+      }
+    }
+    if (type == TransformType::Embed) {
+      if (!embedCanBeInvalid(map, op))
+        continue;
+      addLowerDimUltClamp(op.getLowerDims()[0]);
+    }
+  }
+  return isValid;
+}
+
+AffineMap mlir::rock::composeTransforms(ArrayRef<TransformMapAttr> transforms) {
   AffineMap result;
-  for (auto attr : llvm::reverse(transforms.getAsRange<TransformMapAttr>())) {
+  for (auto attr : llvm::reverse(transforms)) {
     AffineMap map = attr.getMap().getAffineMap();
     if (result)
       result = result.compose(map);
