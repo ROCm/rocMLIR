@@ -91,6 +91,39 @@ struct TransformingForRewritePattern
 
     uint32_t nDomains = op.domains();
 
+    // Create an affine loop nest over the upper
+    // rectangle. This'll be unrolled as needed.
+    llvm::SmallVector<AffineForOp, 5> loops;
+    llvm::SmallVector<Value, 5> ivs;
+
+    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value trueOp =
+        b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    Value falseOp =
+        b.createOrFold<arith::ConstantIntOp>(loc, false, b.getI1Type());
+
+    // We're about to setInsertionPointTo{Start,End} a bunch to jum around
+    // inside loops, so save the original insertion point to not mess up the
+    // rewriting infrastructure and to avoid copying builders around.
+    OpBuilder::InsertionGuard goingIntoLoopsGuard(b);
+    for (const auto &pair : llvm::zip(bounds, strides)) {
+      int64_t bound, stride;
+      std::tie(bound, stride) = pair;
+      llvm::SmallVector<Value, 3> iterInits;
+      if (loops.empty())
+        llvm::copy(op.getIterInits(), std::back_inserter(iterInits));
+      else
+        llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
+                   std::back_inserter(iterInits));
+      auto loop = b.create<AffineForOp>(loc, 0, bound, stride, iterInits);
+      ivs.push_back(loop.getInductionVar());
+      // remove default affine.yield for cleaner code later
+      if (iterInits.empty())
+        b.eraseOp(loop.getBody()->getTerminator());
+      b.setInsertionPointToStart(loop.getBody());
+      loops.push_back(loop);
+    }
+
     // For each iteration domain, store the initial outputs of each affine map
     // in the transform chain when using index diffs. When there are no index
     // diffs, this value is ignored.
@@ -103,6 +136,8 @@ struct TransformingForRewritePattern
         allComposedMaps;
 
     if (useDiffs) {
+      // Note that these are inside the inner loop to allow control flow sinking
+      // to work.
       for (uint32_t i = 0; i < nDomains; ++i) {
         lowerInits.emplace_back();
         // Needed to handle the empty map case correctly.
@@ -148,38 +183,6 @@ struct TransformingForRewritePattern
         AffineMap finalComposed = composeTransforms(toCompose);
         composedMaps.emplace_back(finalComposed, nullptr);
       }
-    }
-
-    // Having done pre-computation, create an affine loop nest over the upper
-    // rectangle. This'll be unrolled as needed.
-    llvm::SmallVector<AffineForOp, 5> loops;
-    llvm::SmallVector<Value, 5> ivs;
-
-    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value trueOp =
-        b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
-    Value falseOp =
-        b.createOrFold<arith::ConstantIntOp>(loc, false, b.getI1Type());
-    // We're about to setInsertionPointTo{Start,End} a bunch to jum around
-    // inside loops, so save the original insertion point to not mess up the
-    // rewriting infrastructure and to avoid copying builders around.
-    OpBuilder::InsertionGuard goingIntoLoopsGuard(b);
-    for (const auto &pair : llvm::zip(bounds, strides)) {
-      int64_t bound, stride;
-      std::tie(bound, stride) = pair;
-      llvm::SmallVector<Value, 3> iterInits;
-      if (loops.empty())
-        llvm::copy(op.getIterInits(), std::back_inserter(iterInits));
-      else
-        llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
-                   std::back_inserter(iterInits));
-      auto loop = b.create<AffineForOp>(loc, 0, bound, stride, iterInits);
-      ivs.push_back(loop.getInductionVar());
-      // remove default affine.yield for cleaner code later
-      if (iterInits.empty())
-        b.eraseOp(loop.getBody()->getTerminator());
-      b.setInsertionPointToStart(loop.getBody());
-      loops.push_back(loop);
     }
 
     // Create code to actually transform the coordinates
