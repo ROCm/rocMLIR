@@ -381,7 +381,7 @@ struct BlockwiseGemmV2RewritePattern
     // auto pb = reinterpret_cast<const data_type*>(&b);
     // constexpr index_t AStride = KPerThread * KRepeats;
     // constexpr index_t BStride = KPerThread * KRepeats;
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    Value tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     constexpr int64_t waveSize = 64;
     auto laneId =
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
@@ -393,31 +393,31 @@ struct BlockwiseGemmV2RewritePattern
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 
-    auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
-    auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
+    Value MConstantOp = b.create<ConstantIndexOp>(loc, M);
+    Value NConstantOp = b.create<ConstantIndexOp>(loc, N);
 
-    auto mPerMfmaGroupConstantOp =
+    Value mPerMfmaGroupConstantOp =
         b.create<ConstantIndexOp>(loc, mPerMfmaGroup);
-    auto nPerMfmaGroupConstantOp =
+    Value nPerMfmaGroupConstantOp =
         b.create<ConstantIndexOp>(loc, nPerMfmaGroup);
 
     Value bufferA = adaptor.getBufferA();
     Value bufferB = adaptor.getBufferB();
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-    auto KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
+    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
 
     // store bufferA logic.
     // for(index_t m_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i= 0; k_i < K; ++k_i)
     //
     // Note: p_a_wave need to be offseted by waveOffsetA.
-    auto inputSpanLenConstantOp = b.create<ConstantIndexOp>(loc, inputSpanLen);
-    auto inputSpansPerMfmaInConstantOp =
+    Value inputSpanLenConstantOp = b.create<ConstantIndexOp>(loc, inputSpanLen);
+    Value inputSpansPerMfmaInConstantOp =
         b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
 
-    auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-    auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
+    Value blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+    Value blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
