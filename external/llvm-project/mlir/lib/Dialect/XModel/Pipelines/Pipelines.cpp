@@ -28,6 +28,7 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MathToLibm/MathToLibm.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
@@ -117,6 +118,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   funcPm2.addPass(mlir::arith::createArithmeticExpandOpsPass());
   funcPm2.addPass(arith::createConvertArithmeticToLLVMPass());
   funcPm2.addPass(createConvertMathToLLVMPass());
+  pm.addPass(createConvertMathToLibmPass());
   pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createMemRefToLLVMPass());
 
