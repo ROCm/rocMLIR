@@ -407,18 +407,7 @@ struct BlockwiseGemmV2RewritePattern
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
     Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
 
-    // store bufferA logic.
-    // for(index_t m_i = 0; n_i < mRepeats; ++n_i)
-    //   for(index_t k_i= 0; k_i < K; ++k_i)
-    //
-    // Note: p_a_wave need to be offseted by waveOffsetA.
-    Value inputSpanLenConstantOp = b.create<ConstantIndexOp>(loc, inputSpanLen);
-    Value inputSpansPerMfmaInConstantOp =
-        b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
-
-    Value blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-    Value blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
-
+    // Load values from LDS into local registers
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
                                  Value k_i, Value K, Value mnPerMfmaGroup,
@@ -435,6 +424,13 @@ struct BlockwiseGemmV2RewritePattern
       } else {
         // srcOffset = (k_i * input_span_per_mfma + blk_id) * MN + blk_td + mn_i
         // * input_span_length;
+        Value inputSpanLenConstantOp =
+            b.create<ConstantIndexOp>(loc, inputSpanLen);
+        Value inputSpansPerMfmaInConstantOp =
+            b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
+        Value blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+        Value blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
+
         sourceOffset = b.create<AddIOp>(loc, sourceOffset, blk_td);
         sourceOffset = mnb.create<AddIOp>(
             loc, sourceOffset,
@@ -466,7 +462,7 @@ struct BlockwiseGemmV2RewritePattern
       kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
     };
 
-    // load A from LDS into  registers
+    // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[m_i, k_i]
@@ -486,7 +482,7 @@ struct BlockwiseGemmV2RewritePattern
                         mPerMfmaGroupConstantOp, op.getMatrixA(), bufferA);
     }
 
-    // load B from LDS into  registers
+    // load B from LDS into registers
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[n_i, k_i]
