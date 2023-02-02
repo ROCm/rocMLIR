@@ -6,7 +6,6 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/Tuning/SqliteDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
@@ -148,27 +147,6 @@ LogicalResult PopulateParams::obtainTuningParameters(
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
   }
-
-#if __MLIR_ENABLE_SQLITE__
-  std::string solverId;
-  if (ctx.opType == ConvOpType::Fwd) {
-    solverId = "ConvHipImplicitGemmV4R4Fwd";
-  } else if (ctx.opType == ConvOpType::BwdData) {
-    solverId = "ConvHipImplicitGemmBwdDataV1R1";
-  } else {
-    solverId = "ConvHipImplicitGemmV4R4WrW";
-  }
-
-  SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
-  bool loadRes = perfDb.load(ctx, solverId, validParams);
-  if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, gridSize);
-  } else {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load failed, falling back to backup path.\n");
-  }
-#endif // MLIR_ENABLE_SQLITE
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
@@ -455,27 +433,6 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
   }
-
-#if __MLIR_ENABLE_SQLITE__
-  std::string solverId;
-  if (ctx.opType == ConvOpType::Fwd) {
-    solverId = "ConvHipImplicitGemmForwardV4R4Xdlops";
-  } else if (ctx.opType == ConvOpType::BwdData) {
-    solverId = "ConvHipImplicitGemmBwdDataV4R1Xdlops";
-  } else {
-    solverId = "ConvHipImplicitGemmWrwV4R4Xdlops";
-  }
-
-  SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
-  bool loadRes = perfDb.load(ctx, solverId, validParams);
-  if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize);
-  } else {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load failed, falling back to backup path.\n");
-  }
-#endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
   std::vector<InitParamsXDL> paramSets =
