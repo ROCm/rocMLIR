@@ -322,21 +322,12 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
-    // Override the repeat information in case this is for larger wave
-
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Unsupported instruction: " << groupAttr.insn << "\n");
       return failure();
     }
-
-    auto mfmaInsnAttr = (*maybeInsn).getAttr();
-    // mnPerXdl is how many row/columns a single Xdlops instruction will compute
-    int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
-    groupAttr.mRepeats = std::max(int64_t(1), mPerWave / mnPerXdl);
-    groupAttr.nRepeats = std::max(int64_t(1), nPerWave / mnPerXdl);
-
     return MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Unsupported combination\n");
@@ -348,9 +339,19 @@ MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &mfmaInsnGroupAttr)
     : elementType(dataType), insn(mfmaInsn), groupAttr(mfmaInsnGroupAttr) {}
 
-int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
+int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
+  auto mfmaInsnAttr = getInsnAttr();
+  // mnPerXdl is how many row/columns a single Xdlops instruction will compute
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  return std::max(int64_t(1), mPerWave / mnPerXdl);
+}
 
-int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
+int64_t MfmaInsnGroup::getNRepeats(int64_t nPerWave) {
+  auto mfmaInsnAttr = getInsnAttr();
+  // mnPerXdl is how many row/columns a single Xdlops instruction will compute
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  return std::max(int64_t(1), nPerWave / mnPerXdl);
+}
 
 int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
   return (lenPerWave > 64) ? 64 : lenPerWave;
