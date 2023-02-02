@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -106,6 +107,7 @@ struct TransformingForRewritePattern
         lowerInits.emplace_back();
         // Needed to handle the empty map case correctly.
         allComposedMaps.emplace_back();
+        allComposedMaps.back().emplace_back(nullptr, nullptr);
         SmallVectorImpl<AffineResults> &lowerInit = lowerInits.back();
         ArrayAttr transforms = op.getTransforms(i);
         lowerInit.reserve(transforms.size());
@@ -153,6 +155,11 @@ struct TransformingForRewritePattern
     llvm::SmallVector<AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
 
+    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value trueOp =
+        b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    Value falseOp =
+        b.createOrFold<arith::ConstantIntOp>(loc, false, b.getI1Type());
     // We're about to setInsertionPointTo{Start,End} a bunch to jum around
     // inside loops, so save the original insertion point to not mess up the
     // rewriting infrastructure and to avoid copying builders around.
@@ -181,18 +188,48 @@ struct TransformingForRewritePattern
     for (uint32_t i = 0; i < nDomains; ++i) {
       Block::BlockArgListType lower = op.getLowerCoords(i);
       ArrayAttr transforms = op.getTransforms(i);
+      // While, in general, branching on a GPU is not great, we expect that
+      // these if statements will be optimized down to constructions that
+      // don't require branches and that, by using them, we will enable
+      // computations (such as initial map computations) only used in one
+      // branch to be pulled into that branch, thus allowing the compiler
+      // to be more clever with "well, it doesn't matter if the result of this
+      // instruction is wrong when the condition is false, we're not using it
+      // then".
+      SmallVector<Value> bailResults(lower.size(), zeroOp);
+      bailResults.push_back(falseOp);
+      SmallVector<Type> ifTypes(lower.size(), b.getIndexType());
+      ifTypes.push_back(b.getI1Type());
+      OpBuilder::InsertionGuard addIfsGuard(b);
+
+      Value isValid = trueOp;
+      scf::IfOp currentIf;
+      scf::IfOp outerIf;
+      auto addIf = [&]() {
+        currentIf = b.create<scf::IfOp>(loc, ifTypes, isValid, true);
+        if (outerIf)
+          b.create<scf::YieldOp>(loc, currentIf.getResults());
+        b.setInsertionPointToEnd(currentIf.elseBlock());
+        b.create<scf::YieldOp>(loc, bailResults);
+        b.setInsertionPointToEnd(currentIf.thenBlock());
+      };
+
+      addIf();
+      outerIf = currentIf;
+
       if (!useDiffs || transforms.empty()) {
         AffineResults computed;
-        Value isValid =
-            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
               b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
         }
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
-          if (!composedMap) // empty transformations
+          if (!composedMap) { // empty transformations
+            computed.push_back(trueOp);
+            b.create<scf::YieldOp>(loc, computed);
             continue;
+          }
           Optional<AffineResults> transformed =
               expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
@@ -203,16 +240,14 @@ struct TransformingForRewritePattern
                 updateValidityAfter(b, loc, transform, computed);
             isValid =
                 b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+            addIf();
+          } else {
+            computed.push_back(trueOp);
+            b.create<scf::YieldOp>(loc, computed);
           }
         }
-        for (auto p : llvm::zip(lower, computed)) {
-          cloneMap.map(std::get<0>(p), std::get<1>(p));
-        }
-        cloneMap.map(validities[i], isValid);
       } else { // index diff maps
         IndexDiffUpdateOp lastDiff;
-        Value isValid =
-            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
         for (const auto &[t, lowerInit] : llvm::zip(
                  transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
@@ -225,13 +260,28 @@ struct TransformingForRewritePattern
                 updateValidityAfter(b, loc, t, lastDiff.getLowerIndices());
             isValid =
                 b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+            addIf();
           }
         }
-        for (auto p : llvm::zip(lower, lastDiff.getLowerIndices())) {
-          cloneMap.map(std::get<0>(p), std::get<1>(p));
-        }
-        cloneMap.map(validities[i], isValid);
+        AffineResults lastVals = lastDiff.getLowerIndices();
+        lastVals.push_back(trueOp);
+        b.create<scf::YieldOp>(loc, lastVals);
       }
+
+      // Now, remove the outer if because it's trivial and was just needed for
+      // structure. We don't wait for the canonicalizer because the upcoming
+      // rewrites will be pattern-matching against valid.
+      Block *outerIfBlock = outerIf.thenBlock();
+      Operation *outerIfTerm = outerIfBlock->getTerminator();
+      ValueRange outerIfResults = outerIfTerm->getOperands();
+      b.mergeBlockBefore(outerIfBlock, outerIf);
+      b.replaceOp(outerIf, outerIfResults);
+      b.eraseOp(outerIfTerm);
+
+      for (const auto &[arg, value] : llvm::zip_first(lower, outerIfResults)) {
+        cloneMap.map(arg, value);
+      }
+      cloneMap.map(validities[i], outerIfResults.back());
     }
 
     // Map loop arguments, clone operations in body
@@ -1343,15 +1393,12 @@ void RockSugarToLoopsPass::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 
-  // Apply loop invariant code motion to all loops before unrolling
-  WalkResult licmResult =
-      op.walk<WalkOrder::PostOrder>([](LoopLikeOpInterface loop) -> WalkResult {
-        moveLoopInvariantCode(loop);
-        return WalkResult::advance();
-      });
-  if (licmResult.wasInterrupted())
-    return signalPassFailure();
-
+  // Loop reorganization.
+  OpPassManager loopReorganize("func.func");
+  loopReorganize.addPass(createLoopInvariantCodeMotionPass());
+  loopReorganize.addPass(createControlFlowSinkPass());
+  if (failed(runPipeline(loopReorganize, op)))
+    signalPassFailure();
   // Note that the reason unrolling is a separate call here is that
   // 1) You can't use loop unrolling from within a pattern rewriter
   // 2) If we make it a seperate pass, canonicizers might remove the

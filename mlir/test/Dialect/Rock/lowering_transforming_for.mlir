@@ -202,8 +202,9 @@ func.func @loop_result(%arg0: index, %arg1: index) -> index {
 // CHECK-LABEL: func.func @bounds_check_pad
 // CHECK-DAG: %[[c8:.*]] = arith.constant 8
 // CHECK: affine.for %[[num:.*]] = {{.*}}to 16
-// CHECK: %[[valid:.*]] = arith.cmpi ult, %[[num]], %[[c8]]
-// CHECK: gpu.printf "%d" %[[valid]]
+// CHECK: %[[cmp:.*]] = arith.cmpi ult, %[[num]], %[[c8]]
+// CHECK: %[[valid:.*]]:2 = scf.if %[[cmp]]
+// CHECK: gpu.printf "%d" %[[valid]]#1
 func.func @bounds_check_pad() {
     %c0 = arith.constant 0 : index
     rock.transforming_for (%arg0) = [#transform_map_pad](%c0) (%arg1) = validity bounds [16] strides [1] {
