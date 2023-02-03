@@ -5,6 +5,7 @@
 // CHECK: rock.transforming_for
 // CHECK-SAME: [#[[MAP2]]]
 // CHECK-SAME: bounds [1, 1, 1, 1]
+// CHECK-NEXT: arith.andi
 // CHECK-NEXT: rock.global_load %arg2
 // CHECK: linalg.generic{{.*}} outs(%[[outBuf:.*]] : memref<1xf32, 5>)
 // CHECK: global_store %[[outBuf]]{{.*}} -> %arg3

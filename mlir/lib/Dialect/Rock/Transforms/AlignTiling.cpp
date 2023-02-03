@@ -75,6 +75,7 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType() << " dest type: "
                           << gemmStoreOp.getDest().getType() << "\n");
   SmallVector<Value, 6> loadCoord = gemmStoreOp.getDestCoord();
+  Value gemmStoreValid = gemmStoreOp.getValid();
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
   auto writeCLoop = gemmStoreOp->getParentOfType<TransformingForOp>();
@@ -88,9 +89,6 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
   int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
   Type destElemType = dest.getType().cast<MemRefType>().getElementType();
 
-  ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
-  ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
-
   // In general, note that keeping the vectorization of the writeback is safe
   // on account of the fact that vectorization means that the maps for the
   // gemm output (and thus the extra argument) are contiguous in the
@@ -102,15 +100,13 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
     if (copyLength > 1)
       typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-    Value loaded = b.create<GlobalLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
+    Value loaded = b.create<GlobalLoadOp>(loc, typeToLoad, source,
+                                          gemmStoreValid, loadCoord);
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: the vectorization of extra argument may be smaller than the
     // vectorization of the convolution.
     size_t extraMapInSize = loadCoord.size();
-    std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
-        b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
 
     int64_t lastDim = extraMapInSize - 1;
     int64_t maxVectorLen =
@@ -137,9 +133,13 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(copyLoop.getBody());
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
+
+      Value isValid =
+          b.create<arith::AndIOp>(loc, b.getI1Type(), gemmStoreValid,
+                                  copyLoop.getValidity(/*domain=*/0));
+      Value loaded =
+          b.create<GlobalLoadOp>(loc, typeToLoad, source, isValid,
+                                 copyLoop.getLowerCoords(/*domain=*/0));
       b.create<InBoundsStoreOp>(loc, loaded, dest,
                                 copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
     }

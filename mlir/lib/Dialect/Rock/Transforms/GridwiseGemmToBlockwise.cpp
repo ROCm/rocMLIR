@@ -295,10 +295,6 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
 
-  ArrayAttr leftOobDims, rightOobDims;
-  std::tie(leftOobDims, rightOobDims) =
-      computeOobFromTransforms(b, matrixToTensor);
-
   Type elementType =
       wrappedMatrix.getType().cast<MemRefType>().getElementType();
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
@@ -318,9 +314,9 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToEnd(outerLoop.getBody());
-    Value loaded =
-        b.create<GlobalLoadOp>(loc, loadType, tensor, leftOobDims, rightOobDims,
-                               outerLoop.getLowerCoords(/*domain=*/0));
+    Value loaded = b.create<GlobalLoadOp>(
+        loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
+        outerLoop.getLowerCoords(/*domain=*/0));
     auto innerLoop = b.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{zero,
@@ -1515,7 +1511,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
                           << "\n");
-  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
 
   Type loadType =
       vectorTypeOrSelf(sourceView.getType().getElementType(), vectorLen);
@@ -1537,9 +1532,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
-    Value loaded =
-        b.create<GlobalLoadOp>(loc, loadType, buffer, leftOobDims, rightOobDims,
-                               loadLoop.getLowerCoords(/*domain=*/0));
+    Value loaded = b.create<GlobalLoadOp>(
+        loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
+        loadLoop.getLowerCoords(/*domain=*/0));
     b.create<InBoundsStoreOp>(loc, loaded, dest,
                               loadLoop.getLowerCoords(/*domain=*/1)[2]);
   }
@@ -1565,7 +1560,6 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
       getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
-  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
 
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
@@ -1586,8 +1580,9 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                            op.getStoreMethodAttr(), leftOobDims, rightOobDims,
+                            op.getStoreMethodAttr(),
                             outLoop.getLowerCoords(/*domain=*/0)[2],
+                            outLoop.getValidity(/*domain=*/1),
                             outLoop.getLowerCoords(/*domain=*/1));
   }
   b.eraseOp(op);
