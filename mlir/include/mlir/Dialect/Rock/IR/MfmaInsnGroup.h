@@ -107,9 +107,14 @@ struct MFMAParams {
 
 struct MfmaInsnGroupAttr {
   SmallString<16> insn;
-  int64_t mRepeats;
-  int64_t nRepeats;
   SmallVector<MFMAParams, 2> imms;
+  // Reduction constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn)
+      : insn{insn}, imms{{{0, 0, amdgpu::MFMAPermB::none}}} {}
+  // Broadcast constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn,
+                    const SmallVector<MFMAParams, 2> &imms)
+      : insn{insn}, imms{imms} {}
 };
 
 class MfmaInsnGroup {
@@ -123,8 +128,8 @@ public:
                                          int64_t nPerWave);
   MfmaInsnGroup(Type elementType, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
-  int64_t getMRepeats();
-  int64_t getNRepeats();
+  int64_t getMRepeats(int64_t mPerWave);
+  int64_t getNRepeats(int64_t nPerWave);
   static int64_t getLenPerMfmaGroup(int64_t lenPerWave);
   SmallVector<mlir::rock::MFMAParams, 2> getImms();
 

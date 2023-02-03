@@ -1147,8 +1147,8 @@ struct GridwiseGemmV2RewritePattern
              << "Mfma instruction group selection is not compatible with k.\n";
     }
 
-    int64_t mRepeats = mfmaGroup.getMRepeats();
-    int64_t nRepeats = mfmaGroup.getNRepeats();
+    int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
+    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
     auto imms = mfmaGroup.getImms();
 
     int64_t nResultVectors = imms.size() * mRepeats * nRepeats;
