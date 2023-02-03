@@ -218,6 +218,9 @@ int main(int argc, char **argv) {
   case benchmark::DataType::F16:
     runDataType<ck::half_t>(gemmParams, args);
     break;
+  case benchmark::DataType::I8:
+    runDataType<int8_t>(gemmParams, args);
+    break;
   default:
     assert(0 && "DataType not supported");
   }

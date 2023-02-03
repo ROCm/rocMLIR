@@ -622,7 +622,7 @@ class RocBLASGemmConfig(GemmConfiguration):
         return config.tableEntry(nanoSeconds)
 
 class CKGemmConfig(GemmConfiguration):
-    EXTERNAL_NAME = "ComposableKernels"
+    EXTERNAL_NAME = "CK"
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
         config = cls.fromCommandLine(commandLine, arch)
@@ -730,9 +730,9 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, tuningDb:
         df["Tuned/Untuned"] = df['Tuned MLIR TFlops'] / df['MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
     if confClass is RocBLASGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_ROCBLAS_FILE
+        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['rocBLAS']
     elif confClass is CKGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_CK_FILE
+        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['CK']
     else:
         reportFile = reportUtils.PERF_REPORT_FILE
     df.to_csv(chip + '_' + reportFile, index=False)

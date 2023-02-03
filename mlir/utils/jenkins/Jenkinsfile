@@ -870,6 +870,7 @@ pipeline {
                                 sh 'ls -l'
                                 sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP} CK'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                 sh 'mkdir -p reports && cp ./*.html reports'
