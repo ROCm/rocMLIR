@@ -64,7 +64,8 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
   {64, 32, 32, 4, 2, 2}};
 // clang-format on
 
-const InitParams PopulateParams::universalParameters = {64, 64, 16};
+const InitParamsNonXDL PopulateParams::universalParameters = {64, 64, 64,
+                                                              16, 4,  4};
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, RockGemmWrapperInterface op) {
@@ -177,7 +178,7 @@ PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
   return std::vector<InitParamsNonXDL>(params);
 }
 
-const InitParams &PopulateParams::getUniversalParameters() const {
+const InitParamsNonXDL &PopulateParams::getUniversalParameters() const {
   return universalParameters;
 }
 
@@ -263,7 +264,8 @@ PopulateParamsXDL::initParametersForwardI8[
 };
 // clang-format on
 
-const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
+const InitParamsXDL PopulateParamsXDL::universalParameters = {32, 64, 4, 32,
+                                                              64, 4,  1, 1};
 
 uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
                                             int64_t waveSize) {
@@ -437,6 +439,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
   LogicalResult res = failure();
   std::vector<InitParamsXDL> paramSets =
       getTuningParameters(op.getKernelType(), op.getInputType());
+
   for (const auto &params : orderInitParams(paramSets, gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
@@ -489,7 +492,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
   return res;
 }
 
-const InitParams &PopulateParamsXDL::getUniversalParameters() const {
+const InitParamsXDL &PopulateParamsXDL::getUniversalParameters() const {
   return universalParameters;
 }
 
