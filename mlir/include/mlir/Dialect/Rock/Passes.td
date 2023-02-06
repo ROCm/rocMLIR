@@ -11,11 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockFoldTransposePass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> {
-  let summary = "fold transposes to enable fusion with convolution and GEMM";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
-}
-
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
@@ -42,6 +37,11 @@ def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
+  let summary = "convert linalg.generic to regular form to enable fusion with convolution and GEMM";
+  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
+}
+
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
   let dependentDialects = ["rock::RockDialect", "AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
@@ -50,11 +50,6 @@ def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", ":
 def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
   let summary = "expand linalg ops aligned with threadwise copy";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
-}
-
-def RockCopyOptPass : Pass<"rock-copy-opt", "::mlir::func::FuncOp"> {
-  let summary = "Optimize global tensor allocations";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "gpu::GPUDialect", "memref::MemRefDialect"];
 }
 
 def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {
@@ -80,6 +75,11 @@ def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
 def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
   let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
+}
+
+def RockTransformToMemrefPass : Pass<"rock-transform-to-memref", "::mlir::func::FuncOp"> {
+  let summary = "convert remaining rock.transform ops to memref.expand/collapse_shape";
+  let dependentDialects = ["rock::RockDialect", "AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
 def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {

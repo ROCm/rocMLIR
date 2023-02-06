@@ -1535,20 +1535,4 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-
-  // FIXME: Move this into a later pass after the fusion refactoring.
-  ConversionTarget writeAllTarget(*ctx);
-  writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
-  writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
-  RewritePatternSet writeAllPatterns(ctx);
-  writeAllPatterns
-      .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern>(
-          ctx);
-  if (failed(applyPartialConversion(getOperation(), writeAllTarget,
-                                    std::move(writeAllPatterns))))
-    signalPassFailure();
-
-  OpPassManager cleanupPasses("func.func");
-  cleanupPasses.addPass(mlir::createCanonicalizerPass());
-  (void)runPipeline(cleanupPasses, getOperation());
 }

@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -20,6 +21,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
@@ -789,6 +791,10 @@ AffineMap mlir::rock::composeTransforms(ArrayRef<TransformMapAttr> transforms) {
   return result;
 }
 
+//===----------------------------------------------------------------------===//
+// Converting general MLIR to transformations.
+//===----------------------------------------------------------------------===//
+
 // This function will create a permutation that will permute the originalMap to
 // be a MinorIdentityWithBroadcast. This is used to add a permutation later in
 // the chain.
@@ -829,6 +835,14 @@ static void createPermutationForMinorIdentityWithBroadcast(
   }
 }
 
+static unsigned getResultPosition(AffineMap map, unsigned input) {
+  for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++)
+    if (map.getDimPosition(i) == input)
+      return i;
+  llvm_unreachable("incorrect result request");
+  return 0;
+}
+
 Value mlir::rock::insertTransposeAndBroadcastTransforms(
     OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
@@ -840,16 +854,20 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
 
+    // first expand/collapse the input to match the output rank
     if (diff < 0) {
       // collapse non-dim exprs
       // inp = rock.transform(inp) {[0, 1], 2, 3}
       MutableAffineMap newInpIdxMap = AffineMap::getMinorIdentityMap(
           outShape.size(), outShape.size(), b.getContext());
       uint32_t newIdx = 0;
+      SmallVector<int64_t> newInpShape;
+      int64_t newInpDimSize = 1;
       SmallVector<SmallVector<uint32_t>> merges;
       SmallVector<uint32_t> mergeDims;
       for (const auto &idxAndValue : llvm::enumerate(inpIdxMap.getResults())) {
         uint32_t idx = idxAndValue.index();
+        newInpDimSize *= inpShape[idx];
         AffineExpr resultExpr = idxAndValue.value();
         mergeDims.push_back(idx);
         if (diff != 0 && resultExpr.isa<AffineConstantExpr>() &&
@@ -859,12 +877,14 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           newInpIdxMap.setResult(newIdx++, resultExpr);
           merges.push_back(mergeDims);
           mergeDims.clear();
+          newInpShape.push_back(newInpDimSize);
+          newInpDimSize = 1;
         }
       }
       if (mergeDims.size())
         merges.back().append(mergeDims);
 
-      TopDownTMBuilder collapseTransform(b, outShape, loc);
+      TopDownTMBuilder collapseTransform(b, newInpShape, loc);
       for (auto idxAndMerge : llvm::enumerate(merges)) {
         uint32_t idx = idxAndMerge.index();
         auto merge = idxAndMerge.value();
@@ -887,6 +907,27 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       inp = b.create<TransformOp>(loc, inp, collapseTransform.get());
       auto inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
+      inpIdxMap = newInpIdxMap.getAffineMap();
+    } else if (diff > 0) {
+      // map = (d0, d1, d2) -> (d1)
+      assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
+      MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
+      BottomUpTMBuilder addDimtransform(b, inpShape, loc);
+      for (uint32_t i = 0; i < outShape.size(); ++i) {
+        if (inpIdxMap.isFunctionOfDim(i)) {
+          // find location in results
+          auto inpIdx = getResultPosition(inpIdxMap, i);
+          addDimtransform.passThrough({i}, {inpIdx});
+          newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
+        } else {
+          SmallString<8> name;
+          ("exp" + Twine(i)).toVector(name);
+          addDimtransform.addDim(name, i, 1);
+          newInpIdxMap.setResult(i, b.getAffineConstantExpr(0));
+        }
+      }
+      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+      inpShape = inp.getType().cast<ShapedType>().getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     }
 
@@ -912,47 +953,22 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       if (!llvm::is_contained(bcastDims, i)) {
         // Here the diff correspond to leading dropped dimensions when going
         // from output co-ordinates to input co-ordinates.
-        assert(inpIdxMap.getDimPosition(i) == diff + i);
-        passThroughInDims.push_back(diff + i);
+        assert(inpIdxMap.getDimPosition(i) == i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
-      } else if (outShape[perm[diff + i]] == 1) {
+      } else if (outShape[perm[i]] == 1) {
         // We can pass-through if the outshape is 1 and it is not realistically
         // a broadcast.
-        passThroughInDims.push_back(diff + i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
       } else {
         hasBcast = true;
-        bcastInDims.push_back(diff + i);
-        bcastTransform.broadcast({i}, {outShape[perm[diff + i]]});
+        bcastInDims.push_back(i);
+        bcastTransform.broadcast({i}, {outShape[perm[i]]});
       }
     }
     if (hasBcast) {
       inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
-    }
-
-    // Then, add dimensions that are present in the writeback coordinates but
-    // are not present in the additional fusion argument with matching sizes.
-    // This, combined with the previous step, ensures that the view of the
-    // fusion argument has the same dimensions as the gemm output, though they
-    // are not necessarily in the same order.
-    bool isDimAdded = false;
-    BottomUpTMBuilder addDimtransform(
-        b, inp.getType().cast<ShapedType>().getShape(), loc);
-    for (uint32_t i = 0; i < outShape.size(); ++i) {
-      unsigned int startIdx = i - diff;
-      if (llvm::is_contained(bcastInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else if (llvm::is_contained(passThroughInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else {
-        isDimAdded = true;
-        SmallString<8> name;
-        ("exp" + Twine(i)).toVector(name);
-        addDimtransform.addDim(name, i, outShape[perm[i]]);
-      }
-    }
-    if (isDimAdded) {
-      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
     }
 
     // Permute the dimensions of the fusion argument to match those of the gemm
@@ -973,4 +989,192 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     }
   }
   return inp;
+}
+
+TransformMapAttr mlir::rock::invertTransformMap(
+    OpBuilder &b, mlir::rock::TransformMapAttr transformMap, Location loc) {
+  ArrayRef<int64_t> lowShape = transformMap.getLowerBounds();
+  llvm::IndexedMap<StringRef> lowNamesMap;
+  if (!lowShape.empty())
+    lowNamesMap.grow(lowShape.size() - 1); // grow takes largest index;
+  for (auto transform : transformMap.getOps()) {
+    for (const auto &[name, dim] :
+         llvm::zip(transform.getLowerNames(), transform.getLowerDims())) {
+      lowNamesMap[dim] = name;
+    }
+  }
+  SmallVector<StringRef> lowNames;
+  lowNames.reserve(lowNamesMap.size());
+  for (size_t i = 0, e = lowNamesMap.size(); i < e; ++i) {
+    lowNames.push_back(lowNamesMap[i]);
+  }
+
+  rock::TopDownTMBuilder transform(b, lowNames, lowShape, loc);
+  for (auto tattr : transformMap.getOps()) {
+    switch (tattr.getType()) {
+    case rock::TransformType::PassThrough:
+      transform.passThrough(tattr.getUpperNames(), tattr.getUpperDims(),
+                            tattr.getLowerNames());
+      break;
+    case rock::TransformType::Pad:
+    case rock::TransformType::Slice:
+    case rock::TransformType::Embed:
+    case rock::TransformType::Broadcast: // Unsupported
+      return rock::TransformMapAttr();
+    case rock::TransformType::AddDim:
+      if (tattr.getParams()[0] != 1)
+        // AddDim of length > 1 has no coherent inverse.
+        return rock::TransformMapAttr();
+      transform.constDim(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                         /*constantVal=*/0, /*lowerSize=*/1);
+      break;
+    case rock::TransformType::ConstDim:
+      for (size_t i = 0, e = tattr.getLowerDims().size(); i < e; ++i) {
+        // Only adding in constant unit dimensions is invertible
+        if (tattr.getParams()[2 * i] != 0 || tattr.getParams()[2 * i + 1] != 1)
+          return rock::TransformMapAttr();
+        transform.ignore(tattr.getLowerNames()[i]);
+      }
+      break;
+    case rock::TransformType::Unmerge:
+      transform.merge(tattr.getUpperNames(), tattr.getUpperDims(),
+                      tattr.getLowerNames()[0], tattr.getParams());
+      break;
+    case rock::TransformType::Merge:
+    case rock::TransformType::Unfold:
+      transform.unmerge(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                        tattr.getLowerNames(), tattr.getParams());
+      break;
+    }
+  }
+
+  return transform.get();
+}
+
+TransformMapAttr mlir::rock::transformCollapseShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+  // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
+  // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
+  //    - inpShape = [1, 12, 12, 32]
+  //    - outShape = [12, 12, 32]
+
+  // This shouldn't happen, but we're checking anyway
+  if (outShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Collapse output shape doesn't match number of reassociations\n");
+    return TransformMapAttr();
+  }
+
+  llvm::IndexedMap<bool> dimUsed;
+  dimUsed.grow(inpShape.size() - 1);
+
+  rock::TopDownTMBuilder transform(b, outShape, loc);
+  for (const auto &[outDim, inpDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : inpDims)
+      dimUsed[dim] = true;
+
+    if (inpDims.size() == 1)
+      transform.passThrough(inpDims[0], outDim);
+    else if (inpDims.empty())
+      transform.ignore(transform.startName(outDim));
+    else {
+      SmallVector<SmallString<8>> mergeNamesStore;
+      SmallVector<uint32_t> mergeDims;
+      SmallVector<StringRef> mergeNames;
+      SmallVector<int64_t> mergeSizes;
+      for (int64_t inpDim : inpDims) {
+        mergeNamesStore.emplace_back();
+        mergeNames.push_back(
+            (Twine("col") + Twine(inpDim)).toStringRef(mergeNamesStore.back()));
+        mergeDims.push_back(inpDim);
+        mergeSizes.push_back(inpShape[inpDim]);
+      }
+      transform.merge(mergeNames, mergeDims, transform.startName(outDim),
+                      mergeSizes);
+    }
+  }
+
+  // Dimensions not mentioned in the collapse are unit dimensions that need
+  // constant values.
+  for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
+    if (dimUsed[i])
+      continue;
+    if (inpShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Collapse omits a non-identity dimension, can't happen\n");
+      return TransformMapAttr();
+    }
+    SmallString<8> constDimNameStore;
+    StringRef constDimName =
+        (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
+    transform.constDim(constDimName, i, /*constantVal=*/0, /*lowerSize=*/1);
+  }
+  return transform.get();
+}
+
+TransformMapAttr mlir::rock::transformExpandShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+  // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} :
+  // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
+  //    - inpShape = [1, 12, 384]
+  //    - outShape = [1, 12, 12, 32]
+
+  // Shouldn't happen, but let's check anyway
+  if (inpShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Expand input shape doesn't match number of reassociations\n");
+    return TransformMapAttr();
+  }
+
+  llvm::IndexedMap<bool> dimDefined;
+  dimDefined.grow(outShape.size() - 1);
+
+  rock::BottomUpTMBuilder transform(b, inpShape, loc);
+  for (const auto &[inpDim, outDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : outDims)
+      dimDefined[dim] = true;
+
+    if (outDims.size() == 1)
+      transform.passThrough(outDims[0], inpDim);
+    else if (outDims.empty()) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Empty reassocation list in expand_shape, shouldn't happen\n");
+      return TransformMapAttr();
+    } else {
+      SmallVector<SmallString<8>> unmergeNamesStore;
+      SmallVector<uint32_t> unmergeDims;
+      SmallVector<StringRef> unmergeNames;
+      SmallVector<int64_t> unmergeSizes;
+      for (int64_t outDim : outDims) {
+        unmergeNamesStore.emplace_back();
+        unmergeNames.push_back((Twine("exp") + Twine(outDim))
+                                   .toStringRef(unmergeNamesStore.back()));
+        unmergeDims.push_back(outDim);
+        unmergeSizes.push_back(outShape[outDim]);
+      }
+      transform.unmerge(unmergeNames, unmergeDims, transform.startName(inpDim),
+                        unmergeSizes);
+    }
+  }
+
+  // Dimensions not defined by the expansion rules are ignored unit dimensions.
+  for (size_t i = 0, e = outShape.size(); i < e; ++i) {
+    if (dimDefined[i])
+      continue;
+    if (outShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "Memref expansion doesn't define a non-unit "
+                                 "dimension in the view, can't happen\n");
+      return TransformMapAttr();
+    }
+    SmallString<8> unitDimNameStore;
+    StringRef unitDimName =
+        (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
+    transform.addDim(unitDimName, i, 1);
+  }
+  return transform.get();
 }

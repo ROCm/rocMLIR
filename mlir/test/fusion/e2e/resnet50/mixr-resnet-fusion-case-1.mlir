@@ -1,17 +1,5 @@
-// RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | rocmlir-opt --rock-fold-transpose | FileCheck %s
-// ALLOW_RETRIES: 2
-// CHECK: linalg.conv_2d
-// CHECK: %[[ALLOC:.*]] = memref.alloc() {{.*}}
-// CHECK-DAG: %[[ARG0_TR:.*]] = rock.transform %[[ARG0:.*]]
-// CHECK-DAG: %[[ARG1_TR:.*]] = rock.transform %[[ARG1:.*]]
-// CHECK-DAG: %[[ALLOC_TR:.*]] = rock.transform %[[ALLOC]]
-// CHECK-DAG: rock.conv2d(%[[ARG1_TR]], %[[ARG0_TR]], %[[ALLOC_TR]])
-// CHECK-DAG: %[[LAIN0:.*]] = memref.collapse_shape %[[ALLOC]]
-// CHECK-DAG: %[[LAIN1:.*]] = memref.collapse_shape %[[ARG2:.*]]
-// CHECK-DAG: %[[LAIN2:.*]] = memref.collapse_shape %[[ARG3:.*]]
-// CHECK-DAG: linalg.generic {{.*}} ins(%[[LAIN0]],
-
 // RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | rocmlir-gen -ph -print-results -verifier clone -fut test - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// ALLOW_RETRIES: 2
 // CLONE: [1 1 1]
 
 module {
