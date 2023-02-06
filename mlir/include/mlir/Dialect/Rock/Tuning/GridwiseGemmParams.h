@@ -41,22 +41,22 @@ struct InitParams {
   int64_t gemmMPerBlock;
   int64_t gemmNPerBlock;
   int64_t gemmKPerBlock;
-  int64_t gemmKPack;
 };
 
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   constexpr InitParamsNonXDL(uint32_t bSize, int64_t mPerBlock,
                              int64_t nPerBlock, int64_t kPerBlock,
                              int64_t mPerThread, int64_t nPerThread)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock, int64_t(1)},
-        gemmMPerThread(mPerThread), gemmNPerThread(nPerThread),
-        blockSize(bSize) {}
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
+        gemmNPerThread(nPerThread), blockSize(bSize) {}
   int64_t gemmMPerThread;
   int64_t gemmNPerThread;
   uint32_t blockSize;
 
   constexpr InitParamsNonXDL()
       : InitParamsNonXDL(0U, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+
+  int64_t getKPack() { return 1; }
 
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.blockSize);
@@ -73,16 +73,19 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
                           int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
                           int64_t kPack, bool aThreadCopyMoreGemmK,
                           bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock, kPack},
-        gemmMPerWave(mPerWave), gemmNPerWave(nPerWave),
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
+        gemmNPerWave(nPerWave), gemmKPack(kPack),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsXDL()
       : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
 
+  int64_t getKPack() { return gemmKPack; }
+
   int64_t gemmMPerWave;
   int64_t gemmNPerWave;
+  int64_t gemmKPack;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
 
@@ -204,6 +207,8 @@ public:
 
   const InitParams &getUniversalParameters() const;
 
+  int64_t getUniversalKPack() const;
+
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
 
@@ -260,6 +265,8 @@ public:
   std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
                                                  Type dataType) const;
   const InitParams &getUniversalParameters() const;
+
+  int64_t getUniversalKPack() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;

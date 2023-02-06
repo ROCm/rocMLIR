@@ -356,7 +356,7 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
     if (gemmSize.m % params.gemmMPerBlock == 0 &&
-        gemmSize.k % (params.gemmKPerBlock * params.gemmKPack) == 0 &&
+        gemmSize.k % (params.gemmKPerBlock * params.getKPack()) == 0 &&
         gemmSize.n % params.gemmNPerBlock == 0) {
       break;
     }
@@ -365,9 +365,10 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
 
   if (numOfFailedConfigs == configParams.size()) {
     auto extraParams = populateParams.getUniversalParameters();
-    return calculatePadding(
-        extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
-        extraParams.gemmNPerBlock, gemmSize, extraParams.gemmKPack);
+    return calculatePadding(extraParams.gemmKPerBlock,
+                            extraParams.gemmMPerBlock,
+                            extraParams.gemmNPerBlock, gemmSize,
+                            populateParams.getUniversalKPack());
   }
   return llvm::None;
 }
