@@ -365,10 +365,9 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
 
   if (numOfFailedConfigs == configParams.size()) {
     auto extraParams = populateParams.getUniversalParameters();
-    return calculatePadding(extraParams.gemmKPerBlock,
-                            extraParams.gemmMPerBlock,
-                            extraParams.gemmNPerBlock, gemmSize,
-                            populateParams.getUniversalKPack());
+    return calculatePadding(
+        extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
+        extraParams.gemmNPerBlock, gemmSize, extraParams.getKPack());
   }
   return llvm::None;
 }

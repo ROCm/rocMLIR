@@ -64,7 +64,8 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
   {64, 32, 32, 4, 2, 2}};
 // clang-format on
 
-const InitParams PopulateParams::universalParameters = {64, 64, 16};
+const InitParamsNonXDL PopulateParams::universalParameters = {64, 64, 64,
+                                                              16, 4,  4};
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, RockGemmWrapperInterface op) {
@@ -177,11 +178,9 @@ PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
   return std::vector<InitParamsNonXDL>(params);
 }
 
-const InitParams &PopulateParams::getUniversalParameters() const {
+const InitParamsNonXDL &PopulateParams::getUniversalParameters() const {
   return universalParameters;
 }
-
-int64_t PopulateParams::getUniversalKPack() const { return 1; }
 
 LogicalResult PopulateParams::isValidGemm(const InitParamsNonXDL &param,
                                           const GemmSize &gemmSize) const {
@@ -265,7 +264,8 @@ PopulateParamsXDL::initParametersForwardI8[
 };
 // clang-format on
 
-const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
+const InitParamsXDL PopulateParamsXDL::universalParameters = {32, 64, 4, 32,
+                                                              64, 4,  1, 1};
 
 uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
                                             int64_t waveSize) {
@@ -492,17 +492,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
   return res;
 }
 
-const InitParams &PopulateParamsXDL::getUniversalParameters() const {
+const InitParamsXDL &PopulateParamsXDL::getUniversalParameters() const {
   return universalParameters;
-}
-
-int64_t PopulateParamsXDL::getUniversalKPack() const {
-  // TODO(grossini): this is because we are using universal parameters
-  // to establish if backward weight convolution needs padding. What we
-  // are saying is that the 32,64,4,*,*,1 is not valid anymore, but we
-  // need a 32,64,4,*,*,4 at least. We should remove this hack and get rid
-  // of the universal parameters
-  return 4;
 }
 
 LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,

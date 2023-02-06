@@ -185,7 +185,7 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
-  static const InitParams universalParameters;
+  static const InitParamsNonXDL universalParameters;
 
   LogicalResult
   calculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
@@ -205,9 +205,7 @@ public:
   std::vector<InitParamsNonXDL> getTuningParameters(KernelType opType,
                                                     Type dataType) const;
 
-  const InitParams &getUniversalParameters() const;
-
-  int64_t getUniversalKPack() const;
+  const InitParamsNonXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
@@ -232,7 +230,7 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk.
-  static const InitParams universalParameters;
+  static const InitParamsXDL universalParameters;
 
   uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
@@ -264,9 +262,7 @@ public:
 
   std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
                                                  Type dataType) const;
-  const InitParams &getUniversalParameters() const;
-
-  int64_t getUniversalKPack() const;
+  const InitParamsXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;
