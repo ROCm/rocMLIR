@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -pass-pipeline="func.func(tosa-to-linalg-named)" -pass-pipeline="func.func(tosa-to-linalg)" -linalg-fuse-elementwise-ops -linalg-init-tensor-to-alloc-tensor -linalg-bufferize -func-bufferize -bufferization-bufferize -buffer-results-to-out-params -finalizing-bufferize -rock-copy-opt  %s |\
+// RUN: rocmlir-opt -pass-pipeline="func.func(tosa-to-linalg-named)" -pass-pipeline="func.func(tosa-to-linalg)" -linalg-fuse-elementwise-ops -linalg-init-tensor-to-alloc-tensor -linalg-bufferize -func-bufferize -bufferization-bufferize -buffer-results-to-out-params -finalizing-bufferize  %s |\
 // RUN: rocmlir-gen -ph -pr -rand 1 -fut test_fusion - |\
 // RUN: rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf \
 // RUN:   --convert-arith-to-llvm --convert-memref-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \

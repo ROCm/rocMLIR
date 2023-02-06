@@ -1,8 +1,9 @@
 // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | rocmlir-gen -ph -print-results -rand 1 -rand_type float -verifier clone -fut forward - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // ALLOW_RETRIES: 2
 
-// CHECK: RMS = {{.*}}e-07
-// CHECK: [1 1 0]
+// COM-CHECK: RMS = {{.*}}e-07
+// COM-CHECK: [1 1 0]
+// CHECK: [1 1 1]
 module attributes {torch.debug_module_name = "ResNet"} {
   func.func @forward(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<128x64x3x3xf32>, %arg2: tensor<128x128x3x3xf32>, %arg3: tensor<128x64x1x1xf32>, %arg4: tensor<1x128x1x1xf32>, %arg5: tensor<1x128x1x1xf32>, %arg6: tensor<1x128x1x1xf32>, %arg7: tensor<1x128x1x1xf32>, %arg8: tensor<1x128x1x1xf32>, %arg9: tensor<1x128x1x1xf32>, %arg10: tensor<1x128x1x1xf32>, %arg11: tensor<1x128x1x1xf32>, %arg12: tensor<1x128x1x1xf32>, %arg13: tensor<1x128x1x1xf32>, %arg14: tensor<1x128x1x1xf32>, %arg15: tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32> {
 

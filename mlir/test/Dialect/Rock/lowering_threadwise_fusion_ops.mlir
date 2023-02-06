@@ -1,5 +1,5 @@
 // Note: this should be in a post-fusion pass
-// RUN: rocmlir-opt -rock-gridwise-gemm-to-blockwise %s | FileCheck --enable-var-scope %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck --enable-var-scope %s
 
 // CHECK-DAG: #[[$ON_OP:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 // CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
