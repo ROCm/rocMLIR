@@ -55,6 +55,7 @@ public:
     target.addLegalOp<tosa::IfOp>();
     target.addLegalOp<tosa::ConstOp>();
     target.addLegalOp<tosa::WhileOp>();
+    target.addLegalOp<tosa::ReshapeOp>();
     target.addLegalOp<tosa::SliceOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
