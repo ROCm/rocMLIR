@@ -420,7 +420,7 @@ struct BlockwiseGemmV2RewritePattern
         sourceOffset = mnb.create<AddIOp>(
             loc, sourceOffset, mnb.create<MulIOp>(loc, mnPerMfmaGroup, mn_i));
         sourceOffset = kb.create<AddIOp>(loc, sourceOffset,
-                                         mnb.create<MulIOp>(loc, MN, mn_i));
+                                         kb.create<MulIOp>(loc, MN, k_i));
       } else {
         // srcOffset = (k_i * input_span_per_mfma + blk_id) * MN + blk_td + mn_i
         // * input_span_length;
