@@ -62,23 +62,28 @@ struct RockTransformToMemrefPass
 
 //===----------------------------------------------------------------------===//
 // TransformOp conversion to MemRef
+//   This is needed for init kernels that don't fold rock.transform into
+//   transforming_for ops.
 //===----------------------------------------------------------------------===//
 struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
   using OpRewritePattern<TransformOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(TransformOp op,
                                 PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    auto srcType = op.getOperand().getType().cast<ShapedType>();
-    auto resType = op.getResult().getType().cast<ShapedType>();
+    TypedValue<ShapedType> src = op.getOperand();
+    auto srcShape = src.getType().getShape();
+    TypedValue<ShapedType> res = op.getResult();
+    auto resShape = res.getType().getShape();
 
-    bool expanded = resType.getShape().size() > srcType.getShape().size();
-    SmallVector<ReassociationIndices> merges(
-        expanded ? srcType.getShape().size() : resType.getShape().size());
+    bool expanded = resShape.size() > srcShape.size();
+    SmallVector<ReassociationIndices> merges(expanded ? srcShape.size()
+                                                      : resShape.size());
 
     // only converts simple expand/collapse form
     for (auto tattr : op.getTransform().getOps()) {
-      auto inDims = expanded ? tattr.getLowerDims() : tattr.getUpperDims();
-      auto outDims = expanded ? tattr.getUpperDims() : tattr.getLowerDims();
+      ArrayRef<uint32_t> inDims =
+          expanded ? tattr.getLowerDims() : tattr.getUpperDims();
+      ArrayRef<uint32_t> outDims =
+          expanded ? tattr.getUpperDims() : tattr.getLowerDims();
       switch (tattr.getType()) {
       case rock::TransformType::PassThrough:
         for (auto pair : llvm::zip(inDims, outDims)) {
@@ -90,10 +95,10 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       case rock::TransformType::Pad:
       case rock::TransformType::Slice:
       case rock::TransformType::Embed:
-      case rock::TransformType::Broadcast: // Unsupported
+      case rock::TransformType::Broadcast:
       case rock::TransformType::AddDim:
       case rock::TransformType::ConstDim:
-        return failure();
+        return failure(); // Unsupported
       case rock::TransformType::Unmerge:
       case rock::TransformType::Merge:
       case rock::TransformType::Unfold: {
@@ -107,11 +112,10 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
     }
 
     if (expanded)
-      b.replaceOpWithNewOp<memref::ExpandShapeOp>(op, resType, op.getOperand(),
+      b.replaceOpWithNewOp<memref::ExpandShapeOp>(op, res.getType(), src,
                                                   merges);
     else
-      b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, op.getOperand(),
-                                                    merges);
+      b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, src, merges);
     return success();
   }
 };

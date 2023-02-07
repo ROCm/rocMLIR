@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -arch gfx1030 %s -o -| FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -arch %arch %s -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 
