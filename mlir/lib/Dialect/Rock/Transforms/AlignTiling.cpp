@@ -79,7 +79,7 @@ struct MemcpyRewritePattern : public OpRewritePattern<memref::CopyOp> {
 
 static void moveTransformsBefore(PatternRewriter &b, Value val) {
   if (auto defOp = val.getDefiningOp()) {
-    if (auto rtop = dyn_cast<rock::TransformOp>(defOp)) {
+    if (auto rtop = dyn_cast<TransformOp>(defOp)) {
       moveTransformsBefore(b, rtop.getOperand());
 
       defOp->remove();
@@ -91,14 +91,14 @@ static void moveTransformsBefore(PatternRewriter &b, Value val) {
 }
 
 static Value transformAccordingly(PatternRewriter &b, Value nOut, Value refOp) {
-  if (auto rtop = dyn_cast<rock::TransformOp>(refOp.getDefiningOp())) {
+  if (auto rtop = dyn_cast<TransformOp>(refOp.getDefiningOp())) {
     // 0. recurse and apply from the begining of the transform chain
     nOut = transformAccordingly(b, nOut, rtop.getOperand());
 
     // 1. apply identical transforms to other inputs
     BlockAndValueMapping cmap;
     cmap.map(rtop.getOperand(), nOut);
-    auto ntop = dyn_cast<rock::TransformOp>(b.clone(*rtop, cmap));
+    auto ntop = dyn_cast<TransformOp>(b.clone(*rtop, cmap));
     nOut = ntop.getResult();
   }
 
@@ -109,7 +109,7 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
                              Value src) {
   // 0. capture the memref containing the outputs being written
   Location loc = storeOp.getLoc();
-  Value gemmOuts = storeOp.getOperand(0);
+  Value gemmOuts = storeOp.getSource();
   auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
 
   // 1. create a second allocation of the same type to hold loaded elements
@@ -123,7 +123,7 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
   moveTransformsBefore(b, src);
 
   // 2.1. apply transform chain from output
-  src = transformAccordingly(b, src, storeOp.getOperand(1));
+  src = transformAccordingly(b, src, storeOp.getDest());
 
   // 2.2. load into registers
   b.create<ThreadwiseReadIntoOp>(loc, src, alloc, storeOp.getExtraViews(),
@@ -132,25 +132,24 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
   return alloc;
 }
 
-static Operation *traceToRealOp(Operation *op) {
-  if (auto transform = dyn_cast<rock::TransformOp>(op)) {
+static Operation *traceToNonViewOp(Operation *op) {
+  if (auto transform = dyn_cast<TransformOp>(op)) {
     Value result = transform.getResult();
-    if (result.hasOneUse()) {
-      for (auto &use : result.getUses()) {
-        return traceToRealOp(use.getOwner());
-      }
+    // TODO(sjw): fix when divergence is encountered
+    assert(result.hasOneUse());
+    for (auto &use : result.getUses()) {
+      return traceToNonViewOp(use.getOwner());
     }
   }
   return op;
 }
 
-static rock::ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
+static ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
   // 1. Validate that the only uses of the linalg.generic input are the one
   // generic and a copy operation or transform.
-  bool allValidUses = true;
-  rock::ThreadwiseWriteAllOp result;
+  ThreadwiseWriteAllOp result;
   for (Operation *use : inp.getUsers()) {
-    use = traceToRealOp(use);
+    use = traceToNonViewOp(use);
     if (isa<memref::DeallocOp>(use)) {
       // ignore
       continue;
@@ -158,37 +157,35 @@ static rock::ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
     if (auto lgop = dyn_cast<linalg::GenericOp>(use)) {
       // reader
       if (!llvm::is_contained(lgop.inputs(), inp)) {
-        allValidUses = false;
+        return ThreadwiseWriteAllOp();
       }
     } else if (auto memcpy = dyn_cast<memref::CopyOp>(use)) {
       // reader
       if (memcpy.getOperand(0) != inp) {
-        allValidUses = false;
+        return ThreadwiseWriteAllOp();
       }
-    } else if (auto store = dyn_cast<rock::ThreadwiseWriteAllOp>(use)) {
+    } else if (auto store = dyn_cast<ThreadwiseWriteAllOp>(use)) {
       // Threadwise copy that is already unttransformed (new style)
       if (result) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Multiple global stores somehow, no fusion\n");
-        allValidUses = false;
+        return ThreadwiseWriteAllOp();
       }
       result = store;
     } else {
-      allValidUses = false;
+      return ThreadwiseWriteAllOp();
     }
   }
 
   if (!result)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy\n");
-  if (!allValidUses)
-    LLVM_DEBUG(llvm::dbgs() << "Align tiling: found invalid use\n");
-  return allValidUses ? result : rock::ThreadwiseWriteAllOp();
+  return result;
 }
 
 // Returns the value of the buffer that's meant to be the new writeback.
 static Value reconfigureLAGeneric(PatternRewriter &b,
                                   linalg::GenericOp laGeneric, Value laIn,
-                                  rock::ThreadwiseWriteAllOp twWriteOp) {
+                                  ThreadwiseWriteAllOp twWriteOp) {
   MLIRContext *ctx = laGeneric.getContext();
   Location loc = laGeneric.getLoc();
   auto regType = laIn.getType().template cast<MemRefType>();
@@ -227,7 +224,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
 }
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
-                                 rock::ThreadwiseWriteAllOp &twWriteOp) {
+                                 ThreadwiseWriteAllOp &twWriteOp) {
   for (auto input : laGeneric.inputs()) {
     if (auto allocOp = input.getDefiningOp<memref::AllocOp>()) {
       if (auto twop = traceToThreadwiseWrite(input)) {
@@ -251,12 +248,12 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   for (StringRef iterType :
        laGeneric.iterator_types().getAsValueRange<StringAttr>())
     if (iterType != "parallel")
-      return failure();
+      return laGeneric.emitError("must be fully parallel");
 
   Value out = *laGeneric.outputs().begin(); // may be another arg
   // 0.1. Test compatibility,  Only 1 output supported
   if (laGeneric.outputs().size() > 1)
-    return failure();
+    return laGeneric.emitError("only 1 output supported");
 
   // 0.2. Sanity check, skip already fused.
   for (auto inp : laGeneric.inputs()) {
@@ -266,15 +263,9 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     }
   }
 
-  if (laGeneric.getNumOutputs() != 1) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Currently, multi-output fusion is not supported.\n");
-    return failure();
-  }
-
   // 1. Trace input to global_store.
   // 1.1. Find the (implicit) gemm output
-  rock::ThreadwiseWriteAllOp gemmStoreOp;
+  ThreadwiseWriteAllOp gemmStoreOp;
   Value laGenericInputLeadingToGemmStore =
       findThreadwiseWrite(laGeneric, gemmStoreOp);
   if (!laGenericInputLeadingToGemmStore)
@@ -283,20 +274,13 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   auto actualLAGenericOut = laGeneric.getOutputOperand(0);
   if (laGenericInputLeadingToGemmStore.getType() !=
       actualLAGenericOut->get().getType()) {
-    LLVM_DEBUG(llvm::dbgs() << "Currently, we assume the shape of gemmStore op "
-                               "and linalg output is the same.\n");
-    LLVM_DEBUG(llvm::dbgs()
-               << "This instance it differs : "
-               << laGenericInputLeadingToGemmStore.getType() << " vs "
-               << actualLAGenericOut->get().getType() << " .\n");
-    return failure();
+    // TODO(sjw): fix for mixed types
+    return laGeneric.emitError("input and output types must match");
   }
 
   for (auto idxMap : laGeneric.getIndexingMapsArray()) {
     if (!idxMap.isIdentity()) {
-      LLVM_DEBUG(llvm::dbgs() << idxMap << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "^ is not an identity map\n");
-      return failure();
+      return laGeneric.emitError("indexing_maps must all be identity");
     }
   }
 
@@ -306,7 +290,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
 
   // 2. Apply if input found
-  Value gemmOut = gemmStoreOp.getOperand(0);
+  Value gemmOut = gemmStoreOp.getSource();
   auto gemmOutType = gemmOut.getType().cast<MemRefType>();
 
   Value fusionRegs;
@@ -333,10 +317,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   gemmOut.replaceAllUsesWith(fusionRegs);
 
   // 2.3. Replace rock.threadwise_write_all inputs with la.generic result vgprs
-  gemmStoreOp.setOperand(0, laOutRegs);
+  gemmStoreOp.getSourceMutable().assign(laOutRegs);
 
-  out = transformAccordingly(b, out, gemmStoreOp.getOperand(1));
-  gemmStoreOp.setOperand(1, out);
+  out = transformAccordingly(b, out, gemmStoreOp.getDest());
+  gemmStoreOp.getDestMutable().assign(out);
 
   if (auto outAlloc = out.getDefiningOp<memref::AllocOp>()) {
     outAlloc->moveBefore(gemmStoreOp);
@@ -357,7 +341,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
     }
   }
 
-  if (gemmStoreOp && isa<rock::ThreadwiseWriteAllOp>(gemmStoreOp)) {
+  if (gemmStoreOp && isa<ThreadwiseWriteAllOp>(gemmStoreOp)) {
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPoint(gemmStoreOp);
 
@@ -375,7 +359,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   return failure();
 }
 
-static bool isUnfusedKernelStore(rock::ThreadwiseWriteAllOp store) {
+static bool isUnfusedKernelStore(ThreadwiseWriteAllOp store) {
   bool ret = isa_and_nonnull<memref::AllocOp>(store.getDest().getDefiningOp());
   if (ret) {
     store.getDest().getDefiningOp()->emitOpError(
@@ -400,7 +384,7 @@ void RockLinalgAlignPass::runOnOperation() {
 
   {
     WalkResult verifyAllStores =
-        getOperation().walk([](rock::ThreadwiseWriteAllOp store) {
+        getOperation().walk([](ThreadwiseWriteAllOp store) {
           return isUnfusedKernelStore(store) ? WalkResult::interrupt()
                                              : WalkResult::advance();
         });
