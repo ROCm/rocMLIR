@@ -100,8 +100,7 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       case rock::TransformType::ConstDim:
         return failure(); // Unsupported
       case rock::TransformType::Unmerge:
-      case rock::TransformType::Merge:
-      case rock::TransformType::Unfold: {
+      case rock::TransformType::Merge: {
         auto inDim = inDims[0];
         assert(merges[inDim].empty());
         for (auto outDim : outDims)

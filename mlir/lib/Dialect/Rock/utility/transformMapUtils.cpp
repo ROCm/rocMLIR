@@ -311,7 +311,6 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
       ArrayRef<int64_t> params = transform.getParams();
 
       switch (transformType) {
-      case TransformType::Unfold:
       case TransformType::Merge:
         for (size_t i = 0; i < lowerDims.size(); i++) {
           thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
@@ -595,13 +594,12 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
     // of 6 gets the results [1, 2] and not [3, 2]. While this might be
     // optimistic, if the dimesions don't get put back togther with the correct
     // coefficients, their vectorization will disappear.
-    // Note: unfold is a promise about the fact that the merge dimensions
-    // are contiguous in memory, which leads to a better vectorization.
-    // We are capable of automatically detecting continuous groups of dimensions
-    // so we will treat unfol as merge, but we will assert that the resulting
-    // vectorization is the same of the unfold. In a future ticket, Unfold
-    // should be completely removed.
-    case TransformType::Unfold:
+    // Contiguous groups of merge outputs (that is, outputs from Merge{})
+    // that will later be combined into the exact same value as that part of the
+    // merge input, are grouped together for analysis purposes,
+    // since spillover from one to the next is effectively the same as movement
+    // in a larger, contiguous dimension. See also collapseContiguousMerges(),
+    // which may someday become a prerequisite for this pass.
     case TransformType::Merge: {
       int64_t upperDim = upperDims[0];
       if (!input[upperDim].has_value()) {
@@ -645,18 +643,6 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
             VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
         maxLen = std::max(maxLen / lowerLen, 1L);
         stride *= lowerLen;
-      }
-
-      // If the transformation is Unfold, we should still able to treat it
-      // as a Merge, automatically finding the contiguous groups. However,
-      // we can use the knowledge stemming from Unfold to assert that
-      // the contiguous detection actually worked
-      if (transform.getType() == TransformType::Unfold) {
-        int64_t lowerDimsLen = 1;
-        for (int64_t length : params)
-          lowerDimsLen *= length;
-        int64_t unfoldMaxLen = math_util::gcd(maxLen, lowerDimsLen);
-        assert(unfoldMaxLen == maxLen && "Failing to detect the unfold!");
       }
       break;
     }
@@ -703,6 +689,64 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   // TODO(kdrewnia): Add support for tails
   result = math_util::gcd(len, result);
   return result;
+}
+
+ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
+                                               ArrayRef<int64_t> outputShape) {
+  ContiguousMergesMap contigousMerges =
+      findContiguousGroups(transforms, outputShape);
+  SmallVector<Attribute> newTransformMaps;
+  for (auto map : transforms.getAsRange<TransformMapAttr>()) {
+    bool changed = false;
+    SmallVector<TransformAttr> ops;
+    ops.reserve(map.getOps().size());
+    for (TransformAttr op : map.getOps()) {
+      if (op.getType() != TransformType::Merge) {
+        ops.push_back(op);
+        continue;
+      }
+      auto mergeData = contigousMerges.find({map, op});
+      if (mergeData == contigousMerges.end()) {
+        ops.push_back(op);
+        continue;
+      }
+      const llvm::EquivalenceClasses<uint32_t> &groups = mergeData->getSecond();
+      SmallVector<int64_t> newLengths(op.getParams());
+      ArrayRef<uint32_t> lowerDims = op.getLowerDims();
+      uint32_t currentRep = lowerDims.back();
+      size_t currentRepPos = lowerDims.size() - 1;
+      // Don't process the fastest merge output twice.
+      bool hadConcat = false;
+      for (ssize_t idx = lowerDims.size() - 2; idx >= 0; --idx) {
+        uint32_t dim = lowerDims[idx];
+        if (groups.isEquivalent(dim, currentRep)) {
+          hadConcat = true;
+          newLengths[currentRepPos] *= newLengths[idx];
+          newLengths[idx] = 1;
+        } else {
+          currentRep = dim;
+          currentRepPos = idx;
+        }
+      }
+      if (!hadConcat) { // we went through all this trouble for nothing
+        ops.push_back(op);
+        continue;
+      }
+      auto newMerge = TransformAttr::get(
+          op.getContext(), TransformType::Merge, newLengths, op.getUpperNames(),
+          op.getUpperDims(), op.getLowerNames(), op.getLowerDims());
+      ops.push_back(newMerge);
+      changed = true;
+    }
+    if (changed) {
+      auto newMap = TransformMapAttr::get(ops, map.getUpperBounds(),
+                                          map.getLowerBounds());
+      newTransformMaps.push_back(newMap);
+    } else {
+      newTransformMaps.push_back(map);
+    }
+  }
+  return ArrayAttr::get(transforms.getContext(), newTransformMaps);
 }
 
 /// Embed operations can create some scenarios that lead to the need to
@@ -1045,7 +1089,6 @@ TransformMapAttr mlir::rock::invertTransformMap(
                       tattr.getLowerNames()[0], tattr.getParams());
       break;
     case rock::TransformType::Merge:
-    case rock::TransformType::Unfold:
       transform.unmerge(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
                         tattr.getLowerNames(), tattr.getParams());
       break;

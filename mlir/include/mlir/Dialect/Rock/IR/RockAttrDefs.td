@@ -73,14 +73,13 @@ def Slice : I32EnumAttrCase<"Slice", 2>;
 def Embed : I32EnumAttrCase<"Embed", 3>;
 def Unmerge : I32EnumAttrCase<"Unmerge", 4>;
 def Merge : I32EnumAttrCase<"Merge", 5>;
-def Unfold : I32EnumAttrCase<"Unfold", 6>;
 def AddDim : I32EnumAttrCase<"AddDim", 7>;
 def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
 def ConstDim : I32EnumAttrCase<"ConstDim", 9>;
 
 def TransformType : Rock_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast,
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, AddDim, Broadcast,
      ConstDim]>;
 
 /// StoreMethod
@@ -142,13 +141,11 @@ def Rock_TransformAttr : Rock_Attr<"Transform"> {
         - Merge{c1, c2, ..., cN} - Combines N lower dimensions into 1 upper dimension
           with the parameters holding the sizes of the lower dimensions.
           This has the effect of concatentating the dimensions if they are consecutive
-        - Unfold{c1, ..., cN} - Has the semantics of merge, but asserts that the lower
-          dimensions are consecutive so that the derivative operation does not need
-          to perform carry checks on indices.
         - AddDim{size} - Adds one upper dimension of the given size that does not
           correspond to any lower dimension.
         - Broadcast{c1, c2, ..., cN} - Broadcast lower dimensions of size 1 to
           upper dimensions.
+        - ConstDim{c1, l1, c2, l2, .. cN, lN} a
     }];
 
     let parameters = (ins
@@ -190,6 +187,13 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
     DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds
     );
+
+    let builders = [
+      AttrBuilderWithInferredContext<
+        (ins "ArrayRef<::mlir::rock::TransformAttr>":$transforms,
+            "ArrayRef<int64_t>":$upperBounds,
+            "ArrayRef<int64_t>":$lowerBounds)>,
+    ];
 
     let assemblyFormat = [{
         `<` $map `by` ` ` `[` $ops `]` `bounds` `=` ($upperBounds^) : (`[` `]`)? `->` $lowerBounds `>`

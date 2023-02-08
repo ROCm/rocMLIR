@@ -49,6 +49,17 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
                             ArrayRef<int64_t> outputShape);
 
+/// Rewrites the given array of transformations to (under the assumption that
+/// they will target a space of size outputShape) collapse contiguous merge
+/// dimensions. That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
+/// and then later either have y or z appear (with the same length) in the
+/// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
+/// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
+/// and merging. Note that the corresponding Unmerge or Embed is not updated by
+/// this function.
+ArrayAttr collapseContiguousMerges(ArrayAttr transforms,
+                                   ArrayRef<int64_t> outputShape);
+
 /// Returns true if the given `TransformMapAttr` has impacts on the validity
 /// of the underlying coordinates. If this returns true, the code generating
 /// indexing must pause and generate a validity tests using the inputs (upper

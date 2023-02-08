@@ -90,20 +90,38 @@ static AffineMapAttr assembleMapFor(Builder &b,
                b.getAffineDimExpr(upperDim);
       }
       affExprsMap.insert({lowerDims[0], expr});
-    } else if (type == TransformType::Merge || type == TransformType::Unfold) {
+    } else if (type == TransformType::Merge) {
       // Compute lower dimension strides.
       llvm::SmallVector<int64_t, 4> lowerDimStrides;
-      int64_t stride = 1;
-      lowerDimStrides.push_back(stride);
+      int64_t totalStride = 1;
+      lowerDimStrides.push_back(totalStride);
       for (unsigned i = params.size() - 1; i > 0; --i) {
-        stride *= params[i];
-        lowerDimStrides.push_back(stride);
+        totalStride *= params[i];
+        lowerDimStrides.push_back(totalStride);
       }
+      totalStride *= params[0];
       std::reverse(lowerDimStrides.begin(), lowerDimStrides.end());
 
       // Build affine transformation expressions.
       AffineExpr remainder = b.getAffineDimExpr(upperDims[0]);
       for (uint32_t i = 0, e = lowerDims.size(); i < e; ++i) {
+        // If the constant we're about to divide by is the same as the total
+        // stride in the input dimension, output 0, as, if you're above
+        // said stride, the result of this merge is undefined behavior.
+        if (lowerDimStrides[i] == totalStride) {
+          AffineExpr thisDim = b.getAffineConstantExpr(0);
+          affExprsMap.insert({lowerDims[i], thisDim});
+          continue;
+        }
+        // While, in general, (x mod N) floordiv N is not 0, because
+        // for x < 0 it is instead -1, in our context, negative coordinates
+        // are never produced within an indexing process, so we can make
+        // that simplification.
+        if (i > 0 && lowerDimStrides[i] == lowerDimStrides[i - 1]) {
+          AffineExpr thisDim = b.getAffineConstantExpr(0);
+          affExprsMap.insert({lowerDims[i], thisDim});
+          continue;
+        }
         AffineExpr stride = b.getAffineConstantExpr(lowerDimStrides[i]);
         AffineExpr thisDim = remainder.floorDiv(stride);
         remainder = remainder % stride;
@@ -145,6 +163,18 @@ static AffineMapAttr assembleMapFor(Builder &b,
   AffineMap ret =
       AffineMap::get(upperBounds.size(), 0, affExprsVec, b.getContext());
   return AffineMapAttr::get(ret);
+}
+
+/// Builder for when we know what we're doing.
+TransformMapAttr TransformMapAttr::get(ArrayRef<TransformAttr> transforms,
+                                       ArrayRef<int64_t> upperBounds,
+                                       ArrayRef<int64_t> lowerBounds) {
+  assert(!transforms.empty() && "This builder does not support the empty map");
+  Builder b(transforms.front().getContext());
+  AffineMapAttr map = assembleMapFor(b, transforms, upperBounds, lowerBounds);
+  return TransformMapAttr::get(map.getContext(), transforms, map,
+                               b.getDenseI64ArrayAttr(upperBounds),
+                               b.getDenseI64ArrayAttr(lowerBounds));
 }
 
 /// Accessors and common infrastructure
@@ -539,7 +569,7 @@ void TopDownTMBuilder::unmerge(StringRef lowerName, uint32_t lowerDim,
 
 void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
                              ArrayRef<uint32_t> lowerDims, StringRef upperName,
-                             ArrayRef<int64_t> sizes, bool isUnfold) {
+                             ArrayRef<int64_t> sizes) {
   assert(lowerNames.size() == lowerDims.size() &&
          "One name per dimension required in merge");
   assert(lowerDims.size() == sizes.size() &&
@@ -558,8 +588,8 @@ void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
   for (auto triple : llvm::zip(lowerNames, lowerDims, sizes)) {
     defineDim(std::get<0>(triple), std::get<1>(triple), std::get<2>(triple));
   }
-  addTransform(isUnfold ? TransformType::Unfold : TransformType::Merge, sizes,
-               {upperName}, {upperDim}, lowerNames, lowerDims);
+  addTransform(TransformType::Merge, sizes, {upperName}, {upperDim}, lowerNames,
+               lowerDims);
 }
 
 llvm::SmallVector<uint32_t>
@@ -613,8 +643,8 @@ void TopDownTMBottomDimsWrapper::unmerge(StringRef lowerName,
 
 void TopDownTMBottomDimsWrapper::merge(ArrayRef<StringRef> lowerNames,
                                        StringRef upperName,
-                                       ArrayRef<int64_t> sizes, bool isUnfold) {
-  b.merge(lowerNames, toBottomDims(lowerNames), upperName, sizes, isUnfold);
+                                       ArrayRef<int64_t> sizes) {
+  b.merge(lowerNames, toBottomDims(lowerNames), upperName, sizes);
 }
 
 /// Building from a defined set of lower dimensions
@@ -770,7 +800,7 @@ void BottomUpTMBuilder::unmerge(ArrayRef<StringRef> upperNames,
 }
 
 void BottomUpTMBuilder::merge(StringRef upperName, uint32_t upperDim,
-                              ArrayRef<StringRef> lowerNames, bool isUnfold) {
+                              ArrayRef<StringRef> lowerNames) {
   uint32_t n = lowerNames.size();
   llvm::SmallVector<uint32_t, 4> lowerDims;
   lowerDims.reserve(n);
@@ -786,8 +816,8 @@ void BottomUpTMBuilder::merge(StringRef upperName, uint32_t upperDim,
     lowerSizes.push_back(size);
   }
   defineDim(upperName, upperDim, upperSize);
-  addTransform(isUnfold ? TransformType::Unfold : TransformType::Merge,
-               lowerSizes, lowerNames, lowerDims, {upperName}, {upperDim});
+  addTransform(TransformType::Merge, lowerSizes, lowerNames, lowerDims,
+               {upperName}, {upperDim});
 }
 
 void BottomUpTMTopDimsWrapper::passThrough(StringRef name) {
@@ -823,9 +853,8 @@ void BottomUpTMTopDimsWrapper::unmerge(ArrayRef<StringRef> upperNames,
 }
 
 void BottomUpTMTopDimsWrapper::merge(StringRef upperName,
-                                     ArrayRef<StringRef> lowerNames,
-                                     bool isUnfold) {
-  b.merge(upperName, topDims[upperName], lowerNames, isUnfold);
+                                     ArrayRef<StringRef> lowerNames) {
+  b.merge(upperName, topDims[upperName], lowerNames);
 }
 
 llvm::SmallVector<uint32_t>

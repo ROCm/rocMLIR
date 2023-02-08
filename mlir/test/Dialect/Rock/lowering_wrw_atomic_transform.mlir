@@ -5,15 +5,16 @@ module  {
     return
   }
 }
+
 // CHECK-DAG: #[[map:.*]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d4, d5)>
-// CHECK-DAG: #[[map1:.*]] = affine_map<(d0, d1, d2) -> (d0 floordiv 2, d0 mod 2, d1, d2 floordiv 9, (d2 mod 9) floordiv 3, d2 mod 3)>
+// CHECK-DAG: #[[map1:.*]] = affine_map<(d0, d1, d2) -> (0, d0, d1, d2 floordiv 9, (d2 mod 9) floordiv 3, d2 mod 3)>
 // CHECK-DAG: #[[map2:.*]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0 * 16 + d1, d2, d3, d4 - 2, d5 - 2)>
 // CHECK-DAG: #[[map3:.*]] = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4 + d5, d6 + d7)>
-// CHECK-DAG: #[[map4:.*]] = affine_map<(d0, d1, d2) -> (d0 mod 2, d1 floordiv 81, d0 floordiv 2, d2 floordiv 9, (d2 mod 9) floordiv 3, (d1 mod 81) floordiv 9, d2 mod 3, d1 mod 9)>
+// CHECK-DAG: #[[map4:.*]] = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 81, 0, d2 floordiv 9, (d2 mod 9) floordiv 3, (d1 mod 81) floordiv 9, d2 mod 3, d1 mod 9)>
 // CHECK-DAG: #[[map5:.*]] = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0 * 16 + d1, d2, d3, d4, d5)>
-// CHECK-DAG: #[[map6:.*]] = affine_map<(d0, d1, d2) -> (d0 mod 2, d1 floordiv 81, d0 floordiv 2, d2, (d1 mod 81) floordiv 9, d1 mod 9)>
+// CHECK-DAG: #[[map6:.*]] = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 81, 0, d2, (d1 mod 81) floordiv 9, d1 mod 9)>
 // CHECK-DAG: #rock.transform_map<#[[map]] by [<PassThrough ["g"] at [0] -> ["g"] at [0]>, <AddDim{2} ["kBlock"] at [1] -> [] at []>, <PassThrough ["k", "c", "y", "x"] at [2, 3, 4, 5] -> ["k", "c", "y", "x"] at [1, 2, 3, 4]>] bounds = [1, 2, 32, 32, 3, 3] -> [1, 32, 32, 3, 3]>
-// CHECK-DAG: #rock.transform_map<#[[map1]] by [<Merge{1, 2} ["gemmG"] at [0] -> ["g", "kBlock"] at [0, 1]>, <PassThrough ["gemmM"] at [1] -> ["k"] at [2]>, <Unfold{32, 3, 3} ["gemmN"] at [2] -> ["c", "y", "x"] at [3, 4, 5]>] bounds = [2, 32, 288] -> [1, 2, 32, 32, 3, 3]>
+// CHECK-DAG: #rock.transform_map<#[[map1]] by [<Merge{1, 2} ["gemmG"] at [0] -> ["g", "kBlock"] at [0, 1]>, <PassThrough ["gemmM"] at [1] -> ["k"] at [2]>, <Merge{32, 3, 3} ["gemmN"] at [2] -> ["c", "y", "x"] at [3, 4, 5]>] bounds = [2, 32, 288] -> [1, 2, 32, 32, 3, 3]>
 // CHECK-DAG: #rock.transform_map<#[[map2]] by [<PassThrough ["gi"] at [2] -> ["gi"] at [1]>, <Unmerge{2, 16} ["n0", "n1"] at [0, 1] -> ["ni"] at [0]>, <PassThrough ["ci"] at [3] -> ["ci"] at [2]>, <Pad{2, 2, 2, 2} ["hipad", "wipad"] at [4, 5] -> ["hi", "wi"] at [3, 4]>] bounds = [2, 16, 1, 32, 11, 11] -> [32, 1, 32, 7, 7]>
 // CHECK-DAG: #rock.transform_map<#[[map3]] by [<PassThrough ["gi", "n0", "n1", "ci"] at [2, 0, 1, 3] -> ["gi", "n0", "n1", "ci"] at [2, 0, 1, 3]>, <Embed{1, 1} ["y", "ho"] at [4, 5] -> ["hipad"] at [4]>, <Embed{1, 1} ["x", "wo"] at [6, 7] -> ["wipad"] at [5]>] bounds = [2, 16, 1, 32, 3, 9, 3, 9] -> [2, 16, 1, 32, 11, 11]>
 // CHECK-DAG: #rock.transform_map<#[[map4]] by [<Merge{1, 2} ["gemmG"] at [0] -> ["gi", "n0"] at [2, 0]>, <Merge{16, 9, 9} ["gemmK"] at [1] -> ["n1", "ho", "wo"] at [1, 5, 7]>, <Merge{32, 3, 3} ["gemmN"] at [2] -> ["ci", "y", "x"] at [3, 4, 6]>] bounds = [2, 1296, 288] -> [2, 16, 1, 32, 3, 9, 3, 9]>

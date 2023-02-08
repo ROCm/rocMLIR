@@ -268,8 +268,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     }
     break;
   }
-  case TransformType::Merge:
-  case TransformType::Unfold: {
+  case TransformType::Merge: {
     if (upperDims.size() != 1) {
       return emitError()
              << "Merge and unfold can only have one input dimension";

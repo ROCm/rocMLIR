@@ -525,8 +525,7 @@ struct IndexDiffUpdateRewritePattern
           lowerIndicesUpdatedMap[lowerDim] =
               addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
         }
-      } else if ((transformation == TransformType::Merge) ||
-                 (transformation == TransformType::Unfold)) {
+      } else if (transformation == TransformType::Merge) {
         assert(p.size() == 1);
         uint32_t upperDim = p[0];
 
@@ -602,103 +601,110 @@ struct IndexDiffUpdateRewritePattern
         }
         assert(lowerIndicesModified.size() == q.size());
 
-        // Add carry check for Merge.
-        // For Unfold it's not needed.
-        if (transformation == TransformType::Merge) {
-          // Carry checked lower indices.
-          // FIXME: study how to properly lowerDiffsCarryChecked.
-          DenseMap<uint32_t, Value> lowerDiffsCarryChecked;
-          DenseMap<uint32_t, Value> lowerIndicesCarryChecked;
-          for (uint32_t iter = 0; iter < q.size(); ++iter) {
-            int64_t lowerDim = q[iter];
-            lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
-            lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
-          }
-          assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
-          assert(lowerIndicesCarryChecked.size() ==
-                 lowerIndicesModified.size());
+        // Add carry check, excluding leading runs of unit dimensions,
+        // whose carry information is irrelevant.
 
-          // We only implement carry logic. Borrow logic would never happen as
-          // upper index diffs would always be positive in the current
-          // algorithm.
-          Value overflowOp = zeroConstantOp;
-          for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
-            uint32_t lowerDim = q[iter];
-            int64_t upperBound = e[iter];
-            // If the overflow is statically 0, nothing gets added
-            Value diff =
-                addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
-            Value index =
-                addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
-
-            // Don't generate overflow for the uppermost dimension,
-            // as this can lead to adresses wrapping back into bounds
-            if (iter == 0) {
-              lowerDiffsCarryChecked[lowerDim] = diff;
-              lowerIndicesCarryChecked[lowerDim] = index;
-              continue;
-            }
-            auto mbConstantDiff = isConstantValue(diff);
-            auto mbConstantIndex = isConstantValue(index);
-
-            // If we get lucky, everything is constant and so we have a constant
-            // result
-            if (mbConstantIndex.has_value() && mbConstantDiff.has_value()) {
-              int64_t index = mbConstantIndex.value();
-              int64_t diff = mbConstantDiff.value();
-              if (index < upperBound) {
-                overflowOp = zeroConstantOp;
-                lowerIndicesCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, index);
-                lowerDiffsCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, diff);
-              } else {
-                int64_t carry = index / upperBound;
-                int64_t newIndex = index % upperBound;
-                int64_t newDiff = diff - (carry * upperBound);
-                overflowOp = b.create<ConstantIndexOp>(loc, carry);
-                lowerIndicesCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, newIndex);
-                lowerDiffsCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, newDiff);
-              }
-              continue;
-            }
-            // No change -> no carry-out
-            if (mbConstantDiff.value_or(-1L) == 0) {
-              overflowOp = zeroConstantOp;
-              lowerDiffsCarryChecked[lowerDim] = diff;
-              lowerIndicesCarryChecked[lowerDim] = index;
-              continue;
-            }
-
-            Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
-            Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
-            Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
-            // If the merge is, as is typical, near the end of the
-            // transformations this computation should get hit by the dead code
-            // eleminator
-            Value newDiff = b.create<SubIOp>(
-                loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
-
-            overflowOp = carry;
-            lowerDiffsCarryChecked[lowerDim] = newDiff;
-            lowerIndicesCarryChecked[lowerDim] = newIndex;
-          }
-
-          assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
-          assert(lowerIndicesCarryChecked.size() ==
-                 lowerIndicesModified.size());
-          lowerDiffs.clear();
-          lowerIndicesModified.clear();
-          for (uint32_t iter = 0; iter < q.size(); ++iter) {
-            uint32_t lowerDim = q[iter];
-            lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
-            lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
-          }
-          assert(lowerDiffs.size() == q.size());
-          assert(lowerIndicesModified.size() == q.size());
+        // Carry checked lower indices.
+        DenseMap<uint32_t, Value> lowerDiffsCarryChecked;
+        DenseMap<uint32_t, Value> lowerIndicesCarryChecked;
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          int64_t lowerDim = q[iter];
+          lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
+          lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
         }
+        assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
+        assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
+
+        // Runs of initial length 1 don't require a carry check. This replaces
+        // MIOpen's Unfold. In the affine map, these initial 1s are the constant
+        // 0, and so they should stay there.
+        ssize_t slowestDimIdx =
+            e.take_while([](int64_t len) { return len == 1; }).size();
+
+        // We only implement carry logic. Borrow logic would never happen as
+        // upper index diffs would always be positive in the current
+        // algorithm.
+        Value overflowOp = zeroConstantOp;
+        for (ssize_t iter = q.size() - 1; iter >= slowestDimIdx; --iter) {
+          uint32_t lowerDim = q[iter];
+          int64_t upperBound = e[iter];
+          if (upperBound == 1) {
+            // The carry will necessarily bounce to the next dimension,
+            // so don't bother generating code for it.
+            continue;
+          }
+          // If the overflow is statically 0, nothing gets added
+          Value diff =
+              addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
+          Value index =
+              addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
+
+          // Don't generate overflow for the uppermost dimension,
+          // as this can lead to adresses wrapping back into bounds
+          if (iter == slowestDimIdx) {
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
+          auto mbConstantDiff = isConstantValue(diff);
+          auto mbConstantIndex = isConstantValue(index);
+
+          // If we get lucky, everything is constant and so we have a constant
+          // result
+          if (mbConstantIndex.has_value() && mbConstantDiff.has_value()) {
+            int64_t index = mbConstantIndex.value();
+            int64_t diff = mbConstantDiff.value();
+            if (index < upperBound) {
+              overflowOp = zeroConstantOp;
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, index);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, diff);
+            } else {
+              int64_t carry = index / upperBound;
+              int64_t newIndex = index % upperBound;
+              int64_t newDiff = diff - (carry * upperBound);
+              overflowOp = b.create<ConstantIndexOp>(loc, carry);
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, newIndex);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, newDiff);
+            }
+            continue;
+          }
+          // No change -> no carry-out
+          if (mbConstantDiff.value_or(-1L) == 0) {
+            overflowOp = zeroConstantOp;
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
+
+          Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
+          Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
+          Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
+          // If the merge is, as is typical, near the end of the
+          // transformations this computation should get hit by the dead code
+          // eleminator
+          Value newDiff = b.create<SubIOp>(
+              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
+
+          overflowOp = carry;
+          lowerDiffsCarryChecked[lowerDim] = newDiff;
+          lowerIndicesCarryChecked[lowerDim] = newIndex;
+        }
+
+        assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
+        assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
+        lowerDiffs.clear();
+        lowerIndicesModified.clear();
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          uint32_t lowerDim = q[iter];
+          lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
+          lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
+        }
+        assert(lowerDiffs.size() == q.size());
+        assert(lowerIndicesModified.size() == q.size());
 
         // Set lowerIndicesDiffMap and lowerIndicesUpdatedMap.
         for (uint32_t iter = 0; iter < q.size(); ++iter) {
