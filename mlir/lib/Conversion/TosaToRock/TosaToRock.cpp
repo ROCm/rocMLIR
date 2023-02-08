@@ -357,21 +357,22 @@ struct ExpandShapeRewritePattern
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
-  SmallVector<int32_t> getTransposeDims(Value v) const {
+  LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
     Operation *cval = v.getDefiningOp();
     if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
       auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
       auto vals = cattr.tryGetValues<int32_t>();
-      if (succeeded(vals))
-        return SmallVector<int32_t>(*vals);
+      if (succeeded(vals)) {
+        perms.assign((*vals).begin(), (*vals).end());
+        return success();
+      }
       auto vals64 = cattr.tryGetValues<int64_t>();
-      assert(succeeded(vals64));
-      return SmallVector<int32_t>(*vals64);
+      if (succeeded(vals64)) {
+        perms.assign((*vals64).begin(), (*vals64).end());
+        return success();
+      }
     }
-    // May be bufferization cast
-    //  but this is no longer a bufferization pass, so assert
-    assert(0);
-    return getTransposeDims(v.getDefiningOp()->getOperand(0));
+    return failure();
   }
 
   // Fold transpose ops and convert convolution into changed layout.
@@ -380,7 +381,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    auto perms = getTransposeDims(top.getOperand(1));
+    SmallVector<int32_t> perms;
+    if (failed(getTransposeDims(top.getOperand(1), perms)))
+      return failure();
 
     Location loc = top.getLoc();
     Value inp = top.getOperand(0);
