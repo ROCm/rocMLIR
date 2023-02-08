@@ -40,15 +40,6 @@ public:
     if (!func->hasAttr("kernel")) {
       return;
     }
-    // expand tosa.reshape to tensor.collapse_shape and tensor.expand_shape
-    // within kernel functions.
-    OpPassManager pm("func.func");
-    pm.addPass(mlir::tosa::createTosaToTensor());
-    if (failed(runPipeline(pm, func))) {
-      signalPassFailure();
-      return;
-    }
-
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
     RewritePatternSet patterns(&ctx);
