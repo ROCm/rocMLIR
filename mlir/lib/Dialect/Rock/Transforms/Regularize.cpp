@@ -107,8 +107,6 @@ static bool isRegularGeneric(linalg::GenericOp lgop) {
   auto outs = lgop.getOutputs();
   if (outs.size() > 1)
     return false; //"Only 1 output supported"
-  Value out = outs[0];
-  auto outType = out.getType().cast<ShapedType>();
 
   // all index maps must be identity
   auto idxMaps = lgop.getIndexingMapsArray();
@@ -304,7 +302,8 @@ void RockRegularizePass::runOnOperation() {
     target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
                            memref::MemRefDialect, linalg::LinalgDialect>();
     target.addIllegalOp<memref::ExpandShapeOp, memref::CollapseShapeOp>();
-    target.addDynamicallyLegalOp<linalg::GenericOp>(isRegularGeneric);
+    target.addDynamicallyLegalOp<linalg::GenericOp>(
+        [](linalg::GenericOp op) { return isRegularGeneric(op); });
 
     RewritePatternSet patterns(ctx);
     patterns.add<CollapseRewritePattern, ExpandRewritePattern,
