@@ -360,7 +360,7 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   auto *input = static_cast<StridedMemRefType<int8_t, 5> *>(i_ptr);
   auto *inputAllocated = input->data + input->offset;
 
-  auto *output = static_cast<StridedMemRefType<int32_t, 5> *>(o_ptr);
+  auto *output = static_cast<StridedMemRefType<int64_t, 5> *>(o_ptr);
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
@@ -368,12 +368,12 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   std::array<int64_t, 5> inputSizes, inputStrides;
   std::array<int64_t, 5> outputSizes, outputStrides;
 
-  getSizesAndStrides<int8_t, int32_t>(rank1, filter, rank2, input, rank3,
+  getSizesAndStrides<int8_t, int64_t>(rank1, filter, rank2, input, rank3,
                                       output, f_layout, i_layout, o_layout,
                                       filterSizes, filterStrides, inputSizes,
                                       inputStrides, outputSizes, outputStrides);
 
-  performConv2d<int8_t, int32_t, int32_t>(
+  performConv2d<int8_t, int64_t, int64_t>(
       filterAllocated, inputAllocated, outputAllocated, filterSizes,
       filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
       stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
@@ -558,9 +558,41 @@ extern "C" void mcpuVerifyInt32(int32_t *gpuAllocated, int32_t *gpuAligned,
                                 int64_t gpuStride, int32_t *valAllocated,
                                 int32_t *valAligned, int64_t valOffset,
                                 int64_t valSize, int64_t valStride,
-                                float thr_RMS, float thr_absDiff,
-                                float thr_relDiff, char printDebug) {
+                                char printDebug) {
   assert(gpuSize == valSize);
-  mcpuVerify<int32_t>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
-                      thr_relDiff, printDebug);
+  for (int64_t i = 0; i < valSize; ++i) {
+    if (gpuAligned[i] != valAligned[i]) {
+      if (printDebug)
+        printf("gpu=%d val=%d\n", gpuAligned[i], valAligned[i]);
+      printf("[%d %d %d]\n", 0, 0, 0);
+      return;
+    }
+  }
+
+  printf("[%d %d %d]\n", 1, 1, 1);
+  return;
+}
+
+extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
+                                     int64_t gpuOffset, int64_t gpuSize,
+                                     int64_t gpuStride, int64_t *valAllocated,
+                                     int64_t *valAligned, int64_t valOffset,
+                                     int64_t valSize, int64_t valStride,
+                                     char printDebug) {
+
+  assert(gpuSize == valSize);
+  for (int64_t i = 0; i < valSize; ++i) {
+    if (valAligned[i] > INT32_MAX || valAligned[i] < INT32_MIN) {
+      if (printDebug)
+        printf("gpu results overflow \n");
+    } else if (gpuAligned[i] != valAligned[i]) {
+      if (printDebug)
+        printf("gpu=%d val=%ld\n", gpuAligned[i], valAligned[i]);
+      printf("[%d %d %d]\n", 0, 0, 0);
+      return;
+    }
+  }
+
+  printf("[%d %d %d]\n", 1, 1, 1);
+  return;
 }
