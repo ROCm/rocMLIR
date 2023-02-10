@@ -563,13 +563,13 @@ extern "C" void mcpuVerifyInt32(int32_t *gpuAllocated, int32_t *gpuAligned,
   for (int64_t i = 0; i < valSize; ++i) {
     if (gpuAligned[i] != valAligned[i]) {
       if (printDebug)
-        printf("gpu=%d val=%d\n", gpuAligned[i], valAligned[i]);
-      printf("[%d %d %d]\n", 0, 0, 0);
+        printf("%ld: gpu=%d val=%d\n", i, gpuAligned[i], valAligned[i]);
+      printf("[-1]");
       return;
     }
   }
 
-  printf("[%d %d %d]\n", 1, 1, 1);
+  printf("[1 1 1]\n");
   return;
 }
 
@@ -587,12 +587,12 @@ extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
         printf("gpu results overflow \n");
     } else if (gpuAligned[i] != valAligned[i]) {
       if (printDebug)
-        printf("gpu=%d val=%ld\n", gpuAligned[i], valAligned[i]);
-      printf("[%d %d %d]\n", 0, 0, 0);
+        printf("%ld: gpu=%d val=%ld\n", i, gpuAligned[i], valAligned[i]);
+      printf("[-1]\n");
       return;
     }
   }
 
-  printf("[%d %d %d]\n", 1, 1, 1);
+  printf("[1 1 1]\n");
   return;
 }
