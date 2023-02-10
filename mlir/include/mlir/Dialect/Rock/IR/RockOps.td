@@ -1141,7 +1141,9 @@ def Rock_XdlopsGemmV2Op:
   let hasVerifier = 1;
 }
 
-// TODO(kdrewnia): upstream these
+/// ONLY NEEDEF FOR in_warp_transpose BELOW. DEAD BUT LEFT IN FOR FUTURE
+/// USE, JUST LIKE in_warp_transpose ITSELF.
+
 // Whether the vector's length is divisible by `divisor`
 class IsVectorOfDivisibleLengthPred<int divisor> :
   And<[IsVectorTypePred,
@@ -1174,7 +1176,11 @@ def Rock_InWarpTransposeOp :
     Results<(outs VectorOfDivisibleLengthAndType<swizzleGroupSize, [F32, I32]>:$res)> {
   let summary = "Transpose blocks of data distributed accross a warp";
   let description = [{
-    `Rock.in_warp_transpose` takes a vector representing a matrix of values
+    NOTE: THIS IS CURRENTLY DEAD CODE LEFT IN IN CASE WE FIND A USE FOR IT
+    AND TO PROVIDE TESTCASES FOR A PLANNED amdgpu.dpp. YOU CAN, IF NEED
+    BE, REMOVE THIS and gpu.warp_swizzle.
+
+    `rock.in_warp_transpose` takes a vector representing a matrix of values
     stored accross the threads in a warp and transposes `size`x`size` blocks
     of this matrix. The rows of the output (if we regard each thread's vector
     as a row in the matrix) are further permuted with the `inGroupPerm`
