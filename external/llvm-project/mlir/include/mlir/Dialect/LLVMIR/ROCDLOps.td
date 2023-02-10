@@ -261,6 +261,54 @@ def ROCDL_RawBufferAtomicFAddOp :
   let hasCustomAssemblyFormat = 1;
 }
 
+def ROCDL_RawBufferAtomicFMaxOp :
+  ROCDL_Op<"raw.buffer.atomic.fmax">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_fmax, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def ROCDL_RawBufferAtomicSMaxOp :
+  ROCDL_Op<"raw.buffer.atomic.smax">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_smax, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def ROCDL_RawBufferAtomicUMinOp :
+  ROCDL_Op<"raw.buffer.atomic.umin">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_umin, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
 //===---------------------------------------------------------------------===//
 // DPP Move intrinsic
 def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
