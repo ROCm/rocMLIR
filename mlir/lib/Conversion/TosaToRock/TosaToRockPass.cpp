@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
-#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -42,14 +41,19 @@ public:
     }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
+    RewritePatternSet tensorPatterns(&ctx);
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
+
+    mlir::tosa::populateTosaToRockTensorConversionPatterns(&ctx,
+                                                           tensorPatterns);
+    if (failed(applyPatternsAndFoldGreedily(func, std::move(tensorPatterns))))
+      signalPassFailure();
 
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tensor::CollapseShapeOp,
-                        tensor::ExpandShapeOp, tosa::TransposeOp>();
+    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);
