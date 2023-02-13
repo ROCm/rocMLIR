@@ -31,6 +31,9 @@ void addTosaToRockPasses(OpPassManager &pm);
 void populateTosaToRockConversionPatterns(MLIRContext *context,
                                           RewritePatternSet &patterns);
 
+void populateTosaToRockTensorConversionPatterns(MLIRContext *context,
+                                                RewritePatternSet &patterns);
+
 } // namespace tosa
 
 } // namespace mlir

@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver --host-pipeline highlevel %s | FileCheck %s
 
-// CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "y", "x", "c", "g"], has_relayout_do_not_unfold, input_layout = ["ni", "hi", "wi", "ci", "gi"], output_layout = ["no", "ho", "wo", "ko", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x3x3x128x1xf32>, memref<256x28x28x128x1xf32>, memref<256x28x28x64x1xf32>
+// CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], output_layout = ["no", "ho", "wo", "ko", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x28x28x64x1xf32>
 
 // CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: linalg.generic

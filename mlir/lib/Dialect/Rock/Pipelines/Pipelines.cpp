@@ -59,6 +59,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     /* rocmlir-opt --tosa-to-rock
      */
     pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
   }
 
   // use tosa conversion pipeline
@@ -77,6 +78,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
   pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
+  pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg

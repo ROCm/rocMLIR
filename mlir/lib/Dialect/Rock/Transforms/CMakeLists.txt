@@ -13,6 +13,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   LoopsToCf.cpp
   ThreadwiseGemmLowering.cpp
   TransformToMemref.cpp
+  ViewToTransform.cpp
   LowerRockReduce.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -42,5 +43,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRRockUtility
   MLIRSCFToControlFlow
   MLIRSupport
+  MLIRTosaDialect
 )
 
