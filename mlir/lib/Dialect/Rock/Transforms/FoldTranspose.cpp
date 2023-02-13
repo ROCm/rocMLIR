@@ -390,6 +390,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
     // Actually do the rewrites, if any
     SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
     SmallVector<Value> inputs = laGeneric.inputs();
+    bool hasReplaced = false;
     for (auto &tuple : toReplace) {
       unsigned opIndex = std::get<0>(tuple);
       Value opValue = std::get<1>(tuple);
@@ -410,6 +411,14 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
           b.create<memref::AllocOp>(allocation.getLoc(), newAllocType);
       Value transformedNewAlloc = insertTransposeAndBroadcastTransforms(
           b, outType.getShape(), newAlloc, idxMap);
+      if (transformedNewAlloc == newAlloc) {
+        // No transform needed, remove the unecessary allocation
+        b.eraseOp(newAlloc.getDefiningOp());
+        continue;
+      } else {
+        hasReplaced = true;
+      }
+
       llvm::SmallPtrSet<Operation *, 2> skips = {
           laGeneric, transformedNewAlloc.getDefiningOp()};
       opValue.replaceAllUsesExcept(transformedNewAlloc, skips);
@@ -421,7 +430,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
     laGeneric->setAttr(laGeneric.indexing_mapsAttrName(),
                        b.getAffineMapArrayAttr(idxMaps));
     laGeneric.getInputsMutable().assign(inputs);
-    return success(!toReplace.empty());
+    return success(hasReplaced);
   }
 };
 } // end namespace
