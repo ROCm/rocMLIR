@@ -56,7 +56,10 @@ def printAllPerformance(chip):
     means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_FILE)
 
     with open(chip + "_" + "MLIR_vs_MIOpen.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, "MLIR vs. MIOpen performance", ["MLIR/MIOpen", "Tuned/Untuned", "Tuned/MIOpen"], htmlOutput)
+        reportUtils.htmlReport(df, means, "MLIR vs. MIOpen performance",
+          ["MLIR/MIOpen", "Tuned/Untuned", "Tuned/MIOpen"],
+          reportUtils.colorForSpeedups,
+          htmlOutput)
 
 # Main function.
 if __name__ == '__main__':

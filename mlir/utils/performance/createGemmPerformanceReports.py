@@ -46,7 +46,7 @@ def printAllPerformance(chip, lib='rocBLAS'):
 
     with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as htmlOutput:
         reportUtils.htmlReport(df, means, f"MLIR vs. {lib} performance",
-        toHighlight, htmlOutput)
+        toHighlight, reportUtils.colorForSpeedups, htmlOutput)
 
 # Main function.
 if __name__ == '__main__':
