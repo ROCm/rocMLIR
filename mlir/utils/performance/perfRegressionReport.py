@@ -68,21 +68,23 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
                          'TFlops_new': newLabel,
                          'Tuned MLIR TFlops_old': oldLabelTuned,
                          'Tuned MLIR TFlops_new': newLabelTuned}, inplace=True)
-    data['Current/Previous'] = data[newLabel] / data[oldLabel]
+    data['% change'] = 100.0 * (data[newLabel] - data[oldLabel]) / data[oldLabel]
     hasTuning = False
     if oldLabelTuned in data and newLabelTuned in data:
-        data['Tuned Current/Previous'] = data[newLabelTuned] / data[oldLabelTuned]
+        data['% change (tuned)'] = (data[newLabelTuned] - data[oldLabelTuned]) / data[oldLabelTuned]
         hasTuning = True
 
-    columnsToAverage = ['Current/Previous', oldLabel, newLabel]
+    columnsToAverage = ['% change', oldLabel, newLabel]
     if hasTuning:
-        columnsToAverage += ['Tuned Current/Previous', oldLabelTuned, newLabelTuned]
+        columnsToAverage += ['% change (tuned)', oldLabelTuned, newLabelTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
     groups = ["DataType"] if isGemm else ["Direction", "DataType", "InputLayout"]
     grouped = data.groupby(groups)[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
+    stats.drop(columns=[('% change', 'Geo. mean'), ('% change (tuned)', 'Geo. mean')],
+        errors='ignore', inplace=True)
 
     return data, stats
 
@@ -107,7 +109,7 @@ if __name__ == '__main__':
         newDf = loadMlirData(str(newDataPath))
         newLabel = getPerfDate(newDataPath, "new")
     except FileNotFoundError:
-        print("Could not load current performance data: run ./MIOpenDriver.py or provide a path", file=sys.stderr)
+        print("Could not load current performance data: run perf or provide a path", file=sys.stderr)
         sys.exit(1)
     try:
         oldDf = loadMlirData(str(oldDataPath))
@@ -119,12 +121,12 @@ if __name__ == '__main__':
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     isGemm = ("TransA" in data)
-    hasTuning = ("Tuned Current/Previous" in data)
+    hasTuning = ("% change (tuned)" in data)
     if isGemm and len(sys.argv) < 5:
         outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
     with open(outputPath, "w") as outputStream:
-        toHighlight = ["Current/Previous", "Tuned Current/Previous"] if hasTuning \
-            else ["Current/Previous"]
+        toHighlight = ["% change", "% change (tuned)"] if hasTuning \
+            else ["% change"]
         reportUtils.htmlReport(data, summary,
             "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            toHighlight, outputStream)
+            toHighlight, reportUtils.colorForChanges, outputStream)

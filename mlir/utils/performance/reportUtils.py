@@ -24,7 +24,7 @@ GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', '
 ROUND_DIGITS = 2
 
 def geoMean(data):
-    maskedData = np.ma.masked_where(~(np.isfinite(data) & (data != 0)), data)
+    maskedData = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
     means = scipy.stats.gmean(maskedData)
     return means
 
@@ -43,7 +43,22 @@ def colorForSpeedups(value):
     else:
         return ''
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
+def colorForChanges(value):
+    if not np.isfinite(value):
+        return 'background-color: #ff00ff'
+
+    if value <= -30.0:
+        return 'background-color: #ff0000; color: #ffffff'
+    elif value <= -10.0:
+        return 'background-color: #dddd00'
+    elif value >= 20.0:
+        return 'background-color: #00ffff'
+    elif value >= 5.0:
+        return 'background-color: #00cccc'
+    else:
+        return ''
+
+def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list, colorizer):
     styler.set_table_styles([
         {'selector': 'tbody tr:nth-child(odd)', 'props': [('background-color', '#e0e0e0')]},
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
@@ -52,7 +67,7 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
     styler.format(precision=ROUND_DIGITS, na_rep="FAILED")
     for col in speedupCols:
         if col in styler.columns:
-            styler.applymap(colorForSpeedups, subset=[col])
+            styler.applymap(colorizer, subset=[col])
 
 # Adapted from
 # https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
@@ -93,7 +108,7 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     return data, title, list(indexCols.values())
 
 def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str,
-                  speedupCols: list, stream=None):
+                  speedupCols: list, colorizer=colorForSpeedups, stream=None):
     data, longTitle, indexCols = cleanDataForHumans(data, title)
     print(f"""
 <!doctype html>
@@ -115,7 +130,7 @@ caption {{
 
     statsPrinter = stats.style
     statsPrinter.set_caption(f"Summary statistics for {title}")
-    setCommonStyles(statsPrinter, speedupCols)
+    setCommonStyles(statsPrinter, speedupCols, colorizer)
     print(statsPrinter.to_html(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
@@ -124,7 +139,7 @@ caption {{
         indexed = data.set_index(indexCols)
         dataPrinter = indexed.style
         dataPrinter.set_caption(f"{title}: Per-test breakdown")
-        setCommonStyles(dataPrinter, speedupCols)
+        setCommonStyles(dataPrinter, speedupCols, colorizer)
         print(dataPrinter.to_html(), file=stream)
     print("""
 </body>
