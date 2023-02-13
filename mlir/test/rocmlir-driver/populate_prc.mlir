@@ -21,6 +21,5 @@
 // RUN: rocmlir-gen --arch %arch -p -prc -t i8 | FileCheck %s --check-prefix=INT8
 
 // INT8: func.func @main()
-// INT8:  call @_memcpy_i32_f32_{{[0-9]+}}(%{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// INT8-NEXT:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
-// INT8-NEXT:    call @printMemrefF32([[RES]]) : (memref<*xf32>) -> ()
+// INT8:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xi32>
+// INT8-NEXT:    call @printMemrefI32([[RES]]) : (memref<*xi32>) -> ()
