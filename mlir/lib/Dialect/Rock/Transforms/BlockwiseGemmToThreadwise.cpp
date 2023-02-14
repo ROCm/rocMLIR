@@ -486,9 +486,9 @@ struct BlockwiseGemmV2RewritePattern
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[n_i, k_i]
-    auto outerLoopN = b.create<AffineForOp>(loc, 0, nRepeats);
+    auto outerLoopN = ilmkb.create<AffineForOp>(loc, 0, nRepeats);
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
-                                                        b.getListener());
+                                                        ilmkb.getListener());
     auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
     auto ilnkb = ConversionPatternRewriter::atBlockBegin(innerLoopNK.getBody(),
                                                          olnb.getListener());
@@ -502,21 +502,26 @@ struct BlockwiseGemmV2RewritePattern
                         nPerMfmaGroupConstantOp, op.getMatrixB(), bufferB);
     }
 
-    // Reshape the destination registers and issue the Xdlops
-    int64_t nResultVectors = mfmaGroup.getImms().size();
-    Value reshapedARegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
-    Value reshapedBRegisters = reshapeBuffer(
-        b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
+    //// Reshape the destination registers and issue the Xdlops
+    //int64_t nResultVectors = mfmaGroup.getImms().size();
+    //Value reshapedARegisters = reshapeBuffer(
+    //    b, loc, adaptor.getBufferA(), {"m", "k"}, {mRepeats, KPerThread});
+    //Value reshapedBRegisters = reshapeBuffer(
+    //    b, loc, adaptor.getBufferB(), {"n", "k"}, {nRepeats, KPerThread});
 
-    Value reshapedCRegisters =
-        reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
-                      {mRepeats, nRepeats, nResultVectors});
+    //Value reshapedCRegisters =
+    //    reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
+    //                  {mRepeats, nRepeats, nResultVectors});
 
-    b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
-                                         reshapedBRegisters, reshapedCRegisters,
-                                         tuningParams);
+    //b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
+    //                                     reshapedBRegisters, reshapedCRegisters,
+    //                                     tuningParams);
 
+    ilnkb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(), outerLoopN.getInductionVar(), 
+        adaptor.getBufferA(),
+                                adaptor.getBufferB(), adaptor.getMatrixC(),
+                                tuningParams);
+    b.eraseOp(op);
     return success();
   }
 };
