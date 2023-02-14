@@ -71,7 +71,7 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
   let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
-    "gpu::GPUDialect", "memref::MemRefDialect", "AffineDialect", "amdgpu::AMDGPUDialect"];
+    "gpu::GPUDialect", "memref::MemRefDialect", "AffineDialect", "amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "scf::SCFDialect"];
 }
 
 def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {

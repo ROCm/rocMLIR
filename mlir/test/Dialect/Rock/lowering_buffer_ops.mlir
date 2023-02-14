@@ -130,4 +130,70 @@ func.func @add_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
+
+// CHECK-LABEL: func.func @fmax_scalar_float_atomics
+// CHECK-SAME: (%[[val:.*]]: f32, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
+func.func @fmax_scalar_float_atomics(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // CHECK: amdgpu.raw_buffer_atomic_fmax {boundsCheck = false} %[[val]] -> %[[mem]]
+    rock.buffer_store atomic_max %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot|atomic_fmax_f32
+        : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
+// CHECK-LABEL: func.func @fmax_vector_float_atomics
+func.func @fmax_vector_float_atomics(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // CHECK-4: amdgpu.raw_buffer_atomic_fmax
+    rock.buffer_store atomic_max %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot|atomic_fmax_f32
+        : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
+// CHECK-LABEL: func.func @fmax_scalar_integer_atomics
+// CHECK-SAME: (%[[val:.*]]: f32, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
+func.func @fmax_scalar_integer_atomics(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // CHECK-DAG:  %[[C0:.*]] = arith.constant 0 : i32
+    // CHECK-DAG:  %[[VAL_I32:.*]] = llvm.bitcast %[[val]] : f32 to i32
+    // CHECK-DAG:  %[[MSB_BITMASK:.*]] = arith.constant -2147483648 : i32
+    // CHECK-DAG:  %[[MSB:.*]] = arith.andi %[[VAL_I32]], %[[MSB_BITMASK]] : i32
+    // CHECK-DAG:  %[[IS_POSITIVE:.*]] = arith.cmpi eq, %[[MSB]], %[[C0]] : i32
+    // CHECK: scf.if %[[IS_POSITIVE]]
+    // CHECK: amdgpu.raw_buffer_atomic_smax {boundsCheck = false} %[[VAL_I32]] -> %[[mem]]
+    // CHECK: else
+    // CHECK: amdgpu.raw_buffer_atomic_umin {boundsCheck = false} %[[VAL_I32]] -> %[[mem]]
+    rock.buffer_store atomic_max %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
+        : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
+// CHECK-LABEL: func.func @fmax_vector_integer_atomics
+func.func @fmax_vector_integer_atomics(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // CHECK: scf.if
+    // CHECK: amdgpu.raw_buffer_atomic_smax
+    // CHECK: else
+    // CHECK: amdgpu.raw_buffer_atomic_umin
+    // CHECK: scf.if
+    // CHECK: amdgpu.raw_buffer_atomic_smax
+    // CHECK: else
+    // CHECK: amdgpu.raw_buffer_atomic_umin
+    // CHECK: scf.if
+    // CHECK: amdgpu.raw_buffer_atomic_smax
+    // CHECK: else
+    // CHECK: amdgpu.raw_buffer_atomic_umin
+    // CHECK: scf.if
+    // CHECK: amdgpu.raw_buffer_atomic_smax
+    // CHECK: else
+    // CHECK: amdgpu.raw_buffer_atomic_umin
+    rock.buffer_store atomic_max %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
+        : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
 }
