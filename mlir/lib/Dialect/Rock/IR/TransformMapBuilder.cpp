@@ -200,7 +200,8 @@ TransformMapAttr TransformMapBuilder::get() {
   };
   frozen = true;
   return getTransformMapAttrChecked(errorEmitter, b.getContext(), result, map,
-                                    upperBounds, lowerBounds);
+                                    b.getDenseI64ArrayAttr(upperBounds),
+                                    b.getDenseI64ArrayAttr(lowerBounds));
 }
 
 void TransformMapBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {

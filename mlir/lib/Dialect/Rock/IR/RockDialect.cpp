@@ -334,7 +334,7 @@ TransformAttr getTransformAttrChecked(
 TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   return TransformMapAttr::getChecked(emitError, context, ops, map, upperBounds,
                                       lowerBounds);
 }
@@ -342,7 +342,7 @@ TransformMapAttr getTransformMapAttrChecked(
 LogicalResult TransformMapAttr::verify(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<::mlir::rock::TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   AffineMap rawMap = map.getAffineMap();
   if (rawMap.getNumInputs() != upperBounds.size()) {
     return emitError() << "Affine map has " << rawMap.getNumInputs()
@@ -355,12 +355,12 @@ LogicalResult TransformMapAttr::verify(
                        << " outut dimensions";
   }
 
-  for (int64_t v : upperBounds) {
+  for (int64_t v : upperBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Upper bound/shape component less than 0";
     }
   }
-  for (int64_t v : lowerBounds) {
+  for (int64_t v : lowerBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Lower bound/shape component less than 0";
     }

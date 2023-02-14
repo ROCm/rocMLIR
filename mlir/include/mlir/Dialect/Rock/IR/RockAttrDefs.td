@@ -14,6 +14,7 @@ include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/OpBase.td"
 
 //TODO: submit this to upstream
 class ArrayRefOfStringRefParameter<string desc = ""> :
@@ -186,12 +187,12 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     AttrParameter<"AffineMapAttr", "The composed map describing the `ops`">:$map,
     // Thes aren't strictly needed and can probably be removed if we're willing to
     // pay an ergonomics penalty.
-    ArrayRefParameter<"int64_t", "The shape of the transform input">:$upperBounds,
-    ArrayRefParameter<"int64_t", "The shape of the transform output">:$lowerBounds
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds
     );
 
     let assemblyFormat = [{
-        `<` $map `by` ` ` `[` $ops `]` `bounds` `=` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
+                             `<` $map `by` ` ` `[` $ops `]` `bounds` `=` ($upperBounds^) : (`[` `]`)? `->` $lowerBounds `>`
     }];
     let genVerifyDecl = 1;
 }

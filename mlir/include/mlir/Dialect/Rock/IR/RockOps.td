@@ -281,10 +281,10 @@ def Rock_TransformOp :
      ShapedType upperType;
      if (auto mrType = lowerType.template dyn_cast<MemRefType>()) {
        int memorySpace = mrType.getMemorySpaceAsInt();
-       upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+       upperType = MemRefType::get(transform.getUpperBounds().asArrayRef(), elemType,
         /*layout=*/{}, memorySpace);
      } else {
-       upperType = lowerType.cloneWith(transform.getUpperBounds(), elemType);
+       upperType = lowerType.cloneWith(transform.getUpperBounds().asArrayRef(), elemType);
      }
      $_state.addAttribute("transform", transform);
      $_state.addTypes(upperType);
