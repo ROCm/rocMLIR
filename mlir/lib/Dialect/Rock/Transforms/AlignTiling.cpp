@@ -113,7 +113,8 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
   auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
 
   // 1. create a second allocation of the same type to hold loaded elements
-  Value alloc = b.create<GpuAllocOp>(loc, gemmOutsType);
+//  Value alloc = b.create<GpuAllocOp>(loc, gemmOutsType);
+  Value alloc = b.create<memref::AllocaOp>(loc, gemmOutsType);
 
   // 2. clone twcopy for <addend> into regs
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType() << " dest type: "
@@ -189,7 +190,8 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   MLIRContext *ctx = laGeneric.getContext();
   Location loc = laGeneric.getLoc();
   auto regType = laIn.getType().template cast<MemRefType>();
-  auto laOut = b.create<GpuAllocOp>(loc, regType);
+ // auto laOut = b.create<GpuAllocOp>(loc, regType);
+  auto laOut = b.create<memref::AllocaOp>(loc, regType);
 
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
@@ -257,7 +259,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 0.2. Sanity check, skip already fused.
   for (auto inp : laGeneric.inputs()) {
-    if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
+    //if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
+    if (auto fusedAlloc = inp.getDefiningOp<memref::AllocaOp>()) {
       LLVM_DEBUG(llvm::dbgs() << "Found existing fusion, bailing\n");
       return failure();
     }
@@ -300,7 +303,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     b.setInsertionPoint(gemmOut.getDefiningOp());
     // 2.1. Take out a slice of the result vector to create a vector-sized
     // slice to enable creating the fusion section.
-    fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
+    //fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
+    fusionRegs = b.create<memref::AllocaOp>(loc, gemmOutType);
   }
 
   PatternRewriter::InsertionGuard guard(b);

@@ -220,12 +220,14 @@ struct BlockwiseGemmRewritePattern
     auto threadARegisterMemRefType =
         MemRefType::get(threadANumRegisters, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
-    auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
+    auto threadAAllocOp = b.create<memref::AllocaOp>(loc, threadARegisterMemRefType);
+    //auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
         MemRefType::get(threadBNumRegisters, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
-    auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
+    auto threadBAllocOp = b.create<memref::AllocaOp>(loc, threadBRegisterMemRefType);
+    //auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Define views of register tiles for copies
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);

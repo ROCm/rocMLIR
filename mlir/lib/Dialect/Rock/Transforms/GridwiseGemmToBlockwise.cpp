@@ -614,7 +614,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         MemRefType::get({threadCNumRegisters}, accumulatorType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     Value registerMatrixCAllocOp =
-        b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
+        //b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
+        b.create<memref::AllocaOp>(loc, threadCRegisterMemRefType);
     Value registerMatrixCViewOp = reshapeBuffer(
         b, loc, registerMatrixCAllocOp, {"m", "n"}, {threadCNumM, threadCNumN});
 
@@ -817,7 +818,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (destType != accumulatorType) {
       auto convertedCType =
           threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
-      Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+      //Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+      Value convertedC = b.create<memref::AllocaOp>(loc, convertedCType);
       auto convertLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
@@ -1194,7 +1196,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t arrayBSize =
         (!isKReduction) ? (kpacksPerBlock * nRepeats)
                         : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
-    Type arrayAType, arrayBType;
+    MemRefType arrayAType, arrayBType;
     if (kpack > 1) {
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
@@ -1208,8 +1210,10 @@ struct GridwiseGemmV2RewritePattern
       arrayBType = MemRefType::get({arrayBSize}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
     }
-    auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
-    auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
+    //auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
+    //auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
+    auto arrayA = b.create<memref::AllocaOp>(loc, arrayAType);
+    auto arrayB = b.create<memref::AllocaOp>(loc, arrayBType);
 
     // -----
     // Logic to allocate 0-initialized vectors for C.
@@ -1221,7 +1225,8 @@ struct GridwiseGemmV2RewritePattern
     MemRefType regCAllocType = MemRefType::get(
         nResultVectors, accumulatorVectorType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
+    //Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
+    Value regCAllocOp = b.create<memref::AllocaOp>(loc, regCAllocType);
 
     Value zeroConstantCOp = createZeroConstantOp(b, loc, vectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
@@ -1361,9 +1366,10 @@ struct GridwiseGemmV2RewritePattern
 
     Value registerC = regCAllocOp;
     auto convertedCType = MemRefType::get(
-        numElements, destType, {},
+        {numElements}, destType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+    //Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
+    Value convertedC = b.create<memref::AllocaOp>(loc, convertedCType);
 
     BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
     toRegCScalar.embed({"vector"}, {0}, {nResultVectors}, "scalar",
