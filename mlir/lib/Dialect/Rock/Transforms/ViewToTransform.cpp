@@ -150,8 +150,7 @@ public:
     RewritePatternSet patterns(ctx);
     ConversionTarget target(*ctx);
 
-    target.addLegalDialect<rock::RockDialect,
-                           bufferization::BufferizationDialect>();
+    target.addLegalDialect<rock::RockDialect, tosa::TosaDialect>();
     target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
                         tosa::TransposeOp>();
 

@@ -12,7 +12,7 @@
 include "mlir/Pass/PassBase.td"
 
 def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::FuncOp"> {
-  let summary = "expand convolution into coordinate transformations and gemm";
+  let summary = "convert tensor view ops to rock.transform";
   let dependentDialects = ["rock::RockDialect", "tensor::TensorDialect",
     "tosa::TosaDialect"];
 }
