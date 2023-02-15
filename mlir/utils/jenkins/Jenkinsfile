@@ -58,10 +58,19 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     buildMIGraphX(cmakeOpts)
 }
 
+CKBuilt = false
 void getAndBuildCK(String cmakeOpts) {
     git branch: params.CKBranch, poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/composable_kernel.git'
     buildCK(cmakeOpts)
+}
+
+String getGEMMBenchmarkDrivers(){
+    if (CKBuilt == true){
+        return "rocblas-benchmark-driver ck-benchmark-driver"
+    } else {
+        return "rocblas-benchmark-driver"
+    }
 }
 
 void buildMIOpenWithMLIR() {
@@ -815,7 +824,7 @@ pipeline {
                         steps {
                             sh 'rm -rf composable_kernel'
                             dir('composable_kernel') {
-                                catchError (buildResult: null) {
+                                try {
                                     getAndBuildCK('''
                                         -DGPU_TARGETS="gfx1030;gfx908;gfx90a"
                                         -DCMAKE_CXX_FLAGS="-O3"
@@ -824,6 +833,10 @@ pipeline {
                                         -DCMAKE_BUILD_TYPE=Release
                                         ''')
                                     sh 'cd build/library; make install; cp ../composable_kernelConfig*.cmake ${WORKSPACE}/composable_kernel/build/CKInstallDir/lib/cmake/composable_kernel'
+                                    CKBuilt = true
+                                } catch (err) {
+                                    currentBuild.result = null
+                                    CKBuilt = false
                                 }
                             }
                         }
@@ -833,7 +846,7 @@ pipeline {
                             // Clean up build settings to disable static library and allow
                             // ROCm testing
                             sh 'rm build/CMakeCache.txt'
-                            buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver',
+                            buildProject("check-rocmlir-build-only ci-performance-scripts ${getGEMMBenchmarkDrivers()}",
                                          '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang''')
@@ -848,7 +861,7 @@ pipeline {
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
 					--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
 					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
-                            catchError (buildResult: null) { // Might error if the CK driver has not been built
+                            if (CKBuilt == true) {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                         --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
                         --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --external-gemm-library CK"""
@@ -872,7 +885,7 @@ pipeline {
                                 sh 'ls -l'
                                 sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP}'
-                                catchError (buildResult: null) { // Might error if the CK driver has noot been built
+                                if (CKBuilt == true) {
                                     sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP} CK'
                                 }
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
