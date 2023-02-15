@@ -48,16 +48,12 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
 
-  // for tosa reshape ops
-  /* rocmlir-opt --tosa-to-tensor
-   */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
-
   // TOSA conversion to rock and/or linalg with async.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
-    /* rocmlir-opt --tosa-to-rock
+    /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
+    pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
     pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
     pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
   }
