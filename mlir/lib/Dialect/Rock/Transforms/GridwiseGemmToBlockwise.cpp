@@ -30,13 +30,13 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -580,9 +580,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
 
     // Allocate LDS.
-    auto ldsMemRefType =
-        MemRefType::get({ldsBlockSize}, elementType, {},
-                        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto workgroupMemoryAddressSpace = gpu::AddressSpaceAttr::get(
+        op->getContext(), gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsMemRefType = MemRefType::get(
+        {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
 
     // Subviews for matrix A tile in LDS buffer.
@@ -614,9 +615,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t threadCNumM = gemmMRepeat * mPerThread;
     int64_t threadCNumN = gemmNRepeat * nPerThread;
     int64_t threadCNumRegisters = threadCNumM * threadCNumN;
+    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
+        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
     auto threadCRegisterMemRefType =
-        MemRefType::get({threadCNumRegisters}, accumulatorType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+        MemRefType::get({threadCNumRegisters}, accumulatorType, AffineMap{},
+                        privateMemoryAddressSpace);
     Value registerMatrixCAllocOp =
         b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
     Value registerMatrixCViewOp = reshapeBuffer(
@@ -732,7 +735,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // We don't update in the clone becasue we might accidentally replace
       // other zeroes.
       Value iv = loopOp.getInductionVar();
-      BlockAndValueMapping loadAUpdates, loadBUpdates;
+      IRMapping loadAUpdates, loadBUpdates;
       auto blockwiseLoadAClone = cast<TransformingForOp>(
           b.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
       blockwiseLoadAClone.setOperand(
@@ -760,7 +763,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise stores
-      BlockAndValueMapping storeAUpdates, storeBUpdates;
+      IRMapping storeAUpdates, storeBUpdates;
       storeAUpdates.map(blockwiseLoadA.getResult(0),
                         blockwiseLoadAClone.getResult(0));
       storeBUpdates.map(blockwiseLoadB.getResult(0),
@@ -774,7 +777,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     b.create<LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
-    BlockAndValueMapping tailGemmCloneMap;
+    IRMapping tailGemmCloneMap;
     b.clone(*blockwiseGemmOp, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
@@ -825,7 +828,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       auto convertLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/convertedCType.getShape(), /*strides=*/llvm::None,
+          /*bounds=*/convertedCType.getShape(), /*strides=*/std::nullopt,
           /*useIndexDiffs=*/true, /*forceUnroll=*/true);
       {
         OpBuilder::InsertionGuard guard(b);
@@ -1084,9 +1087,10 @@ struct GridwiseGemmV2RewritePattern
       return failure();
 
     // Allocate LDS.
-    auto ldsMemRefType =
-        MemRefType::get({ldsBlockSize}, elementType, {},
-                        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto workgroupMemoryAddressSpace = gpu::AddressSpaceAttr::get(
+        op->getContext(), gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsMemRefType = MemRefType::get(
+        {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
 
     // Subviews for Matrix A.
@@ -1199,18 +1203,20 @@ struct GridwiseGemmV2RewritePattern
         (!isKReduction) ? (kpacksPerBlock * nRepeats)
                         : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
     Type arrayAType, arrayBType;
+    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
+        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
     if (kpack > 1) {
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+                          AffineMap{}, privateMemoryAddressSpace);
       arrayBType =
           MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
-                          {}, gpu::GPUDialect::getPrivateAddressSpace());
+                          AffineMap{}, privateMemoryAddressSpace);
     } else {
-      arrayAType = MemRefType::get({arrayASize}, elementType, {},
-                                   gpu::GPUDialect::getPrivateAddressSpace());
-      arrayBType = MemRefType::get({arrayBSize}, elementType, {},
-                                   gpu::GPUDialect::getPrivateAddressSpace());
+      arrayAType = MemRefType::get({arrayASize}, elementType, AffineMap{},
+                                   privateMemoryAddressSpace);
+      arrayBType = MemRefType::get({arrayBSize}, elementType, AffineMap{},
+                                   privateMemoryAddressSpace);
     }
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
@@ -1222,9 +1228,9 @@ struct GridwiseGemmV2RewritePattern
     Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
-    MemRefType regCAllocType = MemRefType::get(
-        nResultVectors, accumulatorVectorType, {},
-        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    MemRefType regCAllocType =
+        MemRefType::get(nResultVectors, accumulatorVectorType, AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
     Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
 
     Value zeroConstantCOp = createZeroConstantOp(b, loc, vectorType);
@@ -1243,7 +1249,7 @@ struct GridwiseGemmV2RewritePattern
       // We don't update in the clone becasue we might accidentally replace
       // other zeroes.
       Value iv = loopOp.getInductionVar();
-      BlockAndValueMapping loadAUpdates, loadBUpdates;
+      IRMapping loadAUpdates, loadBUpdates;
       auto blockwiseLoadAClone = cast<TransformingForOp>(
           b.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
       blockwiseLoadAClone.setOperand(
@@ -1273,7 +1279,7 @@ struct GridwiseGemmV2RewritePattern
       b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise stores
-      BlockAndValueMapping storeAUpdates, storeBUpdates;
+      IRMapping storeAUpdates, storeBUpdates;
       storeAUpdates.map(blockwiseLoadA.getResult(0),
                         blockwiseLoadAClone.getResult(0));
       storeBUpdates.map(blockwiseLoadB.getResult(0),
@@ -1289,7 +1295,7 @@ struct GridwiseGemmV2RewritePattern
     b.create<LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
-    BlockAndValueMapping tailGemmCloneMap;
+    IRMapping tailGemmCloneMap;
     auto blockwiseGemmV2TailOp = b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
@@ -1432,9 +1438,9 @@ struct GridwiseGemmV2RewritePattern
     }
 
     Value registerC = regCAllocOp;
-    auto convertedCType = MemRefType::get(
-        numElements, destType, {},
-        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    auto convertedCType =
+        MemRefType::get(numElements, destType, AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
     BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
@@ -1448,7 +1454,7 @@ struct GridwiseGemmV2RewritePattern
         loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
         ArrayRef<Attribute>{b.getArrayAttr({}),
                             b.getArrayAttr(toRegCScalarAttr)},
-        /*bounds=*/regCAllocType.getShape(), /*strides=*/llvm::None,
+        /*bounds=*/regCAllocType.getShape(), /*strides=*/std::nullopt,
         forceUnroll, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
@@ -1540,7 +1546,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmV2Op>();
-  target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, AffineDialect,
                          vector::VectorDialect>();
 
@@ -1554,7 +1560,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   // FIXME: Move this into a later pass after the fusion refactoring.
   ConversionTarget writeAllTarget(*ctx);
   writeAllTarget.addIllegalOp<ThreadwiseWriteAllOp>();
-  writeAllTarget.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
+  writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
   RewritePatternSet writeAllPatterns(ctx);
   writeAllPatterns.add<ThreadwiseWriteAllRewritePattern>(ctx);
   if (failed(applyPartialConversion(getOperation(), writeAllTarget,

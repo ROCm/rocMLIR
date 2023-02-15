@@ -1,8 +1,15 @@
 // Note: this should be in a post-fusion pass
 // RUN: rocmlir-opt -rock-gridwise-gemm-to-blockwise %s | FileCheck --enable-var-scope %s
 
-// CHECK-DAG: #[[$ON_OP:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-// CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
+// CHECK-DAG: #[[$ON_OP:transform_map]] = #rock.transform_map
+// CHECK-DAG-SAME: PassThrough
+// CHECK-DAG-SAME: [0, 1, 2]
+// CHECK-DAG-SAME: [0, 1, 2]
+// CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map
+// CHECK-DAG-SAME: PassThrough
+// CHECK-DAG-SAME: [0, 1]
+// CHECK-DAG-SAME: [0, 1]
+// CHECK-DAG-SAME: Pad{2, 0}
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
   by [<PassThrough ["x", "y", "z"] at [0, 1, 2] -> ["x", "y", "z"] at [0, 1, 2]>]
   bounds = [2, 64, 32] -> [2, 64, 32]>

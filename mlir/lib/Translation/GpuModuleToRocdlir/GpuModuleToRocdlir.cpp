@@ -26,7 +26,7 @@ using namespace mlir;
 
 void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
   TranslateFromMLIRRegistration registration(
-      "gpu-module-to-rocdlir",
+      "gpu-module-to-rocdlir", "rocdlir translation in gpu module",
       [](ModuleOp module, raw_ostream &output) {
         // Locate a GPU module within a Module. Use it if we find one.
         Operation *m = nullptr;

@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -144,20 +144,12 @@ public:
     cop->setAttr("expected_input_layout", rewriter.getStringAttr("nchw"));
     cop->setAttr("expected_output_layout", rewriter.getStringAttr("nkhw"));
 
-    cop->setAttr("dilation", rewriter.getArrayAttr({
-                                 rewriter.getI64IntegerAttr(dilationHeight),
-                                 rewriter.getI64IntegerAttr(dilationWidth),
-                             }));
-    cop->setAttr("stride", rewriter.getArrayAttr({
-                               rewriter.getI64IntegerAttr(strideHeight),
-                               rewriter.getI64IntegerAttr(strideWidth),
-                           }));
-    cop->setAttr("pad", rewriter.getArrayAttr({
-                            rewriter.getI64IntegerAttr(padTop),
-                            rewriter.getI64IntegerAttr(padBottom),
-                            rewriter.getI64IntegerAttr(padLeft),
-                            rewriter.getI64IntegerAttr(padRight),
-                        }));
+    cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(
+                                 {dilationHeight, dilationWidth}));
+    cop->setAttr("stride",
+                 rewriter.getDenseI64ArrayAttr({strideHeight, strideWidth}));
+    cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(
+                            {padTop, padBottom, padLeft, padRight}));
 
     // Convert optional attributes
     if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
@@ -196,20 +188,17 @@ public:
     Value newOperand = input_t;
     if (outRank != inShape.size()) {
       SmallVector<int64_t, 5> newShape;
-      SmallVector<Attribute, 5> newShapeAttr;
 
       // align the dimensions - by the given axis
       for (uint32_t i = 0; i < outRank; i++) {
-        newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
         newShape.push_back(1);
       }
-      newShapeAttr[axis] = rewriter.getI64IntegerAttr(inShape[0]);
       newShape[axis] = inShape[0];
 
       // reshape
       auto outType = RankedTensorType::get(newShape, outElemType);
       newOperand = rewriter.create<tosa::ReshapeOp>(
-          loc, outType, input_t, rewriter.getArrayAttr(newShapeAttr));
+          loc, outType, input_t, rewriter.getDenseI64ArrayAttr(newShape));
     }
 
     for (auto &use : op->getResult(0).getUses()) {
@@ -263,23 +252,20 @@ public:
         Value newOperand = input_t;
         if (outRank != inShape.size()) {
           SmallVector<int64_t, 5> newShape;
-          SmallVector<Attribute, 5> newShapeAttr;
 
           // align the dimensions - by the given in/out shape
           uint32_t i = 0;
           for (; i < outRank - inRank; i++) {
-            newShapeAttr.push_back(rewriter.getI64IntegerAttr(inShape[i]));
             newShape.push_back(inShape[i]);
           }
           for (; i < outRank; i++) {
-            newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
             newShape.push_back(1);
           }
 
           // reshape
           auto outType = RankedTensorType::get(newShape, outElemType);
           newOperand = rewriter.create<tosa::ReshapeOp>(
-              loc, outType, input_t, rewriter.getArrayAttr(newShapeAttr));
+              loc, outType, input_t, rewriter.getDenseI64ArrayAttr(newShape));
         }
 
         // replace the uses
@@ -364,9 +350,9 @@ public:
       RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
       newOutType = RankedTensorType::get(newDimsOut, elementTy);
       auto reshapeAOp = rewriter.create<tosa::ReshapeOp>(
-          loc, newAType, in_A, rewriter.getI64ArrayAttr(newDimsA));
+          loc, newAType, in_A, rewriter.getDenseI64ArrayAttr(newDimsA));
       auto reshapeBOp = rewriter.create<tosa::ReshapeOp>(
-          loc, newBType, in_B, rewriter.getI64ArrayAttr(newDimsB));
+          loc, newBType, in_B, rewriter.getDenseI64ArrayAttr(newDimsB));
 
       // reassign inputs.
       in_A = reshapeAOp;
@@ -384,7 +370,7 @@ public:
     if (outRank != 3 || rankA != rankB ||
         (outRank == 3 && orgDimsA != orgDimsB)) {
       auto rop = rewriter.create<tosa::ReshapeOp>(
-          loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));
+          loc, outputTy, mop, rewriter.getDenseI64ArrayAttr(orgOutDims));
       rewriter.replaceOp(op, {rop});
       return success();
     }
@@ -425,10 +411,35 @@ public:
   }
 };
 
+class ReshapeConverter final : public OpConversionPattern<migraphx::ReshapeOp> {
+public:
+  using OpConversionPattern<migraphx::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    ArrayAttr dims = adaptor.getDims();
+    Location loc = op->getLoc();
+    auto input = adaptor.getInput();
+    auto results = op->getResults();
+    ShapedType outputTy = results[0].getType().cast<ShapedType>();
+    SmallVector<int64_t, 5> newShape;
+    for (auto dim : dims) {
+      newShape.push_back(dim.dyn_cast<IntegerAttr>().getInt());
+    }
+
+    auto rop = rewriter.create<tosa::ReshapeOp>(
+        loc, outputTy, input, rewriter.getDenseI64ArrayAttr(newShape));
+
+    rewriter.replaceOp(op, {rop});
+    return success();
+  }
+};
+
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
-               SoftmaxConverter, DotConverter>(context);
+               ReshapeConverter, SoftmaxConverter, DotConverter>(context);
 }

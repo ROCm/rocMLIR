@@ -22,6 +22,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 def MIGraphX_Dialect : Dialect {
   let name = "migraphx";
   let cppNamespace = "mlir::migraphx";
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 // Base class for MIGraphX dialect ops.

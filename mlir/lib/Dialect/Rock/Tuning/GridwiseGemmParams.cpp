@@ -556,7 +556,7 @@ Optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
   int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
   int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
   if (mExtra == 0 && kExtra == 0 && nExtra == 0)
-    return None;
+    return std::nullopt;
   return GemmSize(0, mExtra, kExtra, nExtra);
 }
 

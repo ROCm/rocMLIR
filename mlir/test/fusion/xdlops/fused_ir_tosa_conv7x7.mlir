@@ -5,7 +5,7 @@ module {
     %0 = "tosa.transpose"(%arg1, %cst) {changing_layout_root = false} : (tensor<1x3x224x224xf32>, tensor<4xi64>) -> tensor<1x224x224x3xf32>
     %1 = "tosa.transpose"(%arg2, %cst) {changing_layout_root = false} : (tensor<64x3x7x7xf32>, tensor<4xi64>) -> tensor<64x7x7x3xf32>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
-    %2 = "tosa.conv2d"(%0, %1, %cst_0) {dilation = [1, 1], expected_filter_layout = "kcyx", expected_input_layout = "nchw", expected_output_layout = "nkhw", pad = [3, 3, 3, 3], stride = [2, 2], xdlopsV2 = true} : (tensor<1x224x224x3xf32>, tensor<64x7x7x3xf32>, tensor<1xf32>) -> tensor<1x112x112x64xf32>
+    %2 = "tosa.conv2d"(%0, %1, %cst_0) {dilation = array<i64: 1, 1>, expected_filter_layout = "kcyx", expected_input_layout = "nchw", expected_output_layout = "nkhw", pad = array<i64: 3, 3, 3, 3>, stride = array<i64: 2, 2>, xdlopsV2 = true} : (tensor<1x224x224x3xf32>, tensor<64x7x7x3xf32>, tensor<1xf32>) -> tensor<1x112x112x64xf32>
     %cst_1 = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi64>
     %3 = "tosa.transpose"(%2, %cst_1) {changing_layout_root = true} : (tensor<1x112x112x64xf32>, tensor<4xi64>) -> tensor<1x64x112x112xf32>
     %4 = "tosa.add"(%3, %arg0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>

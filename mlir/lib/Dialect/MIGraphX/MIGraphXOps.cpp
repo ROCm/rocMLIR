@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-//#include "mlir/Dialect/Func/IR/FuncOps.h"
+// #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/AffineMap.h"
@@ -40,7 +40,7 @@ void MIGraphXDialect::initialize() {
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.cpp.inc"
 
-OpFoldResult RecipOp::fold(ArrayRef<Attribute> operands) {
+OpFoldResult RecipOp::fold(FoldAdaptor operands) {
   // 1/(1/x) = x
   if (auto parentRecip = getInA().getDefiningOp<RecipOp>()) {
     return parentRecip.getInA();

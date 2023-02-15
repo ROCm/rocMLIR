@@ -42,7 +42,7 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
 /// sequence.
 std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
     Builder &b, ArrayAttr transforms,
-    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob = llvm::None);
+    std::optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob = std::nullopt);
 
 /// Return a `rock.transform` op that reshapes a given 1D buffer `buffer`
 /// into `shape`, using `names` as the names of the reshaped dimensions.

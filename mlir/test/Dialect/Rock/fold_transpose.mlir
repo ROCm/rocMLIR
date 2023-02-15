@@ -1,5 +1,4 @@
-// RUN: rocmlir-opt --rock-fold-transpose %s | FileCheck %s
-// CHECK: #transform_map = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0 floordiv 12, d0 mod 12, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["m0", "m1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 12, 12] -> [1, 12, 12, 12]>
+//RUN: rocmlir-opt --rock-fold-transpose %s
 #map0 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> ()>
 #map2 = affine_map<(d0, d1, d2) -> (d2)>

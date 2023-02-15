@@ -134,9 +134,11 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
     // 0. Test compatibility
     // 0.0 Global Memory Space
     auto allocType = op.getType().template cast<MemRefType>();
-    auto memSpace = allocType.getMemorySpaceAsInt();
-    if (memSpace == gpu::GPUDialect::getWorkgroupAddressSpace() ||
-        memSpace == gpu::GPUDialect::getPrivateAddressSpace())
+    auto memSpace =
+        allocType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+    if ((memSpace) &&
+        (memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace() ||
+         memSpace.getValue() == gpu::GPUDialect::getPrivateAddressSpace()))
       return fail;
 
     Value allocaMem = op->getResult(0);
@@ -151,7 +153,7 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
         // 1.0 Output of linalg.generic
         if (writer)
           return fail;
-        for (auto out : laop.outputs()) {
+        for (auto out : laop.getOutputs()) {
           if (out == allocaMem)
             writer = laop;
         }

@@ -1,13 +1,15 @@
 // RUN: rocmlir-opt --rock-fold-transpose -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
 #map0 = affine_map<(d0, d1) -> (d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d1)>
-#transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3)> by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, <AddDim{1} ["g"] at [4] -> [] at []>] bounds = [4, 3, 3, 3, 1] -> [4, 3, 3, 3]>
-#transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3)> by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, <AddDim{1} ["g"] at [4] -> [] at []>] bounds = [4, 4, 1, 1, 1] -> [4, 4, 1, 1]>
+#map2 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3)>
+#map3 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3)>
+#transform_map0 = #rock.transform_map<#map2 by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, <AddDim{1} ["g"] at [4] -> [] at []>] bounds = [4, 3, 3, 3, 1] -> [4, 3, 3, 3]>
+#transform_map1 = #rock.transform_map<#map3 by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, <AddDim{1} ["g"] at [4] -> [] at []>] bounds = [4, 4, 1, 1, 1] -> [4, 4, 1, 1]>
 module {
-    // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (0, d1, d2, d3)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [4, 4, 1, 1] -> [1, 4, 1, 1]>
+    // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<#map{{.*}} by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [4, 4, 1, 1] -> [1, 4, 1, 1]>
     // CHECK: rock.transforming_for{{.*}}#[[MAP]]
     // CHECK-NEXT: %[[ldVal:.*]] = rock.global_load{{.*}}: memref<1x4x1x1xf32> -> f32
-    // CHECK-NEXT: rock.in_bounds_store %[[ldVal]]{{.*}}: f32 -> memref<1xf32, 5>, index
+    // CHECK-NEXT: rock.in_bounds_store %[[ldVal]]{{.*}}: f32 -> memref<1xf32, #gpu.address_space<private>>, index
   func.func @test(%arg0: memref<1x4x1x1xf32>, %arg1: memref<4x3x3x3xf32>, %arg2: memref<4x3x3x3xf32>, %arg3: memref<4x4x1x1xf32>) attributes {arch = "gfx908:sramecc+:xnack-", kernel = "mixr"} {
     %cst = arith.constant 0.000000e+00 : f32
     %cst_0 = arith.constant 3.40282347E+38 : f32

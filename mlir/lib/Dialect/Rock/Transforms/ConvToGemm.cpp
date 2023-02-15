@@ -19,7 +19,7 @@
 // rock.gemm.
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -1208,7 +1208,7 @@ void RockConvToGemmPass::runOnOperation() {
                     rock::WorkitemIdOp, rock::BufferLoadOp,
                     rock::BufferStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
-  target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
+  target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);

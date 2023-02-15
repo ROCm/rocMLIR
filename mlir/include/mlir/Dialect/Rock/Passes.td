@@ -18,7 +18,7 @@ def RockFoldTransposePass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> 
 
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm";
-  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithDialect",
     "scf::SCFDialect"];
 }
 
@@ -69,7 +69,7 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
 
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
-  let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithmeticDialect",
+  let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
     "gpu::GPUDialect", "memref::MemRefDialect", "AffineDialect", "amdgpu::AMDGPUDialect"];
 }
 

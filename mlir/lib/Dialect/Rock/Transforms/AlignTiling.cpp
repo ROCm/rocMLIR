@@ -21,8 +21,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -225,7 +226,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   auto invertOutIdxMap = inversePermutation(outIdxMap);
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
-  for (auto pair : llvm::zip(laGeneric.inputs(), idxMaps)) {
+  for (auto pair : llvm::zip(laGeneric.getInputs(), idxMaps)) {
     if (Value inp = std::get<0>(pair)) {
       AffineMap inpIdxMap = std::get<1>(pair);
       auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
@@ -244,17 +245,18 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   laGenericAMaps.push_back(
       AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
 
-  laGeneric.inputsMutable().assign(newInputs);
-  laGeneric.outputsMutable().assign(laOut);
+  laGeneric.getInputsMutable().assign(newInputs);
+  laGeneric.getOutputsMutable().assign(laOut);
 
   // 2.2. Reset affine maps
-  laGeneric.indexing_mapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
+  laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
 
   // 2.3. Reset iterator types
-  SmallVector<StringAttr, 5> laGenericIteratorArr(regType.getRank(),
-                                                  b.getStringAttr("parallel"));
-  laGeneric.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
-      laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
+  SmallVector<Attribute, 5> iteratorTypes;
+  iteratorTypes.resize(
+      regType.getRank(),
+      linalg::IteratorTypeAttr::get(ctx, utils::IteratorType::parallel));
+  laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
   return laOut;
 }
 
@@ -262,7 +264,7 @@ static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
                                      Value &inputLeadingToGlobalStore,
                                      GlobalStoreOp &gemmStoreOp) {
   for (auto pair :
-       llvm::zip(laGeneric.inputs(), laGeneric.getIndexingMapsArray())) {
+       llvm::zip(laGeneric.getInputs(), laGeneric.getIndexingMapsArray())) {
     AffineMap inpIdxMap = std::get<1>(pair);
     Value input = std::get<0>(pair);
     GlobalStoreOp maybeStore = traceToGlobalStore(input);
@@ -273,8 +275,8 @@ static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
         return failure();
       }
 
-      auto laGenericOut = laGeneric.getOutputOperand(0);
-      auto laGenericOutIdxMap = laGeneric.getTiedIndexingMap(laGenericOut);
+      auto laGenericOut = laGeneric.getDpsInitOperand(0);
+      auto laGenericOutIdxMap = laGeneric.getMatchingIndexingMap(laGenericOut);
       auto invertOutIdxMap = inversePermutation(laGenericOutIdxMap);
       auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
       SmallVector<unsigned> permutedDims;
@@ -320,28 +322,24 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 0. Test compatibility
   // 0.0. Only fully parallel for now
-  for (StringRef iterType :
-       laGeneric.iterator_types().getAsValueRange<StringAttr>())
-    if (iterType != "parallel")
-      return failure();
-
-  Value out = *laGeneric.outputs().begin(); // may be another arg
-  // 0.1. Test compatibility,  Only 1 output supported
-  if (laGeneric.outputs().size() > 1)
+  if (!llvm::all_of(laGeneric.getIteratorTypesArray(),
+                    linalg::isParallelIterator))
     return failure();
 
+  Value out = *laGeneric.getOutputs().begin(); // may be another arg
+  // 0.1. Test compatibility,  Only 1 output supported
+  if (laGeneric.getOutputs().size() != 1) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Currently, multi-output fusion is not supported.\n");
+    return failure();
+  }
+
   // 0.2. Sanity check, skip already fused.
-  for (auto inp : laGeneric.inputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
       LLVM_DEBUG(llvm::dbgs() << "Found existing fusion, bailing\n");
       return failure();
     }
-  }
-
-  if (laGeneric.getNumOutputs() != 1) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Currently, multi-output fusion is not supported.\n");
-    return failure();
   }
 
   // 1. Trace input to global_store.
@@ -352,9 +350,9 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                              gemmStoreOp))) {
     return failure();
   }
-  auto actualLAGenericOut = laGeneric.getOutputOperand(0);
+  auto actualLAGenericOut = laGeneric.getDpsInitOperand(0);
   auto actualLAGenericOutIdxMap =
-      laGeneric.getTiedIndexingMap(actualLAGenericOut);
+      laGeneric.getMatchingIndexingMap(actualLAGenericOut);
   auto invertOutIdxMap = inversePermutation(actualLAGenericOutIdxMap);
   if (laGenericInputLeadingToGlobalStore.getType() !=
       actualLAGenericOut->get().getType()) {
@@ -368,7 +366,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
 
   SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
-  for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
+  for (auto pair : llvm::zip(idxMaps, laGeneric.getInputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
     auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
     Value inp = std::get<1>(pair);

@@ -366,7 +366,7 @@ int main(int argc, char **argv) {
   context
       .loadDialect<xmodel::XModelDialect, rock::RockDialect, func::FuncDialect,
                    scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-                   math::MathDialect, arith::ArithmeticDialect, gpu::GPUDialect,
+                   math::MathDialect, arith::ArithDialect, gpu::GPUDialect,
                    bufferization::BufferizationDialect, async::AsyncDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);

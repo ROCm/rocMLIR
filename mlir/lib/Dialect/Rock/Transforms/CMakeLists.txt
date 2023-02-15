@@ -31,6 +31,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRFuncDialect
   MLIRIR
   MLIRPass
+  MLIRLinalgUtils
   MLIRLLVMDialect
   MLIRMathToLLVM
   MLIRMemRefTransforms

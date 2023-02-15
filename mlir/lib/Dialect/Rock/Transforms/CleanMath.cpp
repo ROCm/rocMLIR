@@ -15,7 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Pass/PassManager.h"
@@ -142,6 +142,6 @@ void RockCleanMathPass::runOnOperation() {
   OpPassManager postAnalysisPipeline("func.func");
   postAnalysisPipeline.addPass(createCanonicalizerPass());
   postAnalysisPipeline.addPass(
-      arith::createArithmeticUnsignedWhenEquivalentPass());
+      arith::createArithUnsignedWhenEquivalentPass());
   (void)runPipeline(postAnalysisPipeline, op);
 }

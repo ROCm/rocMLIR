@@ -17,7 +17,6 @@
 
 #include "sqlite3.h"
 #include "llvm/ADT/Any.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -103,7 +102,7 @@ public:
                const std::string &arch_, std::size_t num_cu_);
 
   template <typename T>
-  inline llvm::Optional<DbRecord> findRecord(const T &problemConfig) {
+  inline std::optional<DbRecord> findRecord(const T &problemConfig) {
     if (dbInvalid)
       return {};
 
@@ -131,7 +130,7 @@ public:
       if (rec.getSize() == 0)
         return {};
       else
-        return llvm::Optional<DbRecord>(rec);
+        return std::optional<DbRecord>(rec);
     }
 
     template <class T, class V>

@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -122,7 +123,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
   }
 
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  Optional<TransformType> transformType =
+  std::optional<TransformType> transformType =
       getTransformTypeForName(transformName);
   if (!transformType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known transform")
@@ -814,9 +815,9 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 
 static ArrayAttr maybeIndexArray(OpBuilder &b,
-                                 Optional<ArrayRef<int64_t>> vals) {
-  return vals
-      .transform([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
+                                 std::optional<ArrayRef<int64_t>> vals) {
+  return llvm::transformOptional(
+             vals, [&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
       .value_or(ArrayAttr{});
 }
 
@@ -824,7 +825,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, b.getArrayAttr(transforms),
@@ -844,7 +845,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits, ArrayAttr transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, transforms, b.getIndexArrayAttr(bounds),

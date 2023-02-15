@@ -15,6 +15,7 @@
 // limitations under the License.
 // ============================================================
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -199,7 +200,7 @@ LogicalResult InlineViewLikeOperandsLinalgRewritePattern::matchAndRewrite(
   unsigned int changedIOCount = 0;
 
   SmallVector<Operation *> toBeErasedViewLikeOps;
-  for (auto input : laGeneric.inputs()) {
+  for (auto input : laGeneric.getInputs()) {
     AffineMap resMap = laGeneric.getIndexingMapsArray()[ioCount++];
     Value rootOp;
     if (foldViewLikeOperands(rewriter, input, resMap, rootOp,
@@ -213,7 +214,7 @@ LogicalResult InlineViewLikeOperandsLinalgRewritePattern::matchAndRewrite(
     newMaps.push_back(resMap);
   }
   SmallVector<Value, 4U> newOutputs;
-  for (auto output : laGeneric.outputs()) {
+  for (auto output : laGeneric.getOutputs()) {
     AffineMap resMap = laGeneric.getIndexingMapsArray()[ioCount++];
     Value rootOp;
     if (foldViewLikeOperands(rewriter, output, resMap, rootOp,
@@ -229,10 +230,8 @@ LogicalResult InlineViewLikeOperandsLinalgRewritePattern::matchAndRewrite(
   if (changedIOCount == 0)
     return failure();
 
-  SmallVector<StringRef> iteratorTypes = llvm::to_vector<4>(
-      laGeneric.getIteratorTypes().getAsValueRange<StringAttr>());
   auto newLaGenericOp = rewriter.create<linalg::GenericOp>(
-      loc, newInputs, newOutputs, newMaps, iteratorTypes);
+      loc, newInputs, newOutputs, newMaps, laGeneric.getIteratorTypesArray());
   rewriter.inlineRegionBefore(laGeneric->getRegion(0),
                               newLaGenericOp.getRegion(),
                               newLaGenericOp.getRegion().begin());
@@ -298,12 +297,9 @@ struct RemoveTrivialTransposePattern
                                 PatternRewriter &b) const override {
     // 0. Test compatibility
     // 0.0. Only fully parallel for now
-    for (StringRef itr :
-         laGeneric.iterator_types().getAsValueRange<StringAttr>()) {
-      if (itr != "parallel") {
-        return failure();
-      }
-    }
+    if (!llvm::all_of(laGeneric.getIteratorTypesArray(),
+                      linalg::isParallelIterator))
+      return failure();
 
     bool bPassing = false;
     laGeneric.getRegion().walk([&](linalg::YieldOp yieldOp) {
@@ -312,13 +308,13 @@ struct RemoveTrivialTransposePattern
     });
 
     // 0.1. Test it only passes through 1:1 and no other calculation
-    if (laGeneric.inputs().size() != 1 || laGeneric.outputs().size() != 1 ||
-        !bPassing) {
+    if (laGeneric.getInputs().size() != 1 ||
+        laGeneric.getOutputs().size() != 1 || !bPassing) {
       return failure();
     }
 
     // 0.2. linalg.generic lowered from tosa.transpose should have memref.alloc
-    Value out = *laGeneric.outputs().begin();
+    Value out = *laGeneric.getOutputs().begin();
     auto allocToDel = out.getDefiningOp<memref::AllocOp>();
     if (!allocToDel) {
       return failure();
@@ -351,8 +347,8 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
     // We do this out-of-line so as to not invalidate our iterator
     SmallVector<std::tuple<unsigned, Value, AffineMap>> toReplace;
 
-    auto laGenericOut = laGeneric.getOutputOperand(0);
-    auto laGenericOutIdxMap = laGeneric.getTiedIndexingMap(laGenericOut);
+    auto laGenericOut = laGeneric.getDpsInitOperand(0);
+    auto laGenericOutIdxMap = laGeneric.getMatchingIndexingMap(laGenericOut);
 
     for (OpOperand &operand : laGeneric->getOpOperands()) {
       Value opValue = operand.get();
@@ -375,7 +371,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
       if (!isa_and_nonnull<memref::AllocOp>(opValue.getDefiningOp()))
         continue;
 
-      AffineMap inpIdxMap = laGeneric.getTiedIndexingMap(&operand);
+      AffineMap inpIdxMap = laGeneric.getMatchingIndexingMap(&operand);
       auto invertInpIdxMap = inversePermutation(inpIdxMap);
       auto inToOutIdxMap = laGenericOutIdxMap.compose(invertInpIdxMap);
       SmallVector<uint32_t, 4> permutation;
@@ -389,7 +385,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
 
     // Actually do the rewrites, if any
     SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
-    SmallVector<Value> inputs = laGeneric.inputs();
+    SmallVector<Value> inputs = laGeneric.getInputs();
     for (auto &tuple : toReplace) {
       unsigned opIndex = std::get<0>(tuple);
       Value opValue = std::get<1>(tuple);
@@ -418,7 +414,7 @@ struct FoldRockOutputTransforms : OpRewritePattern<linalg::GenericOp> {
       idxMaps[opIndex] = laGenericOutIdxMap;
       inputs[opIndex] = newAlloc;
     }
-    laGeneric->setAttr(laGeneric.indexing_mapsAttrName(),
+    laGeneric->setAttr(laGeneric.getIndexingMapsAttrName(),
                        b.getAffineMapArrayAttr(idxMaps));
     laGeneric.getInputsMutable().assign(inputs);
     return success(!toReplace.empty());

@@ -22,14 +22,14 @@
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -68,12 +68,13 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
 
-    if (type.getMemorySpaceAsInt() ==
-        gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    auto memSpaceValue = type.getMemorySpace()
+                             .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                             .getValue();
+    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       Value attribution = func.addWorkgroupAttribution(type, loc);
       op.replaceAllUsesWith(attribution);
-    } else if (type.getMemorySpaceAsInt() ==
-               gpu::GPUDialect::getPrivateAddressSpace()) {
+    } else if (memSpaceValue == gpu::GPUDialect::getPrivateAddressSpace()) {
       Value attribution = func.addPrivateAttribution(type, loc);
       op.replaceAllUsesWith(attribution);
     } else {
@@ -165,12 +166,12 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     }
 
     // associate arguments for newly created GPUFuncOp.
-    BlockAndValueMapping map;
+    IRMapping map;
     for (auto pair : llvm::zip(theFunc.getArguments(), gpuFunc.getArguments()))
       map.map(std::get<0>(pair), std::get<1>(pair));
 
     // clone function body into newly created GPUFuncOp.
-    Region &gpuFuncBody = gpuFunc.body();
+    Region &gpuFuncBody = gpuFunc.getBody();
     Region &funcBody = theFunc.getBody();
     funcBody.cloneInto(&gpuFuncBody, map);
 

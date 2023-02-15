@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
@@ -85,8 +85,8 @@ getArchAttributes(Operation *op) {
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
-  Optional<uint32_t> num_cu = None;
-  Optional<bool> xdlopsV2 = None;
+  Optional<uint32_t> num_cu = std::nullopt;
+  Optional<bool> xdlopsV2 = std::nullopt;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     arch = attr;
@@ -118,8 +118,9 @@ getArchAttributes(Operation *op) {
 static FailureOr<rock::Conv2DOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                StringRef inputLayout, Value filter, StringRef filterLayout,
-               Value output, StringRef outputLayout, const ArrayAttr &pad,
-               const ArrayAttr &stride, const ArrayAttr &dilation) {
+               Value output, StringRef outputLayout,
+               const DenseI64ArrayAttr &pad, const DenseI64ArrayAttr &stride,
+               const DenseI64ArrayAttr &dilation) {
   Location loc = op->getLoc();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
@@ -130,22 +131,20 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   StringAttr arch;
   Optional<uint32_t> num_cu;
   rock::GemmFeatures features;
-
   std::tie(arch, num_cu, features) = getArchAttributes(op);
 
-  // translate attributes
-  int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
-  int32_t padLeft = pad[2].dyn_cast<IntegerAttr>().getInt();
-  int32_t padRight = pad[3].dyn_cast<IntegerAttr>().getInt();
-  int32_t strideHeight = stride[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t strideWidth = stride[1].dyn_cast<IntegerAttr>().getInt();
-  int32_t dilationHeight = dilation[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
-
-  SmallVector<int32_t, 4> paddingArray{padTop, padBottom, padLeft, padRight};
-  SmallVector<int32_t, 2> strideArray{strideHeight, strideWidth};
-  SmallVector<int32_t, 2> dilationArray{dilationHeight, dilationWidth};
+  ArrayRef<int64_t> pad64 = pad;
+  ArrayRef<int64_t> stride64 = stride;
+  ArrayRef<int64_t> dilation64 = dilation;
+  SmallVector<int32_t, 4> paddingArray;
+  SmallVector<int32_t, 2> strideArray;
+  SmallVector<int32_t, 2> dilationArray;
+  for (auto i : pad64)
+    paddingArray.push_back(i);
+  for (auto i : stride64)
+    strideArray.push_back(i);
+  for (auto i : dilation64)
+    dilationArray.push_back(i);
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
@@ -216,7 +215,7 @@ public:
 
     FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
         rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
-        op.getPad(), op.getStride(), op.getDilation());
+        op.getPadAttr(), op.getStrideAttr(), op.getDilationAttr());
     if (failed(rockConv))
       return failure();
 

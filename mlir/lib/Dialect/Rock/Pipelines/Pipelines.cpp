@@ -85,7 +85,8 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(createCSEPass());
 
   pm.addPass(createConvertTensorToLinalgPass());
-  pm.addNestedPass<func::FuncOp>(createLinalgInitTensorToAllocTensorPass());
+  pm.addNestedPass<func::FuncOp>(
+      bufferization::createEmptyTensorToAllocTensorPass());
   pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
@@ -93,9 +94,9 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.createDeallocs = noRock;
   bufOpts.bufferizeFunctionBoundaries = true;
   bufOpts.functionBoundaryTypeConversion =
-      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+      bufferization::LayoutMapOption::IdentityLayoutMap;
   bufOpts.unknownTypeConverterFn =
-      [](Value value, unsigned memorySpace,
+      [](Value value, Attribute memorySpace,
          const bufferization::BufferizationOptions &options) {
         return bufferization::getMemRefTypeWithStaticIdentityLayout(
             value.getType().cast<TensorType>(), memorySpace);
@@ -156,9 +157,10 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
     // lowering linalg to cf
     /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine
-     * --convert-scf-to-cf
+     * --expand-stride-metadata --convert-scf-to-cf
      */
     pm.addPass(createConvertLinalgToAffineLoopsPass());
+    pm.addPass(memref::createExpandStridedMetadataPass());
     pm.addPass(createLowerAffinePass());
     pm.addPass(createConvertSCFToCFPass());
   }

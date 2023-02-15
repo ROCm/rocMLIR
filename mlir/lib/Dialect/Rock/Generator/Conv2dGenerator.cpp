@@ -390,7 +390,7 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
 
   if (needExtraPad)
     return GemmSize(gemmSize.g, gemmMExtra, gemmKExtra, gemmNExtra);
-  return llvm::None;
+  return std::nullopt;
 }
 
 bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {

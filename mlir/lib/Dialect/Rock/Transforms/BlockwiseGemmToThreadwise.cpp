@@ -20,7 +20,7 @@
 // the threadwise lowering
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -216,14 +216,16 @@ struct BlockwiseGemmRewritePattern
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
 
     // Alloc register for thread_a and thread_b.
+    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
+        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
     auto threadARegisterMemRefType =
-        MemRefType::get(threadANumRegisters, elementType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+        MemRefType::get(threadANumRegisters, elementType, AffineMap{},
+                        privateMemoryAddressSpace);
     auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
-        MemRefType::get(threadBNumRegisters, elementType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+        MemRefType::get(threadBNumRegisters, elementType, AffineMap{},
+                        privateMemoryAddressSpace);
     auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Define views of register tiles for copies
@@ -256,7 +258,7 @@ struct BlockwiseGemmRewritePattern
         loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
-        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
       b.setInsertionPointToStart(copyALoop.getBody());
@@ -273,7 +275,7 @@ struct BlockwiseGemmRewritePattern
         loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
-        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
       b.setInsertionPointToStart(copyBLoop.getBody());
@@ -696,8 +698,8 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
                       GlobalStoreOp>();
-  target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
-                         AffineDialect, memref::MemRefDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
+                         memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
