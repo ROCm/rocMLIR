@@ -276,14 +276,14 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
   converter.addConversion([&](VectorType type) -> Optional<Type> {
     if (auto element = converter.convertType(type.getElementType()))
       return type.clone(element);
-    return llvm::None;
+    return std::nullopt;
   });
 
   converter.addConversion(
       [&](LLVM::LLVMPointerType type) -> llvm::Optional<Type> {
         if (auto pointee = converter.convertType(type.getElementType()))
           return LLVM::LLVMPointerType::get(pointee, type.getAddressSpace());
-        return llvm::None;
+        return std::nullopt;
       });
 
   converter.addConversion(
@@ -295,7 +295,7 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
         for (auto t : type.getBody()) {
           SmallVector<Type, 1> element;
           if (failed(converter.convertType(t, element)))
-            return llvm::None;
+            return std::nullopt;
           assert(element.size() == 1);
           convertedElemTypes.push_back(element[0]);
           if (t != element[0])
@@ -323,7 +323,7 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
           }
           if (failed(
                   convertedType.setBody(convertedElemTypes, type.isPacked())))
-            return llvm::None;
+            return std::nullopt;
           results.push_back(convertedType);
           return success();
         }
@@ -338,19 +338,19 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
       [&](LLVM::LLVMArrayType type) -> llvm::Optional<Type> {
         if (auto element = converter.convertType(type.getElementType()))
           return LLVM::LLVMArrayType::get(element, type.getNumElements());
-        return llvm::None;
+        return std::nullopt;
       });
 
   converter.addConversion(
       [&](LLVM::LLVMFunctionType type) -> llvm::Optional<Type> {
         Type convertedResType = converter.convertType(type.getReturnType());
         if (!convertedResType)
-          return llvm::None;
+          return std::nullopt;
 
         SmallVector<Type> convertedArgTypes;
         convertedArgTypes.reserve(type.getNumParams());
         if (failed(converter.convertTypes(type.getParams(), convertedArgTypes)))
-          return llvm::None;
+          return std::nullopt;
         return LLVM::LLVMFunctionType::get(convertedResType, convertedArgTypes,
                                            type.isVarArg());
       });

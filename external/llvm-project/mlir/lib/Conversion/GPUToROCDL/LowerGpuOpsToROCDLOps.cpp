@@ -166,8 +166,7 @@ struct LowerGpuOpsToROCDLOpsPass
 
     vector::populateVectorMaskMaterializationPatterns(llvmPatterns, true);
     vector::populateVectorTransferLoweringPatterns(llvmPatterns);
-    mlir::arith::populateArithmeticToLLVMConversionPatterns(converter,
-                                                            llvmPatterns);
+    mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
     mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
@@ -238,7 +237,7 @@ struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
     auto llvmI1Type = typeConverter->convertType(rewriter.getI1Type());
 
     int32_t permConst = 0;
-    const ArrayRef<mlir::Attribute> selector = adaptor.selector().getValue();
+    const ArrayRef<mlir::Attribute> selector = adaptor.getSelector().getValue();
     for (auto v = selector.rbegin(); v != selector.rend(); ++v) {
       permConst = (permConst << 2) |
                   v->cast<mlir::IntegerAttr>().getValue().getZExtValue();
@@ -256,9 +255,9 @@ struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
         loc, llvmI1Type, rewriter.getBoolAttr(true));
 
     auto intrinsic = rewriter.create<ROCDL::DPPMovOp>(
-        loc, llvmI32Type, adaptor.in(), dppCtrlConstImm, noMaskConstImm,
+        loc, llvmI32Type, adaptor.getIn(), dppCtrlConstImm, noMaskConstImm,
         noMaskConstImm, noBoundsControlConstImm);
-    rewriter.replaceOp(op, {intrinsic});
+    rewriter.replaceOp(op, ValueRange(intrinsic.getRes()));
     return success();
   }
 };
@@ -304,7 +303,7 @@ void mlir::populateGpuToROCDLConversionPatterns(
   }
 
   patterns.add<WarpSwizzleOpLowering>(converter);
-  
+
   populateOpPatterns<math::AbsFOp>(converter, patterns, "__ocml_fabs_f32",
                                    "__ocml_fabs_f64");
   populateOpPatterns<math::AtanOp>(converter, patterns, "__ocml_atan_f32",

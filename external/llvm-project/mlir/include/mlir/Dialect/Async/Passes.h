@@ -33,7 +33,8 @@ void populateAsyncFuncToAsyncRuntimeConversionPatterns(
 
 std::unique_ptr<OperationPass<ModuleOp>> createAsyncFuncToAsyncRuntimePass();
 
-std::unique_ptr<OperationPass<ModuleOp>> createAsyncToAsyncRuntimePass();
+std::unique_ptr<OperationPass<ModuleOp>>
+createAsyncToAsyncRuntimePass(bool enableCoroutines = true);
 
 std::unique_ptr<Pass> createAsyncRuntimeRefCountingPass();
 

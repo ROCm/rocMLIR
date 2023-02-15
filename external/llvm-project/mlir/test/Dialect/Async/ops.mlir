@@ -208,6 +208,8 @@ func.func @v_async_launch(%arg0: tensor<8x8xf32>, %arg1: tensor<1x8xf32>, %arg2:
   async.await %token2 : !async.token
   // CHECK: return %results_3 : tensor<8x8xf32>
   return %results_3 : tensor<8x8xf32>
+}
+
 // CHECK-LABEL: @async_func_return_token
 async.func @async_func_return_token() -> !async.token {
   // CHECK: return

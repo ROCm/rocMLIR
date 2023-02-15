@@ -14,6 +14,7 @@ include "mlir/IR/OpBase.td"
 def XModel_Dialect : Dialect {
   let name = "xmodel";
   let cppNamespace = "::mlir::xmodel";
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 
   let useDefaultAttributePrinterParser = 1;
 }

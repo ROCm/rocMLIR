@@ -325,6 +325,10 @@ struct CallOpInterface
       unsigned idx = opOperand.getOperandNumber();
       Value tensorOperand = opOperand.get();
       // Non-tensor operands are just copied.
+      if (tensorOperand.getType().isa<async::TokenType>()) {
+        newOperands[idx] = tensorOperand;
+        continue;
+      }
       if (!tensorOperand.getType().isa<TensorType>()) {
         newOperands[idx] = tensorOperand;
         if (tensorOperand == callOperands[funcOperandIdx])

@@ -19,7 +19,11 @@ include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
+include "mlir/IR/FunctionInterfaces.td"
+include "mlir/IR/OpAsmInterface.td"
+
 
 //===----------------------------------------------------------------------===//
 // Async op definitions
@@ -74,7 +78,7 @@ def Async_LaunchOp :
 
   let arguments = (ins FlatSymbolRefAttr:$callee,
                        Variadic<Async_TokenType>:$dependencies,
-                       Variadic<AnyType>:$operands);
+                       Variadic<AnyType>:$launchOperands);
 
   let results = (outs Async_TokenType:$token,
                       Variadic<AnyType>:$results);
@@ -83,13 +87,13 @@ def Async_LaunchOp :
     OpBuilder<(ins "func::FuncOp":$kernelFunc, "ValueRange":$dependencies,
                    "ValueRange":$kernelOperands)>,
     OpBuilder<(ins "FlatSymbolRefAttr":$callee, "TypeRange":$results,
-      CArg<"ValueRange", "{}">:$operands), [{
-      $_state.addOperands(operands);
+      CArg<"ValueRange", "{}">:$launchOperands), [{
+      $_state.addOperands(launchOperands);
       $_state.addAttribute("callee", callee);
       $_state.addTypes(results);
       auto operandSegmentSizes = $_builder.getDenseI32ArrayAttr(
-        {0, static_cast<int32_t>(operands.size())});
-      $_state.addAttribute(operand_segment_sizesAttrName($_state.name),
+        {0, static_cast<int32_t>(launchOperands.size())});
+      $_state.addAttribute(getOperandSegmentSizesAttrName($_state.name),
                            operandSegmentSizes);
 
     }]>,
@@ -152,11 +156,11 @@ def Async_ExecuteOp :
   }];
 
   let arguments = (ins Variadic<Async_TokenType>:$dependencies,
-                       Variadic<Async_AnyValueOrTokenType>:$operands);
+                       Variadic<Async_AnyValueOrTokenType>:$bodyOperands);
 
   let results = (outs Async_TokenType:$token,
-                      Variadic<Async_ValueType>:$results);
-  let regions = (region SizedRegion<1>:$body);
+                      Variadic<Async_ValueType>:$bodyResults);
+  let regions = (region SizedRegion<1>:$bodyRegion);
 
   let hasCustomAssemblyFormat = 1;
   let skipDefaultBuilders = 1;
@@ -177,7 +181,7 @@ def Async_ExecuteOp :
 
 def Async_FuncOp : Async_Op<"func",
     [CallableOpInterface, FunctionOpInterface,
-     IsolatedFromAbove, OpAsmOpInterface]> {
+     IsolatedFromAbove, OpAsmOpInterface, Symbol]> {
   let summary = "async function operation";
   let description = [{
     An async function is like a normal function, but supports non-blocking
@@ -322,6 +326,9 @@ def Async_CallOp : Async_Op<"call",
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
+    operand_range getCallOperands() {
+      return {arg_operand_begin(), arg_operand_end()};
+    }
 
     operand_iterator arg_operand_begin() { return operand_begin(); }
     operand_iterator arg_operand_end() { return operand_end(); }
@@ -362,7 +369,7 @@ def Async_ReturnOp : Async_Op<"return",
 
 def Async_YieldOp :
     Async_Op<"yield", [
-      HasParent<"ExecuteOp">, NoSideEffect, Terminator,
+      HasParent<"ExecuteOp">, Pure, Terminator,
       DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface>]> {
   let summary = "terminator for Async execute operation";
   let description = [{
@@ -404,8 +411,8 @@ def Async_AwaitOp : Async_Op<"await"> {
   ];
 
   let extraClassDeclaration = [{
-    Optional<Type> getResultType() {
-      if (getResultTypes().empty()) return None;
+    std::optional<Type> getResultType() {
+      if (getResultTypes().empty()) return std::nullopt;
       return getResultTypes()[0];
     }
   }];
@@ -417,7 +424,7 @@ def Async_AwaitOp : Async_Op<"await"> {
   }];
 }
 
-def Async_CreateGroupOp : Async_Op<"create_group", [NoSideEffect]> {
+def Async_CreateGroupOp : Async_Op<"create_group", [Pure]> {
   let summary = "creates an empty async group";
   let description = [{
     The `async.create_group` allocates an empty async group. Async tokens or

@@ -737,7 +737,7 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
   auto kernelSymbol =
       SymbolRefAttr::get(kernelModule.getNameAttr(),
                          {SymbolRefAttr::get(kernelFunc.getNameAttr())});
-  result.addAttribute(getKernelAttrName(), kernelSymbol);
+  result.addAttribute(LaunchFuncOp::getKernelAttrName(result.name), kernelSymbol);
   SmallVector<int32_t, 9> segmentSizes(9, 1); // initialized all sizes = 1
   int32_t numGridSizeParams = 3;
   int32_t numBlockSizeParams = 3;
@@ -1452,7 +1452,7 @@ void AllocOp::getCanonicalizationPatterns(RewritePatternSet &results,
 }
 
 LogicalResult WarpSwizzleOp::verify() {
-  for (auto &&v : this->selector()) {
+  for (auto &&v : this->getSelector()) {
     int32_t val = v.cast<::mlir::IntegerAttr>().getValue().getZExtValue();
     if (val < 0 || val > 3) {
       return this->emitOpError("value outside of range in selector");

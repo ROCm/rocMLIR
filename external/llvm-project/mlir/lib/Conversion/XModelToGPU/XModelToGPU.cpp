@@ -8,7 +8,7 @@
 
 #include "mlir/Conversion/XModelToGPU/XModelToGPU.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -56,25 +56,25 @@ static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
       return func;
   }
 
-  return llvm::None;
+  return std::nullopt;
 }
 
 // Get target{gpu} attribute from called func
 static Optional<xmodel::KernelPackageAttr> getGPUTarget(async::LaunchOp op) {
   auto func = getCalledFunc(op);
   if (!func.has_value() || func->getNumResults() != 0)
-    return llvm::None;
+    return std::nullopt;
 
   auto attr = (*func)->template getAttrOfType<ArrayAttr>("xmodel.targets");
   if (!attr)
-    return llvm::None;
+    return std::nullopt;
 
   for (auto targetAttr : attr.getValue()) {
     auto kernelPkg = targetAttr.cast<xmodel::KernelPackageAttr>();
     if (kernelPkg && kernelPkg.getType() == xmodel::TargetType::GPU)
       return kernelPkg;
   }
-  return llvm::None;
+  return std::nullopt;
 }
 
 //===----------------------------------------------------------------------===//
@@ -88,7 +88,7 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
 
   Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
     auto tokenType = b.getType<gpu::AsyncTokenType>();
-    return b.create<gpu::WaitOp>(loc, tokenType, deps).asyncToken();
+    return b.create<gpu::WaitOp>(loc, tokenType, deps).getAsyncToken();
   }
 
   template <typename T>
@@ -332,7 +332,7 @@ struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
     Value input = op.getOperand();
     if (input.getType() == tokenType) {
       // async.await with token type should never have a result type
-      assert(op.getResultType() == None);
+      assert(op.getResultType() == std::nullopt);
       rw.create<gpu::WaitOp>(op.getLoc(), Type(), input);
       rw.eraseOp(op);
       return success();

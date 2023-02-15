@@ -145,7 +145,7 @@ private:
           op->getAttrDictionary(), op->getSuccessors(), op->getNumRegions());
 
       // Clone regions into new op.
-      BlockAndValueMapping mapping;
+      IRMapping mapping;
       for (auto pair : llvm::zip_first(op->getRegions(), newOp->getRegions()))
         std::get<0>(pair).cloneInto(&std::get<1>(pair), mapping);
 

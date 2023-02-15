@@ -18,6 +18,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Host.h"
+#include "llvm/Support/Threading.h"
 
 #include <fstream>
 #include <iostream>
@@ -37,7 +38,7 @@ CpuSystemDetect::CpuSystemDetect() {
     // System detect can't fail but we somehow missed the features;
     features.clear();
   }
-  uint32_t count = llvm::sys::getHostNumPhysicalCores();
+  uint32_t count = llvm::get_physical_cores();
 
   // cleanup
   SystemDevice dev{

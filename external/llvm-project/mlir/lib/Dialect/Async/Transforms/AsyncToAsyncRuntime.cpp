@@ -96,8 +96,8 @@ struct CoroMachinery {
   Value coroHandle; // coroutine handle (!async.coro.getHandle value)
   Block *entry;     // coroutine entry block
   std::optional<Block *> setError; // set returned values to error state
-  Block *cleanup;   // coroutine cleanup block
-  Block *suspend;   // coroutine suspension block
+  Block *cleanup;                  // coroutine cleanup block
+  Block *suspend;                  // coroutine suspension block
 };
 } // namespace
 
@@ -286,7 +286,7 @@ static CoroMachinery buildCoroutineLogic(Operation *execute, func::FuncOp func,
     builder.create<RuntimeResumeOp>(coro.coroHandle);
 
     // Add async.coro.suspend as a suspended block terminator.
-    builder.create<CoroSuspendOp>(coroSaveOp.state(), coro.suspend,
+    builder.create<CoroSuspendOp>(coroSaveOp.getState(), coro.suspend,
                                   branch.getDest(), coro.cleanup);
 
     branch.erase();
@@ -411,7 +411,7 @@ convertLaunchOp(LaunchOp launch, bool toCoroutine) {
         // insert tokens and awaits
         auto *block = &func.front();
         auto builder = ImplicitLocOpBuilder::atBlockBegin(loc, block);
-        for (auto pair : llvm::enumerate(launch.dependencies())) {
+        for (auto pair : llvm::enumerate(launch.getDependencies())) {
           auto dep = pair.value();
           auto barg =
               block->insertArgument(pair.index(), dep.getType(), dep.getLoc());
@@ -443,10 +443,10 @@ convertLaunchOp(LaunchOp launch, bool toCoroutine) {
                                 launch.getCallOperands());
         // make dummy token
         auto retToken =
-            cb.create<RuntimeCreateOp>(TokenType::get(ctx)).result();
+            cb.create<RuntimeCreateOp>(TokenType::get(ctx)).getResult();
         cb.create<RuntimeSetAvailableOp>(retToken);
 
-        launch->replaceAllUsesWith(ValueRange{retToken});
+        launch->replaceAllUsesWith(ValueRange(retToken));
         launch->erase();
 
         return {};
@@ -909,7 +909,7 @@ static void rewriteCallsiteForCoroutine(func::CallOp oldCall,
   unwrappedResults.reserve(newCall->getResults().size() - 1);
   for (Value result : newCall.getResults().drop_front())
     unwrappedResults.push_back(
-        callBuilder.create<AwaitOp>(loc, result).result());
+        callBuilder.create<AwaitOp>(loc, result).getResult());
   // Careful, when result of a call is piped into another call this could lead
   // to a dangling pointer.
   oldCall.replaceAllUsesWith(unwrappedResults);
@@ -1006,13 +1006,11 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
       std::make_shared<llvm::DenseMap<func::FuncOp, CoroMachinery>>();
 
   module.walk([&](ExecuteOp execute) {
-    outlinedFunctions.insert(
-        outlineExecuteOp(symbolTable, execute, enableCoroutines));
-    coros->insert(outlineExecuteOp(symbolTable, execute));
+    coros->insert(outlineExecuteOp(symbolTable, execute, enableCoroutines));
   });
 
   module.walk([&](LaunchOp launch) {
-    outlinedFunctions.insert(convertLaunchOp(launch, enableCoroutines));
+    coros->insert(convertLaunchOp(launch, enableCoroutines));
   });
 
   LLVM_DEBUG({
@@ -1132,8 +1130,11 @@ void AsyncFuncToAsyncRuntimePass::runOnOperation() {
   }
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> mlir::createAsyncToAsyncRuntimePass() {
-  return std::make_unique<AsyncToAsyncRuntimePass>();
+std::unique_ptr<OperationPass<ModuleOp>>
+mlir::createAsyncToAsyncRuntimePass(bool enableCoroutines) {
+  AsyncToAsyncRuntimeOptions opts;
+  opts.enableCoroutines = enableCoroutines;
+  return std::make_unique<AsyncToAsyncRuntimePass>(opts);
 }
 
 std::unique_ptr<OperationPass<ModuleOp>>

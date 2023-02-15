@@ -27,7 +27,8 @@ llvm.func @rocdl_special_regs() -> i32 {
   // CHECK: call i64 @__ockl_get_global_size(i32 2)
   %12 = rocdl.grid.dim.z : i64
 
-  // CHECK: call i32 @llvm.amdgcn.workitem.id.x(), {{.*}} !range ![[$RANGE:[0-9]+]]
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.x(),
+  // CHECK-SAME: !range ![[$RANGE:[0-9]+]]
   %13 = rocdl.workitem.id.x {range = array<i32: 0, 64>} : i32
 
   llvm.return %1 : i32

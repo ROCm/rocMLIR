@@ -49,6 +49,7 @@ def AsyncToAsyncRuntime : Pass<"async-to-async-runtime", "ModuleOp"> {
       "Dispatch async compute tasks using coroutines. If `false` "
       "async compute tasks will be launched using simple call ops in the "
       "caller thread.">,
+  ];
   let dependentDialects = ["async::AsyncDialect", "func::FuncDialect"];
 }
 
