@@ -822,7 +822,6 @@ static LogicalResult reduceMatchAndRewriteHelper(Operation *op, uint64_t axis,
   return success();
 }
 
-
 namespace {
 
 template <typename SrcOp>
@@ -835,7 +834,6 @@ public:
     return elementwiseMatchAndRewriteHelper(op, rewriter);
   }
 };
-
 
 class TransposeConverter : public OpRewritePattern<tosa::TransposeOp> {
 public:
