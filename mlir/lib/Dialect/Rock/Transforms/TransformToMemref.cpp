@@ -15,9 +15,10 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass converts rock.blockwise_* ops to rock.threadwise_*
-// and lowers other higher-level ops like transform and fill in preparation for
-// the threadwise lowering
+// This pass converts any remaining rock.transforms after rock
+// lowering back to memref.expand/collapse_shape ops. Otherwise fails.
+// This generally only happens for non-conv/gemm kernels such as init
+// kernels.
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"

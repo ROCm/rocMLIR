@@ -907,7 +907,7 @@ def Rock_ThreadwiseReadIntoOp :
     Rock_Op<"threadwise_read_into">,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<AnyMemRef, "source view", [MemRead]>:$source,
-      Arg<MemRefRankOf<[F32, F16, BF16, I32], [1]>,
+      Arg<MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>,
         "destination registers", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       UnitAttr:$forceUnroll,
@@ -962,7 +962,7 @@ def Rock_ThreadwiseReadIntoOp :
 def Rock_ThreadwiseWriteAllOp :
     Rock_Op<"threadwise_write_all">,
     AllElementTypesMatch<["source", "dest"]>,
-    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I32], [1]>,
+    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>,
       "source registers", [MemRead]>:$source,
       Arg<AnyMemRef, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
