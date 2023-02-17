@@ -23,7 +23,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -299,7 +299,7 @@ void RockRegularizePass::runOnOperation() {
 
   {
     ConversionTarget target(*ctx);
-    target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
+    target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                            memref::MemRefDialect, linalg::LinalgDialect>();
     target.addIllegalOp<memref::ExpandShapeOp, memref::CollapseShapeOp>();
     target.addDynamicallyLegalOp<linalg::GenericOp>(

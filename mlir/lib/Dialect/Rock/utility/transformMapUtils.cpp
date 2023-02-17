@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"

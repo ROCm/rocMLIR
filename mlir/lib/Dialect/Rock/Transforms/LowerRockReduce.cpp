@@ -19,7 +19,7 @@
 // using global atomics.
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -197,7 +197,7 @@ void RockLowerReducePass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::ReduceOp>();
-  target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ReduceRewritePattern>(ctx);

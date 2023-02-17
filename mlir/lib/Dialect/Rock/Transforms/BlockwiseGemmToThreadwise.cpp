@@ -763,7 +763,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
     writeAllTarget
-        .addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
+        .addLegalDialect<arith::ArithDialect, rock::RockDialect>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns.add<ThreadwiseReadIntoRewritePattern,
                          ThreadwiseWriteAllRewritePattern>(ctx);
