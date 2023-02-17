@@ -206,7 +206,7 @@ static void reconfigureLAGeneric(PatternRewriter &b,
     }
     newInputs.push_back(newInput);
 
-    auto inpRank = newInput.getType().template cast<ShapedType>().getRank();
+    auto inpRank = newInput.getType().cast<ShapedType>().getRank();
     lgAMaps.push_back(b.getMultiDimIdentityMap(inpRank));
   }
 
@@ -214,7 +214,7 @@ static void reconfigureLAGeneric(PatternRewriter &b,
   laGeneric.getOutputsMutable().assign(outRegs);
 
   // 2.2. Reset affine maps
-  auto regRank = inRegs.getType().template cast<ShapedType>().getRank();
+  auto regRank = inRegs.getType().cast<ShapedType>().getRank();
 
   lgAMaps.push_back(b.getMultiDimIdentityMap(regRank));
   laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(lgAMaps));
@@ -272,9 +272,9 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!laGenericInputLeadingToGemmStore)
     return failure();
 
-  auto outType = out.getType().template cast<ShapedType>();
+  auto outType = out.getType().cast<ShapedType>();
   auto inpType =
-      laGenericInputLeadingToGemmStore.getType().template cast<ShapedType>();
+      laGenericInputLeadingToGemmStore.getType().cast<ShapedType>();
   if (outType.getShape() != inpType.getShape()) {
     return laGeneric.emitError("input and output types must match");
   }
@@ -292,7 +292,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 2. Apply if input found
   Value gemmOut = gemmStoreOp.getSource();
-  auto gemmOutType = gemmOut.getType().template cast<MemRefType>();
+  auto gemmOutType = gemmOut.getType().cast<MemRefType>();
 
   Value fusionRegs;
   {
