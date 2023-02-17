@@ -2066,13 +2066,6 @@ void mlir::tosa::populateTosaToLinalgConversionPatterns(
   patterns->add<MaterializeResizeBroadcast>(patterns->getContext(),
                                             /*benefit=*/300);
 
-  patterns->add<ReshapeConverterCollapse>(patterns->getContext(),
-                                          /*benefit=*/100);
-  patterns->add<ReshapeConverterExpand>(patterns->getContext(),
-                                        /*benefit=*/200);
-  patterns->add<ReshapeConverterCollapseExpand>(patterns->getContext(),
-                                                /*benefit=*/300);
-
   patterns->add<
       // clang-format off
       PointwiseConverter<tosa::AddOp>,
@@ -2120,7 +2113,6 @@ void mlir::tosa::populateTosaToLinalgConversionPatterns(
       ArgMaxConverter,
       ConcatConverter,
       GatherConverter,
-      PadConverter,
       RescaleConverter,
       ReverseConverter,
       TableConverter,
