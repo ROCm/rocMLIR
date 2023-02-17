@@ -256,7 +256,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = sliceOp.getLoc();
     Value input = adaptor.getInput();
-    SmallVector<int64_t> strides sizes;
+    SmallVector<int64_t> strides, sizes;
     auto starts = sliceOp.getStart();
     strides.resize(sliceOp.getType().template cast<ShapedType>().getRank(), 1);
 
