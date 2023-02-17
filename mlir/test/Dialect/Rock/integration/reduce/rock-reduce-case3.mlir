@@ -7,7 +7,7 @@
 #map0 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d1, d2)>
 module {
-  func.func private @test_reduce__part_0(%arg0: memref<1x30x10xf32> {func.write_access}) {
+  func.func private @zero_init(%arg0: memref<1x30x10xf32> {func.write_access}) {
     %cst = arith.constant 0.000000e+00 : f32
     linalg.fill ins(%cst : f32) outs(%arg0 : memref<1x30x10xf32>)
     return
@@ -22,18 +22,14 @@ module {
     return
   }
   func.func @test_reduce(%arg0: memref<20x30x10xf32>, %arg1: memref<1x30x10xf32>) attributes {arch = ""} {
-    %token0 = async.launch @test_reduce__part_0 (%arg1) : (memref<1x30x10xf32>) -> ()
-    %token1 = async.launch @test_reduce__part_1 [%token0] (%arg0, %arg1) : (memref<20x30x10xf32>, memref<1x30x10xf32>) -> ()
+    call @zero_init (%arg1) : (memref<1x30x10xf32>) -> ()
+    %token1 = async.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<20x30x10xf32>, memref<1x30x10xf32>) -> ()
     async.await %token1 : !async.token
     return
   }
   module @__xmodule_gfx90a attributes {xmodel.arch = "gfx90a", xmodel.module} {
-    func.func private @test_reduce__part_0(%arg0: memref<1x30x10xf32> {func.write_access}) attributes {kernel, original_func = @test_reduce__part_0, grid_size = 2, block_size = 256} {
-      rock.zero_init_kernel %arg0 {arch = "", blockSize = 256 : i32, elemsPerThread = 1 : index, gridSize = 2 : i32} : memref<1x30x10xf32>
-      return
-    }
     func.func private @test_reduce__part_1(%arg0: memref<20x30x10xf32> {func.read_access}, %arg1: memref<1x30x10xf32> {func.read_access, func.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 2, block_size = 256} {
-      rock.reduce sum %arg0 into %arg1 {axis = 0 : index, blockSize = 256 : i32, gridSize = 2 : i32} : memref<20x30x10xf32> into memref<1x30x10xf32>
+      rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 0 : index, blockSize = 256 : i32, gridSize = 2 : i32} : memref<20x30x10xf32> into memref<1x30x10xf32>
       return
     }
   }

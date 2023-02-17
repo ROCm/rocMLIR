@@ -18,9 +18,12 @@ using namespace mlir::rock;
 static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
              /*waveSize=*/64),
-    rdnaNoDotInfo(GemmFeatures::none, /*waveSize=*/32),
-    rdnaInfo(GemmFeatures::dot, /*waveSize=*/32),
-    gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add, /*waveSize=*/32);
+    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32),
+    rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
+             /*waveSize=*/32),
+    gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+                  GemmFeatures::atomic_fmax_f32,
+              /*waveSize=*/32);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   StringRef firstPart, remainingParts;

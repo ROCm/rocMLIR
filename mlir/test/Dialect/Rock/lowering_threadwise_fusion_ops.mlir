@@ -50,7 +50,7 @@ func.func @threadwise_write_all(%source: memref<32xf32, 5>, %dest: memref<2x64x3
   // CHECK-NEXT: rock.buffer_store set [[tmp]] -> [[dest]][[[args]]] if [[valid]]
 
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
-  rock.threadwise_write_all {forceUnroll, useIndexDiffs}
+  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
     %source -> [#transform_map0](%view) by set
     : memref<32xf32, 5> -> memref<2x64x32xf32>
   func.return
