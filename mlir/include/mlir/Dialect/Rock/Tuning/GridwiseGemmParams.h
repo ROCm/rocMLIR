@@ -56,6 +56,8 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   constexpr InitParamsNonXDL()
       : InitParamsNonXDL(0U, 0LL, 0LL, 0LL, 0LL, 0LL) {}
 
+  int64_t getKPack() { return 1; }
+
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.blockSize);
     f(self.gemmMPerBlock);
@@ -78,6 +80,8 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
 
   constexpr InitParamsXDL()
       : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
+
+  int64_t getKPack() { return gemmKPack; }
 
   int64_t gemmMPerWave;
   int64_t gemmNPerWave;
@@ -181,7 +185,7 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
-  static const InitParams universalParameters;
+  static const InitParamsNonXDL universalParameters;
 
   LogicalResult
   calculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
@@ -201,7 +205,7 @@ public:
   std::vector<InitParamsNonXDL> getTuningParameters(KernelType opType,
                                                     Type dataType) const;
 
-  const InitParams &getUniversalParameters() const;
+  const InitParamsNonXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
@@ -226,7 +230,7 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk.
-  static const InitParams universalParameters;
+  static const InitParamsXDL universalParameters;
 
   uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
@@ -258,7 +262,7 @@ public:
 
   std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
                                                  Type dataType) const;
-  const InitParams &getUniversalParameters() const;
+  const InitParamsXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;

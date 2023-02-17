@@ -351,45 +351,25 @@ template <typename T>
 static Optional<GemmSize>
 calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
                            T populateParams) {
-  bool needExtraPad = false;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
-
   auto configParams = populateParams.getTuningParameters(
       kernelTypeFromConvOpType(dir), dataType);
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
     if (gemmSize.m % params.gemmMPerBlock == 0 &&
-        gemmSize.k % params.gemmKPerBlock == 0 &&
+        gemmSize.k % (params.gemmKPerBlock * params.getKPack()) == 0 &&
         gemmSize.n % params.gemmNPerBlock == 0) {
       break;
     }
     numOfFailedConfigs++;
   }
 
-  auto extraParams = populateParams.getUniversalParameters();
   if (numOfFailedConfigs == configParams.size()) {
-    needExtraPad = true;
-    int64_t gemmMRemain, gemmKRemain, gemmNRemain;
-
-    gemmMRemain = gemmSize.m % extraParams.gemmMPerBlock;
-    if (gemmMRemain != 0)
-      gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
-
-    gemmNRemain = gemmSize.n % extraParams.gemmNPerBlock;
-    if (gemmNRemain != 0)
-      gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
-
-    gemmKRemain = gemmSize.k % extraParams.gemmKPerBlock;
-    if (gemmKRemain != 0)
-      gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
-
-    // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-    // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+    auto extraParams = populateParams.getUniversalParameters();
+    return calculatePadding(
+        extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
+        extraParams.gemmNPerBlock, gemmSize, extraParams.getKPack());
   }
 
-  if (needExtraPad)
-    return GemmSize(gemmSize.g, gemmMExtra, gemmKExtra, gemmNExtra);
   return std::nullopt;
 }
 
@@ -693,6 +673,10 @@ void Conv2dGenerator::setDataType(std::string newType) {
 
 void Conv2dGenerator::flipXdlops() {
   config.features = config.features ^ GemmFeatures::mfma;
+}
+
+void Conv2dGenerator::setPerfConfig(StringRef perfConfig) {
+  config.perfConfig = perfConfig.str();
 }
 
 ConvolutionDims Conv2dGenerator::getConvolutionDims() const {

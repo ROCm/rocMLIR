@@ -41,7 +41,7 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
                                mlir::Location loc, Type elemType,
-                               Args &&...args) {
+                               Args &&... args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -65,16 +65,14 @@ public:
   Value getZeroBias(Location loc, Type elemType, int64_t filterOutputChannels,
                     ConversionPatternRewriter &rewriter) const {
     auto biasTy = RankedTensorType::get({filterOutputChannels}, elemType);
-    auto arithZero =
-        rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elemType));
-    auto biasTensor = rewriter.create<tensor::SplatOp>(loc, biasTy, arithZero);
-    return biasTensor;
+    return rewriter.create<arith::ConstantOp>(loc,
+                                              rewriter.getZeroAttr(biasTy));
   }
 
-  tosa::TransposeOp getRank4TransposeOp(Location loc, Value input,
-                                        ConversionPatternRewriter &rewriter,
-                                        SmallVector<int64_t> &permutation,
-                                        bool bRoot) const {
+  tosa::TransposeOp
+  getRank4TransposeOp(Location loc, Value input,
+                      ConversionPatternRewriter &rewriter,
+                      SmallVector<int64_t> &permutation) const {
     auto permutationAttr = DenseIntElementsAttr::get(
         RankedTensorType::get({4}, rewriter.getI64Type()), permutation);
     Value permutationValue =
@@ -88,7 +86,6 @@ public:
 
     auto newOp =
         rewriter.create<tosa::TransposeOp>(loc, newTy, input, permutationValue);
-    newOp->setAttr("changing_layout_root", rewriter.getBoolAttr(bRoot));
     return newOp;
   }
 
@@ -107,8 +104,8 @@ public:
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
     // insert transpose to input and filter tensors
-    input_t = getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC, false);
-    filter_t = getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC, false);
+    input_t = getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC);
+    filter_t = getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC);
     auto outShape = outputTy.getShape();
 
     // original output shape was NCHW, change it into NHWC
@@ -138,11 +135,7 @@ public:
     int64_t dilationHeight = dilationAttr[0].dyn_cast<IntegerAttr>().getInt();
     int64_t dilationWidth = dilationAttr[1].dyn_cast<IntegerAttr>().getInt();
 
-    // Record desired layout and set
     // convolution config attributes
-    cop->setAttr("expected_filter_layout", rewriter.getStringAttr("kcyx"));
-    cop->setAttr("expected_input_layout", rewriter.getStringAttr("nchw"));
-    cop->setAttr("expected_output_layout", rewriter.getStringAttr("nkhw"));
 
     cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(
                                  {dilationHeight, dilationWidth}));
@@ -159,7 +152,7 @@ public:
 
     // transpose the output back to NCHW so that it can match following
     // operators.
-    auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW, true);
+    auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW);
     rewriter.replaceOp(op, {top});
     return success();
   }

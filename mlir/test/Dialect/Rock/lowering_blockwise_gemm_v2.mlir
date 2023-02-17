@@ -2,7 +2,7 @@
 
 func.func @rock_blockwise_gemm_v2_two_results(%matrix : memref<1024xf32, 3>,
                                                 %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>,
-                                                %matrixC : memref<2xvector<32xf32>, 5>) {
+                                                %matrixC : memref<4xvector<16xf32>, 5>) {
   %c0 = arith.constant 0 : index
   // CHECK:  rock.xdlops_gemm_v2
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrix[%c0] * %bufferB from %matrix[%c0] {
@@ -17,7 +17,7 @@ func.func @rock_blockwise_gemm_v2_two_results(%matrix : memref<1024xf32, 3>,
       forceUnroll = true>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 512 : index
-  } : memref<2xvector<32xf32>, 5> += memref<2xvector<2xf32>, 5> from memref<1024xf32, 3> * memref<2xvector<2xf32>, 5> from memref<1024xf32, 3>
+  } : memref<4xvector<16xf32>, 5> += memref<2xvector<2xf32>, 5> from memref<1024xf32, 3> * memref<2xvector<2xf32>, 5> from memref<1024xf32, 3>
   return
 }
 

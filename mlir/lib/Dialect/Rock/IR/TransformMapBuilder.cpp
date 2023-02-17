@@ -123,6 +123,13 @@ static AffineMapAttr assembleMapFor(Builder &b,
             b.getAffineDimExpr(upperDim) % b.getAffineConstantExpr(param);
         affExprsMap.insert({lowerDim, expr});
       }
+    } else if (type == TransformType::ConstDim) {
+      for (unsigned i = 0, e = lowerDims.size(); i < e; ++i) {
+        uint32_t lowerDim = lowerDims[i];
+        int64_t constant = params[2 * i];
+        AffineExpr expr = b.getAffineConstantExpr(constant);
+        affExprsMap.insert({lowerDim, expr});
+      }
     } else {
       llvm_unreachable("Handled all the cases in affine map building");
     }
@@ -193,7 +200,8 @@ TransformMapAttr TransformMapBuilder::get() {
   };
   frozen = true;
   return getTransformMapAttrChecked(errorEmitter, b.getContext(), result, map,
-                                    upperBounds, lowerBounds);
+                                    b.getDenseI64ArrayAttr(upperBounds),
+                                    b.getDenseI64ArrayAttr(lowerBounds));
 }
 
 void TransformMapBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
@@ -204,11 +212,18 @@ void TransformMapBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
   }
 }
 
-SmallString<8> TransformMapBuilder::startName(uint32_t dim) {
+void TransformMapBuilder::getStartNames(SmallVectorImpl<StringRef> &names) {
+  names.reserve(startNames.size());
+  for (const auto &name : startNames) {
+    names.emplace_back(name);
+  }
+}
+
+StringRef TransformMapBuilder::startName(uint32_t dim) {
   return startNames[dim];
 }
 
-SmallString<8> TransformMapBuilder::endName(uint32_t dim) {
+StringRef TransformMapBuilder::endName(uint32_t dim) {
   assert(endNames.count(dim) == 1 &&
          "Dimension not defined in ending dimension space");
   return endNames[dim];
@@ -462,6 +477,31 @@ void TopDownTMBuilder::ignore(StringRef name) {
   addTransform(TransformType::AddDim, {size}, {name}, {dim}, {}, {});
 }
 
+void TopDownTMBuilder::constDim(StringRef lowerName, uint32_t lowerDim,
+                                int64_t constantVal, int64_t lowerSize) {
+  defineDim(lowerName, lowerDim, lowerSize);
+  SmallVector<int64_t> params = {constantVal, lowerSize};
+  addTransform(TransformType::ConstDim, params, {}, {}, {lowerName},
+               {lowerDim});
+}
+
+void TopDownTMBuilder::constDim(ArrayRef<StringRef> lowerNames,
+                                ArrayRef<uint32_t> lowerDims,
+                                ArrayRef<int64_t> constantVals,
+                                ArrayRef<int64_t> lowerSizes) {
+  assert(constantVals.size() == lowerSizes.size() &&
+         "must have equal number of constant values and dimension lengths");
+  SmallVector<int64_t> params;
+  params.reserve(2 * constantVals.size());
+  for (const auto &[name, dim, val, size] :
+       llvm::zip(lowerNames, lowerDims, constantVals, lowerSizes)) {
+    params.emplace_back(val);
+    params.emplace_back(size);
+    defineDim(name, dim, size);
+  }
+  addTransform(TransformType::ConstDim, params, {}, {}, lowerNames, lowerDims);
+}
+
 void TopDownTMBuilder::embed(StringRef lowerName, uint32_t lowerDim,
                              int64_t lowerSize, ArrayRef<StringRef> upperNames,
                              ArrayRef<int64_t> coefficients) {
@@ -544,6 +584,18 @@ void TopDownTMBottomDimsWrapper::pad(ArrayRef<StringRef> outNames,
                                      ArrayRef<StringRef> inNames,
                                      ArrayRef<int64_t> params) {
   b.pad(outNames, toBottomDims(outNames), inNames, params);
+}
+
+void TopDownTMBottomDimsWrapper::constDim(StringRef lowerName,
+                                          int64_t constantVal,
+                                          int64_t lowerSize) {
+  b.constDim(lowerName, bottomDims[lowerName], constantVal, lowerSize);
+}
+
+void TopDownTMBottomDimsWrapper::constDim(ArrayRef<StringRef> lowerNames,
+                                          ArrayRef<int64_t> constantVals,
+                                          ArrayRef<int64_t> lowerSizes) {
+  b.constDim(lowerNames, toBottomDims(lowerNames), constantVals, lowerSizes);
 }
 
 void TopDownTMBottomDimsWrapper::embed(StringRef lowerName, int64_t lowerSize,
@@ -631,7 +683,7 @@ void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
   for (auto tuple : llvm::zip(endDims, endSizes)) {
     uint32_t dim = std::get<0>(tuple);
     int64_t size = std::get<1>(tuple);
-    auto &name = getStartNames()[dim];
+    auto name = startName(dim);
     params.push_back(startSize(dim));
     lowerNames.push_back(name);
     upperNames.push_back(name);

@@ -68,6 +68,18 @@ LogicalResult RawBufferAtomicFaddOp::verify() {
   return verifyRawBufferOp(*this);
 }
 
+LogicalResult RawBufferAtomicFmaxOp::verify() {
+  return verifyRawBufferOp(*this);
+}
+
+LogicalResult RawBufferAtomicSmaxOp::verify() {
+  return verifyRawBufferOp(*this);
+}
+
+LogicalResult RawBufferAtomicUminOp::verify() {
+  return verifyRawBufferOp(*this);
+}
+
 static std::optional<uint32_t> getConstantUint32(Value v) {
   APInt cst;
   if (!v.getType().isInteger(32))
@@ -156,6 +168,21 @@ void RawBufferStoreOp::getCanonicalizationPatterns(RewritePatternSet &results,
 void RawBufferAtomicFaddOp::getCanonicalizationPatterns(
     RewritePatternSet &results, MLIRContext *context) {
   results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicFaddOp>>(context);
+}
+
+void RawBufferAtomicFmaxOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicFmaxOp>>(context);
+}
+
+void RawBufferAtomicSmaxOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicSmaxOp>>(context);
+}
+
+void RawBufferAtomicUminOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicUminOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//

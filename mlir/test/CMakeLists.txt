@@ -10,7 +10,6 @@ llvm_canonicalize_cmake_booleans(
   ROCMLIR_DRIVER_ENABLED
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
-  ROCMLIR_SQLITE_ENABLED
   ROCK_E2E_TEST_ENABLED
   )
 
@@ -88,6 +87,8 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     conv-validation-wrappers
     mlir-cpu-runner
     xmir-runner
+    # Not strictly a test dependency, included so we don't break it during compiles
+    rocmlir-tuning-driver
   )
 endif()
 

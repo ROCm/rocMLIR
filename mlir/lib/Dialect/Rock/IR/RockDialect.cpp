@@ -234,10 +234,10 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     return emitError() << "Have " << lowerNames.size() << " names for "
                        << lowerDims.size() << " dimensions";
   }
-  if (type != TransformType::AddDim && lowerDims.size() == 0) {
+  if (type != TransformType::AddDim && lowerDims.empty()) {
     return emitError() << "The transformation must define outputs";
   }
-  if (upperDims.size() == 0) {
+  if (type != TransformType::ConstDim && upperDims.empty()) {
     return emitError() << "The transformation must have at least one input";
   }
 
@@ -247,7 +247,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
       return emitError()
              << "PassThrough must have the same number of inputs and outputs";
     }
-    if (params.size() != 0) {
+    if (!params.empty()) {
       return emitError() << "PassThrough has no parameters";
     }
     break;
@@ -287,7 +287,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != upperDims.size()) {
       return emitError() << "Must supply a size parameter for each dimension";
     }
-    if (lowerDims.size() != 0) {
+    if (!lowerDims.empty()) {
       return emitError() << "The added dimension cannot be mapped anywhere";
     }
     break;
@@ -298,6 +298,21 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != lowerDims.size()) {
       return emitError()
              << "Broadcast must specify the output length for each dimension";
+    }
+    break;
+  case TransformType::ConstDim:
+    if (!upperDims.empty())
+      return emitError() << "ConstDim must not take any inputs";
+    if (params.size() != 2 * lowerDims.size())
+      return emitError()
+             << "ConstDim is parameterized by [value, length] pairs";
+    for (size_t i = 0, e = params.size(); i < e; i += 2) {
+      if (params[i] >= params[i + 1])
+        return emitError() << "For constant dimension " << lowerDims[i / 2]
+                           << " constant value " << params[i]
+                           << " must be less than dimension "
+                              "length "
+                           << params[i + 1];
     }
     break;
   }
@@ -320,7 +335,7 @@ TransformAttr getTransformAttrChecked(
 TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   return TransformMapAttr::getChecked(emitError, context, ops, map, upperBounds,
                                       lowerBounds);
 }
@@ -328,7 +343,7 @@ TransformMapAttr getTransformMapAttrChecked(
 LogicalResult TransformMapAttr::verify(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<::mlir::rock::TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   AffineMap rawMap = map.getAffineMap();
   if (rawMap.getNumInputs() != upperBounds.size()) {
     return emitError() << "Affine map has " << rawMap.getNumInputs()
@@ -341,12 +356,12 @@ LogicalResult TransformMapAttr::verify(
                        << " outut dimensions";
   }
 
-  for (int64_t v : upperBounds) {
+  for (int64_t v : upperBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Upper bound/shape component less than 0";
     }
   }
-  for (int64_t v : lowerBounds) {
+  for (int64_t v : lowerBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Lower bound/shape component less than 0";
     }
@@ -906,6 +921,14 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
       bodyBlock.addArgument(indexType, state.location);
     nLower += len;
   }
+  // Validity arguments
+  lowerStarts.push_back(nLower);
+  int32_t nTransforms = transforms.size();
+  for (int32_t i = 0; i < nTransforms; ++i) {
+    bodyBlock.addArgument(b.getI1Type(), state.location);
+  }
+  nLower += nTransforms;
+  // Iteration arguments
   lowerStarts.push_back(nLower);
   state.addAttribute(getLowerStartsAttrName(state.name),
                      b.getI32VectorAttr(lowerStarts));
@@ -947,7 +970,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
             parser.parseEqual()) {
           return failure();
         }
-        for (size_t i = 0; i < lowerArgs.size(); i++) {
+        for (size_t i = oldNLower; i < lowerArgs.size(); ++i) {
           lowerArgs[i].type = indexTy;
         }
         ArrayAttr theseTransforms;
@@ -957,7 +980,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         if (parser.parseOperandList(upperInits, Delimiter::Paren)) {
           return failure();
         }
-        if (theseTransforms.size() == 0) {
+        if (theseTransforms.empty()) {
           if (upperInits.size() - oldNUpper != lowerArgs.size() - oldNLower) {
             return parser.emitError(loopIterLoc,
                                     "Expected same number of lower and upper "
@@ -1000,7 +1023,23 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
     return failure();
   }
   lowerStarts.push_back(lowerArgs.size());
+  size_t preValiditiesNLower = lowerArgs.size();
+  // Validity arguments.
+  llvm::SMLoc validitiesLoc = parser.getCurrentLocation();
+  if (parser.parseArgumentList(lowerArgs, Delimiter::Paren) ||
+      parser.parseEqual() || parser.parseKeyword("validity")) {
+    return failure();
+  }
+  if (lowerArgs.size() - preValiditiesNLower != transforms.size())
+    return parser.emitError(
+        validitiesLoc, "Expected " + Twine(transforms.size()) +
+                           " validity arguments, one per domain, but found " +
+                           Twine(lowerArgs.size() - preValiditiesNLower));
+  for (size_t i = preValiditiesNLower, e = lowerArgs.size(); i < e; ++i) {
+    lowerArgs[i].type = b.getI1Type();
+  }
 
+  lowerStarts.push_back(lowerArgs.size());
   result.addAttribute(TransformingForOp::getTransformsAttrName(result.name),
                       b.getArrayAttr(transforms));
   result.addAttribute(TransformingForOp::getLowerStartsAttrName(result.name),
@@ -1104,7 +1143,11 @@ void TransformingForOp::print(OpAsmPrinter &p) {
     }
   }
 
-  if (getIterInits().size() > 0) {
+  p << " (";
+  p.printOperands(getValidities());
+  p << ") = validity";
+
+  if (!getIterInits().empty()) {
     p << " iter_args (";
     llvm::interleaveComma(llvm::zip(getIterArgs(), getIterInits()), p,
                           [&](auto i) {
@@ -1115,11 +1158,11 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   }
   p << " bounds [";
   llvm::interleaveComma(getBounds().getAsValueRange<IntegerAttr>(), p,
-                        [&](llvm::APInt bound) { p << bound; });
+                        [&](const llvm::APInt &bound) { p << bound; });
   p << "] ";
   p << "strides [";
   llvm::interleaveComma(getStrides().getAsValueRange<IntegerAttr>(), p,
-                        [&](llvm::APInt stride) { p << stride; });
+                        [&](const llvm::APInt &stride) { p << stride; });
   p << "] ";
   p.printRegion(getRegion(), /*printEntryBlockArgs=*/false);
 }
@@ -1148,9 +1191,12 @@ LogicalResult TransformingForOp::verify() {
   }
 
   uint32_t lowerArgsCount = 0;
-  if (getLowerStarts().size() != domains() + 1) {
+  if (getLowerStarts().size() != domains() + 2) {
     return emitOpError(
-        "Lower starts attribute doesn't have one entry per domain plus 1");
+        "Lower starts attribute doesn't have one entry per domain plus 2");
+  }
+  if (getLowerStart(domains() + 1) - getLowerStart(domains()) != domains()) {
+    return emitOpError("Validity domain doesn't contain one value per domain");
   }
   if (getLowerStart(0) != 0) {
     return emitOpError("Region args don't start with lower coords");
@@ -1160,7 +1206,7 @@ LogicalResult TransformingForOp::verify() {
     ArrayAttr transforms = getTransforms(i);
     auto lowerArgs = getLowerCoords(i);
     auto upperInits = getUpperInits(i);
-    if (transforms.size() == 0) {
+    if (transforms.empty()) {
       if (upperInits.size() != lowerArgs.size()) {
         return emitOpError("Mismatch between number of lower and upper "
                            "coordinates without a transform in domain #" +
@@ -1248,27 +1294,9 @@ LogicalResult IndexDiffUpdateOp::verify() {
 LogicalResult BufferLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
-  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Left OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Left OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
-  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Right OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Right OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
 
+  if (nDims == 0)
+    return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   if (sourceType.getMemorySpaceAsInt() != 0)
@@ -1285,26 +1313,8 @@ LogicalResult BufferLoadOp::verify() {
 LogicalResult BufferStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Left OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Left OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
-  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Right OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Right OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
+  if (nDims == 0)
+    return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   if (destType.getMemorySpaceAsInt() != 0)
@@ -1346,6 +1356,25 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ThreadwiseReadIntoOp
+//===-----------------------------------------------------===//
+LogicalResult ThreadwiseReadIntoOp::verify() {
+  MemRefType destType = getDest().getType();
+  if (destType.getMemorySpaceAsInt() != 5)
+    return emitOpError("source must be private registers");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getSource().getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+
+  if (inputShape.size() != 3)
+    return emitOpError("source view must accept (bid, tid, iter) coordinates");
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
@@ -1353,14 +1382,15 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   if (sourceType.getMemorySpaceAsInt() != 5)
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> inputShape;
+  ArrayRef<int64_t> viewInputShape;
   if (extraViews.empty())
-    inputShape = getDest().getType().getShape();
+    viewInputShape = getDest().getType().getShape();
   else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    viewInputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (inputShape.size() != 3)
-    return emitOpError("input must accept (bid, tid, iter) coordinates");
+  if (viewInputShape.size() != 3)
+    return emitOpError(
+        "destination view must accept (bid, tid, iter) coordinates");
   return success();
 }
 
@@ -1495,6 +1525,32 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                      SetIntRangeFn setResultRanges) {
   setResultRanges(getResult(), getIdRange("block_size", getOperation()));
 }
+
+//===-----------------------------------------------------===//
+// ReduceOp
+//===-----------------------------------------------------===//
+
+LogicalResult ReduceOp::verify() {
+  APInt axis = getAxis();
+  ArrayRef<int64_t> inpShape = getIn().getType().cast<ShapedType>().getShape();
+  for (const auto &dimAndSize :
+       llvm::enumerate(getOut().getType().cast<ShapedType>().getShape())) {
+    size_t dim = dimAndSize.index();
+    int64_t dimSize = dimAndSize.value();
+    if (dim == axis) {
+      if (dimSize != 1) {
+        return emitError("The size of the reduction dimension should be 1.");
+      }
+    } else {
+      if (dimSize != inpShape[dim]) {
+        return emitError(
+            "The size of the non-reduction dimension should match the input.");
+      }
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//

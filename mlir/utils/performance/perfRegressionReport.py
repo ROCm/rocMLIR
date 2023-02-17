@@ -12,18 +12,32 @@ def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
     COLUMNS_DROPPED = ['MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)',
                        'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen',
-                       'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS']
+                       'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS', 'Tuned/rocBLAS']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
+    # Work around empty PerfConfig field whin migrating from no tuning to yes tuning
+    # Can be removed next time we touch this
+    if 'PerfConfig' in df:
+        df['PerfConfig'] = df['PerfConfig'].fillna('None')
     return df
+
+def mergePerfConfigs(v: Tuple[str, str]) -> str:
+    v1, v2 = v
+    if v1 == v2:
+        return v1
+    return f"{v1} -> {v2}"
 
 def summarizeStat(grouped, func, data):
     ret = grouped.agg(func)
-    ret.loc[("All", "All", "All"),:] = data.agg(func)
+    if ret.index.nlevels == 1:
+        ret.loc["All"] = data.agg(func)
+    else:
+        ret.loc[("All",) * ret.index.nlevels,:] = data.agg(func)
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     isGemm = "TransA" in newDf
-    joinCols = reportUtils.GEMM_TEST_PARAMETERS if isGemm else reportUtils.CONV_TEST_PARAMETERS
+    # Ignore perf config in join
+    joinCols = reportUtils.GEMM_TEST_PARAMETERS[:-1] if isGemm else reportUtils.CONV_TEST_PARAMETERS[:-1]
     try:
         data = newDf.merge(oldDf, on=joinCols, suffixes=('_new', '_old'))
     except KeyError as e:
@@ -34,24 +48,43 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
             file=sys.stderr)
         return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
 
+    # Clean up PerfConfig columns, as the report generator wants a single PerfConfig
+    if "PerfConfig_old" in data and "PerfConfig_new" in data:
+        perfConfigColPos = data.columns.get_loc("PerfConfig_old")
+        zipped = list(map(mergePerfConfigs, zip(data["PerfConfig_old"], data["PerfConfig_new"])))
+        data.insert(perfConfigColPos, "PerfConfig", zipped)
+        data.drop(columns=["PerfConfig_old", "PerfConfig_new"], inplace=True)
+
     if (oldLabel == newLabel):
         oldLabel += "_old"
         newLabel += "_new"
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
+    oldLabelTuned = f"Tuned TFlops ({oldLabel})"
+    newLabelTuned = f"Tuned TFlops ({newLabel})"
     data.rename(columns={'MLIR TFlops_old': oldLabel,
                          'MLIR TFlops_new': newLabel,
                          'TFlops_old': oldLabel,
-                         'TFlops_new': newLabel}, inplace=True)
-    data['Current/Previous'] = data[newLabel] / data[oldLabel]
+                         'TFlops_new': newLabel,
+                         'Tuned MLIR TFlops_old': oldLabelTuned,
+                         'Tuned MLIR TFlops_new': newLabelTuned}, inplace=True)
+    data['% change'] = 100.0 * (data[newLabel] - data[oldLabel]) / data[oldLabel]
+    hasTuning = False
+    if oldLabelTuned in data and newLabelTuned in data:
+        data['% change (tuned)'] = (data[newLabelTuned] - data[oldLabelTuned]) / data[oldLabelTuned]
+        hasTuning = True
 
-    columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
+    columnsToAverage = ['% change', oldLabel, newLabel]
+    if hasTuning:
+        columnsToAverage += ['% change (tuned)', oldLabelTuned, newLabelTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
-    groups = ["DataType", "TransA", "TransB"] if isGemm else ["Direction", "DataType", "InputLayout"]
+    groups = ["DataType"] if isGemm else ["Direction", "DataType", "InputLayout"]
     grouped = data.groupby(groups)[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
+    stats.drop(columns=[('% change', 'Geo. mean'), ('% change (tuned)', 'Geo. mean')],
+        errors='ignore', inplace=True)
 
     return data, stats
 
@@ -76,7 +109,7 @@ if __name__ == '__main__':
         newDf = loadMlirData(str(newDataPath))
         newLabel = getPerfDate(newDataPath, "new")
     except FileNotFoundError:
-        print("Could not load current performance data: run ./MIOpenDriver.py or provide a path", file=sys.stderr)
+        print("Could not load current performance data: run perf or provide a path", file=sys.stderr)
         sys.exit(1)
     try:
         oldDf = loadMlirData(str(oldDataPath))
@@ -88,8 +121,12 @@ if __name__ == '__main__':
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     isGemm = ("TransA" in data)
+    hasTuning = ("% change (tuned)" in data)
     if isGemm and len(sys.argv) < 5:
         outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
     with open(outputPath, "w") as outputStream:
-        reportUtils.htmlReport(data, summary, "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            ["Current/Previous"], outputStream)
+        toHighlight = ["% change", "% change (tuned)"] if hasTuning \
+            else ["% change"]
+        reportUtils.htmlReport(data, summary,
+            "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
+            toHighlight, reportUtils.colorForChanges, outputStream)

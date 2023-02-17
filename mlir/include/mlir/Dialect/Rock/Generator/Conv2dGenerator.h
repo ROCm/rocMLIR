@@ -85,6 +85,8 @@ public:
 
   void flipXdlops();
 
+  void setPerfConfig(StringRef perfConfig);
+
   ConvolutionDims getConvolutionDims() const;
 
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,

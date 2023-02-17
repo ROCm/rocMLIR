@@ -6,7 +6,6 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/Tuning/SqliteDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
@@ -65,7 +64,8 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
   {64, 32, 32, 4, 2, 2}};
 // clang-format on
 
-const InitParams PopulateParams::universalParameters = {64, 64, 16};
+const InitParamsNonXDL PopulateParams::universalParameters = {64, 64, 64,
+                                                              16, 4,  4};
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, RockGemmWrapperInterface op) {
@@ -149,27 +149,6 @@ LogicalResult PopulateParams::obtainTuningParameters(
     return failure();
   }
 
-#if __MLIR_ENABLE_SQLITE__
-  std::string solverId;
-  if (ctx.opType == ConvOpType::Fwd) {
-    solverId = "ConvHipImplicitGemmV4R4Fwd";
-  } else if (ctx.opType == ConvOpType::BwdData) {
-    solverId = "ConvHipImplicitGemmBwdDataV1R1";
-  } else {
-    solverId = "ConvHipImplicitGemmV4R4WrW";
-  }
-
-  SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
-  bool loadRes = perfDb.load(ctx, solverId, validParams);
-  if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, gridSize);
-  } else {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load failed, falling back to backup path.\n");
-  }
-#endif // MLIR_ENABLE_SQLITE
-
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
   std::vector<InitParamsNonXDL> paramSets =
@@ -199,7 +178,7 @@ PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
   return std::vector<InitParamsNonXDL>(params);
 }
 
-const InitParams &PopulateParams::getUniversalParameters() const {
+const InitParamsNonXDL &PopulateParams::getUniversalParameters() const {
   return universalParameters;
 }
 
@@ -285,7 +264,8 @@ PopulateParamsXDL::initParametersForwardI8[
 };
 // clang-format on
 
-const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
+const InitParamsXDL PopulateParamsXDL::universalParameters = {32, 64, 4, 32,
+                                                              64, 4,  1, 1};
 
 uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
                                             int64_t waveSize) {
@@ -456,30 +436,10 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     return failure();
   }
 
-#if __MLIR_ENABLE_SQLITE__
-  std::string solverId;
-  if (ctx.opType == ConvOpType::Fwd) {
-    solverId = "ConvHipImplicitGemmForwardV4R4Xdlops";
-  } else if (ctx.opType == ConvOpType::BwdData) {
-    solverId = "ConvHipImplicitGemmBwdDataV4R1Xdlops";
-  } else {
-    solverId = "ConvHipImplicitGemmWrwV4R4Xdlops";
-  }
-
-  SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
-  bool loadRes = perfDb.load(ctx, solverId, validParams);
-  if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize);
-  } else {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load failed, falling back to backup path.\n");
-  }
-#endif // MLIR_ENABLE_SQLITE
-
   LogicalResult res = failure();
   std::vector<InitParamsXDL> paramSets =
       getTuningParameters(op.getKernelType(), op.getInputType());
+
   for (const auto &params : orderInitParams(paramSets, gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
@@ -532,7 +492,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
   return res;
 }
 
-const InitParams &PopulateParamsXDL::getUniversalParameters() const {
+const InitParamsXDL &PopulateParamsXDL::getUniversalParameters() const {
   return universalParameters;
 }
 

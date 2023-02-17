@@ -159,153 +159,70 @@ auto getMfmaInsnGroupAttrMap = []() {
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
       groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 64, 32},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::bcast_first_32}}}},
+                    {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 32, 64},
-                    {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 64, 16},
-                    {ROCDL::mfma_f32_16x16x1f32::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::bcast_first_16}}}},
+                    {ROCDL::mfma_f32_16x16x4f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 16, 64},
-                    {ROCDL::mfma_f32_16x16x1f32::getOperationName(),
-                     1,
-                     1,
-                     {{2, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_16x16x4f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 8, 64},
                     {ROCDL::mfma_f32_4x4x1f32::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp32TyId, 4, 64},
                     {ROCDL::mfma_f32_4x4x1f32::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp32TyId, 32, 32},
-                    {ROCDL::mfma_f32_32x32x2f32::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 16, 16},
-                    {ROCDL::mfma_f32_16x16x4f32::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
-
+                    {ROCDL::mfma_f32_16x16x4f32::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 64, 32},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::bcast_first_32}}}},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 64, 16},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::bcast_first_16}}}},
+                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 16, 64},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{2, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 8, 64},
                     {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 4, 64},
                     {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 32, 32},
-                    {ROCDL::mfma_f32_32x32x8f16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 32, 64},
-                    {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 16, 16},
-                    {ROCDL::mfma_f32_16x16x16f16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
-
+                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 64, 64},
-                    {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 64, 32},
-                    {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::bcast_first_32}}}},
+                    {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 32, 64},
-                    {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 64, 16},
-                    {ROCDL::mfma_f32_16x16x2bf16::getOperationName(),
-                     1,
-                     1,
-                     {{1, 0, MFMAPermB::bcast_first_16}}}},
+                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 16, 64},
-                    {ROCDL::mfma_f32_16x16x2bf16::getOperationName(),
-                     1,
-                     1,
-                     {{2, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 8, 64},
                     {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Bf16TyId, 4, 64},
                     {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
-                     1,
-                     1,
                      {{4, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Bf16TyId, 32, 32},
-                    {ROCDL::mfma_f32_32x32x4bf16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 16, 16},
-                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
-
+                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 32, 32},
-                    {ROCDL::mfma_i32_32x32x8i8::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}},
+                    {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 16, 16},
-                    {ROCDL::mfma_i32_16x16x16i8::getOperationName(),
-                     1,
-                     1,
-                     {{0, 0, MFMAPermB::none}}}}};
+                    {ROCDL::mfma_i32_16x16x16i8::getOperationName()}}};
+
   return groupAttrMap;
 };
 
@@ -405,15 +322,6 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   auto it = mfmaInsnGroupAttrMap.find(key);
   if (it != mfmaInsnGroupAttrMap.end()) {
     MfmaInsnGroupAttr groupAttr = (*it).second;
-    // Override the repeat information in case this is for larger wave
-    if (mPerWave > 64) {
-      groupAttr.mRepeats = mPerWave / 64;
-    }
-
-    if (nPerWave > 64) {
-      groupAttr.nRepeats = nPerWave / 64;
-    }
-
     auto maybeInsn = MfmaInsn::select(groupAttr.insn);
     if (failed(maybeInsn)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -431,9 +339,19 @@ MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &mfmaInsnGroupAttr)
     : elementType(dataType), insn(mfmaInsn), groupAttr(mfmaInsnGroupAttr) {}
 
-int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.mRepeats; }
+int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
+  auto mfmaInsnAttr = getInsnAttr();
+  // mnPerXdl is how many row/columns a single Xdlops instruction will compute
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  return std::max(int64_t(1), mPerWave / mnPerXdl);
+}
 
-int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.nRepeats; }
+int64_t MfmaInsnGroup::getNRepeats(int64_t nPerWave) {
+  auto mfmaInsnAttr = getInsnAttr();
+  // mnPerXdl is how many row/columns a single Xdlops instruction will compute
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  return std::max(int64_t(1), nPerWave / mnPerXdl);
+}
 
 int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
   return (lenPerWave > 64) ? 64 : lenPerWave;

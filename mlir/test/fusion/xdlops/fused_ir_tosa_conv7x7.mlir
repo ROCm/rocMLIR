@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-driver --rock-fold-transpose --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
 module {
   func.func @main(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
@@ -18,14 +18,12 @@ module {
 //CHECK: rock.transforming_for
 
 // 2. Check if ops are fused and copy_v2 is not present here
-//CHECK-NOT: rock.global_store
+//CHECK-NOT: rock.threadwise_write_all
 
 // 3. Check correct sequence of load-linalg-store
-//CHECK: rock.transforming_for
-//CHECK: rock.yield
+//CHECK: rock.threadwise_read_into
 //CHECK: linalg.generic
-//CHECK: rock.global_store
+//CHECK: rock.threadwise_write_all
 
 // 4. Check if there is leftover ops.
-//CHECK: rock.yield
-//CHECK-NOT: linalg.generic
+//CHECK-NOT: memref.copy

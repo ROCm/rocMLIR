@@ -360,7 +360,7 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   auto *input = static_cast<StridedMemRefType<int8_t, 5> *>(i_ptr);
   auto *inputAllocated = input->data + input->offset;
 
-  auto *output = static_cast<StridedMemRefType<int32_t, 5> *>(o_ptr);
+  auto *output = static_cast<StridedMemRefType<int64_t, 5> *>(o_ptr);
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
@@ -368,12 +368,12 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   std::array<int64_t, 5> inputSizes, inputStrides;
   std::array<int64_t, 5> outputSizes, outputStrides;
 
-  getSizesAndStrides<int8_t, int32_t>(rank1, filter, rank2, input, rank3,
+  getSizesAndStrides<int8_t, int64_t>(rank1, filter, rank2, input, rank3,
                                       output, f_layout, i_layout, o_layout,
                                       filterSizes, filterStrides, inputSizes,
                                       inputStrides, outputSizes, outputStrides);
 
-  performConv2d<int8_t, int32_t, int32_t>(
+  performConv2d<int8_t, int64_t, int64_t>(
       filterAllocated, inputAllocated, outputAllocated, filterSizes,
       filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
       stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
@@ -425,6 +425,13 @@ void printDebugVerifyResults(int64_t dataSize, float maxAbsDiff,
   }
 }
 
+enum class PrintOption : char {
+  Always = 3,  // always print debug info
+  Failure = 2, // print elem-wise diff + summary only if the test fails
+  Summary = 1, // print summary info only if the test fails
+  Off = 0      // do not print debug info
+};
+
 template <typename T>
 void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
                 float thr_RMS, float thr_absDiff, float thr_relDiff,
@@ -465,12 +472,6 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
   constexpr size_t NUM_BUCKETS = NUM_BOUNDARIES + 3;
   int hist_relDiff[NUM_BUCKETS] = {0};
   // Obtain print debug info option
-  enum class PrintOption : char {
-    Always = 3,  // always print debug info
-    Failure = 2, // print elem-wise diff + summary only if the test fails
-    Summary = 1, // print summary info only if the test fails
-    Off = 0      // do not print debug info
-  };
   PrintOption print_option = static_cast<PrintOption>(printDebug);
 
   for (int64_t i = 0; i < dataSize; ++i) {
@@ -553,14 +554,78 @@ extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
 }
 
 // Compare the results in int32
+template <typename VALTYPE>
+void mcpuVerifyInt(int32_t *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
+                   char printDebug) {
+  int64_t failure_count = 0;  // the number of incorrect elements
+  int64_t overflow_count = 0; // the number of overflow elements
+  int64_t maxAbsDiff = 0;
+
+  PrintOption print_option = static_cast<PrintOption>(printDebug);
+  for (int64_t i = 0; i < dataSize; ++i) {
+    int64_t valNum = static_cast<int64_t>(valAligned[i]);
+    int32_t gpuNum = gpuAligned[i];
+    if (valNum > INT32_MAX || valNum < INT32_MIN) {
+      overflow_count++;
+      if (print_option == PrintOption::Always)
+        printf("overflow at element : %ld, gpu=%d, val=%ld\n", i, gpuNum,
+               valNum);
+    }
+
+    if (gpuNum != valNum) {
+      failure_count++;
+      int64_t absDiff = abs(valNum - gpuNum);
+      if (absDiff > maxAbsDiff)
+        maxAbsDiff = absDiff;
+
+      // Print out individual failing elements if print mode is Always||Failure
+      if (print_option == PrintOption::Always ||
+          print_option == PrintOption::Failure) {
+        printf("%ld: gpu=%d val=%ld absDiff=%ld\n", i, gpuNum, valNum, absDiff);
+      }
+    }
+  }
+
+  if (failure_count == 0) {
+    if ((print_option == PrintOption::Always ||
+         print_option == PrintOption::Summary) &&
+        overflow_count > 0) {
+      printf("Number of elements: %ld\n", dataSize);
+      printf("Number of overflow elements: %ld\n", overflow_count);
+    }
+    printf("[1 1 1]\n");
+  } else {
+    if (print_option == PrintOption::Always ||
+        print_option == PrintOption::Failure ||
+        print_option == PrintOption::Summary) {
+      printf("Number of elements: %ld\n", dataSize);
+      printf("Number of incorrect elements: %ld\n", failure_count);
+      printf("maxAbsDiff: %ld\n", maxAbsDiff);
+      printf("Number of overflow elements: %ld\n", overflow_count);
+    }
+    printf("[0 0 0]");
+  }
+  return;
+}
+
 extern "C" void mcpuVerifyInt32(int32_t *gpuAllocated, int32_t *gpuAligned,
                                 int64_t gpuOffset, int64_t gpuSize,
                                 int64_t gpuStride, int32_t *valAllocated,
-                                int32_t *valAligned, int64_t valOffset,
+                                int32_t *valAligned, int32_t valOffset,
                                 int64_t valSize, int64_t valStride,
-                                float thr_RMS, float thr_absDiff,
-                                float thr_relDiff, char printDebug) {
+                                char printDebug) {
+
   assert(gpuSize == valSize);
-  mcpuVerify<int32_t>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
-                      thr_relDiff, printDebug);
+  mcpuVerifyInt<int32_t>(gpuAligned, valAligned, valSize, printDebug);
+}
+
+extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
+                                     int64_t gpuOffset, int64_t gpuSize,
+                                     int64_t gpuStride, int64_t *valAllocated,
+                                     int64_t *valAligned, int64_t valOffset,
+                                     int64_t valSize, int64_t valStride,
+                                     char printDebug) {
+
+  assert(gpuSize == valSize);
+  mcpuVerifyInt<int64_t>(gpuAligned, valAligned, valSize, printDebug);
 }

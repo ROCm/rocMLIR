@@ -27,6 +27,11 @@
         #rock.transform<PassThrough ["y"] at [1] -> ["y"] at [0]>]
     bounds = [16, 4] -> [4]>
 
+#transform_map6 = #rock.transform_map<affine_map<(d0) -> (d0, 1)>
+    by [<PassThrough ["x"] at [0] -> ["x"] at [0]>,
+        <ConstDim{1, 8} [] at [] -> ["y"] at [1]>]
+    bounds = [64] -> [64, 8]>
+
 module {
     // CHECK-LABEL: func.func @index_diff_passthrough
     // CHECK-SAME: ({{.*}}%[[l0:.*]]: index, %[[l1:.*]]: index)
@@ -123,6 +128,16 @@ module {
         %i0, %d0 = rock.index_diff_update #transform_map5(%dx, %c1) + (%l0) : index
         // CHECK-NEXT: memref.store {{.*}}%[[i0]]
         memref.store %v, %mem[%i0] : memref<4xf32>
+        return
+    }
+
+    // CHECK-LABEL: func.func @index_diff_const_dim
+    // CHECK-SAME: ({{.*}}, %[[l0:.*]]: index, %[[l1:.*]]: index, %[[dx:.*]]: index)
+    func.func @index_diff_const_dim(%mem: memref<64x8xf32>, %v: f32, %l0: index, %l1: index, %dx: index) {
+        // CHECK-NEXT: %[[i0:.*]] = arith.addi %[[l0]], %[[dx]]
+        %i0, %i1, %d0, %d1 = rock.index_diff_update #transform_map6(%dx) + (%l0, %l1) : index, index
+        // CHECK-NEXT: memref.store {{.*}}%[[i0]], %[[l1]]
+        memref.store %v, %mem[%i0, %i1] : memref<64x8xf32>
         return
     }
 

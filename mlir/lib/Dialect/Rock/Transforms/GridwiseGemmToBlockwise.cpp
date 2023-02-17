@@ -295,10 +295,6 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
 
-  ArrayAttr leftOobDims, rightOobDims;
-  std::tie(leftOobDims, rightOobDims) =
-      computeOobFromTransforms(b, matrixToTensor);
-
   Type elementType =
       wrappedMatrix.getType().cast<MemRefType>().getElementType();
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
@@ -318,9 +314,9 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToEnd(outerLoop.getBody());
-    Value loaded =
-        b.create<GlobalLoadOp>(loc, loadType, tensor, leftOobDims, rightOobDims,
-                               outerLoop.getLowerCoords(/*domain=*/0));
+    Value loaded = b.create<GlobalLoadOp>(
+        loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
+        outerLoop.getLowerCoords(/*domain=*/0));
     auto innerLoop = b.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{zero,
@@ -1151,8 +1147,8 @@ struct GridwiseGemmV2RewritePattern
              << "Mfma instruction group selection is not compatible with k.\n";
     }
 
-    int64_t mRepeats = mfmaGroup.getMRepeats();
-    int64_t nRepeats = mfmaGroup.getNRepeats();
+    int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
+    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
     auto imms = mfmaGroup.getImms();
 
     int64_t nResultVectors = imms.size() * mRepeats * nRepeats;
@@ -1296,7 +1292,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise GEMM for the loop tail.
     IRMapping tailGemmCloneMap;
-    auto blockwiseGemmV2TailOp = b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
+    b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
     // results properly, remove them ourselves.
@@ -1306,7 +1302,6 @@ struct GridwiseGemmV2RewritePattern
     // -----
 
     // Matrix C write out logic.
-    const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = blockSize / waveSize;
 
     int64_t numElements = regCVectorLen * nResultVectors;
@@ -1369,73 +1364,6 @@ struct GridwiseGemmV2RewritePattern
 
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(
         {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
-    // We compute the full map chain here in order to determine if we should
-    // apply swizzles. The final vectorization computation for the store loop
-    // will happen later. However, between now and then, the sequence of maps
-    // from the matrix output to the underlying buffer must not change, but the
-    // nature of said buffer can.
-    Value tensorC;
-    ArrayAttr idToTensorCMaps;
-    std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.getC(), idToMatrixCMaps);
-
-    constexpr int64_t swizzleGroup = 4;
-    ArrayRef<int64_t> tensorCShape =
-        tensorC.getType().cast<MemRefType>().getShape();
-    int64_t tensorCDataPerCopy = getMaxVectorization(idToTensorCMaps, /*dim=*/2,
-                                                     numElements, tensorCShape);
-    int64_t threadsWithConsecutiveElems = getMaxVectorization(
-        idToTensorCMaps, /*dim=*/1, swizzleGroup, tensorCShape);
-    bool enableOutSwizzles = (tensorCDataPerCopy == 1) &&
-                             (threadsWithConsecutiveElems == swizzleGroup);
-    if (enableOutSwizzles) {
-      // Add the coordinate transformations that reflect the transpose we'll be
-      // doing in the emitted kernel.
-      tensorCDataPerCopy = threadsWithConsecutiveElems;
-      auto indexSplit = TopDownTMBuilder(
-          b, {"bid", "tid", "iter"}, {gridSize, blockSize, numElements}, loc);
-      indexSplit.passThrough("bid");
-      indexSplit.merge({"tid_group", "tid_item"}, {1, 2}, "tid",
-                       {blockSize / 4, 4});
-      indexSplit.merge({"vec_group", "vec_item"}, {3, 4}, "iter",
-                       {numElements / 4, 4});
-      TransformMapAttr indexSplitAttr = indexSplit.get();
-
-      // Note that we switch the positions of tid_item and vec_item when
-      // recombining the coordinates.
-      auto indexCombine = TopDownTMBuilder::below(indexSplit, indexSplitAttr);
-      indexCombine.passThrough("bid");
-      indexCombine.embed("tid", 1, blockSize, {"tid_group", "vec_item"},
-                         {4, 1});
-      indexCombine.embed("iter", 2, numElements, {"vec_group", "tid_item"},
-                         {4, 1});
-      TransformMapAttr indexCombineAttr = indexCombine.get();
-
-      SmallVector<Attribute, 8> newTransforms = {indexSplitAttr,
-                                                 indexCombineAttr};
-      llvm::copy(idToMatrixCMaps, std::back_inserter(newTransforms));
-      idToMatrixCMaps = b.getArrayAttr(newTransforms);
-    }
-
-    // Emit vector swizzles if applicable
-    SmallVector<Value, 4> transformedTail;
-    transformedTail.reserve(tailResults.size());
-
-    if (enableOutSwizzles) {
-      Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
-      for (int i = 0; i < nResultVectors; ++i) {
-        Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i);
-        Value loaded =
-            b.create<memref::LoadOp>(loc, vectorType, regCAllocOp, indexOp);
-        Value swizzle = b.create<InWarpTransposeOp>(
-            loc, vectorType, loaded, laneId, b.getI32IntegerAttr(rowGroupSize),
-            b.getI32ArrayAttr({0, 1, 2, 3}));
-        transformedTail.push_back(swizzle);
-        b.create<memref::StoreOp>(loc, swizzle, regCAllocOp, indexOp);
-      }
-    } else {
-      llvm::copy(tailResults, std::back_inserter(transformedTail));
-    }
 
     Value registerC = regCAllocOp;
     auto convertedCType =
@@ -1482,66 +1410,6 @@ struct GridwiseGemmV2RewritePattern
 
 } // end anonymous namespace
 
-/// FIXME: This rewrite should be after fusion. However, since the fusion
-/// refactor hasn't landed yet and since we need to preserve the structure of
-/// the existing fusion code, put the threadwise_write_all expander here.
-namespace {
-struct ThreadwiseWriteAllRewritePattern
-    : public OpConversionPattern<ThreadwiseWriteAllOp> {
-  using OpConversionPattern<ThreadwiseWriteAllOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const final;
-};
-} // end anonymous namespace
-
-LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
-    ThreadwiseWriteAllOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  TypedValue<MemRefType> source = adaptor.getSource();
-  TypedValue<MemRefType> destView = adaptor.getDest();
-
-  auto [buffer, transforms] = untransform(b, destView, op.getExtraViews());
-
-  int64_t numValues = source.getType().getNumElements();
-  ArrayRef<int64_t> bufferShape =
-      buffer.getType().cast<ShapedType>().getShape();
-
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t vectorLen =
-      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
-                          << "\n");
-  auto [leftOobDims, rightOobDims] = computeOobFromTransforms(b, transforms);
-
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-
-  SmallVector<Value, 3> writeStartCoords = {bid, tid, zero};
-
-  auto outLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
-      ArrayRef<Attribute>{b.getArrayAttr({}), transforms},
-      ArrayRef<int64_t>{1, 1, numValues}, ArrayRef<int64_t>{1, 1, vectorLen},
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(outLoop.getBody());
-    b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                            op.getStoreMethodAttr(), leftOobDims, rightOobDims,
-                            outLoop.getLowerCoords(/*domain=*/0)[2],
-                            outLoop.getLowerCoords(/*domain=*/1));
-  }
-  b.eraseOp(op);
-  return success();
-}
-
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
@@ -1556,18 +1424,4 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-
-  // FIXME: Move this into a later pass after the fusion refactoring.
-  ConversionTarget writeAllTarget(*ctx);
-  writeAllTarget.addIllegalOp<ThreadwiseWriteAllOp>();
-  writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
-  RewritePatternSet writeAllPatterns(ctx);
-  writeAllPatterns.add<ThreadwiseWriteAllRewritePattern>(ctx);
-  if (failed(applyPartialConversion(getOperation(), writeAllTarget,
-                                    std::move(writeAllPatterns))))
-    signalPassFailure();
-
-  OpPassManager cleanupPasses("func.func");
-  cleanupPasses.addPass(mlir::createCanonicalizerPass());
-  (void)runPipeline(cleanupPasses, getOperation());
 }

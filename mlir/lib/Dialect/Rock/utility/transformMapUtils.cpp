@@ -8,16 +8,22 @@
 
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <iterator>
 #include <numeric>
 #include <utility>
@@ -26,164 +32,6 @@
 
 using namespace mlir;
 using namespace mlir::rock;
-
-using IntSet = llvm::SmallDenseSet<uint32_t>;
-
-//===----------------------------------------------------------------------===//
-// Out of bounds check computation.
-//===----------------------------------------------------------------------===//
-static void propagateTransformOob(TransformMapAttr transformMap,
-                                  const IntSet &upperLeft,
-                                  const IntSet &upperRight, IntSet &lowerLeft,
-                                  IntSet &lowerRight) {
-  for (TransformAttr transform : transformMap.getOps()) {
-    ArrayRef<uint32_t> upperDims = transform.getUpperDims();
-    ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
-    ArrayRef<int64_t> params = transform.getParams();
-
-    switch (transform.getType()) {
-    case TransformType::Broadcast: {
-      // Broadcast makes non-negative indices in-bounds, only check left bounds
-      for (auto pair : llvm::zip(upperDims, lowerDims)) {
-        uint32_t upper = std::get<0>(pair);
-        uint32_t lower = std::get<1>(pair);
-        if (upperLeft.contains(upper))
-          lowerLeft.insert(lower);
-      }
-      break;
-    }
-    case TransformType::PassThrough:
-    case TransformType::Slice:
-    case TransformType::AddDim: {
-      // Zip ends at end of shortes array, allowing addDim here
-      for (auto pair : llvm::zip(upperDims, lowerDims)) {
-        uint32_t upper = std::get<0>(pair);
-        uint32_t lower = std::get<1>(pair);
-        if (upperLeft.contains(upper))
-          lowerLeft.insert(lower);
-        if (upperRight.contains(upper))
-          lowerRight.insert(lower);
-      }
-      break;
-    }
-    case TransformType::Pad: {
-      for (uint32_t i = 0, e = upperDims.size(); i < e; ++i) {
-        uint32_t upper = upperDims[i];
-        uint32_t lower = lowerDims[i];
-        if (upperLeft.contains(upper) || params[2 * i] > 0)
-          lowerLeft.insert(lower);
-        if (upperRight.contains(upper) || params[2 * i + 1] > 0)
-          lowerRight.insert(lower);
-      }
-      break;
-    }
-    case TransformType::Embed: {
-      bool shallLeft = false;
-      bool shallRight = false;
-      ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-      uint32_t lower = lowerDims[0];
-      int64_t lowerBound = transformMap.getLowerBounds()[lower];
-      for (auto pair : llvm::zip(upperDims, params)) {
-        uint32_t upper = std::get<0>(pair);
-        int64_t coeff = std::get<1>(pair);
-        if (coeff == 0)
-          continue;
-        bool negative = coeff < 0;
-        bool isLeft = upperLeft.contains(upper);
-        bool isRight = upperRight.contains(upper);
-        if (negative) {
-          // Pessimistically, substraction always risks underflow
-          shallLeft = true;
-          // However, the risk of overflow from the subtraction itself occurs
-          // only if the negative-coefficient argument could have been negative
-          // itself
-          if (isLeft)
-            shallRight = true;
-        } else {
-          shallLeft |= isLeft;
-          shallRight |= isRight;
-        }
-
-        // If the max of a dimension times its coefficient can overshoot
-        // the maximum size of the output, check bounds on the right
-        if (coeff * upperBounds[upper] > lowerBound)
-          shallRight = true;
-      }
-
-      if (shallLeft)
-        lowerLeft.insert(lower);
-      if (shallRight)
-        lowerRight.insert(lower);
-      break;
-    }
-    case TransformType::Unmerge: {
-      uint32_t lower = lowerDims[0];
-      bool shallLeft = false;
-      bool shallRight = false;
-      for (uint32_t upper : upperDims) {
-        shallLeft |= upperLeft.contains(upper);
-        shallRight |= upperRight.contains(upper);
-      }
-      if (shallLeft)
-        lowerLeft.insert(lower);
-      if (shallRight)
-        lowerRight.insert(lower);
-      break;
-    }
-    case TransformType::Merge:
-    case TransformType::Unfold: {
-      uint32_t upper = upperDims[0];
-      // Overflow goes to the biggest dimension. Unfold doesn't to carry checks,
-      // but the incoming index diffs (if applicable) are spread out to their
-      // respective coordinates before being added, so something that causes
-      // oob on the right will be assigned to lowerDims[0], since the point
-      // just to the right of the in-bounds region has 0 in the coordinates
-      // that aren't first.
-      if (upperRight.contains(upper))
-        lowerRight.insert(lowerDims[0]);
-      if (upperLeft.contains(upper)) {
-        assert(transform.getType() != TransformType::Unfold &&
-               "Can't corently bounds-check unfold from the left");
-        for (uint32_t lower : lowerDims)
-          lowerLeft.insert(lower);
-      }
-      break;
-    }
-    }
-  }
-}
-
-std::tuple<ArrayAttr, ArrayAttr> mlir::rock::computeOobFromTransforms(
-    Builder &b, ArrayAttr transforms,
-    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
-  IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
-  if (initialOob.has_value()) {
-    ArrayAttr initLeft, initRight;
-    std::tie(initLeft, initRight) = *initialOob;
-    for (APInt l : initLeft.getAsValueRange<IntegerAttr>())
-      upperOobLeft.insert(l.getZExtValue());
-    for (APInt r : initRight.getAsValueRange<IntegerAttr>())
-      upperOobRight.insert(r.getZExtValue());
-  }
-
-  for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
-    propagateTransformOob(transformMap, upperOobLeft, upperOobRight,
-                          lowerOobLeft, lowerOobRight);
-    upperOobLeft = std::move(lowerOobLeft);
-    upperOobRight = std::move(lowerOobRight);
-    // Clear after move just in case
-    lowerOobLeft.clear();
-    lowerOobRight.clear();
-  }
-  SmallVector<int32_t> leftValues(upperOobLeft.begin(), upperOobLeft.end()),
-      rightValues(upperOobRight.begin(), upperOobRight.end());
-
-  // Consisten output is nice
-  std::sort(leftValues.begin(), leftValues.end());
-  std::sort(rightValues.begin(), rightValues.end());
-
-  return {b.getI32ArrayAttr(leftValues), b.getI32ArrayAttr(rightValues)};
-}
 
 //===----------------------------------------------------------------------===//
 // General utilities.
@@ -346,9 +194,228 @@ propagateUnmergeVectorization(T &&dimAndLength,
   return result;
 }
 
+// Key data structures for vectorization analysis
+struct DimInfo {
+  TransformMapAttr transformMap; // Map to which the dimension belongs
+  TransformAttr transform;       // Transform to which the dimension belongs
+  size_t positionInMerge; // Position of the dimension inside the transform
+  bool isBroadcast;       // Is this a broadcast dimension?
+
+  // Utility function to return a transform pair <map,transform>
+  std::pair<TransformMapAttr, TransformAttr> transformPair() {
+    return std::make_pair(transformMap, transform);
+  }
+};
+using DimToMergeMap = llvm::SmallDenseMap<uint32_t, DimInfo>;
+
+using ContiguousMergesMap =
+    llvm::DenseMap<std::pair<TransformMapAttr, TransformAttr>,
+                   llvm::EquivalenceClasses<uint32_t>>;
+
+void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
+                                  const ArrayRef<int64_t> params,
+                                  DimToMergeMap &dimToMerge,
+                                  ContiguousMergesMap &contiguousGroups) {
+
+  size_t i = 0;
+  while (i < upperDims.size()) {
+    // The i-th dimension (i.e., dimension upperDims[i])
+    // uses params[i]
+
+    auto keyI = dimToMerge[upperDims[i]];
+    if (!keyI.transform) {
+      i++;
+      continue;
+    }
+
+    SmallVector<uint32_t> groupCandidate;
+    SmallVector<size_t> dimPosition;
+    for (size_t j = i; j < upperDims.size(); j++) {
+
+      // Unit lengths don't affect the mergeability logic
+      if (params[j] == 1)
+        continue;
+
+      auto keyJ = dimToMerge[upperDims[j]];
+
+      if (!keyJ.transform) {
+        break;
+      }
+      auto mergeJParams = keyJ.transform.getParams();
+      auto mergeJDims = keyJ.transform.getLowerDims();
+      size_t posJ = keyJ.positionInMerge;
+
+      // a) Dimensions need to come from the same merge
+      // b) Unmerge parameters need to match merge parameters
+      if (keyJ.transformPair() != keyI.transformPair() ||
+          params[j] != mergeJParams[posJ]) {
+        break;
+      }
+
+      groupCandidate.push_back(mergeJDims[posJ]);
+      dimPosition.push_back(posJ);
+    }
+
+    i += std::max(size_t(1), groupCandidate.size());
+
+    // Update the result with the current group for the mergePair key
+    if (groupCandidate.size() > 1 &&
+        std::is_sorted(dimPosition.begin(), dimPosition.end())) {
+
+      uint32_t lowerDim = groupCandidate.back();
+      for (auto d : groupCandidate)
+        contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+
+      // We also want to add the singleton/broadcast dimensions of the merge the
+      // groupCandidate belongs to. In this way we cover for situations like
+      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
+      // - Merge{8,2,3}, <Broadcast at [1]>, <Unmerge{8,1,3}>
+      for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
+                                 keyI.transform.getParams())) {
+        int64_t d = std::get<0>(pair);
+        int64_t p = std::get<1>(pair);
+        if (p == 1 || dimToMerge[d].isBroadcast)
+          contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+      }
+    }
+  }
+}
+
+// This is an analysis pass to group the lower dimensions of a Merge
+// transformation into contiguous groups. E.g., if we have a Merge{8,8,3} [0] ->
+// [0,2,3] and we know that [2,3] are contiguous in the final representation, we
+// can split the merge group in
+// [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
+// vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
+// In other words, every group of dimensions is treated as a single group
+ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
+                                         ArrayRef<int64_t> outputShape) {
+  // Transform table. Will be overwritten after processing each transform_map
+  DimToMergeMap dimToMerge;
+  ContiguousMergesMap contiguousGroups;
+
+  for (TransformMapAttr transformMap :
+       transforms.getAsRange<TransformMapAttr>()) {
+    ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
+    DimToMergeMap thisDimToMerge;
+
+    for (TransformAttr transform : transformMap.getOps()) {
+      TransformType transformType = transform.getType();
+
+      ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
+      ArrayRef<uint32_t> upperDims = transform.getUpperDims();
+      ArrayRef<int64_t> params = transform.getParams();
+
+      switch (transformType) {
+      case TransformType::Unfold:
+      case TransformType::Merge:
+        for (size_t i = 0; i < lowerDims.size(); i++) {
+          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
+        }
+        break;
+      // AddDim drops dimensions down a hole, while ConstDim conjures them
+      // from nowhere. In either case, there is no merge that can be associated
+      // with them.
+      case TransformType::AddDim:
+      case TransformType::ConstDim:
+        break;
+      case TransformType::Embed: {
+        // Sort the parameters
+        auto &&zip = llvm::zip(params, upperDims);
+        SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
+        std::sort(data.begin(), data.end());
+        bool maybeUnmerge = true;
+
+        // Verify that the Embed is an Unmerge operation and
+        // at the same time create the sorted unmerge params
+        if (!std::all_of(params.begin(), params.end(),
+                         [](auto p) { return p > 0; })) {
+          break;
+        }
+
+        SmallVector<int64_t> unmergeParams;
+        SmallVector<uint32_t> unmergeDims;
+        // Embed parameters should be in the form of
+        // [1, l_0, l_0*l_1, ...] to be considered a valid
+        // unmerge
+        for (size_t i = 0; i < data.size() - 1; i++) {
+          int64_t paramI = std::get<0>(data[i]);
+          int64_t paramI1 = std::get<0>(data[i + 1]);
+          uint32_t dim = std::get<1>(data[i]);
+          int64_t unmergeParam = paramI1 / paramI;
+          if (unmergeParam * paramI != paramI1) {
+            maybeUnmerge = false;
+            break;
+          }
+          unmergeParams.push_back(unmergeParam);
+          unmergeDims.push_back(dim);
+        }
+
+        // We are not done yet. To be sure this is an unmerge
+        // the faster parameter needs to be 1 and we should set
+        // the upper bound
+        auto fasterParam = std::get<0>(data[0]);
+        if (maybeUnmerge && fasterParam == 1 && upperBounds.size()) {
+          uint32_t slowerDim = std::get<1>(data.back());
+          unmergeParams.push_back(upperBounds[slowerDim]);
+          unmergeDims.push_back(slowerDim);
+
+          // We have the unmerge dimensions/params going from the faster
+          // to the slower, but they should be in the exact reverse order
+          std::reverse(unmergeParams.begin(), unmergeParams.end());
+          std::reverse(unmergeDims.begin(), unmergeDims.end());
+
+          // Now we can use the parameters as unmerge parameters and see if
+          // there are contiguous dimensions to be folded together.
+          findCountiguousGroupsUnmerge(unmergeDims, unmergeParams, dimToMerge,
+                                       contiguousGroups);
+        }
+        break;
+      }
+
+      case TransformType::PassThrough:
+      case TransformType::Pad:
+      case TransformType::Slice:
+        // We only care about how these transformations shuffle
+        // the dimensions
+        for (auto pair : llvm::zip(upperDims, lowerDims)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+        }
+        break;
+      case TransformType::Broadcast:
+        // Flag the dimensions we are broadcasting, if the broadcast
+        // parameter is 1
+        for (auto pair : llvm::zip(upperDims, lowerDims, params)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          uint32_t p = std::get<2>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+          if (p == 1)
+            thisDimToMerge[l].isBroadcast = true;
+        }
+        break;
+      case TransformType::Unmerge:
+        findCountiguousGroupsUnmerge(upperDims, params, dimToMerge,
+                                     contiguousGroups);
+        break;
+      }
+    }
+    dimToMerge = thisDimToMerge;
+  }
+
+  // Last global unmerge
+  SmallVector<uint32_t> sortedDims(outputShape.size());
+  std::iota(sortedDims.begin(), sortedDims.end(), 0);
+  findCountiguousGroupsUnmerge(sortedDims, outputShape, dimToMerge,
+                               contiguousGroups);
+  return contiguousGroups;
+}
+
 static VectorizationData
-propagateVectorizationInfo(TransformMapAttr map,
-                           const VectorizationData &input) {
+propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
+                           ContiguousMergesMap &contiguousMerges) {
   VectorizationData result;
   result.grow(map.getMap().getValue().getNumResults());
   for (TransformAttr transform : map.getOps()) {
@@ -359,6 +426,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     switch (transform.getType()) {
     case TransformType::PassThrough:
     case TransformType::AddDim:
+    case TransformType::ConstDim:
       for (auto pair : llvm::zip(upperDims, lowerDims)) {
         result[std::get<1>(pair)] = input[std::get<0>(pair)];
       }
@@ -523,6 +591,13 @@ propagateVectorizationInfo(TransformMapAttr map,
     // of 6 gets the results [1, 2] and not [3, 2]. While this might be
     // optimistic, if the dimesions don't get put back togther with the correct
     // coefficients, their vectorization will disappear.
+    // Note: unfold is a promise about the fact that the merge dimensions
+    // are contiguous in memory, which leads to a better vectorization.
+    // We are capable of automatically detecting continuous groups of dimensions
+    // so we will treat unfol as merge, but we will assert that the resulting
+    // vectorization is the same of the unfold. In a future ticket, Unfold
+    // should be completely removed.
+    case TransformType::Unfold:
     case TransformType::Merge: {
       int64_t upperDim = upperDims[0];
       if (!input[upperDim].has_value()) {
@@ -530,42 +605,55 @@ propagateVectorizationInfo(TransformMapAttr map,
       }
       int64_t maxLen = input[upperDim]->maxLength;
       int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t align = input[upperDim]->alignment;
       int64_t stride = 1;
+
+      // Group the lengths of the dimensions of the merge. This is basically
+      // saying that if we have Merge{a,b,c,d} and c,d are in the same group
+      // they should be treated a single dimension d whose length is
+      // param[C]*param[D]
+      auto groups = contiguousMerges[{map, transform}];
+      uint32_t groupID = lowerDims.back();
+      llvm::SmallDenseMap<uint32_t, int64_t> groupLengths;
+      groupLengths[groupID] = 1;
       for (auto pair :
            llvm::zip(llvm::reverse(lowerDims), llvm::reverse(params))) {
         uint32_t lowerDim = std::get<0>(pair);
         int64_t lowerLen = std::get<1>(pair);
+
+        if (groups.isEquivalent(lowerDim, groupID)) {
+          groupLengths[groupID] *= lowerLen;
+        } else {
+          groupID = lowerDim;
+          groupLengths[groupID] = lowerLen;
+        }
+      }
+
+      // Use the aggregated lengths to compute the correct vectorization info
+      for (auto lowerDim : llvm::reverse(lowerDims)) {
+        if (!groupLengths.count(lowerDim)) {
+          continue;
+        }
+        int64_t lowerLen = groupLengths[lowerDim];
         int64_t thisMaxLen = math_util::gcd(maxLen, lowerLen);
-        int64_t thisAlignment =
-            std::max(input[upperDim]->alignment / stride, 1l);
+        int64_t thisAlignment = std::max(align / stride, 1l);
         result[lowerDim] =
             VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
         maxLen = std::max(maxLen / lowerLen, 1L);
         stride *= lowerLen;
       }
-      break;
-    }
-    // Unfold is a promise to the coordinate transforms engine that
-    // the dimensions that are being "merged" are contiguous in the underlying
-    // memory. When someone is able to make this promise, we take advantage
-    // of it by putting all the vectorization on the fastest-moving of the
-    // dimmensions.
-    case TransformType::Unfold: {
-      int64_t upperDim = upperDims[0];
-      if (!input[upperDim].has_value()) {
-        break;
+
+      // If the transformation is Unfold, we should still able to treat it
+      // as a Merge, automatically finding the contiguous groups. However,
+      // we can use the knowledge stemming from Unfold to assert that
+      // the contiguous detection actually worked
+      if (transform.getType() == TransformType::Unfold) {
+        int64_t lowerDimsLen = 1;
+        for (int64_t length : params)
+          lowerDimsLen *= length;
+        int64_t unfoldMaxLen = math_util::gcd(maxLen, lowerDimsLen);
+        assert(unfoldMaxLen == maxLen && "Failing to detect the unfold!");
       }
-      int64_t maxLen = input[upperDim]->maxLength;
-      int64_t coeff = input[upperDim]->needsCoefficient;
-      int64_t align = input[upperDim]->alignment;
-      int64_t lastLowerDim = lowerDims.back();
-      int64_t lowerDimsLen = 1;
-      for (int64_t length : params)
-        lowerDimsLen *= length;
-      int64_t resultMaxLen = math_util::gcd(maxLen, lowerDimsLen);
-      int64_t resultAlignment = math_util::gcd(align, lowerDimsLen);
-      result[lastLowerDim] =
-          VectorizationInfo(resultMaxLen, coeff, resultAlignment);
       break;
     }
     }
@@ -583,6 +671,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
                                                     .getValue()
                                                     .getNumInputs();
   VectorizationData data;
+  auto contiguousMerges = findContiguousGroups(transforms, outputShape);
   // grow() takes the last index, not the length
   data.grow(numInitialDims);
   data[dim] = VectorizationInfo(/*maxLength=*/len, /*needsCoefficient=*/1,
@@ -590,7 +679,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
     data.debugPrint();
-    data = propagateVectorizationInfo(transformMap, data);
+    data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
   }
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();
@@ -612,9 +701,87 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   return result;
 }
 
-AffineMap mlir::rock::composeTransforms(ArrayAttr transforms) {
+/// Embed operations can create some scenarios that lead to the need to
+/// check if their output falls with the expected range. The first is any
+/// subtraction. The second is the case where
+/// [coifficient] * [max size of upper dim] > [lower bound] for any upper
+/// dimension.
+static bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
+  assert(op.getType() == TransformType::Embed);
+  int64_t lowerBound = map.getLowerBounds()[op.getLowerDims()[0]];
+  ArrayRef<int64_t> dimSizes = map.getUpperBounds();
+  return llvm::any_of(llvm::zip(op.getParams(), op.getUpperDims()),
+                      [&](const auto &pair) -> bool {
+                        int64_t coefficient = std::get<0>(pair);
+                        uint32_t dim = std::get<1>(pair);
+                        return (coefficient < 0) ||
+                               ((dimSizes[dim] * coefficient) > lowerBound);
+                      });
+}
+
+bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
+  bool result = false;
+  for (TransformAttr op : map.getOps()) {
+    TransformType type = op.getType();
+    ArrayRef<int64_t> params = op.getParams();
+    if (type == TransformType::Pad) {
+      for (size_t i = 0, e = params.size(); i < e; i += 2) {
+        // Trivial padding doesn't impact validity
+        result |= (params[i] != 0 || params[i + 1] != 0);
+      }
+    } else if (type == TransformType::Embed) {
+      result |= embedCanBeInvalid(map, op);
+    }
+  }
+  return result;
+}
+
+Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
+                                      TransformMapAttr map,
+                                      ValueRange outputs) {
+  Value isValid =
+      b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+  ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
+
+  // unsigned < catches both negatives (as all negatives are > the bound)
+  // and being too large on the right.
+  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+    int64_t bound = lowerBounds[lowerDim];
+    Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+    Value output = outputs[lowerDim];
+    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
+                                             output, boundConst);
+    isValid =
+        b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
+  };
+
+  for (TransformAttr op : map.getOps()) {
+    TransformType type = op.getType();
+    ArrayRef<uint32_t> lowerDims = op.getLowerDims();
+    ArrayRef<int64_t> params = op.getParams();
+    if (type == TransformType::Pad) {
+      for (const auto &pair : llvm::enumerate(lowerDims)) {
+        size_t leftParam = 2 * pair.index();
+        size_t rightParam = leftParam + 1;
+        uint32_t lowerDim = pair.value();
+
+        if (params[leftParam] == 0 && params[rightParam] == 0)
+          continue;
+        addLowerDimUltClamp(lowerDim);
+      }
+    }
+    if (type == TransformType::Embed) {
+      if (!embedCanBeInvalid(map, op))
+        continue;
+      addLowerDimUltClamp(op.getLowerDims()[0]);
+    }
+  }
+  return isValid;
+}
+
+AffineMap mlir::rock::composeTransforms(ArrayRef<TransformMapAttr> transforms) {
   AffineMap result;
-  for (auto attr : llvm::reverse(transforms.getAsRange<TransformMapAttr>())) {
+  for (auto attr : llvm::reverse(transforms)) {
     AffineMap map = attr.getMap().getAffineMap();
     if (result)
       result = result.compose(map);
@@ -623,6 +790,10 @@ AffineMap mlir::rock::composeTransforms(ArrayAttr transforms) {
   }
   return result;
 }
+
+//===----------------------------------------------------------------------===//
+// Converting general MLIR to transformations.
+//===----------------------------------------------------------------------===//
 
 // This function will create a permutation that will permute the originalMap to
 // be a MinorIdentityWithBroadcast. This is used to add a permutation later in
@@ -664,6 +835,14 @@ static void createPermutationForMinorIdentityWithBroadcast(
   }
 }
 
+static unsigned getResultPosition(AffineMap map, unsigned input) {
+  for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++)
+    if (map.getDimPosition(i) == input)
+      return i;
+  llvm_unreachable("incorrect result request");
+  return 0;
+}
+
 Value mlir::rock::insertTransposeAndBroadcastTransforms(
     OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
@@ -675,16 +854,20 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
 
+    // first expand/collapse the input to match the output rank
     if (diff < 0) {
       // collapse non-dim exprs
       // inp = rock.transform(inp) {[0, 1], 2, 3}
       MutableAffineMap newInpIdxMap = AffineMap::getMinorIdentityMap(
           outShape.size(), outShape.size(), b.getContext());
       uint32_t newIdx = 0;
+      SmallVector<int64_t> newInpShape;
+      int64_t newInpDimSize = 1;
       SmallVector<SmallVector<uint32_t>> merges;
       SmallVector<uint32_t> mergeDims;
       for (const auto &idxAndValue : llvm::enumerate(inpIdxMap.getResults())) {
         uint32_t idx = idxAndValue.index();
+        newInpDimSize *= inpShape[idx];
         AffineExpr resultExpr = idxAndValue.value();
         mergeDims.push_back(idx);
         if (diff != 0 && resultExpr.isa<AffineConstantExpr>() &&
@@ -694,12 +877,14 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           newInpIdxMap.setResult(newIdx++, resultExpr);
           merges.push_back(mergeDims);
           mergeDims.clear();
+          newInpShape.push_back(newInpDimSize);
+          newInpDimSize = 1;
         }
       }
       if (mergeDims.size())
         merges.back().append(mergeDims);
 
-      TopDownTMBuilder collapseTransform(b, outShape, loc);
+      TopDownTMBuilder collapseTransform(b, newInpShape, loc);
       for (auto idxAndMerge : llvm::enumerate(merges)) {
         uint32_t idx = idxAndMerge.index();
         auto merge = idxAndMerge.value();
@@ -722,6 +907,27 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       inp = b.create<TransformOp>(loc, inp, collapseTransform.get());
       auto inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
+      inpIdxMap = newInpIdxMap.getAffineMap();
+    } else if (diff > 0) {
+      // map = (d0, d1, d2) -> (d1)
+      assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
+      MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
+      BottomUpTMBuilder addDimtransform(b, inpShape, loc);
+      for (uint32_t i = 0; i < outShape.size(); ++i) {
+        if (inpIdxMap.isFunctionOfDim(i)) {
+          // find location in results
+          auto inpIdx = getResultPosition(inpIdxMap, i);
+          addDimtransform.passThrough({i}, {inpIdx});
+          newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
+        } else {
+          SmallString<8> name;
+          ("exp" + Twine(i)).toVector(name);
+          addDimtransform.addDim(name, i, 1);
+          newInpIdxMap.setResult(i, b.getAffineConstantExpr(0));
+        }
+      }
+      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+      inpShape = inp.getType().cast<ShapedType>().getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     }
 
@@ -747,47 +953,22 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       if (!llvm::is_contained(bcastDims, i)) {
         // Here the diff correspond to leading dropped dimensions when going
         // from output co-ordinates to input co-ordinates.
-        assert(inpIdxMap.getDimPosition(i) == diff + i);
-        passThroughInDims.push_back(diff + i);
+        assert(inpIdxMap.getDimPosition(i) == i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
-      } else if (outShape[perm[diff + i]] == 1) {
+      } else if (outShape[perm[i]] == 1) {
         // We can pass-through if the outshape is 1 and it is not realistically
         // a broadcast.
-        passThroughInDims.push_back(diff + i);
+        passThroughInDims.push_back(i);
         bcastTransform.passThrough({i}, {i});
       } else {
         hasBcast = true;
-        bcastInDims.push_back(diff + i);
-        bcastTransform.broadcast({i}, {outShape[perm[diff + i]]});
+        bcastInDims.push_back(i);
+        bcastTransform.broadcast({i}, {outShape[perm[i]]});
       }
     }
     if (hasBcast) {
       inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
-    }
-
-    // Then, add dimensions that are present in the writeback coordinates but
-    // are not present in the additional fusion argument with matching sizes.
-    // This, combined with the previous step, ensures that the view of the
-    // fusion argument has the same dimensions as the gemm output, though they
-    // are not necessarily in the same order.
-    bool isDimAdded = false;
-    BottomUpTMBuilder addDimtransform(
-        b, inp.getType().cast<ShapedType>().getShape(), loc);
-    for (uint32_t i = 0; i < outShape.size(); ++i) {
-      unsigned int startIdx = i - diff;
-      if (llvm::is_contained(bcastInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else if (llvm::is_contained(passThroughInDims, i)) {
-        addDimtransform.passThrough({i}, {startIdx});
-      } else {
-        isDimAdded = true;
-        SmallString<8> name;
-        ("exp" + Twine(i)).toVector(name);
-        addDimtransform.addDim(name, i, outShape[perm[i]]);
-      }
-    }
-    if (isDimAdded) {
-      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
     }
 
     // Permute the dimensions of the fusion argument to match those of the gemm
@@ -808,4 +989,192 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     }
   }
   return inp;
+}
+
+TransformMapAttr mlir::rock::invertTransformMap(
+    OpBuilder &b, mlir::rock::TransformMapAttr transformMap, Location loc) {
+  ArrayRef<int64_t> lowShape = transformMap.getLowerBounds();
+  llvm::IndexedMap<StringRef> lowNamesMap;
+  if (!lowShape.empty())
+    lowNamesMap.grow(lowShape.size() - 1); // grow takes largest index;
+  for (auto transform : transformMap.getOps()) {
+    for (const auto &[name, dim] :
+         llvm::zip(transform.getLowerNames(), transform.getLowerDims())) {
+      lowNamesMap[dim] = name;
+    }
+  }
+  SmallVector<StringRef> lowNames;
+  lowNames.reserve(lowNamesMap.size());
+  for (size_t i = 0, e = lowNamesMap.size(); i < e; ++i) {
+    lowNames.push_back(lowNamesMap[i]);
+  }
+
+  rock::TopDownTMBuilder transform(b, lowNames, lowShape, loc);
+  for (auto tattr : transformMap.getOps()) {
+    switch (tattr.getType()) {
+    case rock::TransformType::PassThrough:
+      transform.passThrough(tattr.getUpperNames(), tattr.getUpperDims(),
+                            tattr.getLowerNames());
+      break;
+    case rock::TransformType::Pad:
+    case rock::TransformType::Slice:
+    case rock::TransformType::Embed:
+    case rock::TransformType::Broadcast: // Unsupported
+      return rock::TransformMapAttr();
+    case rock::TransformType::AddDim:
+      if (tattr.getParams()[0] != 1)
+        // AddDim of length > 1 has no coherent inverse.
+        return rock::TransformMapAttr();
+      transform.constDim(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                         /*constantVal=*/0, /*lowerSize=*/1);
+      break;
+    case rock::TransformType::ConstDim:
+      for (size_t i = 0, e = tattr.getLowerDims().size(); i < e; ++i) {
+        // Only adding in constant unit dimensions is invertible
+        if (tattr.getParams()[2 * i] != 0 || tattr.getParams()[2 * i + 1] != 1)
+          return rock::TransformMapAttr();
+        transform.ignore(tattr.getLowerNames()[i]);
+      }
+      break;
+    case rock::TransformType::Unmerge:
+      transform.merge(tattr.getUpperNames(), tattr.getUpperDims(),
+                      tattr.getLowerNames()[0], tattr.getParams());
+      break;
+    case rock::TransformType::Merge:
+    case rock::TransformType::Unfold:
+      transform.unmerge(tattr.getUpperNames()[0], tattr.getUpperDims()[0],
+                        tattr.getLowerNames(), tattr.getParams());
+      break;
+    }
+  }
+
+  return transform.get();
+}
+
+TransformMapAttr mlir::rock::transformCollapseShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+  // %5 = "tosa.reshape"(%4) {new_shape = [12, 12, 32]} :
+  // (tensor<1x12x12x32xf32>) -> tensor<12x12x32xf32>
+  //    - inpShape = [1, 12, 12, 32]
+  //    - outShape = [12, 12, 32]
+
+  // This shouldn't happen, but we're checking anyway
+  if (outShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Collapse output shape doesn't match number of reassociations\n");
+    return TransformMapAttr();
+  }
+
+  llvm::IndexedMap<bool> dimUsed;
+  dimUsed.grow(inpShape.size() - 1);
+
+  rock::TopDownTMBuilder transform(b, outShape, loc);
+  for (const auto &[outDim, inpDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : inpDims)
+      dimUsed[dim] = true;
+
+    if (inpDims.size() == 1)
+      transform.passThrough(inpDims[0], outDim);
+    else if (inpDims.empty())
+      transform.ignore(transform.startName(outDim));
+    else {
+      SmallVector<SmallString<8>> mergeNamesStore;
+      SmallVector<uint32_t> mergeDims;
+      SmallVector<StringRef> mergeNames;
+      SmallVector<int64_t> mergeSizes;
+      for (int64_t inpDim : inpDims) {
+        mergeNamesStore.emplace_back();
+        mergeNames.push_back(
+            (Twine("col") + Twine(inpDim)).toStringRef(mergeNamesStore.back()));
+        mergeDims.push_back(inpDim);
+        mergeSizes.push_back(inpShape[inpDim]);
+      }
+      transform.merge(mergeNames, mergeDims, transform.startName(outDim),
+                      mergeSizes);
+    }
+  }
+
+  // Dimensions not mentioned in the collapse are unit dimensions that need
+  // constant values.
+  for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
+    if (dimUsed[i])
+      continue;
+    if (inpShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Collapse omits a non-identity dimension, can't happen\n");
+      return TransformMapAttr();
+    }
+    SmallString<8> constDimNameStore;
+    StringRef constDimName =
+        (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
+    transform.constDim(constDimName, i, /*constantVal=*/0, /*lowerSize=*/1);
+  }
+  return transform.get();
+}
+
+TransformMapAttr mlir::rock::transformExpandShape(
+    OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+    ArrayRef<int64_t> outShape, ArrayRef<ReassociationIndices> reassocs) {
+  // %3 = "tosa.reshape"(%2) {new_shape = [1, 12, 12, 32]} :
+  // (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
+  //    - inpShape = [1, 12, 384]
+  //    - outShape = [1, 12, 12, 32]
+
+  // Shouldn't happen, but let's check anyway
+  if (inpShape.size() != reassocs.size()) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Expand input shape doesn't match number of reassociations\n");
+    return TransformMapAttr();
+  }
+
+  llvm::IndexedMap<bool> dimDefined;
+  dimDefined.grow(outShape.size() - 1);
+
+  rock::BottomUpTMBuilder transform(b, inpShape, loc);
+  for (const auto &[inpDim, outDims] : llvm::enumerate(reassocs)) {
+    for (int64_t dim : outDims)
+      dimDefined[dim] = true;
+
+    if (outDims.size() == 1)
+      transform.passThrough(outDims[0], inpDim);
+    else if (outDims.empty()) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Empty reassocation list in expand_shape, shouldn't happen\n");
+      return TransformMapAttr();
+    } else {
+      SmallVector<SmallString<8>> unmergeNamesStore;
+      SmallVector<uint32_t> unmergeDims;
+      SmallVector<StringRef> unmergeNames;
+      SmallVector<int64_t> unmergeSizes;
+      for (int64_t outDim : outDims) {
+        unmergeNamesStore.emplace_back();
+        unmergeNames.push_back((Twine("exp") + Twine(outDim))
+                                   .toStringRef(unmergeNamesStore.back()));
+        unmergeDims.push_back(outDim);
+        unmergeSizes.push_back(outShape[outDim]);
+      }
+      transform.unmerge(unmergeNames, unmergeDims, transform.startName(inpDim),
+                        unmergeSizes);
+    }
+  }
+
+  // Dimensions not defined by the expansion rules are ignored unit dimensions.
+  for (size_t i = 0, e = outShape.size(); i < e; ++i) {
+    if (dimDefined[i])
+      continue;
+    if (outShape[i] != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "Memref expansion doesn't define a non-unit "
+                                 "dimension in the view, can't happen\n");
+      return TransformMapAttr();
+    }
+    SmallString<8> unitDimNameStore;
+    StringRef unitDimName =
+        (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
+    transform.addDim(unitDimName, i, 1);
+  }
+  return transform.get();
 }

@@ -302,24 +302,22 @@ public:
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
-  SmallVector<int32_t> getTransposeDims(Value v) const {
-    if (Operation *cval = v.getDefiningOp<arith::ConstantOp>()) {
-      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-      return SmallVector<int32_t>(cattr.getValues<int64_t>());
-    }
-    if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
+  LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
+    Operation *cval = v.getDefiningOp();
+    if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
       auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
       auto vals = cattr.tryGetValues<int32_t>();
-      if (succeeded(vals))
-        return SmallVector<int32_t>(*vals);
+      if (succeeded(vals)) {
+        perms.assign((*vals).begin(), (*vals).end());
+        return success();
+      }
       auto vals64 = cattr.tryGetValues<int64_t>();
-      if (succeeded(vals64))
-        return SmallVector<int32_t>(*vals64);
+      if (succeeded(vals64)) {
+        perms.assign((*vals64).begin(), (*vals64).end());
+        return success();
+      }
     }
-    // May be bufferization cast
-    //  but this is no longer a bufferization pass, so assert
-    assert(0);
-    return getTransposeDims(v.getDefiningOp()->getOperand(0));
+    return failure();
   }
 
   void permuteLayout(Operation *op, const char *attrKey,
@@ -353,7 +351,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    auto dims = getTransposeDims(top.getOperand(1));
+    SmallVector<int32_t> dims;
+    if (failed(getTransposeDims(top.getOperand(1), dims)))
+      return failure();
 
     bool isConvDims = dims.size() == 4;
     bool isMatmulDims = dims.size() == 3;

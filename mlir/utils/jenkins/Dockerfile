@@ -1,10 +1,10 @@
 FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.3.2/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.4.2/
 ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-5.3.2
+ARG ROCM_PATH=/opt/rocm-5.4.2
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -96,7 +96,8 @@ RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https:
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
 # As of 2022-08-17, the rocm/rock images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
 # Note that the mlir minimum is 3.18.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
+  apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
   rocprofiler-dev \
@@ -111,6 +112,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   netcat-openbsd \
   cmake-data=3.22.1-0kitware1ubuntu20.04.1 \
   cmake=3.22.1-0kitware1ubuntu20.04.1 \
+  kitware-archive-keyring \
   libsqlite3-dev \
   parallel && \
   apt-get clean && \

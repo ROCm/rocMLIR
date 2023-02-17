@@ -2,7 +2,7 @@
 
 from typing import NamedTuple
 import reportUtils
-from perfCommonUtils import Operation
+from perfCommonUtils import Operation, GEMMLibrary
 
 import csv
 from collections import OrderedDict
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprof'
@@ -45,7 +45,9 @@ class MLIRPaths:
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
+    rocmlir_tuning_driver_path : str
     rocblas_benchmark_driver_path : Optional[str] = None
+    ck_benchmark_driver_path : Optional[str] = None
 
 @dataclass
 class Paths:
@@ -126,6 +128,7 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
         mlir_bin_dir_path = (Path(mlir_build_dir_path) / 'bin').resolve()
         mlir_bin_dir = str(mlir_bin_dir_path)
         rocblas_benchmark_driver_location = mlir_bin_dir_path / 'rocblas-benchmark-driver'
+        ck_benchmark_driver_location = mlir_bin_dir_path / 'ck-benchmark-driver'
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
@@ -135,8 +138,11 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
+            rocmlir_tuning_driver_path = mlir_bin_dir + '/rocmlir-tuning-driver',
             rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
-              if rocblas_benchmark_driver_location.exists() else None)
+              if rocblas_benchmark_driver_location.exists() else None,
+            ck_benchmark_driver_path = str(ck_benchmark_driver_location) \
+              if ck_benchmark_driver_location.exists() else None)
 
     miopen_driver_path = None
     if miopen_build_dir_path:
@@ -158,6 +164,35 @@ def getNanoSeconds(fileName):
         csv_file.close()
         return result
 
+# Tuning databases
+MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
+def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
+    try:
+        ret = {}
+        with open(path, 'r') as dbFile:
+            for line in dbFile:
+                line = line.strip()
+                if line.startswith('#'):
+                    continue
+                entries = line.split('\t')
+                if len(entries) != 3:
+                    print("Warning: Malformed tuning database entry:", line)
+                    continue
+                arch, config, perfConfig = entries
+                ret[arch, config] = perfConfig
+        return ret
+    except FileNotFoundError:
+        if path:
+            print("Warning: Failed to find tuning database:", path)
+        return None
+
+def getMilliseconds(output):
+    result = re.search(r"kernel time: (.*)", output.decode("utf-8"))
+    if not result:
+        return float('NaN')
+
+    return float(result.group(1))
+
 class PerfConfiguration:
     TABLE_COLUMNS = []
 
@@ -170,6 +205,8 @@ class PerfConfiguration:
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         raise NotImplementedError()
 
+    def setPerfConfig(self, perfConfig):
+        raise NotImplementedError()
 
     @classmethod
     def fromCommandLine(cls, argv, arch) -> 'self':
@@ -394,7 +431,7 @@ class ConvConfiguration(PerfConfiguration):
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
-        self.perfConfig = '' 
+        self.perfConfig = ''
 
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
@@ -437,31 +474,31 @@ def getGemmConfigurations(fileName):
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                
+
+                # We need trailing spaces here to account for the concat below
                 # Skip type if already in
                 dataTypeString = ""
-                if "-t" not in line:
-                    dataTypeString = f"-t {datatype}" 
+                if "-t " not in line:
+                    dataTypeString = f"-t {datatype} "
 
                 # Skip transA if already in
                 transAString = ""
-                if "-transA" not in line:
-                    transAString = f"-transA {transA}"
-                
+                if "-transA " not in line:
+                    transAString = f"-transA {transA} "
+
                 # Skip transB if already in
                 transBString = ""
-                if "-transB" not in line:
-                    transBString = f"-transB {transB}"
+                if "-transB " not in line:
+                    transBString = f"-transB {transB} "
 
                 # Strip to avoid spurious spaces
-                oneConfig = f"{dataTypeString} {transAString} {transBString} {line}".strip()
+                oneConfig = f"{dataTypeString}{transAString}{transBString}{line}".strip()
                 if oneConfig not in configs:
                     configs.append(oneConfig)
     return configs
 
 class GemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['TFlops']
-    EXTERNAL_NAME = "rocBLAS"
     def computeTFlops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
@@ -511,7 +548,6 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         transA = None
         transB = None
-
         for i in range(0, len(argv), 2):
             opt = argv[i]
             val = argv[i + 1]
@@ -554,6 +590,9 @@ class GemmConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
 
+class RocBLASGemmConfig(GemmConfiguration):
+    EXTERNAL_NAME = "rocBLAS"
+
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
         config = cls.fromCommandLine(commandLine, arch)
@@ -580,6 +619,38 @@ class GemmConfiguration(PerfConfiguration):
             p.kill()
             outs, errs = p.communicate()
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        return config.tableEntry(nanoSeconds)
+
+class CKGemmConfig(GemmConfiguration):
+    EXTERNAL_NAME = "CK"
+    @classmethod
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
+        config = cls.fromCommandLine(commandLine, arch)
+        if not paths.mlir_paths.ck_benchmark_driver_path:
+            raise ValueError("ck-benchmark-driver not built")
+        benchmarkArgs = config.generateMlirDriverCommandLine("")
+
+        print(f"Running CK benchmark {config!r}")
+
+        if arch=="gfx1030" and config.g > 1:
+            return config.tableEntry(float('NaN'))
+
+        profilerCommand = [paths.mlir_paths.ck_benchmark_driver_path] + \
+            benchmarkArgs.split()
+        p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # get output.
+        try:
+            outs, errs = p.communicate(timeout=60)
+            if len(errs) > 0:
+                print("Test printed errors: ", errs.decode('utf-8'))
+                print("Failing command line: ", profilerCommand)
+        except subprocess.TimeoutExpired:
+            print("Test timed out: ", profilerCommand)
+            p.kill()
+            outs, errs = p.communicate()
+        milliSeconds = getMilliseconds(outs)
+        nanoSeconds = milliSeconds*1e6
         return config.tableEntry(nanoSeconds)
 
 def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags, debug=True):
@@ -613,30 +684,57 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
         outs, errs = p3.communicate()
 
 # Benchmarking function.
-def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, rocmlir_gen_flags):
+def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
     config = confClass.fromCommandLine(commandLine, arch)
+    configStr = ' '.join(commandLine)
+    if tuningDb:
+        if (arch, configStr) in tuningDb:
+            config.setPerfConfig(tuningDb[arch, configStr])
+        else: # Tuning DB present but doesn't contain config, return N/A
+            return config.tableEntry(np.nan)
+
     runConfigWithMLIR(config, paths, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
-def generatePerformanceResults(configs, confClass, paths: Paths, arch, rocmlir_gen_flags):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, rocmlir_gen_flags)
+def generatePerformanceResults(configs, confClass, paths: Paths, arch, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
+    # Never pass tuning DB to this run
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, None, rocmlir_gen_flags)
         for testVector in configs)
+    tuned_df = None
+    if tuningDb:
+        tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, tuningDb, rocmlir_gen_flags)
+            for testVector in configs)
     external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch)
         for testVector in configs)
 
     externalName = confClass.EXTERNAL_NAME
     df = mlir_df.merge(external_df, on=confClass.TABLE_COLUMNS[:-1],
                            suffixes=('', f" ({externalName})"))
-    df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": f"{externalName} TFlops (no MLIR Kernels)"}, inplace=True)
+    externalTFlopsCol = f"{externalName} TFlops (no MLIR Kernels)"
+    df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": externalTFlopsCol}, inplace=True)
+    if tuned_df is not None:
+        # No need for suffixes, the conflicting columns have been renamed
+        # Also note that we're ignoring PerfConfig with the -2
+        df = df.merge(tuned_df, on=confClass.TABLE_COLUMNS[:-2],
+            suffixes=('', ' (tuned)'))
+        df.drop(columns=['PerfConfig'], inplace=True)
+        df.rename(columns={'TFlops': 'Tuned MLIR TFlops',
+            'PerfConfig (tuned)': 'PerfConfig'}, inplace=True)
 
-    df[f"MLIR/{externalName}"] = df['MLIR TFlops'] / df[f"{externalName} TFlops (no MLIR Kernels)"]
+    df[f"MLIR/{externalName}"] = df['MLIR TFlops'] / df[externalTFlopsCol]
+    if tuned_df is not None:
+        df[f"Tuned/{externalName}"] = df['Tuned MLIR TFlops'] / df[externalTFlopsCol]
+        df["Tuned/Untuned"] = df['Tuned MLIR TFlops'] / df['MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
-    reportFile = reportUtils.PERF_REPORT_GEMM_FILE \
-        if confClass is GemmConfiguration \
-        else reportUtils.PERF_REPORT_FILE
+    if confClass is RocBLASGemmConfig:
+        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['rocBLAS']
+    elif confClass is CKGemmConfig:
+        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['CK']
+    else:
+        reportFile = reportUtils.PERF_REPORT_FILE
     df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch):
@@ -712,12 +810,16 @@ def getArch():
         agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
     return agents
 
-def foundExternalTool(paths: Paths, opType: Operation):
+def foundExternalTool(paths: Paths, opType: Operation, gemmLibrary : Optional[GEMMLibrary] = None):
     if opType == Operation.CONV and not paths.miopen_driver_path:
         return False
-    if opType == Operation.GEMM and \
-            (not paths.mlir_paths or not paths.mlir_paths.rocblas_benchmark_driver_path):
-        return False
+    if opType == Operation.GEMM:
+        if not paths.mlir_paths:
+            return False
+        if gemmLibrary == GEMMLibrary.CK and not paths.mlir_paths.ck_benchmark_driver_path:
+            return False
+        if gemmLibrary == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
+            return False
     return True
 
 # Main function.
@@ -726,8 +828,11 @@ def main(args=None):
     usage examples:
 
     python3 perfRunner.py
-    python3 perfRunner.py --batch_both -o=output_file.csv
+    python3 perfRunner.py --batch_all -o=output_file.csv
+    python3 perfRunner.py --batch_all -o=output_file.csv -t=tuning_db.tsv
     python3 perfRunner.py -b
+    # Uses results from tuning db when running MLIR benchmarks
+    python3 perfRunner.py -b -t=tuning_db.tsv
     python3 perfRunner.py --batch_external
     python3 perfRunner.py --operation gemm --external # rocblas tests
     python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
@@ -783,7 +888,7 @@ def main(args=None):
         help="CSV batch benchmarking mode with external reference"
     )
     mutex_arg_group.add_argument(
-        "--batch_both",
+        "--batch_all",
         action="store_true",
         help="CSV batch benchmarking with MLIR and external reference (defalut on no args)"
     )
@@ -807,6 +912,13 @@ def main(args=None):
         help="Output file name",
         dest="fileName"
     )
+    parser.add_argument(
+        "-t", "--tuning_db",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Tuning database filename"
+    )
+
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
@@ -833,22 +945,39 @@ def main(args=None):
         help="rocmlir-gen flags to toggle each feature"
     )
 
+    parser.add_argument(
+        "--external-gemm-library",
+        type=str,
+        default="rocBLAS",
+        help="(rocBLAS | CK) external library to run GEMM routines"
+    )
+
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
+    tuningDb = None
+    if 'tuning_db' in parsed_args:
+        tuningDb = read_tuning_db(parsed_args.tuning_db)
+
     # Impose default behavior when no args have been passed
     if len(args) == 0:
-        parsed_args.batch_both = True
+        parsed_args.batch_all = True
 
     confClass = PerfConfiguration
     opType = Operation.fromName(parsed_args.op)
     if opType == Operation.CONV:
         confClass = ConvConfiguration
+        externalLib = None
     elif opType == Operation.GEMM:
-        confClass = GemmConfiguration
+        externalLib = GEMMLibrary.fromName(parsed_args.external_gemm_library)
+        if externalLib == GEMMLibrary.ROCBLAS:
+            confClass = RocBLASGemmConfig
+        elif externalLib == GEMMLibrary.CK:
+            confClass = CKGemmConfig
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
@@ -858,8 +987,8 @@ def main(args=None):
     elif opType == Operation.GEMM:
         configs = getGemmConfigurations(paths.configuration_file_path)
 
-    if parsed_args.external or parsed_args.batch_external or parsed_args.batch_both:
-        if not foundExternalTool(paths, opType):
+    if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
+        if not foundExternalTool(paths, opType, externalLib):
             raise RuntimeError("External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
 
     if parsed_args.miopen_use_tuned_mlir or parsed_args.miopen_use_untuned_mlir \
@@ -867,15 +996,15 @@ def main(args=None):
         if not paths.miopen_driver_path:
             raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
 
-    if parsed_args.batch_mlir or parsed_args.batch_both:
+    if parsed_args.batch_mlir or parsed_args.batch_all:
         if not paths.mlir_paths:
             raise RuntimeError("MLIR build dir was not provided/found")
 
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
-    if parsed_args.batch_both:
+    if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, confClass, paths, arch, rocmlir_gen_flags)
+        generatePerformanceResults(configs, confClass, paths, arch, tuningDb, rocmlir_gen_flags)
     elif parsed_args.miopen_use_tuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
     elif parsed_args.miopen_use_untuned_mlir:
@@ -884,7 +1013,7 @@ def main(args=None):
         tuneMLIRKernels(configs, paths, arch)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, tuningDb, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.external:
@@ -894,7 +1023,7 @@ def main(args=None):
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, rocmlir_gen_flags)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, tuningDb, rocmlir_gen_flags)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption

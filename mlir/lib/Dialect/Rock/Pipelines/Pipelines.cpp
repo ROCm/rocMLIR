@@ -51,9 +51,11 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // TOSA conversion to rock and/or linalg with async.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
-    /* rocmlir-opt --tosa-to-rock
+    /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
+    pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
     pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
   }
 
   // use tosa conversion pipeline
@@ -72,6 +74,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
   pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
+  pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
@@ -105,54 +108,55 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
-
-  // copy opt (cleanup from high-level transforms)
-  /* rocmlir-opt --rock-copy-opt
-   */
-  pm.addNestedPass<func::FuncOp>(rock::createRockCopyOptPass());
 }
 
 void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
-  // Pre kernel lowering fixups for patterns that aren't amenable to lawer
-  // fusion
-  /* rocmlir-opt --rock-fold-transpose */
-  if (options.enableFusion) {
-    pm.addNestedPass<func::FuncOp>(rock::createRockFoldTransposePass());
-  }
   // rock lowering (tuning, global to block)
-  /* rocmlir-opt --rock-affix-params  --rock-conv-to-gemm
-   * --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise
+  /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
+   *   --rock-gemm-to-gridwise --rock-regularize
+   *   --rock-gridwise-gemm-to-blockwise
    */
   pm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{0, 0,
                                                  options.tuningFallback}));
   pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
+  pm.addNestedPass<func::FuncOp>(rock::createRockRegularizePass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
       // align linalg tiling
-      /* rocmlir-opt --rock-linalg-align
+      /* rocmlir-opt --rock-linalg-align --canonicalize
        * --convert-linalg-to-affine-loops
        */
-      pm.addPass(rock::createRockLinalgAlignPass());
-      pm.addPass(createConvertLinalgToAffineLoopsPass());
+      pm.addNestedPass<func::FuncOp>(rock::createRockLinalgAlignPass());
+      pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+      pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
     }
+    // rock lowering for reductions
+    /* rocmlir-opt --rock-lower-reduce
+     */
+    pm.addPass(rock::createRockLowerReducePass());
 
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
-         --rock-threadwise-gemm-lowering
-         --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
-         --convert-rock-to-gpu
+     *   --canonicalize --rock-threadwise-gemm-lowering
+     *   --rock-sugar-to-loops --rock-clean-math --rock-buffer-load-merge
+     *   --rock-transform-to-memref --rock-loops-to-cf
+     *   --convert-rock-to-gpu
      */
-    pm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-    pm.addPass(rock::createRockThreadwiseGemmLoweringPass());
-    pm.addPass(rock::createRockSugarToLoopsPass());
-    pm.addPass(rock::createRockCleanMathPass());
-    pm.addPass(rock::createRockBufferLoadMergePass());
-    pm.addPass(rock::createRockLoopsToCfPass());
+    pm.addNestedPass<func::FuncOp>(
+        rock::createRockBlockwiseGemmToThreadwisePass());
+    pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+    pm.addNestedPass<func::FuncOp>(
+        rock::createRockThreadwiseGemmLoweringPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockSugarToLoopsPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockCleanMathPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockBufferLoadMergePass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockTransformToMemrefPass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
 
     // lowering linalg to cf

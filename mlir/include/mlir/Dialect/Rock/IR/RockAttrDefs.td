@@ -14,6 +14,7 @@ include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/OpBase.td"
 
 //TODO: submit this to upstream
 class ArrayRefOfStringRefParameter<string desc = ""> :
@@ -75,10 +76,12 @@ def Merge : I32EnumAttrCase<"Merge", 5>;
 def Unfold : I32EnumAttrCase<"Unfold", 6>;
 def AddDim : I32EnumAttrCase<"AddDim", 7>;
 def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
+def ConstDim : I32EnumAttrCase<"ConstDim", 9>;
 
 def TransformType : Rock_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast]>;
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast,
+     ConstDim]>;
 
 /// StoreMethod
 
@@ -90,6 +93,16 @@ def StoreMethod : Rock_I32Enum<"StoreMethod",
     [StoreMethod_Set, StoreMethod_AtomicAdd]>;
 
 def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
+
+/// ReduceMethod
+
+def ReduceMethod_Sum : I32EnumAttrCase<"Sum", 0, "sum">;
+
+def ReduceMethod : Rock_I32Enum<"ReduceMethod",
+    "What operation should be used for the reduction",
+    [ReduceMethod_Sum]>;
+
+def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
 
 /// TransformAttr
 def Rock_TransformAttr : Rock_Attr<"Transform"> {
@@ -174,12 +187,12 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     AttrParameter<"AffineMapAttr", "The composed map describing the `ops`">:$map,
     // Thes aren't strictly needed and can probably be removed if we're willing to
     // pay an ergonomics penalty.
-    ArrayRefParameter<"int64_t", "The shape of the transform input">:$upperBounds,
-    ArrayRefParameter<"int64_t", "The shape of the transform output">:$lowerBounds
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds
     );
 
     let assemblyFormat = [{
-        `<` $map `by` ` ` `[` $ops `]` `bounds` `=` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
+        `<` $map `by` ` ` `[` $ops `]` `bounds` `=` ($upperBounds^) : (`[` `]`)? `->` $lowerBounds `>`
     }];
     let genVerifyDecl = 1;
 }
@@ -213,14 +226,13 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      const Twine paramsConcat =
-        Twine(getBlockSize()) + ","
+      perfStr =
+       (Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread());
-      perfStr = paramsConcat.str();
+      + Twine(getNPerThread())).str();
     }
   }];
 
@@ -248,16 +260,16 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      const Twine paramsConcat = 
-          Twine(getMPerBlock()) + ","
+      perfStr =
+         (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
         + Twine(getForceUnroll()) + ","
-        + "1"; /* *ThreadCopyMore* */
-      perfStr = paramsConcat.str();
+          + "1") /* *ThreadCopyMore* */
+        .str();
     }
   }];
 

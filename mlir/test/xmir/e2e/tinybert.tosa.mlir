@@ -1,3 +1,4 @@
+// ALLOW_RETRIES: 2
 // MLIR#765: Bug in TosaMakeBroadcastable, or LinalgElementwiseOpFusion
 // XFAIL: *
 
