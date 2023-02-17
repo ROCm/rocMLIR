@@ -1299,7 +1299,10 @@ LogicalResult BufferLoadOp::verify() {
     return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (sourceType.getMemorySpaceAsInt() != 0)
+  auto memSpaceValue = sourceType.getMemorySpace()
+                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                           .getValue();
+  if (memSpaceValue != gpu::GPUDialect::getGlobalAddressSpace())
     return emitOpError("Source memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
     return emitOpError(
@@ -1317,7 +1320,10 @@ LogicalResult BufferStoreOp::verify() {
     return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
-  if (destType.getMemorySpaceAsInt() != 0)
+  auto memSpaceValue = destType.getMemorySpace()
+                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                           .getValue();
+  if (memSpaceValue != gpu::GPUDialect::getGlobalAddressSpace())
     return emitOpError("Destination memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
     return emitOpError(
@@ -1360,7 +1366,10 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
-  if (destType.getMemorySpaceAsInt() != 5)
+  auto memSpaceValue = destType.getMemorySpace()
+                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                           .getValue();
+  if (memSpaceValue != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1379,7 +1388,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
-  if (sourceType.getMemorySpaceAsInt() != 5)
+  auto memSpaceValue = sourceType.getMemorySpace()
+                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                           .getValue();
+  if (memSpaceValue != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;
