@@ -248,7 +248,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 0. Test compatibility
   // 0.0. Only fully parallel for now
   for (utils::IteratorType iterType : laGeneric.getIteratorTypesArray())
-    if (!isParallelIterator(iterType))
+    if (!linalg::isParallelIterator(iterType))
       return laGeneric.emitError("must be fully parallel");
 
   Value out = *laGeneric.getOutputs().begin(); // may be another arg

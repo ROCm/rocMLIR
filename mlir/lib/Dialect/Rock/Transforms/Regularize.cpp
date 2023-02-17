@@ -100,7 +100,7 @@ struct ExpandRewritePattern : public OpRewritePattern<memref::ExpandShapeOp> {
 static bool isRegularGeneric(linalg::GenericOp lgop) {
   // parallel
   for (utils::IteratorType iterType : lgop.getIteratorTypesArray()) {
-    if (!isParallelIterator(iterType))
+    if (!linalg::isParallelIterator(iterType))
       return false; //"Only fully parallel supported"
   }
 
@@ -137,7 +137,7 @@ struct RegularizeGenericRewritePattern
 
     // parallel
     for (utils::IteratorType iterType : lgop.getIteratorTypesArray()) {
-      if (!isParallelIterator(iterType))
+      if (!linalg::isParallelIterator(iterType))
         return lgop.emitError("Only fully parallel supported");
     }
 
@@ -175,7 +175,7 @@ struct RegularizeGenericRewritePattern
     // reset idxmaps
     rw.updateRootInPlace(lgop, [&]() {
       SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
-      lgop.getIndexingMapsArray(rw.getAffineMapArrayAttr(newIdxMaps));
+      lgop.setIndexingMapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
     });
 
     return lres;
