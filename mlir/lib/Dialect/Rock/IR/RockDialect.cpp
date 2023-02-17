@@ -1388,9 +1388,6 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
-  auto memSpaceValue = sourceType.getMemorySpace()
-                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
-                           .getValue();
   auto memSpaceValueAttr =
       sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
   if (memSpaceValueAttr == nullptr ||
