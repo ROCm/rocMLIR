@@ -97,7 +97,7 @@ static Value transformAccordingly(PatternRewriter &b, Value nOut, Value refOp) {
     nOut = transformAccordingly(b, nOut, rtop.getOperand());
 
     // 1. apply identical transforms to other inputs
-    BlockAndValueMapping cmap;
+    IRMapping cmap;
     cmap.map(rtop.getOperand(), nOut);
     auto ntop = dyn_cast<TransformOp>(b.clone(*rtop, cmap));
     nOut = ntop.getResult();
@@ -157,7 +157,7 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
     }
     if (auto lgop = dyn_cast<linalg::GenericOp>(use)) {
       // reader
-      if (!llvm::is_contained(lgop.inputs(), inp)) {
+      if (!llvm::is_contained(lgop.getInputs(), inp)) {
         return ThreadwiseWriteAllOp();
       }
     } else if (auto memcpy = dyn_cast<memref::CopyOp>(use)) {
@@ -194,7 +194,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
 
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
-  for (auto inp : laGeneric.inputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     Value newInput;
     if (traceToThreadwiseWrite(inp)) {
       newInput = laIn;
@@ -227,7 +227,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
                                  ThreadwiseWriteAllOp &twWriteOp) {
-  for (auto input : laGeneric.inputs()) {
+  for (auto input : laGeneric.getInputs()) {
     if (auto allocOp = input.getDefiningOp<memref::AllocOp>()) {
       if (auto twop = traceToThreadwiseWrite(input)) {
         twWriteOp = twop;
@@ -247,15 +247,9 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 0. Test compatibility
   // 0.0. Only fully parallel for now
-  for (StringRef iterType :
-       laGeneric.iterator_types().getAsValueRange<StringAttr>())
-    if (iterType != "parallel")
+  for (utils::IteratorType iterType : laGeneric.getIteratorTypesArray())
+    if (!isParallelIterator(iterType))
       return laGeneric.emitError("must be fully parallel");
-
-  Value out = *laGeneric.outputs().begin(); // may be another arg
-  // 0.1. Test compatibility,  Only 1 output supported
-  if (laGeneric.outputs().size() > 1)
-    return laGeneric.emitError("only 1 output supported");
 
   Value out = *laGeneric.getOutputs().begin(); // may be another arg
   // 0.1. Test compatibility,  Only 1 output supported
@@ -281,7 +275,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!laGenericInputLeadingToGemmStore)
     return failure();
 
-  auto actualLAGenericOut = laGeneric.getOutputOperand(0);
+  auto actualLAGenericOut = laGeneric.getDpsInitOperand(0);
   if (laGenericInputLeadingToGemmStore.getType() !=
       actualLAGenericOut->get().getType()) {
     // TODO(sjw): fix for mixed types

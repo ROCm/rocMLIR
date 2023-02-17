@@ -162,7 +162,7 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     GlobalLoadOp loadVal = rewriter.create<GlobalLoadOp>(
         loc, vectorType, op.getIn(), isValid, loadCoords);
     Value loadedReg = rewriter.create<GpuAllocOp>(
-        loc, MemRefType::get({vectorLength}, elementType, {},
+        loc, MemRefType::get({vectorLength}, elementType, AffineMap{},
                              gpu::GPUDialect::getPrivateAddressSpace()));
     rewriter.create<InBoundsStoreOp>(loc, loadVal, loadedReg, zeroConstantOp);
 
