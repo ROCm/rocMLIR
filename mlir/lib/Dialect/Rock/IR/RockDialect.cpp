@@ -1299,10 +1299,10 @@ LogicalResult BufferLoadOp::verify() {
     return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  auto memSpaceValue = sourceType.getMemorySpace()
-                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
-                           .getValue();
-  if (memSpaceValue != gpu::GPUDialect::getGlobalAddressSpace())
+  auto memSpaceValueAttr =
+      sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceValueAttr == nullptr ||
+      memSpaceValueAttr.getValue() != gpu::AddressSpace::Global)
     return emitOpError("Source memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
     return emitOpError(
@@ -1320,10 +1320,10 @@ LogicalResult BufferStoreOp::verify() {
     return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
-  auto memSpaceValue = destType.getMemorySpace()
-                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
-                           .getValue();
-  if (memSpaceValue != gpu::GPUDialect::getGlobalAddressSpace())
+  auto memSpaceValueAttr =
+      destType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceValueAttr == nullptr ||
+      memSpaceValueAttr.getValue() != gpu::AddressSpace::Global)
     return emitOpError("Destination memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
     return emitOpError(
@@ -1366,10 +1366,10 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
-  auto memSpaceValue = destType.getMemorySpace()
-                           .dyn_cast_or_null<gpu::AddressSpaceAttr>()
-                           .getValue();
-  if (memSpaceValue != gpu::GPUDialect::getPrivateAddressSpace())
+  auto memSpaceValueAttr =
+      destType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceValueAttr == nullptr ||
+      memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1391,7 +1391,10 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   auto memSpaceValue = sourceType.getMemorySpace()
                            .dyn_cast_or_null<gpu::AddressSpaceAttr>()
                            .getValue();
-  if (memSpaceValue != gpu::GPUDialect::getPrivateAddressSpace())
+  auto memSpaceValueAttr =
+      sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceValueAttr == nullptr ||
+      memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;
