@@ -1301,7 +1301,7 @@ LogicalResult BufferLoadOp::verify() {
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   auto memSpaceValueAttr =
       sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (memSpaceValueAttr == nullptr ||
+  if (memSpaceValueAttr == nullptr &&
       memSpaceValueAttr.getValue() != gpu::AddressSpace::Global)
     return emitOpError("Source memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
@@ -1322,7 +1322,7 @@ LogicalResult BufferStoreOp::verify() {
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   auto memSpaceValueAttr =
       destType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (memSpaceValueAttr == nullptr ||
+  if (memSpaceValueAttr == nullptr &&
       memSpaceValueAttr.getValue() != gpu::AddressSpace::Global)
     return emitOpError("Destination memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
@@ -1368,7 +1368,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
   auto memSpaceValueAttr =
       destType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (memSpaceValueAttr == nullptr ||
+  if (memSpaceValueAttr == nullptr &&
       memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
@@ -1390,7 +1390,7 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   auto memSpaceValueAttr =
       sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (memSpaceValueAttr == nullptr ||
+  if (memSpaceValueAttr == nullptr &&
       memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
