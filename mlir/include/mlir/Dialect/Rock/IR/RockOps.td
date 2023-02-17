@@ -873,7 +873,7 @@ def Rock_GlobalLoadOp :
 // global_store
 def Rock_GlobalStoreOp :
     Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>:$source,
                    AnyMemRef:$dest,
                    IndexAttr:$length,
                    Rock_GemmFeaturesAttr:$features,
