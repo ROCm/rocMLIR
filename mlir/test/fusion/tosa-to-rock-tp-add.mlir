@@ -2,7 +2,7 @@
 
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#map{{.*}} by [<PassThrough ["{{.*}}", "{{.*}}", "{{.*}}", "{{.*}}"] at [0, 1, 2, 3] -> ["{{.*}}", "{{.*}}", "{{.*}}", "{{.*}}"] at [0, 2, 3, 1]>] bounds = [256, 28, 28, 64] -> [256, 64, 28, 28]>
 // CHECK: rock.threadwise_read_into {{.*}} -> [[lain:%.*]] :
-// CHECK: linalg.generic{{.*}} ins({{.*}}, [[lain]] :{{.*}}) outs(%[[outBuf:.*]] : memref<64xf32, 5>)
+// CHECK: linalg.generic{{.*}} ins({{.*}}, [[lain]] :{{.*}}) outs(%[[outBuf:.*]] : memref<64xf32, #gpu.address_space<private>>)
 // CHECK: rock.threadwise_write_all {{.*}} %[[outBuf]] ->
 // to test transpose is converted as transform and fused.
 

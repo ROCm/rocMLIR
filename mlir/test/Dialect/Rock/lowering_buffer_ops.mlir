@@ -18,7 +18,7 @@ func.func @load_scalar_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> f32 {
 func.func @load_scalar_in_bounds_force_oob(%mem: memref<1x2x3x4x8xf32>) -> f32 {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
-    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load {boundsCheck = true} %[[mem]]
+    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load %[[mem]]
     %ret = rock.buffer_load %mem[%c0, %c0, %c0, %c0, %c0] if %true
         {oobIsOverflow}
         : memref<1x2x3x4x8xf32>, index, index, index, index, index -> f32
@@ -79,7 +79,7 @@ func.func @store_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
 func.func @store_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
-    // CHECK: amdgpu.raw_buffer_store {boundsCheck = true} %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_store %[[val]] -> %[[mem]]
     rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
         {oobIsOverflow}
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
@@ -104,7 +104,7 @@ func.func @store_vector_oob(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>, %i
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK: arith.select %[[valid]], %[[idx]], %[[c192]]
-    // CHECK: amdgpu.raw_buffer_store {boundsCheck = true} %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_store %[[val]] -> %[[mem]]
     rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return

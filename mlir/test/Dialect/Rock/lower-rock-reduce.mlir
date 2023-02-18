@@ -1,10 +1,12 @@
 // Unit tests for rock-lower-reduce pass
 
 // RUN: rocmlir-opt -rock-lower-reduce %s | FileCheck %s
-
-// CHECK-DAG: #[[MAP0:.*]] = #rock.transform_map<affine_map<(d0, d1, d2) -> ((d0 * 3 + d1) * 64 + d2)> by [<Unmerge{2, 3, 64} ["bid", "iter", "tid"] at [0, 1, 2] -> ["flatDim"] at [0]>] bounds = [2, 3, 64] -> [384]>
-// CHECK-DAG: #[[MAP1:.*]] = #rock.transform_map<affine_map<(d0) -> (d0)> by [<Pad{0, 96} ["flatDim"] at [0] -> ["flatDim"] at [0]>] bounds = [384] -> [288]>
-// CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 144, (d0 mod 144) floordiv 12, d0 mod 12)> by [<Merge{2, 12, 12} ["flatDim"] at [0] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [288] -> [2, 12, 12]>
+#[[AMAP:.*]] = affine_map<(d0, d1, d2) -> ((d0 * 3 + d1) * 64 + d2)>
+#[[AMAP1:.*]] = affine_map<(d0) -> (d0)>
+#[[AMAP2:.*]] = affine_map<(d0) -> (d0 floordiv 144, (d0 mod 144) floordiv 12, d0 mod 12)>
+// CHECK-DAG: #[[MAP0:.*]] = #rock.transform_map<#[[AMAP]] by [<Unmerge{2, 3, 64} ["bid", "iter", "tid"] at [0, 1, 2] -> ["flatDim"] at [0]>] bounds = [2, 3, 64] -> [384]>
+// CHECK-DAG: #[[MAP1:.*]] = #rock.transform_map<#[[AMAP1]] by [<Pad{0, 96} ["flatDim"] at [0] -> ["flatDim"] at [0]>] bounds = [384] -> [288]>
+// CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#[[AMAP2]] by [<Merge{2, 12, 12} ["flatDim"] at [0] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [288] -> [2, 12, 12]>
 func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {kernel, arch = ""} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index

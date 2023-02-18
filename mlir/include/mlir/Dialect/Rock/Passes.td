@@ -94,7 +94,7 @@ def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
 
 def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let summary = "Lower rock.reduce operator";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES
