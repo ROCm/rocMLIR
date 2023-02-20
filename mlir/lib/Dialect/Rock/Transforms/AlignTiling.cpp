@@ -221,8 +221,8 @@ static void reconfigureLAGeneric(PatternRewriter &b,
 
   // 2.3. Reset iterator types
   SmallVector<StringAttr, 5> lgIterArr(regRank, b.getStringAttr("parallel"));
-  laGeneric.setIteratorTypesAttr(b.getArrayAttr(ArrayRef<Attribute>(
-      lgIterArr.begin(), lgIterArr.end())));
+  laGeneric.setIteratorTypesAttr(
+      b.getArrayAttr(ArrayRef<Attribute>(lgIterArr.begin(), lgIterArr.end())));
 }
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
@@ -273,8 +273,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
 
   auto outType = out.getType().cast<ShapedType>();
-  auto inpType =
-      laGenericInputLeadingToGemmStore.getType().cast<ShapedType>();
+  auto inpType = laGenericInputLeadingToGemmStore.getType().cast<ShapedType>();
   if (outType.getShape() != inpType.getShape()) {
     return laGeneric.emitError("input and output types must match");
   }
