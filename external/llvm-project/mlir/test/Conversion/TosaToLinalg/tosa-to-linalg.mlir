@@ -95,7 +95,7 @@ func.func @test_abs_dyn(%arg0: tensor<2x?xf32>) -> tensor<2x?xf32> {
 // CHECK-SAME: %[[ARG0:[0-9a-zA-Z_]*]]: tensor<1xf32
 // CHECK-SAME: %[[ARG1:[0-9a-zA-Z_]*]]: tensor<2xf32>
 func.func @test_broadcast(%arg0: tensor<1xf32>, %arg1: tensor<2xf32>) -> tensor<2xf32> {
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [2] : tensor<2xf32>
+  // CHECK: [[INIT:%.+]] = tensor.empty() : tensor<2xf32>
   // CHECK: [[RESHAPE:%.+]] = "tosa.reshape"(%arg0)
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]], #[[$MAP1]]], iterator_types = ["parallel"]} ins([[RESHAPE]], %arg1 : tensor<f32>, tensor<2xf32>) outs([[INIT]] : tensor<2xf32>) {
   // CHECK: ^bb0(%arg2: f32, %arg3: f32, %arg4: f32):
@@ -115,7 +115,7 @@ func.func @test_broadcast(%arg0: tensor<1xf32>, %arg1: tensor<2xf32>) -> tensor<
 // CHECK-SAME: %[[ARG0:[0-9a-zA-Z_]*]]: tensor<2xf32
 // CHECK-SAME: %[[ARG1:[0-9a-zA-Z_]*]]: tensor<1xf32>
 func.func @test_broadcast_swapped_args(%arg0: tensor<2xf32>, %arg1: tensor<1xf32>) -> tensor<2xf32> {
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [2] : tensor<2xf32>
+  // CHECK: [[INIT:%.+]] = tensor.empty() : tensor<2xf32>
   // CHECK: [[RESHAPE:%.+]] = "tosa.reshape"(%arg1)
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]], #[[$MAP0]]], iterator_types = ["parallel"]} ins(%arg0, [[RESHAPE]] : tensor<2xf32>, tensor<f32>) outs([[INIT]] : tensor<2xf32>) {
   // CHECK: ^bb0(%arg2: f32, %arg3: f32, %arg4: f32):
@@ -136,7 +136,7 @@ func.func @test_broadcast_swapped_args(%arg0: tensor<2xf32>, %arg1: tensor<1xf32
 // CHECK-SAME: (%[[ARG0:[0-9a-zA-Z_]*]]
 // CHECK-SAME:  %[[ARG1:[0-9a-zA-Z_]*]]
 func.func @test_multibroadcast(%arg0: tensor<1x3xf32>, %arg1: tensor<2x1xf32>) -> tensor<2x3xf32> {
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [2, 3] : tensor<2x3xf32>
+  // CHECK: [[INIT:%.+]] = tensor.empty() : tensor<2x3xf32>
   // CHECK: [[RESHAPE1:%.+]] = "tosa.reshape"(%arg0) {new_shape = array<i64: 3>}
   // CHECK: [[RESHAPE2:%.+]] = "tosa.reshape"(%arg1) {new_shape = array<i64: 2>}
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP1]], #[[$MAP2]], #[[$MAP0]]], iterator_types = ["parallel", "parallel"]} ins([[RESHAPE1]], [[RESHAPE2]] : tensor<3xf32>, tensor<2xf32>) outs([[INIT]] : tensor<2x3xf32>) {
@@ -1139,19 +1139,19 @@ func.func @reverse_dyn(%arg0: tensor<?xi32>) -> () {
 // CHECK-LABEL: @tile
 // CHECK-SAME: %[[ARG0:.+]]: tensor<2x3xi8>
 func.func @tile(%arg0 : tensor<2x3xi8>) -> () {
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [2, 2, 1, 3]
+  // CHECK: [[INIT:%.+]] = tensor.empty()
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<2x3xi8>) outs([[INIT]] : tensor<2x2x1x3xi8>)
   // CHECK:   linalg.yield %arg1 : i8
   // CHECK: "tosa.reshape"([[GENERIC]]) {new_shape = array<i64: 4, 3>}
   %0 = "tosa.tile"(%arg0) {multiples = array<i64: 2, 1>} : (tensor<2x3xi8>)  -> (tensor<4x3xi8>)
 
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [1, 2, 2, 3]
+  // CHECK: [[INIT:%.+]] = tensor.empty()
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<2x3xi8>) outs([[INIT]] : tensor<1x2x2x3xi8>)
   // CHECK:   linalg.yield %arg1 : i8
   // CHECK: "tosa.reshape"([[GENERIC]]) {new_shape = array<i64: 2, 6>}
   %1 = "tosa.tile"(%arg0) {multiples = array<i64: 1, 2>} : (tensor<2x3xi8>)  -> (tensor<2x6xi8>)
 
-  // CHECK: [[INIT:%.+]] = linalg.init_tensor [5, 2, 7, 3]
+  // CHECK: [[INIT:%.+]] = tensor.empty()
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<2x3xi8>) outs([[INIT]] : tensor<5x2x7x3xi8>)
   // CHECK:   linalg.yield %arg1 : i8
   // CHECK: "tosa.reshape"([[GENERIC]]) {new_shape = array<i64: 10, 21>}
@@ -1170,7 +1170,7 @@ func.func @tile(%arg0 : tensor<2x3xi8>) -> () {
 func.func @tile_dyn_input(%arg0 : tensor<?x3xi8>) -> () {
   // CHECK: %[[CST0:.+]] = arith.constant 0
   // CHECK: %[[DYN:.+]] = tensor.dim %arg0, %[[CST0]] : tensor<?x3xi8>
-  // CHECK: %[[INIT:.+]] = linalg.init_tensor [2, %[[DYN]], 1, 3]
+  // CHECK: %[[INIT:.+]] = tensor.empty()
   // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<?x3xi8>) outs(%[[INIT]] : tensor<2x?x1x3xi8>)
   // CHECK:   linalg.yield %arg1 : i8
   // CHECK: "tosa.reshape"(%[[GENERIC]]) {new_shape = array<i64: -1, 3>}
@@ -1189,7 +1189,7 @@ func.func @tile_dyn_input(%arg0 : tensor<?x3xi8>) -> () {
 func.func @tile_dyn_multiples(%arg0 : tensor<2x3xi8>) -> () {
   // CHECK: %[[CST1:.+]] = arith.constant 1
   // CHECK: %[[DYN:.+]] = tensor.dim %arg0, %[[CST1]] : tensor<2x3xi8>
-  // CHECK: %[[INIT:.+]] = linalg.init_tensor [2, 2, %[[DYN]], 3]
+  // CHECK: %[[INIT:.+]] = tensor.empty()
   // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<2x3xi8>) outs(%[[INIT]] : tensor<2x2x?x3xi8>)
   // CHECK:   linalg.yield %arg1 : i8
   // CHECK: "tosa.reshape"(%[[GENERIC]]) {new_shape = array<i64: 2, -1>}
