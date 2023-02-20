@@ -98,8 +98,8 @@ func.func @test_broadcast(%arg0: tensor<1xf32>, %arg1: tensor<2xf32>) -> tensor<
   // CHECK: [[INIT:%.+]] = tensor.empty() : tensor<2xf32>
   // CHECK: [[RESHAPE:%.+]] = "tosa.reshape"(%arg0)
   // CHECK: [[GENERIC:%.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]], #[[$MAP1]]], iterator_types = ["parallel"]} ins([[RESHAPE]], %arg1 : tensor<f32>, tensor<2xf32>) outs([[INIT]] : tensor<2xf32>) {
-  // CHECK: ^bb0(%arg2: f32, %arg3: f32, %arg4: f32):
-  // CHECK:   [[ELEMENT:%.+]] = arith.addf %arg2, %arg3 : f32
+  // CHECK: ^bb0(%[[ARG2:.*]]: f32, %[[ARG3:.*]]: f32, %[[ARG4:.*]]: f32):
+  // CHECK:   [[ELEMENT:%.+]] = arith.addf %[[ARG2]], %[[ARG3]] : f32
   // CHECK:   linalg.yield [[ELEMENT]] : f32
   // CHECK: } -> tensor<2xf32>
   %0 = "tosa.add"(%arg0, %arg1) : (tensor<1xf32>, tensor<2xf32>) -> tensor<2xf32>
