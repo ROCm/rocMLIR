@@ -574,7 +574,7 @@ void mcpuVerifyInt(int32_t *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
 
     if (gpuNum != valNum) {
       failure_count++;
-      int64_t absDiff = abs(valNum - gpuNum);
+      int64_t absDiff = std::abs(valNum - gpuNum);
       if (absDiff > maxAbsDiff)
         maxAbsDiff = absDiff;
 
