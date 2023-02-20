@@ -1172,10 +1172,11 @@ func.func @tile(%arg0 : tensor<2x3xi8>) -> () {
 // CHECK-SAME: (%[[ARG0:[0-9a-zA-Z_]*]]:
 func.func @tile_dyn_input(%arg0 : tensor<?x3xi8>) -> () {
   // CHECK: %[[CST0:.+]] = arith.constant 0
-  // CHECK: %[[DYN:.+]] = tensor.dim %arg0, %[[CST0]] : tensor<?x3xi8>
-  // CHECK: %[[INIT:.+]] = tensor.empty()
-  // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<?x3xi8>) outs(%[[INIT]] : tensor<2x?x1x3xi8>)
-  // CHECK:   linalg.yield %arg1 : i8
+  // CHECK: %[[DYN:.+]] = tensor.dim %[[ARG0]], %[[CST0]] : tensor<?x3xi8>
+  // CHECK: %[[INIT:.+]] = tensor.empty(%[[DYN]])
+  // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%[[ARG0]] : tensor<?x3xi8>) outs(%[[INIT]] : tensor<2x?x1x3xi8>)
+  // CHECK: ^bb0(%[[ARG1:.+]]: i8,
+  // CHECK:   linalg.yield %[[ARG1]] : i8
   // CHECK: "tosa.reshape"(%[[GENERIC]]) {new_shape = array<i64: -9223372036854775808, 3>}
   %0 = "tosa.tile"(%arg0) {multiples = array<i64: 2, 1>} : (tensor<?x3xi8>)  -> (tensor<?x3xi8>)
 
@@ -1191,12 +1192,13 @@ func.func @tile_dyn_input(%arg0 : tensor<?x3xi8>) -> () {
 // CHECK-SAME: (%[[ARG0:[0-9a-zA-Z_]*]]:
 func.func @tile_dyn_multiples(%arg0 : tensor<2x3xi8>) -> () {
   // CHECK: %[[CST1:.+]] = arith.constant 1
-  // CHECK: %[[DYN:.+]] = tensor.dim %arg0, %[[CST1]] : tensor<2x3xi8>
-  // CHECK: %[[INIT:.+]] = tensor.empty()
-  // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<2x3xi8>) outs(%[[INIT]] : tensor<2x2x?x3xi8>)
-  // CHECK:   linalg.yield %arg1 : i8
+  // CHECK: %[[DYN:.+]] = tensor.dim %[[ARG0]], %[[CST1]] : tensor<2x3xi8>
+  // CHECK: %[[INIT:.+]] = tensor.empty(%[[DYN]])
+  // CHECK: %[[GENERIC:.+]] = linalg.generic {indexing_maps = [#[[$MAP0]], #[[$MAP1]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%[[ARG0]] : tensor<2x3xi8>) outs(%[[INIT]] : tensor<2x2x?x3xi8>)
+  // CHECK: ^bb0(%[[ARG1:.+]]: i8,
+  // CHECK:   linalg.yield %[[ARG1]] : i8
   // CHECK: "tosa.reshape"(%[[GENERIC]]) {new_shape = array<i64: 2, -9223372036854775808>}
-  %0 = "tosa.tile"(%arg0) {multiples = array<i64: 2, -9223372036854775808>} : (tensor<2x3xi8>)  -> (tensor<2x?xi8>)
+  %0 = "tosa.tile"(%arg0) {multiples = array<i64: 2, -1>} : (tensor<2x3xi8>)  -> (tensor<2x?xi8>)
 
   return
 }
