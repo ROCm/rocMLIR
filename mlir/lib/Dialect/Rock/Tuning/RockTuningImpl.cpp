@@ -191,8 +191,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     break;
   case KernelType::Gemm:
     break;
-  default: // Unknown op type?
-    return std::string();
   }
 
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||

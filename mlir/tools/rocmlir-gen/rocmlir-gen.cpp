@@ -1801,7 +1801,6 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
   b.create<linalg::FillOp>(loc, zeroOut, cVal);
 
-  constexpr llvm::StringLiteral parallel("parallel"), reduction("reduction");
   AffineExpr g = b.getAffineDimExpr(0), m = b.getAffineDimExpr(1),
              n = b.getAffineDimExpr(2), k = b.getAffineDimExpr(3);
   AffineMap aMap = AffineMap::get(
