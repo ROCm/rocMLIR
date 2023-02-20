@@ -978,6 +978,15 @@ struct GridwiseGemmV2RewritePattern
     std::tie(bVectorDim, bVectorLen) = bestVectorization(
         b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
 
+    // Vectorizing more than the physical vector length (128 bits) might
+    // be harmful for coalescence and other metrics. Let's limit the maximum
+    // amount of data to load to the maximum vector length. This means a
+    // warp will issue, if possible, a global_load_dwordx4 instruction
+    const int64_t maxVectorLenBits = 128;
+    auto bwidth = elementType.getIntOrFloatBitWidth();
+    aVectorLen = std::min(maxVectorLenBits / bwidth, aVectorLen);
+    bVectorLen = std::min(maxVectorLenBits / bwidth, bVectorLen);
+
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
                << "blockSize: " << blockSize << "\n"

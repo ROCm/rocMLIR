@@ -42,7 +42,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
       {8, 16, 32},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
-      {1, 4, 8},
+      {1, 4, 8, 16},
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
