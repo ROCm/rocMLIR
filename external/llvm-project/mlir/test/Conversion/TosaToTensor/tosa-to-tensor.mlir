@@ -116,10 +116,10 @@ func.func @slice_dyn(%arg0: tensor<?xf32>) -> (tensor<?xf32>) {
 func.func @pad_float(%arg0 : tensor<1x2xf32>) -> (tensor<4x9xf32>) {
   %0 = arith.constant dense<[[1, 2], [3, 4]]> : tensor<2x2xi32>
   // TODO: Output contains multiple "arith.constant 1 : index".
-  // CHECK-DAG: [[INDEX1:%.+]] = arith.constant 1 : index
-  // CHECK-DAG: [[INDEX2:%.+]] = arith.constant 2 : index
-  // CHECK-DAG: [[INDEX3:%.+]] = arith.constant 3 : index
-  // CHECK-DAG: [[INDEX4:%.+]] = arith.constant 4 : index
+  // CHECK-DAG: [[INDEX1:%.*]] = arith.constant 1 : index
+  // CHECK-DAG: [[INDEX2:%.*]] = arith.constant 2 : index
+  // CHECK-DAG: [[INDEX3:%.*]] = arith.constant 3 : index
+  // CHECK-DAG: [[INDEX4:%.*]] = arith.constant 4 : index
   // CHECK-DAG: [[CST:%.+]] = arith.constant 0.000000e+00 : f32
   // CHECK: tensor.pad %[[ARG0]] low{{\[}}%{{.*}}, [[INDEX3]]] high{{\[}}[[INDEX2]], [[INDEX4]]]  {
   // CHECK:   tensor.yield [[CST]]

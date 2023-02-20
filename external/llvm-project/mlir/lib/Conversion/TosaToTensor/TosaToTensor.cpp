@@ -368,6 +368,7 @@ void mlir::tosa::populateTosaToTensorConversionPatterns(
       ReshapeConverterCollapse,
       ReshapeConverterExpand,
       ReshapeConverterCollapseExpand,
-      SliceOpConverter>(patterns->getContext());
+      SliceOpConverter,
+      PadConverter>(patterns->getContext());
   // clang-format on
 }
