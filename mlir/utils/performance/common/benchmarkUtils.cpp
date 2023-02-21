@@ -195,11 +195,11 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
     } else if (arg == "-t") {
       res.dataType = strToDataType(argv[++i]);
     } else if (arg.rfind("-transA=", 0) == 0) {
-      const int lenTransA = 9;
+      const int lenTransA = std::string("-transA=").length();
       std::string value = arg.substr(lenTransA);
       res.transposeA = atob(value);
     } else if (arg.rfind("-transB=", 0) == 0) {
-      const int lenTransB = 9;
+      const int lenTransB = std::string("-transB=").length();
       std::string value = arg.substr(lenTransB);
       res.transposeB = atob(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
