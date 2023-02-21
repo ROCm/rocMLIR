@@ -376,7 +376,7 @@ def MIGraphX_SoftmaxOp :
 def MIGraphX_ReduceMeanOp :
     MIGraphX_Op<"reduce_mean">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I64Attr:$axis
+                   I64ArrayAttr:$axes
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Get the mean of the values in given axis";
