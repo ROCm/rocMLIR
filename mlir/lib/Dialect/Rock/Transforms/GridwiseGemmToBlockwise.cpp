@@ -138,6 +138,24 @@ computeCopyPerThread(GemmDimension dim, int64_t vectorLen,
   return std::make_pair(copyKPerThread, copyDPerThread);
 }
 
+static FailureOr<std::pair<int64_t, int64_t>>
+computeCopyPerThreadV2(int64_t vectorLen, int64_t copyPerThread,
+                       int64_t kPerBlock, int64_t dPerBlock, Location loc) {
+  int64_t copyKPerThread = std::min(vectorLen, copyPerThread);
+  int64_t copyDPerThread = copyPerThread / copyKPerThread;
+  if (copyKPerThread == 0 || copyDPerThread == 0) {
+    return emitError(loc) << "gemmA copy size too small,"
+                          << " copyKPerThread: " << copyKPerThread
+                          << " copyDPerThread: " << copyDPerThread << "\n";
+  }
+  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    return mlir::emitError(loc)
+           << "gemmA per thread copy smaller than per"
+           << " block copy, incohereant tuning parameters\n";
+  }
+  return std::make_pair(copyKPerThread, copyDPerThread);
+}
+
 /// Applies the transforms that take a G x K x D matrix to a k_iter x bid x tid
 /// x iter value suitable for using in a global load loop. `dName` should be "m"
 /// and "n", and is used to make the maps have the right names for debugging.
@@ -180,13 +198,15 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
                            {kIters, gridSize, blockSize, dataPerThread}, loc);
   splitId.passThrough("k_loop");
   splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
-  // That threads are grouped [other dim, k] is important: it menas we can
-  // ignore kPack here but then account for it when writing to LDS.
-  splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid", {dThreads, kThreads});
+
   if (vectorDim == GemmDimension::K) {
+    splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
+                  {dThreads, kThreads});
     splitId.merge({dIterName, "k_iter"}, {6, 7}, "iter",
                   {dPerThread, kPerThread});
   } else {
+    splitId.merge({"k_thread", dThreadName}, {4, 5}, "tid",
+                  {kThreads, dThreads});
     splitId.merge({"k_iter", dIterName}, {6, 7}, "iter",
                   {kPerThread, dPerThread});
   }
@@ -211,7 +231,8 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, StringRef dName,
                                               int64_t kPerThread,
-                                              int64_t dPerThread) {
+                                              int64_t dPerThread,
+                                              GemmDimension vectorDim) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   if (bufferShape.size() != 3)
@@ -237,11 +258,12 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   TransformMapAttr tidIterSplitAttr = tidIterSplit.get();
   Value withTidIterSplit = b.create<TransformOp>(loc, buffer, tidIterSplitAttr);
 
-  // Note: the fact that the global load groups the data each threads loads by
-  // k and then by d means that we can smath the k and kpack thread IDs together
-  // without any trouble.
   auto tidIter = BottomUpTMBuilder::above(tidIterSplit, tidIterSplitAttr);
-  tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  if (vectorDim == GemmDimension::K) {
+    tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  } else {
+    tidIter.merge("tid", 0, {"k_thread", "kpack_thread", dThreadName});
+  }
   tidIter.merge("iter", 1, {"k_iter", dIterName, "kpack_iter"});
   TransformMapAttr tidIterAttr = tidIter.get();
   Value transformed = b.create<TransformOp>(loc, withTidIterSplit, tidIterAttr);
@@ -708,12 +730,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -973,6 +997,25 @@ struct GridwiseGemmV2RewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
+    // When we use XDLops we always have a [K0, M/N, K1] LDS buffer
+    // so we should always try to maximize the vectorization in K
+    // first and then try a best-effort vectorization on the other
+    // dimension
+    int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
+    auto maybeCopyAPerThread = computeCopyPerThreadV2(
+        maxVlen, aCopyPerThread, kPerBlock, mPerBlock, loc);
+
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
+    auto maybeCopyBPerThread = computeCopyPerThreadV2(
+        maxVlen, bCopyPerThread, kPerBlock, nPerBlock, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     std::tie(aVectorDim, aVectorLen) =
@@ -982,32 +1025,25 @@ struct GridwiseGemmV2RewritePattern
         bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock,
                           nPerBlock, elementType);
 
-    LLVM_DEBUG(llvm::dbgs()
-               << "gridSize: " << gridSize << "\n"
-               << "blockSize: " << blockSize << "\n"
-               << "aCopyPerThread: " << aCopyPerThread << "\n"
-               << "bCopyPerThread: " << bCopyPerThread << "\n"
-               << "aVectorDim: " << aVectorDim << "\n"
-               << "aVectorLen: " << aVectorLen << "\n"
-               << "bVectorDim: " << bVectorDim << "\n"
-               << "bVectorLen: " << bVectorLen << "\n"
-               << "vectorTiebreaker: " << vectorTiebreaker << "\n");
+    // If we are vectorizing along dimension M or N, we cannot vectorize
+    // more than copyMPerThread
+    if (aVectorDim == GemmDimension::MorN) {
+      aVectorLen = std::min(aVectorLen, copyMPerThread);
+    }
+    if (bVectorDim == GemmDimension::MorN) {
+      bVectorLen = std::min(bVectorLen, copyNPerThread);
+    }
 
-    auto maybeCopyAPerThread = computeCopyPerThread(
-        aVectorDim, aVectorLen, aCopyPerThread, kPerBlock, mPerBlock, loc);
-    if (failed(maybeCopyAPerThread))
-      return maybeCopyAPerThread;
-    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
-    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    auto maybeCopyBPerThread = computeCopyPerThread(
-        bVectorDim, bVectorLen, bCopyPerThread, kPerBlock, nPerBlock, loc);
-    if (failed(maybeCopyBPerThread))
-      return maybeCopyBPerThread;
-    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
-    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
-
-    LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
+    LLVM_DEBUG(llvm::dbgs() << "gridSize: " << gridSize << "\n"
+                            << "blockSize: " << blockSize << "\n"
+                            << "aCopyPerThread: " << aCopyPerThread << "\n"
+                            << "bCopyPerThread: " << bCopyPerThread << "\n"
+                            << "aVectorDim: " << aVectorDim << "\n"
+                            << "aVectorLen: " << aVectorLen << "\n"
+                            << "bVectorDim: " << bVectorDim << "\n"
+                            << "bVectorLen: " << bVectorLen << "\n"
+                            << "vectorTiebreaker: " << vectorTiebreaker << "\n"
+                            << "kPerBlock: " << kPerBlock << "\n"
                             << "mPerBlock: " << mPerBlock << "\n"
                             << "nPerBlock: " << nPerBlock << "\n"
                             << "aCopyKPerThread: " << aCopyKPerThread << "\n"
@@ -1125,12 +1161,14 @@ struct GridwiseGemmV2RewritePattern
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -1142,7 +1180,6 @@ struct GridwiseGemmV2RewritePattern
     TransformingForOp blockwiseStoreB =
         createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
                            wrappedLdsB, bCopyPerThread, tid, forceUnroll);
-
     // -----
 
     // Mfma instruction group selection.
