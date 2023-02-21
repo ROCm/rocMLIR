@@ -353,6 +353,8 @@ pipeline {
                      description: 'Run the performance testing stage')
         booleanParam(name: 'checkMIGraphX', defaultValue: false,
                      description: 'Run the MIGraphX integration tests')
+        booleanParam(name: 'checkCK', defaultValue: true,
+                     description: 'Compare performance against CK')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -844,6 +846,10 @@ pipeline {
                         }
                     }
                     stage("Test MLIR vs CK") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.checkCK;
+                        }
                         steps {
                             catchError (buildResult: null) { // This is an optional stage
                                 dir('composable_kernel') {
