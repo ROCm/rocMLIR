@@ -1368,9 +1368,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
   auto memSpaceValueAttr =
       destType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (!(memSpaceValueAttr != nullptr &&
-        memSpaceValueAttr.getValue() ==
-            gpu::GPUDialect::getPrivateAddressSpace()))
+  if (memSpaceValueAttr != nullptr &&
+      memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1391,9 +1390,8 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   auto memSpaceValueAttr =
       sourceType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (!(memSpaceValueAttr != nullptr &&
-        memSpaceValueAttr.getValue() ==
-            gpu::GPUDialect::getPrivateAddressSpace()))
+  if (memSpaceValueAttr != nullptr &&
+      memSpaceValueAttr.getValue() != gpu::GPUDialect::getPrivateAddressSpace())
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;
