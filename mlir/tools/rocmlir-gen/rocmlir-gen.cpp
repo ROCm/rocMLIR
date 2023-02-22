@@ -569,10 +569,10 @@ struct KernelIF {
 };
 
 struct GenParams {
-  llvm::Optional<rock::KernelType> operation = std::nullopt;
+  std::optional<rock::KernelType> operation = std::nullopt;
   Type dtype = nullptr;
   rock::GemmFeatures features = rock::GemmFeatures::none;
-  llvm::Optional<const rock::Conv2dGenerator::Config *> convConfig =
+  std::optional<const rock::Conv2dGenerator::Config *> convConfig =
       std::nullopt;
   StringRef arch;
   StringRef perfConfig;
@@ -930,7 +930,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
-  llvm::Optional<Type> result = llvm::StringSwitch<llvm::Optional<Type>>(name)
+  std::optional<Type> result = llvm::StringSwitch<std::optional<Type>>(name)
                                     .Case("f32", Float32Type::get(ctx))
                                     .Case("f16", Float16Type::get(ctx))
                                     .Case("bf16", BFloat16Type::get(ctx))

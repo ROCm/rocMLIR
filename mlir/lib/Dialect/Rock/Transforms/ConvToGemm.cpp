@@ -939,7 +939,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     Attribute tuningParams = op.getParamsAttr();
     GemmSize gemmSize = op.getGemmSize();
-    Optional<GemmSize> maybeGemmExtraPad;
+    std::optional<GemmSize> maybeGemmExtraPad;
 
     if (tuningParams) {
       maybeGemmExtraPad = requiredPadding(tuningParams, gemmSize);

@@ -78,15 +78,15 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static std::tuple<StringAttr, Optional<uint32_t>, rock::GemmFeatures>
+static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op) {
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
-  Optional<uint32_t> num_cu = std::nullopt;
-  Optional<bool> xdlopsV2 = std::nullopt;
+  std::optional<uint32_t> num_cu = std::nullopt;
+  std::optional<bool> xdlopsV2 = std::nullopt;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     arch = attr;
@@ -129,7 +129,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto outputExp = expandTensor(rw, op, output);
 
   StringAttr arch;
-  Optional<uint32_t> num_cu;
+  std::optional<uint32_t> num_cu;
   rock::GemmFeatures features;
   std::tie(arch, num_cu, features) = getArchAttributes(op);
 
@@ -278,7 +278,7 @@ public:
              transposeC = getTranspose(op, "transpose_c");
 
     StringAttr arch;
-    Optional<uint32_t> num_cu;
+    std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
 

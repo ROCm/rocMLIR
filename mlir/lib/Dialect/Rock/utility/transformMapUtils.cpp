@@ -114,17 +114,17 @@ struct VectorizationInfo {
 /// If a dimension's VectorizationInfo is `None`, that dimension is
 /// assumed to be held constant.
 struct VectorizationData {
-  llvm::IndexedMap<Optional<VectorizationInfo>> data;
-  operator llvm::IndexedMap<Optional<VectorizationInfo>> &() { return data; }
+  llvm::IndexedMap<std::optional<VectorizationInfo>> data;
+  operator llvm::IndexedMap<std::optional<VectorizationInfo>> &() { return data; }
 
   void grow(size_t n) {
     // The underlying grow() takes the max index, not the size
     data.grow(n - 1);
   }
 
-  Optional<VectorizationInfo> &operator[](uint32_t idx) { return data[idx]; }
+  std::optional<VectorizationInfo> &operator[](uint32_t idx) { return data[idx]; }
 
-  const Optional<VectorizationInfo> &operator[](uint32_t idx) const {
+  const std::optional<VectorizationInfo> &operator[](uint32_t idx) const {
     return data[idx];
   }
 
@@ -152,12 +152,12 @@ struct VectorizationData {
 /// unit stride (the dimension that broke things could have jumps, padding,
 /// etc.).
 template <typename T>
-static Optional<VectorizationInfo>
+static std::optional<VectorizationInfo>
 propagateUnmergeVectorization(T &&dimAndLength,
                               const VectorizationData &input) {
-  Optional<VectorizationInfo> result;
+  std::optional<VectorizationInfo> result;
   int64_t previousDimsStride = 1;
-  Optional<int64_t> previousAlign;
+  std::optional<int64_t> previousAlign;
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
     int64_t dimLength = std::get<1>(pair);
@@ -463,7 +463,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
         int64_t leftPad = params[2 * idx], rightPad = params[2 * idx + 1];
         uint32_t upper, lower;
         std::tie(upper, lower) = data.value();
-        Optional<VectorizationInfo> upperInfo = input[upper];
+        std::optional<VectorizationInfo> upperInfo = input[upper];
         if (upperInfo.has_value()) {
           int64_t maxUpperLen = upperInfo->maxLength;
           int64_t upperAlign = upperInfo->alignment;
@@ -525,7 +525,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       // - Negative coefficient, at least one input is tracked => vectorization
       // of 1
       bool hasNegativeCoefficients = false;
-      Optional<VectorizationInfo> ourResult;
+      std::optional<VectorizationInfo> ourResult;
       // We first compute the alignment assuming the held constant dimensions
       // don't matter, then we take the gcd of that result with the coefficients
       // on the held-constant dimensions.
@@ -684,7 +684,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();
 
-  Optional<VectorizationInfo> finalUnmerge = propagateUnmergeVectorization(
+  std::optional<VectorizationInfo> finalUnmerge = propagateUnmergeVectorization(
       llvm::zip(llvm::reverse(
                     llvm::iota_range<uint32_t>(0, outputShape.size(), false)),
                 llvm::reverse(outputShape)),

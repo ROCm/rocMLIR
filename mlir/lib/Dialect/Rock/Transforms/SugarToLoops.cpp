@@ -116,7 +116,7 @@ struct TransformingForRewritePattern
         }
         for (auto t : transforms.getAsRange<TransformMapAttr>()) {
           AffineMap map = t.getMap().getAffineMap();
-          Optional<AffineResults> init;
+          std::optional<AffineResults> init;
           if (lowerInit.empty())
             init = expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
@@ -193,7 +193,7 @@ struct TransformingForRewritePattern
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations
             continue;
-          Optional<AffineResults> transformed =
+          std::optional<AffineResults> transformed =
               expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
             return failure();
@@ -273,7 +273,7 @@ struct TransformingForRewritePattern
 
 // Determine if the operation provided is a constant, and return its value if it
 // is
-Optional<int64_t> isConstantValue(Value v) {
+std::optional<int64_t> isConstantValue(Value v) {
   auto *op = v.getDefiningOp();
   if (nullptr == op)
     return std::nullopt;
@@ -1037,7 +1037,7 @@ struct InWarpTransposeRewritePattern
   Value emitRotations(Location loc, PatternRewriter &b, Value vector,
                       Value laneId, RotationDirection dir, uint32_t groupSize,
                       uint32_t totalSize,
-                      Optional<ArrayRef<uint32_t>> lanePerm) const {
+                      std::optional<ArrayRef<uint32_t>> lanePerm) const {
     assert(totalSize % groupSize == 0 &&
            "block size is divisible by group size");
 
@@ -1307,7 +1307,7 @@ struct InWarpTransposeRewritePattern
                                 .getZExtValue());
     }
 
-    Optional<ArrayRef<uint32_t>> maybeInGroupPerm = std::nullopt;
+    std::optional<ArrayRef<uint32_t>> maybeInGroupPerm = std::nullopt;
     if (inGroupPermAttr != b.getI32ArrayAttr({0, 1, 2, 3})) {
       maybeInGroupPerm = inGroupPerm;
     }
