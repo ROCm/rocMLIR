@@ -577,7 +577,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Allocate LDS.
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
+        gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsMemRefType = MemRefType::get(
         {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
@@ -1084,7 +1084,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Allocate LDS.
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
+        gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsMemRefType = MemRefType::get(
         {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
