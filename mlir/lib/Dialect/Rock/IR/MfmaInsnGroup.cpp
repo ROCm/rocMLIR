@@ -158,6 +158,7 @@ auto getMfmaInsnGroupAttrMap = []() {
   using amdgpu::MFMAPermB;
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
+      // f32
       groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 64, 32},
@@ -178,6 +179,7 @@ auto getMfmaInsnGroupAttrMap = []() {
                     {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 16, 16},
                     {ROCDL::mfma_f32_16x16x4f32::getOperationName()}},
+                   // f16
                    {{MfmaTypeId::Fp16TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 64, 32},
@@ -198,6 +200,7 @@ auto getMfmaInsnGroupAttrMap = []() {
                     {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 16, 16},
                     {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
+                   // bf16
                    {{MfmaTypeId::Bf16TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 64, 32},
@@ -218,10 +221,19 @@ auto getMfmaInsnGroupAttrMap = []() {
                     {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 16, 16},
                     {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}},
+                   // Int8
                    {{MfmaTypeId::I8TyId, 64, 64},
+                    {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 64, 32},
+                    {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 32, 64},
                     {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 32, 32},
                     {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 64, 16},
+                    {ROCDL::mfma_i32_16x16x16i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 16, 64},
+                    {ROCDL::mfma_i32_16x16x16i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 16, 16},
                     {ROCDL::mfma_i32_16x16x16i8::getOperationName()}}};
 

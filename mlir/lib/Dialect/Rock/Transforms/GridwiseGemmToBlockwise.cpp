@@ -91,7 +91,7 @@ static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
 static std::pair<GemmDimension, int64_t>
 bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
                   GemmDimension tiebreaker, int64_t kPerBlock,
-                  int64_t dPerBlock) {
+                  int64_t dPerBlock, Type elementType) {
   Value tensor;
   ArrayAttr transforms;
   std::tie(tensor, transforms) = untransform(b, matrix);
@@ -104,6 +104,15 @@ bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
   int64_t dVectorLen = getMaxVectorization(
       transforms, static_cast<uint32_t>(GemmDimension::MorN),
       math_util::gcd(dataPerThread, dPerBlock), tensorShape);
+
+  // Vectorizing more than the physical vector length (128 bits) might
+  // be harmful for coalescence and other metrics. Let's limit the maximum
+  // amount of data to load to the maximum vector length. This means a
+  // warp will issue, if possible, a global_load_dwordx4 instruction
+  const int64_t maxVectorLenBits = 128;
+  auto bwidth = elementType.getIntOrFloatBitWidth();
+  kVectorLen = std::min(maxVectorLenBits / bwidth, kVectorLen);
+  dVectorLen = std::min(maxVectorLenBits / bwidth, dVectorLen);
 
   if (kVectorLen > dVectorLen)
     return {GemmDimension::K, kVectorLen};
@@ -648,10 +657,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) = bestVectorization(
-        b, op.getA(), aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
-    std::tie(bVectorDim, bVectorLen) = bestVectorization(
-        b, op.getB(), bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
+    std::tie(aVectorDim, aVectorLen) =
+        bestVectorization(b, op.getA(), aCopyPerThread, vectorTiebreaker,
+                          kPerBlock, mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) =
+        bestVectorization(b, op.getB(), bCopyPerThread, vectorTiebreaker,
+                          kPerBlock, nPerBlock, elementType);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -973,19 +984,12 @@ struct GridwiseGemmV2RewritePattern
 
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) = bestVectorization(
-        b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
-    std::tie(bVectorDim, bVectorLen) = bestVectorization(
-        b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
-
-    // Vectorizing more than the physical vector length (128 bits) might
-    // be harmful for coalescence and other metrics. Let's limit the maximum
-    // amount of data to load to the maximum vector length. This means a
-    // warp will issue, if possible, a global_load_dwordx4 instruction
-    const int64_t maxVectorLenBits = 128;
-    auto bwidth = elementType.getIntOrFloatBitWidth();
-    aVectorLen = std::min(maxVectorLenBits / bwidth, aVectorLen);
-    bVectorLen = std::min(maxVectorLenBits / bwidth, bVectorLen);
+    std::tie(aVectorDim, aVectorLen) =
+        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock,
+                          mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) =
+        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock,
+                          nPerBlock, elementType);
 
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
