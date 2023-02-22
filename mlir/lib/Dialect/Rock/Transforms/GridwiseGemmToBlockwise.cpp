@@ -576,8 +576,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
 
     // Allocate LDS.
-    auto workgroupMemoryAddressSpace = gpu::AddressSpaceAttr::get(
-        op->getContext(), gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     auto ldsMemRefType = MemRefType::get(
         {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
@@ -611,8 +611,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t threadCNumM = gemmMRepeat * mPerThread;
     int64_t threadCNumN = gemmNRepeat * nPerThread;
     int64_t threadCNumRegisters = threadCNumM * threadCNumN;
-    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
-        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadCRegisterMemRefType =
         MemRefType::get({threadCNumRegisters}, accumulatorType, AffineMap{},
                         privateMemoryAddressSpace);
@@ -1083,8 +1083,8 @@ struct GridwiseGemmV2RewritePattern
       return failure();
 
     // Allocate LDS.
-    auto workgroupMemoryAddressSpace = gpu::AddressSpaceAttr::get(
-        op->getContext(), gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     auto ldsMemRefType = MemRefType::get(
         {ldsBlockSize}, elementType, AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
@@ -1199,8 +1199,8 @@ struct GridwiseGemmV2RewritePattern
         (!isKReduction) ? (kpacksPerBlock * nRepeats)
                         : (kpacksPerBlock / inputSpansPerMfmaIn * nRepeats);
     Type arrayAType, arrayBType;
-    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
-        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     if (kpack > 1) {
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),

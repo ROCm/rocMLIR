@@ -217,8 +217,8 @@ struct BlockwiseGemmRewritePattern
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
 
     // Alloc register for thread_a and thread_b.
-    auto privateMemoryAddressSpace = gpu::AddressSpaceAttr::get(
-        op->getContext(), gpu::GPUDialect::getPrivateAddressSpace());
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadARegisterMemRefType =
         MemRefType::get(threadANumRegisters, elementType, AffineMap{},
                         privateMemoryAddressSpace);
@@ -762,8 +762,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
-    writeAllTarget
-        .addLegalDialect<arith::ArithDialect, rock::RockDialect>();
+    writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns.add<ThreadwiseReadIntoRewritePattern,
                          ThreadwiseWriteAllRewritePattern>(ctx);
