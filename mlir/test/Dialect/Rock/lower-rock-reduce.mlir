@@ -13,6 +13,6 @@ func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>
     // CHECK: %[[ldRed:.*]] = rock.alloc() : memref<1xf32, 5>
     // CHECK: rock.in_bounds_store %[[ld]] -> %[[ldRed]][%c0] : f32 -> memref<1xf32, 5>, index
     // CHECK: rock.global_store %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]] storeMethod( atomic_add)
-    rock.reduce sum %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf32>
+    rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf32>
     func.return
 }

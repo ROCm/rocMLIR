@@ -162,8 +162,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 //  CHECK-NEXT: rock.transform
 
 func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
-  rock.gridwise_gemm %C = %A * %B {
-    arch = "amdgcn-amd-amdhsa:gfx900",
+  rock.gridwise_gemm %C = %A * %B features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.general_gemm_params<
@@ -183,7 +182,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
 //  CHECK-NEXT: rock.gridwise_gemm
 
 func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
-  rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
+  rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) features = none {
     arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
@@ -227,7 +226,7 @@ func.func @rock_buffer_load(%buffer: memref<128x128xf32>, %valid: i1, %idx0: ind
 // CHECK-NEXT: rock.buffer_load
 
 func.func @rock_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %valid: i1, %idx0: index, %idx1: index) {
-  rock.buffer_store set %data -> %buffer[%idx0, %idx1] if %valid
+  rock.buffer_store set %data -> %buffer[%idx0, %idx1] if %valid features = none
   : vector<4xf32> -> memref<128x128xf32>, index, index
   return
 }
@@ -265,13 +264,13 @@ func.func @rock_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
 
 
 func.func @zero_init_kernel(%arg0 : memref<2x4xf32>) {
-  rock.zero_init_kernel %arg0 {arch = "amdgcn-amd-amdhsa:gfx900"} : memref<2x4xf32>
+  rock.zero_init_kernel %arg0 features = none : memref<2x4xf32>
   func.return
 }
 // CHECK-LABEL func.func @zero_init_kernel
 // CHECK: rock.zero_init_kernel
 
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
-  rock.converting_copy_kernel %arg0 to %arg1 {arch = "amdgcn-amd-amdhsa:gfx900"} : memref<2x4xf32> to memref<2x4xf16>
+  rock.converting_copy_kernel %arg0 to %arg1 features = none : memref<2x4xf32> to memref<2x4xf16>
   func.return
 }

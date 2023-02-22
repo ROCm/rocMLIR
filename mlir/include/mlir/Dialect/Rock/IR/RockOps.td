@@ -180,6 +180,7 @@ def Rock_ReduceOp :
   Arguments<(ins
     Arg<TensorOrMemRefOf<[F32]>, "input", [MemRead]>:$in,
     Arg<TensorOrMemRefOf<[F32]>, "output", [MemRead, MemWrite]>:$out,
+    Rock_GemmFeaturesAttr:$features,
     ReduceMethodAttr:$reduceMethod,
     IndexAttr:$axis,
     I32Attr:$blockSize,
@@ -191,7 +192,7 @@ def Rock_ReduceOp :
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $reduceMethod $in `into` $out attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
+    $reduceMethod $in `into` $out `features` `=` $features attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
@@ -201,7 +202,7 @@ def Rock_ReduceOp :
 def Rock_ZeroInitKernelOp :
     Rock_Op<"zero_init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
-                  StrAttr:$arch,
+                  Rock_GemmFeaturesAttr:$features,
                   OptionalAttr<I32Attr>:$blockSize,
                   OptionalAttr<I32Attr>:$gridSize,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
@@ -217,7 +218,7 @@ def Rock_ZeroInitKernelOp :
   }];
 
   let assemblyFormat = [{
-    $buffer attr-dict `:` type($buffer) (`->` type($result)^)?
+    $buffer `features` `=` $features attr-dict `:` type($buffer) (`->` type($result)^)?
   }];
 
   // Declaration to enable the bufferization implementation to work as if this werr
@@ -231,7 +232,7 @@ def Rock_ConvertingCopyKernelOp :
     Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
     Arguments<(ins AnyTensorOrMemRef:$input,
                   AnyTensorOrMemRef:$output,
-                  StrAttr:$arch,
+                  Rock_GemmFeaturesAttr:$features,
                   OptionalAttr<I32Attr>:$blockSize,
                   OptionalAttr<I32Attr>:$gridSize,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
@@ -248,7 +249,7 @@ def Rock_ConvertingCopyKernelOp :
   }];
 
   let assemblyFormat = [{
-    $input `to` $output attr-dict
+    $input `to` $output `features` `=` $features attr-dict
     `:` type($input) `to` type($output) (`->` type($result)^)?
   }];
 
@@ -335,9 +336,7 @@ def Rock_GridwiseGemmOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
-                   StrAttr:$arch,
-                   // Note: num_cu is not used
-                   // arch isn't either, but I'm passing it down just in case
+                   Rock_GemmFeaturesAttr:$features,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
@@ -345,7 +344,7 @@ def Rock_GridwiseGemmOp :
     The `rock.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    $c `=` $a `*` $b attr-dict `:` type($c) `=` type($a) `*` type($b)
+    $c `=` $a `*` $b `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
 }
@@ -356,9 +355,8 @@ def Rock_GridwiseGemmV2Op :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
+                   Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
-                   StrAttr:$arch,
-                   // Note: num_cu isn't used
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
                    Rock_XdlopsGemmParamsAttr:$params)> {
@@ -367,7 +365,7 @@ def Rock_GridwiseGemmV2Op :
     The `rock.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
 }
@@ -777,6 +775,7 @@ def Rock_BufferStoreOp :
         "Buffer to store to", [MemWrite]>:$dest,
       I1:$valid,
       Variadic<Index>:$coords,
+      Rock_GemmFeaturesAttr:$features,
       StoreMethodAttr:$storeMethod,
       OptionalAttr<IndexAttr>:$offset,
       UnitAttr:$oobIsOverflow)> {
@@ -801,7 +800,7 @@ def Rock_BufferStoreOp :
     The buffer must reside in global memory.
   }];
   let assemblyFormat = [{
-    $storeMethod $data `->` $dest `[` $coords `]` `if` $valid attr-dict
+    $storeMethod $data `->` $dest `[` $coords `]` `if` $valid `features` `=` $features attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
   }];
   let hasVerifier = 1;
@@ -877,6 +876,7 @@ def Rock_GlobalStoreOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
                    IndexAttr:$length,
+                   Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    Index:$sourceCoord,
                    I1:$valid,
@@ -896,7 +896,7 @@ def Rock_GlobalStoreOp :
   let assemblyFormat = [{
     $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]` `if` $valid
-    `storeMethod` `(` $storeMethod `)` attr-dict
+    `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict
     `:` type($source) `->`
     type($dest) `,` type($destCoord)
   }];
@@ -966,6 +966,7 @@ def Rock_ThreadwiseWriteAllOp :
       "source registers", [MemRead]>:$source,
       Arg<AnyMemRef, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
+      Rock_GemmFeaturesAttr:$features,
       StoreMethodAttr:$storeMethod,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
@@ -1018,7 +1019,7 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    attr-dict $source  `->` $extraViews `(` $dest `)` `by` $storeMethod
+    `features` `=` $features attr-dict $source  `->` $extraViews `(` $dest `)` `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
