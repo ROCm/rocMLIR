@@ -25,6 +25,7 @@ static bool findIntermediateShape(ArrayRef<int64_t> lhsShape,
                                   SmallVector<int64_t> &intermediateShape,
                                   bool isDynamic) {
   if (isDynamic) {
+    // TODO (natashaknk): Make dynamic intermediate shape not always be rank-1
     intermediateShape = {ShapedType::kDynamic};
     return true;
   }
@@ -42,10 +43,14 @@ static bool findIntermediateShape(ArrayRef<int64_t> lhsShape,
            currRhsDim < rhsShape.size()) {
       if (lhsSize < rhsSize) {
         currLhsDim++;
-        lhsSize *= lhsShape[currLhsDim];
+        if (currLhsDim < lhsShape.size()) {
+          lhsSize *= lhsShape[currLhsDim];
+        }
       } else {
         currRhsDim++;
-        rhsSize *= rhsShape[currRhsDim];
+        if (currRhsDim < rhsShape.size()) {
+          rhsSize *= rhsShape[currRhsDim];
+        }
       }
     }
     if (lhsSize == rhsSize) {
@@ -138,11 +143,6 @@ public:
           reshape, "Cannot collapse dynamic dims to more than one dimension");
     }
 
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
-
     SmallVector<ReassociationExprs, 4> reassociationMap;
     if (!createReassociationMapsForCollapse(rewriter, operandTy.getShape(),
                                             resultTy.getShape(),
@@ -175,11 +175,6 @@ public:
     ShapedType operandTy = adaptor.getInput1().getType().cast<ShapedType>();
     ShapedType resultTy = reshape.getType().template cast<ShapedType>();
     bool isDynamic = !operandTy.hasStaticShape();
-
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
 
     if (isDynamic && operandTy.getRank() != 1) {
       return rewriter.notifyMatchFailure(
@@ -220,11 +215,6 @@ public:
     ShapedType resultTy = reshape.getType().template cast<ShapedType>();
     bool isDynamic = !operandTy.hasStaticShape();
 
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
-
     SmallVector<int64_t> intermediateShape;
     if (!findIntermediateShape(resultTy.getShape(), operandTy.getShape(),
                                intermediateShape, isDynamic)) {
@@ -246,17 +236,16 @@ public:
   }
 };
 
-class SliceOpConverter : public OpConversionPattern<tosa::SliceOp> {
+class SliceConverter : public OpConversionPattern<tosa::SliceOp> {
 public:
   using OpConversionPattern<tosa::SliceOp>::OpConversionPattern;
 
-  LogicalResult
-  matchAndRewrite(tosa::SliceOp sliceOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
+  LogicalResult matchAndRewrite(tosa::SliceOp sliceOp,
+                                PatternRewriter &rewriter) const final {
     Location loc = sliceOp.getLoc();
     Value input = adaptor.getInput();
     SmallVector<int64_t> strides, sizes;
-    auto starts = sliceOp.getStart();
+    ArrayRef<int64_t> starts = sliceOp.getStart();
     strides.resize(sliceOp.getType().template cast<ShapedType>().getRank(), 1);
 
     SmallVector<Value> dynSizes;
@@ -363,12 +352,11 @@ public:
 
 void mlir::tosa::populateTosaToTensorConversionPatterns(
     RewritePatternSet *patterns) {
-  patterns->add<
-      // clang-format off
-      ReshapeConverterCollapse,
-      ReshapeConverterExpand,
-      ReshapeConverterCollapseExpand,
-      SliceOpConverter,
-      PadConverter>(patterns->getContext());
-  // clang-format on
+  patterns->add<SliceConverter, PadConverter>(patterns->getContext());
+  patterns->add<ReshapeConverterCollapse>(patterns->getContext(),
+                                          /*benefit=*/100);
+  patterns->add<ReshapeConverterExpand>(patterns->getContext(),
+                                        /*benefit=*/200);
+  patterns->add<ReshapeConverterCollapseExpand>(patterns->getContext(),
+                                                /*benefit=*/300);
 }
