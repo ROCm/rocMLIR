@@ -842,7 +842,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   StoreMethod::Set,
+                                   op.getFeatures(), StoreMethod::Set,
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
 
@@ -1401,8 +1401,8 @@ struct GridwiseGemmV2RewritePattern
     registerC = convertedC;
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   op.getStoreMethod(), forceUnroll,
-                                   useIndexDiffs);
+                                   op.getFeatures(), op.getStoreMethod(),
+                                   forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
   }

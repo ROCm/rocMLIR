@@ -17,21 +17,21 @@ Example usage:
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import os
+import sys
 import re
 import subprocess
 from typing import Tuple, Optional
 import pathspec
 import unidiff
+import argparse
 
 
 def get_diff(base_commit) -> Tuple[bool, str]:
-  r = subprocess.run(f'/opt/rocm/llvm/bin/git-clang-format {base_commit}', shell=True)
-  if r.returncode != 0:
-    r = subprocess.run(f'git checkout -- .', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+  diff_run = subprocess.run(f'/opt/rocm/llvm/bin/git-clang-format --diff {base_commit}', shell=True)
+  if diff_run.returncode != 0:
     return False, ''
-  diff_run = subprocess.run(f'git diff -U0 --no-prefix --exit-code', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-  r = subprocess.run(f'git checkout -- .', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-  return True, diff_run.stdout.decode()
+  diff = diff_run.stdout.decode() if diff_run.stdout else ""
+  return True, diff
 
 def run_clang_format(base_commit, ignore_config):
   """Apply clang-format and return if no issues were found.
@@ -57,9 +57,8 @@ def run_clang_format(base_commit, ignore_config):
       success = False
 
   if not success:
-    print('Please format your changes with clang-format by running `git-clang-format HEAD^` or applying patch.')
+    print(f'Please format your changes with clang-format by running `git-clang-format {base_commit}` or applying patch.')
     return False
-
   return True
 
 def remove_ignored(diff_lines, ignore_patterns_lines):
@@ -127,6 +126,20 @@ def run_clang_tidy(base_commit, ignore_config):
 
 
 if __name__ == '__main__':
-  if  not (   run_clang_format('HEAD~1','./mlir/utils/jenkins/static-checks/clang-format.ignore')
-          and run_clang_tidy('HEAD~1', './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
+  args = sys.argv[1:]
+  parser = argparse.ArgumentParser(
+        prog="rocMLIR premerge checker",
+        description="A helper script to invoke linters",
+        allow_abbrev=False,
+  )
+  parser.add_argument(
+        "-b", "--base-commit",
+        type=str,
+        default='origin/develop',
+        help="The base commit to lint againts"
+  )
+  parsed_args = parser.parse_args(args)
+  print(f"Running linters against base commit : {parsed_args.base_commit}")
+  if  not (   run_clang_format(parsed_args.base_commit,'./mlir/utils/jenkins/static-checks/clang-format.ignore')
+          and run_clang_tidy(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
     exit(1)

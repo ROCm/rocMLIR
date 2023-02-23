@@ -244,7 +244,7 @@ func.func @rock_buffer_load_4xi32(%source : memref<?x?x?xi32>, %valid : i1, %sc0
 func.func @rock_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : f32 -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -255,7 +255,7 @@ func.func @rock_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %val
 func.func @rock_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x16xf32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<2xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -266,7 +266,7 @@ func.func @rock_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x16xf32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<4xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -279,7 +279,7 @@ func.func @rock_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : f16 -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -290,7 +290,7 @@ func.func @rock_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %val
 func.func @rock_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x16xf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<2xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -301,7 +301,7 @@ func.func @rock_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x16xf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<4xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -312,7 +312,7 @@ func.func @rock_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x16xf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<8xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -325,7 +325,7 @@ func.func @rock_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : bf16 -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -336,7 +336,7 @@ func.func @rock_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %
 func.func @rock_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1x16xbf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<2xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -347,7 +347,7 @@ func.func @rock_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1
 func.func @rock_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1x16xbf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<4xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -358,7 +358,7 @@ func.func @rock_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1
 func.func @rock_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1x16xbf16>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<8xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -371,7 +371,7 @@ func.func @rock_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1
 func.func @rock_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : i8 -> memref<1x1x1x1x16xi8>, index, index, index, index, index
           return
 }
@@ -382,7 +382,7 @@ func.func @rock_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %valid:
 func.func @rock_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16xi8>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<4xi8> -> memref<1x1x1x1x16xi8>, index, index, index, index, index
   return
 }
@@ -394,7 +394,7 @@ func.func @rock_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16x
 func.func @rock_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : i32 -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -405,7 +405,7 @@ func.func @rock_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %val
 func.func @rock_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x16xi32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<2xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -416,7 +416,7 @@ func.func @rock_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x1
 func.func @rock_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1x16xi32>, %valid: i1, %idx: index) {
   %c0 = arith.constant 0 : index
   rock.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    if %valid
+    if %valid features = none
    : vector<4xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -453,6 +453,7 @@ func.func @rock_global_store(%source : memref<32xf32, 5>,
     %dest[%c1, %c1, %c1, %c1, %c1]
     if %valid
     storeMethod(set)
+    features = none
     {length = 1 : index}
     : memref<32xf32, 5>
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index

@@ -829,8 +829,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
         builder.getNamedAttr("kernelId", builder.getIndexAttr(kernelId)));
   }
   // features
-  attributes.push_back(builder.getNamedAttr(
-      "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
+  GemmFeaturesAttr features =
+      builder.getAttr<GemmFeaturesAttr>(config.features);
+  attributes.push_back(builder.getNamedAttr("features", features));
 
   SmallVector<int32_t, 4> paddingArray{
       config.paddingHeightLeft, config.paddingHeightRight,
@@ -871,7 +872,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // zero init input tensor
       auto zeroInit = builder.create<ZeroInitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
-          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          features, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInit);
     } else {
@@ -886,7 +887,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // If there is a workspace, zero-init it, otherwise fill the filter tensor
       auto zeroInitOp = builder.create<ZeroInitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          args[hasWorkspace ? 3 : 0], archStrAttr,
+          args[hasWorkspace ? 3 : 0], features,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInitOp);
@@ -894,7 +895,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // Workspace -> filter tensor
       auto conversionOp = builder.create<ConvertingCopyKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[3], args[0],
-          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          features, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(conversionOp);
     } else {

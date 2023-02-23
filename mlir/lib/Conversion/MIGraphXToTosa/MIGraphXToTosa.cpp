@@ -429,10 +429,60 @@ public:
   }
 };
 
+class ReduceMeanConverter final
+    : public OpConversionPattern<migraphx::ReduceMeanOp> {
+public:
+  using OpConversionPattern<migraphx::ReduceMeanOp>::OpConversionPattern;
+
+  tosa::ConstOp
+  createNumElementsTosaConst(Location loc, TypedValue<TensorType> inputTensor,
+                             IntegerAttr axisAttr,
+                             ConversionPatternRewriter &rewriter) const {
+    Type elementType = inputTensor.getType().getElementType();
+    int64_t axis = axisAttr.getValue().getSExtValue();
+    Attribute numElements;
+    if (elementType.isIntOrIndex()) {
+      numElements = rewriter.getIntegerAttr(
+          elementType, inputTensor.getType().getShape()[axis]);
+    } else {
+      numElements = rewriter.getFloatAttr(
+          elementType,
+          (static_cast<double>(inputTensor.getType().getShape()[axis])));
+    }
+    RankedTensorType tensorType = RankedTensorType::get({1}, elementType);
+    return rewriter.create<tosa::ConstOp>(
+        loc, tensorType, DenseElementsAttr::get(tensorType, {numElements}));
+  }
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReduceMeanOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    ArrayRef<Attribute> axes = op.getAxes().getValue();
+    if (axes.size() != 1) {
+      return op.emitError("We only support single axes reductions!");
+    }
+    IntegerAttr axis = axes[0].cast<IntegerAttr>();
+    Type elementType = op.getInput().getType().getElementType();
+
+    tosa::ConstOp tosaConstantNumElements =
+        createNumElementsTosaConst(loc, op.getInput(), axis, rewriter);
+    auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
+        rewriter, loc, elementType, tosaConstantNumElements);
+    auto tosaMul = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elementType, op.getInput(), tosaReciprocal, /*shift=*/0);
+    auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
+        rewriter, loc, elementType, tosaMul, axis);
+    rewriter.replaceOp(op, {tosaReduceSum});
+    return success();
+  }
+};
+
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
-               ReshapeConverter, SoftmaxConverter, DotConverter>(context);
+               ReshapeConverter, SoftmaxConverter, DotConverter,
+               ReduceMeanConverter>(context);
 }

@@ -312,6 +312,17 @@ static llvm::cl::opt<FeatureToggle> atomicAddFeature(
                                 "remove atomic_add from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
+// atomicFmaxF32
+static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
+    "atomic_fmax_f32", llvm::cl::desc("toggle feature atomic_fmax_f32"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force atomic_add into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove atomic_add from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
 // data type
 static llvm::cl::opt<std::string>
     tensorDataType("t", llvm::cl::desc("Data type for convolution"),
@@ -2712,6 +2723,10 @@ int main(int argc, char **argv) {
         enabledFeatures =
             bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
                        atomicAddFeature == FeatureToggle::on);
+      if (atomicFMaxF32Feature != FeatureToggle::infer)
+        enabledFeatures =
+            bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
+                       atomicFMaxF32Feature == FeatureToggle::on);
       genParams.operation = operation;
       genParams.features = enabledFeatures;
       genParams.arch = arch;

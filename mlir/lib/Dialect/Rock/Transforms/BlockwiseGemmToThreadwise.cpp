@@ -633,8 +633,9 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
       IntegerAttr offsetAttr =
           (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
       b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getValid(),
-                              op.getDestCoord(), op.getStoreMethodAttr(),
-                              offsetAttr, /*oobIsOverflow=*/nullptr);
+                              op.getDestCoord(), op.getFeaturesAttr(),
+                              op.getStoreMethodAttr(), offsetAttr,
+                              /*oobIsOverflow=*/nullptr);
       remainingLength -= copyLength;
       offset += copyLength;
     }
@@ -748,7 +749,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                            op.getStoreMethodAttr(),
+                            op.getFeaturesAttr(), op.getStoreMethodAttr(),
                             outLoop.getLowerCoords(/*domain=*/0)[2],
                             outLoop.getValidity(/*domain=*/1),
                             outLoop.getLowerCoords(/*domain=*/1));

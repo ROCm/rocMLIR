@@ -58,7 +58,7 @@ func.func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1)
     %c0 = arith.constant 0 : index
     // CHECK: %[[c192:.*]] = arith.constant 192
     // CHECK: arith.select %[[valid]], %[[idx]], %[[c192]]
-    %ret = rock.buffer_load %mem[%c0, %c0, %c0, %c0, %idx] if %valid
+    %ret = rock.buffer_load %mem[%c0, %c0, %c0, %c0, %idx] if %valid 
         : memref<1x2x3x4x8xf32>, index, index, index, index, index -> vector<4xf32>
     return %ret : vector<4xf32>
 }
@@ -69,7 +69,7 @@ func.func @store_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK: amdgpu.raw_buffer_store {boundsCheck = false} %[[val]] -> %[[mem]]
-    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
+    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
         : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
@@ -80,7 +80,7 @@ func.func @store_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf3
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK: amdgpu.raw_buffer_store %[[val]] -> %[[mem]]
-    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
+    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
         {oobIsOverflow}
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
@@ -92,7 +92,7 @@ func.func @store_vector_in_bounds_offset(%val: vector<4xf32>, %mem: memref<1x2x3
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK: amdgpu.raw_buffer_store {boundsCheck = false, indexOffset = 4 : i32} %[[val]] -> %[[mem]]
-    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
+    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
         {offset = 4 : index}
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
@@ -105,7 +105,7 @@ func.func @store_vector_oob(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>, %i
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK: amdgpu.raw_buffer_store %[[val]] -> %[[mem]]
-    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
+    rock.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid features = dot
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
@@ -116,7 +116,7 @@ func.func @add_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK: amdgpu.raw_buffer_atomic_fadd {boundsCheck = false} %[[val]] -> %[[mem]]
-    rock.buffer_store atomic_add %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
+    rock.buffer_store atomic_add %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
         : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
@@ -126,7 +126,7 @@ func.func @add_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-4: amdgpu.raw_buffer_atomic_fadd
-    rock.buffer_store atomic_add %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
+    rock.buffer_store atomic_add %val -> %mem[%c0, %c0, %c0, %c0, %c0] if %true features = dot
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }

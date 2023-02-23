@@ -7,8 +7,8 @@ func.func @rock_global_store(%source : memref<32xf32, 5>,
   %true = arith.constant true
   // CHECK: %[[slice:.*]] = rock.in_bounds_load{{.*}}: memref<32xf32, 5>, index -> vector<4xf32>
   // CHECK: rock.buffer_store set %[[slice]]{{.*}}: vector<4xf32> -> memref<32x32xf32>
-  rock.global_store %source[%c0] -> %dest2D[%c0, %c0] if %true
-      storeMethod(set) { length = 4 : index }
+  rock.global_store %source[%c0] -> %dest2D[%c0, %c0] if %true 
+      storeMethod(set) features = dot { length = 4 : index }
     : memref<32xf32, 5> -> memref<32x32xf32>, index, index
   func.return
 }
@@ -21,7 +21,7 @@ func.func @rock_global_store_long(%source : memref<32xf32, 5>,
   // CHECK: rock.buffer_store set %{{.*}} -> %{{.*}}[%[[coords:[^{]*]] if{{.*}}: vector<4xf32> -> memref<32x32xf32>
   // CHECK: rock.buffer_store set {{.*}}%[[coords]] if{{.*}}offset = 4 : index{{.*}}: vector<4xf32> -> memref<32x32xf32>
   rock.global_store %source[%c0] -> %dest2D[%c0, %c0] if %true
-      storeMethod(set) { length = 8 : index }
+      storeMethod(set) features = dot { length = 8 : index }
     : memref<32xf32, 5> -> memref<32x32xf32>, index, index
   func.return
 }
@@ -34,7 +34,7 @@ func.func @rock_global_store_8xf16(%source : memref<32xf16, 5>,
   // CHECK: rock.buffer_store
   // CHECK-NOT: rock.buffer_store
   rock.global_store %source[%c0] -> %dest[%c0] if %true
-      storeMethod(set) { length = 8 : index }
+      storeMethod(set) features = dot { length = 8 : index }
     : memref<32xf16, 5> -> memref<64xf16>, index
   func.return
 }
@@ -49,7 +49,7 @@ func.func @rock_global_store_7xf16(%source : memref<32xf16, 5>,
   // CHECK: rock.buffer_store {{.*}} : f16
   // CHECK-NOT: rock.buffer_store
   rock.global_store %source[%c0] -> %dest[%c0] if %true
-      storeMethod(set) { length = 7 : index }
+      storeMethod(set) features = dot { length = 7 : index }
     : memref<32xf16, 5> -> memref<64xf16>, index
   func.return
 }

@@ -256,11 +256,13 @@ struct ZeroInitKernelRewritePattern final
     Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
     Value zeroOp = createZeroConstantOp(b, loc, storeType);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    GemmFeaturesAttr features = op.getFeaturesAttr();
 
-    auto loopBody = [&zeroOp, &trueOp](OpBuilder &b, Location loc,
-                                       ValueRange collapsed, Value index) {
+    auto loopBody = [&zeroOp, &trueOp, &features](OpBuilder &b, Location loc,
+                                                  ValueRange collapsed,
+                                                  Value index) {
       b.create<BufferStoreOp>(
-          loc, zeroOp, collapsed[0], /*valid=*/trueOp, index,
+          loc, zeroOp, collapsed[0], /*valid=*/trueOp, index, features,
           b.getAttr<StoreMethodAttr>(StoreMethod::Set),
           /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
@@ -297,15 +299,16 @@ struct ConvertingCopyKernelRewritePattern final
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
-    auto loopBody = [&loadType, &storeType, &trueOp](OpBuilder &b, Location loc,
-                                                     ValueRange collapsed,
-                                                     Value index) {
+    GemmFeaturesAttr features = op.getFeaturesAttr();
+    auto loopBody = [&loadType, &storeType, &trueOp,
+                     &features](OpBuilder &b, Location loc,
+                                ValueRange collapsed, Value index) {
       Value loaded = b.create<BufferLoadOp>(
           loc, loadType, collapsed[0], /*valid=*/trueOp, index,
           /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
       b.create<BufferStoreOp>(
-          loc, converted, collapsed[1], /*valid=*/trueOp, index,
+          loc, converted, collapsed[1], /*valid=*/trueOp, index, features,
           b.getAttr<StoreMethodAttr>(StoreMethod::Set),
           /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
