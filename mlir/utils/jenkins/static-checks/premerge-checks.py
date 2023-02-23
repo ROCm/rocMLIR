@@ -24,6 +24,8 @@ from typing import Tuple, Optional
 import pathspec
 import unidiff
 import argparse
+import multiprocessing
+import git
 
 
 def get_diff(base_commit) -> Tuple[bool, str]:
@@ -74,6 +76,16 @@ def remove_ignored(diff_lines, ignore_patterns_lines):
   return result
 
 
+def check_third_party_file(filename: str) -> bool:
+  # We assume third party files to have absolute paths
+  if filename[0] != '/':
+    return False
+  repo = git.Repo('.', search_parent_directories=True)
+  regex = f'^{repo.working_tree_dir}'
+  # Any file that does not belong to the repo, will be considered third party.
+  return not re.search(regex, filename)
+
+
 def run_clang_tidy(base_commit, ignore_config): 
   """Apply clang-tidy and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
@@ -86,7 +98,8 @@ def run_clang_tidy(base_commit, ignore_config):
     diff = remove_ignored(diff.splitlines(keepends=True), open(ignore_config, 'r'))
   else:
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
-  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet'],
+  cpu_count = multiprocessing.cpu_count()
+  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet', '-j', str(cpu_count)],
                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
   a = ''.join(diff)
   out = p.communicate(input=a.encode())[0].decode()
@@ -108,13 +121,17 @@ def run_clang_tidy(base_commit, ignore_config):
       char_pos = match.group(3)
       severity = match.group(4)
       if severity in ['warning', 'error']:
+        if ignore.match_file(file_name):
+          print('{} is ignored by pattern and no comment will be added'.format(file_name))
+          continue
+        if check_third_party_file(file_name):
+          print('{} is ignored as its a third-party file and no comment will be added'.format(file_name))
+          continue
         if severity == 'warning':
           warn_count += 1
         if severity == 'error':
           print('clang-tidy found error:',line)
           errors_count += 1
-        if ignore.match_file(file_name):
-          print('{} is ignored by pattern and no comment will be added'.format(file_name))
 
   if errors_count + warn_count != 0:
     print('clang-tidy found {} errors and {} warnings.'.format(errors_count, warn_count))
