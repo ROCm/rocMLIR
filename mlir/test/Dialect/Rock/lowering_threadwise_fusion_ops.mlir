@@ -19,8 +19,8 @@
   bounds = [2, 64, 32] -> [2, 64, 30]>
 
 // CHECK-LABEL: func @threadwise_read_into
-// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>>
-func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>>) {
+// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
+func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -36,14 +36,14 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map0](%view) -> %dest
-    : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>>
+    : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return
 }
 
 
 // CHECK-LABEL: func @threadwise_write_all
-// CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>>, [[dest:%.+]]: memref<2x64x30xf32>
-func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>>, %dest: memref<2x64x30xf32>) {
+// CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<2x64x30xf32>
+func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -59,6 +59,6 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
     %source -> [#transform_map0](%view) by set
-    : memref<32xf32, #gpu.address_space<private>>> -> memref<2x64x32xf32>
+    : memref<32xf32, #gpu.address_space<private>> -> memref<2x64x32xf32>
   func.return
 }
