@@ -29,20 +29,21 @@ import git
 
 
 def get_diff(base_commit) -> Tuple[bool, str]:
-  diff_run = subprocess.run(f'/opt/rocm/llvm/bin/git-clang-format --diff {base_commit}', shell=True)
-  if diff_run.returncode != 0:
-    return False, ''
-  diff = diff_run.stdout.decode() if diff_run.stdout else ""
-  return True, diff
+  diff_run = subprocess.run(
+    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}', 
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE
+  )
+  diff = diff_run.stdout.decode()
+  print(diff)
+  return diff
 
 def run_clang_format(base_commit, ignore_config):
   """Apply clang-format and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
 
-  r, patch = get_diff(base_commit)
-  if not r:
-    return False
-
+  patch = get_diff(base_commit)
   patches = unidiff.PatchSet(patch)
   ignore_lines = []
 
@@ -52,7 +53,10 @@ def run_clang_format(base_commit, ignore_config):
   patched_file: unidiff.PatchedFile
   success = True
   for patched_file in patches:
-    if ignore.match_file(patched_file.source_file) or ignore.match_file(patched_file.target_file):
+    # drop diff prefix
+    patched_file_src = patched_file.source_file[2:]
+    patched_file_tgt = patched_file.target_file[2:]
+    if ignore.match_file(patched_file_src) or ignore.match_file(patched_file_tgt):
       continue
     hunk: unidiff.Hunk
     for hunk in patched_file:
