@@ -450,6 +450,25 @@ struct BlockwiseGemmV2RewritePattern
       kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
     };
 
+    auto ldsToRegisterCopyKdim =
+        [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
+            Value MN, Value mnPerMfmaGroup, Value ldsOrig, Value regDest) {
+          auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, KPerThread);
+          auto ilkb = ConversionPatternRewriter::atBlockBegin(
+              innerLoopK.getBody(), outerLoopB.getListener());
+          {
+            OpBuilder::InsertionGuard guard(b);
+            b.setInsertionPoint(outerLoopBodyOp);
+            OpBuilder::InsertionGuard guardBody(outerLoopB);
+            outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
+            ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
+                              outerLoopBodyOp.getInductionVar(), MN,
+                              innerLoopK.getInductionVar(),
+                              KPerThreadConstantOp, mnPerMfmaGroup, ldsOrig,
+                              regDest);
+          }
+        };
+
     // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
@@ -457,19 +476,8 @@ struct BlockwiseGemmV2RewritePattern
     auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
                                                         b.getListener());
-    auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
-    auto ilmkb = ConversionPatternRewriter::atBlockBegin(innerLoopMK.getBody(),
-                                                         olmb.getListener());
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPoint(outerLoopM);
-      OpBuilder::InsertionGuard guardBody(olmb);
-      olmb.setInsertionPointToStart(outerLoopM.getBody());
-      ldsToRegisterCopy(loc, olmb, ilmkb, sourceOffsetA,
-                        outerLoopM.getInductionVar(), MConstantOp,
-                        innerLoopMK.getInductionVar(), KPerThreadConstantOp,
-                        mPerMfmaGroupConstantOp, op.getMatrixA(), bufferA);
-    }
+    ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
+                          mPerMfmaGroupConstantOp, op.getMatrixA(), bufferA);
 
     // load B from LDS into registers
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
@@ -478,19 +486,8 @@ struct BlockwiseGemmV2RewritePattern
     auto outerLoopN = olmb.create<AffineForOp>(loc, 0, nRepeats);
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
                                                         olmb.getListener());
-    auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
-    auto ilnkb = ConversionPatternRewriter::atBlockBegin(innerLoopNK.getBody(),
-                                                         olnb.getListener());
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPoint(outerLoopN);
-      OpBuilder::InsertionGuard guardBody(olnb);
-      olnb.setInsertionPointToStart(outerLoopN.getBody());
-      ldsToRegisterCopy(loc, olnb, ilnkb, sourceOffsetB,
-                        outerLoopN.getInductionVar(), NConstantOp,
-                        innerLoopNK.getInductionVar(), KPerThreadConstantOp,
-                        nPerMfmaGroupConstantOp, op.getMatrixB(), bufferB);
-    }
+    ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
+                          nPerMfmaGroupConstantOp, op.getMatrixB(), bufferB);
 
     b.eraseOp(op);
     olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
