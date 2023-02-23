@@ -240,8 +240,9 @@ class SliceConverter : public OpConversionPattern<tosa::SliceOp> {
 public:
   using OpConversionPattern<tosa::SliceOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(tosa::SliceOp sliceOp,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(tosa::SliceOp sliceOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     Location loc = sliceOp.getLoc();
     Value input = adaptor.getInput();
     SmallVector<int64_t> strides, sizes;
