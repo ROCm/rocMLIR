@@ -39,7 +39,11 @@ def get_diff(base_commit) -> Tuple[bool, str]:
   print(diff)
   return diff
 
-def run_clang_format(base_commit, ignore_config):
+def check_external_file(filename: str) -> bool:
+  regex = f'^external/'
+  return re.search(regex, filename)
+
+def run_clang_format(base_commit, ignore_config, ignore_external_files: bool = False):
   """Apply clang-format and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
 
@@ -58,6 +62,9 @@ def run_clang_format(base_commit, ignore_config):
     patched_file_tgt = patched_file.target_file[2:]
     if ignore.match_file(patched_file_src) or ignore.match_file(patched_file_tgt):
       continue
+    if ignore_external_files:
+      if check_external_file(patched_file_src) or check_external_file(patched_file_tgt):
+        continue
     hunk: unidiff.Hunk
     for hunk in patched_file:
       success = False
@@ -90,7 +97,7 @@ def check_third_party_file(filename: str) -> bool:
   return not re.search(regex, filename)
 
 
-def run_clang_tidy(base_commit, ignore_config): 
+def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = False):
   """Apply clang-tidy and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
 
@@ -129,8 +136,12 @@ def run_clang_tidy(base_commit, ignore_config):
           print('{} is ignored by pattern and no comment will be added'.format(file_name))
           continue
         if check_third_party_file(file_name):
-          print('{} is ignored as its a third-party file and no comment will be added'.format(file_name))
+          print(f'{file_name} is ignored as its a third-party file and no comment will be added')
           continue
+        if ignore_external_files:
+          if check_external_file(file_name):
+            print(f'{file_name} is ignored as its a external (upstream) file and no comment will be added')
+            continue
         if severity == 'warning':
           warn_count += 1
         if severity == 'error':
@@ -159,8 +170,11 @@ if __name__ == '__main__':
         default='origin/develop',
         help="The base commit to lint againts"
   )
+  parser.add_argument('--ignore-external', action='store_true', default=False)
   parsed_args = parser.parse_args(args)
   print(f"Running linters against base commit : {parsed_args.base_commit}")
-  if  not (   run_clang_format(parsed_args.base_commit,'./mlir/utils/jenkins/static-checks/clang-format.ignore')
-          and run_clang_tidy(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
+  if not (
+    run_clang_format(parsed_args.base_commit,'./mlir/utils/jenkins/static-checks/clang-format.ignore', parsed_args.ignore_external) and
+    run_clang_tidy(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore', parsed_args.ignore_external)
+  ):
     exit(1)
