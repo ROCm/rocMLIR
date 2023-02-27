@@ -180,13 +180,14 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
                            {kIters, gridSize, blockSize, dataPerThread}, loc);
   splitId.passThrough("k_loop");
   splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
-  // That threads are grouped [other dim, k] is important: it menas we can
-  // ignore kPack here but then account for it when writing to LDS.
-  splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid", {dThreads, kThreads});
   if (vectorDim == GemmDimension::K) {
+    splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
+                  {dThreads, kThreads});
     splitId.merge({dIterName, "k_iter"}, {6, 7}, "iter",
                   {dPerThread, kPerThread});
   } else {
+    splitId.merge({"k_thread", dThreadName}, {4, 5}, "tid",
+                  {kThreads, dThreads});
     splitId.merge({"k_iter", dIterName}, {6, 7}, "iter",
                   {kPerThread, dPerThread});
   }
@@ -211,7 +212,8 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, StringRef dName,
                                               int64_t kPerThread,
-                                              int64_t dPerThread) {
+                                              int64_t dPerThread,
+                                              GemmDimension vectorDim) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   if (bufferShape.size() != 3)
@@ -237,11 +239,14 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   TransformMapAttr tidIterSplitAttr = tidIterSplit.get();
   Value withTidIterSplit = b.create<TransformOp>(loc, buffer, tidIterSplitAttr);
 
-  // Note: the fact that the global load groups the data each threads loads by
-  // k and then by d means that we can smath the k and kpack thread IDs together
-  // without any trouble.
   auto tidIter = BottomUpTMBuilder::above(tidIterSplit, tidIterSplitAttr);
-  tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  // Note that the kPack and k thread IDs need to be together, because the
+  // global load doesn't know about kPack.
+  if (vectorDim == GemmDimension::K)
+    tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  else
+    tidIter.merge("tid", 0, {"k_thread", "kpack_thread", dThreadName});
+
   tidIter.merge("iter", 1, {"k_iter", dIterName, "kpack_iter"});
   TransformMapAttr tidIterAttr = tidIter.get();
   Value transformed = b.create<TransformOp>(loc, withTidIterSplit, tidIterAttr);
@@ -697,12 +702,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -1111,12 +1118,14 @@ struct GridwiseGemmV2RewritePattern
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
