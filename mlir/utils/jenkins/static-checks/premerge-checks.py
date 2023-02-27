@@ -102,7 +102,7 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
 
   r = subprocess.run(f'git diff -U0 --no-prefix {base_commit}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-  diff = r.stdout.decode()
+  diff = r.stdout.decode("utf-8", "ignore")
   if ignore_config is not None and os.path.exists(ignore_config):
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern,
                                           open(ignore_config, 'r').readlines())
