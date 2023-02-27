@@ -121,7 +121,12 @@ void preMergeCheck(String codepath) {
           ln -s build/compile_commands.json compile_commands.json
         fi
         '''
-        sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+        if (params.ignoreExternalLinting == true) {
+            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --ignore-external'
+        }
+        else {
+            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+        }
     } else {
         echo "Static Test step skipped"
     }
@@ -363,6 +368,10 @@ pipeline {
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: false,
                      description: 'Disable testing on Navi21')
+
+        // option only to be used with upstream merges
+        booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
+                     description: 'Ignore linting on files in external/')
     }
     stages {
         stage("Set System Property") {
