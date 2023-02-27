@@ -127,7 +127,8 @@ struct ThreadwiseGemmRewritePattern
     auto gemmLoop = b.replaceOpWithNewOp<TransformingForOp>(
         op, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
         ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/false);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true,
+        /*useIndexDiffs=*/false);
 
     {
       OpBuilder::InsertionGuard guard(b);

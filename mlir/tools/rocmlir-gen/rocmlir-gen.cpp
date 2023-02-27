@@ -942,11 +942,11 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
   std::optional<Type> result = llvm::StringSwitch<std::optional<Type>>(name)
-                                    .Case("f32", Float32Type::get(ctx))
-                                    .Case("f16", Float16Type::get(ctx))
-                                    .Case("bf16", BFloat16Type::get(ctx))
-                                    .Case("i8", IntegerType::get(ctx, 8))
-                                    .Default(std::nullopt);
+                                   .Case("f32", Float32Type::get(ctx))
+                                   .Case("f16", Float16Type::get(ctx))
+                                   .Case("bf16", BFloat16Type::get(ctx))
+                                   .Case("i8", IntegerType::get(ctx, 8))
+                                   .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
     exit(1);

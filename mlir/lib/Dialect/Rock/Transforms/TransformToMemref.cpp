@@ -124,8 +124,8 @@ void RockTransformToMemrefPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<TransformOp>();
-  target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
-                         AffineDialect, memref::MemRefDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
+                         memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<TransformRewritePattern>(ctx);

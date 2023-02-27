@@ -115,14 +115,18 @@ struct VectorizationInfo {
 /// assumed to be held constant.
 struct VectorizationData {
   llvm::IndexedMap<std::optional<VectorizationInfo>> data;
-  operator llvm::IndexedMap<std::optional<VectorizationInfo>> &() { return data; }
+  operator llvm::IndexedMap<std::optional<VectorizationInfo>> &() {
+    return data;
+  }
 
   void grow(size_t n) {
     // The underlying grow() takes the max index, not the size
     data.grow(n - 1);
   }
 
-  std::optional<VectorizationInfo> &operator[](uint32_t idx) { return data[idx]; }
+  std::optional<VectorizationInfo> &operator[](uint32_t idx) {
+    return data[idx];
+  }
 
   const std::optional<VectorizationInfo> &operator[](uint32_t idx) const {
     return data[idx];

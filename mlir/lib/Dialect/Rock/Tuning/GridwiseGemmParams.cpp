@@ -507,10 +507,10 @@ LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,
 }
 
 std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
-                                                int64_t mPerBlock,
-                                                int64_t nPerBlock,
-                                                const GemmSize &gemmSize,
-                                                int64_t kPack) {
+                                                     int64_t mPerBlock,
+                                                     int64_t nPerBlock,
+                                                     const GemmSize &gemmSize,
+                                                     int64_t kPack) {
   int64_t kExtra = (kPerBlock * kPack) -
                    math_util::mod_1_to_n(gemmSize.k, kPerBlock * kPack);
   int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
@@ -521,7 +521,7 @@ std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
 }
 
 std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
-                                               GemmSize gemmSize) {
+                                                    GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {

@@ -141,7 +141,6 @@ void RockCleanMathPass::runOnOperation() {
 
   OpPassManager postAnalysisPipeline("func.func");
   postAnalysisPipeline.addPass(createCanonicalizerPass());
-  postAnalysisPipeline.addPass(
-      arith::createArithUnsignedWhenEquivalentPass());
+  postAnalysisPipeline.addPass(arith::createArithUnsignedWhenEquivalentPass());
   (void)runPipeline(postAnalysisPipeline, op);
 }

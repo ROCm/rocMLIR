@@ -274,8 +274,9 @@ public:
 // This core function to calculate the required padding amount
 // given a gemm size.
 std::optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
-                                    int64_t nPerBlock, const GemmSize &gemmSize,
-                                    int64_t kPack = 1);
+                                         int64_t nPerBlock,
+                                         const GemmSize &gemmSize,
+                                         int64_t kPack = 1);
 
 /// Given a tuning parameter struct, determine how much padding the gemm with
 /// a given gemm size requires. Returns None if no padding is needed. The
