@@ -294,4 +294,9 @@ def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
 }
 
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
+
+// Misc Attrs
+def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
+  let mnemonic = "rock.prefill";
+}
 #endif

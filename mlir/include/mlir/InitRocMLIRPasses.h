@@ -33,6 +33,7 @@
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
@@ -71,6 +72,7 @@ inline void registerUpstreamPasses() {
   tensor::registerTensorPasses();
   tosa::registerTosaOptPasses();
   vector::registerVectorPasses();
+  xmodel::registerPasses();
 }
 
 // This function may be called to register the rocMLIR passes with the

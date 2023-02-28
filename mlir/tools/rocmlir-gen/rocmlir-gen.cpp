@@ -2187,6 +2187,46 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   return func;
 }
 
+// If the fut expects certain args (mostly output buffers),
+// this will populate the linalg.fill calls to do those based
+// on the presense of rock::PrefillAttr. This is to mimic the
+// requirement on the kernel launcher to do the same for the
+// expected funtionality.
+void insertPrefills(func::FuncOp fut) {
+  SmallVector<ModuleOp, 1> innerModules;
+  fut->getParentOfType<ModuleOp>().walk(
+      [&](ModuleOp module) { innerModules.push_back(module); });
+  innerModules.push_back(fut->getParentOfType<ModuleOp>());
+  fut.walk([&](async::LaunchOp launchOp) {
+    Location loc = launchOp->getLoc();
+    DenseMap<int, Attribute> argInitValues;
+    StringRef callee = launchOp.getCallee();
+    for (ModuleOp module : innerModules) {
+      if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
+        size_t argCount = calleeFunc.getArguments().size();
+        for (size_t i = 0; i < argCount; i++) {
+          if (Attribute initAttr =
+                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+            argInitValues[i] = initAttr;
+          }
+        }
+      }
+    }
+    {
+      OpBuilder builder(launchOp);
+      OpBuilder::InsertionGuard guard(builder);
+      for (auto argIdxAndValueAttr : argInitValues) {
+        int argIdx = argIdxAndValueAttr.first;
+        Attribute valueAttr = argIdxAndValueAttr.second;
+        auto fillValue = builder.create<arith::ConstantOp>(loc, valueAttr);
+        Value originalArg = launchOp.getCallOperands()[argIdx];
+        builder.create<linalg::FillOp>(loc, ValueRange{fillValue},
+                                       ValueRange{originalArg});
+      }
+    }
+  });
+}
+
 // Convert the async.launch/async.await pattern back to func.call.
 void undoAsyncLaunchPass(Operation *cloneFunc) {
   SymbolTableCollection symbolTable;
@@ -2325,6 +2365,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     // func.call which will get the MLIR kernel.  No redirection of callees
     // needed.
     auto *cloneFunc = func->clone();
+    insertPrefills(static_cast<func::FuncOp>(func));
     undoAsyncLaunchPass(cloneFunc);
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
     SmallString<128> nameBuffer(cloneFuncOp.getName());
