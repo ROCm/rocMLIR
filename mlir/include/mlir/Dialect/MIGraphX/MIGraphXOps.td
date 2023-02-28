@@ -160,7 +160,7 @@ def MIGraphX_FloorOp :
 
 def MIGraphX_QuantizeLinearOp :
     MIGraphX_Op<"quantizelinear">,
-    Arguments<(ins AnyRankedTensor:$inA,
+    Arguments<(ins AnyRankedTensor:$input,
                    AnyRankedTensor:$scale,
                    Optional<AnyRankedTensor>:$bias)>,
 	  Results<(outs AnyRankedTensor:$output)> {

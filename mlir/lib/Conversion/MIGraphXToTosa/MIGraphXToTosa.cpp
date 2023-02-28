@@ -40,9 +40,8 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 }
 
 template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
-                               mlir::Location loc, Type elemType,
-                               Args &&... args) {
+static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
+                               Type elemType, Args &&... args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -58,9 +57,8 @@ static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
   return op;
 }
 
-static tosa::CastOp createCastOp(mlir::PatternRewriter &rewriter,
-                                 mlir::Location loc, Type resElementType,
-                                 Value input) {
+static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
+                                 Type resElementType, Value input) {
   ShapedType inputType = input.getType().cast<ShapedType>();
   auto elementType = inputType.getElementType();
   Type resType = inputType.cloneWith({}, resElementType);
@@ -506,8 +504,8 @@ public:
   LogicalResult
   matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto input = op.getOperand(0);
-    auto scale = op.getOperand(1);
+    auto input = op.getInput();
+    auto scale = op.getScale();
     ShapedType inputType = input.getType().cast<ShapedType>();
     auto elementType = inputType.getElementType();
     Location loc = op->getLoc();
@@ -516,8 +514,7 @@ public:
            "quantlinear op Only supporting int8 elementType now");
 
     Value shifted = input;
-    if (op.getNumOperands() == 3) {
-      auto bias = op.getOperand(2);
+    if (auto bias = op.getBias()) {
       shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType, input,
                                               bias);
     }
