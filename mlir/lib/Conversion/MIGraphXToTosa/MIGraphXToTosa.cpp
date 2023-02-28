@@ -60,12 +60,9 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
 static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
                                  Type resElementType, Value input) {
   ShapedType inputType = input.getType().cast<ShapedType>();
-  auto elementType = inputType.getElementType();
   Type resType = inputType.cloneWith({}, resElementType);
 
-  auto op = rewriter.create<tosa::CastOp>(loc, elementType, input);
-  auto result = op->getResult(0);
-  result.setType(resType);
+  auto op = rewriter.create<tosa::CastOp>(loc, resType, input);
   return op;
 }
 
@@ -162,6 +159,14 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       cop->setAttr("perf_config", attr);
 
+    // Note: For TOSA convolution, a non-float type is considered as a
+    // quantized convolution. For quantized convolution, it is required
+    // to carry the "quantization_info" as attribute. Adding this
+    // attribute help us populate the correct TOSA IR.
+    //
+    // When we add support to quantized types and TOSA.rescale Op, we
+    // should make the quantized attribute to accept actual zero point
+    // values from intput and filter.
     if (elementTy.isInteger(8)) {
       auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
           /*inputZp =*/0, /*weightZp =*/0);
@@ -510,8 +515,10 @@ public:
     auto elementType = inputType.getElementType();
     Location loc = op->getLoc();
 
-    assert(!elementType.isInteger(8) &&
-           "quantlinear op Only supporting int8 elementType now");
+    if (!elementType.isInteger(32)) {
+      return rewriter.notifyMatchFailure(
+          loc, "quantlinear op Only supporting int32 elementType now");
+    }
 
     Value shifted = input;
     if (auto bias = op.getBias()) {
