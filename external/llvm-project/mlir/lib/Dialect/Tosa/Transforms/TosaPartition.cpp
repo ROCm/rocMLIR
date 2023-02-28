@@ -14,14 +14,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/SliceAnalysis.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -143,7 +143,7 @@ bool isConstantZero(Operation *op) {
 }
 
 bool isSmallishConstant(Operation *op) {
-  if (mlir::detail::isConstantLike(op))
+  if (op->hasTrait<OpTrait::ConstantLike>())
     // In TOSA, should always be tensor and thus shaped, but just in case.
     if (auto cstType = op->getResult(0).getType().dyn_cast<ShapedType>())
       if (cstType.hasStaticShape() && cstType.getNumElements() <= 8)
@@ -402,7 +402,7 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // function, while also updating the comparison details for future
     // candidates.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
-    BlockAndValueMapping bvm;
+    IRMapping bvm;
     for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
       bvm.map(std::get<0>(it), std::get<1>(it));
 
@@ -505,7 +505,7 @@ void TosaPartitionPass::traceInputs(Operation *op,
               usedOp)) // If already present, move it for new use.
         predecessors.remove(usedOp);
       predecessors.insert(usedOp);
-      if (!mlir::detail::isConstantLike(usedOp)) {
+      if (!op->hasTrait<OpTrait::ConstantLike>()) {
         // depth first
         traceInputs(usedOp, predecessors, inputNodes);
       }

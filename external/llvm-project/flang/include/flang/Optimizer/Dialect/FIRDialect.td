@@ -26,6 +26,12 @@ def fir_Dialect : Dialect {
   let cppNamespace = "::fir";
   let useDefaultTypePrinterParser = 0;
   let useDefaultAttributePrinterParser = 0;
+  let dependentDialects = [
+    // Arith dialect provides FastMathFlagsAttr
+    // supported by some FIR operations.
+    "arith::ArithDialect"
+  ];
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 #endif // FORTRAN_DIALECT_FIR_DIALECT

@@ -22,7 +22,7 @@
 
 // MLIR includes
 #include "mlir/Dialect/Affine/Passes.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
@@ -44,11 +44,11 @@ inline void registerUpstreamPasses() {
   // Conversion passes
   registerConvertAffineToStandard();
   registerConvertAMDGPUToROCDL();
-  registerConvertArithmeticToLLVM();
+  registerArithToLLVMConversionPass();
   registerConvertFuncToLLVM();
   registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVM();
-  registerConvertMemRefToLLVM();
+  registerMemRefToLLVMConversionPass();
   registerReconcileUnrealizedCasts();
   registerSCFToControlFlow();
   registerTosaToArith();
@@ -59,7 +59,7 @@ inline void registerUpstreamPasses() {
   // MLIR passes
   registerTransformsPasses();
   registerAffinePasses();
-  arith::registerArithmeticPasses();
+  arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();
   registerGPUPasses();

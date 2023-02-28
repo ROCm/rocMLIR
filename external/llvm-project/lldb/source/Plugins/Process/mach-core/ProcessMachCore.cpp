@@ -327,9 +327,11 @@ void ProcessMachCore::LoadBinariesViaMetadata() {
   // corefile
   core_objfile->LoadCoreFileImages(*this);
 
-  // LoadCoreFileImges may have set the dynamic loader; if we now have
-  // a dynamic loader, save its name so we don't un-set it later.
-  if (GetDynamicLoader())
+  // LoadCoreFileImges may have set the dynamic loader, e.g. in
+  // PlatformDarwinKernel::LoadPlatformBinaryAndSetup().
+  // If we now have a dynamic loader, save its name so we don't 
+  // un-set it later.
+  if (m_dyld_up)
     m_dyld_plugin_name = GetDynamicLoader()->GetPluginName();
 }
 
@@ -355,7 +357,7 @@ void ProcessMachCore::LoadBinariesViaExhaustiveSearch() {
         if (dyld != LLDB_INVALID_ADDRESS)
           dylds_found.push_back(dyld);
         if (kernel != LLDB_INVALID_ADDRESS)
-          kernels_found.push_back(dyld);
+          kernels_found.push_back(kernel);
       }
     }
   }

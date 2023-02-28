@@ -43,7 +43,7 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
       /*args=*/(ins "OpBuilder &":$b, "Location":$loc, "TypeRange":$resultTypes,
                     "ValueRange":$operands),
       /*methodBody=*/[{
-        BlockAndValueMapping bvm;
+        IRMapping bvm;
         OperationState state(
           loc, ConcreteOp::getOperationName(), operands, resultTypes,
           $_op->getAttrs());

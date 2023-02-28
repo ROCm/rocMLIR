@@ -30,7 +30,7 @@ CODEGENOPT(Name, Bits, Default)
 CODEGENOPT(DisableIntegratedAS, 1, 0) ///< -no-integrated-as
 ENUM_CODEGENOPT(CompressDebugSections, llvm::DebugCompressionType, 2,
                 llvm::DebugCompressionType::None)
-CODEGENOPT(RelaxELFRelocations, 1, 0) ///< -Wa,--mrelax-relocations
+CODEGENOPT(RelaxELFRelocations, 1, 1) ///< -Wa,-mrelax-relocations={yes,no}
 CODEGENOPT(AsmVerbose        , 1, 0) ///< -dA, -fverbose-asm.
 CODEGENOPT(Dwarf64           , 1, 0) ///< -gdwarf64.
 CODEGENOPT(Dwarf32           , 1, 1) ///< -gdwarf32.
@@ -105,7 +105,6 @@ CODEGENOPT(CFProtectionReturn , 1, 0) ///< if -fcf-protection is
                                       ///< set to full or return.
 CODEGENOPT(CFProtectionBranch , 1, 0) ///< if -fcf-protection is
                                       ///< set to full or branch.
-CODEGENOPT(IBTSeal, 1, 0)             ///< set to optimize CFProtectionBranch.
 CODEGENOPT(FunctionReturnThunks, 1, 0) ///< -mfunction-return={keep|thunk-extern}
 CODEGENOPT(IndirectBranchCSPrefix, 1, 0) ///< if -mindirect-branch-cs-prefix
                                          ///< is set.
@@ -288,6 +287,8 @@ CODEGENOPT(SanitizeCoverageTraceLoads, 1, 0) ///< Enable tracing of loads.
 CODEGENOPT(SanitizeCoverageTraceStores, 1, 0) ///< Enable tracing of stores.
 CODEGENOPT(SanitizeBinaryMetadataCovered, 1, 0) ///< Emit PCs for covered functions.
 CODEGENOPT(SanitizeBinaryMetadataAtomics, 1, 0) ///< Emit PCs for atomic operations.
+CODEGENOPT(SanitizeBinaryMetadataUAR, 1, 0) ///< Emit PCs for start of functions
+                                            ///< that are subject for use-after-return checking.
 CODEGENOPT(SanitizeStats     , 1, 0) ///< Collect statistics for sanitizers.
 CODEGENOPT(SimplifyLibCalls  , 1, 1) ///< Set when -fbuiltin is enabled.
 CODEGENOPT(SoftFloat         , 1, 0) ///< -soft-float.
@@ -331,6 +332,10 @@ VALUE_CODEGENOPT(StackProbeSize    , 32, 4096) ///< Overrides default stack
 VALUE_CODEGENOPT(WarnStackSize     , 32, UINT_MAX) ///< Set via -fwarn-stack-size.
 CODEGENOPT(NoStackArgProbe, 1, 0) ///< Set when -mno-stack-arg-probe is used
 CODEGENOPT(DebugStrictDwarf, 1, 1) ///< Whether or not to use strict DWARF info.
+
+CODEGENOPT(EnableAssignmentTracking, 1,0) ///< Enable the Assignment Tracking
+                                          ///< debug info feature.
+
 CODEGENOPT(DebugColumnInfo, 1, 0) ///< Whether or not to use column information
                                   ///< in debug info.
 
@@ -340,6 +345,9 @@ CODEGENOPT(DebugTypeExtRefs, 1, 0) ///< Whether or not debug info should contain
 CODEGENOPT(DebugExplicitImport, 1, 0)  ///< Whether or not debug info should
                                        ///< contain explicit imports for
                                        ///< anonymous namespaces
+
+/// Set debug info source file hashing algorithm.
+ENUM_CODEGENOPT(DebugSrcHash, DebugSrcHashKind, 2, DSH_MD5)
 
 CODEGENOPT(SplitDwarfInlining, 1, 1) ///< Whether to include inlining info in the
                                      ///< skeleton CU to allow for symbolication
@@ -397,6 +405,9 @@ CODEGENOPT(EmitCodeView, 1, 0)
 
 /// Whether to emit the .debug$H section containing hashes of CodeView types.
 CODEGENOPT(CodeViewGHash, 1, 0)
+
+/// Whether to emit the compiler path and command line into the CodeView debug information.
+CODEGENOPT(CodeViewCommandLine, 1, 0)
 
 /// The kind of inlining to perform.
 ENUM_CODEGENOPT(Inlining, InliningMethod, 2, NormalInlining)
@@ -488,6 +499,10 @@ ENUM_CODEGENOPT(ZeroCallUsedRegs, llvm::ZeroCallUsedRegs::ZeroCallUsedRegsKind,
 
 /// Whether to use opaque pointers.
 CODEGENOPT(OpaquePointers, 1, 0)
+
+/// Modify C++ ABI to returning `this` pointer from constructors and
+/// non-deleting destructors. (No effect on Microsoft ABI.)
+CODEGENOPT(CtorDtorReturnThis, 1, 0)
 
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT

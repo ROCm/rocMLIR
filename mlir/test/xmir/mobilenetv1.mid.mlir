@@ -17,73 +17,24 @@ module {
     %bias1 = arith.constant dense<0.0> : tensor<64xf32>
     %bias2 = arith.constant dense<0.0> : tensor<128xf32>
 
-    %conv0 = "tosa.conv2d"(%input_image, %f0, %bias0) {
-      dilation = [1, 1],
-      pad = [1, 1, 1, 1],
-      stride = [2, 2]
-    } : (tensor<1x224x224x3xf32>, tensor<32x3x3x3xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
+    %conv0 = "tosa.conv2d"(%input_image, %f0, %bias0) {dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>} : (tensor<1x224x224x3xf32>, tensor<32x3x3x3xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
 
-    %relu0 = "tosa.clamp"(%conv0) {
-      min_fp = 0.0 : f32,
-      max_fp = 6.0 : f32,
-      min_int = 0 : i64,
-      max_int = 6 : i64
-    } : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
+    %relu0 = "tosa.clamp"(%conv0) {min_fp = 0.0 : f32, max_fp = 6.0 : f32, min_int = 0 : i64, max_int = 6 : i64} : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
 
     // depth-wise separable 1
-    %dwconv1 = "tosa.depthwise_conv2d"(%relu0, %f1, %bias0) {
-      dilation = [1, 1],
-      pad = [1, 1, 1, 1],
-      stride = [1, 1]
-    } : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
+    %dwconv1 = "tosa.depthwise_conv2d"(%relu0, %f1, %bias0) {dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
+    %relu1 = "tosa.clamp"(%dwconv1) {min_fp = 0.0 : f32, max_fp = 6.0 : f32, min_int = 0 : i64, max_int = 6 : i64} : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
 
-    %relu1 = "tosa.clamp"(%dwconv1) {
-      min_fp = 0.0 : f32,
-      max_fp = 6.0 : f32,
-      min_int = 0 : i64,
-      max_int = 6 : i64
-    } : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
-
-    %conv1 = "tosa.conv2d"(%relu1, %f2, %bias1) {
-      dilation = [1, 1],
-      pad = [0, 0, 0, 0],
-      stride = [1, 1]
-    } : (tensor<1x112x112x32xf32>, tensor<64x1x1x32xf32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
-
-    %relu2 = "tosa.clamp"(%conv1) {
-      min_fp = 0.0 : f32,
-      max_fp = 6.0 : f32,
-      min_int = 0 : i64,
-      max_int = 6 : i64
-    } : (tensor<1x112x112x64xf32>) -> tensor<1x112x112x64xf32>
+    %conv1 = "tosa.conv2d"(%relu1, %f2, %bias1) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x112x112x32xf32>, tensor<64x1x1x32xf32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
+    %relu2 = "tosa.clamp"(%conv1) {min_fp = 0.0 : f32, max_fp = 6.0 : f32, min_int = 0 : i64, max_int = 6 : i64} : (tensor<1x112x112x64xf32>) -> tensor<1x112x112x64xf32>
 
     // depth-wise separable 2
-    %dwconv2 = "tosa.depthwise_conv2d"(%relu2, %f3, %bias1) {
-      dilation = [1, 1],
-      pad = [1, 1, 1, 1],
-      stride = [2, 2]
-    } : (tensor<1x112x112x64xf32>, tensor<3x3x64x1xf32>, tensor<64xf32>) -> tensor<1x56x56x64xf32>
-
-    %relu3 = "tosa.clamp"(%dwconv2) {
-      min_fp = 0.0 : f32,
-      max_fp = 6.0 : f32,
-      min_int = 0 : i64,
-      max_int = 6 : i64
-    } : (tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
+    %dwconv2 = "tosa.depthwise_conv2d"(%relu2, %f3, %bias1) {dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>} : (tensor<1x112x112x64xf32>, tensor<3x3x64x1xf32>, tensor<64xf32>) -> tensor<1x56x56x64xf32>
+    %relu3 = "tosa.clamp"(%dwconv2) {min_fp = 0.0 : f32, max_fp = 6.0 : f32, min_int = 0 : i64, max_int = 6 : i64} : (tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
 
     // matmul
-    %conv2 = "tosa.conv2d"(%relu3, %f4, %bias2) {
-      dilation = [1, 1],
-      pad = [0, 0, 0, 0],
-      stride = [1, 1]
-    } : (tensor<1x56x56x64xf32>, tensor<128x1x1x64xf32>, tensor<128xf32>) -> tensor<1x56x56x128xf32>
-
-    %relu4 = "tosa.clamp"(%conv2) {
-      min_fp = 0.0 : f32,
-      max_fp = 6.0 : f32,
-      min_int = 0 : i64,
-      max_int = 6 : i64
-    } : (tensor<1x56x56x128xf32>) -> tensor<1x56x56x128xf32>
+    %conv2 = "tosa.conv2d"(%relu3, %f4, %bias2) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x56x56x64xf32>, tensor<128x1x1x64xf32>, tensor<128xf32>) -> tensor<1x56x56x128xf32>
+    %relu4 = "tosa.clamp"(%conv2) {min_fp = 0.0 : f32, max_fp = 6.0 : f32, min_int = 0 : i64, max_int = 6 : i64} : (tensor<1x56x56x128xf32>) -> tensor<1x56x56x128xf32>
 
     // ...
 

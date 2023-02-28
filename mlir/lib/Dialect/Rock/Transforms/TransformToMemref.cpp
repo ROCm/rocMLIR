@@ -20,7 +20,7 @@
 // the threadwise lowering
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -124,8 +124,8 @@ void RockTransformToMemrefPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<TransformOp>();
-  target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
-                         AffineDialect, memref::MemRefDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
+                         memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<TransformRewritePattern>(ctx);

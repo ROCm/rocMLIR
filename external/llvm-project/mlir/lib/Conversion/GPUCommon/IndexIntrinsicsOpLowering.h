@@ -45,7 +45,7 @@ public:
     auto loc = op->getLoc();
     MLIRContext *context = rewriter.getContext();
     Operation *newOp;
-    switch (op.dimension()) {
+    switch (op.getDimension()) {
     case gpu::Dimension::x:
       newOp = rewriter.create<XOp>(loc, IntegerType::get(context, 32));
       break;
@@ -65,7 +65,7 @@ public:
     if (!boundsAttrName.empty() && function) {
       if (auto attr = function->template getAttrOfType<DenseI32ArrayAttr>(
               boundsAttrName)) {
-        int32_t maximum = attr[static_cast<uint32_t>(op.dimension())];
+        int32_t maximum = attr[static_cast<uint32_t>(op.getDimension())];
         newOp->setAttr("range", rewriter.getDenseI32ArrayAttr({0, maximum}));
       }
     }

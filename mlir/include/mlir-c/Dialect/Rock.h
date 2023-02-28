@@ -47,7 +47,7 @@ MLIR_CAPI_EXPORTED int
 mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params);
 
 // Allocate memory for a single instance of the tuning params
-MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate();
+MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate(void);
 
 // Destroy given params allocation
 MLIR_CAPI_EXPORTED
@@ -77,7 +77,7 @@ bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr);
 // Opaque pointer to tuning table storage. This could be used as an abstraction
 // to access the database. Initially, it's pointing to a memory map for now.
 MLIR_CAPI_EXPORTED
-MlirRockTuningTable mlirRockTuningTableCreate();
+MlirRockTuningTable mlirRockTuningTableCreate(void);
 
 // Destroy (close) the tuning table storage
 MLIR_CAPI_EXPORTED

@@ -262,7 +262,7 @@ def Rock_ConvertingCopyKernelOp :
 }
 
 def Rock_TransformOp :
-    Rock_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
+    Rock_Op<"transform", [NoMemoryEffect, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
     Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
@@ -281,9 +281,9 @@ def Rock_TransformOp :
      Type elemType = lowerType.getElementType();
      ShapedType upperType;
      if (auto mrType = lowerType.template dyn_cast<MemRefType>()) {
-       int memorySpace = mrType.getMemorySpaceAsInt();
-       upperType = MemRefType::get(transform.getUpperBounds().asArrayRef(), elemType,
-        /*layout=*/{}, memorySpace);
+       auto memorySpace = mrType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+       upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+        MemRefLayoutAttrInterface{}, memorySpace);
      } else {
        upperType = lowerType.cloneWith(transform.getUpperBounds().asArrayRef(), elemType);
      }
@@ -302,7 +302,7 @@ def Rock_TransformOp :
 
 def Rock_TensorUntransformCastOp :
     Rock_Op<"tensor_untransform_cast",
-      [NoSideEffect, AllTypesMatch<["transformedResult", "transformedArg"]>]>,
+      [NoMemoryEffect, AllTypesMatch<["transformedResult", "transformedArg"]>]>,
     Arguments<(ins AnyRankedTensor:$transformedResult,
                       AnyRankedTensor:$transformedArg)>,
     Results<(outs AnyRankedTensor:$untransformed)> {
@@ -421,7 +421,7 @@ def Rock_LDSBarrierOp:
 }
 
 def Rock_WorkgroupIdOp:
-    Rock_Op<"workgroup_id", [NoSideEffect,
+    Rock_Op<"workgroup_id", [NoMemoryEffect,
       DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
@@ -432,7 +432,7 @@ def Rock_WorkgroupIdOp:
 }
 
 def Rock_WorkitemIdOp:
-    Rock_Op<"workitem_id", [NoSideEffect,
+    Rock_Op<"workitem_id", [NoMemoryEffect,
       DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
@@ -444,7 +444,7 @@ def Rock_WorkitemIdOp:
 
 // extract_slice
 def Rock_ExtractSliceOp :
-    Rock_Op<"extract_slice", [NoSideEffect,
+    Rock_Op<"extract_slice", [NoMemoryEffect,
       AllElementTypesMatch<["vector", "result"]>]>,
     Arguments<(ins
       VectorOfRank<[1]>:$vector,
@@ -467,7 +467,7 @@ def Rock_ExtractSliceOp :
 
 // insert_slice
 def Rock_InsertSliceOp :
-    Rock_Op<"insert_slice", [NoSideEffect,
+    Rock_Op<"insert_slice", [NoMemoryEffect,
       AllElementTypesMatch<["source", "dest"]>,
       AllTypesMatch<["dest", "result"]>]>,
     Arguments<(ins
@@ -492,7 +492,7 @@ def Rock_InsertSliceOp :
 
 // yield
 def Rock_YieldOp :
-    Rock_Op<"yield", [NoSideEffect, Terminator, ReturnLike]> {
+    Rock_Op<"yield", [NoMemoryEffect, Terminator, ReturnLike]> {
   let summary = "yield for Rock loops";
 
   let description = [{
@@ -509,7 +509,7 @@ def Rock_YieldOp :
   let arguments = (ins Variadic<AnyType>:$operands);
 
   let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, llvm::None); }]>
+    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
   ];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
@@ -517,7 +517,7 @@ def Rock_YieldOp :
 
 // Transforming for
 def Rock_TransformingForOp :
-    Rock_Op<"transforming_for", [RecursiveSideEffects,
+    Rock_Op<"transforming_for", [RecursivelySpeculatable, RecursiveMemoryEffects,
       DeclareOpInterfaceMethods<LoopLikeOpInterface, ["isDefinedOutsideOfLoop"]>,
       AttrSizedOperandSegments,
       SingleBlockImplicitTerminator<"::mlir::rock::YieldOp">]>,
@@ -613,27 +613,27 @@ def Rock_TransformingForOp :
   let builders = [
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
-    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
     "ArrayAttr":$bounds, "ArrayAttr":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
     "ArrayAttr":$bounds, "ArrayAttr":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "llvm::None">:$iterArgs)>];
+    CArg<"ValueRange", "std::nullopt">:$iterArgs)>];
 
   let extraClassDeclaration = [{
     void moveOutOfLoop(ArrayRef<Operation *> ops);
@@ -691,7 +691,7 @@ def Rock_TransformingForOp :
 
 // index_diff_update
 def Rock_IndexDiffUpdateOp :
-    Rock_Op<"index_diff_update", [NoSideEffect, AttrSizedOperandSegments,
+    Rock_Op<"index_diff_update", [NoMemoryEffect, AttrSizedOperandSegments,
       SameVariadicResultSize, AllTypesMatch<["lowerIndices", "lowerDiff"]>]>,
     Arguments<(ins Rock_TransformMapAttr:$map,
       Variadic<Index>:$upperDiffs,

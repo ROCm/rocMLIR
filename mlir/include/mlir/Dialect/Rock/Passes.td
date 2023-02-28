@@ -19,7 +19,7 @@ def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::Func
 
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm";
-  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithDialect",
     "scf::SCFDialect"];
 }
 
@@ -70,7 +70,7 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
 
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
-  let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithmeticDialect",
+  let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
     "gpu::GPUDialect", "memref::MemRefDialect", "AffineDialect", "amdgpu::AMDGPUDialect"];
 }
 
@@ -94,7 +94,7 @@ def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
 
 def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let summary = "Lower rock.reduce operator";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

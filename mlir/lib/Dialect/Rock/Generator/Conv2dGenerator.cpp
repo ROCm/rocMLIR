@@ -36,7 +36,7 @@ using namespace mlir::rock;
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
-    GemmFeatures features, const Optional<ConvOpType> operation,
+    GemmFeatures features, const std::optional<ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
@@ -348,7 +348,7 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
 // needed to pad the M, N, and K dimensions (**not** the new gemm size).
 // Otherwise, returns None
 template <typename T>
-static Optional<GemmSize>
+static std::optional<GemmSize>
 calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
                            T populateParams) {
   auto configParams = populateParams.getTuningParameters(
@@ -369,7 +369,8 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
         extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
         extraParams.gemmNPerBlock, gemmSize, extraParams.getKPack());
   }
-  return llvm::None;
+
+  return std::nullopt;
 }
 
 bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {

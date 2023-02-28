@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___RANDOM_UNIFORM_INT_DISTRIBUTION_H
 #define _LIBCPP___RANDOM_UNIFORM_INT_DISTRIBUTION_H
 
-#include <__bits>
 #include <__config>
 #include <__random/is_valid.h>
 #include <__random/log2.h>
@@ -38,12 +37,8 @@ public:
 
 private:
     typedef typename _Engine::result_type _Engine_result_type;
-    typedef typename conditional
-        <
-            sizeof(_Engine_result_type) <= sizeof(result_type),
-                result_type,
-                _Engine_result_type
-        >::type _Working_result_type;
+    typedef __conditional_t<sizeof(_Engine_result_type) <= sizeof(result_type), result_type, _Engine_result_type>
+        _Working_result_type;
 
     _Engine& __e_;
     size_t __w_;
@@ -237,8 +232,8 @@ uniform_int_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p
 _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 {
     static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
-    typedef typename conditional<sizeof(result_type) <= sizeof(uint32_t), uint32_t,
-                                 __make_unsigned_t<result_type> >::type _UIntType;
+    typedef __conditional_t<sizeof(result_type) <= sizeof(uint32_t), uint32_t, __make_unsigned_t<result_type> >
+        _UIntType;
     const _UIntType _Rp = _UIntType(__p.b()) - _UIntType(__p.a()) + _UIntType(1);
     if (_Rp == 1)
         return __p.a();
@@ -246,7 +241,7 @@ _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
     typedef __independent_bits_engine<_URNG, _UIntType> _Eng;
     if (_Rp == 0)
         return static_cast<result_type>(_Eng(__g, _Dt)());
-    size_t __w = _Dt - __countl_zero(_Rp) - 1;
+    size_t __w = _Dt - std::__countl_zero(_Rp) - 1;
     if ((_Rp & (numeric_limits<_UIntType>::max() >> (_Dt - __w))) != 0)
         ++__w;
     _Eng __e(__g, __w);

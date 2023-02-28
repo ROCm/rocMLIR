@@ -25,7 +25,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
 
   LINK_LIBS PUBLIC
   MLIRAffineTransforms
-  MLIRArithmeticTransforms
+  MLIRArithTransforms
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
   MLIRDialect
@@ -33,6 +33,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRFuncDialect
   MLIRIR
   MLIRPass
+  MLIRLinalgUtils
   MLIRLLVMDialect
   MLIRMathToLLVM
   MLIRMemRefTransforms

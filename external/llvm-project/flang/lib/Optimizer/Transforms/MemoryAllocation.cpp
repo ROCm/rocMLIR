@@ -116,7 +116,7 @@ public:
     auto loc = alloca.getLoc();
     mlir::Type varTy = alloca.getInType();
     auto unpackName =
-        [](llvm::Optional<llvm::StringRef> opt) -> llvm::StringRef {
+        [](std::optional<llvm::StringRef> opt) -> llvm::StringRef {
       if (opt)
         return *opt;
       return {};
@@ -194,7 +194,7 @@ public:
 
     const auto &analysis = getAnalysis<ReturnAnalysis>();
 
-    target.addLegalDialect<fir::FIROpsDialect, mlir::arith::ArithmeticDialect,
+    target.addLegalDialect<fir::FIROpsDialect, mlir::arith::ArithDialect,
                            mlir::func::FuncDialect>();
     target.addDynamicallyLegalOp<fir::AllocaOp>([&](fir::AllocaOp alloca) {
       return keepStackAllocation(alloca, &func.front(), options);

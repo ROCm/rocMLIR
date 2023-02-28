@@ -20,8 +20,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -96,7 +97,7 @@ static Value transformAccordingly(PatternRewriter &b, Value nOut, Value refOp) {
     nOut = transformAccordingly(b, nOut, rtop.getOperand());
 
     // 1. apply identical transforms to other inputs
-    BlockAndValueMapping cmap;
+    IRMapping cmap;
     cmap.map(rtop.getOperand(), nOut);
     auto ntop = dyn_cast<TransformOp>(b.clone(*rtop, cmap));
     nOut = ntop.getResult();
@@ -156,7 +157,7 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
     }
     if (auto lgop = dyn_cast<linalg::GenericOp>(use)) {
       // reader
-      if (!llvm::is_contained(lgop.inputs(), inp)) {
+      if (!llvm::is_contained(lgop.getInputs(), inp)) {
         return ThreadwiseWriteAllOp();
       }
     } else if (auto memcpy = dyn_cast<memref::CopyOp>(use)) {
@@ -193,7 +194,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
 
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
-  for (auto inp : laGeneric.inputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     Value newInput;
     if (traceToThreadwiseWrite(inp)) {
       newInput = laIn;
@@ -209,23 +210,24 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   laGenericAMaps.push_back(
       AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
 
-  laGeneric.inputsMutable().assign(newInputs);
-  laGeneric.outputsMutable().assign(laOut);
+  laGeneric.getInputsMutable().assign(newInputs);
+  laGeneric.getOutputsMutable().assign(laOut);
 
   // 2.2. Reset affine maps
-  laGeneric.indexing_mapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
+  laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
 
   // 2.3. Reset iterator types
-  SmallVector<StringAttr, 5> laGenericIteratorArr(regType.getRank(),
-                                                  b.getStringAttr("parallel"));
-  laGeneric.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
-      laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
+  SmallVector<Attribute, 5> iteratorTypes;
+  iteratorTypes.resize(
+      regType.getRank(),
+      linalg::IteratorTypeAttr::get(ctx, utils::IteratorType::parallel));
+  laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
   return laOut;
 }
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
                                  ThreadwiseWriteAllOp &twWriteOp) {
-  for (auto input : laGeneric.inputs()) {
+  for (auto input : laGeneric.getInputs()) {
     if (auto allocOp = input.getDefiningOp<memref::AllocOp>()) {
       if (auto twop = traceToThreadwiseWrite(input)) {
         twWriteOp = twop;
@@ -245,18 +247,20 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 0. Test compatibility
   // 0.0. Only fully parallel for now
-  for (StringRef iterType :
-       laGeneric.iterator_types().getAsValueRange<StringAttr>())
-    if (iterType != "parallel")
+  for (utils::IteratorType iterType : laGeneric.getIteratorTypesArray())
+    if (!linalg::isParallelIterator(iterType))
       return laGeneric.emitError("must be fully parallel");
 
-  Value out = *laGeneric.outputs().begin(); // may be another arg
+  Value out = *laGeneric.getOutputs().begin(); // may be another arg
   // 0.1. Test compatibility,  Only 1 output supported
-  if (laGeneric.outputs().size() > 1)
-    return laGeneric.emitError("only 1 output supported");
+  if (laGeneric.getOutputs().size() != 1) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Currently, multi-output fusion is not supported.\n");
+    return failure();
+  }
 
   // 0.2. Sanity check, skip already fused.
-  for (auto inp : laGeneric.inputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
       LLVM_DEBUG(llvm::dbgs() << "Found existing fusion, bailing\n");
       return failure();
@@ -271,7 +275,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!laGenericInputLeadingToGemmStore)
     return failure();
 
-  auto actualLAGenericOut = laGeneric.getOutputOperand(0);
+  auto actualLAGenericOut = laGeneric.getDpsInitOperand(0);
   if (laGenericInputLeadingToGemmStore.getType() !=
       actualLAGenericOut->get().getType()) {
     // TODO(sjw): fix for mixed types

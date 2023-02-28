@@ -21,6 +21,7 @@
 #include "flang/Runtime/time-intrinsic.h"
 #include "flang/Semantics/tools.h"
 #include "llvm/Support/Debug.h"
+#include <optional>
 
 #define DEBUG_TYPE "flang-lower-runtime"
 
@@ -114,7 +115,7 @@ void Fortran::lower::genFailImageStatement(
   mlir::Location loc = converter.getCurrentLocation();
   mlir::func::FuncOp callee =
       fir::runtime::getRuntimeFunc<mkRTKey(FailImageStatement)>(loc, builder);
-  builder.create<fir::CallOp>(loc, callee, llvm::None);
+  builder.create<fir::CallOp>(loc, callee, std::nullopt);
   genUnreachable(builder, loc);
 }
 
@@ -173,7 +174,7 @@ void Fortran::lower::genPauseStatement(
   mlir::Location loc = converter.getCurrentLocation();
   mlir::func::FuncOp callee =
       fir::runtime::getRuntimeFunc<mkRTKey(PauseStatement)>(loc, builder);
-  builder.create<fir::CallOp>(loc, callee, llvm::None);
+  builder.create<fir::CallOp>(loc, callee, std::nullopt);
 }
 
 mlir::Value Fortran::lower::genAssociated(fir::FirOpBuilder &builder,
@@ -188,26 +189,55 @@ mlir::Value Fortran::lower::genAssociated(fir::FirOpBuilder &builder,
   return builder.create<fir::CallOp>(loc, func, args).getResult(0);
 }
 
+void Fortran::lower::genPointerAssociate(fir::FirOpBuilder &builder,
+                                         mlir::Location loc,
+                                         mlir::Value pointer,
+                                         mlir::Value target) {
+  mlir::func::FuncOp func =
+      fir::runtime::getRuntimeFunc<mkRTKey(PointerAssociate)>(loc, builder);
+  llvm::SmallVector<mlir::Value> args = fir::runtime::createArguments(
+      builder, loc, func.getFunctionType(), pointer, target);
+  builder.create<fir::CallOp>(loc, func, args).getResult(0);
+}
+
+void Fortran::lower::genPointerAssociateRemapping(fir::FirOpBuilder &builder,
+                                                  mlir::Location loc,
+                                                  mlir::Value pointer,
+                                                  mlir::Value target,
+                                                  mlir::Value bounds) {
+  mlir::func::FuncOp func =
+      fir::runtime::getRuntimeFunc<mkRTKey(PointerAssociateRemapping)>(loc,
+                                                                       builder);
+  auto fTy = func.getFunctionType();
+  auto sourceFile = fir::factory::locationToFilename(builder, loc);
+  auto sourceLine =
+      fir::factory::locationToLineNo(builder, loc, fTy.getInput(4));
+  llvm::SmallVector<mlir::Value> args = fir::runtime::createArguments(
+      builder, loc, func.getFunctionType(), pointer, target, bounds, sourceFile,
+      sourceLine);
+  builder.create<fir::CallOp>(loc, func, args).getResult(0);
+}
+
 mlir::Value Fortran::lower::genCpuTime(fir::FirOpBuilder &builder,
                                        mlir::Location loc) {
   mlir::func::FuncOp func =
       fir::runtime::getRuntimeFunc<mkRTKey(CpuTime)>(loc, builder);
-  return builder.create<fir::CallOp>(loc, func, llvm::None).getResult(0);
+  return builder.create<fir::CallOp>(loc, func, std::nullopt).getResult(0);
 }
 
 void Fortran::lower::genDateAndTime(fir::FirOpBuilder &builder,
                                     mlir::Location loc,
-                                    llvm::Optional<fir::CharBoxValue> date,
-                                    llvm::Optional<fir::CharBoxValue> time,
-                                    llvm::Optional<fir::CharBoxValue> zone,
+                                    std::optional<fir::CharBoxValue> date,
+                                    std::optional<fir::CharBoxValue> time,
+                                    std::optional<fir::CharBoxValue> zone,
                                     mlir::Value values) {
   mlir::func::FuncOp callee =
       fir::runtime::getRuntimeFunc<mkRTKey(DateAndTime)>(loc, builder);
   mlir::FunctionType funcTy = callee.getFunctionType();
   mlir::Type idxTy = builder.getIndexType();
   mlir::Value zero;
-  auto splitArg = [&](llvm::Optional<fir::CharBoxValue> arg,
-                      mlir::Value &buffer, mlir::Value &len) {
+  auto splitArg = [&](std::optional<fir::CharBoxValue> arg, mlir::Value &buffer,
+                      mlir::Value &len) {
     if (arg) {
       buffer = arg->getBuffer();
       len = arg->getLen();

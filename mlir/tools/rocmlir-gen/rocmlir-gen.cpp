@@ -14,7 +14,7 @@
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -580,10 +580,11 @@ struct KernelIF {
 };
 
 struct GenParams {
-  llvm::Optional<rock::KernelType> operation = llvm::None;
+  std::optional<rock::KernelType> operation = std::nullopt;
   Type dtype = nullptr;
   rock::GemmFeatures features = rock::GemmFeatures::none;
-  llvm::Optional<const rock::Conv2dGenerator::Config *> convConfig = llvm::None;
+  std::optional<const rock::Conv2dGenerator::Config *> convConfig =
+      std::nullopt;
   StringRef arch;
   StringRef perfConfig;
 };
@@ -922,7 +923,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
         b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
     Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
     b.create<scf::ForOp>(loc, zeroOp, kernelRepeatsOp, step,
-                         /*args=*/llvm::None, emitWrappedCall);
+                         /*args=*/std::nullopt, emitWrappedCall);
   } else {
     emitWrappedCall(b, loc, nullptr, {});
   }
@@ -940,12 +941,12 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
-  llvm::Optional<Type> result = llvm::StringSwitch<llvm::Optional<Type>>(name)
-                                    .Case("f32", Float32Type::get(ctx))
-                                    .Case("f16", Float16Type::get(ctx))
-                                    .Case("bf16", BFloat16Type::get(ctx))
-                                    .Case("i8", IntegerType::get(ctx, 8))
-                                    .Default(llvm::None);
+  std::optional<Type> result = llvm::StringSwitch<std::optional<Type>>(name)
+                                   .Case("f32", Float32Type::get(ctx))
+                                   .Case("f16", Float16Type::get(ctx))
+                                   .Case("bf16", BFloat16Type::get(ctx))
+                                   .Case("i8", IntegerType::get(ctx, 8))
+                                   .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
     exit(1);
@@ -1811,7 +1812,6 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
   b.create<linalg::FillOp>(loc, zeroOut, cVal);
 
-  constexpr llvm::StringLiteral parallel("parallel"), reduction("reduction");
   AffineExpr g = b.getAffineDimExpr(0), m = b.getAffineDimExpr(1),
              n = b.getAffineDimExpr(2), k = b.getAffineDimExpr(3);
   AffineMap aMap = AffineMap::get(
@@ -1823,7 +1823,9 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   b.create<linalg::GenericOp>(
       loc, ValueRange{aVal, bVal}, ValueRange{cVal},
       ArrayRef<AffineMap>{aMap, bMap, cMap},
-      ArrayRef<StringRef>{parallel, parallel, parallel, reduction},
+      ArrayRef<utils::IteratorType>{
+          utils::IteratorType::parallel, utils::IteratorType::parallel,
+          utils::IteratorType::parallel, utils::IteratorType::reduction},
       /*doc=*/"", /*library_call=*/"",
       [](OpBuilder &builder, Location loc, ValueRange elems) {
         Value a = elems[0], b = elems[1], c = elems[2];
@@ -2096,8 +2098,10 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     exit(1);
   }
 
-  auto mr1DUnkTestType = MemRefType::get({-1}, testOutType);
-  auto mr1DUnkValType = MemRefType::get({-1}, valElemType);
+  auto mr1DUnkTestType =
+      MemRefType::get({mlir::ShapedType::kDynamic}, testOutType);
+  auto mr1DUnkValType =
+      MemRefType::get({mlir::ShapedType::kDynamic}, valElemType);
 
   bool isTestAndValSameType =
       (testOutType.isInteger(32) || testOutType.isF32());
@@ -2567,7 +2571,7 @@ int main(int argc, char **argv) {
   MLIRContext context(registry);
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       AffineDialect, memref::MemRefDialect, math::MathDialect,
-                      arith::ArithmeticDialect, vector::VectorDialect,
+                      arith::ArithDialect, vector::VectorDialect,
                       gpu::GPUDialect, linalg::LinalgDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
@@ -2730,7 +2734,7 @@ int main(int argc, char **argv) {
       if (isGemm) {
         Type elemType = typeFromString(tensorDataType, &context);
         genParams.dtype = elemType;
-        genParams.convConfig = llvm::None;
+        genParams.convConfig = std::nullopt;
         (void)createGpuGemmKernel(module, genParams);
       } else {
         conv2dGenerator = rock::Conv2dGenerator(

@@ -22,7 +22,7 @@
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -127,7 +127,8 @@ struct ThreadwiseGemmRewritePattern
     auto gemmLoop = b.replaceOpWithNewOp<TransformingForOp>(
         op, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
         ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
-        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/false);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true,
+        /*useIndexDiffs=*/false);
 
     {
       OpBuilder::InsertionGuard guard(b);
@@ -389,7 +390,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::XdlopsGemmV2Op>();
-  target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithmeticDialect,
+  target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
 

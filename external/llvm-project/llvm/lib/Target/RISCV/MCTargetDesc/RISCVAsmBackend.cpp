@@ -27,7 +27,7 @@
 
 using namespace llvm;
 
-Optional<MCFixupKind> RISCVAsmBackend::getFixupKind(StringRef Name) const {
+std::optional<MCFixupKind> RISCVAsmBackend::getFixupKind(StringRef Name) const {
   if (STI.getTargetTriple().isOSBinFormatELF()) {
     unsigned Type;
     Type = llvm::StringSwitch<unsigned>(Name)
@@ -41,7 +41,7 @@ Optional<MCFixupKind> RISCVAsmBackend::getFixupKind(StringRef Name) const {
     if (Type != -1u)
       return static_cast<MCFixupKind>(FirstLiteralRelocationKind + Type);
   }
-  return None;
+  return std::nullopt;
 }
 
 const MCFixupKindInfo &
@@ -167,36 +167,17 @@ bool RISCVAsmBackend::fixupNeedsRelaxationAdvanced(const MCFixup &Fixup,
 
 void RISCVAsmBackend::relaxInstruction(MCInst &Inst,
                                        const MCSubtargetInfo &STI) const {
-  // TODO: replace this with call to auto generated uncompressinstr() function.
   MCInst Res;
   switch (Inst.getOpcode()) {
   default:
     llvm_unreachable("Opcode not expected!");
   case RISCV::C_BEQZ:
-    // c.beqz $rs1, $imm -> beq $rs1, X0, $imm.
-    Res.setOpcode(RISCV::BEQ);
-    Res.addOperand(Inst.getOperand(0));
-    Res.addOperand(MCOperand::createReg(RISCV::X0));
-    Res.addOperand(Inst.getOperand(1));
-    break;
   case RISCV::C_BNEZ:
-    // c.bnez $rs1, $imm -> bne $rs1, X0, $imm.
-    Res.setOpcode(RISCV::BNE);
-    Res.addOperand(Inst.getOperand(0));
-    Res.addOperand(MCOperand::createReg(RISCV::X0));
-    Res.addOperand(Inst.getOperand(1));
-    break;
   case RISCV::C_J:
-    // c.j $imm -> jal X0, $imm.
-    Res.setOpcode(RISCV::JAL);
-    Res.addOperand(MCOperand::createReg(RISCV::X0));
-    Res.addOperand(Inst.getOperand(0));
-    break;
   case RISCV::C_JAL:
-    // c.jal $imm -> jal X1, $imm.
-    Res.setOpcode(RISCV::JAL);
-    Res.addOperand(MCOperand::createReg(RISCV::X1));
-    Res.addOperand(Inst.getOperand(0));
+    bool Success = RISCVRVC::uncompress(Res, Inst, STI);
+    assert(Success && "Can't uncompress instruction");
+    (void)Success;
     break;
   }
   Inst = std::move(Res);
@@ -365,10 +346,11 @@ bool RISCVAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
     Count -= 1;
   }
 
+  bool HasStdExtC = STI->getFeatureBits()[RISCV::FeatureStdExtC];
+  bool HasStdExtZca = STI->getFeatureBits()[RISCV::FeatureExtZca];
   // The canonical nop on RVC is c.nop.
   if (Count % 4 == 2) {
-    OS.write(STI->getFeatureBits()[RISCV::FeatureStdExtC] ? "\x01\0" : "\0\0",
-             2);
+    OS.write((HasStdExtC || HasStdExtZca) ? "\x01\0" : "\0\0", 2);
     Count -= 2;
   }
 
@@ -595,8 +577,9 @@ bool RISCVAsmBackend::shouldInsertExtraNopBytesForCodeAlign(
   if (!STI->getFeatureBits()[RISCV::FeatureRelax])
     return false;
 
-  bool HasStdExtC = STI->getFeatureBits()[RISCV::FeatureStdExtC];
-  unsigned MinNopLen = HasStdExtC ? 2 : 4;
+  bool UseCompressedNop = STI->getFeatureBits()[RISCV::FeatureStdExtC] ||
+                          STI->getFeatureBits()[RISCV::FeatureExtZca];
+  unsigned MinNopLen = UseCompressedNop ? 2 : 4;
 
   if (AF.getAlignment() <= MinNopLen) {
     return false;

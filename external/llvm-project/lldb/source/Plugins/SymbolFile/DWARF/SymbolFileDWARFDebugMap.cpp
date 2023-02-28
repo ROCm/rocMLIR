@@ -7,7 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "SymbolFileDWARFDebugMap.h"
+#include "DWARFCompileUnit.h"
 #include "DWARFDebugAranges.h"
+#include "DWARFDebugInfo.h"
 
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleList.h"
@@ -17,6 +19,7 @@
 #include "lldb/Utility/RangeMap.h"
 #include "lldb/Utility/RegularExpression.h"
 #include "lldb/Utility/Timer.h"
+#include "lldb/Utility/StreamString.h"
 
 //#define DEBUG_OSO_DMAP // DO NOT CHECKIN WITH THIS NOT COMMENTED OUT
 #if defined(DEBUG_OSO_DMAP)
@@ -37,6 +40,7 @@
 #include "SymbolFileDWARF.h"
 
 #include <memory>
+#include <optional>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -348,7 +352,8 @@ void SymbolFileDWARFDebugMap::InitOSO() {
           // "i"
           if (sibling_idx == UINT32_MAX) {
             m_objfile_sp->GetModule()->ReportError(
-                "N_SO in symbol with UID %u has invalid sibling in debug map, "
+                "N_SO in symbol with UID {0} has invalid sibling in debug "
+                "map, "
                 "please file a bug and attach the binary listed in this error",
                 so_symbol->GetID());
           } else {
@@ -364,22 +369,25 @@ void SymbolFileDWARFDebugMap::InitOSO() {
         } else {
           if (oso_symbol == nullptr)
             m_objfile_sp->GetModule()->ReportError(
-                "N_OSO symbol[%u] can't be found, please file a bug and attach "
+                "N_OSO symbol[{0}] can't be found, please file a bug and "
+                "attach "
                 "the binary listed in this error",
                 oso_idx);
           else if (so_symbol == nullptr)
             m_objfile_sp->GetModule()->ReportError(
-                "N_SO not found for N_OSO symbol[%u], please file a bug and "
+                "N_SO not found for N_OSO symbol[{0}], please file a bug and "
                 "attach the binary listed in this error",
                 oso_idx);
           else if (so_symbol->GetType() != eSymbolTypeSourceFile)
             m_objfile_sp->GetModule()->ReportError(
-                "N_SO has incorrect symbol type (%u) for N_OSO symbol[%u], "
+                "N_SO has incorrect symbol type ({0}) for N_OSO "
+                "symbol[{1}], "
                 "please file a bug and attach the binary listed in this error",
                 so_symbol->GetType(), oso_idx);
           else if (oso_symbol->GetType() != eSymbolTypeSourceFile)
             m_objfile_sp->GetModule()->ReportError(
-                "N_OSO has incorrect symbol type (%u) for N_OSO symbol[%u], "
+                "N_OSO has incorrect symbol type ({0}) for N_OSO "
+                "symbol[{1}], "
                 "please file a bug and attach the binary listed in this error",
                 oso_symbol->GetType(), oso_idx);
         }
@@ -426,8 +434,8 @@ Module *SymbolFileDWARFDebugMap::GetModuleByCompUnitInfo(
               "will not be loaded", oso_file.GetPath().c_str(),
               (uint32_t)llvm::sys::toTimeT(oso_mod_time),
               (uint32_t)llvm::sys::toTimeT(comp_unit_info->oso_mod_time));
-          obj_file->GetModule()->ReportError("%s",
-              comp_unit_info->oso_load_error.AsCString());
+          obj_file->GetModule()->ReportError(
+              "{0}", comp_unit_info->oso_load_error.AsCString());
           return nullptr;
         }
 
@@ -586,25 +594,42 @@ CompUnitSP SymbolFileDWARFDebugMap::ParseCompileUnitAtIndex(uint32_t cu_idx) {
   const uint32_t cu_count = GetNumCompileUnits();
 
   if (cu_idx < cu_count) {
-    Module *oso_module = GetModuleByCompUnitInfo(&m_compile_unit_infos[cu_idx]);
+    auto &cu_info = m_compile_unit_infos[cu_idx];
+    Module *oso_module = GetModuleByCompUnitInfo(&cu_info);
     if (oso_module) {
       FileSpec so_file_spec;
       if (GetFileSpecForSO(cu_idx, so_file_spec)) {
         // User zero as the ID to match the compile unit at offset zero in each
-        // .o file since each .o file can only have one compile unit for now.
+        // .o file.
         lldb::user_id_t cu_id = 0;
-        m_compile_unit_infos[cu_idx].compile_unit_sp =
+        cu_info.compile_units_sps.push_back(
             std::make_shared<CompileUnit>(
                 m_objfile_sp->GetModule(), nullptr, so_file_spec, cu_id,
-                eLanguageTypeUnknown, eLazyBoolCalculate);
-
-        if (m_compile_unit_infos[cu_idx].compile_unit_sp) {
-          SetCompileUnitAtIndex(cu_idx,
-                                m_compile_unit_infos[cu_idx].compile_unit_sp);
+                eLanguageTypeUnknown, eLazyBoolCalculate));
+        cu_info.id_to_index_map.insert({0, 0});
+        SetCompileUnitAtIndex(cu_idx, cu_info.compile_units_sps[0]);
+        // If there's a symbol file also register all the extra compile units.
+        if (SymbolFileDWARF *oso_symfile =
+                GetSymbolFileByCompUnitInfo(&cu_info)) {
+          auto num_dwarf_units = oso_symfile->DebugInfo().GetNumUnits();
+          for (size_t i = 0; i < num_dwarf_units; ++i) {
+            auto *dwarf_unit = oso_symfile->DebugInfo().GetUnitAtIndex(i);
+            if (auto *dwarf_cu = llvm::dyn_cast<DWARFCompileUnit>(dwarf_unit)) {
+              // The "main" one was already registered.
+              if (dwarf_cu->GetID() == 0)
+                continue;
+              cu_info.compile_units_sps.push_back(std::make_shared<CompileUnit>(
+                  m_objfile_sp->GetModule(), nullptr, so_file_spec,
+                  dwarf_cu->GetID(), eLanguageTypeUnknown, eLazyBoolCalculate));
+              cu_info.id_to_index_map.insert(
+                  {dwarf_cu->GetID(), cu_info.compile_units_sps.size() - 1});
+            }
+          }
         }
       }
     }
-    comp_unit_sp = m_compile_unit_infos[cu_idx].compile_unit_sp;
+    if (!cu_info.compile_units_sps.empty())
+      comp_unit_sp = cu_info.compile_units_sps[0];
   }
 
   return comp_unit_sp;
@@ -619,7 +644,12 @@ SymbolFileDWARFDebugMap::CompileUnitInfo *
 SymbolFileDWARFDebugMap::GetCompUnitInfo(const CompileUnit &comp_unit) {
   const uint32_t cu_count = GetNumCompileUnits();
   for (uint32_t i = 0; i < cu_count; ++i) {
-    if (&comp_unit == m_compile_unit_infos[i].compile_unit_sp.get())
+    auto &id_to_index_map = m_compile_unit_infos[i].id_to_index_map;
+
+    auto it = id_to_index_map.find(comp_unit.GetID());
+    if (it != id_to_index_map.end() &&
+        &comp_unit ==
+            m_compile_unit_infos[i].compile_units_sps[it->getSecond()].get())
       return &m_compile_unit_infos[i];
   }
   return nullptr;
@@ -752,14 +782,14 @@ Type *SymbolFileDWARFDebugMap::ResolveTypeUID(lldb::user_id_t type_uid) {
   return nullptr;
 }
 
-llvm::Optional<SymbolFile::ArrayInfo>
+std::optional<SymbolFile::ArrayInfo>
 SymbolFileDWARFDebugMap::GetDynamicArrayInfoForUID(
     lldb::user_id_t type_uid, const lldb_private::ExecutionContext *exe_ctx) {
   const uint64_t oso_idx = GetOSOIndexFromUserID(type_uid);
   SymbolFileDWARF *oso_dwarf = GetSymbolFileByOSOIndex(oso_idx);
   if (oso_dwarf)
     return oso_dwarf->GetDynamicArrayInfoForUID(type_uid, exe_ctx);
-  return llvm::None;
+  return std::nullopt;
 }
 
 bool SymbolFileDWARFDebugMap::CompleteType(CompilerType &compiler_type) {
@@ -1100,10 +1130,10 @@ SymbolFileDWARFDebugMap::ParseCallEdgesInFunction(UserID func_id) {
 }
 
 TypeSP SymbolFileDWARFDebugMap::FindDefinitionTypeForDWARFDeclContext(
-    const DWARFDeclContext &die_decl_ctx) {
+    const DWARFDIE &die) {
   TypeSP type_sp;
   ForEachSymbolFile([&](SymbolFileDWARF *oso_dwarf) -> bool {
-    type_sp = oso_dwarf->FindDefinitionTypeForDWARFDeclContext(die_decl_ctx);
+    type_sp = oso_dwarf->FindDefinitionTypeForDWARFDeclContext(die);
     return ((bool)type_sp);
   });
   return type_sp;
@@ -1239,18 +1269,21 @@ void SymbolFileDWARFDebugMap::DumpClangAST(Stream &s) {
 }
 
 lldb::CompUnitSP
-SymbolFileDWARFDebugMap::GetCompileUnit(SymbolFileDWARF *oso_dwarf) {
+SymbolFileDWARFDebugMap::GetCompileUnit(SymbolFileDWARF *oso_dwarf, DWARFCompileUnit &dwarf_cu) {
   if (oso_dwarf) {
     const uint32_t cu_count = GetNumCompileUnits();
     for (uint32_t cu_idx = 0; cu_idx < cu_count; ++cu_idx) {
       SymbolFileDWARF *oso_symfile =
           GetSymbolFileByCompUnitInfo(&m_compile_unit_infos[cu_idx]);
       if (oso_symfile == oso_dwarf) {
-        if (!m_compile_unit_infos[cu_idx].compile_unit_sp)
-          m_compile_unit_infos[cu_idx].compile_unit_sp =
-              ParseCompileUnitAtIndex(cu_idx);
+        if (m_compile_unit_infos[cu_idx].compile_units_sps.empty())
+          ParseCompileUnitAtIndex(cu_idx);
 
-        return m_compile_unit_infos[cu_idx].compile_unit_sp;
+        auto &id_to_index_map = m_compile_unit_infos[cu_idx].id_to_index_map;
+        auto it = id_to_index_map.find(dwarf_cu.GetID());
+        if (it != id_to_index_map.end())
+          return m_compile_unit_infos[cu_idx]
+              .compile_units_sps[it->getSecond()];
       }
     }
   }
@@ -1280,11 +1313,17 @@ void SymbolFileDWARFDebugMap::SetCompileUnit(SymbolFileDWARF *oso_dwarf,
       SymbolFileDWARF *oso_symfile =
           GetSymbolFileByCompUnitInfo(&m_compile_unit_infos[cu_idx]);
       if (oso_symfile == oso_dwarf) {
-        if (m_compile_unit_infos[cu_idx].compile_unit_sp) {
-          assert(m_compile_unit_infos[cu_idx].compile_unit_sp.get() ==
+        if (!m_compile_unit_infos[cu_idx].compile_units_sps.empty()) {
+          assert(m_compile_unit_infos[cu_idx].compile_units_sps[0].get() ==
                  cu_sp.get());
         } else {
-          m_compile_unit_infos[cu_idx].compile_unit_sp = cu_sp;
+          assert(cu_sp->GetID() == 0 &&
+                 "Setting first compile unit but with id different than 0!");
+          auto &compile_units_sps = m_compile_unit_infos[cu_idx].compile_units_sps;
+          compile_units_sps.push_back(cu_sp);
+          m_compile_unit_infos[cu_idx].id_to_index_map.insert(
+              {cu_sp->GetID(), compile_units_sps.size() - 1});
+
           SetCompileUnitAtIndex(cu_idx, cu_sp);
         }
       }
@@ -1453,7 +1492,7 @@ ModuleList SymbolFileDWARFDebugMap::GetDebugInfoModules() {
   return oso_modules;
 }
 
-Status SymbolFileDWARFDebugMap::GetFrameVariableError(StackFrame &frame) {
+Status SymbolFileDWARFDebugMap::CalculateFrameVariableError(StackFrame &frame) {
   std::lock_guard<std::recursive_mutex> guard(GetModuleMutex());
 
   // We need to make sure that our PC value from the frame matches the module

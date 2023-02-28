@@ -5,7 +5,7 @@ set(LLVM_OPTIONAL_SOURCES
   AsyncRuntime.cpp
   CRunnerUtils.cpp
   CudaRuntimeWrappers.cpp
-  SparseTensorUtils.cpp
+  SparseTensorRuntime.cpp
   ExecutionEngine.cpp
   Float16bits.cpp
   RocmDeviceName.cpp
@@ -44,6 +44,7 @@ add_mlir_library(MLIRExecutionEngineUtils
   TransformUtils
   IPO
   Passes
+  TargetParser
   )
 
 if(NOT MLIR_ENABLE_EXECUTION_ENGINE)
@@ -125,13 +126,28 @@ add_mlir_library(MLIRJitRunner
   MLIRSupport
 )
 
+add_mlir_library(mlir_float16_utils
+  SHARED
+  Float16bits.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+  )
+set_property(TARGET mlir_float16_utils PROPERTY CXX_STANDARD 17)
+target_compile_definitions(mlir_float16_utils PRIVATE mlir_float16_utils_EXPORTS)
+
+add_subdirectory(SparseTensor)
+
 add_mlir_library(mlir_c_runner_utils
   SHARED
   CRunnerUtils.cpp
-  Float16bits.cpp
-  SparseTensorUtils.cpp
+  SparseTensorRuntime.cpp
 
   EXCLUDE_FROM_LIBMLIR
+
+  LINK_LIBS PUBLIC
+  mlir_float16_utils
+  MLIRSparseTensorEnums
+  MLIRSparseTensorRuntime
   )
 set_property(TARGET mlir_c_runner_utils PROPERTY CXX_STANDARD 17)
 target_compile_definitions(mlir_c_runner_utils PRIVATE mlir_c_runner_utils_EXPORTS)

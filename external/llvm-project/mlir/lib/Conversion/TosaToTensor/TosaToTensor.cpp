@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -26,7 +26,7 @@ static bool findIntermediateShape(ArrayRef<int64_t> lhsShape,
                                   bool isDynamic) {
   if (isDynamic) {
     // TODO (natashaknk): Make dynamic intermediate shape not always be rank-1
-    intermediateShape = {-1};
+    intermediateShape = {ShapedType::kDynamic};
     return true;
   }
 
@@ -43,10 +43,14 @@ static bool findIntermediateShape(ArrayRef<int64_t> lhsShape,
            currRhsDim < rhsShape.size()) {
       if (lhsSize < rhsSize) {
         currLhsDim++;
-        lhsSize *= lhsShape[currLhsDim];
+        if (currLhsDim < lhsShape.size()) {
+          lhsSize *= lhsShape[currLhsDim];
+        }
       } else {
         currRhsDim++;
-        rhsSize *= rhsShape[currRhsDim];
+        if (currRhsDim < rhsShape.size()) {
+          rhsSize *= rhsShape[currRhsDim];
+        }
       }
     }
     if (lhsSize == rhsSize) {
@@ -139,11 +143,6 @@ public:
           reshape, "Cannot collapse dynamic dims to more than one dimension");
     }
 
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
-
     SmallVector<ReassociationExprs, 4> reassociationMap;
     if (!createReassociationMapsForCollapse(rewriter, operandTy.getShape(),
                                             resultTy.getShape(),
@@ -176,11 +175,6 @@ public:
     ShapedType operandTy = adaptor.getInput1().getType().cast<ShapedType>();
     ShapedType resultTy = reshape.getType().template cast<ShapedType>();
     bool isDynamic = !operandTy.hasStaticShape();
-
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
 
     if (isDynamic && operandTy.getRank() != 1) {
       return rewriter.notifyMatchFailure(
@@ -221,11 +215,6 @@ public:
     ShapedType resultTy = reshape.getType().template cast<ShapedType>();
     bool isDynamic = !operandTy.hasStaticShape();
 
-    if (operandTy == resultTy) {
-      rewriter.replaceOp(reshape, adaptor.getOperands()[0]);
-      return success();
-    }
-
     SmallVector<int64_t> intermediateShape;
     if (!findIntermediateShape(resultTy.getShape(), operandTy.getShape(),
                                intermediateShape, isDynamic)) {
@@ -247,7 +236,7 @@ public:
   }
 };
 
-class SliceOpConverter : public OpConversionPattern<tosa::SliceOp> {
+class SliceConverter : public OpConversionPattern<tosa::SliceOp> {
 public:
   using OpConversionPattern<tosa::SliceOp>::OpConversionPattern;
 
@@ -256,30 +245,106 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = sliceOp.getLoc();
     Value input = adaptor.getInput();
-    SmallVector<int64_t> strides;
-    auto starts = sliceOp.getStart();
-    auto sizes = sliceOp.getSize();
+    SmallVector<int64_t> strides, sizes;
+    ArrayRef<int64_t> starts = sliceOp.getStart();
     strides.resize(sliceOp.getType().template cast<ShapedType>().getRank(), 1);
 
     SmallVector<Value> dynSizes;
-    for (const auto &i : llvm::enumerate(sizes)) {
-      int64_t size = i.value().cast<IntegerAttr>().getInt();
+    for (const auto &i : llvm::enumerate(sliceOp.getSize())) {
+      int64_t size = i.value();
       size_t index = i.index();
-      if (size != ShapedType::kDynamicSize)
+      sizes.push_back(size == -1 ? ShapedType::kDynamic : size);
+      if (!ShapedType::isDynamic(sizes.back()))
         continue;
 
       auto dim = rewriter.create<tensor::DimOp>(loc, input, index);
       auto offset = rewriter.create<arith::ConstantOp>(
-          loc,
-          rewriter.getIndexAttr(starts[index].cast<IntegerAttr>().getInt()));
+          loc, rewriter.getIndexAttr(starts[index]));
       dynSizes.push_back(rewriter.create<arith::SubIOp>(loc, dim, offset));
     }
 
     auto newSliceOp = rewriter.create<tensor::ExtractSliceOp>(
         sliceOp.getLoc(), sliceOp.getType(), input, ValueRange({}), dynSizes,
-        ValueRange({}), starts, sizes, rewriter.getI64ArrayAttr(strides));
+        ValueRange({}), rewriter.getDenseI64ArrayAttr(starts),
+        rewriter.getDenseI64ArrayAttr(sizes),
+        rewriter.getDenseI64ArrayAttr(strides));
 
     rewriter.replaceOp(sliceOp, newSliceOp.getResult());
+    return success();
+  }
+};
+
+class PadConverter : public OpRewritePattern<tosa::PadOp> {
+public:
+  using OpRewritePattern<tosa::PadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tosa::PadOp padOp,
+                                PatternRewriter &rewriter) const final {
+    auto loc = padOp.getLoc();
+    auto input = padOp.getInput1();
+    auto padding = padOp.getPadding();
+
+    ShapedType inputTy = input.getType().cast<ShapedType>();
+    Type elementTy = inputTy.getElementType();
+    int64_t rank = inputTy.getRank();
+
+    // Setup the default constantAttr.
+
+    Value padConstant;
+
+    if (padOp.getPadConst()) {
+      padConstant = rewriter.createOrFold<tensor::ExtractOp>(
+          loc, padOp.getPadConst(), ValueRange({}));
+    } else {
+      Attribute constantAttr;
+      if (elementTy.isa<FloatType>()) {
+        constantAttr = rewriter.getFloatAttr(elementTy, 0.0);
+      } else if (elementTy.isa<IntegerType>() && !padOp.getQuantizationInfo()) {
+        constantAttr = rewriter.getIntegerAttr(elementTy, 0);
+      } else if (elementTy.isa<IntegerType>() && padOp.getQuantizationInfo()) {
+        int64_t value = padOp.getQuantizationInfo()->getInputZp();
+        constantAttr = rewriter.getIntegerAttr(elementTy, value);
+      }
+      if (constantAttr)
+        padConstant = rewriter.create<arith::ConstantOp>(loc, constantAttr);
+    }
+
+    if (!padConstant) {
+      return rewriter.notifyMatchFailure(
+          padOp, "tosa.pad was unable to determine the pad constant value.");
+    }
+
+    Value lowIndex =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+    Value highIndex =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(1));
+
+    SmallVector<OpFoldResult, 3> lowValues;
+    SmallVector<OpFoldResult, 3> highValues;
+
+    lowValues.reserve(rank);
+    highValues.reserve(rank);
+
+    for (int i = 0; i < rank; i++) {
+      Value inputIndex = rewriter.createOrFold<arith::ConstantIndexOp>(loc, i);
+      Value lowVal = rewriter.createOrFold<tensor::ExtractOp>(
+          loc, padding, ValueRange({inputIndex, lowIndex}));
+      Value highVal = rewriter.createOrFold<tensor::ExtractOp>(
+          loc, padding, ValueRange({inputIndex, highIndex}));
+
+      lowVal = rewriter.createOrFold<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), lowVal);
+      highVal = rewriter.createOrFold<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), highVal);
+
+      lowValues.push_back(lowVal);
+      highValues.push_back(highVal);
+    }
+
+    auto newPadOp = rewriter.create<tensor::PadOp>(
+        loc, padOp.getType(), input, lowValues, highValues, padConstant);
+
+    rewriter.replaceOp(padOp, newPadOp.getResult());
     return success();
   }
 };
@@ -288,11 +353,11 @@ public:
 
 void mlir::tosa::populateTosaToTensorConversionPatterns(
     RewritePatternSet *patterns) {
-  patterns->add<
-      // clang-format off
-      ReshapeConverterCollapse,
-      ReshapeConverterExpand,
-      ReshapeConverterCollapseExpand,
-      SliceOpConverter>(patterns->getContext());
-  // clang-format on
+  patterns->add<SliceConverter, PadConverter>(patterns->getContext());
+  patterns->add<ReshapeConverterCollapse>(patterns->getContext(),
+                                          /*benefit=*/100);
+  patterns->add<ReshapeConverterExpand>(patterns->getContext(),
+                                        /*benefit=*/200);
+  patterns->add<ReshapeConverterCollapseExpand>(patterns->getContext(),
+                                                /*benefit=*/300);
 }

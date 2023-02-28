@@ -288,7 +288,7 @@ func.func @expand_collapse_shape_transposed_layout(
     memref<?x?xf32, strided<[1, 10], offset: 0>>
 
   %r1 = memref.expand_shape %m1 [[0, 1], [2], [3, 4]] :
-    memref<4x5x6xf32, strided<[1, ?, 1000], offset: 0>> into 
+    memref<4x5x6xf32, strided<[1, ?, 1000], offset: 0>> into
     memref<2x2x5x2x3xf32, strided<[2, 1, ?, 3000, 1000], offset: 0>>
   %rr1 = memref.collapse_shape %r1 [[0, 1], [2], [3, 4]] :
     memref<2x2x5x2x3xf32, strided<[2, 1, ?, 3000, 1000], offset: 0>> into
@@ -333,7 +333,7 @@ func.func @generic_atomic_rmw(%I: memref<1x2xf32>, %i : index, %j : index) {
 
 // -----
 
-func.func @extract_strided_metadata(%memref : memref<10x?xf32>) 
+func.func @extract_strided_metadata(%memref : memref<10x?xf32>)
   -> memref<?x?xf32, strided<[?, ?], offset: ?>> {
 
   %base, %offset, %sizes:2, %strides:2 = memref.extract_strided_metadata %memref
@@ -346,4 +346,37 @@ func.func @extract_strided_metadata(%memref : memref<10x?xf32>)
     : memref<f32> to memref<?x?xf32, strided<[?, ?], offset: ?>>
 
   return %m2: memref<?x?xf32, strided<[?, ?], offset: ?>>
+}
+
+// -----
+
+// CHECK-LABEL: func @memref_realloc_ss
+func.func @memref_realloc_ss(%src : memref<2xf32>) -> memref<4xf32>{
+  %0 = memref.realloc %src : memref<2xf32> to memref<4xf32>
+  return %0 : memref<4xf32>
+}
+
+// CHECK-LABEL: func @memref_realloc_sd
+func.func @memref_realloc_sd(%src : memref<2xf32>, %d : index) -> memref<?xf32>{
+  %0 = memref.realloc %src(%d) : memref<2xf32> to memref<?xf32>
+  return %0 : memref<?xf32>
+}
+
+// CHECK-LABEL: func @memref_realloc_ds
+func.func @memref_realloc_ds(%src : memref<?xf32>) -> memref<4xf32>{
+  %0 = memref.realloc %src: memref<?xf32> to memref<4xf32>
+  return %0 : memref<4xf32>
+}
+
+// CHECK-LABEL: func @memref_realloc_dd
+func.func @memref_realloc_dd(%src : memref<?xf32>, %d: index)
+  -> memref<?xf32>{
+  %0 = memref.realloc %src(%d) : memref<?xf32> to memref<?xf32>
+  return %0 : memref<?xf32>
+}
+
+// CHECK-LABEL: func @memref_extract_aligned_pointer
+func.func @memref_extract_aligned_pointer(%src : memref<?xf32>) -> index {
+  %0 = memref.extract_aligned_pointer_as_index %src : memref<?xf32> -> index
+  return %0 : index
 }

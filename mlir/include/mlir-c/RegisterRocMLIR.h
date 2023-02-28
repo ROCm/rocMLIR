@@ -23,7 +23,7 @@ MLIR_CAPI_EXPORTED void
 mlirRegisterRocMLIRDialects(MlirDialectRegistry registry);
 
 /// Register all compiler passes of rocMLIR.
-MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRPasses();
+MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRPasses(void);
 
 #ifdef __cplusplus
 }

@@ -203,7 +203,7 @@ static int64_t calculatePaddingComplexity(const GemmSize &paddingAmount,
 
 int64_t PopulateParams::calculatePaddingAmount(const InitParamsNonXDL &params,
                                                const GemmSize &gemmSize) const {
-  Optional<GemmSize> maybeGemmExtraPad =
+  std::optional<GemmSize> maybeGemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize);
   if (maybeGemmExtraPad.has_value()) {
@@ -215,7 +215,7 @@ int64_t PopulateParams::calculatePaddingAmount(const InitParamsNonXDL &params,
 int64_t
 PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
                                           const GemmSize &gemmSize) const {
-  Optional<GemmSize> maybeGemmExtraPad =
+  std::optional<GemmSize> maybeGemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
   if (maybeGemmExtraPad.has_value()) {
@@ -506,22 +506,22 @@ LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,
   return success();
 }
 
-Optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
-                                                int64_t mPerBlock,
-                                                int64_t nPerBlock,
-                                                const GemmSize &gemmSize,
-                                                int64_t kPack) {
+std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
+                                                     int64_t mPerBlock,
+                                                     int64_t nPerBlock,
+                                                     const GemmSize &gemmSize,
+                                                     int64_t kPack) {
   int64_t kExtra = (kPerBlock * kPack) -
                    math_util::mod_1_to_n(gemmSize.k, kPerBlock * kPack);
   int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
   int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
   if (mExtra == 0 && kExtra == 0 && nExtra == 0)
-    return None;
+    return std::nullopt;
   return GemmSize(0, mExtra, kExtra, nExtra);
 }
 
-Optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
-                                               GemmSize gemmSize) {
+std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
+                                                    GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {

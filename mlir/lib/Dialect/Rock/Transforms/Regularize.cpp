@@ -15,6 +15,7 @@
 // limitations under the License.
 // ============================================================
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -23,7 +24,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -99,9 +100,10 @@ struct ExpandRewritePattern : public OpRewritePattern<memref::ExpandShapeOp> {
 ////////////////////////////////////////////////////////////////////////
 static bool isRegularGeneric(linalg::GenericOp lgop) {
   // parallel
-  for (StringRef iterType : lgop.iterator_types().getAsValueRange<StringAttr>())
-    if (iterType != "parallel")
+  for (utils::IteratorType iterType : lgop.getIteratorTypesArray()) {
+    if (!linalg::isParallelIterator(iterType))
       return false; //"Only fully parallel supported"
+  }
 
   // 1 output
   auto outs = lgop.getOutputs();
@@ -135,10 +137,10 @@ struct RegularizeGenericRewritePattern
     LogicalResult lres = failure();
 
     // parallel
-    for (StringRef iterType :
-         lgop.iterator_types().getAsValueRange<StringAttr>())
-      if (iterType != "parallel")
+    for (utils::IteratorType iterType : lgop.getIteratorTypesArray()) {
+      if (!linalg::isParallelIterator(iterType))
         return lgop.emitError("Only fully parallel supported");
+    }
 
     // 1 output
     auto outs = lgop.getOutputs();
@@ -174,7 +176,7 @@ struct RegularizeGenericRewritePattern
     // reset idxmaps
     rw.updateRootInPlace(lgop, [&]() {
       SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
-      lgop.indexing_mapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
+      lgop.setIndexingMapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
     });
 
     return lres;
@@ -299,7 +301,7 @@ void RockRegularizePass::runOnOperation() {
 
   {
     ConversionTarget target(*ctx);
-    target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
+    target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                            memref::MemRefDialect, linalg::LinalgDialect>();
     target.addIllegalOp<memref::ExpandShapeOp, memref::CollapseShapeOp>();
     target.addDynamicallyLegalOp<linalg::GenericOp>(

@@ -215,7 +215,7 @@ static bool sinkInstruction(
   BasicBlock *MoveBB = *SortedBBsToSinkInto.begin();
   // FIXME: Optimize the efficiency for cloned value replacement. The current
   //        implementation is O(SortedBBsToSinkInto.size() * I.num_uses()).
-  for (BasicBlock *N : makeArrayRef(SortedBBsToSinkInto).drop_front(1)) {
+  for (BasicBlock *N : ArrayRef(SortedBBsToSinkInto).drop_front(1)) {
     assert(LoopBlockNumber.find(N)->second >
                LoopBlockNumber.find(MoveBB)->second &&
            "BBs not sorted!");
@@ -312,12 +312,13 @@ static bool sinkLoopInvariantInstructions(Loop &L, AAResults &AA, LoopInfo &LI,
     if (!canSinkOrHoistInst(I, &AA, &DT, &L, MSSAU, false, LICMFlags))
       continue;
     if (sinkInstruction(L, I, ColdLoopBBs, LoopBlockNumber, LI, DT, BFI,
-                        &MSSAU))
+                        &MSSAU)) {
       Changed = true;
+      if (SE)
+        SE->forgetBlockAndLoopDispositions(&I);
+    }
   }
 
-  if (Changed && SE)
-    SE->forgetLoopDispositions();
   return Changed;
 }
 

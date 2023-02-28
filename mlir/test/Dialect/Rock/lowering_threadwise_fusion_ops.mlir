@@ -1,8 +1,15 @@
 // Note: this should be in a post-fusion pass
 // RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise --canonicalize %s | FileCheck --enable-var-scope %s
 
-// CHECK-DAG: #[[$ON_OP:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-// CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
+// CHECK-DAG: #[[$ON_OP:transform_map]] = #rock.transform_map
+// CHECK-DAG-SAME: PassThrough
+// CHECK-DAG-SAME: [0, 1, 2]
+// CHECK-DAG-SAME: [0, 1, 2]
+// CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map
+// CHECK-DAG-SAME: PassThrough
+// CHECK-DAG-SAME: [0, 1]
+// CHECK-DAG-SAME: [0, 1]
+// CHECK-DAG-SAME: Pad{2, 0}
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
   by [<PassThrough ["x", "y", "z"] at [0, 1, 2] -> ["x", "y", "z"] at [0, 1, 2]>]
   bounds = [2, 64, 32] -> [2, 64, 32]>
@@ -12,8 +19,8 @@
   bounds = [2, 64, 32] -> [2, 64, 30]>
 
 // CHECK-LABEL: func @threadwise_read_into
-// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, 5>
-func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, 5>) {
+// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
+func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -29,14 +36,14 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map0](%view) -> %dest
-    : memref<2x64x32xf32> -> memref<32xf32, 5>
+    : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return
 }
 
 
 // CHECK-LABEL: func @threadwise_write_all
-// CHECK-SAME: [[source:%.+]]: memref<32xf32, 5>, [[dest:%.+]]: memref<2x64x30xf32>
-func.func @threadwise_write_all(%source: memref<32xf32, 5>, %dest: memref<2x64x30xf32>) {
+// CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<2x64x30xf32>
+func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -52,6 +59,6 @@ func.func @threadwise_write_all(%source: memref<32xf32, 5>, %dest: memref<2x64x3
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
     %source -> [#transform_map0](%view) by set
-    : memref<32xf32, 5> -> memref<2x64x32xf32>
+    : memref<32xf32, #gpu.address_space<private>> -> memref<2x64x32xf32>
   func.return
 }

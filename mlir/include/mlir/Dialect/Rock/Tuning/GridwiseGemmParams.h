@@ -273,15 +273,16 @@ public:
 
 // This core function to calculate the required padding amount
 // given a gemm size.
-Optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
-                                    int64_t nPerBlock, const GemmSize &gemmSize,
-                                    int64_t kPack = 1);
+std::optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
+                                         int64_t nPerBlock,
+                                         const GemmSize &gemmSize,
+                                         int64_t kPack = 1);
 
 /// Given a tuning parameter struct, determine how much padding the gemm with
 /// a given gemm size requires. Returns None if no padding is needed. The
 /// values in the returned gemm context represent the number of 0s that need to
 /// be added to the given dimension.
-Optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
+std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
 } // namespace rock
 } // namespace mlir

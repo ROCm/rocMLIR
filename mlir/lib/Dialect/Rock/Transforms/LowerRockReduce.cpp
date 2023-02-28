@@ -19,7 +19,7 @@
 // using global atomics.
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -161,9 +161,11 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     Value isValid = outLoop.getValidity(/*domain=*/0);
     GlobalLoadOp loadVal = rewriter.create<GlobalLoadOp>(
         loc, vectorType, op.getIn(), isValid, loadCoords);
+    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
     Value loadedReg = rewriter.create<GpuAllocOp>(
-        loc, MemRefType::get({vectorLength}, elementType, {},
-                             gpu::GPUDialect::getPrivateAddressSpace()));
+        loc, MemRefType::get({vectorLength}, elementType, AffineMap{},
+                             privateMemoryAddressSpace));
     rewriter.create<InBoundsStoreOp>(loc, loadVal, loadedReg, zeroConstantOp);
 
     SmallVector<Value, 4> storeCoords;
@@ -198,7 +200,7 @@ void RockLowerReducePass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::ReduceOp>();
-  target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ReduceRewritePattern>(ctx);

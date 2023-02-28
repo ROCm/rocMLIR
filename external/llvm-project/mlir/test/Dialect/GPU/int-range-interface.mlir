@@ -106,9 +106,9 @@ module attributes {gpu.container_module} {
       %global_id_y = gpu.global_id y
       %global_id_z = gpu.global_id z
 
-      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -17179869180 : index, umin = 0 : index}
-      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -17179869180 : index, umin = 0 : index}
-      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -17179869180 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -8589934592 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -8589934592 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 9223372036854775807 : index, smin = -9223372036854775808 : index, umax = -8589934592 : index, umin = 0 : index}
       %global_id_x0 = test.reflect_bounds %global_id_x
       %global_id_y0 = test.reflect_bounds %global_id_y
       %global_id_z0 = test.reflect_bounds %global_id_z
@@ -189,9 +189,9 @@ module attributes {gpu.container_module} {
       %global_id_y = gpu.global_id y
       %global_id_z = gpu.global_id z
 
-      // CHECK: test.reflect_bounds {smax = 133 : index, smin = 0 : index, umax = 133 : index, umin = 0 : index}
-      // CHECK: test.reflect_bounds {smax = 253 : index, smin = 0 : index, umax = 253 : index, umin = 0 : index}
-      // CHECK: test.reflect_bounds {smax = 405 : index, smin = 0 : index, umax = 405 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 159 : index, smin = 0 : index, umax = 159 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 287 : index, smin = 0 : index, umax = 287 : index, umin = 0 : index}
+      // CHECK: test.reflect_bounds {smax = 447 : index, smin = 0 : index, umax = 447 : index, umin = 0 : index}
       %global_id_x0 = test.reflect_bounds %global_id_x
       %global_id_y0 = test.reflect_bounds %global_id_y
       %global_id_z0 = test.reflect_bounds %global_id_z

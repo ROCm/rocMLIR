@@ -23,7 +23,7 @@
 #include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/ArithmeticToLLVM/ArithmeticToLLVM.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
@@ -35,13 +35,14 @@
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/XModelToGPU/XModelToGPU.h"
 #include "mlir/Dialect/Affine/Passes.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/XModel/Transforms/Passes.h"
@@ -106,6 +107,8 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
   funcPm1.addPass(createLowerAffinePass());
+  funcPm1.addPass(memref::createExpandStridedMetadataPass());
+
   funcPm1.addPass(createConvertSCFToCFPass());
 
   // Target async.launch to cpu.coro or gpu.launch_func
@@ -115,12 +118,12 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
 
   auto &funcPm2 = pm.nest<func::FuncOp>();
-  funcPm2.addPass(mlir::arith::createArithmeticExpandOpsPass());
-  funcPm2.addPass(arith::createConvertArithmeticToLLVMPass());
+  funcPm2.addPass(arith::createArithExpandOpsPass());
+  funcPm2.addPass(createArithToLLVMConversionPass());
   funcPm2.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addPass(createConvertVectorToLLVMPass());
-  pm.addPass(createMemRefToLLVMPass());
+  pm.addPass(createMemRefToLLVMConversionPass());
 
   AsyncToAsyncRuntimeOptions a2arOpts;
   a2arOpts.enableCoroutines = options.enableCoroutines;

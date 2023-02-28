@@ -5,7 +5,7 @@
 // CLONE: [1 1 1]
 // CLONE-NEXT: Unranked Memref base
 func.func @test_fusion(%arg0: tensor<1x32x32x8xf32>, %arg1: tensor<16x3x3x8xf32>, %arg2: tensor<16xf32>) -> tensor<1x30x30x16xf32> attributes {kernel, arch = ""} {
-  %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<1x32x32x8xf32>, tensor<16x3x3x8xf32>, tensor<16xf32>) -> tensor<1x30x30x16xf32>
+  %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x32x32x8xf32>, tensor<16x3x3x8xf32>, tensor<16xf32>) -> tensor<1x30x30x16xf32>
 
   return %0 : tensor<1x30x30x16xf32>
 }

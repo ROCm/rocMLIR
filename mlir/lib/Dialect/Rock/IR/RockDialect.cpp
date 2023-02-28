@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -122,7 +123,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
   }
 
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  Optional<TransformType> transformType =
+  std::optional<TransformType> transformType =
       getTransformTypeForName(transformName);
   if (!transformType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known transform")
@@ -829,9 +830,9 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 
 static ArrayAttr maybeIndexArray(OpBuilder &b,
-                                 Optional<ArrayRef<int64_t>> vals) {
-  return vals
-      .transform([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
+                                 std::optional<ArrayRef<int64_t>> vals) {
+  return llvm::transformOptional(
+             vals, [&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
       .value_or(ArrayAttr{});
 }
 
@@ -839,7 +840,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, b.getArrayAttr(transforms),
@@ -859,7 +860,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits, ArrayAttr transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, transforms, b.getIndexArrayAttr(bounds),
@@ -1298,7 +1299,10 @@ LogicalResult BufferLoadOp::verify() {
     return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (sourceType.getMemorySpaceAsInt() != 0)
+  Attribute memSpaceAttr = sourceType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr ||
+                       gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Source memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
     return emitOpError(
@@ -1316,7 +1320,10 @@ LogicalResult BufferStoreOp::verify() {
     return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
-  if (destType.getMemorySpaceAsInt() != 0)
+  Attribute memSpaceAttr = destType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr ||
+                       gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Destination memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
     return emitOpError(
@@ -1359,7 +1366,10 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
-  if (destType.getMemorySpaceAsInt() != 5)
+  Attribute memSpaceAttr = destType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
+                                               gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1378,7 +1388,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
-  if (sourceType.getMemorySpaceAsInt() != 5)
+  Attribute memSpaceAttr = sourceType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
+                                               gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;

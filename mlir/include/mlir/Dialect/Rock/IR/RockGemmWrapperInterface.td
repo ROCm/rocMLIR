@@ -143,7 +143,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*desc=*/[{
           Get the value of the derived block size attribute if it is set.
         }],
-        /*retType=*/"Optional<uint32_t>",
+        /*retType=*/"std::optional<uint32_t>",
         /*methodName=*/"getDerivedBlockSize",
         /*args=*/(ins),
         /*methodBody=*/"",

@@ -24,7 +24,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Utils.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -116,7 +116,7 @@ struct TransformingForRewritePattern
         }
         for (auto t : transforms.getAsRange<TransformMapAttr>()) {
           AffineMap map = t.getMap().getAffineMap();
-          Optional<AffineResults> init;
+          std::optional<AffineResults> init;
           if (lowerInit.empty())
             init = expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
@@ -176,7 +176,7 @@ struct TransformingForRewritePattern
     }
 
     // Create code to actually transform the coordinates
-    BlockAndValueMapping cloneMap;
+    IRMapping cloneMap;
     Block::BlockArgListType validities = op.getValidities();
     for (uint32_t i = 0; i < nDomains; ++i) {
       Block::BlockArgListType lower = op.getLowerCoords(i);
@@ -193,7 +193,7 @@ struct TransformingForRewritePattern
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations
             continue;
-          Optional<AffineResults> transformed =
+          std::optional<AffineResults> transformed =
               expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
             return failure();
@@ -273,10 +273,10 @@ struct TransformingForRewritePattern
 
 // Determine if the operation provided is a constant, and return its value if it
 // is
-Optional<int64_t> isConstantValue(Value v) {
+std::optional<int64_t> isConstantValue(Value v) {
   auto *op = v.getDefiningOp();
   if (nullptr == op)
-    return llvm::None;
+    return std::nullopt;
   while (auto cast = dyn_cast<IndexCastOp>(op)) {
     op = cast.getIn().getDefiningOp();
   }
@@ -286,7 +286,7 @@ Optional<int64_t> isConstantValue(Value v) {
   if (auto indexOp = dyn_cast<ConstantIndexOp>(op)) {
     return indexOp.value();
   }
-  return llvm::None;
+  return std::nullopt;
 }
 
 struct IndexDiffUpdateRewritePattern
@@ -872,10 +872,11 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.getOffset()
-            .transform([&b](const APInt &offset) -> IntegerAttr {
-              return b.getI32IntegerAttr(offset.getZExtValue());
-            })
+        llvm::transformOptional(op.getOffset(),
+                                [&b](const APInt &offset) -> IntegerAttr {
+                                  return b.getI32IntegerAttr(
+                                      offset.getZExtValue());
+                                })
             .value_or(IntegerAttr());
     bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
@@ -920,10 +921,11 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     for (Value v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.getOffset()
-            .transform([&b](const APInt &offset) -> IntegerAttr {
-              return b.getI32IntegerAttr(offset.getZExtValue());
-            })
+        llvm::transformOptional(op.getOffset(),
+                                [&b](const APInt &offset) -> IntegerAttr {
+                                  return b.getI32IntegerAttr(
+                                      offset.getZExtValue());
+                                })
             .value_or(IntegerAttr());
 
     bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
@@ -931,10 +933,10 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       // TODO: test padding in atomic add kernels now that we can oob with them
       if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
         int32_t nAtomics = dataVector.getNumElements();
-        int32_t offset = op.getOffset()
-                             .transform([](const APInt &v) -> int32_t {
-                               return v.getZExtValue();
-                             })
+        int32_t offset = llvm::transformOptional(op.getOffset(),
+                                                 [](const APInt &v) -> int32_t {
+                                                   return v.getZExtValue();
+                                                 })
                              .value_or(0);
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
@@ -1035,7 +1037,7 @@ struct InWarpTransposeRewritePattern
   Value emitRotations(Location loc, PatternRewriter &b, Value vector,
                       Value laneId, RotationDirection dir, uint32_t groupSize,
                       uint32_t totalSize,
-                      Optional<ArrayRef<uint32_t>> lanePerm) const {
+                      std::optional<ArrayRef<uint32_t>> lanePerm) const {
     assert(totalSize % groupSize == 0 &&
            "block size is divisible by group size");
 
@@ -1305,13 +1307,13 @@ struct InWarpTransposeRewritePattern
                                 .getZExtValue());
     }
 
-    Optional<ArrayRef<uint32_t>> maybeInGroupPerm = llvm::None;
+    std::optional<ArrayRef<uint32_t>> maybeInGroupPerm = std::nullopt;
     if (inGroupPermAttr != b.getI32ArrayAttr({0, 1, 2, 3})) {
       maybeInGroupPerm = inGroupPerm;
     }
 
     Value rotatedRight = emitRotations(loc, b, vector, laneId, Right, groupSize,
-                                       totalSize, llvm::None);
+                                       totalSize, std::nullopt);
     Value swizzled =
         emitSwizzles(loc, b, rotatedRight, groupSize, totalSize, inGroupPerm);
     Value rotatedLeft = emitRotations(loc, b, swizzled, laneId, Left, groupSize,

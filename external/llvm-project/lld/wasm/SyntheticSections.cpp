@@ -17,6 +17,7 @@
 #include "OutputSegment.h"
 #include "SymbolTable.h"
 #include "llvm/Support/Path.h"
+#include <optional>
 
 using namespace llvm;
 using namespace llvm::wasm;
@@ -107,7 +108,8 @@ void DylinkSection::writeBody() {
       LLVM_DEBUG(llvm::dbgs() << "export info: " << toString(*sym) << "\n");
       StringRef name = sym->getName();
       if (auto *f = dyn_cast<DefinedFunction>(sym)) {
-        if (Optional<StringRef> exportName = f->function->getExportName()) {
+        if (std::optional<StringRef> exportName =
+                f->function->getExportName()) {
           name = *exportName;
         }
       }
@@ -162,7 +164,7 @@ void TypeSection::writeBody() {
 uint32_t ImportSection::getNumImports() const {
   assert(isSealed);
   uint32_t numImports = importedSymbols.size() + gotSymbols.size();
-  if (config->importMemory)
+  if (config->memoryImport.has_value())
     ++numImports;
   return numImports;
 }
@@ -234,10 +236,10 @@ void ImportSection::writeBody() {
 
   bool is64 = config->is64.value_or(false);
 
-  if (config->importMemory) {
+  if (config->memoryImport) {
     WasmImport import;
-    import.Module = defaultModule;
-    import.Field = "memory";
+    import.Module = config->memoryImport->first;
+    import.Field = config->memoryImport->second;
     import.Kind = WASM_EXTERNAL_MEMORY;
     import.Memory.Flags = 0;
     import.Memory.Minimum = out.memorySec->numMemoryPages;
