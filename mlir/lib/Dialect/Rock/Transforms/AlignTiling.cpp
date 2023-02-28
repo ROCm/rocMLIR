@@ -220,9 +220,11 @@ static void reconfigureLAGeneric(PatternRewriter &b,
   laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(lgAMaps));
 
   // 2.3. Reset iterator types
-  SmallVector<StringAttr, 5> lgIterArr(regRank, b.getStringAttr("parallel"));
-  laGeneric.setIteratorTypesAttr(
-      b.getArrayAttr(ArrayRef<Attribute>(lgIterArr.begin(), lgIterArr.end())));
+  MLIRContext *ctx = b.getContext();
+  SmallVector<Attribute, 5> iteratorTypes;
+  iteratorTypes.resize(regRank, linalg::IteratorTypeAttr::get(
+                                    ctx, utils::IteratorType::parallel));
+  laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
 }
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
@@ -254,7 +256,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 0.1. Test compatibility,  Only 1 output supported
   if (laGeneric.getOutputs().size() != 1)
     return laGeneric.emitError("only 1 output supported");
-  Value out = laGeneric.getOutputOperand(0)->get();
+  Value out = *laGeneric.getOutputs().begin();
 
   // 0.2. Sanity check, skip already fused.
   for (auto inp : laGeneric.getInputs()) {
