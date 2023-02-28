@@ -158,6 +158,19 @@ def MIGraphX_FloorOp :
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
+def MIGraphX_QuantizeLinearOp :
+    MIGraphX_Op<"quantizelinear">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$scale,
+                   Optional<AnyRankedTensor>:$bias)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Channelwise quantization";
+  let description = [{
+    Quantization tensor elementwise
+  }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
+}
+
 // Convolution operations
 
 def MIGraphX_ConvolutionOp :
