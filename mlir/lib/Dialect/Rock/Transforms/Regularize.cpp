@@ -214,6 +214,8 @@ struct PushTransformsUpRewritePattern
       return rgop.getC() == result;
     } else if (auto rgop = dyn_cast<rock::GridwiseGemmV2Op>(forwOp)) {
       return rgop.getC() == result;
+    } else if (auto rgop = dyn_cast<rock::ThreadwiseWriteAllOp>(forwOp)) {
+      return rgop.getDest() == result;
     }
     LLVM_DEBUG(llvm::dbgs() << "unsupported op\n" << *forwOp);
     return false;
