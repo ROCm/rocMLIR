@@ -97,24 +97,29 @@ static Value transformAccordingly(PatternRewriter &b, Value nOut, Value refOp) {
     nOut = transformAccordingly(b, nOut, rtop.getOperand());
 
     // 1. apply identical transforms to other inputs
-    IRMapping cmap;
-    cmap.map(rtop.getOperand(), nOut);
-    auto ntop = dyn_cast<TransformOp>(b.clone(*rtop, cmap));
-    nOut = ntop.getResult();
+    nOut = b.create<TransformOp>(rtop.getLoc(), nOut, rtop.getTransform());
   }
 
   return nOut;
+}
+
+Value makeRegs(PatternRewriter &b, MemRefType::Builder &mrb, Location loc,
+               Type srcType) {
+  auto srcMemType = srcType.cast<MemRefType>();
+  // 1. create a second allocation of the same type to hold loaded elements
+  return b.create<GpuAllocOp>(loc, static_cast<MemRefType>(mrb.setElementType(
+                                       srcMemType.getElementType())));
 }
 
 static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
                              Value src) {
   // 0. capture the memref containing the outputs being written
   Location loc = storeOp.getLoc();
-  Value gemmOuts = storeOp.getSource();
-  auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
+  Value gemmOut = storeOp.getSource();
 
   // 1. create a second allocation of the same type to hold loaded elements
-  Value alloc = b.create<GpuAllocOp>(loc, gemmOutsType);
+  MemRefType::Builder mrb(gemmOut.getType().cast<MemRefType>());
+  Value alloc = makeRegs(b, mrb, loc, src.getType());
 
   // 2. clone twcopy for <addend> into regs
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType() << " dest type: "
@@ -184,45 +189,42 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(Value inp) {
 }
 
 // Returns the value of the buffer that's meant to be the new writeback.
-static Value reconfigureLAGeneric(PatternRewriter &b,
-                                  linalg::GenericOp laGeneric, Value laIn,
-                                  ThreadwiseWriteAllOp twWriteOp) {
-  MLIRContext *ctx = laGeneric.getContext();
-  Location loc = laGeneric.getLoc();
-  auto regType = laIn.getType().template cast<MemRefType>();
-  auto laOut = b.create<GpuAllocOp>(loc, regType);
-
-  SmallVector<AffineMap, 5> laGenericAMaps;
+static void reconfigureLAGeneric(PatternRewriter &b,
+                                 linalg::GenericOp laGeneric, Value inRegs,
+                                 Value outRegs,
+                                 ThreadwiseWriteAllOp twWriteOp) {
   SmallVector<Value, 5> newInputs;
+  SmallVector<AffineMap, 5> lgAMaps;
+
   for (auto inp : laGeneric.getInputs()) {
     Value newInput;
     if (traceToThreadwiseWrite(inp)) {
-      newInput = laIn;
+      newInput = inRegs;
     } else {
       // 2.1.1. Align tiling of other inputs
       newInput = applyTransforms(b, twWriteOp, inp);
     }
     newInputs.push_back(newInput);
-    laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(
-        newInput.getType().template cast<MemRefType>().getRank(), ctx));
+
+    auto inpRank = newInput.getType().cast<ShapedType>().getRank();
+    lgAMaps.push_back(b.getMultiDimIdentityMap(inpRank));
   }
 
-  laGenericAMaps.push_back(
-      AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
-
   laGeneric.getInputsMutable().assign(newInputs);
-  laGeneric.getOutputsMutable().assign(laOut);
+  laGeneric.getOutputsMutable().assign(outRegs);
 
   // 2.2. Reset affine maps
-  laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
+  auto regRank = inRegs.getType().cast<ShapedType>().getRank();
+
+  lgAMaps.push_back(b.getMultiDimIdentityMap(regRank));
+  laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(lgAMaps));
 
   // 2.3. Reset iterator types
+  MLIRContext *ctx = b.getContext();
   SmallVector<Attribute, 5> iteratorTypes;
-  iteratorTypes.resize(
-      regType.getRank(),
-      linalg::IteratorTypeAttr::get(ctx, utils::IteratorType::parallel));
+  iteratorTypes.resize(regRank, linalg::IteratorTypeAttr::get(
+                                    ctx, utils::IteratorType::parallel));
   laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
-  return laOut;
 }
 
 static Value findThreadwiseWrite(linalg::GenericOp laGeneric,
@@ -251,13 +253,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     if (!linalg::isParallelIterator(iterType))
       return laGeneric.emitError("must be fully parallel");
 
-  Value out = *laGeneric.getOutputs().begin(); // may be another arg
   // 0.1. Test compatibility,  Only 1 output supported
-  if (laGeneric.getOutputs().size() != 1) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Currently, multi-output fusion is not supported.\n");
-    return failure();
-  }
+  if (laGeneric.getOutputs().size() != 1)
+    return laGeneric.emitError("only 1 output supported");
+  Value out = *laGeneric.getOutputs().begin();
 
   // 0.2. Sanity check, skip already fused.
   for (auto inp : laGeneric.getInputs()) {
@@ -275,10 +274,9 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!laGenericInputLeadingToGemmStore)
     return failure();
 
-  auto actualLAGenericOut = laGeneric.getDpsInitOperand(0);
-  if (laGenericInputLeadingToGemmStore.getType() !=
-      actualLAGenericOut->get().getType()) {
-    // TODO(sjw): fix for mixed types
+  auto outType = out.getType().cast<ShapedType>();
+  auto inpType = laGenericInputLeadingToGemmStore.getType().cast<ShapedType>();
+  if (outType.getShape() != inpType.getShape()) {
     return laGeneric.emitError("input and output types must match");
   }
 
@@ -311,8 +309,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 2.0. Reset insertion point to before the copy.
   b.setInsertionPoint(gemmStoreOp);
 
+  MemRefType::Builder mrb(gemmOutType);
+  auto laOutRegs = makeRegs(b, mrb, loc, out.getType());
   // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
-  Value laOutRegs = reconfigureLAGeneric(b, laGeneric, fusionRegs, gemmStoreOp);
+  reconfigureLAGeneric(b, laGeneric, fusionRegs, laOutRegs, gemmStoreOp);
   // 2.2.0. Move the generic before the write-back. This'll put all
   // the copy loops for other inputs before the generic due to insertion
   // order.

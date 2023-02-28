@@ -1,7 +1,6 @@
-// RUN: rocmlir-driver -host-pipeline highlevel -arch gfx906 %s | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel -kernel-pipeline gpu -arch gfx906 %s | FileCheck %s
 
 // CHECK-LABEL: test_conv_with_cast
-// CHECK-COUNT-1: linalg.generic
 // CHECK: arith.sitofp {{.*}} : i32 to f32
 
 func.func @test_conv_with_cast(
@@ -18,7 +17,6 @@ func.func @test_conv_with_cast(
 }
 
 // CHECK-LABEL: test_quantization_ck
-// CHECK-COUNT-1: linalg.generic
 // CHECK: arith.sitofp {{.*}} : i32 to f32
 // CHECK: arith.minf {{.*}} : f32
 // CHECK: arith.maxf {{.*}} : f32
@@ -43,7 +41,6 @@ func.func @test_quantization_ck(
 }
 
 // CHECK-LABEL: test_quantization_migraphx
-// CHECK-COUNT-1: linalg.generic
 // CHECK: arith.sitofp {{.*}} : i32 to f32
 // CHECK: arith.minf {{.*}} : f32
 // CHECK: arith.maxf {{.*}} : f32
