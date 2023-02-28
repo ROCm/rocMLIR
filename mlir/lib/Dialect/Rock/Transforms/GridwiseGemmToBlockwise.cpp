@@ -295,6 +295,10 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
 
+  // Optimize the transform chain.
+  ArrayRef<int64_t> tensorSize = tensor.getType().cast<ShapedType>().getShape();
+  matrixToTensor = collapseContiguousMerges(matrixToTensor, tensorSize);
+
   Type elementType =
       wrappedMatrix.getType().cast<MemRefType>().getElementType();
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
@@ -353,9 +357,11 @@ createLdsStoreLoop(PatternRewriter &b, Location loc, Value loaded,
   ArrayAttr bufferView;
   std::tie(rawBuffer, bufferView) = untransform(b, wrappedBuffer);
 
+  ArrayRef<int64_t> bufferShape =
+      rawBuffer.getType().cast<MemRefType>().getShape();
   int64_t ldsStoreVectorization =
-      getMaxVectorization(bufferView, /*dim=*/1, dataPerThread,
-                          rawBuffer.getType().cast<MemRefType>().getShape());
+      getMaxVectorization(bufferView, /*dim=*/1, dataPerThread, bufferShape);
+  bufferView = collapseContiguousMerges(bufferView, bufferShape);
   Type loadedType = loaded.getType();
   Type elementType = loadedType;
   if (auto vectorLoadTy = loadedType.dyn_cast<VectorType>())

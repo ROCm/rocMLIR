@@ -171,8 +171,7 @@ struct BlockwiseGemmRewritePattern
       splitTidForLDS.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
                            {2, 3, 4, 5}, "tid",
                            {mCuwavesPerBlock, nCuwavesPerBlock,
-                            mThreadsPerCuwave, nThreadsPerCuwave},
-                           /*isUnfold=*/true);
+                            mThreadsPerCuwave, nThreadsPerCuwave});
       splitTidForLDS.passThrough({perThreadName, "kpack"}, {6, 7},
                                  {perThreadName, "kpack"});
       return splitTidForLDS;
@@ -686,6 +685,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
 
+  // In the future, this might get merged into the vectorizer.
+  transforms = collapseContiguousMerges(transforms, bufferShape);
+
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
@@ -732,6 +734,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
 
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
+
+  transforms = collapseContiguousMerges(transforms, bufferShape);
 
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);

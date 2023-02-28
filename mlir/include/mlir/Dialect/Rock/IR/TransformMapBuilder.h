@@ -165,8 +165,7 @@ public:
                ArrayRef<StringRef> upperNames, ArrayRef<int64_t> lengths);
 
   void merge(ArrayRef<StringRef> lowerNames, ArrayRef<uint32_t> lowerDims,
-             StringRef upperName, ArrayRef<int64_t> sizes,
-             bool isUnfold = false);
+             StringRef upperName, ArrayRef<int64_t> sizes);
 
 protected:
   void addTransform(TransformType type, ArrayRef<int64_t> params,
@@ -207,7 +206,7 @@ struct TopDownTMBottomDimsWrapper {
                ArrayRef<int64_t> lengths);
 
   void merge(ArrayRef<StringRef> lowerNames, StringRef upperName,
-             ArrayRef<int64_t> sizes, bool isUnfold = false);
+             ArrayRef<int64_t> sizes);
 
   llvm::SmallVector<uint32_t> toBottomDims(ArrayRef<StringRef> names);
 };
@@ -263,7 +262,7 @@ public:
   // The coefficients to the merge will automatically be the size of the lower
   // dimensions
   void merge(StringRef upperName, uint32_t upperDim,
-             ArrayRef<StringRef> lowerNames, bool isUnfold = false);
+             ArrayRef<StringRef> lowerNames);
 
 protected:
   void addTransform(TransformType type, ArrayRef<int64_t> params,
@@ -301,8 +300,7 @@ struct BottomUpTMTopDimsWrapper {
   void unmerge(ArrayRef<StringRef> upperNames, StringRef lowerName,
                ArrayRef<int64_t> lengths);
 
-  void merge(StringRef upperName, ArrayRef<StringRef> lowerNames,
-             bool isUnfold = false);
+  void merge(StringRef upperName, ArrayRef<StringRef> lowerNames);
 
   llvm::SmallVector<uint32_t> toTopDims(ArrayRef<StringRef> names);
 };
