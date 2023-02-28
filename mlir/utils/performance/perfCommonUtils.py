@@ -4,6 +4,7 @@ import re
 class Operation(enum.IntEnum):
   CONV = 1
   GEMM = 2
+  FUSION = 3
 
   @staticmethod
   def fromName(name: str) -> 'self':
@@ -12,6 +13,8 @@ class Operation(enum.IntEnum):
       return Operation.CONV
     elif name == 'gemm':
       return Operation.GEMM
+    elif name == 'fusion':
+      return Operation.FUSION
     else:
       raise ValueError(f"Unknown operation type {name}")
 
