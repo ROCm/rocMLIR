@@ -75,7 +75,11 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", [F32, F16, BF16, I8], [F32, F16, BF16, I32]> {
+defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
+// This can be extended for quantization.
+defvar GemmOutputTypes = [F32, F16, BF16, I32];
+
+def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution forward";
@@ -129,11 +133,11 @@ def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 def Rock_GemmOp :
     Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>,
                      DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+    Arguments<(ins Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
                        "matrix A", [MemRead]>:$a,
-                   Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                   Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
                        "matrix B", [MemRead]>:$b,
-                   Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
+                   Arg<TensorOrMemRefRankOf<GemmOutputTypes, [2, 3]>,
                        "matrix C", [MemRead, MemWrite]>:$c,
                    UnitAttr:$aTransposed,
                    UnitAttr:$bTransposed,
@@ -333,9 +337,9 @@ def Rock_TensorUntransformCastOp :
 
 def Rock_GridwiseGemmOp :
     Rock_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
+    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
+                   MemRefRankOf<GemmInputTypes, [3]>:$b,
+                   MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
@@ -352,9 +356,9 @@ def Rock_GridwiseGemmOp :
 // gridwise_gemm_v2
 def Rock_GridwiseGemmV2Op :
     Rock_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
+    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
+                   MemRefRankOf<GemmInputTypes, [3]>:$b,
+                   MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
@@ -719,21 +723,24 @@ def Rock_IndexDiffUpdateOp :
   let hasVerifier = 1;
 }
 
+defvar SupportedMemoryElems = [F32, F16, BF16, I8, I32, F8E5M2FNUZ, F8E4M3FNUZ];
+defvar NativeMemoryOpTypes = [F32, F16, BF16, I8, I32,
+                           F8E5M2FNUZ, F8E4M3FNUZ,
+                           VectorOfLengthAndType<[2, 4], [F32, I32]>,
+                           VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                           VectorOfLengthAndType<[2, 4, 8, 16],
+                             [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
+
 // buffer_load
 def Rock_BufferLoadOp :
     Rock_Op<"buffer_load">,
-    Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>,
         "buffer to load from", [MemRead]>:$source,
       I1:$valid,
       Variadic<Index>:$coords,
       OptionalAttr<IndexAttr>:$offset,
       UnitAttr:$oobIsOverflow)>,
-    Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
-              VectorOfLengthAndType<[2, 4], [F32]>,
-              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-              VectorOfLengthAndType<[2, 4, 8, 16], [I8]>,
-              VectorOfLengthAndType<[2, 4], [I32]>]>:$result)> {
+    Results<(outs AnyTypeOf<NativeMemoryOpTypes>:$result)> {
   let summary = "Load data from a global buffer";
 
   let description = [{
@@ -765,13 +772,8 @@ def Rock_BufferLoadOp :
 // buffer_store
 def Rock_BufferStoreOp :
     Rock_Op<"buffer_store", []>,
-    Arguments<(ins AnyTypeOf<[F32, F16, BF16, I8, I32,
-        VectorOfLengthAndType<[2, 4], [F32]>,
-        VectorOfLengthAndType<[2, 4, 8], [F16]>,
-        VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-        VectorOfLengthAndType<[4], [I8]>,
-        VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
-      Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+    Arguments<(ins AnyTypeOf<NativeMemoryOpTypes>:$data,
+      Arg<MemRefOf<SupportedMemoryElems>,
         "Buffer to store to", [MemWrite]>:$dest,
       I1:$valid,
       Variadic<Index>:$coords,
@@ -831,7 +833,7 @@ def Rock_InBoundsLoadOp :
 def Rock_InBoundsStoreOp :
     Rock_Op<"in_bounds_store", [AllElementTypesMatch<["data", "dest"]>]>,
     Arguments<(ins AnyType:$data,
-      Arg<AnyMemRef,
+      Arg<MemRefOf<SupportedMemoryElems>,
         "Buffer to store to", [MemWrite]>:$dest,
       Variadic<Index>:$coords)> {
   let summary = "Store one or more items to contiguous indices in `dest`";
@@ -852,7 +854,7 @@ def Rock_InBoundsStoreOp :
 // global_load
 def Rock_GlobalLoadOp :
     Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
-    Arguments<(ins Arg<AnyMemRef, "source memory", [MemRead]>:$source,
+    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source memory", [MemRead]>:$source,
                    I1:$valid,
                    Variadic<Index>:$sourceCoord)>,
     Results<(outs AnyType:$result)> {
@@ -873,8 +875,8 @@ def Rock_GlobalLoadOp :
 // global_store
 def Rock_GlobalStoreOp :
     Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>:$source,
-                   AnyMemRef:$dest,
+    Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
+                   MemRefOf<SupportedMemoryElems>:$dest,
                    IndexAttr:$length,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
@@ -906,8 +908,8 @@ def Rock_GlobalStoreOp :
 def Rock_ThreadwiseReadIntoOp :
     Rock_Op<"threadwise_read_into">,
     AllElementTypesMatch<["source", "dest"]>,
-    Arguments<(ins Arg<AnyMemRef, "source view", [MemRead]>:$source,
-      Arg<MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>,
+    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
+      Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
         "destination registers", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       UnitAttr:$forceUnroll,
@@ -962,9 +964,9 @@ def Rock_ThreadwiseReadIntoOp :
 def Rock_ThreadwiseWriteAllOp :
     Rock_Op<"threadwise_write_all">,
     AllElementTypesMatch<["source", "dest"]>,
-    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I32, I8], [1]>,
+    Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
       "source registers", [MemRead]>:$source,
-      Arg<AnyMemRef, "detination view", [MemWrite]>:$dest,
+      Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       Rock_GemmFeaturesAttr:$features,
       StoreMethodAttr:$storeMethod,
@@ -1028,9 +1030,9 @@ def Rock_ThreadwiseWriteAllOp :
 // blockwise_gemm
 def Rock_BlockwiseGemmOp:
     Rock_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
+    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
+                   MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
+                   MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
@@ -1054,25 +1056,26 @@ def Rock_BlockwiseGemmOp:
   let hasVerifier = 1;
 }
 
+// This is less general than the one in the AMDGPU dialect, since it only
+// accounts for how we call these operations.
+defvar MfmaArgTypes = [F32,
+                    VectorOfLengthAndType<[2, 4], [F32]>,
+                    VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                    VectorOfLengthAndType<[4, 8], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
+defvar MfmaResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
+
 // blockwise_gemm_v2
 def Rock_BlockwiseGemmV2Op:
     Rock_Op<"blockwise_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16, I8]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16, I8]>:$matrixB,
+    Arguments<(ins MemRefOf<GemmInputTypes>:$matrixA,
+                   MemRefOf<GemmInputTypes>:$matrixB,
                    IndexAttr:$ldsBufferOffsetA,
                    IndexAttr:$ldsBufferOffsetB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
-                   MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   MemRefOf<MfmaArgTypes>:$bufferA,
+                   MemRefOf<MfmaArgTypes>:$bufferB,
+                   MemRefOf<MfmaResTypes>:$matrixC,
                    I32Attr:$blockSize,
                    Rock_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
@@ -1096,9 +1099,9 @@ def Rock_BlockwiseGemmV2Op:
 def Rock_ThreadwiseGemmOp:
     Rock_Op<"threadwise_gemm",
       [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<GemmOutputTypes, [3]>:$matrixA,
+                   MemRefRankOf<GemmOutputTypes, [3]>:$matrixB,
+                   MemRefRankOf<GemmOutputTypes, [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `rock.threadwise_gemm` op does GEMM at thread level.
@@ -1119,16 +1122,9 @@ def Rock_XdlopsGemmV2Op:
     Rock_Op<"xdlops_gemm_v2">,
     Arguments<(ins Index:$mRepeat,
                    Index:$nRepeat,
-                   MemRefRankOf<[F32, F16, BF16, I8,
-                      VectorOfLengthAndType<[2, 4], [F32]>,
-                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [1]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I8,
-                      VectorOfLengthAndType<[2, 4], [F32]>,
-                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [1]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32,
-                      VectorOf<[F32, F16, BF16, I32]>], [1]>:$matrixC,
+                   MemRefRankOf<MfmaArgTypes, [1]>:$matrixA,
+                   MemRefRankOf<MfmaArgTypes, [1]>:$matrixB,
+                   MemRefRankOf<MfmaResTypes , [1]>:$matrixC,
                    Rock_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
