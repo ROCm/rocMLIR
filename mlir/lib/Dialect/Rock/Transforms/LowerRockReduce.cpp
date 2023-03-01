@@ -125,17 +125,17 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
   std::tie(source, sourceTransformsFromOp) =
       untransform(rewriter, op.getIn(), trMaps);
 
+  Type elementType = source.getType().cast<MemRefType>().getElementType();
   ArrayRef<int64_t> threadViewShape =
       trMaps[0].cast<TransformMapAttr>().getUpperBounds();
-  int64_t vectorLength =
-      getMaxVectorization(sourceTransformsFromOp, /*dim=*/1, threadViewShape[1],
-                          source.getType().cast<MemRefType>().getShape());
+  int64_t vectorLength = getMaxVectorizationForDatatype(
+      sourceTransformsFromOp, /*dim=*/1, threadViewShape[1],
+      source.getType().cast<MemRefType>().getShape(), elementType);
   SmallVector<int64_t> bounds(threadViewShape.size(), 1LL);
   // Setting iter dimension bounds to threadViewShape size
   bounds[1] = threadViewShape[1];
   SmallVector<int64_t> strides(threadViewShape.size(), 1LL);
   strides[1] = vectorLength;
-  Type elementType = source.getType().cast<MemRefType>().getElementType();
   Type vectorType = vectorTypeOrSelf(elementType, vectorLength);
 
   // Get current workgroup ID.

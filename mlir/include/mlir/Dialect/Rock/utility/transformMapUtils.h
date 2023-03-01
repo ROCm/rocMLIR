@@ -49,6 +49,13 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
                             ArrayRef<int64_t> outputShape);
 
+/// Returns the maximum vectorization constrained by the `dataType` we are
+/// vectorizing for
+int64_t getMaxVectorizationForDatatype(ArrayAttr transforms, uint32_t dim,
+                                       int64_t len,
+                                       ArrayRef<int64_t> outputShape,
+                                       Type dataType);
+
 /// Rewrites the given array of transformations to (under the assumption that
 /// they will target a space of size outputShape) collapse contiguous merge
 /// dimensions. That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)

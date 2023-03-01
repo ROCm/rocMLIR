@@ -691,6 +691,25 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   return result;
 }
 
+int64_t mlir::rock::getMaxVectorizationForDatatype(
+    ArrayAttr transforms, uint32_t dim, int64_t len,
+    ArrayRef<int64_t> outputShape, Type dataType) {
+
+  // Get the number of continuous elements that could be read at once
+  int64_t theoreticalVectorLen =
+      getMaxVectorization(transforms, dim, len, outputShape);
+
+  // Vectorizing more than the physical vector length (128 bits) might
+  // be harmful for coalescence and other metrics. Let's limit the maximum
+  // amount of data to load to the maximum vector length. This means a
+  // warp will issue, if possible, a global_load_dwordx4 instruction
+  const int64_t maxVectorLenBits = 128;
+  int64_t bwidth = dataType.getIntOrFloatBitWidth();
+  int64_t realVectorLength =
+      math_util::gcd(maxVectorLenBits / bwidth, theoreticalVectorLen);
+  return realVectorLength;
+}
+
 ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
                                                ArrayRef<int64_t> outputShape) {
   ContiguousMergesMap contigousMerges =

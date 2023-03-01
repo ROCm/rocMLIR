@@ -97,22 +97,13 @@ bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
   std::tie(tensor, transforms) = untransform(b, matrix);
   ArrayRef<int64_t> tensorShape =
       tensor.getType().cast<MemRefType>().getShape();
-  int64_t kVectorLen = getMaxVectorization(
+  int64_t kVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::K),
-      math_util::gcd(dataPerThread, kPerBlock), tensorShape);
+      math_util::gcd(dataPerThread, kPerBlock), tensorShape, elementType);
 
-  int64_t dVectorLen = getMaxVectorization(
+  int64_t dVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::MorN),
-      math_util::gcd(dataPerThread, dPerBlock), tensorShape);
-
-  // Vectorizing more than the physical vector length (128 bits) might
-  // be harmful for coalescence and other metrics. Let's limit the maximum
-  // amount of data to load to the maximum vector length. This means a
-  // warp will issue, if possible, a global_load_dwordx4 instruction
-  const int64_t maxVectorLenBits = 128;
-  auto bwidth = elementType.getIntOrFloatBitWidth();
-  kVectorLen = std::min(maxVectorLenBits / bwidth, kVectorLen);
-  dVectorLen = std::min(maxVectorLenBits / bwidth, dVectorLen);
+      math_util::gcd(dataPerThread, dPerBlock), tensorShape, elementType);
 
   if (kVectorLen > dVectorLen)
     return {GemmDimension::K, kVectorLen};
