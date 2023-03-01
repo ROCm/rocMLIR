@@ -3,8 +3,8 @@
 module {
 // CHECK: func.func @resnet50(%[[ARG0:.*]]: memref<1x32x32x64xf32>, %[[ARG1:.*]]: memref<64x3x3x64xf32>, %[[ARG2:.*]]: memref<64x3x3x64xf32>, %[[ARG3:.*]]: memref<1x32x32x64xf32>)
 // CHECK: %[[MEM0:.*]] = memref.alloc
-// CHECK: %[[TOKEN0:.*]] = async.launch @resnet50__part_0 (%{{.*}}, %{{.*}}, %[[MEM0]])
-// CHECK: %[[TOKEN1:.*]] = async.launch @resnet50__part_1 [%[[TOKEN0]]] (%[[MEM0]], %{{.*}}, %{{.*}}, %{{.*}})
+// CHECK: %[[TOKEN0:.*]] = async.launch @resnet50__part_1 (%{{.*}}, %{{.*}}, %[[MEM0]])
+// CHECK: %[[TOKEN1:.*]] = async.launch @resnet50__part_0 [%[[TOKEN0]]] (%[[MEM0]], %{{.*}}, %{{.*}}, %{{.*}})
 // CHECK: async.await %[[TOKEN1]] : !async.token
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
