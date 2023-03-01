@@ -515,11 +515,6 @@ public:
     auto elementType = inputType.getElementType();
     Location loc = op->getLoc();
 
-    if (!elementType.isInteger(32)) {
-      return rewriter.notifyMatchFailure(
-          loc, "quantlinear op Only supporting int32 elementType now");
-    }
-
     Value shifted = input;
     if (auto bias = op.getBias()) {
       shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType, input,

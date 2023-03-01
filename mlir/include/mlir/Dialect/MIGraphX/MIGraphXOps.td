@@ -160,10 +160,10 @@ def MIGraphX_FloorOp :
 
 def MIGraphX_QuantizeLinearOp :
     MIGraphX_Op<"quantizelinear">,
-    Arguments<(ins AnyRankedTensor:$input,
-                   AnyRankedTensor:$scale,
-                   Optional<AnyRankedTensor>:$bias)>,
-	  Results<(outs AnyRankedTensor:$output)> {
+    Arguments<(ins TensorOf<[I32]>:$input,
+                   TensorOf<[F32]>:$scale,
+                   Optional<TensorOf<[I32]>>:$bias)>,
+	  Results<(outs TensorOf<[I8]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
     Quantization tensor elementwise
