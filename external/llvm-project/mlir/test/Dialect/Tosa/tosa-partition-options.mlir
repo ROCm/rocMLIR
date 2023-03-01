@@ -10,28 +10,27 @@
 // RUN: mlir-opt --test-tosa-partition-options=attr-one %s | FileCheck %s --check-prefix=ONE
 // RUN: mlir-opt --test-tosa-partition-options=nofront-arg %s | FileCheck %s --check-prefix=THREE
 
-// CHECK-LABEL: func private @test_fusion8__part_0
+// CHECK: func private @test_fusion8__part_0
+// CHECK-NEXT: tosa.conv2d
+// CHECK-NEXT: tosa.add
+// CHECK-NEXT: return
+// CHECK-LABEL: func private @test_fusion8__part_1
 // CHECK-SAME: attributes {{{.*}}kernel}
 // CHECK-NEXT: arith.constant
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.depthwise_conv2d
 // CHECK-NEXT: tosa.abs
-// CHECK-NEXT: tosa.add
-// CHECK-NEXT: return
-// CHECK: func private @test_fusion8__part_1
-// CHECK-NEXT: tosa.conv2d
 // CHECK-NEXT: return
 // CHECK: func @test_fusion8
 // CHECK: call @test_fusion8__part_1
 // CHECK: call @test_fusion8__part_0
 
-// ONE-LABEL: func private @test_fusion8__part_0
+// ONE-LABEL: func private @test_fusion8__part_1
 // ONE-SAME: attributes {{{.*}}one}
 // ONE-NEXT: arith.constant
 // ONE-NEXT: tosa.transpose
 // ONE-NEXT: tosa.depthwise_conv2d
 // ONE-NEXT: tosa.abs
-// ONE-NEXT: tosa.add
 // ONE-NEXT: return
 // ONE: func @test_fusion8
 // ONE: call @test_fusion8__part_0

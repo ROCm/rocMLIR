@@ -63,7 +63,8 @@ public:
   bool isLeadingOp(Operation *op) const;
   bool isTrailingOp(Operation *op) const;
   StringRef partitionTag() const;
-  void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
+  void traceInputs(Operation *op, Operation *ignoreOp,
+                   SetVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes);
   void runOnOperation() override;
 };
@@ -77,7 +78,8 @@ bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          // clang-format off
-    isa<tosa::ClampOp,
+    isa<tosa::CastOp,
+        tosa::ClampOp,
         tosa::SigmoidOp,
         tosa::TanhOp,
 // ResultsBroadcastableShape
@@ -489,29 +491,31 @@ bool TosaPartitionPass::isLeadingOp(Operation *op) const {
 }
 
 bool TosaPartitionPass::isTrailingOp(Operation *op) const {
-  return isa<tosa::TransposeOp, tosa::ReshapeOp>(op) || isFuseableOp(op);
+  return isTransposeOp(op) || isFuseableOp(op);
 }
 
 StringRef TosaPartitionPass::partitionTag() const { return partitionTagOpt; }
 
-void TosaPartitionPass::traceInputs(Operation *op,
+void TosaPartitionPass::traceInputs(Operation *op, Operation *ignoreOp,
                                     SetVector<Operation *> &predecessors,
                                     SetVector<Value> &inputNodes) {
   for (const auto &opnd : op->getOperands()) {
     Operation *usedOp = opnd.getDefiningOp();
-    if (usedOp && (isTransposeOp(op) ? isSmallishConstant(usedOp)
-                                     : isLeadingOp(usedOp))) {
-      if (predecessors.contains(
-              usedOp)) // If already present, move it for new use.
-        predecessors.remove(usedOp);
-      predecessors.insert(usedOp);
-      if (!op->hasTrait<OpTrait::ConstantLike>()) {
-        // depth first
-        traceInputs(usedOp, predecessors, inputNodes);
+    if (usedOp != ignoreOp) {
+      if (usedOp && (isTransposeOp(op) ? isSmallishConstant(usedOp)
+                                       : isLeadingOp(usedOp))) {
+        if (predecessors.contains(
+                usedOp)) // If already present, move it for new use.
+          predecessors.remove(usedOp);
+        predecessors.insert(usedOp);
+        if (!usedOp->hasTrait<OpTrait::ConstantLike>()) {
+          // depth first
+          traceInputs(usedOp, op, predecessors, inputNodes);
+        }
+      } else if (!usedOp || !predecessors.contains(
+                                usedOp)) { // special-case consts aren't inputs
+        inputNodes.insert(opnd);
       }
-    } else if (!predecessors.contains(
-                   usedOp)) { // special-case consts aren't inputs
-      inputNodes.insert(opnd);
     }
   }
 }
@@ -532,7 +536,7 @@ void TosaPartitionPass::runOnOperation() {
     std::vector<OutliningCandidate> candidates;
     auto callback = [&](Operation *op) {
       if (!isAnchorOp(op))
-        return WalkResult::advance();
+        return false;
       Operation *anchorOp = op;
       auto strCount = std::string("__part_") + std::to_string(count++);
 
@@ -562,7 +566,7 @@ void TosaPartitionPass::runOnOperation() {
 
       // Grab a useful set of leading ops, like we do for trailing.
       SetVector<Operation *> leadingOps;
-      traceInputs(anchorOp, leadingOps, inputNodes);
+      traceInputs(anchorOp, anchorOp, leadingOps, inputNodes);
 
       DominanceInfo domInfo(func);
       std::deque<Operation *> worklist; // cuz I want to pull from the front.
@@ -589,16 +593,6 @@ void TosaPartitionPass::runOnOperation() {
               }
             }
 
-            // Third criterion:  TransposeOps can be acceptable trailing ops
-            // while also being acceptable leading ops.  Let's prefer the
-            // latter by insisting that a trailing TransposeOp directly uses
-            // an anchor op.
-            if (isa<tosa::TransposeOp>(userOp)) {
-              auto *firstOp = userOp->getOpOperand(0).get().getDefiningOp();
-              if (!firstOp || !isAnchorOp(firstOp))
-                skip = true;
-            }
-
             // userOp is acceptable.  Keep it as a trailingOp, put it on the
             // worklist.  Add its operands to inputNodes unless they come
             // from other trailingOps (indicated by being in resultNodes).
@@ -607,18 +601,10 @@ void TosaPartitionPass::runOnOperation() {
             // add all userOp's results to resultNodes.
             if (!skip) {
               // Also accept small constant inputs to userOp.
-              for (Value opnd : userOp->getOperands()) {
-                auto *op = opnd.getDefiningOp();
-                if (op && (isConstantZero(op) || isSmallishConstant(op)))
-                  trailingOps.insert(op);
-              }
+              traceInputs(userOp, op, leadingOps, inputNodes);
               // General case.
               trailingOps.insert(userOp);
               worklist.push_back(userOp);
-              for (Value opnd : userOp->getOperands())
-                if (!resultNodes.contains(opnd) &&
-                    !trailingOps.contains(opnd.getDefiningOp()))
-                  inputNodes.insert(opnd);
               for (const Value &val : resultNodes)
                 if (llvm::all_of(val.getUsers(), [&](Operation *u) {
                       return trailingOps.contains(u);
@@ -639,11 +625,20 @@ void TosaPartitionPass::runOnOperation() {
                           partitionTag(), candidates);
       // Outlining will erase nodes and thus perturb the walk, so
       // signal interrupted to exit it and restart.
-      return WalkResult::interrupt();
+      return true;
     };
 
     // Walk until we've outlined all the anchor ops we can.
-    while (func.walk(callback).wasInterrupted()) {
+    auto walkBackward = [&](Block &b) -> bool {
+      for (auto it = b.rbegin(); it != b.rend(); ++it) {
+        if (callback(&*it))
+          return true;
+      }
+      return false;
+    };
+    for (auto &block : func.getBody()) {
+      while (walkBackward(block)) {
+      }
     }
   }
 }
