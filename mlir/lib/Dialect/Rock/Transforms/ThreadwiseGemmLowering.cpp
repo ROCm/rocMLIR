@@ -222,8 +222,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
 
-    auto populateMfma = [&](OpBuilder &b, Value &argA, Value &argB,
-                            Value &regCOffset) {
+    auto populateMfma = [&](OpBuilder &b, Value argA, Value argB,
+                            Value regCOffset) {
       for (int64_t i = 0; i < nResultVectors; ++i) {
         Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
         offset = b.create<AddIOp>(loc, offset, regCOffset);
@@ -242,23 +242,20 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       }
     };
 
-    auto generateMfmaOnKDim = [&](Value &regAOffset, Value &regBOffset,
-                                  Value &regCOffset) {
+    auto generateMfmaOnKDim = [&](Value regCOffset) {
       auto mfmaLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
           /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
           /*strides=*/ArrayRef<int64_t>{1},
-          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+          /*forceUnroll=*/false, /*useIndexDiffs=*/false);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(mfmaLoop.getBody());
         Value coord = mfmaLoop.getLowerCoords(/*domain=*/0)[0];
 
-        Value regIdxA = b.create<arith::AddIOp>(loc, coord, regAOffset);
-        Value regIdxB = b.create<arith::AddIOp>(loc, coord, regBOffset);
-        Value argA = b.create<memref::LoadOp>(loc, argType, bufferA, regIdxA);
-        Value argB = b.create<memref::LoadOp>(loc, argType, bufferB, regIdxB);
+        Value argA = b.create<memref::LoadOp>(loc, argType, bufferA, coord);
+        Value argB = b.create<memref::LoadOp>(loc, argType, bufferB, coord);
         populateMfma(b, argA, argB, regCOffset);
       }
     };
@@ -270,15 +267,13 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
     Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
 
-    Value regAOffset = zeroConstantOp;
-    Value regBOffset = zeroConstantOp;
     Value regCOffset = b.create<MulIOp>(
         loc,
         b.create<AddIOp>(
             loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
         nResultVectorsConstantOp);
 
-    generateMfmaOnKDim(regAOffset, regBOffset, regCOffset);
+    generateMfmaOnKDim(regCOffset);
 
     b.eraseOp(op);
     return success();
