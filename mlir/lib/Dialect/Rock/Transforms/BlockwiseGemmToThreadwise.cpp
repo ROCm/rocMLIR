@@ -652,13 +652,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       buffer.getType().cast<ShapedType>().getShape();
 
   // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t vectorLen =
-      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
+  auto elementType = sourceView.getType().getElementType();
+  int64_t vectorLen = getMaxVectorizationForDatatype(
+      transforms, /*dim=*/2, numValues, bufferShape, elementType);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
                           << "\n");
 
-  Type loadType =
-      vectorTypeOrSelf(sourceView.getType().getElementType(), vectorLen);
+  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
 
@@ -697,6 +697,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   TypedValue<MemRefType> source = adaptor.getSource();
   TypedValue<MemRefType> destView = adaptor.getDest();
 
+  auto elementType = destView.getType().getElementType();
+
   auto [buffer, transforms] = untransform(b, destView, op.getExtraViews());
 
   int64_t numValues = source.getType().getNumElements();
@@ -704,8 +706,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
       buffer.getType().cast<ShapedType>().getShape();
 
   // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t vectorLen =
-      getMaxVectorization(transforms, /*dim=*/2, numValues, bufferShape);
+  int64_t vectorLen = getMaxVectorizationForDatatype(
+      transforms, /*dim=*/2, numValues, bufferShape, elementType);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
 

@@ -91,19 +91,19 @@ static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
 static std::pair<GemmDimension, int64_t>
 bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
                   GemmDimension tiebreaker, int64_t kPerBlock,
-                  int64_t dPerBlock) {
+                  int64_t dPerBlock, Type elementType) {
   Value tensor;
   ArrayAttr transforms;
   std::tie(tensor, transforms) = untransform(b, matrix);
   ArrayRef<int64_t> tensorShape =
       tensor.getType().cast<MemRefType>().getShape();
-  int64_t kVectorLen = getMaxVectorization(
+  int64_t kVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::K),
-      math_util::gcd(dataPerThread, kPerBlock), tensorShape);
+      math_util::gcd(dataPerThread, kPerBlock), tensorShape, elementType);
 
-  int64_t dVectorLen = getMaxVectorization(
+  int64_t dVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::MorN),
-      math_util::gcd(dataPerThread, dPerBlock), tensorShape);
+      math_util::gcd(dataPerThread, dPerBlock), tensorShape, elementType);
 
   if (kVectorLen > dVectorLen)
     return {GemmDimension::K, kVectorLen};
@@ -648,10 +648,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) = bestVectorization(
-        b, op.getA(), aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
-    std::tie(bVectorDim, bVectorLen) = bestVectorization(
-        b, op.getB(), bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
+    std::tie(aVectorDim, aVectorLen) =
+        bestVectorization(b, op.getA(), aCopyPerThread, vectorTiebreaker,
+                          kPerBlock, mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) =
+        bestVectorization(b, op.getB(), bCopyPerThread, vectorTiebreaker,
+                          kPerBlock, nPerBlock, elementType);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -973,10 +975,12 @@ struct GridwiseGemmV2RewritePattern
 
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) = bestVectorization(
-        b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
-    std::tie(bVectorDim, bVectorLen) = bestVectorization(
-        b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
+    std::tie(aVectorDim, aVectorLen) =
+        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock,
+                          mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) =
+        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock,
+                          nPerBlock, elementType);
 
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
