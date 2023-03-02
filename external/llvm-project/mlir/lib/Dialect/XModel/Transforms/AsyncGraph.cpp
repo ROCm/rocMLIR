@@ -73,8 +73,10 @@ class XModelAsyncGraphPass
     // Insert host sync before operation that reads an async::value
     for (auto operand : op->getOperands()) {
       if (auto itoken = res2tokens.lookup(operand)) {
-        createWaitOp(op, itoken);
-        currentTokens.erase(itoken);
+        if (currentTokens.contains(itoken)) {
+          createWaitOp(op, itoken);
+          currentTokens.erase(itoken);
+        }
       }
     }
     // Insert host synchronization before terminator or op with side effects.
