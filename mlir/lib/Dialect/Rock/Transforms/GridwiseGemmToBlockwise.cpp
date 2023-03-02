@@ -1203,9 +1203,9 @@ struct GridwiseGemmV2RewritePattern
     // Logic to setup buffers for blockwise_gemm_v2.
 
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t inputBufferSize = kpacksPerBlock /
-                              (isKReduction ? inputSpansPerMfmaIn : 1) *
-                              std::max(kpack / k_base, 1L);
+    int64_t inputBufferSize =
+        (kpacksPerBlock * kpack) /
+        ((isKReduction ? inputSpansPerMfmaIn : 1) * k_base);
 
     Type arrayAType, arrayBType;
     auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
