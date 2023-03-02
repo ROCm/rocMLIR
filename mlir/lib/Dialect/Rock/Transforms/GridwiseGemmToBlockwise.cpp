@@ -1176,6 +1176,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
     int64_t inputSpanLen = mfmaAttr.inputSpanLen;
     int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t k_base = mfmaAttr.k_base;
     int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
 
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
@@ -1202,29 +1203,17 @@ struct GridwiseGemmV2RewritePattern
     // Logic to setup buffers for blockwise_gemm_v2.
 
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t arrayASize = (!isKReduction)
-                             ? (kpacksPerBlock)
-                             : (kpacksPerBlock / inputSpansPerMfmaIn);
-    int64_t arrayBSize = (!isKReduction)
-                             ? (kpacksPerBlock)
-                             : (kpacksPerBlock / inputSpansPerMfmaIn);
+    int64_t inputBufferSize = kpacksPerBlock /
+                              (isKReduction ? inputSpansPerMfmaIn : 1) *
+                              std::max(kpack / k_base, 1L);
 
     Type arrayAType, arrayBType;
     auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    if (kpack > 1) {
-      arrayAType =
-          MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
-                          AffineMap{}, privateMemoryAddressSpace);
-      arrayBType =
-          MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
-                          AffineMap{}, privateMemoryAddressSpace);
-    } else {
-      arrayAType = MemRefType::get({arrayASize}, elementType, AffineMap{},
-                                   privateMemoryAddressSpace);
-      arrayBType = MemRefType::get({arrayBSize}, elementType, AffineMap{},
-                                   privateMemoryAddressSpace);
-    }
+    arrayAType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
+                                 AffineMap{}, privateMemoryAddressSpace);
+    arrayBType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
+                                 AffineMap{}, privateMemoryAddressSpace);
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
 
