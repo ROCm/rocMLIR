@@ -6,7 +6,6 @@ set(PERFORMANCE_SCRIPTS
   convertRocBlasToPerfRunner.py
   createGemmPerformanceReports.py
   createPerformanceReports.py
-  parseMIOpenTuningDB.py
   perfCommonUtils.py
   perfRunner.py
   parameterSweeps.py
