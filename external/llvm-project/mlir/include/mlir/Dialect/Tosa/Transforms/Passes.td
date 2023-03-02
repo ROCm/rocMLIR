@@ -66,7 +66,7 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
                "llvm::cl::ZeroOrMore">,
     Option<"partitionTagOpt", "partition-tag", "std::string",
            /*default=*/"\"kernel\"", "Attribute for outlined functions">,
-    Option<"trailingOnly", "trailing-only", "bool", /*default=*/"false",
+    Option<"trailingOnly", "trailing-only", "bool", /*default=*/"true",
            "Don't gather ops ahead of anchor op">
   ];
   let dependentDialects = ["tosa::TosaDialect"];
