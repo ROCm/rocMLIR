@@ -173,7 +173,7 @@ static Operation *traceToNonViewDef(Operation *op) {
 // This function checks the results of the current operation
 // is copied to a block argument output, hence needs to be
 // preserved.
-static bool isLeadingToBlockArg(Operation *op) {
+static bool leadsToUnwrittenBlockArg(Operation *op) {
   Operation *nonViewDef = traceToNonViewDef(op);
   for (Value result : nonViewDef->getResults()) {
     if (result.isa<BlockArgument>()) {
@@ -383,7 +383,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // op or linalg block) will be written to the internal memref alloca. If that
   // is not copied as an output, it is not an actual output. Therefore, we dont
   // need clone the gemmStore.
-  if (isLeadingToBlockArg(gemmStoreOp.getDest().getDefiningOp())) {
+  if (leadsToUnwrittenBlockArg(gemmStoreOp.getDest().getDefiningOp())) {
     gemmStoreOp =
         static_cast<ThreadwiseWriteAllOp>(b.clone(*gemmStoreOp.getOperation()));
   }
