@@ -91,8 +91,12 @@ static void moveTransformsBefore(PatternRewriter &b, Value val) {
   }
 }
 
-static SmallVector<Attribute> extractVector(ArrayAttr arrayAttr) {
-  return llvm::to_vector<4>(arrayAttr.getAsRange<Attribute>());
+static Value applyViewsOnDest(PatternRewriter &rewriter, Location loc,
+                              Value dest, ArrayRef<TransformMapAttr> views) {
+  for (TransformMapAttr trMap : views) {
+    dest = rewriter.create<TransformOp>(loc, dest, trMap);
+  }
+  return dest;
 }
 
 Value makeRegs(PatternRewriter &b, MemRefType::Builder &mrb, Location loc,
@@ -103,9 +107,9 @@ Value makeRegs(PatternRewriter &b, MemRefType::Builder &mrb, Location loc,
                                        srcMemType.getElementType())));
 }
 
-static Value
-applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp, Value src,
-                const SmallVector<TransformMapAttr> &relativeViewsOnStore) {
+static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
+                             Value src,
+                             ArrayRef<TransformMapAttr> relativeViewsOnStore) {
   // 0. capture the memref containing the outputs being written
   Location loc = storeOp.getLoc();
   Value gemmOut = storeOp.getSource();
@@ -122,12 +126,10 @@ applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp, Value src,
   moveTransformsBefore(b, src);
 
   // 2.1. apply transform chain from output
-  auto extraViews = extractVector(storeOp.getExtraViews());
-  extraViews.insert(extraViews.end(), relativeViewsOnStore.begin(),
-                    relativeViewsOnStore.end());
+  src = applyViewsOnDest(b, loc, src, relativeViewsOnStore);
 
   // 2.2. load into registers
-  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, b.getArrayAttr(extraViews),
+  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, storeOp.getExtraViews(),
                                  storeOp.getForceUnroll(),
                                  storeOp.getUseIndexDiffs());
   return alloc;
@@ -152,9 +154,9 @@ static Operation *traceToNonViewDef(Operation *op,
     return op;
   }
   if (auto transform = dyn_cast<TransformOp>(op)) {
-    views.push_back(transform.getTransformAttr());
     Operation *nonViewDef = traceToNonViewDef(
         transform.getViewSource().getDefiningOp(), views, terminator);
+    views.push_back(transform.getTransformAttr());
     return nonViewDef;
   }
   return op;
@@ -214,7 +216,7 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(
         }
       } else if (auto memcpy = dyn_cast<memref::CopyOp>(nonViewUse)) {
         // reader
-        if (memcpy.getOperand(0) != inp) {
+        if (memcpy.getSource() != inp) {
           return ThreadwiseWriteAllOp();
         }
       } else if (auto store = dyn_cast<ThreadwiseWriteAllOp>(nonViewUse)) {
@@ -393,10 +395,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   // 2.3. Replace rock.threadwise_write_all inputs with la.generic result vgprs
   gemmStoreOp.getSourceMutable().assign(laOutRegs);
-  auto extraViews = extractVector(gemmStoreOp.getExtraViews());
-  extraViews.insert(extraViews.end(), laInToOutViews.begin(),
-                    laInToOutViews.end());
-  gemmStoreOp.setExtraViewsAttr(b.getArrayAttr(extraViews));
+  out = applyViewsOnDest(b, loc, out, laInToOutViews);
   gemmStoreOp.getDestMutable().assign(out);
 
   if (auto outAlloc = out.getDefiningOp<memref::AllocOp>()) {
@@ -410,6 +409,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
                                                     PatternRewriter &b) const {
   auto src = copy.getSource();
   auto target = copy.getTarget();
+  Location loc = copy.getLoc();
 
   Operation *gemmStoreOp = nullptr;
   SmallVector<TransformMapAttr> views;
@@ -426,9 +426,7 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
       b.setInsertionPoint(twWriteAllOp);
 
       // 1. replace memref.copy with rock.threadwise_write_all
-      auto extraViews = extractVector(twWriteAllOp.getExtraViews());
-      extraViews.insert(extraViews.end(), views.begin(), views.end());
-      twWriteAllOp.setExtraViewsAttr(b.getArrayAttr(extraViews));
+      target = applyViewsOnDest(b, loc, target, views);
       twWriteAllOp.getDestMutable().assign(target);
       // twWriteAllOp->moveAfter(target.getDefiningOp());
 
