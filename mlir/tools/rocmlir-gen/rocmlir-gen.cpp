@@ -2092,10 +2092,11 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   } else if (valElemType.isInteger(64)) {
     verifyFuncName += "Int32Int64";
   } else {
-    llvm::errs() << "Unsupported type of validation function output: ";
-    valElemType.dump();
-    llvm::errs() << " (Only f32, int32 and int64 are supported)\n";
-    exit(1);
+    verifyFuncName += "Int8";
+    //llvm::errs() << "Unsupported type of validation function output: ";
+    //valElemType.dump();
+    //llvm::errs() << " (Only f32, int32 and int64 are supported)\n";
+    //exit(1);
   }
 
   auto mr1DUnkTestType =
@@ -2148,10 +2149,11 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
         b, loc, lowerBounds, upperBounds, steps,
         [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
                                             ValueRange ivs) {
-          auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
-          auto valTruncated =
-              b.create<arith::TruncFOp>(loc, testOutType, valOrig);
-          auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+          //auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
+          //auto valTruncated =
+          //    b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+          //auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+          auto valExt = b.create<memref::LoadOp>(loc, valFlat, ivs);
           b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
         });
   } else {
@@ -2365,6 +2367,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     // func.call which will get the MLIR kernel.  No redirection of callees
     // needed.
     auto *cloneFunc = func->clone();
+    cloneFunc->dump();
     insertPrefills(static_cast<func::FuncOp>(func));
     undoAsyncLaunchPass(cloneFunc);
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
@@ -2374,8 +2377,9 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     cloneFunc->removeAttr("kernel");
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
-    b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
+    auto cloned = b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
                            valVars);
+    cloned.dump();
   }
 
   // Emit call to verifier
@@ -2464,8 +2468,10 @@ static LogicalResult populateHostHarnessLogic(
     auto paramMRType = paramType.template dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     auto elemType = paramMRType.getElementType();
+    elemType.dump();
     if (isCPUKernel) { // -prc
       assert(elemType.isF32() || elemType.isInteger(8) ||
+             elemType.isInteger(32) ||
              elemType.isInteger(64));
       if (genParams.operation.has_value()) {
         elemType = genParams.dtype;
@@ -2486,10 +2492,12 @@ static LogicalResult populateHostHarnessLogic(
         return failure();
     }
 
+    genParams.dtype.dump();
     if (hasValidation ||
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
-      Type valElemType = floatType;
+      //Type valElemType = floatType;
+      Type valElemType = elemType;
       if (genParams.operation.has_value() && genParams.dtype.isInteger(8)) {
         valElemType = elemType;
         if (!gpuValidation && idx == 2)
@@ -2499,6 +2507,7 @@ static LogicalResult populateHostHarnessLogic(
       }
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
+      vvar.dump();
       valVars.push_back(vvar);
 
       emitMemcpy(b, lvar, vvar);
@@ -2638,6 +2647,7 @@ int main(int argc, char **argv) {
   std::string errorMessage;
   auto inputFilenameStr = inputFilename.getValue();
   if (inputFilenameStr.size()) {
+    llvm::errs() << "hsa input filename\n";
     // Set up the input file.
     auto file = openInputFile(inputFilename, &errorMessage);
     if (!file) {

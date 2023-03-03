@@ -127,7 +127,7 @@ public:
         loc, newOutTy,
         ValueRange{
             input_t, filter_t,
-            getZeroBias(loc, elementTy,
+            getZeroBias(loc, outputTy.getElementType(),
                         filter_t.getType().cast<ShapedType>().getShape()[0],
                         rewriter)});
 

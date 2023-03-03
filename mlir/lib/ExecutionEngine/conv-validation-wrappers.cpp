@@ -14,6 +14,7 @@
 #include <cassert>
 #include <mutex>
 #include <numeric>
+#include <iostream>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -628,4 +629,56 @@ extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
 
   assert(gpuSize == valSize);
   mcpuVerifyInt<int64_t>(gpuAligned, valAligned, valSize, printDebug);
+}
+
+template <typename T>
+void mcpuVerifyNaive(T *gpuAligned, T *valAligned, int64_t dataSize,
+                   char printDebug) {
+  int64_t failure_count = 0;  // the number of incorrect elements
+  T maxAbsDiff = 0;
+
+  PrintOption print_option = static_cast<PrintOption>(printDebug);
+  for (int64_t i = 0; i < dataSize; ++i) {
+    T valNum = valAligned[i];
+    T gpuNum = gpuAligned[i];
+
+    if (gpuNum != valNum) {
+      failure_count++;
+      T absDiff = std::abs(valNum - gpuNum);
+      if (absDiff > maxAbsDiff)
+        maxAbsDiff = absDiff;
+
+      // Print out individual failing elements if print mode is Always||Failure
+      if (print_option == PrintOption::Always ||
+          print_option == PrintOption::Failure) {
+        std::cout << i << ": gpu=" << gpuNum << " val=" << valNum
+                   << " absDiff=" << absDiff << std::endl;
+      }
+    }
+  }
+
+  if (failure_count == 0) {
+    printf("[1 1 1]\n");
+  } else {
+    if (print_option == PrintOption::Always ||
+        print_option == PrintOption::Failure ||
+        print_option == PrintOption::Summary) {
+      printf("Number of elements: %ld\n", dataSize);
+      printf("Number of incorrect elements: %ld\n", failure_count);
+      std::cout << "maxAbsDiff: " << maxAbsDiff << std::endl;
+    }
+    printf("[0 0 0]");
+  }
+  return;
+}
+
+extern "C" void mcpuVerifyInt8(int8_t *gpuAllocated, int8_t *gpuAligned,
+                                int64_t gpuOffset, int64_t gpuSize,
+                                int64_t gpuStride, int8_t *valAllocated,
+                                int8_t *valAligned, int32_t valOffset,
+                                int64_t valSize, int64_t valStride,
+                                char printDebug) {
+
+  assert(gpuSize == valSize);
+  mcpuVerifyNaive(gpuAligned, valAligned, valSize, printDebug);
 }
