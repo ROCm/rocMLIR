@@ -10,7 +10,7 @@ func.func @rock_xdlops_gemm_v2_reduction_nokpack(%matrixA : memref<2xf32, 5>,
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, vector<16xf32>
+  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
     params = #rock.xdlops_gemm_params<
@@ -35,7 +35,7 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack_f32(%matrixA : memref<2xf32, 5>,
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, vector<16xf32>
+  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
     params = #rock.xdlops_gemm_params<
@@ -60,7 +60,7 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack_i8(%matrixA : memref<4xvector<4xi
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : vector<4xi8>, vector<16xi32>
+  // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : vector<4xi8>, vector<4xi8>, vector<16xi32>
   // CHECK-NOT: amdgpu.mfma
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
