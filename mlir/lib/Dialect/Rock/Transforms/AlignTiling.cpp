@@ -176,6 +176,9 @@ static Operation *traceToNonViewDef(Operation *op) {
 static bool isLeadingToBlockArg(Operation *op) {
   Operation *nonViewDef = traceToNonViewDef(op);
   for (Value result : nonViewDef->getResults()) {
+    if (result.isa<BlockArgument>()) {
+      return true;
+    }
     for (Operation *use : result.getUsers()) {
       SmallVector<Operation *, 4> nonViewUsers;
       traceToNonViewUsers(use, nonViewUsers);
@@ -223,24 +226,14 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(
         // Threadwise copy that is already unttransformed (new style)
         if (result) {
           LLVM_DEBUG(llvm::dbgs() << "Multiple global stores somehow\n");
-          // It is possible to contain multiple threadwise write all ops
-          // in the presense of multiple outputs in the kernel. When tracing
-          // we just pick the latest ThreadwiseWriteAllOp.
-          if (result->isBeforeInBlock(store)) {
-            SmallVector<TransformMapAttr> views_;
-            traceToNonViewDef(store.getDest().getDefiningOp(), views_,
-                              inp.getDefiningOp());
-            result = store;
-            inpToTWWriteAllViews.insert(inpToTWWriteAllViews.begin(),
-                                        views_.begin(), views_.end());
-          }
+          return ThreadwiseWriteAllOp();
         } else {
-          SmallVector<TransformMapAttr> views_;
-          traceToNonViewDef(store.getDest().getDefiningOp(), views_,
+          SmallVector<TransformMapAttr> views;
+          traceToNonViewDef(store.getDest().getDefiningOp(), views,
                             inp.getDefiningOp());
           result = store;
           inpToTWWriteAllViews.insert(inpToTWWriteAllViews.begin(),
-                                      views_.begin(), views_.end());
+                                      views.begin(), views.end());
         }
       } else {
         return ThreadwiseWriteAllOp();
@@ -254,17 +247,18 @@ static ThreadwiseWriteAllOp traceToThreadwiseWrite(
 }
 
 // Returns the value of the buffer that's meant to be the new writeback.
-static void reconfigureLAGeneric(
-    PatternRewriter &b, linalg::GenericOp laGeneric, Value inRegs,
-    Value outRegs, ThreadwiseWriteAllOp twWriteOp,
-    const SmallVector<TransformMapAttr> &relativeViewsOnStore) {
+static void
+reconfigureLAGeneric(PatternRewriter &b, linalg::GenericOp laGeneric,
+                     Value inRegs, Value outRegs,
+                     ThreadwiseWriteAllOp twWriteOp,
+                     ArrayRef<TransformMapAttr> relativeViewsOnStore) {
   SmallVector<Value, 5> newInputs;
   SmallVector<AffineMap, 5> lgAMaps;
 
   for (auto inp : laGeneric.getInputs()) {
     Value newInput;
-    SmallVector<TransformMapAttr> views_;
-    if (traceToThreadwiseWrite(inp, views_)) {
+    SmallVector<TransformMapAttr> views;
+    if (traceToThreadwiseWrite(inp, views)) {
       newInput = inRegs;
     } else {
       // 2.1.1. Align tiling of other inputs
@@ -358,11 +352,6 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
   }
 
-  if (isLeadingToBlockArg(gemmStoreOp.getDest().getDefiningOp())) {
-    gemmStoreOp =
-        static_cast<ThreadwiseWriteAllOp>(b.clone(*gemmStoreOp.getOperation()));
-  }
-
   // 2. Apply if input found
   Value gemmOut = gemmStoreOp.getSource();
   auto gemmOutType = gemmOut.getType().cast<MemRefType>();
@@ -389,8 +378,16 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 2.2.0. Move the generic before the write-back. This'll put all
   // the copy loops for other inputs before the generic due to insertion
   // order.
-  gemmStoreOp->moveAfter(laGeneric);
 
+  // Before being copy-optimized the output of prior op (could be gemm-like rock
+  // op or linalg block) will be written to the internal memref alloca. If that
+  // is not copied as an output, it is not an actual output. Therefore, we dont
+  // need clone the gemmStore.
+  if (isLeadingToBlockArg(gemmStoreOp.getDest().getDefiningOp())) {
+    gemmStoreOp =
+        static_cast<ThreadwiseWriteAllOp>(b.clone(*gemmStoreOp.getOperation()));
+  }
+  gemmStoreOp->moveAfter(laGeneric);
   gemmOut.replaceAllUsesWith(fusionRegs);
 
   // 2.3. Replace rock.threadwise_write_all inputs with la.generic result vgprs
