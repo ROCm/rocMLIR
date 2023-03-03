@@ -262,7 +262,7 @@ def Rock_ConvertingCopyKernelOp :
 }
 
 def Rock_TransformOp :
-    Rock_Op<"transform", [NoMemoryEffect, ViewLikeOpInterface]>,
+    Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
     Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
@@ -302,7 +302,7 @@ def Rock_TransformOp :
 
 def Rock_TensorUntransformCastOp :
     Rock_Op<"tensor_untransform_cast",
-      [NoMemoryEffect, AllTypesMatch<["transformedResult", "transformedArg"]>]>,
+      [Pure, AllTypesMatch<["transformedResult", "transformedArg"]>]>,
     Arguments<(ins AnyRankedTensor:$transformedResult,
                       AnyRankedTensor:$transformedArg)>,
     Results<(outs AnyRankedTensor:$untransformed)> {
@@ -421,7 +421,7 @@ def Rock_LDSBarrierOp:
 }
 
 def Rock_WorkgroupIdOp:
-    Rock_Op<"workgroup_id", [NoMemoryEffect,
+    Rock_Op<"workgroup_id", [Pure,
       DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
@@ -432,7 +432,7 @@ def Rock_WorkgroupIdOp:
 }
 
 def Rock_WorkitemIdOp:
-    Rock_Op<"workitem_id", [NoMemoryEffect,
+    Rock_Op<"workitem_id", [Pure,
       DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
@@ -444,7 +444,7 @@ def Rock_WorkitemIdOp:
 
 // extract_slice
 def Rock_ExtractSliceOp :
-    Rock_Op<"extract_slice", [NoMemoryEffect,
+    Rock_Op<"extract_slice", [Pure,
       AllElementTypesMatch<["vector", "result"]>]>,
     Arguments<(ins
       VectorOfRank<[1]>:$vector,
@@ -467,7 +467,7 @@ def Rock_ExtractSliceOp :
 
 // insert_slice
 def Rock_InsertSliceOp :
-    Rock_Op<"insert_slice", [NoMemoryEffect,
+    Rock_Op<"insert_slice", [Pure,
       AllElementTypesMatch<["source", "dest"]>,
       AllTypesMatch<["dest", "result"]>]>,
     Arguments<(ins
@@ -492,7 +492,7 @@ def Rock_InsertSliceOp :
 
 // yield
 def Rock_YieldOp :
-    Rock_Op<"yield", [NoMemoryEffect, Terminator, ReturnLike]> {
+    Rock_Op<"yield", [Pure, Terminator, ReturnLike]> {
   let summary = "yield for Rock loops";
 
   let description = [{
@@ -691,7 +691,7 @@ def Rock_TransformingForOp :
 
 // index_diff_update
 def Rock_IndexDiffUpdateOp :
-    Rock_Op<"index_diff_update", [NoMemoryEffect, AttrSizedOperandSegments,
+    Rock_Op<"index_diff_update", [Pure, AttrSizedOperandSegments,
       SameVariadicResultSize, AllTypesMatch<["lowerIndices", "lowerDiff"]>]>,
     Arguments<(ins Rock_TransformMapAttr:$map,
       Variadic<Index>:$upperDiffs,
