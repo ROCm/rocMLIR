@@ -528,9 +528,6 @@ static bool isUnfusedKernelStore(ThreadwiseWriteAllOp store) {
   return ret;
 }
 
-static SmallVector<Attribute> extractVector(ArrayAttr arrayAttr) {
-  return llvm::to_vector<4>(arrayAttr.getAsRange<Attribute>());
-}
 
 LogicalResult
 ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
