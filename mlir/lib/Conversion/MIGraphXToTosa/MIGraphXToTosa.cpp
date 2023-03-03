@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -39,9 +40,8 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 }
 
 template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
-                               mlir::Location loc, Type elemType,
-                               Args &&... args) {
+static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
+                               Type elemType, Args &&...args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -54,6 +54,15 @@ static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
   Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
   auto result = op->getResult(0);
   result.setType(newOutTy);
+  return op;
+}
+
+static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
+                                 Type resElementType, Value input) {
+  ShapedType inputType = input.getType().cast<ShapedType>();
+  Type resType = inputType.cloneWith({}, resElementType);
+
+  auto op = rewriter.create<tosa::CastOp>(loc, resType, input);
   return op;
 }
 
@@ -149,6 +158,20 @@ public:
       cop->setAttr("xdlopsV2", attr);
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       cop->setAttr("perf_config", attr);
+
+    // Note: For TOSA convolution, a non-float type is considered as a
+    // quantized convolution. For quantized convolution, it is required
+    // to carry the "quantization_info" as attribute. Adding this
+    // attribute help us populate the correct TOSA IR.
+    //
+    // When we add support to quantized types and TOSA.rescale Op, we
+    // should make the quantized attribute to accept actual zero point
+    // values from intput and filter.
+    if (elementTy.isInteger(8)) {
+      auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
+          /*inputZp =*/0, /*weightZp =*/0);
+      cop->setAttr("quantization_info", quantAttr);
+    }
 
     // transpose the output back to NCHW so that it can match following
     // operators.
@@ -478,11 +501,43 @@ public:
   }
 };
 
+class QuantizeLinearConverter final
+    : public OpConversionPattern<migraphx::QuantizeLinearOp> {
+public:
+  using OpConversionPattern<migraphx::QuantizeLinearOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto input = op.getInput();
+    auto scale = op.getScale();
+    ShapedType inputType = input.getType().cast<ShapedType>();
+    auto elementType = inputType.getElementType();
+    Location loc = op->getLoc();
+
+    Value shifted = input;
+    if (auto bias = op.getBias()) {
+      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType, input,
+                                              bias);
+    }
+
+    Type intermediateElementType = rewriter.getF32Type();
+    Value upCast =
+        createCastOp(rewriter, loc, intermediateElementType, shifted);
+    Value scaled = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, intermediateElementType, upCast, scale, /*shift=*/0);
+
+    Type destElementType = rewriter.getIntegerType(8);
+    Value downCast = createCastOp(rewriter, loc, destElementType, scaled);
+    rewriter.replaceOp(op, {downCast});
+    return success();
+  }
+};
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
                ReshapeConverter, SoftmaxConverter, DotConverter,
-               ReduceMeanConverter>(context);
+               ReduceMeanConverter, QuantizeLinearConverter>(context);
 }
