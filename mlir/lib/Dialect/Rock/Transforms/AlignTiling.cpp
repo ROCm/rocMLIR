@@ -561,13 +561,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(threadwiseWriteOp);
-    redIn = rewriter.create<TransformOp>(loc, redIn, trAttr);
-    threadwiseWriteOp.getDestMutable().assign(reduceOp.getOut());
+    Value trOut = rewriter.create<TransformOp>(loc, reduceOp.getOut(), trAttr);
+    threadwiseWriteOp.getDestMutable().assign(trOut);
     threadwiseWriteOp.setStoreMethodAttr(
         StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd));
-    auto extraViews = extractVector(threadwiseWriteOp.getExtraViews());
-    extraViews.push_back(trAttr);
-    threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr(extraViews));
   }
   rewriter.eraseOp(reduceOp);
   return success();
