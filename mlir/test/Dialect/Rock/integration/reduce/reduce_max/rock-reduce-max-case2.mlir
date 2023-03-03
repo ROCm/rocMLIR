@@ -1,6 +1,6 @@
 // This test is checking sensitivity for reduction in a higher dimension
 
-// RUN: cat %s | rocmlir-gen -ph -print-results -rand 1 -rand_type float -fut test_reduce -verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// RUN: sed -e 's/#arch/%arch/g; s/#features/%features/g' %s | rocmlir-gen -ph -print-results -rand 1 -rand_type float -fut test_reduce -verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
 // CLONE: [1 1 1]
 // CLONE-NEXT: Unranked Memref base
 
@@ -27,9 +27,9 @@ module {
     async.await %token1 : !async.token
     return
   }
-  module @__xmodule_gfx90a attributes {xmodel.arch = "gfx90a",xmodel.module} {
+  module @__xmodule_ attributes {xmodel.arch = "#arch",xmodel.module} {
     func.func private @test_reduce__part_1(%arg0: memref<10x30x20xf32> {func.read_access}, %arg1: memref<10x1x20xf32> {func.read_access, func.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 1, block_size = 256} {
-      rock.reduce max %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 1 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<10x30x20xf32> into memref<10x1x20xf32>
+      rock.reduce max %arg0 into %arg1 features = #features {axis = 1 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<10x30x20xf32> into memref<10x1x20xf32>
       return
     }
   }
