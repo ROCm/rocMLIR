@@ -1,6 +1,6 @@
 // This test is checking for larger reductions with larger block and grid sizes
 
-// RUN: sed -e 's/#arch/%arch/g; s/#features/%features/g' %s | rocmlir-gen -ph -print-results -fut test_reduce -verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// RUN: sed -e 's/##TOKEN_ARCH##/%arch/g; s/##TOKEN_FEATURES##/%features/g' %s | rocmlir-gen -ph -print-results -fut test_reduce -verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
 // CLONE: [1 1 1]
 // CLONE-NEXT: Unranked Memref base
 
@@ -27,9 +27,9 @@ module {
     async.await %token1 : !async.token
     return
   }
-  module @__xmodule_ attributes {xmodel.arch = "#arch", xmodel.module} {
+  module @__xmodule_ attributes {xmodel.arch = "##TOKEN_ARCH##", xmodel.module} {
     func.func private @test_reduce__part_1(%arg0: memref<5x4x3xf32> {func.read_access}, %arg1: memref<1x4x3xf32> {func.read_access, func.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
-      rock.reduce max %arg0 into %arg1 features = #features {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<5x4x3xf32> into memref<1x4x3xf32>
+      rock.reduce max %arg0 into %arg1 features = ##TOKEN_FEATURES## {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<5x4x3xf32> into memref<1x4x3xf32>
       return
     }
   }
