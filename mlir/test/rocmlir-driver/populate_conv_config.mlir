@@ -2,7 +2,7 @@
 
 //PV: [[FIL1:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
 //PV: [[FIL2:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
-//PV: call @mlir_gen_igemm_conv2d_v4r4_wrw_xdlops_0_verify([[FIL1]], [[FIL2]])
+//PV: call @mlir_gen_igemm_conv2d_v4r4_wrw_xdlops_0_verify0([[FIL1]], [[FIL2]])
 //PV: @conv2d_bwd_weight_cpu
 //PV: %[[f32_0:.*]] = arith.constant 0.000000e+00 : f32
 //PV: vector.insertelement %[[f32_0]]
@@ -36,7 +36,7 @@
 
 //PVCPP: [[FIL1:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
 //PVCPP: [[FIL2:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
-//PVCPP: call @mlir_gen_igemm_conv2d_v4r4_wrw_xdlops_0_verify([[FIL1]], [[FIL2]])
+//PVCPP: call @mlir_gen_igemm_conv2d_v4r4_wrw_xdlops_0_verify0([[FIL1]], [[FIL2]])
 //PVCPP: %{{.*}} = memref.cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
 //PVCPP-NEXT: [[S1:%.*]] = arith.constant 2 : i32
 //PVCPP-NEXT: [[S2:%.*]] = arith.constant 2 : i32

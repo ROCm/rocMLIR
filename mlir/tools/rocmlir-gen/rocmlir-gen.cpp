@@ -570,12 +570,21 @@ static llvm::cl::opt<int> kernelRepeats(
 struct KernelIF {
   func::FuncOp func;
   SmallVector<Type, 8> params;
+  SmallVector<int32_t, 2> outIndices;
 
   // CTOR w/ FuncOp
   KernelIF(func::FuncOp _f) : func(_f) {
     assert(func.getNumResults() == 0);
-    for (auto &paramType : func.getFunctionType().getInputs())
-      params.push_back(paramType);
+    llvm::SmallDenseSet<Value> outs;
+    auto walker = [&](memref::CopyOp copy) { outs.insert(copy.getTarget()); };
+    func.walk(walker);
+    size_t argCount = func.getArguments().size();
+    for (size_t i = 0; i < argCount; i++) {
+      params.push_back(func.getArgument(i).getType());
+      if (outs.contains(func.getArgument(i))) {
+        outIndices.push_back(i);
+      }
+    }
   }
 };
 
@@ -2016,11 +2025,9 @@ static void checkRandomInputsE2E() {
 }
 
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
-                                       MemRefType testType,
-                                       MemRefType valType) {
+                                       MemRefType testType, MemRefType valType,
+                                       std::string funcName) {
   checkRandomInputsE2E();
-  auto kfunc = kernel.func;
-  std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -2258,7 +2265,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
-                                  int32_t outIdx, Operation *func,
+                                  ArrayRef<int32_t> outIndices, Operation *func,
                                   KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
@@ -2379,12 +2386,18 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 
   // Emit call to verifier
-  Value testResult = localVars[outIdx];
-  Value valResult = valVars[outIdx];
-  auto testType = testResult.getType().dyn_cast<MemRefType>();
-  auto valType = valResult.getType().dyn_cast<MemRefType>();
-  auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
-  b.create<func::CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
+  for (int32_t outIdx : outIndices) {
+    Value testResult = localVars[outIdx];
+    Value valResult = valVars[outIdx];
+    auto testType = testResult.getType().dyn_cast<MemRefType>();
+    auto valType = valResult.getType().dyn_cast<MemRefType>();
+    std::string funcName =
+        root0.func.getName().str() + "_verify" + std::to_string(outIdx);
+    auto verifierFunc =
+        createVerifierFunc(module, root0, testType, valType, funcName);
+    b.create<func::CallOp>(loc, verifierFunc,
+                           ValueRange{testResult, valResult});
+  }
 }
 
 static LogicalResult populateHostHarnessLogic(
@@ -2401,22 +2414,6 @@ static LogicalResult populateHostHarnessLogic(
   // Construct a new Block.
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
-
-  int32_t outIdx = -1;
-  if (genParams.operation.has_value()) {
-    switch (genParams.operation.value()) {
-    case rock::KernelType::Conv2D:
-    case rock::KernelType::Gemm:
-      outIdx = 2;
-      break;
-    case rock::KernelType::Conv2DBwdData:
-      outIdx = 1;
-      break;
-    case rock::KernelType::Conv2DBwdWeight:
-      outIdx = 0;
-      break;
-    }
-  }
 
   llvm::SmallDenseMap<int32_t, Value> i32vals;
   auto getI32Val = [&](int32_t v) {
@@ -2455,6 +2452,24 @@ static LogicalResult populateHostHarnessLogic(
     int seed = getRandomSeed();
     Value seedConst = getI32Val(seed);
     b.create<func::CallOp>(loc, seedFunc, seedConst);
+  }
+
+  SmallVector<int32_t, 2> outIndices;
+  if (genParams.operation.has_value()) {
+    switch (genParams.operation.value()) {
+    case rock::KernelType::Conv2D:
+    case rock::KernelType::Gemm:
+      outIndices.push_back(2);
+      break;
+    case rock::KernelType::Conv2DBwdData:
+      outIndices.push_back(1);
+      break;
+    case rock::KernelType::Conv2DBwdWeight:
+      outIndices.push_back(0);
+      break;
+    }
+  } else {
+    outIndices = root0.outIndices;
   }
 
   SmallVector<Value, 5> localVars;
@@ -2507,8 +2522,8 @@ static LogicalResult populateHostHarnessLogic(
   }
 
   // capture result index
-  if (outIdx < 0) {
-    outIdx = localVars.size() - 1;
+  if (outIndices.empty()) {
+    outIndices.push_back(localVars.size() - 1);
   }
 
   // Call the roots.
@@ -2536,30 +2551,35 @@ static LogicalResult populateHostHarnessLogic(
     // Clone-style validation wants to validate each root function.
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
-      insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
-                            root.func, root0);
+      insertValidationCalls(genParams, b, module, valVars, localVars,
+                            outIndices, root.func, root0);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
-    insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
+    insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
                           func, root0);
 
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
-    if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
-      emitPrintTensor(b, vvar);
+    for (int32_t outIdx : outIndices) {
+      if ((vvar == valVars[outIdx]) && printValidationResults.getValue()) {
+        emitPrintTensor(b, vvar);
+      }
+    }
   }
 
   // Print and cleanup
   for (auto &lvar : localVars) {
     // print lvar
     bool printp = printInputs.getValue();
-    if (lvar == localVars[outIdx])
-      printp = printResults.getValue();
-    if (printp)
-      emitPrintTensor(b, lvar);
+    for (int32_t outIdx : outIndices) {
+      if (lvar == localVars[outIdx])
+        printp = printResults.getValue();
+      if (printp)
+        emitPrintTensor(b, lvar);
+    }
   }
 
   for (auto &vvar : valVars) {

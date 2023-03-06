@@ -275,7 +275,7 @@ struct PushTransformsUpRewritePattern
             auto top = rw.create<rock::TransformOp>(loc, val, itx);
             val = top.getResult();
           }
-          writer->replaceUsesOfWith(alloc, val);
+          rw.replaceOp(alloc, val);
 
           lres = success();
         }
