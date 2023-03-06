@@ -40,7 +40,7 @@ bool isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
 // reasonable reduction of GemmK after splitting, without incurring too much
 // overheads on atomic adds. One potential future work is to make this value be
 // tunable.
-LogicalResult calculateKBlockNum(const ConvolutionDims &convDims,
+LogicalResult calculateKBlockNum(const int64_t convGroupSize,
                                  const GemmSize &gemmSize, int64_t MPerBlock,
                                  int64_t NPerBlock, int64_t KPerBlock,
                                  int64_t KPack, int64_t num_cu,

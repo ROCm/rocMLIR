@@ -340,39 +340,6 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-// The function is used to compute extra padding sizes.
-// For example, if gemmM size is 3 and gemmMPerBlock is 64,
-// we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
-//
-// If padding is needed, returns a GemmSize containing the number of elements
-// needed to pad the M, N, and K dimensions (**not** the new gemm size).
-// Otherwise, returns None
-template <typename T>
-static std::optional<GemmSize>
-calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
-                           T populateParams) {
-  auto configParams = populateParams.getTuningParameters(
-      kernelTypeFromConvOpType(dir), dataType);
-  size_t numOfFailedConfigs = 0;
-  for (auto &params : configParams) {
-    if (gemmSize.m % params.gemmMPerBlock == 0 &&
-        gemmSize.k % (params.gemmKPerBlock * params.getKPack()) == 0 &&
-        gemmSize.n % params.gemmNPerBlock == 0) {
-      break;
-    }
-    numOfFailedConfigs++;
-  }
-
-  if (numOfFailedConfigs == configParams.size()) {
-    auto extraParams = populateParams.getUniversalParameters();
-    return calculatePadding(
-        extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
-        extraParams.gemmNPerBlock, gemmSize, extraParams.getKPack());
-  }
-
-  return std::nullopt;
-}
-
 bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   Type dataType = getDataType(builder);
   ConvOpType dir = config.operation.value();
@@ -383,41 +350,35 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
 
   bool needExtraPad = false;
+  PopulateParamsInfo info{/*gemmSize=*/gemmSize,
+                          /*gemmFeatures=*/config.features,
+                          /*inputType=*/dataType,
+                          /*kernelType=*/KernelType::Conv2DBwdWeight,
+                          /*batchSize=*/convDims.n,
+                          /*numCu=*/static_cast<uint32_t>(config.num_cu)};
+
   if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
     PopulateParams populateParams;
     InitParamsNonXDL validParams;
-    // If there is a perfConfig present in the configuration
-    // we just need to see if padding will be used in that config
-    if (validParams.deserialize(config.perfConfig)) {
-      needExtraPad =
-          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-                           validParams.gemmNPerBlock, gemmSize)
-              .has_value();
-    } else {
-      // This function will go through the list and pick a valid configuration
-      // the following code will return if the resulting config needs padding
-      needExtraPad =
-          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
-              .has_value();
-    }
+    uint32_t gridSize;
+    auto res = populateParams.obtainTuningParameters(info, 0, config.perfConfig,
+                                                     validParams, gridSize);
+    needExtraPad =
+        succeeded(res) &&
+        (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
+
   } else {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
-    // If there is a perfConfig present in the configuration
-    // we just need to see if padding will be used in that config
-    if (validParams.deserialize(config.perfConfig)) {
-      needExtraPad =
-          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-                           validParams.gemmNPerBlock, gemmSize,
-                           validParams.gemmKPack)
-              .has_value();
-    } else {
-      // This function will go through the list and pick a valid configuration
-      // the following code will return if the resulting config needs padding
-      needExtraPad =
-          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
-              .has_value();
-    }
+    uint32_t blockSize;
+    uint32_t gridSize;
+    int64_t gemmKBlocks;
+    auto res = populateParamsXDL.obtainTuningParameters(
+        info, 0, config.perfConfig, validParams, blockSize, gridSize,
+        gemmKBlocks);
+    needExtraPad =
+        succeeded(res) &&
+        (populateParamsXDL.calculatePaddingAmount(validParams, gemmSize) != 0);
   }
   return needExtraPad;
 }
