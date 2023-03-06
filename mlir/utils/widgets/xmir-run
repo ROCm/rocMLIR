@@ -3,7 +3,7 @@
 declare -g BASEDIR="none-such"
 for dir in "$PWD/.." "$PWD" "$PWD/build" \
                   "$HOME/rocmlir/build"; do
-    if [[ -x "$dir/bin/rocmlir-driver" ]]; then
+    if [[ -x "$dir/bin/xmir-runner" ]]; then
         BASEDIR="$dir"
         break
     fi
