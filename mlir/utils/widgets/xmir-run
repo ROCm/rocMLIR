@@ -1,0 +1,12 @@
+#!/bin/bash
+
+declare -g BASEDIR="none-such"
+for dir in "$PWD/.." "$PWD" "$PWD/build" \
+                  "$HOME/rocmlir/build"; do
+    if [[ -x "$dir/bin/rocmlir-driver" ]]; then
+        BASEDIR="$dir"
+        break
+    fi
+done
+
+exec "${BASEDIR}/bin/xmir-runner" "--shared-libs=${BASEDIR}/external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,${BASEDIR}/lib/libconv-validation-wrappers.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_runner_utils.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_c_runner_utils.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_async_runtime.so" --entry-point-result=void "$@"
