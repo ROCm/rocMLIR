@@ -119,6 +119,11 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
+# Install the new rocm-cmake version
+RUN git clone -b master https://github.com/RadeonOpenCompute/rocm-cmake.git  && \
+  cd rocm-cmake && mkdir build && cd build && \
+  cmake  .. && cmake --build . && cmake --build . --target install
+
 # --------------------- Section 3: MIOpen dependencies ---------------
 WORKDIR /MIOpenDepsWork
 RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
