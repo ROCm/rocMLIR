@@ -26,7 +26,9 @@
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -899,6 +901,77 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
 struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
   using OpRewritePattern<BufferStoreOp>::OpRewritePattern;
 
+  // This function creates integer buffer atomic max ops that is numerically
+  // identical to floating point integer buffer atomic max ops via controlled
+  // type punning. This is done mainly because gfx9 GPUs lack buffer.atomic.fmax
+  // intrinsic support.
+  LogicalResult createAtomicFMaxUsingIntegerAtomics(
+      BufferStoreOp op, Value stVal, Value destMemRef,
+      SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
+      IntegerAttr indexOffset, PatternRewriter &b) const {
+    if (!stVal.getType().isF32()) {
+      return op.emitError(
+          "for atomic fmax we only currently support f32 types");
+    }
+    Location loc = op.getLoc();
+    auto stValIntCasted = b.create<LLVM::BitcastOp>(loc, b.getI32Type(), stVal);
+    Value zeroConstantOp = b.createOrFold<ConstantIntOp>(loc, 0, 32);
+    Value signbitConstantOp =
+        b.createOrFold<ConstantIntOp>(loc, 0x80000000, 32);
+    Value sign =
+        b.create<arith::AndIOp>(loc, signbitConstantOp, stValIntCasted);
+    auto isPos = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                         zeroConstantOp, sign);
+
+    scf::IfOp ifb = b.create<scf::IfOp>(loc, isPos, /*withElseRegion=*/true);
+    {
+      OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
+      // If the current value is positive doing a signed max integer comparison
+      // will be equivalent to a floating point max comparison.
+      thenb.create<amdgpu::RawBufferAtomicSmaxOp>(
+          loc, stValIntCasted, destMemRef, coordsI32,
+          /*boundsCheck=*/needHWBoundsCheck,
+          /*indexOffset=*/indexOffset,
+          /*sgprOffset=*/nullptr);
+    }
+    {
+      OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
+      // If the current value is negative doing a unsigned min integer
+      // comparison will be equivalent to a floating point max comparison
+      // because signed bit will always make negative number larger. Moreover,
+      // if both are negative, then smaller of those unsigend integers should be
+      // the larger floating point value.
+      elseb.create<amdgpu::RawBufferAtomicUminOp>(
+          loc, stValIntCasted, destMemRef, coordsI32,
+          /*boundsCheck=*/needHWBoundsCheck,
+          /*indexOffset=*/indexOffset,
+          /*sgprOffset=*/nullptr);
+    }
+    return success();
+  }
+
+  LogicalResult
+  createAtomicFMax(BufferStoreOp op, Value stVal, Value destMemRef,
+                   SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
+                   IntegerAttr indexOffset, PatternRewriter &b) const {
+    Location loc = op.getLoc();
+    bool hasAtomicFmaxF32 =
+        bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_fmax_f32);
+    if (hasAtomicFmaxF32) {
+      b.create<amdgpu::RawBufferAtomicFmaxOp>(loc, stVal, destMemRef, coordsI32,
+                                              /*boundsCheck=*/needHWBoundsCheck,
+                                              /*indexOffset=*/indexOffset,
+                                              /*sgprOffset=*/nullptr);
+    } else {
+      LogicalResult result = createAtomicFMaxUsingIntegerAtomics(
+          op, stVal, destMemRef, coordsI32, needHWBoundsCheck, indexOffset, b);
+      if (failed(result)) {
+        return result;
+      }
+    }
+    return success();
+  }
+
   LogicalResult matchAndRewrite(BufferStoreOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
@@ -958,6 +1031,33 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
             op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
             indexOffset,
             /*sgprOffset=*/nullptr);
+      }
+    } else if (memoryOp == StoreMethod::AtomicMax) {
+      if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
+        int32_t nAtomics = dataVector.getNumElements();
+        int32_t offset = llvm::transformOptional(op.getOffset(),
+                                                 [](const APInt &v) -> int32_t {
+                                                   return v.getZExtValue();
+                                                 })
+                             .value_or(0);
+        for (int32_t i = 0; i < nAtomics; ++i) {
+          Value item = b.create<vector::ExtractElementOp>(
+              loc, data, b.create<ConstantIndexOp>(loc, i));
+          LogicalResult result =
+              createAtomicFMax(op, item, dest, coordsI32, needHardwareOob,
+                               b.getI32IntegerAttr(i + offset), b);
+          if (failed(result)) {
+            return result;
+          }
+        }
+        b.eraseOp(op);
+      } else {
+        LogicalResult result = createAtomicFMax(
+            op, data, dest, coordsI32, needHardwareOob, indexOffset, b);
+        if (failed(result)) {
+          return result;
+        }
+        b.eraseOp(op);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(

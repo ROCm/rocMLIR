@@ -86,20 +86,22 @@ def TransformType : Rock_I32Enum<"TransformType",
 
 def StoreMethod_Set : I32EnumAttrCase<"Set", 0, "set">;
 def StoreMethod_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1, "atomic_add">;
+def StoreMethod_AtomicMax : I32EnumAttrCase<"AtomicMax", 2, "atomic_max">;
 
 def StoreMethod : Rock_I32Enum<"StoreMethod",
     "What operation should be used to write data to memory",
-    [StoreMethod_Set, StoreMethod_AtomicAdd]>;
+    [StoreMethod_Set, StoreMethod_AtomicAdd, StoreMethod_AtomicMax]>;
 
 def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
 
 /// ReduceMethod
 
 def ReduceMethod_Sum : I32EnumAttrCase<"Sum", 0, "sum">;
+def ReduceMethod_Max : I32EnumAttrCase<"Max", 1, "max">;
 
 def ReduceMethod : Rock_I32Enum<"ReduceMethod",
     "What operation should be used for the reduction",
-    [ReduceMethod_Sum]>;
+    [ReduceMethod_Sum, ReduceMethod_Max]>;
 
 def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
 

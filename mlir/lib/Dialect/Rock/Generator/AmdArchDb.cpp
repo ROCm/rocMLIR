@@ -26,6 +26,8 @@ static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
               /*waveSize=*/32);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
+  // Keep this implementation in sync with
+  // mlir/test/lit.site.cfg.py.in:set_arch_features()
   StringRef firstPart, remainingParts;
   std::tie(firstPart, remainingParts) = arch.split(':');
   if (firstPart.contains('-')) { // target triple

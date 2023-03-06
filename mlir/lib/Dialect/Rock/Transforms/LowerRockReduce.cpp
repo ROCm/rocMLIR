@@ -106,6 +106,9 @@ static LogicalResult getStoreMethod(ReduceMethod rMethod,
   if (rMethod == ReduceMethod::Sum) {
     stMethod = StoreMethod::AtomicAdd;
     return success();
+  } else if (rMethod == ReduceMethod::Max) {
+    stMethod = StoreMethod::AtomicMax;
+    return success();
   }
   return failure();
 }
