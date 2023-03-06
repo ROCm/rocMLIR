@@ -9,6 +9,8 @@ if(POLICY CMP0116)
   cmake_policy(SET CMP0116 OLD)
 endif()
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
+
 # Adapted from https://blog.kitware.com/cmake-and-the-default-build-type/
 set(default_build_type "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -66,9 +68,14 @@ endif()
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
 
-# Update the build-tree RPATH
-set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
-message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+if(MSVC)
+    add_definitions(-D_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
+endif()
+
+if(NOT WIN32)
+    # Update the build-tree RPATH
+    set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
+endif()
 
 # Set up the build for the rocMLIR dialects
 add_subdirectory(mlir)
