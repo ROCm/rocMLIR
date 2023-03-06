@@ -32,7 +32,9 @@
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -147,6 +149,42 @@ static void traceToNonViewUsers(Operation *op,
   }
 }
 
+// This function traces to non view readers.
+// TODO(@manupak): we should really be implementing
+// MemoryEffectOpInterface to ops to make this simpler
+// to identify readers.
+static LogicalResult
+traceToNonViewReaders(Operation *op, Value parentVal,
+                      SmallVectorImpl<Operation *> &nonViewReaders) {
+  if (auto transform = dyn_cast<TransformOp>(op)) {
+    Value result = transform.getResult();
+    for (auto &use : result.getUses()) {
+      return traceToNonViewReaders(use.getOwner(), result, nonViewReaders);
+    }
+  } else {
+    if (ThreadwiseWriteAllOp twWriteAllOp =
+            dyn_cast<ThreadwiseWriteAllOp>(op)) {
+      if (twWriteAllOp.getSource() == parentVal) {
+        nonViewReaders.push_back(op);
+      }
+    } else if (MemoryEffectOpInterface memEffectOp =
+                   dyn_cast<MemoryEffectOpInterface>(op)) {
+      if (hasEffect<MemoryEffects::Read>(memEffectOp, parentVal)) {
+        nonViewReaders.push_back(op);
+      }
+    } else if (CopyOpInterface copyOp = dyn_cast<CopyOpInterface>(op)) {
+      if (copyOp.getSource() == parentVal) {
+        nonViewReaders.push_back(op);
+      }
+    } else {
+      return op->emitError() << "Found an unsupported operator that needs to "
+                                "be added reader checks \n"
+                             << op;
+    }
+  }
+  return success();
+}
+
 static Operation *traceToNonViewDef(Operation *op,
                                     SmallVectorImpl<TransformMapAttr> &views,
                                     Operation *terminator) {
@@ -170,28 +208,34 @@ static Operation *traceToNonViewDef(Operation *op) {
   }
 }
 
-// This function checks the results of the current operation
-// is copied to a block argument output, hence needs to be
-// preserved.
-static bool leadsToUnwrittenBlockArg(Operation *op) {
+// This function checks given a parent operation and a reader candidate
+// whether that reader is the unique reader of the parent operation.
+// This is to be used identify where interrim memrefs could be eliminated
+// and fused.
+static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
+                                       bool &isUnique) {
+  op = traceToNonViewDef(op);
+  SmallVector<Operation *, 4> nonViewReaders;
   Operation *nonViewDef = traceToNonViewDef(op);
   for (Value result : nonViewDef->getResults()) {
+    // if its block arg, it can have uses beyond the unit of compilation
+    // in scope here.
     if (result.isa<BlockArgument>()) {
-      return true;
+      isUnique = false;
     }
-    for (Operation *use : result.getUsers()) {
-      SmallVector<Operation *, 4> nonViewUsers;
-      traceToNonViewUsers(use, nonViewUsers);
-      for (Operation *nonViewUser : nonViewUsers) {
-        if (memref::CopyOp memCopy = dyn_cast<memref::CopyOp>(nonViewUser)) {
-          if (memCopy.getTarget().isa<BlockArgument>()) {
-            return true;
-          }
-        }
+    for (auto &use : result.getUses()) {
+      LogicalResult traceResult =
+          traceToNonViewReaders(use.getOwner(), result, nonViewReaders);
+      if (traceResult.failed()) {
+        return traceResult;
       }
     }
   }
-  return false;
+  if (nonViewReaders.size() != 1) {
+    isUnique = false;
+  }
+  isUnique = (nonViewReaders[0] == reader);
+  return success();
 }
 
 static ThreadwiseWriteAllOp traceToThreadwiseWrite(
@@ -352,6 +396,20 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
   }
 
+  // We check the input leading to GEMM store has the current LA generic,
+  // that is being rewritten, as the unique reader. This is because if it is the
+  // unique reader, the previous memref does not need to be maintained anymore
+  // and we can directly write into the outputs of the current linalg blocks.
+  // Moreover, this is checked before any rewrite happens to avoid interference
+  // and used later below.
+  bool isUniqueReader;
+  LogicalResult checkResult =
+      checkUniqueReader(laGenericInputLeadingToGemmStore.getDefiningOp(),
+                        laGeneric, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
+  }
+
   // 2. Apply if input found
   Value gemmOut = gemmStoreOp.getSource();
   auto gemmOutType = gemmOut.getType().cast<MemRefType>();
@@ -379,11 +437,9 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // the copy loops for other inputs before the generic due to insertion
   // order.
 
-  // Before being copy-optimized the output of prior op (could be gemm-like rock
-  // op or linalg block) will be written to the internal memref alloca. If that
-  // is not copied as an output, it is not an actual output. Therefore, we dont
-  // need clone the gemmStore.
-  if (leadsToUnwrittenBlockArg(gemmStoreOp.getDest().getDefiningOp())) {
+  // We need to clone ThreadwiseWriteAllOp if the current op is not the unique
+  // reader of it because the fusion process will eliminate the input memref.
+  if (!isUniqueReader) {
     gemmStoreOp =
         static_cast<ThreadwiseWriteAllOp>(b.clone(*gemmStoreOp.getOperation()));
   }
@@ -412,7 +468,23 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   SmallVector<TransformMapAttr> views;
   if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
     if (auto twop = traceToThreadwiseWrite(src, views)) {
-      gemmStoreOp = twop;
+      // We check the input leading to GEMM store has the current memref
+      // copy, that is being rewritten, as the unique reader. This is because if
+      // it is the unique reader, the previous memref does not need to be
+      // maintained anymore and we can directly write into the target of the
+      // memref copy.
+      bool isUniqueReader;
+      LogicalResult checkResult =
+          checkUniqueReader(src.getDefiningOp(), copy, isUniqueReader);
+      if (checkResult.failed()) {
+        return checkResult;
+      }
+      if (!isUniqueReader) {
+        gemmStoreOp =
+            static_cast<ThreadwiseWriteAllOp>(b.clone(*twop.getOperation()));
+      } else {
+        gemmStoreOp = twop;
+      }
     }
   }
 
