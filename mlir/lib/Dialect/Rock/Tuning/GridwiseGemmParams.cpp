@@ -229,24 +229,29 @@ PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
 const InitParamsXDL
 PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
   // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
-  {256, 128, 8, 128, 128, 1,true, true},
-  {128, 64, 4, 64, 32, 4, true, true},
   {128, 128, 4, 64, 64, 4, true, true},
-  {128, 128, 8, 64, 64, 4, true, true},
-  {256, 128, 4, 128, 64, 4, true, true},
-  {64, 128, 8, 64, 32, 4, true, true},
-  {32, 128, 2, 32, 32, 4, true, true},
+  {64, 64, 8, 32, 32, 4, true, true},
   {32, 64, 4, 32, 64, 4, true, true},
-  {4, 64, 8, 4, 64, 4, true, true},
-  {256, 256, 4, 128, 128, 8, true, true},
-  {128, 128, 8, 128, 128, 8, true, true},
-  {128, 128, 4, 64, 128, 8, true, true},
-  {16, 32, 8, 16, 16, 8, true, true},
-  {128, 128, 8, 64, 64, 8, true, true},
-  {64, 64, 8, 32, 32, 16, true, true},
-  {16, 32, 16, 16, 16, 16, true, true},
+  {32, 64, 2, 8, 64, 4, true, true},
 };
 
+const InitParamsXDL
+PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = {
+  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
+  {128,  128,  4,  64,  64,  8,  true,  true},
+  {32,  128,  4,  32,  32,  8,  true,  true},
+  {32, 64, 4, 32, 64, 4, true, true},
+};
+
+const InitParamsXDL
+PopulateParamsXDL::initParametersForwardI8[
+  PopulateParamsXDL::nInitParametersForwardI8] = {
+  {128, 128, 8, 64, 64, 8, true, true},
+  {64, 64, 8, 32, 32, 8, true, true},
+  {64, 64, 8, 32, 32, 4, true, true},
+  {32, 32, 8, 16, 16, 8, true, true},
+  {32, 32, 8, 16, 16, 4, true, true},
+};
 // clang-format on
 
 const InitParamsXDL PopulateParamsXDL::universalParameters = {32, 64, 4, 32,
@@ -439,7 +444,17 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 
 std::vector<InitParamsXDL>
 PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
-  ArrayRef<InitParamsXDL> params = {initParameters, nInitParameters};
+  ArrayRef<InitParamsXDL> params;
+  switch (dataType.getIntOrFloatBitWidth()) {
+  case 8:
+    params = {initParametersForwardI8, nInitParametersForwardI8};
+    break;
+  case 16:
+    params = {initParametersFp16, nInitParametersFp16};
+    break;
+  default:
+    params = {initParameters, nInitParameters};
+  }
   std::vector<InitParamsXDL> res;
   // Only return valid XDLOp params
   std::copy_if(
