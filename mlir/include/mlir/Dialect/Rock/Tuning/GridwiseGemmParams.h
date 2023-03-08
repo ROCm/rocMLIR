@@ -257,7 +257,7 @@ private:
   // add more 3 gemmk.
   uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
-  LogicalResult getKBlocks(int64_t convGroupSize, const GemmSize &gemmSize,
+  LogicalResult getKBlocks(int64_t batchSize, const GemmSize &gemmSize,
                            const InitParamsXDL &params, int64_t &gemmKBlocks,
                            uint32_t numCu);
 
