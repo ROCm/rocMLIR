@@ -77,7 +77,7 @@ public:
   const Config &getConfig() const { return config; }
   void setKernelName(const std::string &newName);
 
-  int getKernelCount(OpBuilder &builder) const;
+  LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
 
   Type getDataType(OpBuilder &builder) const;
 
@@ -126,10 +126,10 @@ public:
   LogicalResult isApplicable(bool checkChip = true) const;
 
   // Utility function to query if a config requires additional workspace.
-  bool hasWorkspace(OpBuilder &builder) const;
+  LogicalResult hasWorkspace(OpBuilder &builder, bool &needWorkspace) const;
 
   // Utility function to fetch the size of workspace.
-  int getWorkspaceSize(ModuleOp &module) const;
+  LogicalResult getWorkspaceSize(ModuleOp &module, int &workspaceSize) const;
 
 private:
   template <typename Vector>
@@ -144,8 +144,10 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
-  int getBwdWeightKernelCount(OpBuilder &builder) const;
-  bool needExtraPadBwdWeight(OpBuilder &builder) const;
+  LogicalResult getBwdWeightKernelCount(OpBuilder &builder,
+                                        int &kernelCount) const;
+  LogicalResult needExtraPadBwdWeight(OpBuilder &builder,
+                                      bool &needExtraPad) const;
   LogicalResult hasValidDimension() const;
   LogicalResult hasValidChip() const;
 
