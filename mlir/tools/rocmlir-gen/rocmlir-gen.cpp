@@ -2098,6 +2098,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     verifyFuncName += "Int32";
   } else if (valElemType.isInteger(64)) {
     verifyFuncName += "Int32Int64";
+  } else if (valElemType.isInteger(8)) {
+    verifyFuncName += "Int8";
   } else {
     llvm::errs() << "Unsupported type of validation function output: ";
     valElemType.dump();
@@ -2151,16 +2153,19 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     SmallVector<int64_t, 1> upperBounds = {valFlatType.getNumElements()};
     SmallVector<int64_t, 1> steps(1, 1);
 
-    buildAffineLoopNest(
-        b, loc, lowerBounds, upperBounds, steps,
-        [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
-                                            ValueRange ivs) {
-          auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
-          auto valTruncated =
-              b.create<arith::TruncFOp>(loc, testOutType, valOrig);
-          auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
-          b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
-        });
+    if (testOutType != valElemType) {
+      buildAffineLoopNest(
+          b, loc, lowerBounds, upperBounds, steps,
+          [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
+                                              ValueRange ivs) {
+            auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
+            auto valTruncated =
+                b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+            auto valExt =
+                b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+            b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
+          });
+    }
   } else {
     testResult = b.create<memref::CastOp>(loc, mr1DUnkTestType, testFlat);
   }
@@ -2481,7 +2486,7 @@ static LogicalResult populateHostHarnessLogic(
     auto elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
       assert(elemType.isF32() || elemType.isInteger(8) ||
-             elemType.isInteger(64));
+             elemType.isInteger(32) || elemType.isInteger(64));
       if (genParams.operation.has_value()) {
         elemType = genParams.dtype;
         if (elemType.isInteger(8) && idx == 2)
@@ -2511,6 +2516,9 @@ static LogicalResult populateHostHarnessLogic(
           //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-xdlops
           // validate in int64_t to detect overflow
           valElemType = b.getIntegerType(64);
+      } else if ((genValidation == "clone") || elemType.isInteger(8) ||
+                 elemType.isInteger(32)) {
+        valElemType = elemType;
       }
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
