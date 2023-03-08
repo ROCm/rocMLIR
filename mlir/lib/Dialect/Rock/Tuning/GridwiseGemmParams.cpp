@@ -233,6 +233,7 @@ PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
   {64, 64, 8, 32, 32, 4, true, true},
   {32, 64, 4, 32, 64, 4, true, true},
   {32, 64, 2, 8, 64, 4, true, true},
+  {4, 64, 16, 4, 64, 1, true, true}
 };
 
 const InitParamsXDL
