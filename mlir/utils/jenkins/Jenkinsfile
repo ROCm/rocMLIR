@@ -961,7 +961,7 @@ pipeline {
                         steps {
                             sh 'rm -rf MIGraphX'
                             dir('MIGraphX') {
-                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='/MIGraphXDeps;${WORKSPACE}/MIGraphXDeps' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++")
+                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='/MIGraphXDeps;${WORKSPACE}/MIGraphXDeps' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_BUILD_TYPE=debug -DCMAKE_CXX_FLAGS_DEBUG='-g -O2 -fsanitize=undefined'")
                             }
                         }
                     }
