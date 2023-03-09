@@ -219,25 +219,27 @@ class PerfConfiguration:
     EXTERNAL_NAME = "unknown"
 
 # convolution configurations.
-def getConvConfigurations(fileName):
+def getConvConfigurations(fileName, do_sweep: bool = True):
     configs = [];
     if fileName:
         with open(fileName, 'r') as configFile:
             lines = configFile.readlines()
-            # All combinations of conv direction, type and layouts
-            for direction, datatype, layout, line in \
-                    itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
+            for line in lines:
                 line = line.strip()
-
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                # Skip int8 non-fwd convolutions
-                if datatype == 'convint8' and direction != '-F 1':
-                    continue
-
-                oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
-                configs.append(oneConfig)
+            # All combinations of conv direction, type and layouts
+            if(do_sweep):
+                for direction, datatype, layout in \
+                        itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS):
+                    # Skip int8 non-fwd convolutions
+                    if datatype == 'convint8' and direction != '-F 1':
+                        continue
+                    oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
+                    configs.append(oneConfig)
+            else:
+                configs.append(line)
     return configs
 
 class ConvConfiguration(PerfConfiguration):
@@ -301,12 +303,13 @@ class ConvConfiguration(PerfConfiguration):
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
-    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
-    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
+    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg"}
 
     @classmethod
     def fromCommandLine(cls, argv, arch):
         # determine dataType from argv[1]
+        # Please keep this in sync with mlir::rock::getTuningProblemStr()
         if argv[0] == 'conv':
             dataType = 'f32'
         elif argv[0] == 'convfp16':
@@ -345,15 +348,15 @@ class ConvConfiguration(PerfConfiguration):
                     direction = 'wrw'
             elif opt == '-f':
                 if layout is not None and layout != arg:
-                    raise ValueError("Mixed layouts")
+                    raise ValueError(f"Mixed layouts: {layout} vs {arg}")
                 layout = arg
             elif opt == '-I':
                 if layout is not None and layout != arg:
-                    raise ValueError("Mixed layouts")
+                    raise ValueError(f"Mixed layouts: {layout} vs {arg}")
                 layout = arg
             elif opt == '-O':
                 if layout is not None and layout != arg:
-                    raise ValueError("Mixed layouts")
+                    raise ValueError(f"Mixed layouts: {layout} vs {arg}")
                 layout = arg
             elif opt == "-n":
                 n = int(arg)
@@ -541,6 +544,7 @@ class GemmConfiguration(PerfConfiguration):
 
     @classmethod
     def fromCommandLine(cls, argv, arch):
+        # Please keep this in sync with mlir::rock::getTuningProblemStr()
         dtype = None
         g = None
         m = None
