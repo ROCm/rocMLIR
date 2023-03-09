@@ -241,12 +241,16 @@ public:
 
 class PopulateParamsXDL : public BasePopulateParams<InitParamsXDL> {
 private:
-  static constexpr size_t nInitParameters = 9;
+  static constexpr size_t nInitParameters = 5;
   // Initial tuning parameters for forward convolution and backward
   // convolution.
   static const InitParamsXDL initParameters[nInitParameters];
 
-  static constexpr size_t nInitParametersForwardI8 = 12;
+  static constexpr size_t nInitParametersFp16 = 3;
+  // Tuning parameters for fp16/bf16 convolutions.
+  static const InitParamsXDL initParametersFp16[nInitParametersFp16];
+
+  static constexpr size_t nInitParametersForwardI8 = 5;
   // Tuning parameters for i8 convolutions.
   static const InitParamsXDL initParametersForwardI8[nInitParametersForwardI8];
 
