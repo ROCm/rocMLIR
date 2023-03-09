@@ -43,6 +43,30 @@ struct InitParams {
   int64_t gemmKPerBlock;
 };
 
+/// Store information useful for populating perf configurations
+struct PopulateParamsInfo {
+  GemmSize gemmSize;
+  GemmFeatures gemmFeatures;
+  Type inputType;
+  KernelType kernelType;
+  int64_t batchSize;
+  uint32_t numCu;
+
+  PopulateParamsInfo(GemmSize gemmSize, GemmFeatures gemmFeatures,
+                     Type inputType, KernelType kernelType)
+      : gemmSize(gemmSize), gemmFeatures(gemmFeatures), inputType(inputType),
+        kernelType(kernelType) {}
+
+  PopulateParamsInfo(GemmSize gemmSize, GemmFeatures gemmFeatures,
+                     Type inputType, KernelType kernelType, int64_t batchSize,
+                     uint32_t numCu)
+      : gemmSize(gemmSize), gemmFeatures(gemmFeatures), inputType(inputType),
+        kernelType(kernelType), batchSize(batchSize), numCu(numCu) {}
+
+  /// Extract the relevant information from a RockGemmWrapperInterface operation
+  static PopulateParamsInfo fromOp(RockGemmWrapperInterface op);
+};
+
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   constexpr InitParamsNonXDL(uint32_t bSize, int64_t mPerBlock,
                              int64_t nPerBlock, int64_t kPerBlock,
@@ -185,14 +209,11 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
-  static const InitParamsNonXDL universalParameters;
 
   LogicalResult
-  calculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
-                                          RockGemmWrapperInterface op);
+  calculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param);
 
-  LogicalResult populateDerived(RockGemmWrapperInterface op,
-                                const InitParamsNonXDL &validParams,
+  LogicalResult populateDerived(const InitParamsNonXDL &validParams,
                                 GemmSize &gemmSize, uint32_t &gridSize);
 
 public:
@@ -202,10 +223,14 @@ public:
                                        InitParamsNonXDL &validParams,
                                        uint32_t &gridSize);
 
+  LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
+                                       uint32_t blockSizeOverride,
+                                       const std::string &perfConfig,
+                                       InitParamsNonXDL &validParams,
+                                       uint32_t &gridSize);
+
   std::vector<InitParamsNonXDL> getTuningParameters(KernelType opType,
                                                     Type dataType) const;
-
-  const InitParamsNonXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
@@ -230,19 +255,17 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk.
-  static const InitParamsXDL universalParameters;
-
   uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
-  LogicalResult getKBlocks(Conv2DBwdWeightOp op, const GemmSize &gemmSize,
-                           const InitParamsXDL &params, int64_t &gemmKBlocks);
+  LogicalResult getKBlocks(int64_t batchSize, const GemmSize &gemmSize,
+                           const InitParamsXDL &params, int64_t &gemmKBlocks,
+                           uint32_t numCu);
 
   LogicalResult isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
-                                           RockGemmWrapperInterface op,
-                                           uint32_t blockSize);
+                                           Type dataType, uint32_t blockSize);
 
-  LogicalResult populateDerived(RockGemmWrapperInterface op,
-                                const InitParamsXDL &validParams,
+  LogicalResult populateDerived(const InitParamsXDL &validParams,
+                                const PopulateParamsInfo &info,
                                 GemmSize &gemmSize, uint32_t &blockSize,
                                 uint32_t &gridSize, int64_t &gemmKBlocks);
 
@@ -260,9 +283,15 @@ public:
                                        uint32_t &blockSize, uint32_t &gridSize,
                                        int64_t &gemmKBlocks);
 
+  LogicalResult obtainTuningParameters(PopulateParamsInfo info,
+                                       uint32_t blockSizeOverride,
+                                       const std::string &perfConfig,
+                                       InitParamsXDL &validParams,
+                                       uint32_t &blockSize, uint32_t &gridSize,
+                                       int64_t &gemmKBlocks);
+
   std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
                                                  Type dataType) const;
-  const InitParamsXDL &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;

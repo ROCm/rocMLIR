@@ -1697,7 +1697,10 @@ createCPUConvFunc(ModuleOp module,
   // Create conv2d_host function
   rock::Conv2dGenerator conv2dGenerator(genConfig);
 
-  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  bool hasWorkspace = false;
+  if (failed(conv2dGenerator.hasWorkspace(b, hasWorkspace))) {
+    assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
+  }
   Type workspaceArgType;
   if (hasWorkspace) {
     workspaceArgType = MemRefType::get(
@@ -2300,7 +2303,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(b);
+      int kernelCount = 0;
+      if (failed(conv2dGenerator.getKernelCount(b, kernelCount))) {
+        llvm::errs() << "Getting kernel count failed.\n";
+        exit(1);
+      }
+      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
@@ -2323,8 +2331,16 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
         rock::Conv2dGenerator originalConv2dGenerator(genConfig);
-        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
-        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+        bool originalHasWorkspace = false, verifierHasWorkspace = false;
+        if (failed(originalConv2dGenerator.hasWorkspace(
+                b, originalHasWorkspace))) {
+          llvm::errs() << "Getting workspace failed.\n";
+          exit(1);
+        }
+        if (failed(conv2dGenerator.hasWorkspace(b, verifierHasWorkspace))) {
+          llvm::errs() << "Getting workspace failed.\n";
+          exit(1);
+        }
         if (originalHasWorkspace && !verifierHasWorkspace) {
           valVars.resize(valVars.size() - 1);
         }
@@ -2847,7 +2863,12 @@ int main(int argc, char **argv) {
     } else {
       // Populate the module.
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(builder);
+      int kernelCount = 0;
+      if (failed(conv2dGenerator.getKernelCount(builder, kernelCount))) {
+        llvm::errs() << "Getting kernel count failed.\n";
+        exit(1);
+      }
+      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
