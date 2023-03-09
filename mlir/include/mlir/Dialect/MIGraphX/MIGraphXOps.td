@@ -172,26 +172,20 @@ def MIGraphX_QuantizeLinearOp :
 }
 
 // Convolution operations
+class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
+    MIGraphX_Op<mnemonic>{
+    let arguments = (ins TensorOf<inputTypes>:$input,
+                         TensorOf<inputTypes>:$filter,
 
-def MIGraphX_ConvolutionOp :
-    MIGraphX_Op<"convolution">,
-    Arguments<(ins AnyRankedTensor:$input,
-                   AnyRankedTensor:$filter,
-
-                   I64ArrayAttr:$padding,
-                   I64ArrayAttr:$stride,
-                   I64ArrayAttr:$dilation,
-                   I64Attr:$group,
-                   OptionalAttr<I64Attr>:$padding_mode,
-                   OptionalAttr<BoolAttr>:$xdlopsV2,
-                   OptionalAttr<StrAttr>:$perf_config
-                   )>,
-	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "convolution forward";
-  let description = [{
-    The `migraphx.convolution` op computes convolution forward.
-  }];
-  let builders = [
+                         I64ArrayAttr:$padding,
+                         I64ArrayAttr:$stride,
+                         I64ArrayAttr:$dilation,
+                         I64Attr:$group,
+                         OptionalAttr<I64Attr>:$padding_mode,
+                         OptionalAttr<BoolAttr>:$xdlopsV2,
+                         OptionalAttr<StrAttr>:$perf_config);
+	  let results = (outs TensorOf<outputTypes>:$output);
+    let builders = [
     OpBuilder<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
       "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group,
       "::mlir::migraphx::padding_mode_tAttr":$padding_mode,
@@ -211,6 +205,22 @@ def MIGraphX_ConvolutionOp :
     }]>];
 
   let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` `(`type($input) `,` type($filter) `)` `->` type($output)";
+}
+
+def MIGraphX_QuantConvolutionOp :
+    MIGraphX_ConvOpBase<"quant_convolution", [I8], [I32]>{
+  let summary = "quantized convolution forward";
+  let description = [{
+    The `migraphx.quant_convolution` op computes quantized convolution forward.
+  }];
+}
+
+def MIGraphX_ConvolutionOp :
+    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16], [F32, F16, BF16]>{
+  let summary = "convolution forward";
+  let description = [{
+    The `migraphx.convolution` op computes convolution forward.
+  }];
 }
 
 def MIGraphX_BatchNormOp :

@@ -66,10 +66,9 @@ static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
   return op;
 }
 
-class ConvConverter final
-    : public OpConversionPattern<migraphx::ConvolutionOp> {
+template <typename T> class ConvConverter : public OpConversionPattern<T> {
 public:
-  using OpConversionPattern<migraphx::ConvolutionOp>::OpConversionPattern;
+  using OpConversionPattern<T>::OpConversionPattern;
 
   Value getZeroBias(Location loc, Type elemType, int64_t filterOutputChannels,
                     ConversionPatternRewriter &rewriter) const {
@@ -99,16 +98,15 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto operands = adaptor.getOperands();
+  matchAndRewrite(T op, typename OpConversionPattern<T>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
     Location loc = op->getLoc();
-    auto input_t = operands[0];
-    auto filter_t = operands[1];
+    auto input_t = op.getInput();
+    auto filter_t = op.getFilter();
     auto results = op->getResults();
     auto elementTy =
-        op->getOperand(0).getType().cast<ShapedType>().getElementType();
-    auto outputTy = results[0].getType().cast<ShapedType>();
+        input_t.getType().template cast<ShapedType>().getElementType();
+    auto outputTy = results[0].getType().template cast<ShapedType>();
     SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
@@ -127,22 +125,27 @@ public:
         loc, newOutTy,
         ValueRange{
             input_t, filter_t,
-            getZeroBias(loc, outputTy.getElementType(),
-                        filter_t.getType().cast<ShapedType>().getShape()[0],
-                        rewriter)});
+            getZeroBias(
+                loc, outputTy.getElementType(),
+                filter_t.getType().template cast<ShapedType>().getShape()[0],
+                rewriter)});
 
     // translate attributes
-    auto padAttr = op->getAttr("padding").cast<ArrayAttr>();
-    auto strideAttr = op->getAttr("stride").cast<ArrayAttr>();
-    auto dilationAttr = op->getAttr("dilation").cast<ArrayAttr>();
-    int64_t padTop = padAttr[0].dyn_cast<IntegerAttr>().getInt();
-    int64_t padBottom = padAttr[1].dyn_cast<IntegerAttr>().getInt();
-    int64_t padLeft = padAttr[2].dyn_cast<IntegerAttr>().getInt();
-    int64_t padRight = padAttr[3].dyn_cast<IntegerAttr>().getInt();
-    int64_t strideHeight = strideAttr[0].dyn_cast<IntegerAttr>().getInt();
-    int64_t strideWidth = strideAttr[1].dyn_cast<IntegerAttr>().getInt();
-    int64_t dilationHeight = dilationAttr[0].dyn_cast<IntegerAttr>().getInt();
-    int64_t dilationWidth = dilationAttr[1].dyn_cast<IntegerAttr>().getInt();
+    auto padAttr = op->getAttr("padding").template cast<ArrayAttr>();
+    auto strideAttr = op->getAttr("stride").template cast<ArrayAttr>();
+    auto dilationAttr = op->getAttr("dilation").template cast<ArrayAttr>();
+    int64_t padTop = padAttr[0].template dyn_cast<IntegerAttr>().getInt();
+    int64_t padBottom = padAttr[1].template dyn_cast<IntegerAttr>().getInt();
+    int64_t padLeft = padAttr[2].template dyn_cast<IntegerAttr>().getInt();
+    int64_t padRight = padAttr[3].template dyn_cast<IntegerAttr>().getInt();
+    int64_t strideHeight =
+        strideAttr[0].template dyn_cast<IntegerAttr>().getInt();
+    int64_t strideWidth =
+        strideAttr[1].template dyn_cast<IntegerAttr>().getInt();
+    int64_t dilationHeight =
+        dilationAttr[0].template dyn_cast<IntegerAttr>().getInt();
+    int64_t dilationWidth =
+        dilationAttr[1].template dyn_cast<IntegerAttr>().getInt();
 
     // convolution config attributes
 
@@ -154,10 +157,10 @@ public:
                             {padTop, padBottom, padLeft, padRight}));
 
     // Convert optional attributes
-    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
-      cop->setAttr("xdlopsV2", attr);
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      cop->setAttr("perf_config", attr);
+    if (auto attr = op->getAttr("xdlopsV2"))
+      cop->setAttr("xdlopsV2", attr.template cast<BoolAttr>());
+    if (auto attr = op->getAttr("perf_config"))
+      cop->setAttr("perf_config", attr.template cast<StringAttr>());
 
     // Note: For TOSA convolution, a non-float type is considered as a
     // quantized convolution. For quantized convolution, it is required
@@ -537,7 +540,8 @@ public:
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
-               ReshapeConverter, SoftmaxConverter, DotConverter,
-               ReduceMeanConverter, QuantizeLinearConverter>(context);
+  patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+               BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
+               SoftmaxConverter, DotConverter, ReduceMeanConverter,
+               QuantizeLinearConverter>(context);
 }
