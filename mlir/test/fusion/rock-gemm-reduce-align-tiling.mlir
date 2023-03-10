@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-view-to-transform -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
 
-// CHECK: [[MAP0:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <ConstDim{0, 1} [] at [] -> ["reduction_dim"] at [2]>] bounds = [1, 128, 256] -> [1, 128, 1]>
-// CHECK: [[MAP1:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <ConstDim{0, 1} [] at [] -> ["reduction_dim"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [1, 128, 256] -> [1, 1, 256]>
+// CHECK: [[MAP0:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [1, 128, 256] -> [1, 128, 1]>
+// CHECK: [[MAP1:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [1, 128, 256] -> [1, 1, 256]>
 
 // CHECK: test_gemm_reduce_last_axis_fusion
 func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "", kernel} {

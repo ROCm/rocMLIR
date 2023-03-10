@@ -565,12 +565,14 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         rewriter.clone(*threadwiseWriteOp.getOperation()));
   }
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  TypedValue<ShapedType> redOut = reduceOp.getOut();
+  ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
   TypedValue<ShapedType> redIn = reduceOp.getIn();
   ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
-  TopDownTMBuilder dropReductionDim(rewriter, reduceInShape, loc);
-  for (uint32_t i = 0; i < reduceInShape.size(); ++i) {
+  BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);
+  for (uint32_t i = 0; i < reduceOutShape.size(); ++i) {
     if (i == reductionAxis) {
-      dropReductionDim.constDim("reduction_dim", i, 0, 1);
+      dropReductionDim.broadcast({i}, {reduceInShape[i]});
     } else {
       dropReductionDim.passThrough({i}, {i});
     }
