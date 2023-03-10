@@ -219,27 +219,51 @@ class PerfConfiguration:
     EXTERNAL_NAME = "unknown"
 
 # convolution configurations.
-def getConvConfigurations(fileName, do_sweep: bool = True):
+def getConvConfigurations(fileName):
     configs = [];
     if fileName:
         with open(fileName, 'r') as configFile:
             lines = configFile.readlines()
-            for line in lines:
+            # All combinations of conv direction, type and layouts
+            for direction, datatype, layout, line in \
+                    itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
                 line = line.strip()
+
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-            # All combinations of conv direction, type and layouts
-            if(do_sweep):
-                for direction, datatype, layout in \
-                        itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS):
-                    # Skip int8 non-fwd convolutions
-                    if datatype == 'convint8' and direction != '-F 1':
-                        continue
-                    oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
-                    configs.append(oneConfig)
-            else:
-                configs.append(line)
+                # Skip int8 non-fwd convolutions
+                if datatype == 'convint8' and direction != '-F 1':
+                    continue
+
+                # Skip datatype if already in
+                datatype = f"{datatype} "
+                # check for the presense of a positional arg
+                if line[0][0] != "-":
+                    datatype = ""
+
+                # Skip direction if already in
+                direction = f"{direction} "
+                if "-F" in line:
+                    direction = ""
+
+                # Skip filter layout if already in
+                filter_layout = f"-f {layout} "
+                if "-f" in line:
+                    filter_layout = ""
+
+                # Skip input layout if already in
+                input_layout = f"-I {layout} "
+                if "-I" in line:
+                    input_layout = ""
+
+                # Skip output layout if already in
+                output_layout = f"-O {layout} "
+                if "-O" in line:
+                    output_layout = ""
+
+                oneConfig = f"{datatype}{direction}{filter_layout}{input_layout}{output_layout}{line}"
+                configs.append(oneConfig)
     return configs
 
 class ConvConfiguration(PerfConfiguration):

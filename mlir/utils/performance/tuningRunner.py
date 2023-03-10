@@ -226,7 +226,7 @@ def main(args=None):
     if parsed_args.config:
         configs = parsed_args.config
     elif opType == Operation.CONV:
-        configs = perfRunner.getConvConfigurations(paths.configuration_file_path, do_sweep=False)
+        configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
         configs = perfRunner.getGemmConfigurations(paths.configuration_file_path)
     else:
