@@ -66,9 +66,10 @@ static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
   return op;
 }
 
-template <typename T> class ConvConverter : public OpConversionPattern<T> {
+template <typename ConvType>
+class ConvConverter : public OpConversionPattern<ConvType> {
 public:
-  using OpConversionPattern<T>::OpConversionPattern;
+  using OpConversionPattern<ConvType>::OpConversionPattern;
 
   Value getZeroBias(Location loc, Type elemType, int64_t filterOutputChannels,
                     ConversionPatternRewriter &rewriter) const {
@@ -97,8 +98,14 @@ public:
     return newOp;
   }
 
+  // Note, this lowering pattern works for both migraphx.convolution and
+  // migraphx.quant_convolution. The only difference between the two ops
+  // is that quant_convolution allows convolution input and output to be
+  // different types. Because of this, we use same lowering pattern but
+  // different tablegen to capture the difference between the two ops.
   LogicalResult
-  matchAndRewrite(T op, typename OpConversionPattern<T>::OpAdaptor adaptor,
+  matchAndRewrite(ConvType op,
+                  typename OpConversionPattern<ConvType>::OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op->getLoc();
     auto input_t = op.getInput();
