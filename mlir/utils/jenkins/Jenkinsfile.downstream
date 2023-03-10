@@ -141,10 +141,12 @@ pipeline {
                         stage("Igemm build") {
                             steps {
                                 checkout scm
-                                buildProject('librockCompiler',
-                                             '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
-                                installation: 'InSearchPath', workingDir: 'build'
+                                buildProject('package',
+                                             "-DBUILD_FAT_LIBROCKCOMPILER=ON -DCPACK_INSTALL_PREFIX=${WORKSPACE}/MIOpenDeps")
+                                dir('build'){
+                                    sh "cat install_manifest_librockCompiler.txt"
+                                    sh "dpkg -i librockcompiler-rocmlir_1.1.0_amd64.deb"
+                                }
                             }
                         }
                         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
