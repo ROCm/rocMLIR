@@ -78,6 +78,13 @@ struct MemcpyRewritePattern : public OpRewritePattern<memref::CopyOp> {
   LogicalResult matchAndRewrite(memref::CopyOp copy,
                                 PatternRewriter &b) const override;
 };
+
+struct ReduceRewritePattern : public OpRewritePattern<rock::ReduceOp> {
+  using OpRewritePattern<rock::ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::ReduceOp reduceOp,
+                                PatternRewriter &rewriter) const override;
+};
 } // end anonymous namespace
 
 static void moveTransformsBefore(PatternRewriter &b, Value val) {
@@ -521,11 +528,76 @@ static bool isUnfusedKernelStore(ThreadwiseWriteAllOp store) {
   return ret;
 }
 
+LogicalResult
+ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
+                                      PatternRewriter &rewriter) const {
+  Location loc = reduceOp.getLoc();
+  SmallVector<TransformMapAttr, 4> views;
+  ThreadwiseWriteAllOp threadwiseWriteOp =
+      traceToThreadwiseWrite(reduceOp.getIn(), views);
+  if (!threadwiseWriteOp) {
+    return rewriter.notifyMatchFailure(
+        reduceOp, "rock.reduce input is not leading to ThreadwiseWriteAllOp of "
+                  "the previous op.");
+  }
+  if (reduceOp.getReduceMethod() != ReduceMethod::Sum) {
+    // We are failing the pass here because rock.reduce appearing here means
+    // we are committed to fusion and this is case, we cant handle (so far) in
+    // this or a later pass.
+    return reduceOp.emitError("We only support sum reductions.!");
+  }
+  if (threadwiseWriteOp.getStoreMethod() != rock::StoreMethod::Set) {
+    // We are failing the pass here because another rock.reduce appearing here
+    // means we are committed to fusion and this is case, we cant handle (so
+    // far) in this or a later pass.
+    return reduceOp.emitError("Another reduction op is not able to be fused "
+                              "with a prior reduction op.");
+  }
+
+  bool isUniqueReader;
+  LogicalResult checkResult = checkUniqueReader(
+      reduceOp.getIn().getDefiningOp(), reduceOp, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
+  }
+  if (!isUniqueReader) {
+    threadwiseWriteOp = static_cast<ThreadwiseWriteAllOp>(
+        rewriter.clone(*threadwiseWriteOp.getOperation()));
+  }
+  int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  TypedValue<ShapedType> redOut = reduceOp.getOut();
+  ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
+  TypedValue<ShapedType> redIn = reduceOp.getIn();
+  ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
+  BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);
+  for (uint32_t i = 0; i < reduceOutShape.size(); ++i) {
+    if (i == reductionAxis) {
+      dropReductionDim.broadcast({i}, {reduceInShape[i]});
+    } else {
+      dropReductionDim.passThrough({i}, {i});
+    }
+  }
+  TransformMapAttr trAttr = dropReductionDim.get();
+  views.push_back(trAttr);
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(threadwiseWriteOp);
+    TypedValue<ShapedType> reduceOut = reduceOp.getOut();
+    reduceOut = applyViewsOnDest(rewriter, loc, reduceOut, views);
+    threadwiseWriteOp.getDestMutable().assign(reduceOut);
+    threadwiseWriteOp.setStoreMethodAttr(
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd));
+  }
+  rewriter.eraseOp(reduceOp);
+  return success();
+}
+
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   {
     RewritePatternSet patterns(ctx);
     patterns.add<LAGenericRewritePattern>(ctx);
+    patterns.add<ReduceRewritePattern>(ctx);
     patterns.add<MemcpyRewritePattern>(ctx);
     GreedyRewriteConfig config;
     config.useTopDownTraversal = true;
