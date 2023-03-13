@@ -144,9 +144,11 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     if(ARG_EXTRA_INCLUDES)
       set(EXTRA_INCLUDES ${ARG_EXTRA_INCLUDES})
     endif()
-    set(ROCM_INSTALL_LIBDIR lib/${package_name})
-    rocm_install(TARGETS ${lib_name}
+    # Call install() instead of rocm_install() here in order to install
+    # the package in a specific direcotry. 
+    install(TARGETS ${lib_name}
       EXPORT ${export_set}
+      ARCHIVE DESTINATION lib/${package_name}
       COMPONENT ${component_name}
       INCLUDES DESTINATION ${INCLUDE_DIR} ${EXTRA_INCLUDES}
     )
