@@ -426,6 +426,63 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   }
 };
 
+template <typename TosaReduceOp>
+typename std::enable_if_t<
+    std::is_same<TosaReduceOp, tosa::ReduceSumOp>::value ||
+        std::is_same<TosaReduceOp, tosa::ReduceMaxOp>::value,
+    LogicalResult> static matchAndRewriteReductions(TosaReduceOp op,
+                                                    rock::ReduceMethod rMethod,
+                                                    Attribute outputInitVal,
+                                                    ConversionPatternRewriter
+                                                        &rw) {
+  Location loc = op->getLoc();
+  auto outputType = op.getType().template cast<RankedTensorType>();
+  Value output =
+      rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+  StringAttr arch;
+  Optional<uint32_t> num_cu;
+  rock::GemmFeatures features;
+  std::tie(arch, num_cu, features) = getArchAttributes(op);
+
+  int32_t blockSize = 256;
+  auto elementCount =
+      op.getInput().getType().template cast<ShapedType>().getNumElements();
+  int32_t gridSize = (elementCount + blockSize - 1) / blockSize;
+  if (num_cu.has_value()) {
+    gridSize = std::min((int32_t)(20 * num_cu.value()), gridSize);
+  }
+
+  auto rockReduce = rw.create<rock::ReduceOp>(
+      loc, outputType, op.getInput(), output,
+      rw.getAttr<rock::GemmFeaturesAttr>(features),
+      rw.getAttr<rock::ReduceMethodAttr>(rMethod),
+      rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
+      rw.getI32IntegerAttr(gridSize),
+      /*useLDS=*/nullptr,
+      /*useDPP=*/nullptr);
+
+  func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+  func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
+  func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
+                     rw.getUnitAttr());
+  // The original function also need the read access attr for the output.
+  if (func->hasAttr("original_func")) {
+    if (ModuleOp rootMod =
+            func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
+      SymbolTable symTable(rootMod);
+      SymbolRefAttr originalFuncAttr =
+          func->getAttrOfType<SymbolRefAttr>("original_func");
+      if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
+              symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+        originalFunc.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
+                                   rw.getUnitAttr());
+      }
+    }
+  }
+  rw.replaceOp(op, rockReduce.getResult());
+  return success();
+}
+
 class ReduceSumConverter final : public OpConversionPattern<tosa::ReduceSumOp> {
 public:
   using OpConversionPattern<tosa::ReduceSumOp>::OpConversionPattern;
@@ -433,11 +490,6 @@ public:
   LogicalResult matchAndRewrite(tosa::ReduceSumOp op,
                                 tosa::ReduceSumOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
-    Location loc = op->getLoc();
-    auto outputType = op.getType().cast<RankedTensorType>();
-    Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
-
     StringAttr arch;
     Optional<uint32_t> num_cu;
     rock::GemmFeatures features;
@@ -446,45 +498,35 @@ public:
       op.emitError("Currently, we only support ReduceSum operators on GPUs "
                    "with atomic add support.!.");
     }
-
-    int32_t blockSize = 256;
-    auto elementCount =
-        op.getInput().getType().cast<ShapedType>().getNumElements();
-    int32_t gridSize = (elementCount + blockSize - 1) / blockSize;
-    if (num_cu.has_value()) {
-      gridSize = std::max((int32_t)(20 * num_cu.value()), gridSize);
+    Type elementType =
+        op.getInput().getType().cast<ShapedType>().getElementType();
+    if (!elementType.isF32()) {
+      return rw.notifyMatchFailure(op, "We only support F32 reductions, yet.");
     }
+    Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0000);
+    return matchAndRewriteReductions(op, rock::ReduceMethod::Sum, outputInitVal,
+                                     rw);
+  }
+};
 
-    auto rockReduce = rw.create<rock::ReduceOp>(
-        loc, outputType, op.getInput(), output,
-        rw.getAttr<rock::GemmFeaturesAttr>(features),
-        rw.getAttr<rock::ReduceMethodAttr>(rock::ReduceMethod::Sum),
-        rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
-        rw.getI32IntegerAttr(gridSize),
-        /*useLDS=*/nullptr,
-        /*useDPP=*/nullptr);
+class ReduceMaxConverter final : public OpConversionPattern<tosa::ReduceMaxOp> {
+public:
+  using OpConversionPattern<tosa::ReduceMaxOp>::OpConversionPattern;
 
-    func::FuncOp func = op->getParentOfType<func::FuncOp>();
-    func.setResultAttr(0, rock::PrefillAttr::getMnemonic(),
-                       rw.getF32FloatAttr(0.0000));
-    func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
-                       rw.getUnitAttr());
-    // The original function also need the read access attr for the output.
-    if (func->hasAttr("original_func")) {
-      if (ModuleOp rootMod =
-              func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
-        SymbolTable symTable(rootMod);
-        SymbolRefAttr originalFuncAttr =
-            func->getAttrOfType<SymbolRefAttr>("original_func");
-        if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
-                symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-          originalFunc.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
-                                     rw.getUnitAttr());
-        }
-      }
+  LogicalResult matchAndRewrite(tosa::ReduceMaxOp op,
+                                tosa::ReduceMaxOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    Type elementType =
+        op.getInput().getType().cast<ShapedType>().getElementType();
+    Attribute outputInitVal;
+    if (elementType.isF32()) {
+      outputInitVal = rw.getFloatAttr(
+          elementType, APFloat::getInf(APFloat::IEEEsingle(), true));
+    } else {
+      return rw.notifyMatchFailure(op, "We only support F32 reductions, yet.");
     }
-    rw.replaceOp(op, rockReduce.getResult());
-    return success();
+    return matchAndRewriteReductions(op, rock::ReduceMethod::Max, outputInitVal,
+                                     rw);
   }
 };
 
@@ -492,7 +534,8 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, MatMulConverter, ReduceSumConverter>(context);
+  patterns.add<ConvConverter, MatMulConverter, ReduceSumConverter,
+               ReduceMaxConverter>(context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(

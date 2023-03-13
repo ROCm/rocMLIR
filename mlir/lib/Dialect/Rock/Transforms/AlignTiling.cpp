@@ -540,12 +540,22 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         reduceOp, "rock.reduce input is not leading to ThreadwiseWriteAllOp of "
                   "the previous op.");
   }
-  if (reduceOp.getReduceMethod() != ReduceMethod::Sum) {
+
+  StoreMethodAttr stMethod;
+  if (reduceOp.getReduceMethod() == ReduceMethod::Sum) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd);
+  } else if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicMax);
+  } else {
     // We are failing the pass here because rock.reduce appearing here means
     // we are committed to fusion and this is case, we cant handle (so far) in
     // this or a later pass.
-    return reduceOp.emitError("We only support sum reductions.!");
+    return reduceOp.emitError()
+           << "Unsupported reduction type : " << reduceOp.getReduceMethodAttr();
   }
+
   if (threadwiseWriteOp.getStoreMethod() != rock::StoreMethod::Set) {
     // We are failing the pass here because another rock.reduce appearing here
     // means we are committed to fusion and this is case, we cant handle (so
@@ -585,8 +595,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     TypedValue<ShapedType> reduceOut = reduceOp.getOut();
     reduceOut = applyViewsOnDest(rewriter, loc, reduceOut, views);
     threadwiseWriteOp.getDestMutable().assign(reduceOut);
-    threadwiseWriteOp.setStoreMethodAttr(
-        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd));
+    threadwiseWriteOp.setStoreMethodAttr(stMethod);
   }
   rewriter.eraseOp(reduceOp);
   return success();
