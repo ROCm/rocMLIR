@@ -18,6 +18,8 @@ using namespace mlir::rock;
 static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
              /*waveSize=*/64),
+    cdna3Info(cdnaInfo.defaultFeatures | GemmFeatures::gfx940_mfma,
+              /*waveSize=*/64),
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32),
@@ -39,7 +41,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("08", "0a", "40", cdnaInfo)
+        .Cases("08", "0a", cdnaInfo)
+        .Case("40", cdna3Info)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64))
         .Default(gcnInfo);

@@ -323,6 +323,16 @@ static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
                                 "remove atomic_add from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
+static llvm::cl::opt<FeatureToggle> gfx940MfmaFeature(
+    "gfx940_mfma", llvm::cl::desc("toggle gfx940_mfma feature"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force gfx940_mfma into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove gfx940_mfma from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
 // data type
 static llvm::cl::opt<std::string>
     tensorDataType("t", llvm::cl::desc("Data type for convolution"),
@@ -2812,6 +2822,10 @@ int main(int argc, char **argv) {
         enabledFeatures =
             bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                        atomicFMaxF32Feature == FeatureToggle::on);
+      if (gfx940MfmaFeature != FeatureToggle::infer)
+        enabledFeatures =
+            bitEnumSet(enabledFeatures, rock::GemmFeatures::gfx940_mfma,
+                       gfx940MfmaFeature == FeatureToggle::on);
       genParams.operation = operation;
       genParams.features = enabledFeatures;
       genParams.arch = arch;
