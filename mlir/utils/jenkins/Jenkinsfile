@@ -566,7 +566,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx906', 'gfx908', 'gfx90a'
                     }
                 }
                 agent {
@@ -746,7 +746,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx906', 'gfx908', 'gfx90a'
                     }
                 }
                 when {
