@@ -965,6 +965,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
+    StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
@@ -1290,7 +1291,7 @@ struct GridwiseGemmV2RewritePattern
       blockwiseGemmV2Op = b.create<BlockwiseGemmV2Op>(
           loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
           b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB,
-          arrayA, arrayB, regCAllocOp, op.getBlockSizeAttr(),
+          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getBlockSizeAttr(),
           op.getParamsAttr());
 
       // LDS barrier.

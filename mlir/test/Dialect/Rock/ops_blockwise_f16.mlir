@@ -27,6 +27,7 @@ func.func @rock_xdlops_gemm_v2_one_result_f16(%matrixA : memref<4xvector<4xf16>,
                                                 %matrixC : memref<1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -49,6 +50,7 @@ func.func @rock_xdlops_gemm_v2_two_results_f16(%matrixA : memref<4xvector<4xf16>
                                                %matrixC : memref<1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -72,6 +74,7 @@ func.func @rock_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrix[%c0] * %bufferB from %matrix[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
@@ -97,6 +100,7 @@ func.func @rock_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>
                                                %matrixC : memref<2xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrix[%c0] * %bufferB from %matrix[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,

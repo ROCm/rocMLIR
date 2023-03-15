@@ -13,6 +13,7 @@ func.func @rock_xdlops_gemm_v2_reduction_nokpack(%matrixA : memref<2xf32, 5>,
   // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
        kPerBlock = 4,
        kpack = 1,
@@ -38,6 +39,7 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack_f32(%matrixA : memref<2xf32, 5>,
   // CHECK: amdgpu.mfma [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       kPerBlock = 2,
       kpack = 2,
@@ -64,6 +66,7 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack_i8(%matrixA : memref<4xvector<4xi
   // CHECK-NOT: amdgpu.mfma
   %c0 = arith.constant 0 : index
   rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       kPerBlock = 4,
       kpack = 8,

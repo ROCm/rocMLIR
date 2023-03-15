@@ -359,6 +359,7 @@ def Rock_GridwiseGemmV2Op :
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
+                   StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
@@ -1076,6 +1077,7 @@ def Rock_BlockwiseGemmV2Op:
                    MemRefOf<MfmaArgTypes>:$bufferA,
                    MemRefOf<MfmaArgTypes>:$bufferB,
                    MemRefOf<MfmaResTypes>:$matrixC,
+                   StrAttr:$arch,
                    I32Attr:$blockSize,
                    Rock_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
@@ -1125,6 +1127,7 @@ def Rock_XdlopsGemmV2Op:
                    MemRefRankOf<MfmaArgTypes, [1]>:$matrixA,
                    MemRefRankOf<MfmaArgTypes, [1]>:$matrixB,
                    MemRefRankOf<MfmaResTypes , [1]>:$matrixC,
+                   StrAttr:$arch,
                    Rock_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
