@@ -764,7 +764,7 @@ def Rock_BufferLoadOp :
   }];
   let assemblyFormat = [{
     $source `[` $coords `]` `if` $valid attr-dict
-    `:` type($source) `,` type($coords) `->` type($result)
+    `:` type($source) (`,` type($coords)^)? `->` type($result)
   }];
   let hasVerifier = 1;
 }
@@ -803,7 +803,7 @@ def Rock_BufferStoreOp :
   }];
   let assemblyFormat = [{
     $storeMethod $data `->` $dest `[` $coords `]` `if` $valid `features` `=` $features attr-dict
-    `:` type($data) `->` type($dest) `,` type($coords)
+    `:` type($data) `->` type($dest) (`,` type($coords)^)?
   }];
   let hasVerifier = 1;
 }
