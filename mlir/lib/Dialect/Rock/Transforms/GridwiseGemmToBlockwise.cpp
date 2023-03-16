@@ -1171,7 +1171,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Mfma instruction group selection.
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(elementType, mPerWave, nPerWave);
+        MfmaInsnGroup::select(elementType, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }

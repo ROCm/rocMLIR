@@ -124,8 +124,8 @@ private:
   MfmaInsnGroupAttr groupAttr;
 
 public:
-  static FailureOr<MfmaInsnGroup> select(Type elementType, int64_t mPerWave,
-                                         int64_t nPerWave);
+  static FailureOr<MfmaInsnGroup> select(Type elementType, StringRef arch,
+                                         int64_t mPerWave, int64_t nPerWave);
   MfmaInsnGroup(Type elementType, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);

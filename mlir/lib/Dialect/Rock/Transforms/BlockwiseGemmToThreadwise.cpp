@@ -346,7 +346,7 @@ struct BlockwiseGemmV2RewritePattern
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
+        MfmaInsnGroup::select(dataType, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
