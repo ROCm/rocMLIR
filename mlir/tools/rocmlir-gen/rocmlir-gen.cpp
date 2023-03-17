@@ -844,7 +844,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
     // Emit memref.collapse_shape
     var = b.create<memref::CollapseShapeOp>(loc, colType, var, reassocs);
-  } else if (shape.size() < ndim) {
+  } else if (!shape.empty() && shape.size() < ndim) {
     // Expand last dims
     SmallVector<int64_t, 5> expShape;
     SmallVector<ReassociationExprs, 5> reassocs;
@@ -1064,12 +1064,18 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
   MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
-  SmallVector<int64_t, 1> lowerBounds(1, 0);
-  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
-  SmallVector<int64_t, 1> steps(1, 1);
-  AffineExpr rowMajor = b.getAffineDimExpr(0);
-  rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
-  AffineMap rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
+  SmallVector<int64_t, 1> lowerBounds;
+  SmallVector<int64_t, 1> upperBounds;
+  SmallVector<int64_t, 1> steps;
+  AffineMap rowMajorMap = AffineMap::getConstantMap(0, b.getContext());
+  if (!flatType.getShape().empty()) {
+    AffineExpr rowMajor = b.getAffineDimExpr(0);
+    rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
+    rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
+    lowerBounds.push_back(0);
+    upperBounds.push_back(flatType.getNumElements());
+    steps.push_back(1);
+  }
 
   buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
@@ -1117,9 +1123,15 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
   std::tie(min, max) = getRandomTestData(idx);
   Value minConst = getI16Val(min), maxConst = getI16Val(max);
 
-  SmallVector<int64_t, 1> lowerBounds(1, 0);
-  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
-  SmallVector<int64_t, 1> steps(1, 1);
+  SmallVector<int64_t, 1> lowerBounds;
+  SmallVector<int64_t, 1> upperBounds;
+  SmallVector<int64_t, 1> steps;
+
+  if (!flatType.getShape().empty()) {
+    lowerBounds.push_back(0);
+    upperBounds.push_back(flatType.getNumElements());
+    steps.push_back(1);
+  }
 
   buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
@@ -1863,8 +1875,8 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
                                       const MemRefType destType) {
   OpBuilder b(module.getContext());
 
-  assert(srcType.getRank() == 1 && "Memcopy takes 1-D sources");
-  assert(destType.getRank() == 1 && "Memcopy takes 1-D destinations");
+  assert(srcType.getRank() <= 1 && "Memcopy takes 1-D sources");
+  assert(destType.getRank() <= 1 && "Memcopy takes 1-D destinations");
 
   Type srcElemType = srcType.getElementType();
   Type dstElemType = destType.getElementType();
@@ -1912,46 +1924,63 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
-  auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
-
   auto src = block->getArgument(0);
   auto dst = block->getArgument(1);
-  auto size = b.create<memref::DimOp>(loc, src, cst0Op);
 
-  auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
-  auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
-  auto iv0 = loop0.getInductionVar();
-
-  Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
-  if (srcElemType != dstElemType) {
-    // insert conversion logic
-    auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
-    auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-    if (srcElemType.isIntOrIndex()) {
-      if (dstElemType.isIntOrIndex()) {
-        if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
-        else
-          loadOp = bt0.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+  auto insertConversionLogic = [&](OpBuilder &opBuilder, Value loadOp) {
+    Value newLoadOp = loadOp;
+    if (srcElemType != dstElemType) {
+      // insert conversion logic
+      auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
+      auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
+      if (srcElemType.isIntOrIndex()) {
+        if (dstElemType.isIntOrIndex()) {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+        } else {
+          assert(dstElemType.isa<FloatType>());
+          newLoadOp =
+              opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
+        }
       } else {
-        assert(dstElemType.isa<FloatType>());
-        loadOp = bt0.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
-      }
-    } else {
-      assert(srcElemType.isa<FloatType>());
-      if (dstElemType.isIntOrIndex()) {
-        loadOp = bt0.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
-      } else {
-        if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<arith::ExtFOp>(loc, dstElemType, loadOp);
-        else
-          loadOp = bt0.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+        assert(srcElemType.isa<FloatType>());
+        if (dstElemType.isIntOrIndex()) {
+          newLoadOp =
+              opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
+        } else {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtFOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+        }
       }
     }
-  }
+    return newLoadOp;
+  };
 
-  bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+  if (srcType.getRank() == 1) {
+    auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
+    auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
+    auto size = b.create<memref::DimOp>(loc, src, cst0Op);
+
+    auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
+    auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
+    auto iv0 = loop0.getInductionVar();
+
+    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+    loadOp = insertConversionLogic(bt0, loadOp);
+    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+  } else {
+    Value loadOp = b.create<memref::LoadOp>(loc, src, ValueRange{});
+    loadOp = insertConversionLogic(b, loadOp);
+    b.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{});
+  }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
