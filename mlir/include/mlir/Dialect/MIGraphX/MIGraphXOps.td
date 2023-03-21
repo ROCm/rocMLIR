@@ -296,7 +296,7 @@ def MIGraphX_FlattenOp :
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I64ArrayAttr:$dims
+                   I64ArrayAttr:$permutation
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "transpose dimensions";
