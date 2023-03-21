@@ -263,7 +263,8 @@ def getConvConfigurations(fileName):
                     output_layout = ""
 
                 oneConfig = f"{datatype}{direction}{filter_layout}{input_layout}{output_layout}{line}"
-                configs.append(oneConfig)
+                if oneConfig not in configs:
+                    configs.append(oneConfig)
     return configs
 
 class ConvConfiguration(PerfConfiguration):
