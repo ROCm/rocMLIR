@@ -265,6 +265,47 @@ public:
     return nullptr;
   }
 
+  Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape, Location loc,
+                        ConversionPatternRewriter &rw) const {
+    ArrayRef<int64_t> inpShape = inp.getType().cast<ShapedType>().getShape();
+    bool broadcastDone = false;
+    rock::BottomUpTMBuilder broadcastDims(rw, inpShape, loc);
+    for (unsigned int i = 0; i < outShape.size(); i++) {
+      if (inpShape[i] == 1 && outShape[i] != 1) {
+        broadcastDims.broadcast({i}, {outShape[i]});
+        broadcastDone = true;
+      } else {
+        broadcastDims.passThrough({i}, {i});
+      }
+    }
+    if (!broadcastDone) {
+      return inp;
+    }
+    return rw.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+  }
+
+  std::tuple<int64_t, int64_t> getLastDims(UnitAttr transposed,
+                                           RankedTensorType type) const {
+    ArrayRef<int64_t> shape = type.getShape();
+    int64_t rank = type.getRank();
+    if (transposed) {
+      return {shape[rank - 1], shape[rank - 2]};
+    }
+    return {shape[rank - 2], shape[rank - 1]};
+  }
+
+  void setLastDims(UnitAttr transposed, SmallVectorImpl<int64_t> &shape,
+                   std::pair<int64_t, int64_t> lastDims) const {
+    size_t rank = shape.size();
+    if (transposed) {
+      shape[rank - 1] = lastDims.first;
+      shape[rank - 2] = lastDims.second;
+    } else {
+      shape[rank - 2] = lastDims.first;
+      shape[rank - 1] = lastDims.second;
+    }
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
@@ -282,9 +323,30 @@ public:
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
 
+    int64_t dims = outputType.getRank();
+    auto [mDim, nDim] = getLastDims(transposeC, outputType);
+
+    int64_t kDimOfA;
+    std::tie(std::ignore, kDimOfA) =
+        getLastDims(transposeA, op.getA().getType().cast<RankedTensorType>());
+    int64_t kDimOfB;
+    std::tie(kDimOfB, std::ignore) =
+        getLastDims(transposeB, op.getB().getType().cast<RankedTensorType>());
+    int kDim = (kDimOfA > kDimOfB) ? kDimOfA : kDimOfB;
+
+    SmallVector<int64_t, 3> aShape = llvm::to_vector<3>(
+        op.getA().getType().cast<RankedTensorType>().getShape());
+    setLastDims(transposeA, aShape, {mDim, kDim});
+    Value brA = insertBroadcast(adaptor.getA(), aShape, loc, rw);
+
+    SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
+        op.getB().getType().cast<RankedTensorType>().getShape());
+    setLastDims(transposeB, bShape, {kDim, nDim});
+    Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
+
     auto rockGemm = rw.create<rock::GemmOp>(
-        loc, outputType, adaptor.getA(), adaptor.getB(), output, transposeA,
-        transposeB, transposeC, arch,
+        loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
+        arch,
         num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
         rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
