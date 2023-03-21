@@ -13,4 +13,12 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockToGPU
   MLIRRockOps
   MLIRRockTransforms
+  RocMLIRTransforms
 )
+
+if (ROCMLIR_ENABLE_COMGR)
+  target_compile_definitions(obj.MLIRRockPipeline
+  PRIVATE
+  ROCMLIR_ENABLE_COMGR=1
+  )
+endif()

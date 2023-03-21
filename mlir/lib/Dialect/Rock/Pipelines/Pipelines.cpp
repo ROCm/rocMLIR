@@ -36,6 +36,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/RocmlirTransforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/Support/TargetSelect.h"
@@ -175,13 +176,23 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // lowering ROCDL (LLVM) to binary
   /* rocmlir-opt --strip-debuginfo
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
+   *   "--compile-gpu-with-comgr=triple=$triple chip=$chip features=$features
+   * opt-level=3"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
+#ifdef ROCMLIR_ENABLE_COMGR
+  rocmlir::CompileGpuWithComgrPassOptions comgrOpts;
+  comgrOpts.triple = options.triple;
+  comgrOpts.chip = options.chip;
+  comgrOpts.chipFeatures = options.features;
+  pm.addPass(rocmlir::createCompileGpuWithComgrPass(comgrOpts));
+#else
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
                                            options.features, options.optLevel));
+#endif
 }
 
 //===----------------------------------------------------------------------===//

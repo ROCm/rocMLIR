@@ -16,5 +16,6 @@ add_subdirectory(ExecutionEngine)
 #add_subdirectory(Support)
 #add_subdirectory(TableGen)
 #add_subdirectory(Target)
-#add_subdirectory(Transforms)
+# TODO Rename this to just "Transforms" when we've changed mlir/ to rocmlir/
+add_subdirectory(RocmlirTransforms)
 add_subdirectory(Translation)

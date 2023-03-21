@@ -24,17 +24,18 @@ endif()
 cmake_policy(SET CMP0057 NEW)
 
 # Rock dialect.
+set(ROCMLIR_ENABLE_COMGR ON CACHE BOOL
+  "Use comgr to compile kernels insteadd of building our own LLVM")
+
 set(ROCMLIR_DRIVER_ENABLED 1 CACHE BOOL "Enable build Rock driver")
 set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
-set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
-set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
 
-# LLVM settings that have an effect on the MLIR dialect
-set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
+set(LLVM_ENABLE_ZLIB OFF CACHE BOOL "")
+set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 
 # Pointers to: 1) external LLVM bins/libs, and 2) Rock Dialect bins/libs
 set(LLVM_MAIN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project/llvm" CACHE PATH "Path to LLVM sources")
@@ -68,6 +69,13 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
   # Note, this is a hack to ignore Pytorch added conda path
   list(APPEND CMAKE_IGNORE_PATH /opt/conda)
+
+  # We don't need the x86 target since there won't be JIT
+  if(ROCMLIR_ENABLE_COMGR)
+    set(LLVM_TARGETS_TO_BUILD "" CACHE STRING "")
+  else()
+    set(LLVM_TARGETS_TO_BUILD "AMDGPU" CACHE STRING "")
+  endif()
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
@@ -75,6 +83,13 @@ else()
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS ON CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+
+  # We need the native target for JIT reasons
+  if(ROCMLIR_ENABLE_COMGR)
+    set(LLVM_TARGETS_TO_BUILD "native" CACHE STRING "")
+  else()
+    set(LLVM_TARGETS_TO_BUILD "native;AMDGPU" CACHE STRING "")
+  endif()
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
