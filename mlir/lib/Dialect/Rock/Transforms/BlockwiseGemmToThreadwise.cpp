@@ -311,6 +311,7 @@ struct BlockwiseGemmV2RewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
+    StringAttr arch = op.getArchAttr();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
@@ -345,7 +346,7 @@ struct BlockwiseGemmV2RewritePattern
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
+        MfmaInsnGroup::select(dataType, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
@@ -531,7 +532,7 @@ struct BlockwiseGemmV2RewritePattern
     olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
                                 outerLoopN.getInductionVar(),
                                 adaptor.getBufferA(), adaptor.getBufferB(),
-                                adaptor.getMatrixC(), tuningParams);
+                                adaptor.getMatrixC(), arch, tuningParams);
     return success();
   }
 };

@@ -65,7 +65,7 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
 // clang-format on
 
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
-  PopulateParamsInfo info{op.getGemmSize(), op.getGemmFeatures(),
+  PopulateParamsInfo info{op.getGemmSize(), op.getArch(), op.getGemmFeatures(),
                           op.getInputType(), op.getKernelType()};
 
   if (auto convOp = dyn_cast<Conv2DBwdWeightOp>(*op)) {
@@ -83,7 +83,7 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
       deriveGeneralGemmBlockStructure(param.blockSize);
   if (failed(maybeDerived))
     return failure();
-  GeneralGemmBlockStructure derived = std::move(*maybeDerived);
+  GeneralGemmBlockStructure derived = *maybeDerived;
 
   if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
     return failure();
@@ -283,8 +283,10 @@ LogicalResult PopulateParamsXDL::getKBlocks(const int64_t batchSize,
                             params.gemmKPack, numCu, gemmKBlocks);
 }
 
-LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
-    const InitParamsXDL &param, Type dataType, uint32_t blockSize) {
+LogicalResult
+PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
+                                              Type dataType, StringRef arch,
+                                              uint32_t blockSize) {
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -337,8 +339,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
   }
 
   // Reject invalid KPACK values.
-  auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataType, param.gemmMPerWave, param.gemmNPerWave);
+  auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+      dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -374,7 +376,7 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
   blockSize = obtainBlockSize(params, waveSize);
 
   LogicalResult res =
-      isValidBlockwiseGemmXDLOPS(params, info.inputType, blockSize);
+      isValidBlockwiseGemmXDLOPS(params, info.inputType, info.arch, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
@@ -400,7 +402,7 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
 }
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
-    PopulateParamsInfo info, uint32_t blockSizeOverride,
+    const PopulateParamsInfo &info, uint32_t blockSizeOverride,
     const std::string &perfConfig, InitParamsXDL &validParams,
     uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
 
@@ -421,7 +423,8 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
   }
 
   LogicalResult res = failure();
-  auto paramSets = getTuningParameters(info.kernelType, info.inputType);
+  auto paramSets =
+      getTuningParameters(info.kernelType, info.inputType, info.arch);
 
   for (const auto &params : orderInitParams(paramSets, info.gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
@@ -461,7 +464,8 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 }
 
 std::vector<InitParamsXDL>
-PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
+PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType,
+                                       StringRef arch) const {
   ArrayRef<InitParamsXDL> params;
   switch (dataType.getIntOrFloatBitWidth()) {
   case 8:
@@ -479,7 +483,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsXDL &param) {
         auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-            dataType, param.gemmMPerWave, param.gemmNPerWave);
+            dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }

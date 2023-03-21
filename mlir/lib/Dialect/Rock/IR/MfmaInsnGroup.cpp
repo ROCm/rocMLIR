@@ -18,8 +18,8 @@ using namespace mlir::rock;
 
 // The static initialization will follow the defined ordering
 // of the below lambdas
-auto getMfmaInsnInfoMap = [] {
-  llvm::StringMap<MfmaInsnInfo> insnInfo{
+auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
+  static llvm::StringMap<MfmaInsnInfo> insnInfo{
       // fp32
       {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
        {MfmaTypeId::Fp32TyId, 32, 1, 2}},
@@ -56,11 +56,29 @@ auto getMfmaInsnInfoMap = [] {
       {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
        {MfmaTypeId::Bf16TyId, 4, 2, 16}},
 
+      // bf16 (new)
+      {ROCDL::mfma_f32_32x32x4bf16_1k::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 32, 4, 2}},
+      {ROCDL::mfma_f32_16x16x4bf16_1k::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 16, 4, 4}},
+      {ROCDL::mfma_f32_4x4x4bf16_1k::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 4, 4, 16}},
+      {ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 32, 8, 1}},
+      {ROCDL::mfma_f32_16x16x16bf16_1k::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 16, 16, 1}},
+
       // i8
       {ROCDL::mfma_i32_32x32x8i8::getOperationName(),
        {MfmaTypeId::I8TyId, 32, 8, 1}},
       {ROCDL::mfma_i32_16x16x16i8::getOperationName(),
-       {MfmaTypeId::I8TyId, 16, 16, 1}}};
+       {MfmaTypeId::I8TyId, 16, 16, 1}},
+
+      // i8 (new)
+      {ROCDL::mfma_i32_32x32x16_i8::getOperationName(),
+       {MfmaTypeId::I8TyId, 32, 16, 1}},
+      {ROCDL::mfma_i32_16x16x32_i8::getOperationName(),
+       {MfmaTypeId::I8TyId, 16, 32, 1}}};
   return insnInfo;
 };
 
@@ -141,7 +159,7 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   };
 }
 
-auto getMfmaInsnAttrMap = [] {
+auto getMfmaInsnAttrMap = []() -> const llvm::StringMap<MfmaInsnAttr> & {
   static llvm::StringMap<MfmaInsnAttr> insnDb;
   static std::once_flag once;
   std::call_once(once, [&]() {
@@ -154,10 +172,12 @@ auto getMfmaInsnAttrMap = [] {
   return insnDb;
 };
 
-auto getMfmaInsnGroupAttrMap = []() {
+using MfmaInsnGroupMap =
+    llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                   MfmaInsnGroupSelectKeyInfo>;
+auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
   using amdgpu::MFMAPermB;
-  static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
-                        MfmaInsnGroupSelectKeyInfo>
+  static MfmaInsnGroupMap
       // f32
       groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
@@ -199,9 +219,15 @@ auto getMfmaInsnGroupAttrMap = []() {
                    {{MfmaTypeId::Fp16TyId, 32, 64},
                     {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 16, 16},
-                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
-                   // bf16
-                   {{MfmaTypeId::Bf16TyId, 64, 64},
+                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}}};
+  return groupAttrMap;
+};
+
+auto getMfmaInsnGroupAttrMapGfx908Bf16 = []() -> const MfmaInsnGroupMap & {
+  using amdgpu::MFMAPermB;
+  static MfmaInsnGroupMap
+      // bf16
+      groupAttrMap{{{MfmaTypeId::Bf16TyId, 64, 64},
                     {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 64, 32},
                     {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
@@ -220,9 +246,44 @@ auto getMfmaInsnGroupAttrMap = []() {
                    {{MfmaTypeId::Bf16TyId, 32, 32},
                     {ROCDL::mfma_f32_32x32x4bf16::getOperationName()}},
                    {{MfmaTypeId::Bf16TyId, 16, 16},
-                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}},
-                   // Int8
-                   {{MfmaTypeId::I8TyId, 64, 64},
+                    {ROCDL::mfma_f32_16x16x8bf16::getOperationName()}}};
+  return groupAttrMap;
+};
+
+auto getMfmaInsnGroupAttrMapGfx90aPlusBf16 = []() {
+  using amdgpu::MFMAPermB;
+  static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                        MfmaInsnGroupSelectKeyInfo>
+      // bf16
+      groupAttrMap{{{MfmaTypeId::Bf16TyId, 64, 64},
+                    {ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 64, 32},
+                    {ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 32, 64},
+                    {ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 64, 16},
+                    {ROCDL::mfma_f32_16x16x16bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 16, 64},
+                    {ROCDL::mfma_f32_16x16x16bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 8, 64},
+                    {ROCDL::mfma_f32_4x4x4bf16_1k::getOperationName(),
+                     {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
+                   {{MfmaTypeId::Bf16TyId, 4, 64},
+                    {ROCDL::mfma_f32_4x4x4bf16_1k::getOperationName(),
+                     {{4, 0, MFMAPermB::none}}}},
+                   {{MfmaTypeId::Bf16TyId, 32, 32},
+                    {ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName()}},
+                   {{MfmaTypeId::Bf16TyId, 16, 16},
+                    {ROCDL::mfma_f32_16x16x16bf16_1k::getOperationName()}}};
+  return groupAttrMap;
+};
+
+auto getMfmaInsnGroupAttrMapPreGfx940Int8 = []() {
+  using amdgpu::MFMAPermB;
+  static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
+                        MfmaInsnGroupSelectKeyInfo>
+      // Int8
+      groupAttrMap{{{MfmaTypeId::I8TyId, 64, 64},
                     {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 64, 32},
                     {ROCDL::mfma_i32_32x32x8i8::getOperationName()}},
@@ -236,7 +297,30 @@ auto getMfmaInsnGroupAttrMap = []() {
                     {ROCDL::mfma_i32_16x16x16i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 16, 16},
                     {ROCDL::mfma_i32_16x16x16i8::getOperationName()}}};
+  ;
+  return groupAttrMap;
+};
 
+// New I8 and all Float8
+auto getMfmaInsnGroupAttrMapGfx940Plus = []() {
+  using amdgpu::MFMAPermB;
+  static MfmaInsnGroupMap
+      // Int8
+      groupAttrMap{{{MfmaTypeId::I8TyId, 64, 64},
+                    {ROCDL::mfma_i32_32x32x16_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 64, 32},
+                    {ROCDL::mfma_i32_32x32x16_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 32, 64},
+                    {ROCDL::mfma_i32_32x32x16_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 32, 32},
+                    {ROCDL::mfma_i32_32x32x16_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 64, 16},
+                    {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 16, 64},
+                    {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}},
+                   {{MfmaTypeId::I8TyId, 16, 16},
+                    {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}}};
+  ;
   return groupAttrMap;
 };
 
@@ -245,8 +329,7 @@ FailureOr<MfmaInsn> MfmaInsn::select(StringRef mfmaInsn) {
   auto it = mfmaInsnAttrMap.find(mfmaInsn);
   if (it == mfmaInsnAttrMap.end())
     return failure();
-  else
-    return MfmaInsn((*it).getValue());
+  return MfmaInsn((*it).getValue());
 }
 
 MfmaInsn::MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr) : attr(mfmaInsnAttr) {}
@@ -303,26 +386,27 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
 }
 
 MfmaTypeId convertTypeToId(mlir::Type dataType) {
-  MfmaTypeId id;
   if (dataType.isF32()) {
-    id = MfmaTypeId::Fp32TyId;
-  } else if (dataType.isF16()) {
-    id = MfmaTypeId::Fp16TyId;
-  } else if (dataType.isBF16()) {
-    id = MfmaTypeId::Bf16TyId;
-  } else if (dataType.isInteger(8)) {
-    id = MfmaTypeId::I8TyId;
-  } else {
-    llvm_unreachable("Unsupported input argument type.");
+    return MfmaTypeId::Fp32TyId;
   }
-  return id;
+  if (dataType.isF16()) {
+    return MfmaTypeId::Fp16TyId;
+  }
+  if (dataType.isBF16()) {
+    return MfmaTypeId::Bf16TyId;
+  }
+  if (dataType.isInteger(8)) {
+    return MfmaTypeId::I8TyId;
+  }
+  llvm_unreachable("Unsupported input argument type.");
 }
 
 FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
-                                               int64_t mPerWave,
+                                               StringRef arch, int64_t mPerWave,
                                                int64_t nPerWave) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType: " << elementType << "\n"
+                          << "arch: " << arch << "\n"
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
 
@@ -332,26 +416,42 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
 
   MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
                                 nPerMfmaGroup};
-  auto mfmaInsnGroupAttrMap = getMfmaInsnGroupAttrMap();
-  auto it = mfmaInsnGroupAttrMap.find(key);
-  if (it != mfmaInsnGroupAttrMap.end()) {
-    MfmaInsnGroupAttr groupAttr = (*it).second;
-    auto maybeInsn = MfmaInsn::select(groupAttr.insn);
-    if (failed(maybeInsn)) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Unsupported instruction: " << groupAttr.insn << "\n");
-      return failure();
+
+  FailureOr<MfmaInsnGroup> result = failure();
+  auto selectFrom = [&](const MfmaInsnGroupMap &groupMap) {
+    // No point in overriding our good work
+    if (succeeded(result))
+      return;
+    auto it = groupMap.find(key);
+    if (it != groupMap.end()) {
+      MfmaInsnGroupAttr groupAttr = (*it).second;
+      auto maybeInsn = MfmaInsn::select(groupAttr.insn);
+      if (failed(maybeInsn)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Unsupported instruction: " << groupAttr.insn << "\n");
+        result = failure();
+        return;
+      }
+      result = MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
     }
-    return MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
-  } else {
-    LLVM_DEBUG(llvm::dbgs() << "Unsupported combination\n");
-    return failure();
+  };
+  bool hasOldBf16 = arch.contains("gfx908");
+  bool isPreGfx940 = arch.contains("gfx908") || arch.contains("gfx90a");
+  if (elementType.isBF16())
+    selectFrom(hasOldBf16 ? getMfmaInsnGroupAttrMapGfx908Bf16()
+                          : getMfmaInsnGroupAttrMapGfx90aPlusBf16());
+  selectFrom(isPreGfx940 ? getMfmaInsnGroupAttrMapPreGfx940Int8()
+                         : getMfmaInsnGroupAttrMapGfx940Plus());
+  selectFrom(getMfmaInsnGroupAttrMapAllArch());
+  if (failed(result)) {
+    LLVM_DEBUG(llvm::dbgs() << "No match found in MFMA database\n");
   }
+  return result;
 }
 
-MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
-                             const MfmaInsnGroupAttr &mfmaInsnGroupAttr)
-    : elementType(dataType), insn(mfmaInsn), groupAttr(mfmaInsnGroupAttr) {}
+MfmaInsnGroup::MfmaInsnGroup(Type elementType, const MfmaInsn &mfmaInsn,
+                             const MfmaInsnGroupAttr &groupAttr)
+    : elementType(elementType), insn(mfmaInsn), groupAttr(groupAttr) {}
 
 int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
   auto mfmaInsnAttr = getInsnAttr();

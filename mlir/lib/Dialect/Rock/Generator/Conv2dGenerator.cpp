@@ -363,6 +363,7 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
 
   needExtraPad = false;
   PopulateParamsInfo info{/*gemmSize=*/gemmSize,
+                          /*arch*=*/config.arch,
                           /*gemmFeatures=*/config.features,
                           /*inputType=*/dataType,
                           /*kernelType=*/KernelType::Conv2DBwdWeight,
