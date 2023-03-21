@@ -972,10 +972,10 @@ pipeline {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     withEnv(['MIGRAPHX_ENABLE_MLIR=1']) {
                                         // Verify MLIR unit tests
-                                        sh 'make -j$(nproc) test_gpu_mlir'
+                                        sh 'make -j$(nproc) driver test_gpu_mlir'
                                         sh 'ctest -R test_gpu_mlir'
                                         // Verify ResNet50
-                                        sh './bin/driver verify --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh './bin/driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                     }
                                 }
                             }
