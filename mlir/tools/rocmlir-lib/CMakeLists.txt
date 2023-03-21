@@ -106,6 +106,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMInstCombine.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMInstrumentation.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMipo.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/LLVMIRPrinter.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMIRReader.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMLinker.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMLTO.lib
@@ -126,6 +127,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMTableGen.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMTableGenGlobalISel.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMTarget.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTargetParser.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMTextAPI.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMTransformUtils.lib
               ${LLVM_EXTERNAL_LIB_DIR}/LLVMVectorize.lib
@@ -145,10 +147,11 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMXToLLVMIRTranslation.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMXTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRAnalysis.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithmeticDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithmeticToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithmeticTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithmeticUtils.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithAttrToLLVMConversion.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithDialect.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithToLLVM.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithTransforms.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithUtils.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmNeonDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmNeonToLLVMIRTranslation.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmSVEDialect.lib
@@ -171,6 +174,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRControlFlowToLLVM.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRCopyOpInterface.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRDataLayoutInterfaces.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDestinationStyleOpInterface.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRDialectUtils.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRDLTIDialect.lib
@@ -194,6 +198,8 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMIRTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMToLLVMIRTranslation.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRLoopLikeInterface.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMaskableOpInterface.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMaskingOpInterface.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRMathDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRMathToLLVM.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRMemRefDialect.lib
@@ -219,10 +225,12 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRRewrite.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRROCDLDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRROCDLToLLVMIRTranslation.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRRuntimeVerifiableOpInterface.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFToControlFlow.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFUtils.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRShapedOpInterfaces.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSideEffectInterfaces.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSparseTensorDialect.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRSupport.lib
@@ -245,6 +253,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaToTensor.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformDialect.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformDialectUtils.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformUtils.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRTranslateLib.lib
@@ -259,6 +268,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRX86VectorToLLVMIRTranslation.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRX86VectorTransforms.lib
               ${LLVM_EXTERNAL_LIB_DIR}/MLIRXModel.lib
+              ${LLVM_EXTERNAL_LIB_DIR}/MLIRXModelTransforms.lib
         WORKING_DIRECTORY ${ROCMLIR_LIB_DIR})
     else()
       set(full_output_path ${ROCMLIR_LIB_DIR}/lib${output_archive}.a)

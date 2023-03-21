@@ -1,1 +1,3 @@
-add_subdirectory(performance)
+if(BUILD_PERFORMANCE_TESTING)
+    add_subdirectory(performance)
+endif()

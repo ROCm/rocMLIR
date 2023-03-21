@@ -19,12 +19,21 @@ function(add_linalg_ods_yaml_gen yaml_ast_file output_file)
     DEPENDS
     ${MLIR_LINALG_ODS_YAML_GEN_EXE}
     ${MLIR_LINALG_ODS_YAML_GEN_TARGET})
-  add_custom_command(
-    OUTPUT ${DUMMY_FILE}
-    COMMAND touch ${DUMMY_FILE}
-    DEPENDS
-    ${GEN_ODS_FILE} ${GEN_CPP_FILE}
+  if(WIN32)
+    add_custom_command(
+      OUTPUT ${DUMMY_FILE}
+      COMMAND type nul > ${DUMMY_FILE}
+      DEPENDS
+        ${GEN_ODS_FILE} ${GEN_CPP_FILE}
     )
+  else()
+    add_custom_command(
+      OUTPUT ${DUMMY_FILE}
+      COMMAND touch ${DUMMY_FILE}
+      DEPENDS
+        ${GEN_ODS_FILE} ${GEN_CPP_FILE}
+    )
+  endif()
   add_custom_target(
     MLIR${output_file}YamlIncGen
     DEPENDS
