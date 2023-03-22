@@ -323,7 +323,6 @@ public:
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
 
-    int64_t dims = outputType.getRank();
     auto [mDim, nDim] = getLastDims(transposeC, outputType);
 
     int64_t kDimOfA;
