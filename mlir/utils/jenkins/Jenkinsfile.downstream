@@ -168,6 +168,7 @@ pipeline {
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                HOME="${WORKSPACE}"
                             }
                             steps {
                                 dir('MIOpen/build/') {
