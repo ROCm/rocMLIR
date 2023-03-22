@@ -5,9 +5,7 @@ set(LLVM_OPTIONAL_SOURCES
   mixr_full.c
 )
 
-set(LLVM_LINK_COMPONENTS
-  X86
-)
+set(LLVM_LINK_COMPONENTS ${LLVM_TARGETS_TO_BUILD})
 
 add_llvm_executable(mlir-mixr-capi-test
   mixrir.c
@@ -32,8 +30,6 @@ target_link_libraries(mlir-tosa-miir-test
   MLIRCAPIIR
   MLIRCAPIRegisterRocMLIR
   MLIRRockPipeline
-  LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
 )
 
 add_llvm_executable(mlir-mixr-full-test
@@ -50,8 +46,6 @@ target_link_libraries(mlir-mixr-full-test
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
   MLIRRockPipeline
-  LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
 )
 
 add_llvm_executable(mlir-mixr-fullc-test

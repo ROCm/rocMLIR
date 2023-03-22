@@ -72,17 +72,17 @@ set(ROCMLIR_TEST_DEPENDS
   rocmlir-opt
   rocmlir-translate
   rocmlir-lsp-server
+
+  mlir-mixr-capi-test
+  mlir-mixr-full-test
+  mlir-mixr-fullc-test
+  mlir-tosa-miir-test
 )
 
 list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
 
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS
-    mlir-mixr-capi-test
-    mlir-mixr-full-test
-    mlir-mixr-fullc-test
-    mlir-tosa-miir-test
-
     mlir_runner_utils
     mlir_c_runner_utils
     mlir_async_runtime

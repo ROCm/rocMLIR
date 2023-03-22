@@ -4,16 +4,11 @@ get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_capi_libs}
-  LLVMX86AsmParser
 )
 
-if (NOT ROCMLIR_ENABLE_COMGR)
-  list(APPEND libs LLVMX86AsmParser)
-  set(COMPONENTS
-  X86CodeGen
-  X86Desc
-  X86Info
-  )
+if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
+  list(APPEND libs LLVMAMDGPUAsmParser)
+  set(COMPONENTS AMDGPU)
 endif()
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
 
@@ -28,6 +23,10 @@ PARTIAL_SOURCES_INTENDED
   LINK_COMPONENTS
   ${COMPONENTS}
   )
+
+if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
+  target_compile_definitions(MLIRRockThin PRIVATE AMDGPU_BACKEND_NEEDS_INIT=1)
+endif()
 
 add_llvm_executable(rocmlir-lib-test
   PARTIAL_SOURCES_INTENDED
