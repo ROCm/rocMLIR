@@ -86,9 +86,9 @@ else()
 
   # We need the native target for JIT reasons
   if(ROCMLIR_ENABLE_COMGR)
-    set(LLVM_TARGETS_TO_BUILD "native" CACHE STRING "")
+    set(LLVM_TARGETS_TO_BUILD "X86" CACHE STRING "")
   else()
-    set(LLVM_TARGETS_TO_BUILD "native;AMDGPU" CACHE STRING "")
+    set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
   endif()
 endif()
 

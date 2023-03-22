@@ -7,6 +7,14 @@ set(LIBS
   LLVMX86AsmParser
 )
 
+if (NOT ROCMLIR_ENABLE_COMGR)
+  list(APPEND libs LLVMX86AsmParser)
+  set(COMPONENTS
+  X86CodeGen
+  X86Desc
+  X86Info
+  )
+endif()
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
 
 llvm_add_library(MLIRRockThin
@@ -18,9 +26,7 @@ PARTIAL_SOURCES_INTENDED
   ${LIBS}
 
   LINK_COMPONENTS
-  X86CodeGen
-  X86Desc
-  X86Info
+  ${COMPONENTS}
   )
 
 add_llvm_executable(rocmlir-lib-test
