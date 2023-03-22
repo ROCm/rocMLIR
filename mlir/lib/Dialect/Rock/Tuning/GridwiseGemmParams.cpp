@@ -64,17 +64,26 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
   {64, 32, 32, 4, 2, 2}};
 // clang-format on
 
-const InitParamsNonXDL PopulateParams::universalParameters = {64, 64, 64,
-                                                              16, 4,  4};
+PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
+  PopulateParamsInfo info{op.getGemmSize(), op.getArch(), op.getGemmFeatures(),
+                          op.getInputType(), op.getKernelType()};
+
+  if (auto convOp = dyn_cast<Conv2DBwdWeightOp>(*op)) {
+    auto convDims = ConvolutionDims::fromOp(op);
+    info.numCu = convOp.getNumCu();
+    info.batchSize = convDims.n;
+  }
+  return info;
+}
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
-    const InitParamsNonXDL &param, RockGemmWrapperInterface op) {
+    const InitParamsNonXDL &param) {
 
   FailureOr<GeneralGemmBlockStructure> maybeDerived =
       deriveGeneralGemmBlockStructure(param.blockSize);
   if (failed(maybeDerived))
     return failure();
-  GeneralGemmBlockStructure derived = std::move(*maybeDerived);
+  GeneralGemmBlockStructure derived = *maybeDerived;
 
   if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
     return failure();
@@ -104,8 +113,7 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
   return success();
 }
 
-LogicalResult PopulateParams::populateDerived(RockGemmWrapperInterface op,
-                                              const InitParamsNonXDL &params,
+LogicalResult PopulateParams::populateDerived(const InitParamsNonXDL &params,
                                               GemmSize &gemmSize,
                                               uint32_t &gridSize) {
   auto gemmExtraPad =
@@ -117,7 +125,7 @@ LogicalResult PopulateParams::populateDerived(RockGemmWrapperInterface op,
     gemmSize.n += gemmExtraPad->n;
   }
 
-  LogicalResult res = calculateBlockGemmPerformanceParameters(params, op);
+  LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
@@ -130,11 +138,9 @@ LogicalResult PopulateParams::populateDerived(RockGemmWrapperInterface op,
 }
 
 LogicalResult PopulateParams::obtainTuningParameters(
-    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
+    const PopulateParamsInfo &info, uint32_t blockSizeOverride,
     const std::string &perfConfig, InitParamsNonXDL &validParams,
     uint32_t &gridSize) {
-
-  GemmSize gemmSize = op.getGemmSize();
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
@@ -143,7 +149,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-      return populateDerived(op, validParams, gemmSize, gridSize);
+      GemmSize paddedGemmSize = info.gemmSize;
+      return populateDerived(validParams, paddedGemmSize, gridSize);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -151,16 +158,16 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  std::vector<InitParamsNonXDL> paramSets =
-      getTuningParameters(op.getKernelType(), op.getInputType());
-  for (auto &params : orderInitParams(paramSets, gemmSize)) {
+  auto paramSets = getTuningParameters(info.kernelType, info.inputType);
+  for (auto &params : orderInitParams(paramSets, info.gemmSize)) {
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
     if ((blockSizeOverride != 0) && (blockSizeOverride != params.blockSize)) {
       continue;
     }
 
-    res = populateDerived(op, params, gemmSize, gridSize);
+    GemmSize paddedGemmSize = info.gemmSize;
+    res = populateDerived(params, paddedGemmSize, gridSize);
     if (failed(res)) {
       continue;
     }
@@ -172,14 +179,19 @@ LogicalResult PopulateParams::obtainTuningParameters(
   return res;
 }
 
+LogicalResult PopulateParams::obtainTuningParameters(
+    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
+    const std::string &perfConfig, InitParamsNonXDL &validParams,
+    uint32_t &gridSize) {
+  PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
+  return obtainTuningParameters(info, blockSizeOverride, perfConfig,
+                                validParams, gridSize);
+}
+
 std::vector<InitParamsNonXDL>
 PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
   ArrayRef<InitParamsNonXDL> params = {initParameters, nInitParameters};
   return std::vector<InitParamsNonXDL>(params);
-}
-
-const InitParamsNonXDL &PopulateParams::getUniversalParameters() const {
-  return universalParameters;
 }
 
 LogicalResult PopulateParams::isValidGemm(const InitParamsNonXDL &param,
@@ -230,42 +242,30 @@ const InitParamsXDL
 PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
   // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
   {128, 128, 4, 64, 64, 4, true, true},
+  {64, 64, 8, 32, 32, 4, true, true},
   {32, 64, 4, 32, 64, 4, true, true},
+  {32, 64, 2, 8, 64, 4, true, true},
+  {4, 64, 16, 4, 64, 1, true, true}
+};
 
-  {128, 128, 8, 64, 64, 1, true, true},
-  {128, 128, 16, 64, 64, 1, true, true},
-  {8, 64, 8, 8, 64, 1, true, true},
-  {4, 64, 16, 4, 64, 1, true, true},
-  {32, 64, 4, 32, 64, 1, true, true},
-  {16, 16, 16, 16, 16, 1, true, true},
-  {16, 16, 4, 16, 16, 1, true, true},
+const InitParamsXDL
+PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = {
+  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
+  {128,  128,  4,  64,  64,  8,  true,  true},
+  {32,  128,  4,  32,  32,  8,  true,  true},
+  {32, 64, 4, 32, 64, 4, true, true},
 };
 
 const InitParamsXDL
 PopulateParamsXDL::initParametersForwardI8[
   PopulateParamsXDL::nInitParametersForwardI8] = {
-  // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
-  // kpack for int8 must be larger than kbase, which means
-  // kpack must be at least 4, once enabled.
+  {128, 128, 8, 64, 64, 8, true, true},
   {64, 64, 8, 32, 32, 8, true, true},
   {64, 64, 8, 32, 32, 4, true, true},
   {32, 32, 8, 16, 16, 8, true, true},
   {32, 32, 8, 16, 16, 4, true, true},
-  // The 32 x 32 xdlops k/block must be at least 8
-  {64, 64, 16, 32, 32, 1, true, true},
-  {64, 64, 8, 32, 32, 1, true, true},
-  {32, 32, 16, 32, 32, 1, true, true},
-  {32, 32, 8, 32, 32, 1, true, true},
-  // The 16 x 16 xdlops k/block must be at least 16
-  {32, 32, 32, 16, 16, 1, true, true},
-  {32, 32, 16, 16, 16, 1, true, true},
-  {16, 16, 32, 16, 16, 1, true, true},
-  {16, 16, 16, 16, 16, 1, true, true},
 };
 // clang-format on
-
-const InitParamsXDL PopulateParamsXDL::universalParameters = {32, 64, 4, 32,
-                                                              64, 4,  1, 1};
 
 uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
                                             int64_t waveSize) {
@@ -273,22 +273,21 @@ uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
          (params.gemmMPerWave * params.gemmNPerWave);
 }
 
-LogicalResult PopulateParamsXDL::getKBlocks(Conv2DBwdWeightOp op,
+LogicalResult PopulateParamsXDL::getKBlocks(const int64_t batchSize,
                                             const GemmSize &gemmSize,
                                             const InitParamsXDL &params,
-                                            int64_t &gemmKBlocks) {
-  auto convDims = ConvolutionDims::fromOp(op);
-
-  return calculateKBlockNum(convDims, gemmSize, params.gemmMPerBlock,
+                                            int64_t &gemmKBlocks,
+                                            uint32_t numCu) {
+  return calculateKBlockNum(batchSize, gemmSize, params.gemmMPerBlock,
                             params.gemmNPerBlock, params.gemmKPerBlock,
-                            params.gemmKPack, op.getNumCu(), gemmKBlocks);
+                            params.gemmKPack, numCu, gemmKBlocks);
 }
 
 LogicalResult
 PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
-                                              RockGemmWrapperInterface op,
+                                              Type dataType, StringRef arch,
                                               uint32_t blockSize) {
-  Type dataType = op.getInputType();
+  // TBD: support fp16/bf16
 
   // clang-format off
   std::vector<std::tuple<int, int, int>> validWaveGemmSize =
@@ -340,8 +339,8 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   }
 
   // Reject invalid KPACK values.
-  auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataType, param.gemmMPerWave, param.gemmNPerWave);
+  auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+      dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -357,8 +356,8 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   return success();
 }
 
-LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
-                                                 const InitParamsXDL &params,
+LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
+                                                 const PopulateParamsInfo &info,
                                                  GemmSize &gemmSize,
                                                  uint32_t &blockSize,
                                                  uint32_t &gridSize,
@@ -376,7 +375,8 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
 
   blockSize = obtainBlockSize(params, waveSize);
 
-  LogicalResult res = isValidBlockwiseGemmXDLOPS(params, op, blockSize);
+  LogicalResult res =
+      isValidBlockwiseGemmXDLOPS(params, info.inputType, info.arch, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
@@ -386,11 +386,10 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
 
   // parameters derivable from tunable parameters.
   gemmKBlocks = 1;
-  Type inputType = op.getInputType();
-  auto maybeWrwOp = dyn_cast<Conv2DBwdWeightOp>(*op);
+  auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
   if (maybeWrwOp &&
-      isWrWAtomicKernel(op.getGemmFeatures(), inputType, requiredPadding)) {
-    res = getKBlocks(maybeWrwOp, gemmSize, params, gemmKBlocks);
+      isWrWAtomicKernel(info.gemmFeatures, info.inputType, requiredPadding)) {
+    res = getKBlocks(info.batchSize, gemmSize, params, gemmKBlocks, info.numCu);
     if (failed(res)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Invalid tuning parameters for computing KBlocks.\n");
@@ -403,10 +402,9 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
 }
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
-    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
+    const PopulateParamsInfo &info, uint32_t blockSizeOverride,
     const std::string &perfConfig, InitParamsXDL &validParams,
     uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
-  GemmSize gemmSize = op.getGemmSize();
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
@@ -416,18 +414,19 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Got perf config: " << genDebugForParams(validParams));
-      return populateDerived(op, validParams, gemmSize, blockSize, gridSize,
-                             gemmKBlocks);
+      GemmSize paddedGemmSize = info.gemmSize;
+      return populateDerived(validParams, info, paddedGemmSize, blockSize,
+                             gridSize, gemmKBlocks);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
   }
 
   LogicalResult res = failure();
-  std::vector<InitParamsXDL> paramSets =
-      getTuningParameters(op.getKernelType(), op.getInputType());
+  auto paramSets =
+      getTuningParameters(info.kernelType, info.inputType, info.arch);
 
-  for (const auto &params : orderInitParams(paramSets, gemmSize)) {
+  for (const auto &params : orderInitParams(paramSets, info.gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -435,8 +434,9 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
       continue;
     }
 
-    res =
-        populateDerived(op, params, gemmSize, blockSize, gridSize, gemmKBlocks);
+    GemmSize paddedGemmSize = info.gemmSize;
+    res = populateDerived(params, info, paddedGemmSize, blockSize, gridSize,
+                          gemmKBlocks);
     if (failed(res)) {
       continue;
     }
@@ -444,6 +444,17 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     break;
   }
   LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
+  return res;
+}
+
+LogicalResult PopulateParamsXDL::obtainTuningParameters(
+    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
+    const std::string &perfConfig, InitParamsXDL &validParams,
+    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
+  PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
+  auto res =
+      obtainTuningParameters(info, blockSizeOverride, perfConfig, validParams,
+                             blockSize, gridSize, gemmKBlocks);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Couldn't pick heuristic values for ");
     LLVM_DEBUG(op->print(llvm::dbgs()));
@@ -453,11 +464,17 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 }
 
 std::vector<InitParamsXDL>
-PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
+PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType,
+                                       StringRef arch) const {
   ArrayRef<InitParamsXDL> params;
-  if (dataType.isInteger(8)) {
+  switch (dataType.getIntOrFloatBitWidth()) {
+  case 8:
     params = {initParametersForwardI8, nInitParametersForwardI8};
-  } else {
+    break;
+  case 16:
+    params = {initParametersFp16, nInitParametersFp16};
+    break;
+  default:
     params = {initParameters, nInitParameters};
   }
   std::vector<InitParamsXDL> res;
@@ -466,7 +483,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsXDL &param) {
         auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-            dataType, param.gemmMPerWave, param.gemmNPerWave);
+            dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
@@ -477,10 +494,6 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
         return true;
       });
   return res;
-}
-
-const InitParamsXDL &PopulateParamsXDL::getUniversalParameters() const {
-  return universalParameters;
 }
 
 LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,

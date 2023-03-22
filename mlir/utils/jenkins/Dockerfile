@@ -99,6 +99,7 @@ RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https:
 RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   apt-get install -y --no-install-recommends \
   rocm-dev \
+  rocm-cmake \
   rocminfo \
   rocprofiler-dev \
   rocblas \

@@ -129,8 +129,14 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   ModuleOp module = handle->getModule();
   OpBuilder builder(module.getContext());
-  handle->kernelCount = conv2dGenerator.getKernelCount(builder);
-  handle->workspace = conv2dGenerator.getWorkspaceSize(module);
+
+  if (failed(conv2dGenerator.getKernelCount(builder, handle->kernelCount))) {
+    return nullptr;
+  }
+
+  if (failed(conv2dGenerator.getWorkspaceSize(module, handle->workspace))) {
+    return nullptr;
+  }
 
   if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;

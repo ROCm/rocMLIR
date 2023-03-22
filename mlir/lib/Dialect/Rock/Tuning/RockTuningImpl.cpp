@@ -178,21 +178,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   // ARCH string
   problemOS << gemmIF.getArch() << tab;
 
-  // OP type
-  switch (opType) {
-  case KernelType::Conv2D:
-    problemOS << "-F 1" << sep;
-    break;
-  case KernelType::Conv2DBwdData:
-    problemOS << "-F 2" << sep;
-    break;
-  case KernelType::Conv2DBwdWeight:
-    problemOS << "-F 4" << sep;
-    break;
-  case KernelType::Gemm:
-    break;
-  }
-
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
@@ -252,6 +237,36 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     oLayout[oLayoutMap["wo"]] = 'W';
     oLayout[oLayoutMap["go"]] = 'G';
 
+    // Please keep these in sync with mlir/utils/performance/perfRunner.py
+
+    // OP datatype
+    if (inType.getElementType().isF32()) {
+      problemOS << "conv ";
+    } else if (inType.getElementType().isF16()) {
+      problemOS << "convfp16 ";
+    } else if (inType.getElementType().isBF16()) {
+      problemOS << "convbfp16 ";
+    } else if (inType.getElementType().isInteger(8)) {
+      problemOS << "convint8 ";
+    } else {
+      llvm_unreachable("Unknown data type.\n");
+    }
+
+    // OP direction
+    switch (opType) {
+    case KernelType::Conv2D:
+      problemOS << "-F 1" << sep;
+      break;
+    case KernelType::Conv2DBwdData:
+      problemOS << "-F 2" << sep;
+      break;
+    case KernelType::Conv2DBwdWeight:
+      problemOS << "-F 4" << sep;
+      break;
+    default:
+      llvm_unreachable("Unknown conv kernel type.\n");
+    }
+
     // filter layout
     problemOS << "-f " << fLayout << sep;
     // input layout
@@ -263,9 +278,9 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     // C
     problemOS << "-c " << inShape[iLayoutMap["ci"]] << sep;
     // H
-    problemOS << "-h " << inShape[iLayoutMap["hi"]] << sep;
+    problemOS << "-H " << inShape[iLayoutMap["hi"]] << sep;
     // W
-    problemOS << "-w " << inShape[iLayoutMap["wi"]] << sep;
+    problemOS << "-W " << inShape[iLayoutMap["wi"]] << sep;
     // K
     problemOS << "-k " << filShape[fLayoutMap["k"]] << sep;
     // Y
@@ -287,6 +302,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
 
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
+    // Please keep these in sync with mlir/utils/performance/perfRunner.py
     // TransA
     problemOS << "-transA ";
     if (rGemmOp.getATransposed())

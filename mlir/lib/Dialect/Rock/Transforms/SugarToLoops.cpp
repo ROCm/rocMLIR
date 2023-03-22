@@ -863,7 +863,8 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
 
     llvm::APInt validConst = APInt::getZero(1);
     bool needOobChecks =
-        !matchPattern(valid, m_ConstantInt(&validConst)) || validConst.isZero();
+        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
+                            validConst.isZero());
     if (needOobChecks) {
       Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
       Value numElements = computeMemRefNumElements(b, loc, source);
@@ -984,7 +985,8 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
 
     llvm::APInt validConst = APInt::getZero(1);
     bool needOobChecks =
-        !matchPattern(valid, m_ConstantInt(&validConst)) || validConst.isZero();
+        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
+                            validConst.isZero());
     if (needOobChecks) {
       Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
       Value numElements = computeMemRefNumElements(b, loc, dest);

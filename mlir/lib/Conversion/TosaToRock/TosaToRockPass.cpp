@@ -53,7 +53,8 @@ public:
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tosa::ReduceSumOp>();
+    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tosa::ReduceSumOp,
+                        tosa::ReduceMaxOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

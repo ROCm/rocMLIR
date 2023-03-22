@@ -10,11 +10,11 @@
 // CHECK-DAG: #[[$GENERAL_PARAMS_2:.*]] = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kPerThread = 1, mPerThread = 2, nPerThread = 4, kpack = 1>
 // CHECK-DAG: #[[$GENERAL_PARAMS_3:.*]] = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kPerThread = 1, mPerThread = 4, nPerThread = 2, kpack = 1>
 // CHECK-DAG: #[[$GENERAL_PARAMS_4:.*]] = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_0:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_0:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 32, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_1:.*]] = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, forceUnroll = true>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_2:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 256, kpack = 1, mPerWave = 64, nPerWave = 64, forceUnroll = true>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_3:.*]] = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 64, forceUnroll = true>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_4:.*]] = #rock.xdlops_gemm_params<kPerBlock = 16, mPerBlock = 16, nPerBlock = 16, kpack = 1, mPerWave = 16, nPerWave = 16, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_2:.*]] = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_3:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 256, kpack = 1, mPerWave = 64, nPerWave = 64, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_4:.*]] = #rock.xdlops_gemm_params<kPerBlock = 2, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 8, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_5:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 1, mPerWave = 16, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_6:.*]] = #rock.xdlops_gemm_params<kPerBlock = 16, mPerBlock = 4, nPerBlock = 64, kpack = 1, mPerWave = 4, nPerWave = 64, forceUnroll = true>
 
@@ -94,7 +94,7 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
   // CHECK: rock.conv2d_bwd_data
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: gridSize = 1568
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_2]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
@@ -221,7 +221,7 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
   // CHECK: rock.conv2d
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: gridSize = 12544
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_2]]
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_3]]
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
@@ -240,9 +240,9 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
 // CHECK-LABEL: @rock_conv2d_7x7
 func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) {
   // CHECK: rock.conv2d
-  // CHECK-SAME: derivedBlockSize = 64
+  // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: gridSize = 100352
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_3]]
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
@@ -258,9 +258,9 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
 // CHECK-LABEL: @rock_conv2d_bwd_weight_7x7
 func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 0 : i32} {
   // CHECK: rock.conv2d_bwd_weight
-  // CHECK-SAME: derivedBlockSize = 64
-  // CHECK-SAME: gridSize = 40
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: gridSize = 3
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
   rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],

@@ -311,6 +311,7 @@ struct BlockwiseGemmV2RewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
+    StringAttr arch = op.getArchAttr();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
@@ -326,10 +327,8 @@ struct BlockwiseGemmV2RewritePattern
            "LDS buffer segment for A is kpack-aligned");
     assert(ldsOffsetB % KPack == 0 &&
            "LDS buffer segment for B is kpack-aligned");
-    auto dataType = adaptor.getMatrixA()
-                        .getType()
-                        .template cast<MemRefType>()
-                        .getElementType();
+    auto dataType =
+        adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
 
     // The address calculations into the LDS buffer assume that the buffer
     // has type vector<KPack x T>. Then, we convert that into an address
@@ -347,7 +346,7 @@ struct BlockwiseGemmV2RewritePattern
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, mPerWave, nPerWave);
+        MfmaInsnGroup::select(dataType, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
@@ -442,14 +441,52 @@ struct BlockwiseGemmV2RewritePattern
         sourceOffset = kb.create<MulIOp>(
             loc, sourceOffset, kb.create<ConstantIndexOp>(loc, KPack));
 
-      Value destOffset = k_i;
-
-      // Emit load/store
+      Type loadType = vectorTypeOrSelf(dataType, KPack);
+      Value value =
+          kb.create<InBoundsLoadOp>(loc, loadType, ldsOrig, sourceOffset);
       auto bufferType = regDest.getType().cast<MemRefType>();
       Type bufferElementType = bufferType.getElementType();
-      Value value = kb.create<InBoundsLoadOp>(loc, bufferElementType, ldsOrig,
-                                              sourceOffset);
-      kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
+
+      // We're loading in units of kPack, but storing in units of k_base.
+      if (KPack == k_base) {
+        Value destOffset = k_i;
+        kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
+      } else if (KPack > k_base) {
+        int64_t numStores = KPack / k_base;
+        Value baseDestOffset = kb.createOrFold<arith::MulIOp>(
+            loc, k_i, kb.createOrFold<arith::ConstantIndexOp>(loc, numStores));
+        for (int64_t i = 0; i < numStores; ++i) {
+          Value sliceStart =
+              kb.createOrFold<arith::ConstantIndexOp>(loc, k_base * i);
+          Value slice = kb.create<ExtractSliceOp>(loc, bufferElementType, value,
+                                                  sliceStart);
+          Value destOffset = kb.createOrFold<arith::AddIOp>(
+              loc, baseDestOffset,
+              kb.createOrFold<arith::ConstantIndexOp>(loc, i));
+          kb.create<memref::StoreOp>(loc, slice, regDest,
+                                     ValueRange{destOffset});
+        }
+      } else if (KPack < k_base) {
+        // Here we are gathering loaded values into vectors for passing into
+        // MFMAs.
+        Value destValsPerKpack =
+            kb.createOrFold<arith::ConstantIndexOp>(loc, k_base / KPack);
+        // This is fine, since the inputs to MFMAs are contiguous in the k
+        // dimension.
+        Value destOffset =
+            kb.createOrFold<arith::DivUIOp>(loc, k_i, destValsPerKpack);
+        Value destVecPart =
+            kb.createOrFold<arith::RemUIOp>(loc, k_i, destValsPerKpack);
+        Value destSlicePos = kb.createOrFold<arith::MulIOp>(
+            loc, destVecPart,
+            b.createOrFold<arith::ConstantIndexOp>(loc, KPack));
+        Value destVec = kb.create<memref::LoadOp>(
+            loc, bufferElementType, regDest, ValueRange{destOffset});
+        Value newDestVec = kb.create<InsertSliceOp>(
+            loc, bufferElementType, value, destVec, destSlicePos);
+        kb.create<memref::StoreOp>(loc, newDestVec, regDest,
+                                   ValueRange{destOffset});
+      }
     };
 
     auto ldsToRegisterCopyKdim =
@@ -495,7 +532,7 @@ struct BlockwiseGemmV2RewritePattern
     olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
                                 outerLoopN.getInductionVar(),
                                 adaptor.getBufferA(), adaptor.getBufferB(),
-                                adaptor.getMatrixC(), tuningParams);
+                                adaptor.getMatrixC(), arch, tuningParams);
     return success();
   }
 };

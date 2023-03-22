@@ -570,12 +570,21 @@ static llvm::cl::opt<int> kernelRepeats(
 struct KernelIF {
   func::FuncOp func;
   SmallVector<Type, 8> params;
+  SmallVector<int32_t, 2> outIndices;
 
   // CTOR w/ FuncOp
   KernelIF(func::FuncOp _f) : func(_f) {
     assert(func.getNumResults() == 0);
-    for (auto &paramType : func.getFunctionType().getInputs())
-      params.push_back(paramType);
+    llvm::SmallDenseSet<Value> outs;
+    auto walker = [&](memref::CopyOp copy) { outs.insert(copy.getTarget()); };
+    func.walk(walker);
+    size_t argCount = func.getArguments().size();
+    for (size_t i = 0; i < argCount; i++) {
+      params.push_back(func.getArgument(i).getType());
+      if (outs.contains(func.getArgument(i))) {
+        outIndices.push_back(i);
+      }
+    }
   }
 };
 
@@ -835,7 +844,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
     // Emit memref.collapse_shape
     var = b.create<memref::CollapseShapeOp>(loc, colType, var, reassocs);
-  } else if (shape.size() < ndim) {
+  } else if (!shape.empty() && shape.size() < ndim) {
     // Expand last dims
     SmallVector<int64_t, 5> expShape;
     SmallVector<ReassociationExprs, 5> reassocs;
@@ -1055,12 +1064,18 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
   MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
-  SmallVector<int64_t, 1> lowerBounds(1, 0);
-  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
-  SmallVector<int64_t, 1> steps(1, 1);
-  AffineExpr rowMajor = b.getAffineDimExpr(0);
-  rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
-  AffineMap rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
+  SmallVector<int64_t, 1> lowerBounds;
+  SmallVector<int64_t, 1> upperBounds;
+  SmallVector<int64_t, 1> steps;
+  AffineMap rowMajorMap = AffineMap::getConstantMap(0, b.getContext());
+  if (!flatType.getShape().empty()) {
+    AffineExpr rowMajor = b.getAffineDimExpr(0);
+    rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
+    rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
+    lowerBounds.push_back(0);
+    upperBounds.push_back(flatType.getNumElements());
+    steps.push_back(1);
+  }
 
   buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
@@ -1108,9 +1123,15 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
   std::tie(min, max) = getRandomTestData(idx);
   Value minConst = getI16Val(min), maxConst = getI16Val(max);
 
-  SmallVector<int64_t, 1> lowerBounds(1, 0);
-  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
-  SmallVector<int64_t, 1> steps(1, 1);
+  SmallVector<int64_t, 1> lowerBounds;
+  SmallVector<int64_t, 1> upperBounds;
+  SmallVector<int64_t, 1> steps;
+
+  if (!flatType.getShape().empty()) {
+    lowerBounds.push_back(0);
+    upperBounds.push_back(flatType.getNumElements());
+    steps.push_back(1);
+  }
 
   buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
@@ -1688,7 +1709,10 @@ createCPUConvFunc(ModuleOp module,
   // Create conv2d_host function
   rock::Conv2dGenerator conv2dGenerator(genConfig);
 
-  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  bool hasWorkspace = false;
+  if (failed(conv2dGenerator.hasWorkspace(b, hasWorkspace))) {
+    assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
+  }
   Type workspaceArgType;
   if (hasWorkspace) {
     workspaceArgType = MemRefType::get(
@@ -1851,8 +1875,8 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
                                       const MemRefType destType) {
   OpBuilder b(module.getContext());
 
-  assert(srcType.getRank() == 1 && "Memcopy takes 1-D sources");
-  assert(destType.getRank() == 1 && "Memcopy takes 1-D destinations");
+  assert(srcType.getRank() <= 1 && "Memcopy takes 1-D sources");
+  assert(destType.getRank() <= 1 && "Memcopy takes 1-D destinations");
 
   Type srcElemType = srcType.getElementType();
   Type dstElemType = destType.getElementType();
@@ -1900,46 +1924,63 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
-  auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
-
   auto src = block->getArgument(0);
   auto dst = block->getArgument(1);
-  auto size = b.create<memref::DimOp>(loc, src, cst0Op);
 
-  auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
-  auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
-  auto iv0 = loop0.getInductionVar();
-
-  Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
-  if (srcElemType != dstElemType) {
-    // insert conversion logic
-    auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
-    auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-    if (srcElemType.isIntOrIndex()) {
-      if (dstElemType.isIntOrIndex()) {
-        if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
-        else
-          loadOp = bt0.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+  auto insertConversionLogic = [&](OpBuilder &opBuilder, Value loadOp) {
+    Value newLoadOp = loadOp;
+    if (srcElemType != dstElemType) {
+      // insert conversion logic
+      auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
+      auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
+      if (srcElemType.isIntOrIndex()) {
+        if (dstElemType.isIntOrIndex()) {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+        } else {
+          assert(dstElemType.isa<FloatType>());
+          newLoadOp =
+              opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
+        }
       } else {
-        assert(dstElemType.isa<FloatType>());
-        loadOp = bt0.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
-      }
-    } else {
-      assert(srcElemType.isa<FloatType>());
-      if (dstElemType.isIntOrIndex()) {
-        loadOp = bt0.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
-      } else {
-        if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<arith::ExtFOp>(loc, dstElemType, loadOp);
-        else
-          loadOp = bt0.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+        assert(srcElemType.isa<FloatType>());
+        if (dstElemType.isIntOrIndex()) {
+          newLoadOp =
+              opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
+        } else {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtFOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+        }
       }
     }
-  }
+    return newLoadOp;
+  };
 
-  bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+  if (srcType.getRank() == 1) {
+    auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
+    auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
+    auto size = b.create<memref::DimOp>(loc, src, cst0Op);
+
+    auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
+    auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
+    auto iv0 = loop0.getInductionVar();
+
+    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+    loadOp = insertConversionLogic(bt0, loadOp);
+    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+  } else {
+    Value loadOp = b.create<memref::LoadOp>(loc, src, ValueRange{});
+    loadOp = insertConversionLogic(b, loadOp);
+    b.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{});
+  }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
@@ -2016,11 +2057,9 @@ static void checkRandomInputsE2E() {
 }
 
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
-                                       MemRefType testType,
-                                       MemRefType valType) {
+                                       MemRefType testType, MemRefType valType,
+                                       std::string funcName) {
   checkRandomInputsE2E();
-  auto kfunc = kernel.func;
-  std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -2091,6 +2130,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     verifyFuncName += "Int32";
   } else if (valElemType.isInteger(64)) {
     verifyFuncName += "Int32Int64";
+  } else if (valElemType.isInteger(8)) {
+    verifyFuncName += "Int8";
   } else {
     llvm::errs() << "Unsupported type of validation function output: ";
     valElemType.dump();
@@ -2144,16 +2185,19 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     SmallVector<int64_t, 1> upperBounds = {valFlatType.getNumElements()};
     SmallVector<int64_t, 1> steps(1, 1);
 
-    buildAffineLoopNest(
-        b, loc, lowerBounds, upperBounds, steps,
-        [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
-                                            ValueRange ivs) {
-          auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
-          auto valTruncated =
-              b.create<arith::TruncFOp>(loc, testOutType, valOrig);
-          auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
-          b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
-        });
+    if (testOutType != valElemType) {
+      buildAffineLoopNest(
+          b, loc, lowerBounds, upperBounds, steps,
+          [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
+                                              ValueRange ivs) {
+            auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
+            auto valTruncated =
+                b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+            auto valExt =
+                b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+            b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
+          });
+    }
   } else {
     testResult = b.create<memref::CastOp>(loc, mr1DUnkTestType, testFlat);
   }
@@ -2258,7 +2302,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
-                                  int32_t outIdx, Operation *func,
+                                  ArrayRef<int32_t> outIndices, Operation *func,
                                   KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
@@ -2288,7 +2332,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(b);
+      int kernelCount = 0;
+      if (failed(conv2dGenerator.getKernelCount(b, kernelCount))) {
+        llvm::errs() << "Getting kernel count failed.\n";
+        exit(1);
+      }
+      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
@@ -2311,8 +2360,16 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
         rock::Conv2dGenerator originalConv2dGenerator(genConfig);
-        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
-        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+        bool originalHasWorkspace = false, verifierHasWorkspace = false;
+        if (failed(originalConv2dGenerator.hasWorkspace(
+                b, originalHasWorkspace))) {
+          llvm::errs() << "Getting workspace failed.\n";
+          exit(1);
+        }
+        if (failed(conv2dGenerator.hasWorkspace(b, verifierHasWorkspace))) {
+          llvm::errs() << "Getting workspace failed.\n";
+          exit(1);
+        }
         if (originalHasWorkspace && !verifierHasWorkspace) {
           valVars.resize(valVars.size() - 1);
         }
@@ -2379,12 +2436,18 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 
   // Emit call to verifier
-  Value testResult = localVars[outIdx];
-  Value valResult = valVars[outIdx];
-  auto testType = testResult.getType().dyn_cast<MemRefType>();
-  auto valType = valResult.getType().dyn_cast<MemRefType>();
-  auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
-  b.create<func::CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
+  for (int32_t outIdx : outIndices) {
+    Value testResult = localVars[outIdx];
+    Value valResult = valVars[outIdx];
+    auto testType = testResult.getType().dyn_cast<MemRefType>();
+    auto valType = valResult.getType().dyn_cast<MemRefType>();
+    std::string funcName =
+        root0.func.getName().str() + "_verify" + std::to_string(outIdx);
+    auto verifierFunc =
+        createVerifierFunc(module, root0, testType, valType, funcName);
+    b.create<func::CallOp>(loc, verifierFunc,
+                           ValueRange{testResult, valResult});
+  }
 }
 
 static LogicalResult populateHostHarnessLogic(
@@ -2401,22 +2464,6 @@ static LogicalResult populateHostHarnessLogic(
   // Construct a new Block.
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
-
-  int32_t outIdx = -1;
-  if (genParams.operation.has_value()) {
-    switch (genParams.operation.value()) {
-    case rock::KernelType::Conv2D:
-    case rock::KernelType::Gemm:
-      outIdx = 2;
-      break;
-    case rock::KernelType::Conv2DBwdData:
-      outIdx = 1;
-      break;
-    case rock::KernelType::Conv2DBwdWeight:
-      outIdx = 0;
-      break;
-    }
-  }
 
   llvm::SmallDenseMap<int32_t, Value> i32vals;
   auto getI32Val = [&](int32_t v) {
@@ -2457,6 +2504,24 @@ static LogicalResult populateHostHarnessLogic(
     b.create<func::CallOp>(loc, seedFunc, seedConst);
   }
 
+  SmallVector<int32_t, 2> outIndices;
+  if (genParams.operation.has_value()) {
+    switch (genParams.operation.value()) {
+    case rock::KernelType::Conv2D:
+    case rock::KernelType::Gemm:
+      outIndices.push_back(2);
+      break;
+    case rock::KernelType::Conv2DBwdData:
+      outIndices.push_back(1);
+      break;
+    case rock::KernelType::Conv2DBwdWeight:
+      outIndices.push_back(0);
+      break;
+    }
+  } else {
+    outIndices = root0.outIndices;
+  }
+
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
   int32_t idx = 0;
@@ -2466,7 +2531,7 @@ static LogicalResult populateHostHarnessLogic(
     auto elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
       assert(elemType.isF32() || elemType.isInteger(8) ||
-             elemType.isInteger(64));
+             elemType.isInteger(32) || elemType.isInteger(64));
       if (genParams.operation.has_value()) {
         elemType = genParams.dtype;
         if (elemType.isInteger(8) && idx == 2)
@@ -2496,6 +2561,9 @@ static LogicalResult populateHostHarnessLogic(
           //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-xdlops
           // validate in int64_t to detect overflow
           valElemType = b.getIntegerType(64);
+      } else if ((genValidation == "clone") || elemType.isInteger(8) ||
+                 elemType.isInteger(32)) {
+        valElemType = elemType;
       }
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
@@ -2507,8 +2575,8 @@ static LogicalResult populateHostHarnessLogic(
   }
 
   // capture result index
-  if (outIdx < 0) {
-    outIdx = localVars.size() - 1;
+  if (outIndices.empty()) {
+    outIndices.push_back(localVars.size() - 1);
   }
 
   // Call the roots.
@@ -2536,30 +2604,35 @@ static LogicalResult populateHostHarnessLogic(
     // Clone-style validation wants to validate each root function.
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
-      insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
-                            root.func, root0);
+      insertValidationCalls(genParams, b, module, valVars, localVars,
+                            outIndices, root.func, root0);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
-    insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
+    insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
                           func, root0);
 
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
-    if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
-      emitPrintTensor(b, vvar);
+    for (int32_t outIdx : outIndices) {
+      if ((vvar == valVars[outIdx]) && printValidationResults.getValue()) {
+        emitPrintTensor(b, vvar);
+      }
+    }
   }
 
   // Print and cleanup
   for (auto &lvar : localVars) {
     // print lvar
     bool printp = printInputs.getValue();
-    if (lvar == localVars[outIdx])
-      printp = printResults.getValue();
-    if (printp)
-      emitPrintTensor(b, lvar);
+    for (int32_t outIdx : outIndices) {
+      if (lvar == localVars[outIdx])
+        printp = printResults.getValue();
+      if (printp)
+        emitPrintTensor(b, lvar);
+    }
   }
 
   for (auto &vvar : valVars) {
@@ -2819,7 +2892,12 @@ int main(int argc, char **argv) {
     } else {
       // Populate the module.
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(builder);
+      int kernelCount = 0;
+      if (failed(conv2dGenerator.getKernelCount(builder, kernelCount))) {
+        llvm::errs() << "Getting kernel count failed.\n";
+        exit(1);
+      }
+      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {

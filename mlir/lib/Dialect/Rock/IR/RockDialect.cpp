@@ -1294,8 +1294,6 @@ LogicalResult BufferLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (nDims == 0)
-    return emitOpError("buffer load from scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
@@ -1315,8 +1313,6 @@ LogicalResult BufferLoadOp::verify() {
 LogicalResult BufferStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  if (nDims == 0)
-    return emitOpError("buffer store to scalar memrefs doesn't work");
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   Attribute memSpaceAttr = destType.getMemorySpace();

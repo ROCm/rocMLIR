@@ -82,16 +82,15 @@ static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
   return accumulatorType;
 }
 
-/// Given a G x K x D matrix and the block tuning parameters and how much data
-/// each thread will load,
-/// return the dimension in which the load of this matrix from global memory
-/// should be vectorized and the length of that vector load. Also takes
-/// `tiebreaker`, the vectorization dimension to be used when both choises are
-/// equal, which should be the vectorization dimension of the store to LDS.
+/// Given a copy layout <copyDPerThread, copyKPerThread>, come up with the best
+/// vectorization strategy for the layout. For instance, if the layout is <D,K>
+/// = <2,16> and K is contiguous, we will vectorize by 16 along K and we will
+/// loop over the other dimension
 static std::pair<GemmDimension, int64_t>
-bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
-                  GemmDimension tiebreaker, int64_t kPerBlock,
-                  int64_t dPerBlock, Type elementType) {
+bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
+                        int64_t copyKPerThread, GemmDimension tiebreaker,
+                        int64_t kPerBlock, int64_t dPerBlock,
+                        Type elementType) {
   Value tensor;
   ArrayAttr transforms;
   std::tie(tensor, transforms) = untransform(b, matrix);
@@ -99,32 +98,49 @@ bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
       tensor.getType().cast<MemRefType>().getShape();
   int64_t kVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::K),
-      math_util::gcd(dataPerThread, kPerBlock), tensorShape, elementType);
+      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock), tensorShape,
+      elementType);
 
   int64_t dVectorLen = getMaxVectorizationForDatatype(
       transforms, static_cast<uint32_t>(GemmDimension::MorN),
-      math_util::gcd(dataPerThread, dPerBlock), tensorShape, elementType);
+      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock), tensorShape,
+      elementType);
 
-  if (kVectorLen > dVectorLen)
+  if (kVectorLen > dVectorLen) {
+    kVectorLen = math_util::gcd(kVectorLen, copyKPerThread);
     return {GemmDimension::K, kVectorLen};
-  if (dVectorLen > kVectorLen)
+  }
+
+  if (dVectorLen > kVectorLen) {
+    dVectorLen = math_util::gcd(dVectorLen, copyDPerThread);
     return {GemmDimension::MorN, dVectorLen};
+  }
+
   return {tiebreaker, kVectorLen};
 }
 
+/// Compute a thread copy layout, i.e., how many elements a single thread (or
+/// workitem) reads along K and M (independently on how we vectorize the reads)
 static FailureOr<std::pair<int64_t, int64_t>>
-computeCopyPerThread(GemmDimension dim, int64_t vectorLen,
-                     int64_t copyPerThread, int64_t kPerBlock,
-                     int64_t dPerBlock, Location loc) {
+computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
+                     int64_t dPerBlock, int64_t kpack, Location loc) {
+
+  // By default, we try to maximize the LDS store vectorization. So we will try
+  // to read as many elements as possible along the contiguous dimension in LDS
+  // and `copyPerThread/elements` in the other dimension
+  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
-  if (dim == GemmDimension::K) {
-    copyKPerThread = vectorLen;
-    copyDPerThread = copyPerThread / copyKPerThread;
-  } else {
-    copyDPerThread = vectorLen;
+
+  if (kpack == 1) {
+    copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
     copyKPerThread = copyPerThread / copyDPerThread;
+  } else {
+    copyKPerThread =
+        math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread));
+    copyDPerThread = copyPerThread / copyKPerThread;
   }
+
   if (copyKPerThread == 0 || copyDPerThread == 0) {
     return emitError(loc) << "gemmA copy size too small,"
                           << " copyKPerThread: " << copyKPerThread
@@ -180,13 +196,15 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
                            {kIters, gridSize, blockSize, dataPerThread}, loc);
   splitId.passThrough("k_loop");
   splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
-  // That threads are grouped [other dim, k] is important: it menas we can
-  // ignore kPack here but then account for it when writing to LDS.
-  splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid", {dThreads, kThreads});
+
   if (vectorDim == GemmDimension::K) {
+    splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
+                  {dThreads, kThreads});
     splitId.merge({dIterName, "k_iter"}, {6, 7}, "iter",
                   {dPerThread, kPerThread});
   } else {
+    splitId.merge({"k_thread", dThreadName}, {4, 5}, "tid",
+                  {kThreads, dThreads});
     splitId.merge({"k_iter", dIterName}, {6, 7}, "iter",
                   {kPerThread, dPerThread});
   }
@@ -211,7 +229,8 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, StringRef dName,
                                               int64_t kPerThread,
-                                              int64_t dPerThread) {
+                                              int64_t dPerThread,
+                                              GemmDimension vectorDim) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   if (bufferShape.size() != 3)
@@ -237,11 +256,12 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   TransformMapAttr tidIterSplitAttr = tidIterSplit.get();
   Value withTidIterSplit = b.create<TransformOp>(loc, buffer, tidIterSplitAttr);
 
-  // Note: the fact that the global load groups the data each threads loads by
-  // k and then by d means that we can smath the k and kpack thread IDs together
-  // without any trouble.
   auto tidIter = BottomUpTMBuilder::above(tidIterSplit, tidIterSplitAttr);
-  tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  if (vectorDim == GemmDimension::K) {
+    tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  } else {
+    tidIter.merge("tid", 0, {"k_thread", "kpack_thread", dThreadName});
+  }
   tidIter.merge("iter", 1, {"k_iter", dIterName, "kpack_iter"});
   TransformMapAttr tidIterAttr = tidIter.get();
   Value transformed = b.create<TransformOp>(loc, withTidIterSplit, tidIterAttr);
@@ -644,16 +664,30 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
+    auto maybeCopyAPerThread = computeCopyPerThread(
+        elementType, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
+
+    auto maybeCopyBPerThread = computeCopyPerThread(
+        elementType, bCopyPerThread, kPerBlock, nPerBlock, kpack, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, op.getA(), aCopyPerThread, vectorTiebreaker,
-                          kPerBlock, mPerBlock, elementType);
-    std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, op.getB(), bCopyPerThread, vectorTiebreaker,
-                          kPerBlock, nPerBlock, elementType);
+    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
+        b, op.getA(), copyMPerThread, aCopyKPerThread, vectorTiebreaker,
+        kPerBlock, mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
+        b, op.getB(), copyNPerThread, bCopyKPerThread, vectorTiebreaker,
+        kPerBlock, nPerBlock, elementType);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -663,20 +697,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "bVectorDim: " << bVectorDim << "\n"
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
-
-    auto maybeCopyAPerThread = computeCopyPerThread(
-        aVectorDim, aVectorLen, aCopyPerThread, kPerBlock, mPerBlock, loc);
-    if (failed(maybeCopyAPerThread))
-      return maybeCopyAPerThread;
-    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
-    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    auto maybeCopyBPerThread = computeCopyPerThread(
-        bVectorDim, bVectorLen, bCopyPerThread, kPerBlock, nPerBlock, loc);
-    if (failed(maybeCopyBPerThread))
-      return maybeCopyBPerThread;
-    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
-    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
@@ -708,12 +728,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -943,6 +965,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
+    StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
@@ -973,41 +996,41 @@ struct GridwiseGemmV2RewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
-    GemmDimension vectorTiebreaker =
-        (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock,
-                          mPerBlock, elementType);
-    std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock,
-                          nPerBlock, elementType);
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "gridSize: " << gridSize << "\n"
-               << "blockSize: " << blockSize << "\n"
-               << "aCopyPerThread: " << aCopyPerThread << "\n"
-               << "bCopyPerThread: " << bCopyPerThread << "\n"
-               << "aVectorDim: " << aVectorDim << "\n"
-               << "aVectorLen: " << aVectorLen << "\n"
-               << "bVectorDim: " << bVectorDim << "\n"
-               << "bVectorLen: " << bVectorLen << "\n"
-               << "vectorTiebreaker: " << vectorTiebreaker << "\n");
-
+    // Get the vector copy layout for A and B
     auto maybeCopyAPerThread = computeCopyPerThread(
-        aVectorDim, aVectorLen, aCopyPerThread, kPerBlock, mPerBlock, loc);
+        elementType, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
     if (failed(maybeCopyAPerThread))
       return maybeCopyAPerThread;
     int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
     int64_t copyMPerThread = (*maybeCopyAPerThread).second;
 
     auto maybeCopyBPerThread = computeCopyPerThread(
-        bVectorDim, bVectorLen, bCopyPerThread, kPerBlock, nPerBlock, loc);
+        elementType, bCopyPerThread, kPerBlock, nPerBlock, kpack, loc);
     if (failed(maybeCopyBPerThread))
       return maybeCopyBPerThread;
     int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
     int64_t copyNPerThread = (*maybeCopyBPerThread).second;
 
-    LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
+    // Find the best way of vectorizing the layout
+    GemmDimension vectorTiebreaker =
+        (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
+    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
+        b, matA, copyMPerThread, aCopyKPerThread, vectorTiebreaker, kPerBlock,
+        mPerBlock, elementType);
+    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
+        b, matB, copyNPerThread, bCopyKPerThread, vectorTiebreaker, kPerBlock,
+        nPerBlock, elementType);
+
+    LLVM_DEBUG(llvm::dbgs() << "gridSize: " << gridSize << "\n"
+                            << "blockSize: " << blockSize << "\n"
+                            << "aCopyPerThread: " << aCopyPerThread << "\n"
+                            << "bCopyPerThread: " << bCopyPerThread << "\n"
+                            << "aVectorDim: " << aVectorDim << "\n"
+                            << "aVectorLen: " << aVectorLen << "\n"
+                            << "bVectorDim: " << bVectorDim << "\n"
+                            << "bVectorLen: " << bVectorLen << "\n"
+                            << "vectorTiebreaker: " << vectorTiebreaker << "\n"
+                            << "kPerBlock: " << kPerBlock << "\n"
                             << "mPerBlock: " << mPerBlock << "\n"
                             << "nPerBlock: " << nPerBlock << "\n"
                             << "aCopyKPerThread: " << aCopyKPerThread << "\n"
@@ -1125,12 +1148,14 @@ struct GridwiseGemmV2RewritePattern
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
 
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    FailureOr<Value> maybeWrappedLdsA =
+        wrapLDSBufferForStore(b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread,
+                              copyMPerThread, aVectorDim);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    FailureOr<Value> maybeWrappedLdsB =
+        wrapLDSBufferForStore(b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread,
+                              copyNPerThread, bVectorDim);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -1142,12 +1167,11 @@ struct GridwiseGemmV2RewritePattern
     TransformingForOp blockwiseStoreB =
         createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
                            wrappedLdsB, bCopyPerThread, tid, forceUnroll);
-
     // -----
 
     // Mfma instruction group selection.
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(elementType, mPerWave, nPerWave);
+        MfmaInsnGroup::select(elementType, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
@@ -1176,6 +1200,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
     int64_t inputSpanLen = mfmaAttr.inputSpanLen;
     int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t k_base = mfmaAttr.k_base;
     int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
 
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
@@ -1202,29 +1227,17 @@ struct GridwiseGemmV2RewritePattern
     // Logic to setup buffers for blockwise_gemm_v2.
 
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t arrayASize = (!isKReduction)
-                             ? (kpacksPerBlock)
-                             : (kpacksPerBlock / inputSpansPerMfmaIn);
-    int64_t arrayBSize = (!isKReduction)
-                             ? (kpacksPerBlock)
-                             : (kpacksPerBlock / inputSpansPerMfmaIn);
+    int64_t inputBufferSize =
+        (kpacksPerBlock * kpack) /
+        ((isKReduction ? inputSpansPerMfmaIn : 1) * k_base);
 
     Type arrayAType, arrayBType;
     auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    if (kpack > 1) {
-      arrayAType =
-          MemRefType::get({arrayASize}, VectorType::get({kpack}, elementType),
-                          AffineMap{}, privateMemoryAddressSpace);
-      arrayBType =
-          MemRefType::get({arrayBSize}, VectorType::get({kpack}, elementType),
-                          AffineMap{}, privateMemoryAddressSpace);
-    } else {
-      arrayAType = MemRefType::get({arrayASize}, elementType, AffineMap{},
-                                   privateMemoryAddressSpace);
-      arrayBType = MemRefType::get({arrayBSize}, elementType, AffineMap{},
-                                   privateMemoryAddressSpace);
-    }
+    arrayAType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
+                                 AffineMap{}, privateMemoryAddressSpace);
+    arrayBType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
+                                 AffineMap{}, privateMemoryAddressSpace);
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
 
@@ -1278,7 +1291,7 @@ struct GridwiseGemmV2RewritePattern
       blockwiseGemmV2Op = b.create<BlockwiseGemmV2Op>(
           loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
           b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB,
-          arrayA, arrayB, regCAllocOp, op.getBlockSizeAttr(),
+          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getBlockSizeAttr(),
           op.getParamsAttr());
 
       // LDS barrier.

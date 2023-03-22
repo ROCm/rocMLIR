@@ -322,8 +322,9 @@ void archivePerfDB() {
     dir ('MIOpen/build/MIOpenUserDB') {
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-        if (params.disableNavi21 == false)
-            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        //Disable this until the Navi CI node is avaialbe
+        //if (params.disableNavi21 == false)
+        //    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
     archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
@@ -453,7 +454,9 @@ pipeline {
                         steps {
                             build_fixedE2ETests("${CODEPATH}")
                             preMergeCheck("${CODEPATH}")
-                            sh 'cd build; ninja check-mlir check-rocmlir'
+                            timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                sh 'cd build; ninja check-mlir check-rocmlir'
+                            }
                         }
                     }
                     stage("Shared Library: random E2E tests") {
@@ -564,7 +567,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx906', 'gfx908', 'gfx90a'
                     }
                 }
                 agent {
@@ -744,7 +747,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx906', 'gfx908', 'gfx90a'
                     }
                 }
                 when {
@@ -966,11 +969,15 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             dir('MIGraphX/build') {
-                                // Verify MLIR unit tests
-                                sh 'make -j$(nproc) test_gpu_mlir'
-                                sh 'ctest -R test_gpu_mlir'
-                                // Verify ResNet50
-                                sh './bin/driver verify --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    withEnv(['MIGRAPHX_ENABLE_MLIR=1']) {
+                                        // Verify MLIR unit tests
+                                        sh 'make -j$(nproc) test_gpu_mlir'
+                                        sh 'ctest -R test_gpu_mlir'
+                                        // Verify ResNet50
+                                        sh './bin/driver verify --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                    }
+                                }
                             }
                         }
                     }

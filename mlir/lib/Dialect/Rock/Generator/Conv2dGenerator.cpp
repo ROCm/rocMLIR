@@ -269,28 +269,39 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   return success();
 }
 
-int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
+LogicalResult Conv2dGenerator::getKernelCount(OpBuilder &builder,
+                                              int &kernelCount) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
-    return 1;
+    kernelCount = 1;
+    return success();
   }
   assert(config.operation.has_value());
   switch (config.operation.value()) {
   case ConvOpType::BwdData:
-    return getBwdDataKernelCount();
+    kernelCount = getBwdDataKernelCount();
+    return success();
   case ConvOpType::Fwd:
-    return 1;
+    kernelCount = 1;
+    return success();
   case ConvOpType::BwdWeight:
-    return getBwdWeightKernelCount(builder);
+    LogicalResult res = getBwdWeightKernelCount(builder, kernelCount);
+    return res;
   }
   llvm_unreachable("Invalid conv2d operation");
 }
 
-int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
+LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
+                                                       int &kernelCount) const {
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
+  kernelCount = 1;
   if (bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
     Type dataType = getDataType(builder);
-    if (!needExtraPadBwdWeight(builder)) {
+    bool needExtraPad = false;
+    if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
+      return failure();
+    }
+    if (!needExtraPad) {
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -300,7 +311,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
         // The first kernel will 0-initialize the output (filter tensor).
         // The second kernel will conduct the actual backward weight
         // convolution, using atomic add instructions.
-        return 2;
+        kernelCount = 2;
       } else if (dataType == builder.getF16Type()) {
         // For the following case, use 3 kernels:
         // - backward weight
@@ -312,11 +323,11 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
         // convolution, using atomic add instructions. The third kernel will do
         // elementwise conversion from fp32 in the workspace to fp16 in the
         // actual output (filter tensor).
-        return 3;
+        kernelCount = 3;
       }
     }
   }
-  return 1;
+  return success();
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
@@ -340,40 +351,8 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-// The function is used to compute extra padding sizes.
-// For example, if gemmM size is 3 and gemmMPerBlock is 64,
-// we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
-//
-// If padding is needed, returns a GemmSize containing the number of elements
-// needed to pad the M, N, and K dimensions (**not** the new gemm size).
-// Otherwise, returns None
-template <typename T>
-static std::optional<GemmSize>
-calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
-                           T populateParams) {
-  auto configParams = populateParams.getTuningParameters(
-      kernelTypeFromConvOpType(dir), dataType);
-  size_t numOfFailedConfigs = 0;
-  for (auto &params : configParams) {
-    if (gemmSize.m % params.gemmMPerBlock == 0 &&
-        gemmSize.k % (params.gemmKPerBlock * params.getKPack()) == 0 &&
-        gemmSize.n % params.gemmNPerBlock == 0) {
-      break;
-    }
-    numOfFailedConfigs++;
-  }
-
-  if (numOfFailedConfigs == configParams.size()) {
-    auto extraParams = populateParams.getUniversalParameters();
-    return calculatePadding(
-        extraParams.gemmKPerBlock, extraParams.gemmMPerBlock,
-        extraParams.gemmNPerBlock, gemmSize, extraParams.getKPack());
-  }
-
-  return std::nullopt;
-}
-
-bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
+LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
+                                                     bool &needExtraPad) const {
   Type dataType = getDataType(builder);
   ConvOpType dir = config.operation.value();
   assert(dir == ConvOpType::BwdWeight &&
@@ -382,55 +361,55 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   ConvolutionDims convDims = getConvolutionDims();
   GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
 
-  bool needExtraPad = false;
+  needExtraPad = false;
+  PopulateParamsInfo info{/*gemmSize=*/gemmSize,
+                          /*arch*=*/config.arch,
+                          /*gemmFeatures=*/config.features,
+                          /*inputType=*/dataType,
+                          /*kernelType=*/KernelType::Conv2DBwdWeight,
+                          /*batchSize=*/convDims.n,
+                          /*numCu=*/static_cast<uint32_t>(config.num_cu)};
+
   if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
     PopulateParams populateParams;
     InitParamsNonXDL validParams;
-    // If there is a perfConfig present in the configuration
-    // we just need to see if padding will be used in that config
-    if (validParams.deserialize(config.perfConfig)) {
+    uint32_t gridSize;
+    auto res = populateParams.obtainTuningParameters(info, 0, config.perfConfig,
+                                                     validParams, gridSize);
+
+    if (succeeded(res)) {
       needExtraPad =
-          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-                           validParams.gemmNPerBlock, gemmSize)
-              .has_value();
-    } else {
-      // This function will go through the list and pick a valid configuration
-      // the following code will return if the resulting config needs padding
-      needExtraPad =
-          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
-              .has_value();
+          (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
+      return success();
     }
+
   } else {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
-    // If there is a perfConfig present in the configuration
-    // we just need to see if padding will be used in that config
-    if (validParams.deserialize(config.perfConfig)) {
-      needExtraPad =
-          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-                           validParams.gemmNPerBlock, gemmSize,
-                           validParams.gemmKPack)
-              .has_value();
-    } else {
-      // This function will go through the list and pick a valid configuration
-      // the following code will return if the resulting config needs padding
-      needExtraPad =
-          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
-              .has_value();
+    uint32_t blockSize;
+    uint32_t gridSize;
+    int64_t gemmKBlocks;
+    auto res = populateParamsXDL.obtainTuningParameters(
+        info, 0, config.perfConfig, validParams, blockSize, gridSize,
+        gemmKBlocks);
+    if (succeeded(res)) {
+      needExtraPad = (populateParamsXDL.calculatePaddingAmount(validParams,
+                                                               gemmSize) != 0);
+      return success();
     }
   }
-  return needExtraPad;
+  return failure();
 }
 
-bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
+LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
+                                            bool &needWorkspace) const {
   // Decide if a workspace is needed.
   // Preconditions:
   // - data type: fp16
   // - operation: backward weight conv2d.
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
-  bool result = false;
-
+  needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.value();
@@ -438,28 +417,36 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
         bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
-      result = (needExtraPadBwdWeight(builder) == false);
+      bool needPadding = false;
+      if (failed(needExtraPadBwdWeight(builder, needPadding))) {
+        return failure();
+      }
+      needWorkspace = !needPadding;
     }
   }
-  return result;
+  return success();
 }
 
-int Conv2dGenerator::getWorkspaceSize(ModuleOp &module) const {
+LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
+                                                int &workspaceSize) const {
   // Currently onlt in the following condition would a workspace is needed.
   // - data type: fp16
   // - operation: backward weight conv2d.
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
   // Workspace size is the same as the filter dimension, with fp32 type.
-  int result = 0;
+  bool needWorkspace = false;
   OpBuilder builder(module.getContext());
-  if (hasWorkspace(builder)) {
-    result = std::accumulate(config.filterDimension.begin(),
-                             config.filterDimension.end(), 1,
-                             std::multiplies<int>()) *
-             builder.getF32Type().getWidth() / 8;
+  if (failed(hasWorkspace(builder, needWorkspace))) {
+    return failure();
   }
-  return result;
+  if (needWorkspace) {
+    workspaceSize = std::accumulate(config.filterDimension.begin(),
+                                    config.filterDimension.end(), 1,
+                                    std::multiplies<int>()) *
+                    builder.getF32Type().getWidth() / 8;
+  }
+  return success();
 }
 
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
@@ -716,7 +703,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                                         config.outputDimension.end()),
                       outputDataType);
 
-  bool hasWorkspace = this->hasWorkspace(builder);
+  bool hasWorkspace = false;
+  if (failed(this->hasWorkspace(builder, hasWorkspace))) {
+    return failure();
+  }
   Type workspaceArgType;
   if (hasWorkspace) {
     workspaceArgType =
@@ -882,7 +872,11 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     }
   } break;
   case ConvOpType::BwdWeight: {
-    bool hasUtilities = getBwdWeightKernelCount(builder) > 1;
+    int kernelCount = 0;
+    if (failed(getBwdWeightKernelCount(builder, kernelCount))) {
+      return failure();
+    }
+    bool hasUtilities = (kernelCount > 1);
     if (hasUtilities && kernelId == 0) {
       // If there is a workspace, zero-init it, otherwise fill the filter tensor
       auto zeroInitOp = builder.create<ZeroInitKernelOp>(
