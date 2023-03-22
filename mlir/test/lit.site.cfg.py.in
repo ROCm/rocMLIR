@@ -43,6 +43,7 @@ config.run_rocm_tests = @MLIR_ENABLE_ROCM_CONVERSIONS@
 config.conv_validation_wrapper_library_dir = "@MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ENABLE_ROCM_RUNNER@
 config.enable_rock_driver = @ROCMLIR_DRIVER_ENABLED@
+config.rocmlir_enable_comgr = @ROCMLIR_ENABLE_COMGR@
 if config.enable_rock_driver:
     config.available_features.add('rock-driver')
 config.enable_rock_driver_e2e_test = @ROCMLIR_DRIVER_E2E_TEST_ENABLED@

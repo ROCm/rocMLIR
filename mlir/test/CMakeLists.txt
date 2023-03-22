@@ -1,6 +1,4 @@
-if (MLIR_ENABLE_ROCM_RUNNER)
-  add_subdirectory(CAPI)
-endif()
+add_subdirectory(CAPI)
 add_subdirectory(lib)
 
 llvm_canonicalize_cmake_booleans(
@@ -9,6 +7,7 @@ llvm_canonicalize_cmake_booleans(
   MLIR_ENABLE_ROCM_CONVERSIONS
   MLIR_ENABLE_ROCM_RUNNER
 
+  ROCMLIR_ENABLE_COMGR
   ROCMLIR_DRIVER_ENABLED
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED

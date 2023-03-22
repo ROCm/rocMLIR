@@ -90,8 +90,10 @@ tools.extend([
     ToolSubst('%conv_validation_wrapper_library_dir', config.conv_validation_wrapper_library_dir, unresolved='fatal'),
 ])
 
+if config.rocmlir_enable_comgr:
+    # Send `llc` to `true` so that we don't have to deal with LLVM IR mangling
+    tools.append(ToolSubst('llc', '/bin/cat >/dev/null | true'))
 llvm_config.add_tool_substitutions(tools, tool_dirs)
-
 
 # FileCheck -enable-var-scope is enabled by default in MLIR test
 # This option avoids to accidentally reuse variable across -LABEL match,
