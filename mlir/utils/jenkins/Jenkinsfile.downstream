@@ -170,7 +170,6 @@ pipeline {
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
-                                sh 'ldconfig'
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
