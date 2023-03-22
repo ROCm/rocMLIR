@@ -3,6 +3,8 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -10,6 +12,7 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 
+#include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <iostream>
@@ -24,11 +27,31 @@ using namespace mlir;
 namespace {
 struct MiirHandle_s {
   MiirHandle_s() {
-    OpBuilder builder(&getContext());
-    module = ModuleOp::create(builder.getUnknownLoc());
+    DialectRegistry &registry = getRegistry();
+    llvm::ThreadPool &pool = getThreadPool();
+    context = new MLIRContext(registry, MLIRContext::Threading::DISABLED);
+    context->setThreadPool(pool);
+    // Turn off all diagnotic printing on op and stacktrace
+    // Note: This is not necessary with below handler
+    context->printOpOnDiagnostic(false);
+    context->printStackTraceOnDiagnostic(false);
+    // Register a handler that swallows all diagnostic print
+    DiagnosticEngine &engine = context->getDiagEngine();
+    engine.registerHandler([](Diagnostic &diag) {});
+    context->loadDialect<rock::RockDialect, func::FuncDialect>();
+
+    module = ModuleOp::create(UnknownLoc::get(context));
   }
+
+  ~MiirHandle_s() { delete context; }
+
+  mlir::MLIRContext &getContext() { return *context; }
+
   mlir::ModuleOp getModule() { return module.get(); }
+
+  mlir::MLIRContext *context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
+
   std::string triple;
   std::string chip;
   std::string features;
@@ -37,25 +60,18 @@ struct MiirHandle_s {
   int workspace = 0;
 
 private:
-  MLIRContext &getContext() {
-    auto getRegistry = []() {
-      DialectRegistry registry;
-      registerRocMLIRDialects(registry);
-      return registry;
-    };
-    static MLIRContext context(getRegistry());
+  DialectRegistry &getRegistry() {
+    static DialectRegistry registry;
     static std::once_flag once;
-    std::call_once(once, []() {
-      // Turn off all diagnotic printing on op and stacktrace
-      // Note: This is not necessary with below handler
-      context.printOpOnDiagnostic(false);
-      context.printStackTraceOnDiagnostic(false);
-      // Register a handler that swallows all diagnostic print
-      DiagnosticEngine &engine = context.getDiagEngine();
-      engine.registerHandler([](Diagnostic &diag) {});
-      context.loadDialect<rock::RockDialect, func::FuncDialect>();
-    });
-    return context;
+    std::call_once(once, []() { registerRocMLIRDialects(registry); });
+    return registry;
+  }
+
+  // While we have multiple contexts, we'll only have one thread pool among
+  // them.
+  llvm::ThreadPool &getThreadPool() {
+    static llvm::ThreadPool pool;
+    return pool;
   }
 };
 
