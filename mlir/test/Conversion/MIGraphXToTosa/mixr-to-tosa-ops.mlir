@@ -23,7 +23,7 @@ module  {
   // CHECK: tosa.mul
   // CHECK: tosa.cast
   func.func @conv_with_quant(%arg1: tensor<1x3x224x224xi8>, %arg2: tensor<64x3x7x7xi8>, %scale: tensor<1x64x1x1xf32>, %bias: tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8> attributes {kernel = "mixr"} {
-    %1 = migraphx.convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xi8>, tensor<64x3x7x7xi8>) -> tensor<1x64x112x112xi32>
+    %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xi8>, tensor<64x3x7x7xi8>) -> tensor<1x64x112x112xi32>
     %2 = "migraphx.quantizelinear"(%1, %scale, %bias) : (tensor<1x64x112x112xi32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8>
     return %2 : tensor<1x64x112x112xi8>
 }

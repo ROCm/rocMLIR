@@ -46,13 +46,13 @@ public:
     ConversionTarget target(ctx);
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
                            func::FuncDialect>();
-    target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
-                        migraphx::ConvolutionOp, migraphx::RsqrtOp,
-                        migraphx::ReluOp, migraphx::TransposeOp,
-                        migraphx::BroadcastOp, migraphx::MultiBroadcastOp,
-                        migraphx::ReshapeOp, migraphx::DotOp, migraphx::PowOp,
-                        migraphx::RecipOp, migraphx::SoftmaxOp,
-                        migraphx::ReduceMeanOp, migraphx::QuantizeLinearOp>();
+    target.addIllegalOp<
+        migraphx::AddOp, migraphx::ConstantOp, migraphx::ConvolutionOp,
+        migraphx::QuantConvolutionOp, migraphx::RsqrtOp, migraphx::ReluOp,
+        migraphx::TransposeOp, migraphx::BroadcastOp,
+        migraphx::MultiBroadcastOp, migraphx::ReshapeOp, migraphx::DotOp,
+        migraphx::PowOp, migraphx::RecipOp, migraphx::SoftmaxOp,
+        migraphx::ReduceMeanOp, migraphx::QuantizeLinearOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
