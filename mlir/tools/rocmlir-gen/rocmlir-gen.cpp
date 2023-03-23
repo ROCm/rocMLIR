@@ -2337,7 +2337,6 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }
-      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
@@ -2897,7 +2896,6 @@ int main(int argc, char **argv) {
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }
-      llvm::errs() << kernelCount << "\n";
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
