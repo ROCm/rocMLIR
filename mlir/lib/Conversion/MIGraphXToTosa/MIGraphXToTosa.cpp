@@ -27,18 +27,6 @@ using namespace mlir;
 
 namespace {
 
-static bool isBroadcastable(Operation *op, Operation *operand) {
-  // tosa only broadcast implicitly on the second input of the binary operators.
-  if (op->getNumOperands() != 2)
-    return false;
-  if (op->getOperand(1) != operand->getResult(0)) {
-    // swap, if possible
-    op->setOperand(0, op->getOperand(1));
-    op->setOperand(1, operand->getResult(0));
-  }
-  return true;
-}
-
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
                                Type elemType, Args &&...args) {
@@ -55,6 +43,27 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
   auto result = op->getResult(0);
   result.setType(newOutTy);
   return op;
+}
+
+static bool assignExpandedShapeVal(Operation *use, Operation *originalOp,
+                                   Value maybeExpandedVal) {
+  if (isa<migraphx::DotOp>(use)) {
+    use->replaceUsesOfWith(originalOp->getResult(0), maybeExpandedVal);
+    return true;
+  }
+  if (use->getNumOperands() != 2) {
+    return false;
+  }
+  // tosa only broadcast implicitly on the second input of the binary
+  // elementwise operators.
+  if (use->getOperand(1) != originalOp->getResult(0)) {
+    // swap, if possible
+    use->setOperand(0, use->getOperand(1));
+    use->setOperand(1, maybeExpandedVal);
+  } else {
+    use->setOperand(1, maybeExpandedVal);
+  }
+  return true;
 }
 
 static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
@@ -199,50 +208,29 @@ public:
   LogicalResult
   matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto operands = adaptor.getOperands();
     Location loc = op->getLoc();
-    auto input_t = operands[0];
-    auto axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
+    ArrayRef<int64_t> inShape = op.getInput().getType().getShape();
+    uint32_t outRank = op.getOutput().getType().getRank();
+    Type elemType = op.getOutput().getType().getElementType();
+    int64_t axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
 
-    // get shape of the use
-    auto outShape = op->getResultTypes()[0].cast<ShapedType>().getShape();
-    auto outElemType =
-        op->getResultTypes()[0].cast<ShapedType>().getElementType();
-    uint32_t outRank = outShape.size();
-    auto inShape = input_t.getType().cast<ShapedType>().getShape();
-
-    Value newOperand = input_t;
-    if (outRank != inShape.size()) {
-      SmallVector<int64_t, 5> newShape;
-
-      // align the dimensions - by the given axis
-      for (uint32_t i = 0; i < outRank; i++) {
+    SmallVector<int64_t, 5> newShape;
+    for (uint32_t i = 0; i < outRank; i++) {
+      if (i == axis) {
+        newShape.push_back(inShape[0]);
+      } else {
         newShape.push_back(1);
       }
-      newShape[axis] = inShape[0];
-
-      // reshape
-      auto outType = RankedTensorType::get(newShape, outElemType);
-      newOperand = rewriter.create<tosa::ReshapeOp>(
-          loc, outType, input_t, rewriter.getDenseI64ArrayAttr(newShape));
     }
-
-    for (auto &use : op->getResult(0).getUses()) {
-      auto expandedOp = use.getOwner();
-      // isa binary operation,
-      if (isBroadcastable(expandedOp, op)) {
-        // replace the uses
-        for (auto &operand : expandedOp->getOpOperands()) {
-          if (operand.get() == op) {
-            operand.set(newOperand);
-            break;
-          }
-        }
-      } else {
-        return failure();
+    tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
+        rewriter, loc, elemType, op.getInput(),
+        rewriter.getDenseI64ArrayAttr(newShape));
+    for (Operation *use : op.getOutput().getUsers()) {
+      if (!assignExpandedShapeVal(use, op, sameRankReshapedOp.getResult())) {
+        return op.emitError() << use << " does not support broadcasting\n";
       }
     }
-    // erase broadcast
+
     rewriter.eraseOp(op);
     return success();
   }
@@ -256,56 +244,34 @@ public:
   LogicalResult
   matchAndRewrite(migraphx::MultiBroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto operands = adaptor.getOperands();
     Location loc = op->getLoc();
-    auto input_t = operands[0];
-    auto inShape = input_t.getType().cast<ShapedType>().getShape();
-    uint32_t inRank = inShape.size();
+    ArrayRef<int64_t> inShape = op.getInput().getType().getShape();
+    uint32_t inRank = op.getInput().getType().getRank();
+    uint32_t outRank = op.getOutput().getType().getRank();
+    Type elemType = op.getOutput().getType().getElementType();
 
-    for (auto &use : op->getResult(0).getUses()) {
-      auto expandedOp = use.getOwner();
-      if (expandedOp == op)
-        continue;
-      // isa binary operation,
-      if (isBroadcastable(expandedOp, op)) {
-        // get shape of the use
-        auto outShape =
-            expandedOp->getResultTypes()[0].cast<ShapedType>().getShape();
-        auto outElemType =
-            expandedOp->getResultTypes()[0].cast<ShapedType>().getElementType();
-        uint32_t outRank = outShape.size();
+    if (outRank < inRank) {
+      return op.emitError("MultiBroadcastOp shouldn't reduce rank.\n");
+    }
 
-        Value newOperand = input_t;
-        if (outRank != inShape.size()) {
-          SmallVector<int64_t, 5> newShape;
+    Value replacingValue = op.getInput();
+    if (outRank > inRank) {
+      SmallVector<int64_t, 5> newShape = llvm::to_vector<5>(inShape);
+      for (uint32_t i = inRank; i < outRank; i++) {
+        newShape.push_back(i);
+      }
+      tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
+          rewriter, loc, elemType, op.getInput(),
+          rewriter.getDenseI64ArrayAttr(newShape));
+      replacingValue = sameRankReshapedOp.getResult();
+    }
 
-          // align the dimensions - by the given in/out shape
-          uint32_t i = 0;
-          for (; i < outRank - inRank; i++) {
-            newShape.push_back(inShape[i]);
-          }
-          for (; i < outRank; i++) {
-            newShape.push_back(1);
-          }
-
-          // reshape
-          auto outType = RankedTensorType::get(newShape, outElemType);
-          newOperand = rewriter.create<tosa::ReshapeOp>(
-              loc, outType, input_t, rewriter.getDenseI64ArrayAttr(newShape));
-        }
-
-        // replace the uses
-        for (auto &operand : expandedOp->getOpOperands()) {
-          if (operand.get() == op) {
-            operand.set(newOperand);
-            break;
-          }
-        }
-      } else {
-        return failure();
+    for (Operation *use : op.getOutput().getUsers()) {
+      if (!assignExpandedShapeVal(use, op, replacingValue) && use != op) {
+        return op.emitError() << use << " does not support broadcasting\n";
       }
     }
-    // erase broadcast
+
     rewriter.eraseOp(op);
     return success();
   }
@@ -318,10 +284,9 @@ public:
   LogicalResult
   matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto operands = adaptor.getOperands();
     Location loc = op->getLoc();
-    auto in_A = operands[0];
-    auto in_B = operands[1];
+    TypedValue<TensorType> in_A = op.getInA();
+    TypedValue<TensorType> in_B = op.getInB();
     auto results = op->getResults();
     auto elementTy =
         op->getOperand(0).getType().cast<ShapedType>().getElementType();
@@ -332,8 +297,8 @@ public:
     ArrayRef<int64_t> orgOutDims = outputTy.getShape();
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
-    ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
-    ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
+    ArrayRef<int64_t> orgDimsA = in_A.getType().getShape();
+    ArrayRef<int64_t> orgDimsB = in_B.getType().getShape();
     size_t rankA = orgDimsA.size();
     size_t rankB = orgDimsB.size();
 
