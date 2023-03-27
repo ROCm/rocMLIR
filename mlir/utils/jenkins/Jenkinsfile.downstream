@@ -33,7 +33,7 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
@@ -168,9 +168,9 @@ pipeline {
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                HOME="${WORKSPACE}"
                             }
                             steps {
-                                sh 'ldconfig'
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
