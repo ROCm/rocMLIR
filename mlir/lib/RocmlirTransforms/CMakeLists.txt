@@ -13,6 +13,9 @@ endif()
 add_rocmlir_dialect_library(RocMLIRTransforms
   CompileGpuWithComgr.cpp
 
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/RocmlirTransforms
+
   LINK_COMPONENTS
   ${COMGR_PASS_COMPONENTS}
 
