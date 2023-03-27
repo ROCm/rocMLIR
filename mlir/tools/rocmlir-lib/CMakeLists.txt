@@ -247,6 +247,6 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   rocm_create_package(
     NAME ${PACKAGE_NAME}
     DESCRIPTION "MLIR packages"
-    MAINTAINER "rocMLIR"
+    MAINTAINER "rocMLIR Dev Team dl.dl-mlir@amd.com"
   )
 endif()
