@@ -556,6 +556,18 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     if (auto vecType = resType.dyn_cast<VectorType>()) {
       totalLength = vecType.getNumElements();
     }
+    // Don't use any vector magic if we don't need to
+    if ((totalLength <= maxLoadLen) && (maxLoadLen % totalLength == 0)) {
+      Type typeToLoad = sourceElemType;
+      if (totalLength > 1)
+        typeToLoad = VectorType::get({totalLength}, typeToLoad);
+      BufferLoadOp load =
+          b.create<BufferLoadOp>(loc, typeToLoad, op.getSource(), op.getValid(),
+                                 op.getSourceCoord(), IntegerAttr(),
+                                 /*oobIsOverload=*/nullptr);
+      b.replaceOp(op, {load});
+      return success();
+    }
     int64_t remainingLength = totalLength;
     int64_t offset = 0;
 
@@ -619,6 +631,21 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     int64_t maxWriteLen = 4 * elemsPerWord;
     int64_t remainingLength = op.getLength().getSExtValue();
     int64_t offset = 0;
+    // Don't use any vector magic if we don't need to
+    if ((remainingLength <= maxWriteLen) &&
+        (maxWriteLen % remainingLength == 0)) {
+      Type typeToLoad = sourceElemType;
+      if (remainingLength > 1)
+        typeToLoad = VectorType::get({remainingLength}, typeToLoad);
+      Value loaded =
+          b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
+      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getValid(),
+                              op.getDestCoord(), op.getFeaturesAttr(),
+                              op.getStoreMethodAttr(), IntegerAttr(),
+                              /*oobIsOverload=*/nullptr);
+      b.eraseOp(op);
+      return success();
+    }
     while (remainingLength > 0) {
       int64_t copyLength = std::min(remainingLength, maxWriteLen);
 

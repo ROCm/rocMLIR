@@ -59,10 +59,9 @@ func.func @rock_global_load(%source2D : memref<32x32xf32>) -> vector<4xf32> {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   // CHECK: %[[loaded:.*]] = rock.buffer_load {{.*}}: memref<32x32xf32>, index, index -> vector<4xf32>
-  // CHECK: %[[ret:.*]] = rock.insert_slice %[[loaded]]
   %loaded = rock.global_load %source2D[%c0, %c0] if %true
     : memref<32x32xf32> -> vector<4xf32>
-  // CHECK: return %[[ret]]
+  // CHECK: return %[[loaded]]
   func.return %loaded : vector<4xf32>
 }
 
