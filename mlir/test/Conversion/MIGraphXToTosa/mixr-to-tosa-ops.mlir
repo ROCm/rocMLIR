@@ -1,31 +1,52 @@
 // RUN: rocmlir-opt --migraphx-transform --canonicalize --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
 
 module  {
-  // CHECK-LABEL: func @quantization_scale
-  // CHECK-NOT: tosa.add
+  // CHECK-LABEL: func @dequantize_scale
+  // CHECK-NOT: tosa.sub
   // CHECK: tosa.mul
-  func.func @quantization_scale(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %2 = "migraphx.quantizelinear"(%arg, %scale) : (tensor<1x112x112x64xi32>, tensor<64xf32>) -> tensor<1x112x112x64xi8>
-    return %2 : tensor<1x112x112x64xi8>
+  func.func @dequantize_scale(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
+    %1 = "migraphx.dequantizelinear"(%arg, %scale) : (tensor<1x112x112x64xi32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
+    return %1 : tensor<1x112x112x64xf32>
 }
 
-  // CHECK-LABEL: func @quantization_scale_bias
-  // CHECK: tosa.add
+  // CHECK-LABEL: func @dequantize_scale_bias
+  // CHECK: tosa.sub
   // CHECK: tosa.mul
-  func.func @quantization_scale_bias(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %2 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi32>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xi8>
-    return %2 : tensor<1x112x112x64xi8>
+  func.func @dequantize_scale_bias(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
+    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi32>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xf32>
+    return %1 : tensor<1x112x112x64xf32>
+}
+
+  // CHECK-LABEL: func @quantize_scale
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  // CHECK-NOT: tosa.add
+  func.func @quantize_scale(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
+    %1 = "migraphx.quantizelinear"(%arg, %scale) : (tensor<1x112x112x64xf32>, tensor<64xf32>) -> tensor<1x112x112x64xi8>
+    return %1 : tensor<1x112x112x64xi8>
+}
+
+  // CHECK-LABEL: func @quantize_scale_bias
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  // CHECK: tosa.add
+  func.func @quantize_scale_bias(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
+    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf32>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xi8>
+    return %1 : tensor<1x112x112x64xi8>
 }
 
   // CHECK-LABEL: func @conv_with_quant
   // CHECK: tosa.conv2d{{.*}} quantization_info
-  // CHECK: tosa.add
+  // CHECK: tosa.sub
   // CHECK: tosa.mul
-  // CHECK: tosa.cast
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  // CHECK: tosa.add
   func.func @conv_with_quant(%arg1: tensor<1x3x224x224xi8>, %arg2: tensor<64x3x7x7xi8>, %scale: tensor<1x64x1x1xf32>, %bias: tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8> attributes {kernel = "mixr"} {
     %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xi8>, tensor<64x3x7x7xi8>) -> tensor<1x64x112x112xi32>
-    %2 = "migraphx.quantizelinear"(%1, %scale, %bias) : (tensor<1x64x112x112xi32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8>
-    return %2 : tensor<1x64x112x112xi8>
+    %2 = "migraphx.dequantizelinear"(%1, %scale, %bias) : (tensor<1x64x112x112xi32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xf32>
+    %3 = "migraphx.quantizelinear"(%2, %scale, %bias) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8>
+    return %3 : tensor<1x64x112x112xi8>
 }
 
   // CHECK-LABEL: func.func @matmul

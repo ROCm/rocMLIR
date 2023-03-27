@@ -52,7 +52,8 @@ public:
         migraphx::TransposeOp, migraphx::BroadcastOp,
         migraphx::MultiBroadcastOp, migraphx::ReshapeOp, migraphx::DotOp,
         migraphx::PowOp, migraphx::RecipOp, migraphx::SoftmaxOp,
-        migraphx::ReduceMeanOp, migraphx::QuantizeLinearOp>();
+        migraphx::ReduceMeanOp, migraphx::QuantizeLinearOp,
+        migraphx::DeQuantizeLinearOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
