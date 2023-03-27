@@ -78,7 +78,25 @@ auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
       {ROCDL::mfma_i32_32x32x16_i8::getOperationName(),
        {MfmaTypeId::I8TyId, 32, 16, 1}},
       {ROCDL::mfma_i32_16x16x32_i8::getOperationName(),
-       {MfmaTypeId::I8TyId, 16, 32, 1}}};
+       {MfmaTypeId::I8TyId, 16, 32, 1}},
+
+      // fp8
+      {ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName(),
+       {MfmaTypeId::Fp8Fp8TyId, 32, 16, 1}},
+      {ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName(),
+       {MfmaTypeId::Fp8Fp8TyId, 16, 32, 1}},
+      {ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName(),
+       {MfmaTypeId::Fp8Bf8TyId, 32, 16, 1}},
+      {ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName(),
+       {MfmaTypeId::Fp8Bf8TyId, 16, 32, 1}},
+      {ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName(),
+       {MfmaTypeId::Bf8Fp8TyId, 32, 16, 1}},
+      {ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName(),
+       {MfmaTypeId::Bf8Fp8TyId, 16, 32, 1}},
+      {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName(),
+       {MfmaTypeId::Bf8Bf8TyId, 32, 16, 1}},
+      {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName(),
+       {MfmaTypeId::Bf8Bf8TyId, 16, 32, 1}}};
   return insnInfo;
 };
 
@@ -319,7 +337,71 @@ auto getMfmaInsnGroupAttrMapGfx940Plus = []() {
                    {{MfmaTypeId::I8TyId, 16, 64},
                     {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}},
                    {{MfmaTypeId::I8TyId, 16, 16},
-                    {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}}};
+                    {ROCDL::mfma_i32_16x16x32_i8::getOperationName()}},
+
+                   // fp8 * fp8
+                   {{MfmaTypeId::Fp8Fp8TyId, 64, 64},
+                    {ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 64, 32},
+                    {ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 32, 64},
+                    {ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 32, 32},
+                    {ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 64, 16},
+                    {ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 16, 64},
+                    {ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Fp8TyId, 16, 16},
+                    {ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName()}},
+
+                   // fp8 * bf8
+                   {{MfmaTypeId::Fp8Bf8TyId, 64, 64},
+                    {ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 64, 32},
+                    {ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 32, 64},
+                    {ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 32, 32},
+                    {ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 64, 16},
+                    {ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 16, 64},
+                    {ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Fp8Bf8TyId, 16, 16},
+                    {ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName()}},
+
+                   // bf8 * fp8
+                   {{MfmaTypeId::Bf8Fp8TyId, 64, 64},
+                    {ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 64, 32},
+                    {ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 32, 64},
+                    {ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 32, 32},
+                    {ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 64, 16},
+                    {ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 16, 64},
+                    {ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Fp8TyId, 16, 16},
+                    {ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName()}},
+
+                   // bf8 * bf8
+                   {{MfmaTypeId::Bf8Bf8TyId, 64, 64},
+                    {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 64, 32},
+                    {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 32, 64},
+                    {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 32, 32},
+                    {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 64, 16},
+                    {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 16, 64},
+                    {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName()}},
+                   {{MfmaTypeId::Bf8Bf8TyId, 16, 16},
+                    {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName()}}};
   ;
   return groupAttrMap;
 };
@@ -336,7 +418,7 @@ MfmaInsn::MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr) : attr(mfmaInsnAttr) {}
 
 MfmaInsnAttr MfmaInsn::getAttr() { return attr; }
 
-Type MfmaInsn::getArgType(Type elementType) {
+Type MfmaInsn::getArgTypeFor(Type elementType) {
   return attr.nInputsToMfma == 1
              ? elementType
              : VectorType::get({attr.nInputsToMfma}, elementType);
@@ -385,27 +467,41 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
   }
 }
 
-MfmaTypeId convertTypeToId(mlir::Type dataType) {
-  if (dataType.isF32()) {
+static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
+  if (dataTypeA.isF32() && dataTypeB.isF32()) {
     return MfmaTypeId::Fp32TyId;
   }
-  if (dataType.isF16()) {
+  if (dataTypeA.isF16() && dataTypeB.isF16()) {
     return MfmaTypeId::Fp16TyId;
   }
-  if (dataType.isBF16()) {
+  if (dataTypeA.isBF16() && dataTypeB.isBF16()) {
     return MfmaTypeId::Bf16TyId;
   }
-  if (dataType.isInteger(8)) {
+  if (dataTypeA.isInteger(8) && dataTypeB.isInteger(8)) {
     return MfmaTypeId::I8TyId;
+  }
+  if (dataTypeA.isFloat8E4M3FNUZ() && dataTypeB.isFloat8E4M3FNUZ()) {
+    return MfmaTypeId::Fp8Fp8TyId;
+  }
+  if (dataTypeA.isFloat8E4M3FNUZ() && dataTypeB.isFloat8E5M2FNUZ()) {
+    return MfmaTypeId::Fp8Bf8TyId;
+  }
+  if (dataTypeA.isFloat8E5M2FNUZ() && dataTypeB.isFloat8E4M3FNUZ()) {
+    return MfmaTypeId::Bf8Fp8TyId;
+  }
+  if (dataTypeA.isFloat8E5M2FNUZ() && dataTypeB.isFloat8E5M2FNUZ()) {
+    return MfmaTypeId::Bf8Bf8TyId;
   }
   llvm_unreachable("Unsupported input argument type.");
 }
 
-FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
+FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
+                                               Type elementTypeB,
                                                StringRef arch, int64_t mPerWave,
                                                int64_t nPerWave) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
-                          << "elementType: " << elementType << "\n"
+                          << "elementType A: " << elementTypeA << "\n"
+                          << "elementType B: " << elementTypeB << "\n"
                           << "arch: " << arch << "\n"
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
@@ -414,8 +510,8 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
   int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
 
-  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), mPerMfmaGroup,
-                                nPerMfmaGroup};
+  MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB),
+                                mPerMfmaGroup, nPerMfmaGroup};
 
   FailureOr<MfmaInsnGroup> result = failure();
   auto selectFrom = [&](const MfmaInsnGroupMap &groupMap) {
@@ -432,12 +528,12 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
         result = failure();
         return;
       }
-      result = MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
+      result = MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
     }
   };
   bool hasOldBf16 = arch.contains("gfx908");
   bool isPreGfx940 = arch.contains("gfx908") || arch.contains("gfx90a");
-  if (elementType.isBF16())
+  if (elementTypeA.isBF16())
     selectFrom(hasOldBf16 ? getMfmaInsnGroupAttrMapGfx908Bf16()
                           : getMfmaInsnGroupAttrMapGfx90aPlusBf16());
   selectFrom(isPreGfx940 ? getMfmaInsnGroupAttrMapPreGfx940Int8()
@@ -449,9 +545,11 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
   return result;
 }
 
-MfmaInsnGroup::MfmaInsnGroup(Type elementType, const MfmaInsn &mfmaInsn,
+MfmaInsnGroup::MfmaInsnGroup(Type elementTypeA, Type elementTypeB,
+                             const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &groupAttr)
-    : elementType(elementType), insn(mfmaInsn), groupAttr(groupAttr) {}
+    : elementTypeA(elementTypeA), elementTypeB(elementTypeB), insn(mfmaInsn),
+      groupAttr(groupAttr) {}
 
 int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
   auto mfmaInsnAttr = getInsnAttr();
@@ -473,9 +571,13 @@ int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
 
 MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
 
-Type MfmaInsnGroup::getArgType() { return insn.getArgType(elementType); }
+Type MfmaInsnGroup::getArgTypeA() { return insn.getArgTypeFor(elementTypeA); }
 
-VectorType MfmaInsnGroup::getRetType() { return insn.getRetType(elementType); }
+Type MfmaInsnGroup::getArgTypeB() { return insn.getArgTypeFor(elementTypeB); }
+
+/// Note: Since this only returns i32 or f32, we don't need to do anything
+/// particularly clever here.
+VectorType MfmaInsnGroup::getRetType() { return insn.getRetType(elementTypeA); }
 
 SmallVector<mlir::rock::MFMAParams, 2> MfmaInsnGroup::getImms() {
   return groupAttr.imms;

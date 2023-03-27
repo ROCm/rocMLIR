@@ -131,8 +131,7 @@ def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 }
 
 def Rock_GemmOp :
-    Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>,
-                     DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
+    Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
     Arguments<(ins Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
                        "matrix A", [MemRead]>:$a,
                    Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
@@ -1070,8 +1069,6 @@ def Rock_BlockwiseGemmV2Op:
     Rock_Op<"blockwise_gemm_v2">,
     Arguments<(ins MemRefOf<GemmInputTypes>:$matrixA,
                    MemRefOf<GemmInputTypes>:$matrixB,
-                   IndexAttr:$ldsBufferOffsetA,
-                   IndexAttr:$ldsBufferOffsetB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<MfmaArgTypes>:$bufferA,

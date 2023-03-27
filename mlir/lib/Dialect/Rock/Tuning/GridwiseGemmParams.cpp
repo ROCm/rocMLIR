@@ -65,8 +65,8 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
 // clang-format on
 
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
-  PopulateParamsInfo info{op.getGemmSize(), op.getArch(), op.getGemmFeatures(),
-                          op.getInputType(), op.getKernelType()};
+  PopulateParamsInfo info{op.getGemmSize(), op.getArch(),  op.getGemmFeatures(),
+                          op.getAType(),    op.getBType(), op.getKernelType()};
 
   if (auto convOp = dyn_cast<Conv2DBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
@@ -158,7 +158,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  auto paramSets = getTuningParameters(info.kernelType, info.inputType);
+  auto paramSets =
+      getTuningParameters(info.kernelType, info.gemmAType, info.gemmBType);
   for (auto &params : orderInitParams(paramSets, info.gemmSize)) {
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -189,7 +190,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
 }
 
 std::vector<InitParamsNonXDL>
-PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
+PopulateParams::getTuningParameters(KernelType opType, Type dataTypeA,
+                                    Type dataTypeB) const {
   ArrayRef<InitParamsNonXDL> params = {initParameters, nInitParameters};
   return std::vector<InitParamsNonXDL>(params);
 }
@@ -257,8 +259,8 @@ PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = 
 };
 
 const InitParamsXDL
-PopulateParamsXDL::initParametersForwardI8[
-  PopulateParamsXDL::nInitParametersForwardI8] = {
+PopulateParamsXDL::initParametersForward8Bit[
+  PopulateParamsXDL::nInitParametersForward8Bit] = {
   {128, 128, 8, 64, 64, 8, true, true},
   {64, 64, 8, 32, 32, 8, true, true},
   {64, 64, 8, 32, 32, 4, true, true},
@@ -283,10 +285,9 @@ LogicalResult PopulateParamsXDL::getKBlocks(const int64_t batchSize,
                             params.gemmKPack, numCu, gemmKBlocks);
 }
 
-LogicalResult
-PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
-                                              Type dataType, StringRef arch,
-                                              uint32_t blockSize) {
+LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
+    const InitParamsXDL &param, Type dataTypeA, Type dataTypeB, StringRef arch,
+    uint32_t blockSize) {
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -305,8 +306,11 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   };
   // clang-format on
 
-  // Add broadcasts for floating point types
-  if (!dataType.isInteger(8)) {
+  // Add broadcasts for non 8-bit types.
+  bool is8BitReduceOnly = dataTypeA.isInteger(8) ||
+                          dataTypeA.isFloat8E4M3FNUZ() ||
+                          dataTypeA.isFloat8E5M2FNUZ();
+  if (!is8BitReduceOnly) {
     validWaveGemmSize.emplace_back(8, 64, 1);
     validWaveGemmSize.emplace_back(4, 64, 1);
   }
@@ -340,7 +344,7 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
 
   // Reject invalid KPACK values.
   auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-      dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
+      dataTypeA, dataTypeB, arch, param.gemmMPerWave, param.gemmNPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -375,8 +379,8 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
 
   blockSize = obtainBlockSize(params, waveSize);
 
-  LogicalResult res =
-      isValidBlockwiseGemmXDLOPS(params, info.inputType, info.arch, blockSize);
+  LogicalResult res = isValidBlockwiseGemmXDLOPS(
+      params, info.gemmAType, info.gemmBType, info.arch, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
@@ -387,8 +391,10 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
   // parameters derivable from tunable parameters.
   gemmKBlocks = 1;
   auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
+  // We can pick one of the two data types as we don't support backward-weight
+  // fp8 currently.
   if (maybeWrwOp &&
-      isWrWAtomicKernel(info.gemmFeatures, info.inputType, requiredPadding)) {
+      isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
     res = getKBlocks(info.batchSize, gemmSize, params, gemmKBlocks, info.numCu);
     if (failed(res)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -423,8 +429,8 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
   }
 
   LogicalResult res = failure();
-  auto paramSets =
-      getTuningParameters(info.kernelType, info.inputType, info.arch);
+  auto paramSets = getTuningParameters(info.kernelType, info.gemmAType,
+                                       info.gemmBType, info.arch);
 
   for (const auto &params : orderInitParams(paramSets, info.gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
@@ -464,12 +470,12 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 }
 
 std::vector<InitParamsXDL>
-PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType,
-                                       StringRef arch) const {
+PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
+                                       Type dataTypeB, StringRef arch) const {
   ArrayRef<InitParamsXDL> params;
-  switch (dataType.getIntOrFloatBitWidth()) {
+  switch (dataTypeA.getIntOrFloatBitWidth()) {
   case 8:
-    params = {initParametersForwardI8, nInitParametersForwardI8};
+    params = {initParametersForward8Bit, nInitParametersForward8Bit};
     break;
   case 16:
     params = {initParametersFp16, nInitParametersFp16};
@@ -483,7 +489,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType,
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsXDL &param) {
         auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-            dataType, arch, param.gemmMPerWave, param.gemmNPerWave);
+            dataTypeA, dataTypeB, arch, param.gemmMPerWave, param.gemmNPerWave);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }

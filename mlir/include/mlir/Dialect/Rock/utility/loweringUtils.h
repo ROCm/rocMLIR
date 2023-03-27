@@ -22,7 +22,7 @@ namespace rock {
 struct ConvolutionDims;
 struct GemmSize;
 
-bool isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
+bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.

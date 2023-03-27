@@ -320,39 +320,28 @@ struct BlockwiseGemmV2RewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
     int64_t KPack = tuningParams.getKpack();
 
-    int64_t ldsOffsetA = op.getLdsBufferOffsetA().getSExtValue();
-    int64_t ldsOffsetB = op.getLdsBufferOffsetB().getSExtValue();
-
-    assert(ldsOffsetA % KPack == 0 &&
-           "LDS buffer segment for A is kpack-aligned");
-    assert(ldsOffsetB % KPack == 0 &&
-           "LDS buffer segment for B is kpack-aligned");
-    auto dataType =
+    auto dataTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
+    auto dataTypeB =
+        adaptor.getMatrixB().getType().cast<MemRefType>().getElementType();
 
     // The address calculations into the LDS buffer assume that the buffer
     // has type vector<KPack x T>. Then, we convert that into an address
     // in a buffer of Ts through a final multiplicaiton by KPack.
-    // However, the LDS buffer offset, which was computed when the buffer was
-    // allocated, is an offset into a buffer of T. Therefore, to allow it to
-    // easily participate in adress calculations (instead of adding it on at the
-    // end) we must divide it by KPack here. Fortunately, this offset will be
-    // KPack-alligned and so this is safe
-    Value sourceOffsetA =
-        b.create<AddIOp>(loc, adaptor.getWaveOffsetA(),
-                         b.create<ConstantIndexOp>(loc, ldsOffsetA / KPack));
-    Value sourceOffsetB =
-        b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
-                         b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
+    // The wave offset is already only in terms of D (M or N) and so we don't
+    // need to divide out a factor of kpack.
+    Value sourceOffsetA = adaptor.getWaveOffsetA();
+    Value sourceOffsetB = adaptor.getWaveOffsetB();
 
     auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, arch, mPerWave, nPerWave);
+        MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
     MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
 
-    Type argType = mfmaGroup.getArgType();
+    Type argTypeA = mfmaGroup.getArgTypeA();
+    Type argTypeB = mfmaGroup.getArgTypeB();
 
     MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
     int64_t inputSpanLen = mfmaAttr.inputSpanLen;
@@ -380,7 +369,8 @@ struct BlockwiseGemmV2RewritePattern
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 
     LLVM_DEBUG(llvm::dbgs()
-               << "argVectorType: " << argType << "\n"
+               << "argVectorType A: " << argTypeA << "\n"
+               << "argVectorType B: " << argTypeB << "\n"
                << "k_base: " << k_base << "\n"
                << "K: " << K << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
@@ -403,7 +393,7 @@ struct BlockwiseGemmV2RewritePattern
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
                                  Value k_i, Value K, Value mnPerMfmaGroup,
-                                 Value ldsOrig, Value regDest) {
+                                 Type dataType, Value ldsOrig, Value regDest) {
       // Compute source offset
       Value sourceOffset = sourceBase;
       if (!IsKReduction) {
@@ -491,7 +481,8 @@ struct BlockwiseGemmV2RewritePattern
 
     auto ldsToRegisterCopyKdim =
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
-            Value MN, Value mnPerMfmaGroup, Value ldsOrig, Value regDest) {
+            Value MN, Value mnPerMfmaGroup, Type dataType, Value ldsOrig,
+            Value regDest) {
           auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, KPerThread);
           auto ilkb = ConversionPatternRewriter::atBlockBegin(
               innerLoopK.getBody(), outerLoopB.getListener());
@@ -503,8 +494,8 @@ struct BlockwiseGemmV2RewritePattern
             ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
                               outerLoopBodyOp.getInductionVar(), MN,
                               innerLoopK.getInductionVar(),
-                              KPerThreadConstantOp, mnPerMfmaGroup, ldsOrig,
-                              regDest);
+                              KPerThreadConstantOp, mnPerMfmaGroup, dataType,
+                              ldsOrig, regDest);
           }
         };
 
@@ -516,7 +507,8 @@ struct BlockwiseGemmV2RewritePattern
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
                                                         b.getListener());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
-                          mPerMfmaGroupConstantOp, op.getMatrixA(), bufferA);
+                          mPerMfmaGroupConstantOp, dataTypeA, op.getMatrixA(),
+                          bufferA);
 
     // load B from LDS into registers
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
@@ -526,7 +518,8 @@ struct BlockwiseGemmV2RewritePattern
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
                                                         olmb.getListener());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
-                          nPerMfmaGroupConstantOp, op.getMatrixB(), bufferB);
+                          nPerMfmaGroupConstantOp, dataTypeB, op.getMatrixB(),
+                          bufferB);
 
     b.eraseOp(op);
     olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),

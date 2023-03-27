@@ -362,10 +362,12 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
 
   needExtraPad = false;
+  // TODO: support mixed-type fp8 here too.
   PopulateParamsInfo info{/*gemmSize=*/gemmSize,
                           /*arch*=*/config.arch,
                           /*gemmFeatures=*/config.features,
-                          /*inputType=*/dataType,
+                          /*gemmAType=*/dataType,
+                          /*gemmBType=*/dataType,
                           /*kernelType=*/KernelType::Conv2DBwdWeight,
                           /*batchSize=*/convDims.n,
                           /*numCu=*/static_cast<uint32_t>(config.num_cu)};

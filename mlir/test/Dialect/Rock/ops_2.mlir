@@ -535,9 +535,7 @@ func.func @rock_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %m
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
-      forceUnroll = true>,
-    ldsBufferOffsetA = 0 : index,
-    ldsBufferOffsetB = 0 : index
+      forceUnroll = true>
   } : memref<1xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
   return
 }
@@ -561,9 +559,7 @@ func.func @rock_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
-      forceUnroll = true>,
-    ldsBufferOffsetA = 0 : index,
-    ldsBufferOffsetB = 8192 : index
+      forceUnroll = true>
   } : memref<2xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
   return
 }

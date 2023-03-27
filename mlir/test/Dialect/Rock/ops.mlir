@@ -33,6 +33,21 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
 // CHECK-LABEL: func.func @rock_conv2d_f16
 // CHECK-NEXT: rock.conv2d
 
+func.func @rock_conv2d_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv2d(%filter, %input, %output) features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+  } : memref<?x?x?x?x?xf8E4M3FNUZ>, memref<?x?x?x?x?xf8E5M2FNUZ>, memref<?x?x?x?x?xf32>
+  return
+}
+// CHECK-LABEL: func.func @rock_conv2d_fp8_mixed
+// CHECK-NEXT: rock.conv2d
+
 func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
