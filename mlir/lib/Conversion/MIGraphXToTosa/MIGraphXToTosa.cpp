@@ -75,7 +75,7 @@ static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
   return op;
 }
 
-static Type getShapedElementTy(const Value &v) {
+static Type getShapedElementTy(Value v) {
   return v.getType().cast<ShapedType>().getElementType();
 }
 
