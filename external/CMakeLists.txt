@@ -1,1 +1,2 @@
+add_definitions(-D_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
 add_subdirectory(llvm-project/llvm)

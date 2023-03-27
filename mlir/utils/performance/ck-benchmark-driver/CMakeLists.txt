@@ -1,8 +1,4 @@
 find_package(composable_kernel CONFIG 1.0.0 COMPONENTS device_operations)
-if(NOT composable_kernel_FOUND)
-  message(WARNING "Could not find composable-kernels, not building a CK benchmark driver")
-endif()
-
 if (composable_kernel_FOUND)
   find_package(hip REQUIRED PATHS /opt/rocm)
   set(LIBS composable_kernel::device_operations hip::device benchmark-driver-utils)
@@ -14,4 +10,6 @@ if (composable_kernel_FOUND)
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
+else()
+  message(WARNING "Could not find composable-kernels, not building a CK benchmark driver")
 endif()
