@@ -6,6 +6,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitRocMLIRDialects.h"
+#include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
@@ -60,10 +61,20 @@ struct MiirHandle_s {
   int workspace = 0;
 
 private:
+  // In multi-threaded context, static intialization is guaranteed to
+  // be thread safe, since C++11. Refer to
+  // https://en.cppreference.com/w/cpp/language/storage_duration
+  //
+  // With this guarantee, we are protected from the possible race
+  // condition of one thread doing intialization and another doing
+  // lowering.
   DialectRegistry &getRegistry() {
     static DialectRegistry registry;
     static std::once_flag once;
-    std::call_once(once, []() { registerRocMLIRDialects(registry); });
+    std::call_once(once, []() {
+      registerRocMLIRDialects(registry);
+      registerRocMLIRPasses();
+    });
     return registry;
   }
 
@@ -74,30 +85,6 @@ private:
     return pool;
   }
 };
-
-// In multi-threaded context, static intialization is guaranteed to
-// be thread safe, since C++11. Refer to
-// https://en.cppreference.com/w/cpp/language/storage_duration
-//
-// With this guarantee, we are protected from the possible race
-// condition of one thread doing intialization and another doing
-// lowering.
-void miirLazyInit() {
-  static std::once_flag once;
-  std::call_once(once, []() {
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
-
-    // Initialize LLVM AMDGPU backend.
-    LLVMInitializeAMDGPUTarget();
-    LLVMInitializeAMDGPUTargetInfo();
-    LLVMInitializeAMDGPUTargetMC();
-    LLVMInitializeAMDGPUAsmPrinter();
-  });
-}
 
 LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
   const std::string &inLayout = conf.inputLayout;
@@ -255,7 +242,6 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
-  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
@@ -276,7 +262,6 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
-  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
