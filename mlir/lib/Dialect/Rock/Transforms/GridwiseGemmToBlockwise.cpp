@@ -782,7 +782,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
           wrappedLdsB = std::move(*maybeWrappedLdsB);
 
     Value storeBufferA = loadBufferA;
-    Value storeBufferB = loadBufferA;
+    Value storeBufferB = loadBufferB;
 
     // Possibly transpose the buffers before storing them into LDS
     bool transposeA = (copyMPerThread > 1) && (aCopyKPerThread > 1) &&
@@ -1159,7 +1159,7 @@ struct GridwiseGemmV2RewritePattern
                              bCopyPerThread, bVectorLen, bid, tid, forceUnroll);
 
     Value storeBufferA = loadBufferA;
-    Value storeBufferB = loadBufferA;
+    Value storeBufferB = loadBufferB;
 
     // Possibly transpose the buffers before storing them into LDS
     bool transposeA = (copyMPerThread > 1) && (aCopyKPerThread > 1) &&
