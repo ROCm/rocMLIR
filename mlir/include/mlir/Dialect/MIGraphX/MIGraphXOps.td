@@ -160,15 +160,30 @@ def MIGraphX_FloorOp :
 
 def MIGraphX_QuantizeLinearOp :
     MIGraphX_Op<"quantizelinear">,
-    Arguments<(ins TensorOf<[I32]>:$input,
+    Arguments<(ins TensorOf<[F32]>:$input,
                    TensorOf<[F32]>:$scale,
                    Optional<TensorOf<[I32]>>:$bias)>,
 	  Results<(outs TensorOf<[I8]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
-    Quantization tensor elementwise
+    Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = tensor[n,c,h,w] / quantScale[c] + quantBias[c]
   }];
-  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
+  let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
+}
+
+def MIGraphX_DeQuantizeLinearOp :
+    MIGraphX_Op<"dequantizelinear">,
+    Arguments<(ins TensorOf<[I32]>:$input,
+                   TensorOf<[F32]>:$scale,
+                   Optional<TensorOf<[I32]>>:$bias)>,
+	  Results<(outs TensorOf<[F32]>:$output)> {
+  let summary = "Channelwise dequantization";
+  let description = [{
+    De-Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = (tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
+  }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
 }
 
 // Convolution operations

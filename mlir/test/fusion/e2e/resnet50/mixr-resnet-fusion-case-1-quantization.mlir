@@ -5,7 +5,9 @@
 module {
   func.func @test(%arg0: tensor<1x128x1x1xf32>, %arg1: tensor<1x128x56x56xi8>, %arg2: tensor<128x128x3x3xi8>) -> tensor<1x128x28x28xi8> {
     %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x128x56x56xi8>, tensor<128x128x3x3xi8>) -> tensor<1x128x28x28xi32>
-    %2 = "migraphx.quantizelinear"(%1, %arg0) : (tensor<1x128x28x28xi32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xi8>
-    return %2 : tensor<1x128x28x28xi8>
+    %2 = migraphx.dequantizelinear(%1, %arg0) : (tensor<1x128x28x28xi32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %3 = migraphx.quantizelinear(%2, %arg0) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xi8>
+    return %3 : tensor<1x128x28x28xi8>
   }
 }
+

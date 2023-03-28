@@ -75,6 +75,10 @@ static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
   return op;
 }
 
+static Type getShapedElementTy(Value v) {
+  return v.getType().cast<ShapedType>().getElementType();
+}
+
 template <typename ConvType>
 class ConvConverter : public OpConversionPattern<ConvType> {
 public:
@@ -481,30 +485,68 @@ class QuantizeLinearConverter final
 public:
   using OpConversionPattern<migraphx::QuantizeLinearOp>::OpConversionPattern;
 
+  // MIGraphX pseudo code:
+  // int64_t quantized = static_cast<int32>(
+  //      std::round(input[i] / scales[i])) + zero_pts[i];
+  // output[i] = std::max(-128, std::min(127, quantized));
   LogicalResult
   matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto input = op.getInput();
-    auto scale = op.getScale();
-    ShapedType inputType = input.getType().cast<ShapedType>();
-    auto elementType = inputType.getElementType();
+    Value input = op.getInput();
+    Value scale = op.getScale();
+    Value output = op.getOutput();
+    Location loc = op->getLoc();
+
+    Type elementType = getShapedElementTy(input);
+    Value inverseScale =
+        createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType, scale);
+    Value scaled = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
+    Value shifted = scaled;
+
+    if (auto bias = op.getBias()) {
+      auto biasElementType = getShapedElementTy(bias);
+      Value scaleCast = createCastOp(rewriter, loc, biasElementType, scaled);
+      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, biasElementType,
+                                              scaleCast, bias);
+    }
+
+    Type outputType = getShapedElementTy(output);
+    Value downCast = createCastOp(rewriter, loc, outputType, shifted);
+    rewriter.replaceOp(op, {downCast});
+
+    return success();
+  }
+};
+
+class DeQuantizeLinearConverter final
+    : public OpConversionPattern<migraphx::DeQuantizeLinearOp> {
+public:
+  using OpConversionPattern<migraphx::DeQuantizeLinearOp>::OpConversionPattern;
+
+  // MIGraphX pseudo code:
+  // output[i] = static_cast<fp32>(input[i] - zero_pts[i]) * scales[i];
+  LogicalResult
+  matchAndRewrite(migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value input = op.getInput();
+    Value scale = op.getScale();
+    Value output = op.getOutput();
     Location loc = op->getLoc();
 
     Value shifted = input;
     if (auto bias = op.getBias()) {
-      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType, input,
+      Type elementType = getShapedElementTy(input);
+      shifted = createOpAndInfer<tosa::SubOp>(rewriter, loc, elementType, input,
                                               bias);
     }
 
-    Type intermediateElementType = rewriter.getF32Type();
-    Value upCast =
-        createCastOp(rewriter, loc, intermediateElementType, shifted);
-    Value scaled = createOpAndInfer<tosa::MulOp>(
-        rewriter, loc, intermediateElementType, upCast, scale, /*shift=*/0);
+    Type outputType = getShapedElementTy(output);
+    Value upCast = createCastOp(rewriter, loc, outputType, shifted);
+    Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
+                                                 upCast, scale, /*shift=*/0);
 
-    Type destElementType = rewriter.getIntegerType(8);
-    Value downCast = createCastOp(rewriter, loc, destElementType, scaled);
-    rewriter.replaceOp(op, {downCast});
+    rewriter.replaceOp(op, {scaled});
     return success();
   }
 };
@@ -515,5 +557,5 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
   patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
                SoftmaxConverter, DotConverter, ReduceMeanConverter,
-               QuantizeLinearConverter>(context);
+               QuantizeLinearConverter, DeQuantizeLinearConverter>(context);
 }
