@@ -485,6 +485,10 @@ class QuantizeLinearConverter final
 public:
   using OpConversionPattern<migraphx::QuantizeLinearOp>::OpConversionPattern;
 
+  // MIGraphX pseudo code:
+  // int64_t quantized = static_cast<int32>(
+  //      std::round(input[i] / scales[i])) + zero_pts[i];
+  // output[i] = std::max(-128, std::min(127, quantized));
   LogicalResult
   matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -520,6 +524,8 @@ class DeQuantizeLinearConverter final
 public:
   using OpConversionPattern<migraphx::DeQuantizeLinearOp>::OpConversionPattern;
 
+  // MIGraphX pseudo code:
+  // output[i] = static_cast<fp32>(input[i] - zero_pts[i]) * scales[i];
   LogicalResult
   matchAndRewrite(migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {

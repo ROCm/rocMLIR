@@ -166,7 +166,8 @@ def MIGraphX_QuantizeLinearOp :
 	  Results<(outs TensorOf<[I8]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
-    Quantization tensor elementwise
+    Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = tensor[n,c,h,w] / quantScale[c] + quantBias[c]
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
 }
@@ -179,7 +180,8 @@ def MIGraphX_DeQuantizeLinearOp :
 	  Results<(outs TensorOf<[F32]>:$output)> {
   let summary = "Channelwise dequantization";
   let description = [{
-    De-Quantization tensor elementwise
+    De-Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = (tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
 }
