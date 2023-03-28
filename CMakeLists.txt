@@ -29,25 +29,11 @@ set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Roc
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
-set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
-set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
 
-# LLVM settings that have an effect on the MLIR dialect
-set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
-
-# Pointers to: 1) external LLVM bins/libs, and 2) Rock Dialect bins/libs
-set(LLVM_MAIN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project/llvm" CACHE PATH "Path to LLVM sources")
-set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
-set(LLVM_EXTERNAL_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib" CACHE PATH "")
 set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
-message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
-
-# Update the build-tree RPATH
-set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
-message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 if(BUILD_MIXR_TARGET)
   set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
@@ -80,8 +66,9 @@ endif()
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
 
-# Set up the build for the official MLIR 'standalone' example
-#add_subdirectory(mlir-standalone-example)
+# Update the build-tree RPATH
+set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
+message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 # Set up the build for the rocMLIR dialects
 add_subdirectory(mlir)
