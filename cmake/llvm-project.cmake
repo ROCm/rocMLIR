@@ -1,9 +1,21 @@
 message(STATUS "Adding LLVM git-submodule src dependency")
 
+# LLVM settings that have an effect on the MLIR dialect
+set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
+set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
+set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
+
+message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
+
+# Pointers to: 1) external LLVM bins/libs, and 2) Rock Dialect bins/libs
+set(LLVM_MAIN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project/llvm" CACHE PATH "Path to LLVM sources")
+set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
+set(LLVM_EXTERNAL_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib" CACHE PATH "")
+
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
 # can find MLIR's CMake configuration
 set(MLIR_CMAKE_CONFIG_DIR
-   "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
+   "${CMAKE_CURRENT_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
 
 # MLIR settings
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
@@ -14,7 +26,7 @@ set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
 set(LLVM_INSTALL_UTILS ON CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
-set(LLVM_PROJ_SRC "${CMAKE_SOURCE_DIR}/external/llvm-project")
+set(LLVM_PROJ_SRC "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project")
 
 # Configure ROCm support.
 if (NOT DEFINED ROCM_PATH)
