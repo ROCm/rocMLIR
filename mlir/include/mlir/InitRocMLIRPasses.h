@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/Dialect/XModel/Transforms/Passes.h"
+#include "mlir/RocmlirTransforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
@@ -47,6 +48,7 @@ inline void registerUpstreamPasses() {
   registerConvertAMDGPUToROCDL();
   registerArithToLLVMConversionPass();
   registerConvertFuncToLLVM();
+  registerGpuToLLVMConversionPass();
   registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVM();
   registerMemRefToLLVMConversionPass();
@@ -87,6 +89,7 @@ inline void registerRocMLIRPasses() {
   migraphx::registerPasses();
   rock::registerPasses();
   rock::registerPipelines();
+  rocmlir::registerPasses();
 
   registerUpstreamPasses();
 }

@@ -85,17 +85,13 @@ private:
 void miirLazyInit() {
   static std::once_flag once;
   std::call_once(once, []() {
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
-
-    // Initialize LLVM AMDGPU backend.
+  // Initialize LLVM AMDGPU backend.
+#ifdef AMDGPU_BACKEND_NEEDS_INIT
     LLVMInitializeAMDGPUTarget();
     LLVMInitializeAMDGPUTargetInfo();
     LLVMInitializeAMDGPUTargetMC();
     LLVMInitializeAMDGPUAsmPrinter();
+#endif
   });
 }
 
