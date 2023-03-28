@@ -181,15 +181,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   auto module = unwrap(moduleOp1);
 
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
-
-  // Initialize LLVM AMDGPU backend.
-  LLVMInitializeAMDGPUTarget();
-  LLVMInitializeAMDGPUTargetInfo();
-  LLVMInitializeAMDGPUTargetMC();
-  LLVMInitializeAMDGPUAsmPrinter();
-
   const char *triple = "amdgcn-amd-amdhsa";
   const char *chip = "gfx908";
   const char *features = "";
@@ -299,6 +290,7 @@ int main() {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);
+  mlirRegisterRocMLIRPasses();
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the
   // dialects we use
