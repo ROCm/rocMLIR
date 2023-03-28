@@ -41,27 +41,8 @@
 #include "llvm/Support/SourceMgr.h"
 #include <cstdlib>
 
-#include <hip/hip_runtime.h>
-
-#if !defined(_HIP_CLANG_ONLY__)
-// GCC complains if we don't do this
-template <std::size_t n, typename... Ts,
-          typename std::enable_if<n == sizeof...(Ts)>::type * = nullptr>
-void pArgs(const std::tuple<Ts...> &, void *) {}
-
-template <std::size_t n, typename... Ts,
-          typename std::enable_if<n != sizeof...(Ts)>::type * = nullptr>
-void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
-  using T = typename std::tuple_element<n, std::tuple<Ts...>>::type;
-
-  static_assert(!std::is_reference<T>{},
-                "A __global__ function cannot have a reference as one of its "
-                "arguments.");
-  _vargs[n] =
-      const_cast<void *>(reinterpret_cast<const void *>(&std::get<n>(formals)));
-  return pArgs<n + 1>(formals, _vargs);
-}
-#endif
+// Utilities to allocate buffers
+#include "../utils/performance/common/benchmarkUtils.h"
 
 // Needs to go second lest we get compiler issues
 #include <hip/hip_ext.h>
@@ -87,32 +68,26 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
   return parseSourceFile<ModuleOp>(sourceMgr, context);
 }
 
-// Note, that this simplified init value handling will flood int8 output buffers
-// with 0x01010101, but that's fine, since they get overwritten and we don't
-// actulaly care too much what the values are, so long as they're legal for the
-// type
-static std::pair<uint32_t, uint32_t> getInitValue(Type inputType) {
-  APInt ret;
-  if (auto intType = inputType.dyn_cast<IntegerType>()) {
-    ret = APInt(intType.getWidth(), 1);
-  } else if (auto floatType = inputType.dyn_cast<FloatType>()) {
-    // Avoid getting to inf so as to prevent overly unrealistic benchmarks
-    APFloat val(0.01);
-    bool dontCare;
-    val.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
-                &dontCare);
-    ret = val.bitcastToAPInt();
-  } else {
+static benchmark::DataType getDataType(Type inputType) {
+  if (inputType.isF32()) {
+    return benchmark::DataType::I8;
+  } else if (inputType.isF16()) {
+    return benchmark::DataType::F16;
+  } else if (inputType.isBF16()) {
+    return benchmark::DataType::BF16;
+  } else if (inputType.isInteger(8)) {
+    return benchmark::DataType::I8;
+  } else if (inputType.isBF16()) {
+    return benchmark::DataType::BF16;
+  } else
     llvm_unreachable("Kernels only accept ints or floats");
-  }
-  return {ret.getZExtValue(), ret.getBitWidth()};
 }
 
 // In order to match rocprof, returns time in nanoseconds
 static FailureOr<double> benchmarkKernel(const char *binary,
                                          const char *funcName,
                                          uint32_t blockSize, uint32_t gridSize,
-                                         uint32_t initValue, uint32_t bitWidth,
+                                         benchmark::DataType dataType,
                                          ArrayRef<size_t> bufferSizes) {
   constexpr double msToNs = 1e6;
 // intentionally leaky macro
@@ -130,23 +105,12 @@ static FailureOr<double> benchmarkKernel(const char *binary,
 
   // Start allocating buffers
   std::vector<void *> gpuBuffers;
-  for (size_t byteLen : bufferSizes) {
-    void *buffer = nullptr;
-    HIPCHECK(hipMalloc(&buffer, byteLen))
-    switch (bitWidth) {
-    case 8:
-      HIPCHECK(hipMemsetD8Async(buffer, initValue, byteLen, stream))
-      break;
-    case 16:
-      HIPCHECK(hipMemsetD16Async(buffer, initValue, byteLen / 2, stream));
-      break;
-    case 32:
-      HIPCHECK(hipMemsetD32Async(buffer, initValue, byteLen / 4, stream))
-      break;
-    default:
-      llvm_unreachable("Unsupported initial vaule bitwidth");
-    }
-    gpuBuffers.push_back(buffer);
+  std::vector<void *> hostBuffers;
+  for (size_t i = 0; i < bufferSizes.size(); i++) {
+    bool isOut = (i == bufferSizes.size() - 1);
+    hostBuffers[i] = benchmark::allocAndFill(dataType, bufferSizes[i], isOut);
+    void *gpuBuffer = benchmark::getGpuBuffer(hostBuffers[i], bufferSizes[i]);
+    gpuBuffers.push_back(gpuBuffer);
   }
 
   hipEvent_t startEvent, stopEvent;
@@ -168,6 +132,9 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   double ret = msToNs * static_cast<double>(milliseconds);
 
   // cleanup
+  for (void *buffer : hostBuffers) {
+    free(buffer);
+  }
   for (void *buffer : gpuBuffers) {
     HIPCHECK(hipFree(buffer))
   }
@@ -205,8 +172,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   if (failed(maybeToTune))
     return failure();
   rock::RockGemmWrapperInterface toTune = std::move(*maybeToTune);
-  uint32_t initValue, bitWidth;
-  std::tie(initValue, bitWidth) = getInitValue(toTune.getInputType());
+  benchmark::DataType dataType = getDataType(toTune.getInputType());
 
   auto kernelFunc = toTune->getParentOfType<func::FuncOp>();
   if (!kernelFunc || !kernelFunc->hasAttr("kernel"))
@@ -306,7 +272,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     FailureOr<double> timing =
         benchmarkKernel(hipModule.c_str(), kernelFuncName.c_str(), blockSize,
-                        gridSize, initValue, bitWidth, bufferLengths);
+                        gridSize, dataType, bufferLengths);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();

@@ -264,7 +264,7 @@ void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
   size_t bytesPerElem = getBytesPerElement(dataType, isOut);
   size_t elems = byteSize / bytesPerElem;
   for (size_t i = 0; i < elems; ++i) {
-    for (size_t byte = 0; i < bytesPerElem; ++i) {
+    for (size_t byte = 0; byte < bytesPerElem; ++byte) {
       int elem = pattern[(i % patternLen) * bytesPerElem];
       ret[bytesPerElem * i + byte] = elem;
     }
