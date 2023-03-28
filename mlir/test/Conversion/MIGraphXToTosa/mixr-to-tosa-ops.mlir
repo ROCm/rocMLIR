@@ -210,6 +210,15 @@ module  {
     %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xi8>) -> tensor<1x64x1x112xi8>
     return %0 : tensor<1x64x1x112xi8>
   }
+
+  // CHECK-LABEL: func.func @func_dot_mul
+  // CHECK: tosa.matmul
+  // CHECK: tosa.mul
+  func.func @func_dot_mul(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<1x5x3xf32>) -> tensor<1x5x3xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
+    %2 = "migraphx.mul"(%0, %arg2) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
+    return %2 : tensor<1x5x3xf32>
+  }
 }
 
 
