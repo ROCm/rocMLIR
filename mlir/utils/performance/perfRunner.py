@@ -825,7 +825,7 @@ def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
 def findRunCommand(filename, includes=['RUN']):
     with open(filename, 'r') as f:
         for line in f:
-            if line.strip().startswith("//") and all(word in line for word in includes):
+            if line.strip().startswith("//") and not 'DISABLE' in line and all(word in line for word in includes):
                 command = line.split("RUN")[1].strip()[2:] # Remove the "//" and "RUN" prefixes and leading/trailing whitespace
                 parts = command.split('|')  # Split the command using the "|" separator
                 return parts[0].strip()
