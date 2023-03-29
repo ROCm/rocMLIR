@@ -39,7 +39,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
-      {8, 16, 32},
+      {4, 8, 16, 32},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
       {1, 4, 8, 16},

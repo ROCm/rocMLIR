@@ -305,12 +305,11 @@ static ArrayAttr ldsVectorLayout(OpBuilder &b, Location loc,
   return b.getArrayAttr({ignoreTidAttr});
 }
 
-static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
-                                              Value wrappedMatrix,
-                                              ArrayAttr vectorMap,
-                                              int64_t dataPerThread,
-                                              int64_t vectorLen, Value bid,
-                                              Value tid, bool forceUnroll) {
+static TransformingForOp
+createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
+                     Value wrappedMatrix, ArrayAttr vectorMap,
+                     int64_t dataPerThread, int64_t vectorLen, Value bid,
+                     Value tid, bool forceUnroll) {
   Value tensor;
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
@@ -322,9 +321,6 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
   Type elementType =
       wrappedMatrix.getType().cast<MemRefType>().getElementType();
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-  Type resultType = vectorTypeOrSelf(elementType, dataPerThread);
-
-  Value resultInit = createZeroConstantOp(b, loc, resultType);
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
   SmallVector<Value, 4> globalStart = {zero, bid, tid, zero};
@@ -334,43 +330,130 @@ static TransformingForOp createGlobalLoadLoop(PatternRewriter &b, Location loc,
       ArrayRef<Attribute>{matrixToTensor, b.getArrayAttr({})},
       /*bounds=*/ArrayRef<int64_t>{1, 1, 1, dataPerThread},
       /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen}, forceUnroll,
-      /*useIndexDiffs=*/true, resultInit);
+      /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToEnd(outerLoop.getBody());
+    b.setInsertionPointToStart(outerLoop.getBody());
+
     Value loaded = b.create<GlobalLoadOp>(
         loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
         outerLoop.getLowerCoords(/*domain=*/0));
-    auto innerLoop = b.create<TransformingForOp>(
-        loc,
-        ArrayRef<ValueRange>{zero,
-                             outerLoop.getLowerCoords(/*domain=*/1).back()},
-        ArrayRef<Attribute>{b.getArrayAttr({}), vectorMap},
-        /*bounds=*/ArrayRef<int64_t>{vectorLen},
-        /*strides=*/ArrayRef<int64_t>{1}, forceUnroll, /*useIndexDiffs=*/true,
-        outerLoop.getIterArgs()[0]);
-    {
-      PatternRewriter::InsertionGuard innerGuard(b);
-      b.setInsertionPointToEnd(innerLoop.getBody());
-      Value loadElem =
-          vectorLen == 1
-              ? loaded
-              : b.create<vector::ExtractElementOp>(
-                    loc, loaded, innerLoop.getLowerCoords(/*domain=*/0)[0]);
-      Value toYieldInner = dataPerThread == 1
-                               ? loadElem
-                               : b.create<vector::InsertElementOp>(
-                                     loc, loadElem, innerLoop.getIterArgs()[0],
-                                     innerLoop.getLowerCoords(/*domain=*/1)[0]);
-      b.create<rock::YieldOp>(loc, toYieldInner);
-    }
-    b.create<rock::YieldOp>(loc, innerLoop.getResult(0));
+
+    b.create<InBoundsStoreOp>(loc, loaded, loadBuffer,
+                              outerLoop.getLowerCoords(/*domain*/ 1)[3]);
   }
   return outerLoop;
 }
 
+/// This function pack the load buffer into a store buffer ready to be copied
+/// into LDS:
+///  - The load buffer is a KPerThread x DPerThread or DPerThread x KPerThread
+///  depending
+///    on the direction of the (global vectorization)
+///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
+///  kpackPerThread]
+///    buffer
+TransformingForOp
+packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc, Type elementType,
+                            GemmDimension vectorDim, int64_t kpack,
+                            Value loadBuffer, Value storeBuffer,
+                            int64_t copyDPerThread, int64_t copyKPerThread) {
+
+  bool transpose =
+      ((vectorDim == GemmDimension::K && kpack == 1 && copyDPerThread > 1) ||
+       (vectorDim == GemmDimension::MorN && kpack > 1 && copyKPerThread > 1));
+
+  SmallVector<StringRef, 2> loadBufferNames;
+  SmallVector<int64_t, 2> loadBufferShape;
+  if (vectorDim == GemmDimension::MorN) {
+    // If we are vectorizing along the M/N dimension, we have a
+    // KxD buffer that we want to transpose into a DxK buffer
+    loadBufferShape.push_back(copyKPerThread);
+    loadBufferShape.push_back(copyDPerThread);
+    loadBufferNames.push_back("k");
+    loadBufferNames.push_back("d");
+  } else {
+    // If we are vectorizing along the K dimension, we have a
+    // DxK buffer that we want to transpose into a KxD buffer
+    loadBufferShape.push_back(copyDPerThread);
+    loadBufferShape.push_back(copyKPerThread);
+    loadBufferNames.push_back("d");
+    loadBufferNames.push_back("k");
+  }
+
+  auto storeNames = loadBufferNames;
+  auto storeShape = loadBufferShape;
+
+  if (transpose) {
+    std::reverse(storeNames.begin(), storeNames.end());
+    std::reverse(storeShape.begin(), storeShape.end());
+  }
+
+  // We use kpackPerThread instead of kpack to cover edge cases where
+  // copyKPerThread is smaller than kpack
+  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
+  int64_t kOuterPerThread = copyKPerThread / kpackPerThread;
+
+  TopDownTMBuilder transformLoad(b, storeNames, storeShape);
+  transformLoad.unmerge("rawLoad", 0, loadBufferNames, loadBufferShape);
+  auto loadIdx = b.getArrayAttr({transformLoad.get()});
+
+  TopDownTMBuilder packStore(b, storeNames, storeShape);
+  // Depnending on the (global) vectorization we have the k dimension
+  // in different positions in the load buffer
+  if (vectorDim == GemmDimension::MorN) {
+    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[0],
+                    {kOuterPerThread, kpackPerThread});
+  } else {
+    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[1],
+                    {kOuterPerThread, kpackPerThread});
+  }
+  packStore.passThrough({"dPerThread"}, 1, {"d"});
+
+  TransformMapAttr packStoreAttr = packStore.get();
+  auto transformPacked = TopDownTMBuilder::below(packStore, packStoreAttr);
+  transformPacked.unmerge("rawStore", 0, {"kouter", "dPerThread", "kpack"},
+                          {kOuterPerThread, copyDPerThread, kpackPerThread});
+  TransformMapAttr transformPackedAttr = transformPacked.get();
+
+  auto storeIdx = b.getArrayAttr({packStoreAttr, transformPackedAttr});
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 2> start(2, zero);
+  SmallVector<int64_t, 2> strides{1};
+
+  // When transposing the stride needs to be one, otherwise it depends
+  // on the load buffer
+  if (transpose) {
+    strides.push_back(1);
+  } else if (kpack > 1) {
+    strides.push_back(math_util::gcd(copyKPerThread, kpackPerThread));
+  } else {
+    strides.push_back(copyDPerThread);
+  }
+
+  // Run the packing loop
+  auto packLoop =
+      b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
+                                  ArrayRef<Attribute>{loadIdx, storeIdx},
+                                  /*bounds=*/storeShape,
+                                  /*strides=*/strides, false,
+                                  /*useIndexDiffs=*/false);
+  {
+    PatternRewriter::InsertionGuard outerGuard(b);
+    b.setInsertionPointToStart(packLoop.getBody());
+    Type loadType = vectorTypeOrSelf(elementType, strides.back());
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, loadBuffer,
+                                        packLoop.getLowerCoords(0));
+
+    b.create<InBoundsStoreOp>(loc, val, storeBuffer,
+                              packLoop.getLowerCoords(1));
+  }
+  return packLoop;
+}
+
 static TransformingForOp
-createLdsStoreLoop(PatternRewriter &b, Location loc, Value loaded,
+createLdsStoreLoop(PatternRewriter &b, Location loc, Value storeBuffer,
                    ArrayAttr ldsVectorMap, Value wrappedBuffer,
                    int64_t dataPerThread, Value tid, bool forceUnroll) {
   Value rawBuffer;
@@ -382,11 +465,8 @@ createLdsStoreLoop(PatternRewriter &b, Location loc, Value loaded,
   int64_t ldsStoreVectorization =
       getMaxVectorization(bufferView, /*dim=*/1, dataPerThread, bufferShape);
   bufferView = collapseContiguousMerges(bufferView, bufferShape);
-  Type loadedType = loaded.getType();
-  Type elementType = loadedType;
-  if (auto vectorLoadTy = loadedType.dyn_cast<VectorType>())
-    elementType = vectorLoadTy.getElementType();
-  Type storeType = vectorTypeOrSelf(elementType, ldsStoreVectorization);
+  Type loadedType = storeBuffer.getType().cast<MemRefType>().getElementType();
+  Type storeType = vectorTypeOrSelf(loadedType, ldsStoreVectorization);
 
   Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> vecCoordInit(2, zero);
@@ -401,11 +481,8 @@ createLdsStoreLoop(PatternRewriter &b, Location loc, Value loaded,
   {
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
-    Value toStore =
-        dataPerThread == 1
-            ? loaded
-            : b.create<ExtractSliceOp>(loc, storeType, loaded,
-                                       loop.getLowerCoords(/*domain=*/0)[0]);
+    Value toStore = b.create<InBoundsLoadOp>(loc, storeType, storeBuffer,
+                                             loop.getLowerCoords(0));
     b.create<InBoundsStoreOp>(loc, toStore, rawBuffer,
                               loop.getLowerCoords(/*domain=*/1));
   }
@@ -718,12 +795,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr bVectorGlobalMap = globalVectorLayout(
         b, loc, "n", bCopyKPerThread, copyNPerThread, kpack, bVectorDim);
 
+    Type loadBufferAType, loadBufferBType;
+    loadBufferAType = MemRefType::get({aCopyPerThread}, elementType,
+                                      AffineMap{}, privateMemoryAddressSpace);
+    loadBufferBType = MemRefType::get({bCopyPerThread}, elementType,
+                                      AffineMap{}, privateMemoryAddressSpace);
+
+    auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
+    auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
+
     TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, wrappedA, aVectorGlobalMap, aCopyPerThread,
-                             aVectorLen, bid, tid, true);
+        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
+                             aCopyPerThread, aVectorLen, bid, tid, true);
     TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, wrappedB, bVectorGlobalMap, bCopyPerThread,
-                             bVectorLen, bid, tid, true);
+        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
+                             bCopyPerThread, bVectorLen, bid, tid, true);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -741,12 +827,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
           wrappedLdsB = std::move(*maybeWrappedLdsB);
 
+    Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
+    Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
+
+    auto packALoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, aVectorDim, kpack, loadBufferA, storeBufferA,
+        copyMPerThread, aCopyKPerThread);
+
+    auto packBLoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, bVectorDim, kpack, loadBufferB, storeBufferB,
+        copyNPerThread, bCopyKPerThread);
+
     TransformingForOp blockwiseStoreA =
-        createLdsStoreLoop(b, loc, blockwiseLoadA.getResult(0), aVectorLdsMap,
-                           wrappedLdsA, aCopyPerThread, tid, true);
+        createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
+                           aCopyPerThread, tid, true);
     TransformingForOp blockwiseStoreB =
-        createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
-                           wrappedLdsB, bCopyPerThread, tid, true);
+        createLdsStoreLoop(b, loc, storeBufferB, bVectorLdsMap, wrappedLdsB,
+                           bCopyPerThread, tid, true);
 
     // Emit loop.
     int64_t nIterations = K / kPerBlock;
@@ -788,8 +885,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // This barrier prevents halo part of outputs having weird values.
       b.create<LDSBarrierOp>(loc);
 
+      // Packing step
+      b.clone(*packALoop.getOperation());
+      b.clone(*packBLoop.getOperation());
+
       // Emit blockwise stores
       IRMapping storeAUpdates, storeBUpdates;
+
       storeAUpdates.map(blockwiseLoadA.getResult(0),
                         blockwiseLoadAClone.getResult(0));
       storeBUpdates.map(blockwiseLoadB.getResult(0),
@@ -1063,12 +1165,34 @@ struct GridwiseGemmV2RewritePattern
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
+    Type loadBufferAType, loadBufferBType;
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
+    loadBufferAType = MemRefType::get({aCopyPerThread}, elementType,
+                                      AffineMap{}, privateMemoryAddressSpace);
+    loadBufferBType = MemRefType::get({bCopyPerThread}, elementType,
+                                      AffineMap{}, privateMemoryAddressSpace);
+
+    auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
+    auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
+
     TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, wrappedA, aVectorGlobalMap, aCopyPerThread,
-                             aVectorLen, bid, tid, forceUnroll);
+        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
+                             aCopyPerThread, aVectorLen, bid, tid, forceUnroll);
     TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, wrappedB, bVectorGlobalMap, bCopyPerThread,
-                             bVectorLen, bid, tid, forceUnroll);
+        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
+                             bCopyPerThread, bVectorLen, bid, tid, forceUnroll);
+
+    Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
+    Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
+
+    auto packALoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, aVectorDim, kpack, loadBufferA, storeBufferA,
+        copyMPerThread, aCopyKPerThread);
+
+    auto packBLoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, bVectorDim, kpack, loadBufferB, storeBufferB,
+        copyNPerThread, bCopyKPerThread);
 
     // Obtain XDLOPS-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -1162,11 +1286,11 @@ struct GridwiseGemmV2RewritePattern
           wrappedLdsB = std::move(*maybeWrappedLdsB);
 
     TransformingForOp blockwiseStoreA =
-        createLdsStoreLoop(b, loc, blockwiseLoadA.getResult(0), aVectorLdsMap,
-                           wrappedLdsA, aCopyPerThread, tid, forceUnroll);
+        createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
+                           aCopyPerThread, tid, forceUnroll);
     TransformingForOp blockwiseStoreB =
-        createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
-                           wrappedLdsB, bCopyPerThread, tid, forceUnroll);
+        createLdsStoreLoop(b, loc, storeBufferB, bVectorLdsMap, wrappedLdsB,
+                           bCopyPerThread, tid, forceUnroll);
     // -----
 
     // Mfma instruction group selection.
@@ -1232,8 +1356,6 @@ struct GridwiseGemmV2RewritePattern
         ((isKReduction ? inputSpansPerMfmaIn : 1) * k_base);
 
     Type arrayAType, arrayBType;
-    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
     arrayAType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
                                  AffineMap{}, privateMemoryAddressSpace);
     arrayBType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgType(),
@@ -1298,6 +1420,10 @@ struct GridwiseGemmV2RewritePattern
       // This barrier prevents halo part of outputs having weird values.
       b.create<LDSBarrierOp>(loc);
 
+      // Packing step
+      b.clone(*packALoop.getOperation());
+      b.clone(*packBLoop.getOperation());
+
       // Emit blockwise stores
       IRMapping storeAUpdates, storeBUpdates;
       storeAUpdates.map(blockwiseLoadA.getResult(0),
@@ -1320,8 +1446,9 @@ struct GridwiseGemmV2RewritePattern
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
     // results properly, remove them ourselves.
-    if (nIterations <= 1)
+    if (nIterations <= 1) {
       b.eraseOp(loopOp);
+    }
 
     // -----
 
@@ -1441,6 +1568,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, AffineDialect,
                          vector::VectorDialect>();
+  target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
