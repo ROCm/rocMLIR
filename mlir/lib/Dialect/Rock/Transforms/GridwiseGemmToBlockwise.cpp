@@ -345,15 +345,23 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
   return outerLoop;
 }
 
-void copyAndTransposeFromLoadToStoreBuffer(
-    PatternRewriter &b, Location loc, Type elementType, GemmDimension vectorDim,
-    int64_t kpack, Value loadBuffer, Value storeBuffer, int64_t copyDPerThread,
-    int64_t copyKPerThread) {
+/// This function pack the load buffer into a store buffer ready to be copied
+/// into LDS:
+///  - The load buffer is a KPerThread x DPerThread or DPerThread x KPerThread
+///  depending
+///    on the direction of the (global vectorization)
+///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
+///  kpackPerThread]
+///    buffer
+TransformingForOp
+packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc, Type elementType,
+                            GemmDimension vectorDim, int64_t kpack,
+                            Value loadBuffer, Value storeBuffer,
+                            int64_t copyDPerThread, int64_t copyKPerThread) {
 
-  // Copy loadBuffer[i,j] into storeBuffer[j,i]. This can
-  // be implemented in multiple ways, but for now we stick
-  // with a scalar loop that goes through the buffer and
-  // copies elements one by one
+  bool transpose =
+      ((vectorDim == GemmDimension::K && kpack == 1 && copyDPerThread > 1) ||
+       (vectorDim == GemmDimension::MorN && kpack > 1 && copyKPerThread > 1));
 
   SmallVector<StringRef, 2> loadBufferNames;
   SmallVector<int64_t, 2> loadBufferShape;
@@ -375,35 +383,73 @@ void copyAndTransposeFromLoadToStoreBuffer(
 
   auto storeNames = loadBufferNames;
   auto storeShape = loadBufferShape;
-  std::reverse(storeNames.begin(), storeNames.end());
-  std::reverse(storeShape.begin(), storeShape.end());
+
+  if (transpose) {
+    std::reverse(storeNames.begin(), storeNames.end());
+    std::reverse(storeShape.begin(), storeShape.end());
+  }
+
+  // We use kpackPerThread instead of kpack to cover edge cases where
+  // copyKPerThread is smaller than kpack
+  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
+  int64_t kOuterPerThread = copyKPerThread / kpackPerThread;
 
   TopDownTMBuilder transformLoad(b, storeNames, storeShape);
   transformLoad.unmerge("rawLoad", 0, loadBufferNames, loadBufferShape);
-
-  TopDownTMBuilder transformStore(b, storeNames, storeShape);
-  transformStore.unmerge("rawStore", 0, storeNames, storeShape);
-
   auto loadIdx = b.getArrayAttr({transformLoad.get()});
-  auto storeIdx = b.getArrayAttr({transformStore.get()});
+
+  TopDownTMBuilder packStore(b, storeNames, storeShape);
+  // Depnending on the (global) vectorization we have the k dimension
+  // in different positions in the load buffer
+  if (vectorDim == GemmDimension::MorN) {
+    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[0],
+                    {kOuterPerThread, kpackPerThread});
+  } else {
+    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[1],
+                    {kOuterPerThread, kpackPerThread});
+  }
+  packStore.passThrough({"dPerThread"}, 1, {"d"});
+
+  TransformMapAttr packStoreAttr = packStore.get();
+  auto transformPacked = TopDownTMBuilder::below(packStore, packStoreAttr);
+  transformPacked.unmerge("rawStore", 0, {"kouter", "dPerThread", "kpack"},
+                          {kOuterPerThread, copyDPerThread, kpackPerThread});
+  TransformMapAttr transformPackedAttr = transformPacked.get();
+
+  auto storeIdx = b.getArrayAttr({packStoreAttr, transformPackedAttr});
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> start(2, zero);
-  auto copyLoop =
+  SmallVector<int64_t, 2> strides{1};
+
+  // When transposing the stride needs to be one, otherwise it depends
+  // on the load buffer
+  if (transpose) {
+    strides.push_back(1);
+  } else if (kpack > 1) {
+    strides.push_back(math_util::gcd(copyKPerThread, kpackPerThread));
+  } else {
+    strides.push_back(copyDPerThread);
+  }
+
+  // Run the packing loop
+  auto packLoop =
       b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
                                   ArrayRef<Attribute>{loadIdx, storeIdx},
                                   /*bounds=*/storeShape,
-                                  /*strides=*/std::nullopt, false,
+                                  /*strides=*/strides, false,
                                   /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(copyLoop.getBody());
-    auto val = b.create<InBoundsLoadOp>(loc, elementType, loadBuffer,
-                                        copyLoop.getLowerCoords(0));
+    b.setInsertionPointToStart(packLoop.getBody());
+    Type loadType = vectorTypeOrSelf(elementType, strides.back());
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, loadBuffer,
+                                        packLoop.getLowerCoords(0));
 
     b.create<InBoundsStoreOp>(loc, val, storeBuffer,
-                              copyLoop.getLowerCoords(1));
+                              packLoop.getLowerCoords(1));
   }
+  return packLoop;
 }
 
 static TransformingForOp
@@ -781,30 +827,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
           wrappedLdsB = std::move(*maybeWrappedLdsB);
 
-    Value storeBufferA = loadBufferA;
-    Value storeBufferB = loadBufferB;
+    Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
+    Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    // Possibly transpose the buffers before storing them into LDS
-    bool transposeA = (copyMPerThread > 1) && (aCopyKPerThread > 1) &&
-                      ((aVectorDim == GemmDimension::K && kpack == 1) ||
-                       (aVectorDim == GemmDimension::MorN && kpack > 1));
+    auto packALoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, aVectorDim, kpack, loadBufferA, storeBufferA,
+        copyMPerThread, aCopyKPerThread);
 
-    bool transposeB = (copyNPerThread > 1) && (bCopyKPerThread > 1) &&
-                      ((bVectorDim == GemmDimension::K && kpack == 1) ||
-                       (bVectorDim == GemmDimension::MorN && kpack > 1));
-
-    if (transposeA) {
-      storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
-      copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, aVectorDim,
-                                            kpack, loadBufferA, storeBufferA,
-                                            copyMPerThread, aCopyKPerThread);
-    }
-    if (transposeB) {
-      storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
-      copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, bVectorDim,
-                                            kpack, loadBufferB, storeBufferB,
-                                            copyNPerThread, bCopyKPerThread);
-    }
+    auto packBLoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, bVectorDim, kpack, loadBufferB, storeBufferB,
+        copyNPerThread, bCopyKPerThread);
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
@@ -853,16 +885,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // This barrier prevents halo part of outputs having weird values.
       b.create<LDSBarrierOp>(loc);
 
-      if (transposeA) {
-        copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, aVectorDim,
-                                              kpack, loadBufferA, storeBufferA,
-                                              copyMPerThread, aCopyKPerThread);
-      }
-      if (transposeB) {
-        copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, bVectorDim,
-                                              kpack, loadBufferB, storeBufferB,
-                                              copyNPerThread, bCopyKPerThread);
-      }
+      // Packing step
+      b.clone(*packALoop.getOperation());
+      b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
       IRMapping storeAUpdates, storeBUpdates;
@@ -1158,30 +1183,16 @@ struct GridwiseGemmV2RewritePattern
         createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
                              bCopyPerThread, bVectorLen, bid, tid, forceUnroll);
 
-    Value storeBufferA = loadBufferA;
-    Value storeBufferB = loadBufferB;
+    Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
+    Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    // Possibly transpose the buffers before storing them into LDS
-    bool transposeA = (copyMPerThread > 1) && (aCopyKPerThread > 1) &&
-                      ((aVectorDim == GemmDimension::K && kpack == 1) ||
-                       (aVectorDim == GemmDimension::MorN && kpack > 1));
+    auto packALoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, aVectorDim, kpack, loadBufferA, storeBufferA,
+        copyMPerThread, aCopyKPerThread);
 
-    bool transposeB = (copyNPerThread > 1) && (bCopyKPerThread > 1) &&
-                      ((bVectorDim == GemmDimension::K && kpack == 1) ||
-                       (bVectorDim == GemmDimension::MorN && kpack > 1));
-
-    if (transposeA) {
-      storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
-      copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, aVectorDim,
-                                            kpack, loadBufferA, storeBufferA,
-                                            copyMPerThread, aCopyKPerThread);
-    }
-    if (transposeB) {
-      storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
-      copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, bVectorDim,
-                                            kpack, loadBufferB, storeBufferB,
-                                            copyNPerThread, bCopyKPerThread);
-    }
+    auto packBLoop = packLoadBufferToStoreBuffer(
+        b, loc, elementType, bVectorDim, kpack, loadBufferB, storeBufferB,
+        copyNPerThread, bCopyKPerThread);
 
     // Obtain XDLOPS-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -1409,16 +1420,9 @@ struct GridwiseGemmV2RewritePattern
       // This barrier prevents halo part of outputs having weird values.
       b.create<LDSBarrierOp>(loc);
 
-      if (transposeA) {
-        copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, aVectorDim,
-                                              kpack, loadBufferA, storeBufferA,
-                                              copyMPerThread, aCopyKPerThread);
-      }
-      if (transposeB) {
-        copyAndTransposeFromLoadToStoreBuffer(b, loc, elementType, bVectorDim,
-                                              kpack, loadBufferB, storeBufferB,
-                                              copyNPerThread, bCopyKPerThread);
-      }
+      // Packing step
+      b.clone(*packALoop.getOperation());
+      b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
       IRMapping storeAUpdates, storeBUpdates;
