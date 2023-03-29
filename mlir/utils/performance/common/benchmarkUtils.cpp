@@ -10,6 +10,7 @@
 
 #include "benchmarkUtils.h"
 
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -162,8 +163,8 @@ std::string dataTypeToStr(DataType dataType) {
 // Utility function to convert "true"/"false" to boolean true/false
 bool atob(const std::string &arg) {
   auto lowercaseArg = arg;
-  transform(lowercaseArg.begin(), lowercaseArg.end(), lowercaseArg.begin(),
-            ::tolower);
+  std::transform(lowercaseArg.begin(), lowercaseArg.end(), lowercaseArg.begin(),
+                 ::tolower);
   return (lowercaseArg == "true" ? true : false);
 }
 
