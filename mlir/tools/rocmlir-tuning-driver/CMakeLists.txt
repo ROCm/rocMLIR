@@ -67,7 +67,4 @@ set_property(TARGET rocmlir-tuning-driver
   target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
   target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
   target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
-  target_include_directories(rocmlir-tuning-driver PUBLIC
-   "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}>"
-  )
 endif()

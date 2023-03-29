@@ -42,7 +42,7 @@
 #include <cstdlib>
 
 // Utilities to allocate buffers
-#include "mlir/utils/performance/common/benchmarkUtils.h"
+#include "../utils/performance/common/benchmarkUtils.h"
 
 #if !defined(_HIP_CLANG_ONLY__)
 // GCC complains if we don't do this
