@@ -874,7 +874,7 @@ pipeline {
           //--test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/tuning_fusion_resnet50_${CHIP}.tsv"""
                                 // Run bert perf benchmarks
                                 //sh """python3 ./bin/perfRunner.py --op fusion \
-          //--test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv
+          //--test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv"""
                             //}
                         //}
                     //}
