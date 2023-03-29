@@ -340,8 +340,8 @@ class ConvConfiguration(PerfConfiguration):
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
-    #MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg"}
-    #MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg"}
+    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg"}
     filterLayoutMap = {'N':'k', 'C':'c', 'H':'y', 'W':'x', 'G':'g'}
     inputLayoutMap = {'N':'n', 'C':'c', 'H':'h', 'W':'w', 'G':'g'}
     outputLayoutMap = {'N':'n', 'C':'k', 'H':'h', 'W':'w', 'G':'g'}
