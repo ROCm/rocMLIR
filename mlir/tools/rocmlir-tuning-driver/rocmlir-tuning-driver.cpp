@@ -42,7 +42,27 @@
 #include <cstdlib>
 
 // Utilities to allocate buffers
-#include "../utils/performance/common/benchmarkUtils.h"
+#include "mlir/utils/performance/common/benchmarkUtils.h"
+
+#if !defined(_HIP_CLANG_ONLY__)
+// GCC complains if we don't do this
+template <std::size_t n, typename... Ts,
+          typename std::enable_if<n == sizeof...(Ts)>::type * = nullptr>
+void pArgs(const std::tuple<Ts...> &, void *) {}
+
+template <std::size_t n, typename... Ts,
+          typename std::enable_if<n != sizeof...(Ts)>::type * = nullptr>
+void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
+  using T = typename std::tuple_element<n, std::tuple<Ts...>>::type;
+
+  static_assert(!std::is_reference<T>{},
+                "A __global__ function cannot have a reference as one of its "
+                "arguments.");
+  _vargs[n] =
+      const_cast<void *>(reinterpret_cast<const void *>(&std::get<n>(formals)));
+  return pArgs<n + 1>(formals, _vargs);
+}
+#endif
 
 // Needs to go second lest we get compiler issues
 #include <hip/hip_ext.h>
