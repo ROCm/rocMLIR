@@ -30,8 +30,8 @@ module  {
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
   // CHECK: tosa.add
-  func.func @quantize_scale_bias(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf32>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xi8>
+  func.func @quantize_scale_bias(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>, %bias: tensor<64xi8>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
+    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf32>, tensor<64xf32>, tensor<64xi8>) -> tensor<1x112x112x64xi8>
     return %1 : tensor<1x112x112x64xi8>
 }
 
@@ -42,10 +42,10 @@ module  {
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
   // CHECK: tosa.add
-  func.func @conv_with_quant(%arg1: tensor<1x3x224x224xi8>, %arg2: tensor<64x3x7x7xi8>, %scale: tensor<1x64x1x1xf32>, %bias: tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8> attributes {kernel = "mixr"} {
+  func.func @conv_with_quant(%arg1: tensor<1x3x224x224xi8>, %arg2: tensor<64x3x7x7xi8>, %scale: tensor<1x64x1x1xf32>, %bias: tensor<1x64x1x1xi32>, %bias2: tensor<1x64x1x1xi8>) -> tensor<1x64x112x112xi8> attributes {kernel = "mixr"} {
     %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xi8>, tensor<64x3x7x7xi8>) -> tensor<1x64x112x112xi32>
     %2 = "migraphx.dequantizelinear"(%1, %scale, %bias) : (tensor<1x64x112x112xi32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xf32>
-    %3 = "migraphx.quantizelinear"(%2, %scale, %bias) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi8>
+    %3 = "migraphx.quantizelinear"(%2, %scale, %bias2) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi8>) -> tensor<1x64x112x112xi8>
     return %3 : tensor<1x64x112x112xi8>
 }
 

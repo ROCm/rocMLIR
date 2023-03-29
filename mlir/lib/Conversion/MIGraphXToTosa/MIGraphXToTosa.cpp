@@ -500,20 +500,23 @@ public:
     Type elementType = getShapedElementTy(input);
     Value inverseScale =
         createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType, scale);
+    if (getShapedElementTy(inverseScale) != getShapedElementTy(input)) {
+      inverseScale = createCastOp(rewriter, loc, elementType, inverseScale);
+    }
     Value scaled = createOpAndInfer<tosa::MulOp>(
         rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
-    Value shifted = scaled;
 
     if (auto bias = op.getBias()) {
       auto biasElementType = getShapedElementTy(bias);
       Value scaleCast = createCastOp(rewriter, loc, biasElementType, scaled);
-      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, biasElementType,
-                                              scaleCast, bias);
+      Value shifted = createOpAndInfer<tosa::AddOp>(
+          rewriter, loc, biasElementType, scaleCast, bias);
+      rewriter.replaceOp(op, {shifted});
+    } else {
+      Type outputType = getShapedElementTy(output);
+      Value downCast = createCastOp(rewriter, loc, outputType, scaled);
+      rewriter.replaceOp(op, {downCast});
     }
-
-    Type outputType = getShapedElementTy(output);
-    Value downCast = createCastOp(rewriter, loc, outputType, shifted);
-    rewriter.replaceOp(op, {downCast});
 
     return success();
   }
@@ -543,6 +546,10 @@ public:
 
     Type outputType = getShapedElementTy(output);
     Value upCast = createCastOp(rewriter, loc, outputType, shifted);
+
+    if (getShapedElementTy(scale) != getShapedElementTy(output)) {
+      scale = createCastOp(rewriter, loc, outputType, scale);
+    }
     Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
                                                  upCast, scale, /*shift=*/0);
 
