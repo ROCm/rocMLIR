@@ -39,11 +39,11 @@ GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 
 @dataclass
 class MLIRPaths:
-    rocmlir_gen_path: str
-    rocmlir_driver_path: str
-    rocmlir_opt_path:str
+    rocmlir_gen_path : str
+    rocmlir_driver_path : str
+    rocmlir_opt_path : str
     cpu_runner_path : str
-    xmir_runner_path: str
+    xmir_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
@@ -186,9 +186,6 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                 if len(entries) == 3:
                     arch, config, perfConfig = entries
                     ret[arch, config] = perfConfig
-                elif len(entries) == 4:
-                    arch, filename, config, perfConfig = entries
-                    ret[arch, filename, config] = perfConfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
@@ -831,7 +828,7 @@ def findRunCommand(filename, includes=['RUN']):
                 return parts[0].strip()
                 # Stop processing lines after finding the first matching line
     # Not a valid test
-    print("WARNING: cannot find RUN command in the test file")
+    print("WARNING: cannot find valid RUN command in ", filename)
     return ""
 
 def getTestVector(file_path, paths:Paths):
@@ -860,6 +857,35 @@ def getTestVector(file_path, paths:Paths):
     result = output.decode('utf-8').strip().split('\t')
     return result[1]
 
+def generateProfilingProcesses(file_path, rocmlirGenArgs, paths: Paths):
+    firstCommand = findRunCommand(file_path, ['RUN', 'xmir-runner'])
+    if ("-migraphx-to-tosa" in firstCommand):
+        rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', file_path]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
+        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
+        p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p1.stdout.close()
+    else:
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), file_path]
+        # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
+    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel', '-kernel-pipeline','full']
+    xmir_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path},{paths.mlir_paths.libmlir_async_runtime_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.xmir_runner_path] + xmir_runner_args
+    # pipe to rocmlir-gen -ph --perf_config
+    p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p2.stdout.close()
+    # pipe to rocmlir-driver -host-pipeline xmodel -kernel-pipeline full
+    p4 = subprocess.Popen(kernelPipelineCommand, stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p3.stdout.close()
+    profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p4.stdout.close()
+    return profiling
+
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb):
     TABLE_COLUMNS = reportUtils.FUSION_TEST_COL
     allData = []
@@ -874,6 +900,9 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
             testVector = getTestVector(file_path, paths)
             if (not testVector):
                 continue
+            firstCommand = findRunCommand(file_path, ['RUN', 'xmir-runner'])
+            if not firstCommand:
+                continue
 
             commandLine = testVector.split(sep=' ')
             if (commandLine[0].startswith('conv')):
@@ -886,8 +915,8 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
             # find the best perf_config
             bestPerf =""
             if tuningDb:
-                if (arch, filename, testVector) in tuningDb:
-                   bestPerf = tuningDb[arch, filename, testVector]
+                if (arch, testVector) in tuningDb:
+                   bestPerf = tuningDb[arch, testVector]
                    config.setPerfConfig(bestPerf)
                 else: # Tuning DB present but doesn't contain config, return N/A
                    oneEntry = config.tableEntry(np.nan)
@@ -895,35 +924,9 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
                    allData.append(oneEntry)
                    continue;
 
-            perfConfig = '--perf_config='+bestPerf
+            rocmlirGenArgs = ['-ph', '--perf_config='+bestPerf, '-']
+            profiling = generateProfilingProcesses(file_path, rocmlirGenArgs, paths)
 
-            firstCommand = findRunCommand(file_path, ['RUN', 'xmir-runner'])
-            if ("-migraphx-to-tosa" in firstCommand):
-                rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', file_path]
-                rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
-                # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
-                p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-                p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                p1.stdout.close()
-            else:
-                rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), file_path]
-                # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-                p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-
-            rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path, '-ph', perfConfig, '-']
-            kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel', '-kernel-pipeline','full']
-            xmir_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path},{paths.mlir_paths.libmlir_async_runtime_path}', '--entry-point-result=void']
-            profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.xmir_runner_path] + xmir_runner_args
-
-            # pipe to rocmlir-gen -ph --perf_config
-            p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            p2.stdout.close()
-            # pipe to rocmlir-driver -host-pipeline xmodel -kernel-pipeline full
-            p4 = subprocess.Popen(kernelPipelineCommand, stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            p3.stdout.close()
-            profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p4.stdout.close()
             # get output.
             try:
                 outs, errs = profiling.communicate(timeout=60)

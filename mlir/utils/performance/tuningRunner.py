@@ -82,7 +82,7 @@ Errors = {errs.decode('utf-8')}""")
     nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
     return nanoSeconds
 
-def verifyFusionWithPerfConfig(bestPerf, file_path, firstCommand, paths: Paths) -> float:
+def verifyFusionWithPerfConfig(bestPerf, file_path, paths: Paths) -> float:
     # find the arguments of rocmlir-gen
     with open(file_path, 'r') as f:
         for line in f:
@@ -96,33 +96,9 @@ def verifyFusionWithPerfConfig(bestPerf, file_path, firstCommand, paths: Paths) 
     if (not args):
         return np.nan
     os.system("rm "+perfRunner.BENCHMARKING_RESULT_FILE_NAME)
-    if ("-migraphx-to-tosa" in firstCommand):
-        rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', file_path]
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
-        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
-        p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        p1.stdout.close()
-    else:
-        # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), file_path]
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    # pipe to rocmlir-gen
-    perfConfig = '--perf_config='+bestPerf
-    rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path, perfConfig]+args.split()
-    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel', '-kernel-pipeline','full']
-    xmir_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path},{paths.mlir_paths.libmlir_async_runtime_path}', '--entry-point-result=void']
-    profilerCommand = [perfRunner.ROCPROF, '--stats', paths.mlir_paths.xmir_runner_path] + xmir_runner_args
+    rocmlirGenArgs = ['--perf_config='+bestPerf] + args.split()
+    profiling = perfRunner.generateProfilingProcesses(file_path, rocmlirGenArgs, paths)
 
-    # pipe to rocmlir-gen -ph --perf_config
-    p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    p2.stdout.close()
-    # pipe to rocmlir-driver -host-pipeline xmodel -kernel-pipeline full
-    p4 = subprocess.Popen(kernelPipelineCommand, stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    p3.stdout.close()
-    profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    p4.stdout.close()
     try:
         outs, errs = profiling.communicate(timeout=600)
         outs = outs.decode('utf-8')
@@ -144,7 +120,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
-        if i > 0 and i % 5000 == 0:
+        if i > 0 and i % 1000 == 0:
             print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}")
         if options.debug:
             print(result)
@@ -209,20 +185,23 @@ def tuneFusionKernels(test_dir, paths: Paths, options: Options):
             file_path = os.path.join(test_dir, filename)
             print("Tuning:", file_path)
             testVector = perfRunner.getTestVector(file_path, paths)
-            if (not testVector):
+            if not testVector:
+                continue
+            # skip if the best config already exists
+            if testVector in winners:
+                print("An entry already exists in the tuning DB")
                 continue
             commandLine = testVector.split(sep=' ')
-            #print(commandLine)
-            if (commandLine[0].startswith('conv')):
+            if commandLine[0].startswith('conv'):
                 config = ConvConfiguration.fromCommandLine(commandLine, options.arch)
             else:
                 config = GemmConfiguration.fromCommandLine(commandLine, options.arch)
             
             firstCommand = perfRunner.findRunCommand(file_path, ['RUN', 'xmir-runner'])
-            if (not firstCommand):
+            if not firstCommand:
                 continue
 
-            if ("-migraphx-to-tosa" in firstCommand):
+            if "-migraphx-to-tosa" in firstCommand:
                 rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', file_path]
                 rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
                 # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
@@ -241,7 +220,7 @@ def tuneFusionKernels(test_dir, paths: Paths, options: Options):
 
             # Verify with the winning config
             if options.verifyMode != "none":
-                verifyNs = verifyFusionWithPerfConfig(winningConfig, file_path, firstCommand, paths)
+                verifyNs = verifyFusionWithPerfConfig(winningConfig, file_path, paths)
                 if np.isnan(verifyNs):
                     # Verification failed, abort the loop
                     continue
@@ -250,7 +229,7 @@ def tuneFusionKernels(test_dir, paths: Paths, options: Options):
             else:
                 print(f"Tuned : {filename} : {testVector} : {winningConfig} with {maxTFlops} TFlops")
 
-            winners[filename] = [testVector, winningConfig]
+            winners[testVector] = winningConfig
 
     allData = pd.DataFrame(allData)
     return winners, allData
@@ -379,20 +358,12 @@ def main(args=None):
         print(allData)
         allData.to_csv(f"{parsed_args.output}.debug", sep='\t')
 
-    if opType == Operation.FUSION:
-        with open(parsed_args.output, 'w') as outFile:
-            print("# arch\tfilename\ttestVector\tperfConfig", file=outFile)
-            for filename, testConfig in winners.items():
-                print(f"Arch = {arch}, filename = {filename}, vector = {testConfig[0]}, perfConfig = {testConfig[1]}")
-                print(f"{arch}\t{filename}\t{testConfig[0]}\t{testConfig[1]}", file=outFile)
-
-    else:
-        # Note, appending results here to allow multiple config sets
-        with open(parsed_args.output, 'a') as outFile:
-            print("# arch\ttestVector\tperfConfig", file=outFile)
-            for testVector, perfConfig in winners.items():
-                print(f"Arch = {arch}, vector = '{testVector}', perfConfig = {perfConfig}")
-                print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
+    # Note, appending results here to allow multiple config sets
+    with open(parsed_args.output, 'a') as outFile:
+        print("# arch\ttestVector\tperfConfig", file=outFile)
+        for testVector, perfConfig in winners.items():
+            print(f"Arch = {arch}, vector = '{testVector}', perfConfig = {perfConfig}")
+            print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
 
 if __name__ == '__main__':
     sys.exit(main())
