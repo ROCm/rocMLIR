@@ -44,17 +44,8 @@ public:
     auto &ctx = getContext();
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                           func::FuncDialect>();
-    target.addIllegalOp<
-        migraphx::AddOp, migraphx::ConstantOp, migraphx::ConvolutionOp,
-        migraphx::QuantConvolutionOp, migraphx::RsqrtOp, migraphx::ReluOp,
-        migraphx::TransposeOp, migraphx::BroadcastOp,
-        migraphx::MultiBroadcastOp, migraphx::ReshapeOp, migraphx::DotOp,
-        migraphx::PowOp, migraphx::RecipOp, migraphx::SoftmaxOp,
-        migraphx::ReduceMeanOp, migraphx::QuantizeLinearOp,
-        migraphx::DeQuantizeLinearOp>();
-
+    target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
+    target.addIllegalDialect<migraphx::MIGraphXDialect>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     func::FuncOp func = getOperation();
