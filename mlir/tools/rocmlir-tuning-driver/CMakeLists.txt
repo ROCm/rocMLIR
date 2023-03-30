@@ -65,5 +65,6 @@ set_property(TARGET rocmlir-tuning-driver
 
   llvm_update_compile_flags(rocmlir-tuning-driver)
   target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
+  target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
   target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
 endif()

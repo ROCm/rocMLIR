@@ -6,7 +6,7 @@ endif()
 if (hip_FOUND)
   set(EXCLUDE_FROM_ALL TRUE)
   add_library(benchmark-driver-utils benchmarkUtils.cpp)
-  target_link_libraries(benchmark-driver-utils hip::device)
+  target_link_libraries(benchmark-driver-utils PUBLIC hip::host hip::amdhip64)
   set_target_properties(benchmark-driver-utils
     PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
