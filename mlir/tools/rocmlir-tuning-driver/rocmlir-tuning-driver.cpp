@@ -90,17 +90,16 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
 
 static benchmark::DataType getDataType(Type inputType) {
   if (inputType.isF32()) {
-    return benchmark::DataType::I8;
+    return benchmark::DataType::F32;
   } else if (inputType.isF16()) {
     return benchmark::DataType::F16;
   } else if (inputType.isBF16()) {
     return benchmark::DataType::BF16;
   } else if (inputType.isInteger(8)) {
     return benchmark::DataType::I8;
-  } else if (inputType.isBF16()) {
-    return benchmark::DataType::BF16;
-  } else
+  } else {
     llvm_unreachable("Kernels only accept ints or floats");
+  }
 }
 
 // In order to match rocprof, returns time in nanoseconds
