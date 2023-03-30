@@ -3,7 +3,7 @@
 // RUN: rocmlir-gen -ph -pr -rand 1 -fut test_fusion - |\
 // RUN: rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf \
 // RUN:   --convert-arith-to-llvm --convert-memref-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
-// RUN: | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/%prefix_mlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
   // CHECK:  [6,     2,     0,     0,     6,     6,     6,     6,     6,     0,     0,     6,     6,     0,     0,     0]

@@ -31,6 +31,7 @@ config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
+config.substitutions.append(('%prefix_mlir', config.prefix_mlir))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(("%host_cxx", config.host_cxx))
 config.substitutions.append(("%host_cc", config.host_cc))
@@ -85,6 +86,7 @@ tools.extend([
     ToolSubst('toyc-ch7', unresolved='ignore'),
     ToolSubst('%mlir_lib_dir', config.mlir_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_src_dir', config.mlir_src_root, unresolved='ignore'),
+    ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
 ])
 
 python_executable = config.python_executable

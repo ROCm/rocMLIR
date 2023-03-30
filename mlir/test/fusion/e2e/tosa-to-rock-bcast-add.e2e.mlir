@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-gen -ph -print-inputs -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext -entry-point-result=void | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-gen -ph -print-inputs -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/%prefix_mlir_runner_utils%shlibext -entry-point-result=void | FileCheck %s
 // ALLOW_RETRIES: 2
 
 // CHECK: Unranked Memref base

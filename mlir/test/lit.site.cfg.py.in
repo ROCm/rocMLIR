@@ -52,6 +52,7 @@ config.random_data = "@MLIR_RANDOM_DATA@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
+config.prefix_mlir = "@MLIR_PREFIX@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
@@ -102,14 +103,14 @@ config.arch_support_mfma = False
 config.features = None
 if config.rocm_path:
     try:
-        p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                           check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in p.stdout.split())
+        p = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+                           check=True, stdout=subprocess.PIPE, shell=True)
+        agents = set(x.decode("utf-8") for x in p.stdout.split() if x != b"gfx000")
         if not agents:
             # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
             # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-            q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
-                                check=True, stdout=subprocess.PIPE)
+            q = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator"],
+                                check=True, stdout=subprocess.PIPE, shell=True)
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
         for x in agents:

@@ -7,8 +7,8 @@
 // RUN: -convert-math-to-llvm --convert-memref-to-llvm --convert-func-to-llvm \
 // RUN: --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_lib_dir/libmlir_runner_utils%shlibext \
-// RUN:   -shared-libs=%mlir_lib_dir/libmlir_c_runner_utils%shlibext \
+// RUN:   -shared-libs=%linalg_test_lib_dir/%prefix_mlir_runner_utils%shlibext \
+// RUN:   -shared-libs=%linalg_test_lib_dir/%prefix_mlir_c_runner_utils%shlibext \
 // RUN: > %t1
 //
 // RUN  cat %t1 | FileCheck %s
@@ -27,8 +27,8 @@
 // RUN: --convert-math-to-llvm --convert-memref-to-llvm --convert-func-to-llvm \
 // RUN: --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_lib_dir/libmlir_runner_utils%shlibext \
-// RUN:   -shared-libs=%mlir_lib_dir/libmlir_c_runner_utils%shlibext \
+// RUN:   -shared-libs=%linalg_test_lib_dir/%prefix_mlir_runner_utils%shlibext \
+// RUN:   -shared-libs=%linalg_test_lib_dir/%prefix_mlir_c_runner_utils%shlibext \
 // RUN: > %t2
 //
 // RUN: diff --ignore-matching-lines='Unranked Memref' %t1 %t2

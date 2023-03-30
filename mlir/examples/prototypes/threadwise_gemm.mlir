@@ -1,4 +1,4 @@
-//./bin/mlir-opt --convert-linalg-to-affine-loops --lower-affine --convert-linalg-to-llvm --convert-std-to-llvm ../mlir/examples/prototypes/threadwise_gemm.mlir | ./bin/mlir-cpu-runner -e main --entry-point-result=void -shared-libs=lib/libmlir_runner_utils.so
+//./bin/mlir-opt --convert-linalg-to-affine-loops --lower-affine --convert-linalg-to-llvm --convert-std-to-llvm ../mlir/examples/prototypes/threadwise_gemm.mlir | ./bin/mlir-cpu-runner -e main --entry-point-result=void -shared-libs=lib/%prefix_mlir_runner_utils.so
 //Unranked Memref rank = 2 descriptor@ = 0x7ffe573badf0
 //Memref base@ = 0x4ff5260 rank = 2 offset = 0 sizes = [4, 7] strides = [7, 1] data =
 //[[5,   5,   5,   5,   5,   5,   5],

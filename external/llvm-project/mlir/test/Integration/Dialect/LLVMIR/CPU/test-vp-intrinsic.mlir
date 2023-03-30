@@ -2,7 +2,7 @@
 // RUN:             -convert-func-to-llvm -reconcile-unrealized-casts | \
 // RUN: mlir-translate -mlir-to-llvmir | \
 // RUN: %lli --entry-function=entry \
-// RUN:      --dlopen=%mlir_native_utils_lib_dir/libmlir_c_runner_utils%shlibext | \
+// RUN:      --dlopen=%mlir_native_utils_lib_dir/%prefix_mlir_c_runner_utils%shlibext | \
 // RUN: FileCheck %s
 
 memref.global "private" @gv_i32 : memref<20xi32> =

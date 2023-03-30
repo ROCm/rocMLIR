@@ -10,6 +10,14 @@ endif()
 set(MLIR_CMAKE_DIR
   "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
 
+if(WIN32)
+  set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${LLVM_EXTERNAL_BIN_DIR})
+  set(MLIR_PREFIX "mlir")
+else()
+  set(MLIR_PREFIX "libmlir")
+  set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${LLVM_EXTERNAL_LIB_DIR})
+endif()
+
 # Passed to lit.site.cfg.py.in to set up the path where to find libraries.
 set(MLIR_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 

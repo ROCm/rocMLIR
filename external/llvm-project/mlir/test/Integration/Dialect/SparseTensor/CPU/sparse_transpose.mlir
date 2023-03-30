@@ -2,7 +2,7 @@
 // DEFINE: %{command} = mlir-opt %s --sparse-compiler=%{option}
 // DxEFINE: mlir-cpu-runner \
 // DxEFINE:  -e entry -entry-point-result=void  \
-// DxEFINE:  -shared-libs=%mlir_lib_dir/libmlir_c_runner_utils%shlibext | \
+// DxEFINE:  -shared-libs=%linalg_test_lib_dir/%prefix_mlir_c_runner_utils%shlibext | \
 // DxEFINE: FileCheck %s
 //
 // RUN: %{command}
