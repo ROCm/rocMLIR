@@ -3,6 +3,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
 
   LINK_LIBS PUBLIC
   MLIRGPUToROCDLTransforms
+  MLIRGPUTransforms
   MLIRTensorToLinalg
   MLIRTosaToArith
   MLIRTosaToRock

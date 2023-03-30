@@ -42,6 +42,7 @@ config.build_examples = @LLVM_BUILD_EXAMPLES@
 config.run_rocm_tests = @MLIR_ENABLE_ROCM_CONVERSIONS@
 config.conv_validation_wrapper_library_dir = "@MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ENABLE_ROCM_RUNNER@
+config.enable_execution_engine = "@MLIR_ENABLE_EXECUTION_ENGINE@"
 config.enable_rock_driver = @ROCMLIR_DRIVER_ENABLED@
 if config.enable_rock_driver:
     config.available_features.add('rock-driver')
