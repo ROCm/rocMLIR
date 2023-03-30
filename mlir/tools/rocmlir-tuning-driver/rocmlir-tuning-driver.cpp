@@ -127,8 +127,9 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   std::vector<void *> hostBuffers;
   for (size_t i = 0; i < bufferSizes.size(); i++) {
     bool isOut = (i == bufferSizes.size() - 1);
-    hostBuffers[i] = benchmark::allocAndFill(dataType, bufferSizes[i], isOut);
-    void *gpuBuffer = benchmark::getGpuBuffer(hostBuffers[i], bufferSizes[i]);
+    void *hostBuffer = benchmark::allocAndFill(dataType, bufferSizes[i], isOut);
+    void *gpuBuffer = benchmark::getGpuBuffer(hostBuffer, bufferSizes[i]);
+    hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
 
