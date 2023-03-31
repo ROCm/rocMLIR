@@ -32,6 +32,12 @@ static Value createI32Constant(ConversionPatternRewriter &rewriter,
   return rewriter.createOrFold<LLVM::ConstantOp>(loc, llvmI32, value);
 }
 
+static Value createI1Constant(ConversionPatternRewriter &rewriter, Location loc,
+                              bool value) {
+  Type llvmI1 = rewriter.getI1Type();
+  return rewriter.createOrFold<LLVM::ConstantOp>(loc, llvmI1, value);
+}
+
 namespace {
 /// Define lowering patterns for raw buffer ops
 template <typename GpuOp, typename Intrinsic>
@@ -334,6 +340,57 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
   return input;
 }
 
+/// Push an input operand. If it is a float type, nothing to do. If it is
+/// an integer type, then we need to also push its signdness (1 for signed, 0
+/// for unsigned) and we need to pack the input 16xi8 vector into a 4xi32
+/// vector.
+static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
+                                 Location loc, TypeConverter *typeConverter,
+                                 bool isSigned, Value llvmInput,
+                                 SmallVector<Value, 4> &operands) {
+  Type inputType = llvmInput.getType();
+  auto vectorType = inputType.dyn_cast<VectorType>();
+  Type elemType = vectorType.getElementType();
+
+  if (!elemType.isInteger(8)) {
+    operands.push_back(llvmInput);
+    return;
+  }
+
+  int64_t numBytes = vectorType.getNumElements();
+  Type i32 = rewriter.getI32Type();
+  VectorType vectorType32bits = VectorType::get(numBytes * 8 / 32, i32);
+  auto llvmVectorType32bits = typeConverter->convertType(vectorType32bits);
+
+  Value result = rewriter.createOrFold<LLVM::BitcastOp>(
+      loc, llvmVectorType32bits, llvmInput);
+
+  Value sign = createI1Constant(rewriter, loc, isSigned);
+  operands.push_back(sign);
+  operands.push_back(result);
+}
+
+/// Push the output operand. For many cases this is only pushing the output
+/// in the operand list. But when we have f16 -> f16 or bf16 -> bf16 intrinsics,
+/// since the same numbers of VGPRs is used, we need to decide if to store the
+/// result in the upper 16 bits of the VGPRs or in the lower part. To store the
+/// result in the lower 16 bits, set isZeroIndexing to true, otherwise result
+/// will be stored it in the upper part
+static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
+                                  Location loc, TypeConverter *typeConverter,
+                                  Value output, bool isZeroIndexing, bool clamp,
+                                  SmallVector<Value, 4> &operands) {
+  Type inputType = output.getType();
+  auto vectorType = inputType.dyn_cast<VectorType>();
+  Type elemType = vectorType.getElementType();
+  operands.push_back(output);
+  if (elemType.isF16() || elemType.isBF16()) {
+    operands.push_back(createI1Constant(rewriter, loc, !isZeroIndexing));
+  } else if (elemType.isInteger(32)) {
+    operands.push_back(createI1Constant(rewriter, loc, clamp));
+  }
+}
+
 /// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
 /// if one exists. This includes checking to ensure the intrinsic is supported
 /// on the architecture you are compiling for.
@@ -471,6 +528,31 @@ static std::optional<StringRef> mfmaOpToIntrinsic(MFMAOp mfma,
   return std::nullopt;
 }
 
+/// Return the `rocdl` intrinsic corresponding to a WMMA operation `wmma`
+/// if one exists. This includes checking to ensure the intrinsic is supported
+/// on the architecture you are compiling for.
+static std::optional<StringRef> wmmaOpToIntrinsic(WMMAOp wmma,
+                                                  Chipset chipset) {
+
+  auto sourceVectorType = wmma.getSourceA().getType().dyn_cast<VectorType>();
+  auto destVectorType = wmma.getDestC().getType().dyn_cast<VectorType>();
+  auto elemSourceType = sourceVectorType.getElementType();
+  auto elemDestType = destVectorType.getElementType();
+
+  if (elemSourceType.isF16() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_f16::getOperationName();
+  } else if (elemSourceType.isBF16() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_bf16::getOperationName();
+  } else if (elemSourceType.isF16() && elemDestType.isF16()) {
+    return ROCDL::wmma_f16_16x16x16_f16::getOperationName();
+  } else if (elemSourceType.isBF16() && elemDestType.isBF16()) {
+    return ROCDL::wmma_bf16_16x16x16_bf16::getOperationName();
+  } else if (elemSourceType.isInteger(8) && elemDestType.isInteger(32)) {
+    return ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
+  }
+  return std::nullopt;
+}
+
 namespace {
 struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
   MFMAOpLowering(LLVMTypeConverter &converter, Chipset chipset)
@@ -506,6 +588,45 @@ struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
          createI32Constant(rewriter, loc, getBlgpField)});
     Operation *lowered = rewriter.create(loweredOp);
     rewriter.replaceOp(op, lowered->getResults());
+    return success();
+  }
+};
+
+struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
+  WMMAOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<WMMAOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
+  LogicalResult
+  matchAndRewrite(WMMAOp op, WMMAOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Type outType = typeConverter->convertType(op.getDestD().getType());
+
+    if (chipset.majorVersion != 11)
+      return op->emitOpError("WMMA only supported on gfx11");
+
+    std::optional<StringRef> maybeIntrinsic = wmmaOpToIntrinsic(op, chipset);
+
+    if (!maybeIntrinsic.has_value())
+      return op.emitOpError("no intrinsic matching WMMA on the given chipset");
+
+    OperationState loweredOp(loc, *maybeIntrinsic);
+    loweredOp.addTypes(outType);
+
+    SmallVector<Value, 4> operands;
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getSignedA(),
+                         adaptor.getSourceA(), operands);
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getSignedB(),
+                         adaptor.getSourceB(), operands);
+    wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
+                          op.getZeroIndexing(), op.getClamp(), operands);
+
+    loweredOp.addOperands(operands);
+    Operation *lowered = rewriter.create(loweredOp);
+    rewriter.replaceOp(op, lowered->getResults());
+
     return success();
   }
 };
@@ -557,7 +678,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
       RawBufferOpLowering<RawBufferAtomicUminOp, ROCDL::RawBufferAtomicUMinOp>,
       RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                           ROCDL::RawBufferAtomicCmpSwap>,
-      MFMAOpLowering>(converter, chipset);
+      MFMAOpLowering, WMMAOpLowering>(converter, chipset);
 }
 
 std::unique_ptr<Pass> mlir::createConvertAMDGPUToROCDLPass() {

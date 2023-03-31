@@ -379,6 +379,10 @@ def MFMAOutTypes : AnyTypeOf<[F64,
                               VectorOfLengthAndType<[4, 16, 32], [F32]>,
                               VectorOfLengthAndType<[4, 16, 32], [I32]>,
                               VectorOfLengthAndType<[4], [F64]>]>;
+// wmma
+def WMMAInTypes : AnyTypeOf<[VectorOfLengthAndType<[16], [F16,BF16,I8]>]>;
+def WMMAOutTypes : AnyTypeOf<[VectorOfLengthAndType<[4, 8], [F32, I32]>,
+                              VectorOfLengthAndType<[8, 16], [F16, BF16]>]>;
 
 def AMDGPU_MFMAOp :
     AMDGPU_Op<"mfma", [AllTypesMatch<["destC", "destD"]>,
@@ -432,6 +436,33 @@ def AMDGPU_MFMAOp :
     $sourceA `*` $sourceB `+` $destC
     attr-dict
     `blgp` `=` $blgp
+    `:` type($sourceA) `,` type($sourceB) `,` type($destC)
+  }];
+  let hasVerifier = 1;
+}
+
+def AMDGPU_WMMAOp :
+    AMDGPU_Op<"wmma", [AllTypesMatch<["destC", "destD"]>,
+                       AllTypesMatch<["sourceA", "sourceB"]>,
+                        Pure]>,
+    Arguments<(ins
+                   WMMAInTypes:$sourceA,
+                   WMMAInTypes:$sourceB,
+                   WMMAOutTypes:$destC,
+                   DefaultValuedAttr<BoolAttr, "true">:$zeroIndexing,
+                   DefaultValuedAttr<BoolAttr, "true">:$signedA,
+                   DefaultValuedAttr<BoolAttr, "true">:$signedB,
+                   DefaultValuedAttr<BoolAttr, "false">:$clamp)>,
+    Results<(outs WMMAOutTypes: $destD)> {
+  let summary = "MLIR wrapper for RDNA3 wmma instructions";
+  let description = [{
+    The `amdgpu.wmma` op is an MLIR wrapper around intrinsics
+    for various `wmma` instructions in the RDNA3 architecture, which perform
+    a 16x16 matrix multiplication for different data types.
+  }];
+  let assemblyFormat = [{
+    $sourceA `*` $sourceB `+` $destC
+    attr-dict
     `:` type($sourceA) `,` type($sourceB) `,` type($destC)
   }];
   let hasVerifier = 1;
