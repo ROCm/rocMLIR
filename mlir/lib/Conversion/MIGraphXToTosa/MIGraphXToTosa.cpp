@@ -262,7 +262,7 @@ public:
     if (outRank > inRank) {
       SmallVector<int64_t, 5> newShape = llvm::to_vector<5>(inShape);
       for (uint32_t i = inRank; i < outRank; i++) {
-        newShape.push_back(i);
+        newShape.push_back(1);
       }
       tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
           rewriter, loc, elemType, op.getInput(),
