@@ -506,17 +506,16 @@ public:
     Value scaled = createOpAndInfer<tosa::MulOp>(
         rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
 
+    Value shifted = scaled;
     if (auto bias = op.getBias()) {
-      auto biasElementType = getShapedElementTy(bias);
-      Value scaleCast = createCastOp(rewriter, loc, biasElementType, scaled);
-      Value shifted = createOpAndInfer<tosa::AddOp>(
-          rewriter, loc, biasElementType, scaleCast, bias);
-      rewriter.replaceOp(op, {shifted});
-    } else {
-      Type outputType = getShapedElementTy(output);
-      Value downCast = createCastOp(rewriter, loc, outputType, scaled);
-      rewriter.replaceOp(op, {downCast});
+      Value biasCast = createCastOp(rewriter, loc, elementType, bias);
+      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType,
+                                              scaled, biasCast);
     }
+
+    Type outputType = getShapedElementTy(output);
+    Value downCast = createCastOp(rewriter, loc, outputType, shifted);
+    rewriter.replaceOp(op, {downCast});
 
     return success();
   }
