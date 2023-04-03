@@ -54,7 +54,6 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
   # Note, this is a hack to ignore Pytorch added conda path
   list(APPEND CMAKE_IGNORE_PATH /opt/conda)
-  set(LLVM_TARGETS_TO_BUILD "AMDGPU" CACHE STRING "")
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
@@ -62,8 +61,6 @@ else()
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS ON CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
-  # LLVM settings that have an effect on the MLIR dialect
-  set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
