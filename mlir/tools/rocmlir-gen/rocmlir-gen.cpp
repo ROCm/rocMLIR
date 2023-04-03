@@ -389,11 +389,6 @@ static llvm::cl::opt<bool> emitTuningKey(
 
 // generate host harness program.
 static llvm::cl::opt<bool>
-    readHostHarness("host", llvm::cl::desc("To use host harness"),
-                    llvm::cl::value_desc("To use host harness"),
-                    llvm::cl::init(false));
-
-static llvm::cl::opt<bool>
     genHostHarness("host-harness", llvm::cl::desc("To use host harness"),
                    llvm::cl::value_desc("To use host harness"),
                    llvm::cl::init(false));
@@ -2319,7 +2314,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
   bool heuristicValidation =
-      genVerifierKeepPerfConfig == false && !genParams.perfConfig.empty();
+      !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
       ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
@@ -2469,21 +2464,10 @@ static LogicalResult populateHostHarnessLogic(
   // Construct main function.
   auto func = func::FuncOp::create(loc, "main", b.getFunctionType({}, {}));
   module.push_back(func);
-
-  // Construct a new Block.
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  llvm::SmallDenseMap<int32_t, Value> i32vals;
-  auto getI32Val = [&](int32_t v) {
-    if (i32vals.find(v) == i32vals.end()) {
-      auto i32Type = b.getIntegerType(32);
-      i32vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
-    }
-    return i32vals[v];
-  };
   auto floatType = b.getF32Type();
-
   auto validationType = genValidation.getValue();
 
   // Create all local variables for each kernel param
@@ -2498,7 +2482,7 @@ static LogicalResult populateHostHarnessLogic(
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
   bool heuristicValidation =
-      genVerifierKeepPerfConfig == false && !genParams.perfConfig.empty();
+      !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
       ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
@@ -2507,6 +2491,15 @@ static LogicalResult populateHostHarnessLogic(
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
 
   if (isRandom) {
+    llvm::SmallDenseMap<int32_t, Value> i32vals;
+    auto getI32Val = [&](int32_t v) {
+      if (i32vals.find(v) == i32vals.end()) {
+        auto i32Type = b.getIntegerType(32);
+        i32vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
+      }
+      return i32vals[v];
+    };
+
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
     Value seedConst = getI32Val(seed);
@@ -2686,218 +2679,162 @@ static LogicalResult populateHostHarnessLogic(
   return success();
 }
 
-int main(int argc, char **argv) {
-  DialectRegistry registry;
-  registerRocMLIRDialects(registry);
-  // Parse pass names in main to ensure static initialization completed.
-  mlir::registerMLIRContextCLOptions();
-  MLIRContext context(registry);
-  context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
-                      AffineDialect, memref::MemRefDialect, math::MathDialect,
-                      arith::ArithDialect, vector::VectorDialect,
-                      gpu::GPUDialect, linalg::LinalgDialect>();
-
-  // Parse pass names in main to ensure static initialization completed.
-  llvm::cl::ParseCommandLineOptions(argc, argv,
-                                    "MLIR Rock Dialect host generation\n");
-
-  OpBuilder builder(&context);
-  ModuleOp module;
-
-  if (operation != rock::KernelType::Gemm) {
-    verifyConvLayout();
-    correctConvParameters();
-  }
-  populateDefaults();
-
-  rock::Conv2dGenerator conv2dGenerator;
-
-  GenParams genParams;
-
-  auto testFuncNameVal = testFuncName.getValue();
-  bool hasUserKernel = !testFuncNameVal.empty();
-
+static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
+                             MLIRContext *context) {
   std::string errorMessage;
-  auto inputFilenameStr = inputFilename.getValue();
-  if (inputFilenameStr.size()) {
-    // Set up the input file.
-    auto file = openInputFile(inputFilename, &errorMessage);
-    if (!file) {
-      llvm::errs() << errorMessage << "\n";
+
+  // Set up the input file.
+  auto file = openInputFile(inputFilename, &errorMessage);
+  if (!file) {
+    llvm::errs() << errorMessage << "\n";
+    exit(1);
+  }
+
+  // Parse the input file.
+  llvm::SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
+  OwningOpRef<ModuleOp> moduleRef =
+      parseSourceFile<ModuleOp>(sourceMgr, context);
+  if (!moduleRef) {
+    llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
+    exit(1);
+  }
+  ModuleOp module = moduleRef.release();
+
+  if (!perfConfig.empty()) {
+    WalkResult findGemmOp =
+        module->walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
+          OpBuilder b(gemmOp.getContext());
+          gemmOp->setAttr("perf_config", b.getStringAttr(perfConfig));
+          return WalkResult::interrupt();
+        });
+    if (!findGemmOp.wasInterrupted()) {
+      llvm::errs() << "Cannot find a Gemm kernel for perf_config\n";
       exit(1);
     }
+  }
 
-    // Parse the input file.
-    llvm::SourceMgr sourceMgr;
-    sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
-    OwningOpRef<ModuleOp> moduleRef =
-        parseSourceFile<ModuleOp>(sourceMgr, &context);
-    if (!moduleRef) {
-      llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
+  module.walk([&](func::FuncOp func) -> WalkResult {
+    if (func->hasAttr("kernel")) {
+      hasUserKernel = true;
+    }
+    return WalkResult::advance();
+  });
+
+  return module;
+}
+
+static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
+                               ModuleOp module) {
+  OpBuilder builder(context);
+  static rock::Conv2dGenerator conv2dGenerator;
+
+  bool isGemm = operation == rock::KernelType::Gemm;
+  auto convConfig = populateConvConfig.getValue();
+
+  if (!convConfig.empty() && isGemm) {
+    llvm::errs() << "Cannot use --conv-config with gemm operations\n";
+    exit(1);
+  }
+
+  if (convConfig.empty() && failed(detectMissingArguments())) {
+    exit(1);
+  }
+
+  // Scenario 1: We use conv config to initialize everything
+  if (!convConfig.empty()) {
+    if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
+      llvm::errs() << "Module population failed.\n";
       exit(1);
     }
-    module = moduleRef.release();
-
-    if (!perfConfig.empty()) {
-      WalkResult findGemmOp = module->walk(
-          [&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
-            OpBuilder b(gemmOp.getContext());
-            gemmOp->setAttr("perf_config", b.getStringAttr(perfConfig));
-            return WalkResult::interrupt();
-          });
-      if (!findGemmOp.wasInterrupted()) {
-        llvm::errs() << "Cannot find a Gemm kernel for perf_config\n";
-        exit(1);
-      }
-    }
-
-    if (emitTuningSpace) {
-      auto tunableParams = rock::createTunableParamSpace(module);
-      std::string perfConfig;
-      for (auto param : tunableParams->tuningRange) {
-        param.getPerfConfigStr(perfConfig);
-        llvm::outs() << perfConfig << "\n";
-      }
-      delete tunableParams;
-      return 0;
-    }
-
-    if (emitTuningKey) {
-      llvm::outs() << rock::getTuningProblemStr(module) << "\n";
-      return 0;
-    }
-
-    module.walk([&](func::FuncOp func) -> WalkResult {
-      if (func->hasAttr("kernel")) {
-        hasUserKernel = true;
-      }
-      return WalkResult::advance();
-    });
-
+    OpBuilder b(context);
+    genParams.dtype = conv2dGenerator.getDataType(b);
+    const auto *convConfig = &conv2dGenerator.getConfig();
+    genParams.convConfig = convConfig;
+    genParams.features = convConfig->features;
+    genParams.operation =
+        rock::kernelTypeFromConvOpType(convConfig->operation.value());
+    genParams.perfConfig = convConfig->perfConfig;
   } else {
-    if (genValidation == "clone") {
-      llvm::errs()
-          << "Clone validation is not compatible with kernel generation.\n";
+    // Scenario 2: We use llvm::cl::opt to initialize everything
+    if (arch.getValue().empty()) {
+      llvm::errs() << "--arch is not set\n";
       exit(1);
     }
 
-    // Construct a new ModuleOp.
-    module = ModuleOp::create(builder.getUnknownLoc());
-  }
-
-  if (!hasUserKernel) {
-    bool isGemm = operation == rock::KernelType::Gemm;
-    auto convConfig = populateConvConfig.getValue();
-
-    if (!convConfig.empty() && isGemm) {
-      llvm::errs() << "Cannot use --conv-config with gemm operations\n";
+    RocmDeviceName targetInfo;
+    if (failed(targetInfo.parse(arch.getValue()))) {
+      llvm::errs() << "Invalid architecture name: " << arch << "\n";
       exit(1);
     }
+    std::string triple = targetInfo.getTriple().str();
+    std::string chip = targetInfo.getChip().str();
+    std::string chipFeatures = targetInfo.getFeaturesForBackend();
+    SmallString<64> canonicalArch;
+    targetInfo.getFullName(canonicalArch);
+    arch = canonicalArch.str().str();
 
-    if (convConfig.empty() && failed(detectMissingArguments())) {
-      exit(1);
-    }
+    LogicalResult status = success();
 
-    // Scenario 1: We use conv config to initialize everything
-    if (!convConfig.empty()) {
-      if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
-        llvm::errs() << "Module population failed.\n";
-        exit(1);
-      }
-      OpBuilder b(&context);
-      genParams.dtype = conv2dGenerator.getDataType(b);
-      const auto *convConfig = &conv2dGenerator.getConfig();
-      genParams.convConfig = convConfig;
-      genParams.features = convConfig->features;
-      genParams.operation =
-          rock::kernelTypeFromConvOpType(convConfig->operation.value());
-      genParams.perfConfig = convConfig->perfConfig;
-      // Scenario 2: We use llvm::cl::opt to initialize everything
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+    // toggle feature list according to llvm::cl::opt inputs
+    if (mfmaFeature != FeatureToggle::infer)
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
+                                   mfmaFeature == FeatureToggle::on);
+    if (dotFeature != FeatureToggle::infer)
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
+                                   dotFeature == FeatureToggle::on);
+    if (atomicAddFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
+                     atomicAddFeature == FeatureToggle::on);
+    if (atomicFMaxF32Feature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
+                     atomicFMaxF32Feature == FeatureToggle::on);
+    genParams.operation = operation;
+    genParams.features = enabledFeatures;
+    genParams.arch = arch;
+    genParams.perfConfig = perfConfig;
+    if (isGemm) {
+      Type elemType = typeFromString(tensorDataType, context);
+      genParams.dtype = elemType;
+      genParams.convConfig = std::nullopt;
+      (void)createGpuGemmKernel(module, genParams);
     } else {
-      if (arch.getValue().empty()) {
-        llvm::errs() << "--arch is not set\n";
+      conv2dGenerator = rock::Conv2dGenerator(
+          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          num_cu.getValue(), enabledFeatures,
+          rock::convOpTypeFromKernelType(operation.getValue()),
+          tensorDataType.getValue(), dilationHeight.getValue(),
+          dilationWidth.getValue(), strideHeight.getValue(),
+          strideWidth.getValue(), paddingHeightLeft.getValue(),
+          paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
+          paddingWidthRight.getValue(), filterLayout.getValue(),
+          inputLayout.getValue(), outputLayout.getValue());
+
+      status = conv2dGenerator.parseConvDims(
+          batchSize, groupSize, inputChannel, inputHeight, inputWidth,
+          outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
+      if (failed(status)) {
+        llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);
       }
-
-      RocmDeviceName targetInfo;
-      if (failed(targetInfo.parse(arch.getValue()))) {
-        llvm::errs() << "Invalid architecture name: " << arch << "\n";
-        exit(1);
-      }
-      std::string triple = targetInfo.getTriple().str();
-      std::string chip = targetInfo.getChip().str();
-      std::string chipFeatures = targetInfo.getFeaturesForBackend();
-      SmallString<64> canonicalArch;
-      targetInfo.getFullName(canonicalArch);
-      arch = canonicalArch.str().str();
-
-      LogicalResult status = success();
-
-      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-      rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
-      // toggle feature list according to llvm::cl::opt inputs
-      if (mfmaFeature != FeatureToggle::infer)
-        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
-                                     mfmaFeature == FeatureToggle::on);
-      if (dotFeature != FeatureToggle::infer)
-        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
-                                     dotFeature == FeatureToggle::on);
-      if (atomicAddFeature != FeatureToggle::infer)
-        enabledFeatures =
-            bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
-                       atomicAddFeature == FeatureToggle::on);
-      if (atomicFMaxF32Feature != FeatureToggle::infer)
-        enabledFeatures =
-            bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
-                       atomicFMaxF32Feature == FeatureToggle::on);
-      if (wmmaFeature != FeatureToggle::infer)
-        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
-                                     wmmaFeature == FeatureToggle::on);
-      genParams.operation = operation;
-      genParams.features = enabledFeatures;
-      genParams.arch = arch;
-      genParams.perfConfig = perfConfig;
-      if (isGemm) {
-        Type elemType = typeFromString(tensorDataType, &context);
-        genParams.dtype = elemType;
-        genParams.convConfig = std::nullopt;
-        (void)createGpuGemmKernel(module, genParams);
-      } else {
-        conv2dGenerator = rock::Conv2dGenerator(
-            arch, chip, triple, chipFeatures, perfConfig.getValue(),
-            num_cu.getValue(), enabledFeatures,
-            rock::convOpTypeFromKernelType(operation.getValue()),
-            tensorDataType.getValue(), dilationHeight.getValue(),
-            dilationWidth.getValue(), strideHeight.getValue(),
-            strideWidth.getValue(), paddingHeightLeft.getValue(),
-            paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
-            paddingWidthRight.getValue(), filterLayout.getValue(),
-            inputLayout.getValue(), outputLayout.getValue());
-
-        status = conv2dGenerator.parseConvDims(
-            batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-            outputChannel, outputHeight, outputWidth, filterHeight,
-            filterWidth);
-        if (failed(status)) {
-          llvm::errs() << "Could not parse convolution dimensions\n";
-          exit(1);
-        }
-        genParams.dtype =
-            typeFromString(conv2dGenerator.getConfig().dataTypeStr, &context);
-        genParams.convConfig = &conv2dGenerator.getConfig();
-      }
-    }
-
-    // TODO: Extract isApplicable check to be its own component
-    if (!isGemm &&
-        failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
-      llvm::errs()
-          << "Convolution configuration does not have valid dimension\n";
-      exit(1);
+      genParams.dtype =
+          typeFromString(conv2dGenerator.getConfig().dataTypeStr, context);
+      genParams.convConfig = &conv2dGenerator.getConfig();
     }
   }
 
-  if (!hasUserKernel && genParams.convConfig.has_value()) {
+  // TODO: Extract isApplicable check to be its own component
+  if (!isGemm &&
+      failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+    llvm::errs() << "Convolution configuration does not have valid dimension\n";
+    exit(1);
+  }
+
+  if (genParams.convConfig.has_value()) {
     const auto &genConfig = **genParams.convConfig;
     if (genCPUKernel.getValue()) {
       (void)createCPUConvFunc(module, genConfig);
@@ -2927,6 +2864,51 @@ int main(int argc, char **argv) {
     }
   }
 
+  return module;
+}
+
+int main(int argc, char **argv) {
+  DialectRegistry registry;
+  registerRocMLIRDialects(registry);
+  // Parse pass names in main to ensure static initialization completed.
+  mlir::registerMLIRContextCLOptions();
+  MLIRContext context(registry);
+  context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
+                      AffineDialect, memref::MemRefDialect, math::MathDialect,
+                      arith::ArithDialect, vector::VectorDialect,
+                      gpu::GPUDialect, linalg::LinalgDialect>();
+
+  // Parse pass names in main to ensure static initialization completed.
+  llvm::cl::ParseCommandLineOptions(argc, argv,
+                                    "MLIR Rock Dialect host generation\n");
+
+  if (operation != rock::KernelType::Gemm) {
+    verifyConvLayout();
+    correctConvParameters();
+  }
+  populateDefaults();
+
+  bool hasUserKernel = !testFuncName.empty();
+
+  ModuleOp module;
+  GenParams genParams;
+
+  if (!inputFilename.empty()) {
+    module = readTestFile(inputFilename.getValue(), hasUserKernel, &context);
+  } else {
+    if (genValidation == "clone") {
+      llvm::errs()
+          << "Clone validation is not compatible with kernel generation.\n";
+      exit(1);
+    }
+    OpBuilder builder(&context);
+    module = ModuleOp::create(builder.getUnknownLoc());
+  }
+
+  if (!hasUserKernel) {
+    module = generateKernel(&context, genParams, module);
+  }
+
   if (emitTuningSpace) {
     auto tunableParams = rock::createTunableParamSpace(module);
     std::string perfConfig;
@@ -2944,11 +2926,9 @@ int main(int argc, char **argv) {
   }
 
   SmallVector<KernelIF, 8> kernels;
-
-  // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
 
-  if (testFuncNameVal.empty()) {
+  if (testFuncName.empty()) {
     // Compute set of call-graph root nodes;  they're the ones we need to
     // call from main().  Start with all nodes, then erase the ones that
     // have edges to them.  Use SetVector because we want to preserve the
@@ -2993,6 +2973,7 @@ int main(int argc, char **argv) {
   }
 
   // Set up the output file.
+  std::string errorMessage;
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
