@@ -2719,7 +2719,8 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool& hasUserKernel,
   return module;
 }
 
-static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams) {
+static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams,
+                               ModuleOp module) {
   OpBuilder builder(context);
   static rock::Conv2dGenerator conv2dGenerator;
 
@@ -2734,8 +2735,6 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams) {
   if (convConfig.empty() && failed(detectMissingArguments())) {
     exit(1);
   }
-
-  ModuleOp module = ModuleOp::create(builder.getUnknownLoc());
 
   // Scenario 1: We use conv config to initialize everything
   if (!convConfig.empty()) {
@@ -2893,14 +2892,18 @@ int main(int argc, char **argv) {
 
   if (!inputFilename.empty()) {
     module = readTestFile(inputFilename.getValue(), hasUserKernel, &context);
-  } else if (genValidation == "clone") {
-    llvm::errs()
-      << "Clone validation is not compatible with kernel generation.\n";
-    exit(1);
+  } else {
+    if (genValidation == "clone") {
+      llvm::errs()
+        << "Clone validation is not compatible with kernel generation.\n";
+      exit(1);
+    }
+    OpBuilder builder(&context);
+    module = ModuleOp::create(builder.getUnknownLoc());
   }
 
   if (!hasUserKernel) {
-    module = generateKernel(&context, genParams);
+    module = generateKernel(&context, genParams, module);
   }
 
   if (emitTuningSpace) {
