@@ -2721,7 +2721,7 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool& hasUserKernel,
 
 static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams) {
   OpBuilder builder(context);
-  rock::Conv2dGenerator conv2dGenerator;
+  static rock::Conv2dGenerator conv2dGenerator;
 
   bool isGemm = operation == rock::KernelType::Gemm;
   auto convConfig = populateConvConfig.getValue();
