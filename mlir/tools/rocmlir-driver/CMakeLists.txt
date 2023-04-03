@@ -10,12 +10,9 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
+  MLIRExecutionEngine
   MLIRXModelPipeline
   )
-
-if (MLIR_ENABLE_EXECUTION_ENGINE)
-  list(APPEND LIBS MLIRExecutionEngine)
-endif()
 
 add_llvm_executable(rocmlir-driver
   PARTIAL_SOURCES_INTENDED
