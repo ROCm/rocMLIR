@@ -2309,7 +2309,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
   bool heuristicValidation =
-      genVerifierKeepPerfConfig == false && !genParams.perfConfig.empty();
+      !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
       ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
@@ -2477,7 +2477,7 @@ static LogicalResult populateHostHarnessLogic(
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
   bool heuristicValidation =
-      genVerifierKeepPerfConfig == false && !genParams.perfConfig.empty();
+      !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
       ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
@@ -2750,8 +2750,8 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams,
     genParams.operation =
         rock::kernelTypeFromConvOpType(convConfig->operation.value());
     genParams.perfConfig = convConfig->perfConfig;
-    // Scenario 2: We use llvm::cl::opt to initialize everything
   } else {
+    // Scenario 2: We use llvm::cl::opt to initialize everything
     if (arch.getValue().empty()) {
       llvm::errs() << "--arch is not set\n";
       exit(1);
