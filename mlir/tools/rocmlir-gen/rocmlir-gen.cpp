@@ -378,11 +378,6 @@ static llvm::cl::opt<bool> emitTuningKey(
 
 // generate host harness program.
 static llvm::cl::opt<bool>
-    readHostHarness("host", llvm::cl::desc("To use host harness"),
-                    llvm::cl::value_desc("To use host harness"),
-                    llvm::cl::init(false));
-
-static llvm::cl::opt<bool>
     genHostHarness("host-harness", llvm::cl::desc("To use host harness"),
                    llvm::cl::value_desc("To use host harness"),
                    llvm::cl::init(false));
