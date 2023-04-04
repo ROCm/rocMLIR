@@ -33,7 +33,6 @@ target_link_libraries(mlir-tosa-miir-test
   MLIRCAPIRegisterRocMLIR
   MLIRRockPipeline
   LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
 )
 
 add_llvm_executable(mlir-mixr-full-test
@@ -51,7 +50,6 @@ target_link_libraries(mlir-mixr-full-test
   MLIRMIGraphXPipeline
   MLIRRockPipeline
   LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
 )
 
 add_llvm_executable(mlir-mixr-fullc-test
