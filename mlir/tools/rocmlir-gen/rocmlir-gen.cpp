@@ -2674,7 +2674,7 @@ static LogicalResult populateHostHarnessLogic(
   return success();
 }
 
-static ModuleOp readTestFile(std::string inputFilenameStr, bool& hasUserKernel,
+static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
                              MLIRContext *context) {
   std::string errorMessage;
 
@@ -2697,8 +2697,8 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool& hasUserKernel,
   ModuleOp module = moduleRef.release();
 
   if (!perfConfig.empty()) {
-    WalkResult findGemmOp = module->walk(
-        [&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
+    WalkResult findGemmOp =
+        module->walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
           OpBuilder b(gemmOp.getContext());
           gemmOp->setAttr("perf_config", b.getStringAttr(perfConfig));
           return WalkResult::interrupt();
@@ -2719,7 +2719,7 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool& hasUserKernel,
   return module;
 }
 
-static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams,
+static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
                                ModuleOp module) {
   OpBuilder builder(context);
   static rock::Conv2dGenerator conv2dGenerator;
@@ -2811,8 +2811,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams,
 
       status = conv2dGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-          outputChannel, outputHeight, outputWidth, filterHeight,
-          filterWidth);
+          outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
       if (failed(status)) {
         llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);
@@ -2826,8 +2825,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams& genParams,
   // TODO: Extract isApplicable check to be its own component
   if (!isGemm &&
       failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
-    llvm::errs()
-        << "Convolution configuration does not have valid dimension\n";
+    llvm::errs() << "Convolution configuration does not have valid dimension\n";
     exit(1);
   }
 
@@ -2895,7 +2893,7 @@ int main(int argc, char **argv) {
   } else {
     if (genValidation == "clone") {
       llvm::errs()
-        << "Clone validation is not compatible with kernel generation.\n";
+          << "Clone validation is not compatible with kernel generation.\n";
       exit(1);
     }
     OpBuilder builder(&context);
