@@ -35,11 +35,6 @@ set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
-if(BUILD_MIXR_TARGET)
-  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
-  set(EXPORT_ALL_HEADERS ON CACHE BOOL "Export internal headers")
-endif()
-
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat librockCompiler to link into Rock driver")
