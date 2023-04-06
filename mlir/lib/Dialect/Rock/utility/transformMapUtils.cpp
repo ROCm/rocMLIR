@@ -66,14 +66,12 @@ TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
   strides.reserve(shape.size());
   int64_t stride = 1;
   for (int64_t v : llvm::reverse(shape)) {
-    strides.push_back(stride);
     stride *= v;
   }
-  std::reverse(strides.begin(), strides.end());
   assert(stride == outShape[0] && "Strides must multiply to buffer length");
 
   TopDownTMBuilder transform(b, names, shape, loc);
-  transform.embed("raw", 0, outShape[0], names, strides);
+  transform.unmerge("raw", 0, names, shape);
 
   TransformMapAttr transformAttr = transform.get();
   auto ret = b.create<TransformOp>(loc, buffer, transformAttr);
@@ -157,10 +155,10 @@ struct VectorizationData {
 /// etc.).
 template <typename T>
 static std::optional<VectorizationInfo>
-propagateUnmergeVectorization(T &&dimAndLength,
-                              const VectorizationData &input) {
+propagateUnmergeVectorization(T &&dimAndLength, const VectorizationData &input,
+                              int64_t startStrideFromOtherInfo = 1) {
   std::optional<VectorizationInfo> result;
-  int64_t previousDimsStride = 1;
+  int64_t previousDimsStride = startStrideFromOtherInfo;
   std::optional<int64_t> previousAlign;
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
@@ -653,7 +651,8 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
 
 int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
                                         int64_t len,
-                                        ArrayRef<int64_t> outputShape) {
+                                        ArrayRef<int64_t> outputShape,
+                                        int64_t implicitStride) {
   int64_t numInitialDims = transforms.empty() ? outputShape.size()
                                               : transforms[0]
                                                     .cast<TransformMapAttr>()
@@ -669,16 +668,20 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
     data.debugPrint();
+    LLVM_DEBUG(llvm::dbgs() << "Processing: " << transformMap << "\n");
     data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
   }
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();
 
+  LLVM_DEBUG(llvm::dbgs() << "Vectorization output shape: ");
+  LLVM_DEBUG(llvm::interleaveComma(outputShape, llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "\n");
   std::optional<VectorizationInfo> finalUnmerge = propagateUnmergeVectorization(
       llvm::zip(llvm::reverse(
                     llvm::iota_range<uint32_t>(0, outputShape.size(), false)),
                 llvm::reverse(outputShape)),
-      data);
+      data, implicitStride);
   int64_t result = 1;
   if (finalUnmerge.has_value())
     LLVM_DEBUG(llvm::dbgs() << "Final unmerge: " << *finalUnmerge << "\n");
@@ -688,7 +691,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
     result = finalUnmerge->maxLength;
   // TODO(kdrewnia): Add support for tails
   result = math_util::gcd(len, result);
-  return result;
+  return result * implicitStride;
 }
 
 int64_t mlir::rock::getMaxVectorizationForDatatype(

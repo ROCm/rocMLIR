@@ -45,9 +45,15 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 /// dimension, returns the largest stride `s` such that length-`s` slices of
 /// `dim` correspond to contiguous slices of the underlying memory the
 /// `transforms` will be applied to, which is assumed to have shape
-/// `outputShape`.
+/// `outputShape`. `implicitStride` is used for vector-valued buffers whose
+/// indexing functions are scalar-valued. It scales the implicit
+/// index linearization at the end of the vectorization analysis by
+/// `implicitStride`, so that the low-order bits of the scalar index that are
+/// discarded do not cause incorrect conclusions. The returned vectorization
+/// length is scaled by `implicitStride`.
 int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
-                            ArrayRef<int64_t> outputShape);
+                            ArrayRef<int64_t> outputShape,
+                            int64_t implicitStride = 1);
 
 /// Returns the maximum vectorization constrained by the `dataType` we are
 /// vectorizing for

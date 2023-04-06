@@ -1,9 +1,12 @@
 // RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
+#wg = #gpu.address_space<workgroup>
+#priv = #gpu.address_space<private>
+
 // CHECK-LABEL: @rock_blockwise_gemm_v2_two_results
-func.func @rock_blockwise_gemm_v2_two_results(%matrixA : memref<512xf32, 3>, %matrixB : memref<512xf32, 3>,
-                                                %bufferA : memref<4xf32, 5>, %bufferB : memref<4xf32, 5>,
-                                                %matrixC : memref<4xvector<16xf32>, 5>) {
+func.func @rock_blockwise_gemm_v2_two_results(%matrixA : memref<256xvector<2xf32>, #wg>, %matrixB : memref<256xvector<2xf32>, #wg>,
+                                                %bufferA : memref<4xf32, #priv>, %bufferB : memref<4xf32, #priv>,
+                                                %matrixC : memref<4xvector<16xf32>, #priv>) {
   %c0 = arith.constant 0 : index
   // CHECK:  rock.xdlops_gemm_v2
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] {
@@ -17,14 +20,14 @@ func.func @rock_blockwise_gemm_v2_two_results(%matrixA : memref<512xf32, 3>, %ma
       nPerBlock = 128,
       nPerWave = 64,
       forceUnroll = true>
-  } : memref<4xvector<16xf32>, 5> += memref<4xf32, 5> from memref<512xf32, 3> * memref<4xf32, 5> from memref<512xf32, 3>
+  } : memref<4xvector<16xf32>, #priv> += memref<4xf32, #priv> from memref<256xvector<2xf32>, #wg> * memref<4xf32, #priv> from memref<256xvector<2xf32>, #wg>
   return
 }
 
 // CHECK-LABEL: @rock_blockwise_gemm_v2_one_result
-func.func @rock_blockwise_gemm_v2_one_result(%matrixA : memref<1024xi8, 3>, %matrixB : memref<1024xi8, 3>,
-                                               %bufferA : memref<1xvector<4xi8>, 5>, %bufferB : memref<1xvector<4xi8>, 5>,
-                                               %matrixC : memref<1xvector<16xi32>, 5>) {
+func.func @rock_blockwise_gemm_v2_one_result(%matrixA : memref<128xvector<8xi8>, #wg>, %matrixB : memref<128xvector<8xi8>, #wg>,
+                                               %bufferA : memref<1xvector<4xi8>, #priv>, %bufferB : memref<1xvector<4xi8>, #priv>,
+                                               %matrixC : memref<1xvector<16xi32>, #priv>) {
   %c0 = arith.constant 0 : index
   // CHECK:  rock.xdlops_gemm_v2
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] {
@@ -38,13 +41,13 @@ func.func @rock_blockwise_gemm_v2_one_result(%matrixA : memref<1024xi8, 3>, %mat
       nPerBlock = 64,
       nPerWave = 32,
       forceUnroll = true>
-  } : memref<1xvector<16xi32>, 5> += memref<1xvector<4xi8>, 5> from memref<1024xi8, 3> * memref<1xvector<4xi8>, 5> from memref<1024xi8, 3>
+  } : memref<1xvector<16xi32>, #priv> += memref<1xvector<4xi8>, #priv> from memref<128xvector<8xi8>, #wg> * memref<1xvector<4xi8>, #priv> from memref<128xvector<8xi8>, #wg>
   return
 }
 
 // CHECK-LABEL: @rock_blockwise_gemm_v2_fp8_bf8
-func.func @rock_blockwise_gemm_v2_fp8_bf8(%matrixA : memref<8192xf8E4M3FNUZ, #gpu.address_space<workgroup>>,
-                                          %matrixB : memref<8192xf8E5M2FNUZ, #gpu.address_space<workgroup>>,
+func.func @rock_blockwise_gemm_v2_fp8_bf8(%matrixA : memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>>,
+                                          %matrixB : memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>,
                                           %bufferA : memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>>,
                                           %bufferB : memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
                                           %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
@@ -61,6 +64,6 @@ func.func @rock_blockwise_gemm_v2_fp8_bf8(%matrixA : memref<8192xf8E4M3FNUZ, #gp
       mPerWave = 64,
       nPerWave = 64,
       forceUnroll = true>
-  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> from memref<8192xf8E4M3FNUZ, #gpu.address_space<workgroup>> * memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>> from memref<8192xf8E5M2FNUZ, #gpu.address_space<workgroup>>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> from memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>> * memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>> from memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
   return
 }
