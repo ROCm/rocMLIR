@@ -1346,6 +1346,95 @@ def MemRef_ReinterpretCastOp
 }
 
 //===----------------------------------------------------------------------===//
+// ReinterpretElementsOp
+//===----------------------------------------------------------------------===//
+def MemRef_ReinterpretElementsOp : MemRef_Op<"reinterpret_elements", [
+      DeclareOpInterfaceMethods<CastOpInterface>,
+      DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+      MemRefsNormalizable,
+      Pure,
+      ViewLikeOpInterface
+    ]> {
+  let summary = "reinterpret the elements of a memref";
+  let description = [{
+    The `memref.reinterpret_elements` operation changes the element type of a
+    memref when it would be safe to do so. This operation is meant to allow
+    for type punning, such as interpreting a memref<?xf32> as a memref<?xi32>
+    and to enable shrinking the element types of a memref,
+    such as by reinterpreting a memref<Nxvector<KxT>> as a memref<NxKxT>
+    or a memref<?xi32> as a memref<?x2xi16>.
+
+    Unless the `unsafeSkipSizeAndAlignmentCompatibilityChecks` attribute is present,
+    both the source and dest element types must be scalars, 0D vectors, or 1D vectors
+    whose bitwidth is a power of 2. This condition ensures that the source
+    element type be stored without padding, and that the dest elements will form
+    even, densely packed subdivisions of each source element (assuming
+    that loads of the source and  dest type are permitted on a target).
+
+    The reinterpretation is restricted to viewing larger types
+    as smaller ones.
+
+    For "pure" reinterpretations (for example, f32 <-> i32), the layout
+    must not change. For expansions (where a dimension is added), the layout
+    must be the identity layout. (As with `memref.view`, this is not an
+    inherent restriction on the operation, but a simplification used to ensure
+    implementation simplicity. It could be lifted in the future.)
+
+    The reinterpretation is only valid when:
+    1. The source and dest element types have the same bitwidth, and the dest
+    memref's shape is identical to the source's.
+    Example:
+
+    ```mlir
+    // View integers as floats.
+    %2 = memref.reinterpret_elements %1 : memref<4xi32> to memref<4xf32>
+
+    // View 0D vectors as scalars.
+    %4 = memref.reinterpret_elements %3 : memref<?xvector<i32>> to memref<?xi32>
+
+    // View scalars as length-1 vectors
+    %6 = memref.reinterpret_elements %5 : memref<32x32xi32> to memref<32x32xvector<1xi32>>
+
+    ```
+
+    2. The cast is from memref<...xT> to memref<...xBxU> where B
+    is the bitwidth of T divided by the bitwidth of U. When
+    `unsafeSkipSizeAndAlignmentCompatibilityChecks` is enabled, the value of `B` given
+    at the type level is assumed to be correct.
+    Example:
+
+    ```mlir
+    // View vectors as scalars.
+    %2 = memref.reinterpret_elements %1 : memref<?x?xvector<4xf32>> to memref<?x?x4xf32>
+
+    // View scalars as bytes.
+    %4 = memref.reinterpret_elements %3 : memref<?x?xf32> to memref<?x?x4xi8>
+
+    // View vectors as smaller vectors.
+    %6 = memref.reinterpret_elements %5 : memref<?x?xvector<4xf32>> to memref<?x?x2xvector<2xf32>>
+
+    // View vectors as scalars, relying on low-level knowledge of memory layout on a target.
+    %8 = memref.reinterpret_elements %7 {unsafeSkipSizeAndAlignmentCompatibilityChecks}
+      : memref<6xvector<6xi32>> to memref<6x6xi32>
+    ```
+  }];
+
+  let arguments = (ins AnyMemRef:$source,
+                   UnitAttr:$unsafeSkipSizeAndAlignmentCompatibilityChecks);
+  let results = (outs AnyMemRef:$dest);
+  let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
+
+  let builders = [OpBuilder<(ins "Value":$source, "Type":$newElementType)>];
+
+  let extraClassDeclaration = [{
+    Value getViewSource() { return getSource(); }
+  }];
+
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // RankOp
 //===----------------------------------------------------------------------===//
 

@@ -42,6 +42,54 @@ func.func @memref_reshape(%unranked: memref<*xf32>, %shape1: memref<1xi32>,
   return %new_unranked : memref<*xf32>
 }
 
+// CHECK-LABEL: func @reinterpret_elements_scalar_to_scalar
+func.func @reinterpret_elements_scalar_to_scalar(%in : memref<4xf32>) -> memref<4xi32> {
+  %out = memref.reinterpret_elements %in : memref<4xf32> to memref<4xi32>
+  return %out : memref<4xi32>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_0D_to_scalar
+func.func @reinterpret_elements_0D_to_scalar(%in : memref<?xvector<i32>>) -> memref<?xi32> {
+  %out = memref.reinterpret_elements %in : memref<?xvector<i32>> to memref<?xi32>
+  return %out : memref<?xi32>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_scalar_to_1D
+func.func @reinterpret_elements_scalar_to_1D(%in : memref<32x32xi32>) -> memref<32x32xvector<1xi32>> {
+  %out = memref.reinterpret_elements %in : memref<32x32xi32> to memref<32x32xvector<1xi32>>
+  return %out : memref<32x32xvector<1xi32>>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_vectors_to_scalars
+func.func @reinterpret_elements_vectors_to_scalars(%in : memref<4xvector<4xf32>>) -> memref<4x4xf32> {
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x4xf32>
+  return %out : memref<4x4xf32>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_scalars_to_bytes
+func.func @reinterpret_elements_scalars_to_bytes(%in : memref<4xi32>) -> memref<4x4xi8> {
+  %out = memref.reinterpret_elements %in : memref<4xi32> to memref<4x4xi8>
+  return %out : memref<4x4xi8>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_vectors_to_smaller_vectors
+func.func @reinterpret_elements_vectors_to_smaller_vectors(%in : memref<4xvector<4xf32>>) -> memref<4x2xvector<2xf32>> {
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x2xvector<2xf32>>
+  return %out : memref<4x2xvector<2xf32>>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_vectors_to_themselves
+func.func @reinterpret_elements_vectors_to_themselves(%in : memref<4xvector<4xf32>>) -> memref<4x1xvector<4xf32>> {
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x1xvector<4xf32>>
+  return %out : memref<4x1xvector<4xf32>>
+}
+
+// CHECK-LABEL: func @reinterpret_elements_vectors_to_smaller_vectors_unsafe
+func.func @reinterpret_elements_vectors_to_smaller_vectors_unsafe(%in : memref<4xvector<6xf32>>) -> memref<4x2xvector<3xf32>> {
+  %out = memref.reinterpret_elements %in {unsafeSkipSizeAndAlignmentCompatibilityChecks} : memref<4xvector<6xf32>> to memref<4x2xvector<3xf32>>
+  return %out : memref<4x2xvector<3xf32>>
+}
+
 // CHECK-LABEL: memref.global @memref0 : memref<2xf32>
 memref.global @memref0 : memref<2xf32>
 

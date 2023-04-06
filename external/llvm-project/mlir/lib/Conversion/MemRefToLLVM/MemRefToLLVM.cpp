@@ -1155,6 +1155,76 @@ private:
   }
 };
 
+struct MemRefReinterpretElementsOpLowering
+    : public ConvertOpToLLVMPattern<memref::ReinterpretElementsOp> {
+  using ConvertOpToLLVMPattern<
+      memref::ReinterpretElementsOp>::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::ReinterpretElementsOp castOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = castOp.getLoc();
+    MemRefType sourceType = castOp.getSource().getType();
+    MemRefType destType = castOp.getDest().getType();
+
+    Type destElementType =
+        getTypeConverter()->convertType(destType.getElementType());
+    if (!destElementType)
+      return rewriter.notifyMatchFailure(
+          loc, "result type not convertible to LLVM type");
+
+    Type destDescType = getTypeConverter()->convertType(destType);
+    if (!destDescType)
+      return rewriter.notifyMatchFailure(
+          loc,
+          "result memref descriptor can't be an LLVM type. Shouldn't happen");
+    Type indexTy = getIndexType();
+
+    // With opaque pointers, if there's no shape change, this is a noop, and
+    // that case needs to be added when we upstream this.
+
+    MemRefDescriptor desc(adaptor.getSource());
+    Value allocPtr = desc.allocatedPtr(rewriter, loc);
+    Value alignedPtr = desc.alignedPtr(rewriter, loc);
+
+    auto oldPtrType = allocPtr.getType().cast<LLVM::LLVMPointerType>();
+    auto newPtrType = LLVM::LLVMPointerType::get(destElementType,
+                                                 oldPtrType.getAddressSpace());
+
+    Value newAllocPtr =
+        rewriter.create<LLVM::BitcastOp>(loc, newPtrType, allocPtr);
+    Value newAlignedPtr =
+        rewriter.create<LLVM::BitcastOp>(loc, newPtrType, alignedPtr);
+    auto newDesc = MemRefDescriptor::undef(rewriter, loc, destDescType);
+    newDesc.setAllocatedPtr(rewriter, loc, newAllocPtr);
+    newDesc.setAlignedPtr(rewriter, loc, newAlignedPtr);
+    int64_t nSourceDims = sourceType.getRank();
+
+    bool addsDim = sourceType.getRank() != destType.getRank();
+    int64_t newDimLen = addsDim ? destType.getShape().back() : 0;
+    Value newDimConst =
+        addsDim ? createIndexConstant(rewriter, loc, newDimLen) : nullptr;
+
+    auto scaleValue = [&](Value v) -> Value {
+      if (addsDim)
+        return rewriter.createOrFold<LLVM::MulOp>(loc, indexTy, v, newDimConst);
+      return v;
+    };
+    newDesc.setOffset(rewriter, loc, scaleValue(desc.offset(rewriter, loc)));
+    for (auto i : llvm::iota_range<int64_t>(0L, nSourceDims, false)) {
+      newDesc.setSize(rewriter, loc, i, desc.size(rewriter, loc, i));
+      Value newStride = scaleValue(desc.stride(rewriter, loc, i));
+      newDesc.setStride(rewriter, loc, i, newStride);
+    }
+    if (addsDim) {
+      newDesc.setSize(rewriter, loc, nSourceDims, newDimConst);
+      newDesc.setStride(rewriter, loc, nSourceDims, newDimConst);
+    }
+    rewriter.replaceOp(castOp, {newDesc});
+    return success();
+  }
+};
+
 struct MemRefReshapeOpLowering
     : public ConvertOpToLLVMPattern<memref::ReshapeOp> {
   using ConvertOpToLLVMPattern<memref::ReshapeOp>::ConvertOpToLLVMPattern;
@@ -2016,6 +2086,7 @@ void mlir::populateMemRefToLLVMConversionPatterns(LLVMTypeConverter &converter,
       MemRefCastOpLowering,
       MemRefCopyOpLowering,
       MemRefReinterpretCastOpLowering,
+      MemRefReinterpretElementsOpLowering,
       MemRefReshapeOpLowering,
       PrefetchOpLowering,
       RankOpLowering,

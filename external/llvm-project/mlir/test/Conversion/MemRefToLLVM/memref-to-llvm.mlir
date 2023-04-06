@@ -765,3 +765,57 @@ func.func @extract_strided_metadata(
 
   return
 }
+
+// -----
+
+// CHECK-LABEL: func @reinterpret_elements_no_scale
+// CHECK: [[alloc:%.+]] = llvm.extractvalue [[inp:%.+]][0] : !llvm.struct<(ptr<f32>, ptr<f32>, i64, array<1 x i64>, array<1 x i64>)>
+// CHECK: [[align:%.+]] = llvm.extractvalue [[inp]][1]
+// CHECK: [[newAlloc:%.+]] = llvm.bitcast [[alloc]] : !llvm.ptr<f32> to !llvm.ptr<i32>
+// CHECK: [[newAlign:%.+]] = llvm.bitcast [[align]] : !llvm.ptr<f32> to !llvm.ptr<i32>
+// CHECK: [[res0:%.+]] = llvm.mlir.undef : !llvm.struct<(ptr<i32>, ptr<i32>, i64, array<1 x i64>, array<1 x i64>)>
+// CHECK: [[res1:%.+]] = llvm.insertvalue [[newAlloc]], [[res0]][0]
+// CHECK: [[res2:%.+]] = llvm.insertvalue [[newAlign]], [[res1]][1]
+// CHECK: [[offset:%.+]] = llvm.extractvalue [[inp]][2]
+// CHECK: [[res3:%.+]] = llvm.insertvalue [[offset]], [[res2]][2]
+// CHECK: [[size:%.+]] = llvm.extractvalue [[inp]][3, 0]
+// CHECK: [[res4:%.+]] = llvm.insertvalue [[size]], [[res3]][3, 0]
+// CHECK: [[stride:%.+]] = llvm.extractvalue [[inp]][4, 0]
+// CHECK: [[res5:%.+]] = llvm.insertvalue [[stride]], [[res4]][4, 0]
+// CHECK: builtin.unrealized_conversion_cast [[res5]]
+func.func @reinterpret_elements_no_scale(%in : memref<?xf32>) -> memref<?xi32> {
+  %out = memref.reinterpret_elements %in : memref<?xf32> to memref<?xi32>
+  func.return %out : memref<?xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func @reinterpret_elements_with_scale
+// CHECK: [[alloc:%.+]] = llvm.extractvalue [[inp:%.+]][0] : !llvm.struct<(ptr<vector<4xf32>>, ptr<vector<4xf32>>, i64, array<2 x i64>, array<2 x i64>)>
+// CHECK: [[align:%.+]] = llvm.extractvalue [[inp]][1]
+// CHECK: [[newAlloc:%.+]] = llvm.bitcast [[alloc]] : !llvm.ptr<vector<4xf32>> to !llvm.ptr<f32>
+// CHECK: [[newAlign:%.+]] = llvm.bitcast [[align]] : !llvm.ptr<vector<4xf32>> to !llvm.ptr<f32>
+// CHECK: [[res0:%.+]] = llvm.mlir.undef : !llvm.struct<(ptr<f32>, ptr<f32>, i64, array<3 x i64>, array<3 x i64>)>
+// CHECK: [[res1:%.+]] = llvm.insertvalue [[newAlloc]], [[res0]][0]
+// CHECK: [[res2:%.+]] = llvm.insertvalue [[newAlign]], [[res1]][1]
+// CHECK: [[scale:%.+]] = llvm.mlir.constant(4 : index) : i64
+// CHECK: [[offset:%.+]] = llvm.extractvalue [[inp]][2]
+// CHECK: [[newOffset:%.+]] = llvm.mul [[offset]], [[scale]]
+// CHECK: [[res3:%.+]] = llvm.insertvalue [[newOffset]], [[res2]][2]
+// CHECK: [[size0:%.+]] = llvm.extractvalue [[inp]][3, 0]
+// CHECK: [[res4:%.+]] = llvm.insertvalue [[size0]], [[res3]][3, 0]
+// CHECK: [[stride0:%.+]] = llvm.extractvalue [[inp]][4, 0]
+// CHECK: [[newStride0:%.+]] = llvm.mul [[stride0]], [[scale]]
+// CHECK: [[res5:%.+]] = llvm.insertvalue [[newStride0]], [[res4]][4, 0]
+// CHECK: [[size1:%.+]] = llvm.extractvalue [[inp]][3, 1]
+// CHECK: [[res6:%.+]] = llvm.insertvalue [[size1]], [[res5]][3, 1]
+// CHECK: [[stride1:%.+]] = llvm.extractvalue [[inp]][4, 1]
+// CHECK: [[newStride1:%.+]] = llvm.mul [[stride1]], [[scale]]
+// CHECK: [[res7:%.+]] = llvm.insertvalue [[newStride1]], [[res6]][4, 1]
+// CHECK: [[res8:%.+]] = llvm.insertvalue [[scale]], [[res7]][3, 2]
+// CHECK: [[res9:%.+]] = llvm.insertvalue [[scale]], [[res8]][4, 2]
+// CHECK: builtin.unrealized_conversion_cast [[res9]]
+func.func @reinterpret_elements_with_scale(%in : memref<?x?xvector<4xf32>>) -> memref<?x?x4xf32> {
+  %out = memref.reinterpret_elements %in : memref<?x?xvector<4xf32>> to memref<?x?x4xf32>
+  func.return %out : memref<?x?x4xf32>
+}

@@ -291,6 +291,102 @@ func.func @memref_reshape_result_affine_map_is_not_identity(
 
 // -----
 
+func.func @reinterpret_elements_memory_spaces(%in : memref<4xf32, #gpu.address_space<workgroup>>) -> memref<4xi32> {
+  // expected-error @+1 {{operand type 'memref<4xf32, #gpu.address_space<workgroup>>' and result type 'memref<4xi32>' are cast incompatible}}
+  %out = memref.reinterpret_elements %in : memref<4xf32, #gpu.address_space<workgroup>> to memref<4xi32>
+  return %out : memref<4xi32>
+}
+
+// -----
+
+func.func @reinterpret_elements_too_many_dims(%in : memref<4xvector<4xf32>>) -> memref<4x2x2xf32> {
+  // expected-error @+1 {{operand type 'memref<4xvector<4xf32>>' and result type 'memref<4x2x2xf32>' are cast incompatible}}
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x2x2xf32>
+  return %out : memref<4x2x2xf32>
+}
+
+// -----
+
+func.func @reinterpret_elements_dynamic_new_dim(%in : memref<4xvector<4xf32>>) -> memref<4x?xf32> {
+  // expected-error @+1 {{operand type 'memref<4xvector<4xf32>>' and result type 'memref<4x?xf32>' are cast incompatible}}
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x?xf32>
+  return %out : memref<4x?xf32>
+}
+
+// -----
+
+func.func @reinterpret_elements_shape_change(%in : memref<4xi32>) -> memref<2xi64> {
+  // expected-error @+1 {{operand type 'memref<4xi32>' and result type 'memref<2xi64>' are cast incompatible}}
+  %out = memref.reinterpret_elements %in : memref<4xi32> to memref<2xi64>
+  return %out : memref<2xi64>
+}
+
+// -----
+
+func.func @reinterpret_elements_2D_vector(%in : memref<4xvector<2x2xf32>>) -> memref<4x4xf32> {
+  // expected-error @+1 {{source element type must be a fixed-width integer, a float, or a 0- or 1-D vector of such types}}
+  %out = memref.reinterpret_elements %in : memref<4xvector<2x2xf32>> to memref<4x4xf32>
+  return %out : memref<4x4xf32>
+}
+
+// -----
+
+func.func @reinterpret_elements_index_in(%in : memref<4xindex>) -> memref<4xi32> {
+  // expected-error @+1 {{source element type must be a fixed-width integer, a float, or a 0- or 1-D vector of such types}}
+  %out = memref.reinterpret_elements %in : memref<4xindex> to memref<4xi32>
+  return %out : memref<4xi32>
+}
+
+// -----
+
+func.func @reinterpret_elements_index_out(%in : memref<4xi32>) -> memref<4xindex> {
+  // expected-error @+1 {{result element type must be a fixed-width integer, a float, or a 0- or 1-D vector of such types}}
+  %out = memref.reinterpret_elements %in : memref<4xi32> to memref<4xindex>
+  return %out : memref<4xindex>
+}
+
+// -----
+
+func.func @reinterpret_elements_bad_width(%in : memref<4xi48>) -> memref<4x3xi16> {
+  // expected-error @+1 {{'memref.reinterpret_elements' op source element type bitwidth must be a power of 2}}
+  %out = memref.reinterpret_elements %in : memref<4xi48> to memref<4x3xi16>
+  return %out : memref<4x3xi16>
+}
+
+// -----
+
+func.func @reinterpret_elements_bad_result_width(%in : memref<4xi64>) -> memref<4x3xi21> {
+  // expected-error @+1 {{'memref.reinterpret_elements' op result element type bitwidth must be a power of 2}}
+  %out = memref.reinterpret_elements %in : memref<4xi64> to memref<4x3xi21>
+  return %out : memref<4x3xi21>
+}
+
+// -----
+
+func.func @reinterpret_elements_bad_width(%in : memref<4xi32>) -> memref<4xi64> {
+  // expected-error @+1 {{'memref.reinterpret_elements' op result element type bitwidth must evenly divide source element type bitwidth}}
+  %out = memref.reinterpret_elements %in : memref<4xi32> to memref<4xi64>
+  return %out : memref<4xi64>
+}
+
+// -----
+
+func.func @reinterpret_elements_wrong_expansion(%in : memref<4xvector<4xf32>>) -> memref<4x2xf32> {
+  // expected-error @+1 {{'memref.reinterpret_elements' op expected additional trailing dimension of length 4 but got 2 elements}}
+  %out = memref.reinterpret_elements %in : memref<4xvector<4xf32>> to memref<4x2xf32>
+  return %out : memref<4x2xf32>
+}
+
+// -----
+
+func.func @reinterpret_elements_missing_expansion(%in : memref<4xi32>) -> memref<4xi16> {
+  // expected-error @+1 {{'memref.reinterpret_elements' op cast to a shorter bitwidth (from 32 to 16 bits) requires adding a trailing dimension of length 2}}
+  %out = memref.reinterpret_elements %in : memref<4xi32> to memref<4xi16>
+  return %out : memref<4xi16>
+}
+
+// -----
+
 // expected-error @+1 {{type should be static shaped memref}}
 memref.global @foo : i32
 

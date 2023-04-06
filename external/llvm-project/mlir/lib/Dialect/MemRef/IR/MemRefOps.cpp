@@ -22,6 +22,7 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
 using namespace mlir::memref;
@@ -2042,6 +2043,146 @@ public:
 void ReinterpretCastOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                                     MLIRContext *context) {
   results.add<ReinterpretCastOpExtractStridedMetadataFolder>(context);
+}
+
+//===----------------------------------------------------------------------===//
+// ReinterpretElementsOp
+//===----------------------------------------------------------------------===//
+
+void ReinterpretElementsOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "reinterpret_elements");
+}
+
+/// If the in-memory bitwidth of `type` can be determined - that is, if it is a
+/// scalar or a 1D or 0D vector, return it. Only types that have such a bitwidth
+/// may be input or result element types to element reinterpretation unless
+/// alignment checks are off.
+static std::optional<int64_t> bitwidthForElementRenterpretation(Type type) {
+  if (type.isIntOrFloat())
+    return type.getIntOrFloatBitWidth();
+  if (auto vecType = type.dyn_cast<VectorType>()) {
+    if (!vecType.hasRank() || !vecType.hasStaticShape() ||
+        vecType.getNumScalableDims() > 0 || vecType.getRank() > 1)
+      return std::nullopt;
+    Type vecElem = vecType.getElementType();
+    if (!vecElem.isIntOrFloat())
+      return std::nullopt;
+    return vecType.getNumElements() * vecElem.getIntOrFloatBitWidth();
+  }
+  return std::nullopt;
+}
+
+void ReinterpretElementsOp::build(OpBuilder &odsBuilder, OperationState &state,
+                                  Value source, Type newElementType) {
+  state.addOperands(source);
+  MemRefType sourceType = source.getType().dyn_cast<MemRefType>();
+  if (!sourceType) {
+    // Bail in a form that'll quickly trip the verifier.
+    state.addTypes(newElementType);
+    return;
+  }
+  int64_t sourceWidth =
+      bitwidthForElementRenterpretation(sourceType.getElementType())
+          .value_or(1);
+  int64_t destWidth =
+      bitwidthForElementRenterpretation(newElementType).value_or(1);
+  // Best-effort generation of the new dimension lenght - if things are too
+  // long, or don't divide evenly, the verifier will complain.
+  int64_t scaleFactor = std::max(1L, sourceWidth / destWidth);
+  if (scaleFactor == 1)
+    return state.addTypes(sourceType.cloneWith(std::nullopt, newElementType));
+  SmallVector<int64_t> newShape(sourceType.getShape());
+  newShape.push_back(scaleFactor);
+  auto resultType =
+      MemRefType::get(newShape, newElementType, MemRefLayoutAttrInterface{},
+                      sourceType.getMemorySpace());
+  return state.addTypes(resultType);
+}
+
+bool ReinterpretElementsOp::areCastCompatible(TypeRange inputs,
+                                              TypeRange outputs) {
+  if (inputs.size() != 1 || outputs.size() != 1)
+    return false;
+  MemRefType source = inputs.front().cast<MemRefType>();
+  MemRefType dest = outputs.front().cast<MemRefType>();
+
+  if (source.getMemorySpace() != dest.getMemorySpace())
+    return false;
+
+  ArrayRef<int64_t> sourceShape = source.getShape();
+  ArrayRef<int64_t> destShape = dest.getShape();
+  ArrayRef<int64_t> destShapeWithoutNew;
+  if (sourceShape.size() == destShape.size()) {
+    destShapeWithoutNew = destShape;
+  } else if (sourceShape.size() + 1 == destShape.size()) {
+    destShapeWithoutNew = destShape.drop_back();
+    if (dest.isDynamicDim(destShape.size() - 1))
+      return false;
+  } else {
+    return false;
+  }
+
+  if (sourceShape.size() == destShape.size() &&
+      source.getLayout() != dest.getLayout())
+    return false;
+  if (sourceShape.size() != destShape.size() &&
+      !(source.getLayout().isIdentity() && dest.getLayout().isIdentity()))
+    return false;
+
+  return llvm::equal(sourceShape, destShapeWithoutNew);
+}
+
+LogicalResult ReinterpretElementsOp::verify() {
+  if (getUnsafeSkipSizeAndAlignmentCompatibilityChecks())
+    return success();
+
+  MemRefType sourceType = getSource().getType();
+  MemRefType destType = getDest().getType();
+  ArrayRef<int64_t> sourceShape = sourceType.getShape();
+  ArrayRef<int64_t> destShape = destType.getShape();
+
+  int64_t extraDimLen =
+      sourceShape.size() == destShape.size() ? 1 : destShape.back();
+  Type sourceElem = getSource().getType().getElementType();
+  Type destElem = getDest().getType().getElementType();
+  std::optional<int64_t> sourceWidth =
+      bitwidthForElementRenterpretation(sourceElem);
+  std::optional<int64_t> destWidth =
+      bitwidthForElementRenterpretation(destElem);
+
+  if (!sourceWidth.has_value())
+    return emitOpError("source element type must be a fixed-width integer, a "
+                       "float, or a 0- or 1-D vector of such types");
+  if (!destWidth.has_value())
+    return emitOpError("result element type must be a fixed-width integer, a "
+                       "float, or a 0- or 1-D vector of such types");
+
+  if (!llvm::isPowerOf2_64(*sourceWidth))
+    return emitOpError("source element type bitwidth must be a power of 2");
+  if (!llvm::isPowerOf2_64(*destWidth))
+    return emitOpError("result element type bitwidth must be a power of 2");
+  if (*sourceWidth % *destWidth != 0)
+    return emitOpError("result element type bitwidth must evenly divide source "
+                       "element type bitwidth");
+  int64_t expectedExtraDimLen = *sourceWidth / *destWidth;
+  if (expectedExtraDimLen != extraDimLen) {
+    if (sourceShape.size() == destShape.size())
+      return emitOpError("cast to a shorter bitwidth (from ")
+             << *sourceWidth << " to " << *destWidth
+             << " bits) requires adding a trailing dimension of length "
+             << expectedExtraDimLen;
+    return emitOpError("expected additional trailing dimension of length ")
+           << expectedExtraDimLen << " but got " << extraDimLen << " elements";
+  }
+
+  return success();
+}
+
+OpFoldResult ReinterpretElementsOp::fold(FoldAdaptor adaptor) {
+  if (getSource().getType() == getDest().getType())
+    return getSource();
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
