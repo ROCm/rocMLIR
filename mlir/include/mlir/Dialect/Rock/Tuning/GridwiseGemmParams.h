@@ -48,23 +48,24 @@ struct PopulateParamsInfo {
   GemmSize gemmSize;
   SmallString<32> arch;
   GemmFeatures gemmFeatures;
-  Type inputType;
+  Type gemmAType;
+  Type gemmBType;
   KernelType kernelType;
   int64_t batchSize;
   uint32_t numCu;
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
-                     GemmFeatures gemmFeatures, Type inputType,
+                     GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
                      KernelType kernelType)
       : gemmSize(gemmSize), arch(arch), gemmFeatures(gemmFeatures),
-        inputType(inputType), kernelType(kernelType) {}
+        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType) {}
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
-                     GemmFeatures gemmFeatures, Type inputType,
+                     GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
                      KernelType kernelType, int64_t batchSize, uint32_t numCu)
       : gemmSize(gemmSize), arch(arch), gemmFeatures(gemmFeatures),
-        inputType(inputType), kernelType(kernelType), batchSize(batchSize),
-        numCu(numCu) {}
+        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType),
+        batchSize(batchSize), numCu(numCu) {}
 
   /// Extract the relevant information from a RockGemmWrapperInterface operation
   static PopulateParamsInfo fromOp(RockGemmWrapperInterface op);
@@ -232,8 +233,8 @@ public:
                                        InitParamsNonXDL &validParams,
                                        uint32_t &gridSize);
 
-  std::vector<InitParamsNonXDL> getTuningParameters(KernelType opType,
-                                                    Type dataType) const;
+  std::vector<InitParamsNonXDL>
+  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB) const;
 
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
@@ -253,9 +254,10 @@ private:
   // Tuning parameters for fp16/bf16 convolutions.
   static const InitParamsXDL initParametersFp16[nInitParametersFp16];
 
-  static constexpr size_t nInitParametersForwardI8 = 5;
+  static constexpr size_t nInitParametersForward8Bit = 5;
   // Tuning parameters for i8 convolutions.
-  static const InitParamsXDL initParametersForwardI8[nInitParametersForwardI8];
+  static const InitParamsXDL
+      initParametersForward8Bit[nInitParametersForward8Bit];
 
   static constexpr int64_t waveSize = 64;
 
@@ -269,8 +271,8 @@ private:
                            uint32_t numCu);
 
   LogicalResult isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
-                                           Type dataType, StringRef arch,
-                                           uint32_t blockSize);
+                                           Type dataTypeA, Type dataTypeB,
+                                           StringRef arch, uint32_t blockSize);
 
   LogicalResult populateDerived(const InitParamsXDL &validParams,
                                 const PopulateParamsInfo &info,
@@ -298,8 +300,9 @@ public:
                                        uint32_t &blockSize, uint32_t &gridSize,
                                        int64_t &gemmKBlocks);
 
-  std::vector<InitParamsXDL>
-  getTuningParameters(KernelType opType, Type dataType, StringRef arch) const;
+  std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
+                                                 Type dataTypeA, Type dataTypeB,
+                                                 StringRef arch) const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;

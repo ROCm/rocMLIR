@@ -37,17 +37,19 @@ struct ConvolutionContext {
   llvm::SmallVector<int64_t, 2> dilationVal;
   llvm::SmallVector<int64_t, 4> paddingVal;
   int gemmId;
-  Type dataType;
+  Type dataTypeA;
+  Type dataTypeB;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      ConvOpType op, llvm::StringMap<DimIndexAndSize> dim,
                      ArrayRef<int64_t> stride, ArrayRef<int64_t> dilation,
-                     ArrayRef<int64_t> padding, int gemmid, Type type)
+                     ArrayRef<int64_t> padding, int gemmid, Type typeA,
+                     Type typeB)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
         strideVal(stride.begin(), stride.end()),
         dilationVal(dilation.begin(), dilation.end()),
         paddingVal(padding.begin(), padding.end()), gemmId(gemmid),
-        dataType(type) {}
+        dataTypeA(typeA), dataTypeB(typeB) {}
 
   llvm::StringMap<DimIndexAndSize> getDimIndexAndSize() const {
     return dimIndexAndSize;
@@ -58,7 +60,8 @@ struct ConvolutionContext {
   ArrayRef<int64_t> getStrideVal() const { return strideVal; }
   ArrayRef<int64_t> getDilationVal() const { return dilationVal; }
   ConvOpType getOpType() const { return opType; }
-  Type getDataType() const { return dataType; }
+  Type getDataTypeA() const { return dataTypeA; }
+  Type getDataTypeB() const { return dataTypeB; }
 };
 
 // Populate ConvContext from a given Convolution Op.

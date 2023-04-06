@@ -186,14 +186,19 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
-    auto dataType =
+    auto dataTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
-    if (dataType.isa<VectorType>()) {
-      dataType = dataType.cast<VectorType>().getElementType();
+    auto dataTypeB =
+        adaptor.getMatrixB().getType().cast<MemRefType>().getElementType();
+    if (dataTypeA.isa<VectorType>()) {
+      dataTypeA = dataTypeA.cast<VectorType>().getElementType();
+    }
+    if (dataTypeB.isa<VectorType>()) {
+      dataTypeB = dataTypeB.cast<VectorType>().getElementType();
     }
 
-    auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataType, op.getArch(), mPerWave, nPerWave);
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+        dataTypeA, dataTypeB, op.getArch(), mPerWave, nPerWave);
     if (failed(maybeMfmaInsnGroup)) {
       return emitError(loc) << "Failed to select xdlops instruction group.\n";
     }
@@ -202,7 +207,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     VectorType vectorType = mfmaGroup.getRetType();
     auto imms = mfmaGroup.getImms();
     int64_t nResultVectors = imms.size();
-    Type argType = mfmaGroup.getArgType();
+    Type argTypeA = mfmaGroup.getArgTypeA();
+    Type argTypeB = mfmaGroup.getArgTypeB();
 
     MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
@@ -254,8 +260,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         b.setInsertionPointToStart(mfmaLoop.getBody());
         Value coord = mfmaLoop.getLowerCoords(/*domain=*/0)[0];
 
-        Value argA = b.create<memref::LoadOp>(loc, argType, bufferA, coord);
-        Value argB = b.create<memref::LoadOp>(loc, argType, bufferB, coord);
+        Value argA = b.create<memref::LoadOp>(loc, argTypeA, bufferA, coord);
+        Value argB = b.create<memref::LoadOp>(loc, argTypeB, bufferB, coord);
         populateMfma(b, argA, argB, regCOffset);
       }
     };

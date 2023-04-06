@@ -46,6 +46,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
     semantics = APFloat::S_IEEEhalf;
   } else if (elementType.isBF16()) {
     semantics = APFloat::S_BFloat;
+  } else if (elementType.isFloat8E4M3FNUZ()) {
+    semantics = APFloat::S_Float8E4M3FNUZ;
+  } else if (elementType.isFloat8E5M2FNUZ()) {
+    semantics = APFloat::S_Float8E5M2FNUZ;
   } else {
     llvm_unreachable("Unexpected float semantics");
   }
@@ -97,12 +101,7 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   Type sourceElemType = getElementTypeOrSelf(sourceType);
   Type destElemType = getElementTypeOrSelf(destType);
   if (sourceElemType != destElemType) {
-    // Possible cases:
-    // - fp16/bf16 -> fp32 : use fpext.
-    // - fp32 -> fp16/bf16 : use fptrunc.
-    // - fp16/fp32 -> bf16(i16) : use rock.data_convert.
-    // - Integers via signed extension/truncation
-    // All these ops act elementwise on vectors
+    // All these ops act elementwise on vectors.
     if (sourceElemType.isa<IntegerType>() && destElemType.isa<IntegerType>()) {
       uint32_t sourceWidth = sourceElemType.getIntOrFloatBitWidth();
       uint32_t destWidth = destElemType.getIntOrFloatBitWidth();
@@ -111,15 +110,15 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
       } else {
         result = b.create<arith::TruncIOp>(loc, destType, source);
       }
-    } else if (sourceElemType.getIntOrFloatBitWidth() == 16 &&
-               destElemType == b.getF32Type()) {
+    } else if (sourceElemType.getIntOrFloatBitWidth() < 32 &&
+               sourceElemType.isa<FloatType>() && destElemType.isF32()) {
       result = b.create<arith::ExtFOp>(loc, destType, source);
-    } else if (sourceElemType == b.getF32Type() &&
-               destElemType.getIntOrFloatBitWidth() == 16) {
+    } else if (sourceElemType.isF32() && destElemType.isa<FloatType>() &&
+               destElemType.getIntOrFloatBitWidth() < 32) {
       result = b.create<arith::TruncFOp>(loc, destType, source);
     } else {
-      llvm_unreachable("Only fp32, fp16, bf16, or integer-to-integer targets "
-                       "for data conversion");
+      llvm_unreachable("Only float-to-float and int-to-int conversions "
+                       "allowed, and doubles are not supported");
     }
   }
   return result;

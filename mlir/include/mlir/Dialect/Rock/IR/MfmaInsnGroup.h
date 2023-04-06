@@ -22,7 +22,16 @@
 namespace mlir {
 namespace rock {
 
-enum class MfmaTypeId : uint32_t { Fp32TyId = 0, Fp16TyId, Bf16TyId, I8TyId };
+enum class MfmaTypeId : uint32_t {
+  Fp32TyId = 0,
+  Fp16TyId,
+  Bf16TyId,
+  I8TyId,
+  Fp8Fp8TyId,
+  Fp8Bf8TyId,
+  Bf8Fp8TyId,
+  Bf8Bf8TyId
+};
 
 struct MfmaInsnInfo {
   MfmaTypeId type;
@@ -58,7 +67,7 @@ public:
   MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr);
 
   MfmaInsnAttr getAttr();
-  Type getArgType(Type elementType);
+  Type getArgTypeFor(Type elementTypeA);
   VectorType getRetType(Type elementType);
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };
@@ -119,14 +128,16 @@ struct MfmaInsnGroupAttr {
 
 class MfmaInsnGroup {
 private:
-  Type elementType;
+  Type elementTypeA;
+  Type elementTypeB;
   MfmaInsn insn;
   MfmaInsnGroupAttr groupAttr;
 
 public:
-  static FailureOr<MfmaInsnGroup> select(Type elementType, StringRef arch,
-                                         int64_t mPerWave, int64_t nPerWave);
-  MfmaInsnGroup(Type elementType, const MfmaInsn &insn,
+  static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
+                                         StringRef arch, int64_t mPerWave,
+                                         int64_t nPerWave);
+  MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
   int64_t getNRepeats(int64_t nPerWave);
@@ -134,7 +145,8 @@ public:
   SmallVector<mlir::rock::MFMAParams, 2> getImms();
 
   MfmaInsnAttr getInsnAttr();
-  Type getArgType();
+  Type getArgTypeA();
+  Type getArgTypeB();
   VectorType getRetType();
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };

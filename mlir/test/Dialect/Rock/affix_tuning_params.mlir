@@ -17,7 +17,7 @@
 // CHECK-DAG: #[[$XDLOPS_PARAMS_4:.*]] = #rock.xdlops_gemm_params<kPerBlock = 2, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 8, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_5:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 1, mPerWave = 16, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_6:.*]] = #rock.xdlops_gemm_params<kPerBlock = 16, mPerBlock = 4, nPerBlock = 64, kpack = 1, mPerWave = 4, nPerWave = 64, forceUnroll = true>
-
+// CHECK-DAG: #[[$XDLOPS_PARAMS_7:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, forceUnroll = true>
 // CHECK-LABEL: @rock_conv2d
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   // CHECK: rock.conv2d
@@ -337,5 +337,35 @@ func.func @rock_gemm_from_i8_conv2d(%a : memref<1x72x128xi8>, %b : memref<1x72x1
     arch = "amdgcn-amd-amdhsa:gfx908",
     numCu = 120 : i32
   } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
+  return
+}
+
+// The available xdlops for int8 change on gfx940, verify that different tuning
+// parameters are picked.
+
+// CHECK-LABEL: func.func @rock_gemm_from_i8_conv2d_gfx940
+func.func @rock_gemm_from_i8_conv2d_gfx940(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: gridSize = 900
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_7]]
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    numCu = 120 : i32
+  } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
+  return
+}
+
+// And verify that 8-bit floats have the same tuning behavior as i8.
+// CHECK-LABEL: func.func @rock_gemm_xdlops_fp8_bf8
+func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memref<1x72x115200xf8E5M2FNUZ>, %c : memref<1x128x115200xf32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: gridSize = 900
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_7]]
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    numCu = 120 : i32
+  } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FNUZ> * memref<1x72x115200xf8E5M2FNUZ>
   return
 }

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
@@ -495,6 +496,40 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
+static LogicalResult verifyGemmTypes(Operation *op, Type elemTypeA,
+                                     Type elemTypeB, Type elemTypeC) {
+  if (elemTypeA != elemTypeB &&
+      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
+      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
+    return op->emitOpError("mixed input types (")
+           << elemTypeA << " and " << elemTypeB
+           << ") are only supported for 8-bit floats";
+  if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
+    return op->emitOpError("floating-point input type ")
+           << elemTypeA
+           << " requires a floating-point output type, but the output type is "
+           << elemTypeC;
+  }
+  if (elemTypeA.isa<IntegerType>() && !elemTypeC.isa<IntegerType>()) {
+    return op->emitOpError("integer input type ")
+           << elemTypeA
+           << " requires an integer output type, but the output type is "
+           << elemTypeC;
+  }
+  return success();
+}
+
+static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
+  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType();
+  Type elemTypeC = gemmOp.getOutArgument()
+                       ->get()
+                       .getType()
+                       .cast<ShapedType>()
+                       .getElementType();
+
+  return verifyGemmTypes(gemmOp, elemTypeA, elemTypeB, elemTypeC);
+}
+
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
@@ -516,6 +551,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
 
   bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+  if (failed(verifyGemmTypes(gemmOp)))
+    return failure();
   if (gemmOp.getDerivedBlockSize().has_value() && !isXdlops) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -538,6 +575,26 @@ KernelType Conv2DBwdDataOp::getKernelType() {
 
 KernelType Conv2DBwdWeightOp::getKernelType() {
   return KernelType::Conv2DBwdWeight;
+}
+
+Type Conv2DOp::getAType() { return getFilter().getType().getElementType(); }
+
+Type Conv2DBwdDataOp::getAType() {
+  return getFilter().getType().getElementType();
+}
+
+Type Conv2DBwdWeightOp::getAType() {
+  return getOutput().getType().getElementType();
+}
+
+Type Conv2DOp::getBType() { return getInput().getType().getElementType(); }
+
+Type Conv2DBwdDataOp::getBType() {
+  return getOutput().getType().getElementType();
+}
+
+Type Conv2DBwdWeightOp::getBType() {
+  return getInput().getType().getElementType();
 }
 
 OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
@@ -617,7 +674,8 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 // GemmOp
 //===-----------------------------------------------------===//
 
-LogicalResult checkGemmSize(Value matrix, Operation *op, StringRef name) {
+static LogicalResult checkGemmSize(Value matrix, Operation *op,
+                                   StringRef name) {
   constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
   // Hack: remove padding, other transformations that add "size" to a matrix
   // without affecting the underlying buffer's maximum index, which must be
@@ -700,10 +758,19 @@ LogicalResult GemmOp::verify() {
       failed(checkGemmSize(getC(), *this, "C"))) {
     return failure();
   }
+
+  RockGemmWrapperInterface gemmIfaceOp =
+      cast<RockGemmWrapperInterface>(this->getOperation());
+  if (failed(verifyGemmTypes(gemmIfaceOp)))
+    return failure();
   return success();
 }
 
 KernelType GemmOp::getKernelType() { return KernelType::Gemm; }
+
+Type GemmOp::getAType() { return getA().getType().getElementType(); }
+
+Type GemmOp::getBType() { return getB().getType().getElementType(); }
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
@@ -727,12 +794,12 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
-  if (aElem != bElem)
-    return op.emitOpError("cannot mix element types for A and B");
-  if (cElem.isInteger(32) && !aElem.isInteger(8))
-    return op.emitOpError("i32 output requires i8 input");
+  if (failed(verifyGemmTypes(op, aElem, bElem, cElem)))
+    return failure();
   if (aElem.isInteger(8) && !cElem.isInteger(32))
     return op.emitOpError("i8 input requires i32 output");
+  if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
+    return op.emitOpError("8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();

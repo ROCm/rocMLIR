@@ -192,7 +192,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   if (failed(maybeToTune))
     return failure();
   rock::RockGemmWrapperInterface toTune = std::move(*maybeToTune);
-  benchmark::DataType dataType = getDataType(toTune.getInputType());
+  // Provisionally use the type of input A to set up the init value - this
+  // should be a per-buffer value in the futurue.
+  benchmark::DataType dataType = getDataType(toTune.getAType());
 
   auto kernelFunc = toTune->getParentOfType<func::FuncOp>();
   if (!kernelFunc || !kernelFunc->hasAttr("kernel"))

@@ -45,7 +45,7 @@ func.func @gemm_c_too_big(%a: memref<2048x2048x2048xf32>,
 func.func @gridwise_gemm_no_mixed_ab(%a: memref<1x16x16xf16>,
                         %b: memref<1x16x16xf32>,
                         %c: memref<1x16x16xf32>) {
-  // expected-error@+1 {{'rock.gridwise_gemm' op cannot mix element types for A and B}}
+  // expected-error@+1 {{'rock.gridwise_gemm' op mixed input types ('f16' and 'f32') are only supported for 8-bit floats}}
   rock.gridwise_gemm %c = %a * %b features = dot {
     gridSize = 1 : i32,
     numCu = 64 : i32,
@@ -60,7 +60,7 @@ func.func @gridwise_gemm_no_mixed_ab(%a: memref<1x16x16xf16>,
 func.func @gridwise_gemm_i32_wants_i8(%a: memref<1x16x16xf32>,
                         %b: memref<1x16x16xf32>,
                         %c: memref<1x16x16xi32>) {
-  // expected-error@+1 {{'rock.gridwise_gemm' op i32 output requires i8 input}}
+  // expected-error@+1 {{'rock.gridwise_gemm' op floating-point input type 'f32' requires a floating-point output type, but the output type is 'i32'}}
   rock.gridwise_gemm %c = %a * %b features = dot {
     gridSize = 1 : i32,
     numCu = 64 : i32,
@@ -75,7 +75,7 @@ func.func @gridwise_gemm_i32_wants_i8(%a: memref<1x16x16xf32>,
 func.func @gridwise_gemm_i8_wants_i32(%a: memref<1x16x16xi8>,
                         %b: memref<1x16x16xi8>,
                         %c: memref<1x16x16xf32>) {
-  // expected-error@+1 {{'rock.gridwise_gemm' op i8 input requires i32 output}}
+  // expected-error@+1 {{'rock.gridwise_gemm' op integer input type 'i8' requires an integer output type, but the output type is 'f32'}}
   rock.gridwise_gemm %c = %a * %b features = dot {
     gridSize = 1 : i32,
     numCu = 64 : i32,

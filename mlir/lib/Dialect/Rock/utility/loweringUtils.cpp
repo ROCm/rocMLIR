@@ -17,7 +17,7 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
+bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
   return bitEnumContainsAll(features,
                             GemmFeatures::mfma | GemmFeatures::atomic_add) &&

@@ -75,8 +75,9 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
       op->getOperand(2).getType().template cast<MemRefType>().getShape(),
       dimIndexAndSize);
 
-  Type dataType = cast<RockGemmWrapperInterface>(op).getInputType();
+  auto gemmIface = cast<RockGemmWrapperInterface>(op);
+  Type dataTypeA = gemmIface.getAType(), dataTypeB = gemmIface.getBType();
 
   return {archVal,     numCu,      opType, dimIndexAndSize, strideVal,
-          dilationVal, paddingVal, gemmId, dataType};
+          dilationVal, paddingVal, gemmId, dataTypeA,       dataTypeB};
 }

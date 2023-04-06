@@ -178,3 +178,27 @@ func.func @xdlops_gemm_gfx90a_bf16(%matrixA : memref<4xvector<4xbf16>, 5>,
   return
 }
 
+func.func @xdlops_gemm_fp8_bf8(%matrixA : memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>>,
+                               %matrixB : memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
+                               %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+  // CHECK-LABEL: func.func @xdlops_gemm_fp8_bf8
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [4]
+  // CHECK: amdgpu.mfma
+  // CHECK-SAME: blocks = 1 : i32, k = 16 : i32, m = 32 : i32, n = 32 : i32
+  // CHECK-SAME: : vector<8xf8E4M3FNUZ>, vector<8xf8E5M2FNUZ>, vector<16xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.xdlops_gemm_v2 %matrixC += %matrixA[%c0] * %matrixB[%c0] {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    params = #rock.xdlops_gemm_params<
+      kPerBlock = 8,
+      mPerBlock = 128,
+      nPerBlock = 128,
+      kpack = 8,
+      mPerWave = 64,
+      nPerWave = 64,
+      forceUnroll = true>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> * memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>
+  return
+}

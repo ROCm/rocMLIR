@@ -36,22 +36,25 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
       {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
-  const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParamsI8 = {
-      {4, 8, 16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {4, 8, 16, 32},
-      {4, 8, 16, 32, 64, 128},
-      {4, 8, 16, 32, 64, 128},
-      {1, 4, 8, 16},
-      {0, 1}};
+  const std::vector<std::vector<uint32_t>>
+      ValidRangeXdlopsGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
+                                                 {16, 32, 64, 128, 256},
+                                                 {4, 8, 16, 32},
+                                                 {4, 8, 16, 32, 64, 128},
+                                                 {4, 8, 16, 32, 64, 128},
+                                                 {1, 4, 8, 16},
+                                                 {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
+    Type inTypeA = gemmOp.getAType();
+    bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
+                           inTypeA.isFloat8E4M3FNUZ();
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
-        gemmOp.getInputType().isInteger(8) ? ValidRangeXdlopsGemmParamsI8
-                                           : ValidRangeXdlopsGemmParams;
+        is8BitReduction ? ValidRangeXdlopsGemmParams8BitReduction
+                        : ValidRangeXdlopsGemmParams;
     for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
@@ -329,13 +332,23 @@ std::string getTuningProblemStr(ModuleOp &mod) {
 
   // Data type
   problemOS << "-t ";
-  Type elemType = gemmIF.getInputType();
-  if (elemType.isF32()) {
+  Type elemTypeA = gemmIF.getAType(), elemTypeB = gemmIF.getBType();
+  if (elemTypeA.isF32() && elemTypeB.isF32()) {
     problemOS << "f32";
-  } else if (elemType.isF16()) {
+  } else if (elemTypeA.isF16() && elemTypeB.isF16()) {
     problemOS << "f16";
-  } else if (elemType.isInteger(8)) {
+  } else if (elemTypeA.isBF16() && elemTypeB.isBF16()) {
+    problemOS << "bf16";
+  } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
     problemOS << "i8";
+  } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
+    problemOS << "fp8_fp8";
+  } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
+    problemOS << "fp8_bf8";
+  } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
+    problemOS << "bf8_fp8";
+  } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
+    problemOS << "bf8_bf8";
   } else {
     // Unknown data type
     return std::string();
