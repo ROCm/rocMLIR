@@ -1027,6 +1027,8 @@ def Rock_ThreadwiseWriteAllOp :
   let hasVerifier = 1;
 }
 
+defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputTypes>];
+
 // blockwise_gemm
 def Rock_BlockwiseGemmOp:
     Rock_Op<"blockwise_gemm">,
@@ -1039,8 +1041,9 @@ def Rock_BlockwiseGemmOp:
   let description = [{
     The `rock.blockwise_gemm` op does gemm at the blockwise level without xdlops.
 
-    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kPack].
-    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kPack].
+    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kpack].
+    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kpack].
+
     Matrix C resides in registers and has dimensions [m_c, n_c].
 
     The two index arguments specify a given threads's offset into the LDS buffer..
@@ -1067,8 +1070,8 @@ defvar MfmaResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
 // blockwise_gemm_v2
 def Rock_BlockwiseGemmV2Op:
     Rock_Op<"blockwise_gemm_v2">,
-    Arguments<(ins MemRefOf<GemmInputTypes>:$matrixA,
-                   MemRefOf<GemmInputTypes>:$matrixB,
+    Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
+                   MemRefOf<LdsBufferTypes>:$matrixB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<MfmaArgTypes>:$bufferA,
@@ -1079,12 +1082,12 @@ def Rock_BlockwiseGemmV2Op:
                    Rock_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
-    The `rock.block_gemm` op does GEMM at workgroup (block) level.
+    The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall be vectors.
 
-    There are only two slots for argument transforms since the buffers are
-    not slices of a larger object.
+    The elements of matrices A and B should be vectors of length kpack, or
+    scalars when kpack is 1.
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
