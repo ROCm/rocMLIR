@@ -322,9 +322,8 @@ void archivePerfDB() {
     dir ('MIOpen/build/MIOpenUserDB') {
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-        //Disable this until the Navi CI node is avaialbe
-        //if (params.disableNavi21 == false)
-        //    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        if (params.disableNavi21 == false)
+            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
     archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
@@ -567,7 +566,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -747,7 +746,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 when {
