@@ -385,15 +385,21 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                      const char *layoutDefault, ArrayRef<int32_t> permDims,
                      bool isInput = false) const {
     StringRef currentLayout(layoutDefault);
+    size_t expectedRank = currentLayout.size();
+    size_t offset = 0;
+    if (permDims.size() > expectedRank) {
+      offset = permDims.size() - expectedRank;
+    }
+    SmallVector<int32_t, 4> dims{permDims.begin() + offset, permDims.end()};
     if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
       currentLayout = attr.getValue();
     SmallString<4> layout(currentLayout);
     if (isInput) {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[permDims[i]] = currentLayout[i];
+      for (int i = 0, e = dims.size(); i < e; ++i)
+        layout[dims[i] - offset] = currentLayout[i];
     } else {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[i] = currentLayout[permDims[i]];
+      for (int i = 0, e = dims.size(); i < e; ++i)
+        layout[i] = currentLayout[dims[i] - offset];
     }
     op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
   }
@@ -422,10 +428,14 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     return (dims[prevLastDim] == lastDim && dims[lastDim] == prevLastDim);
   }
 
+  // This function traverses the uses of tOutput and then modifies
+  // the uses to indicate the input are transposed and replaces them
+  // with tInput. If there are collapse shapes encountered, the collapse
+  // is applied on the tInput.
   LogicalResult mergeTransposeWithGemmLikeOp(PatternRewriter &rewriter,
-                                             Value tOutput,
+                                             const Value &tOutput,
                                              ArrayRef<int32_t> dims,
-                                             Value &tInput) const {
+                                             const Value &tInput) const {
     for (auto &use : tOutput.getUses()) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
@@ -433,35 +443,15 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         tensor::CollapseShapeOp newCollapseShapeOp =
             rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
                                                      reassocIndices);
-        tInput = newCollapseShapeOp.getResult();
-        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims, tInput)
+        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims,
+                                         newCollapseShapeOp.getResult())
                 .failed()) {
           return failure();
         }
         rewriter.eraseOp(op);
       } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
-        SmallVector<ReassociationIndices, 4> reassocIndices =
-            op.getReassociationIndices();
-        ArrayRef<int64_t> outShape = op.getResultType().getShape();
-        ArrayRef<int64_t> inShape = op.getSrcType().getShape();
-        SmallVector<int64_t, 4> newOutShape = llvm::to_vector<4>(outShape);
-        // Assumption is shape expansions happen only in higher dimensions.
-        for (size_t i = 0; i < dims.size(); i++) {
-          newOutShape[newOutShape.size() - 1 - i] =
-              inShape[dims[dims.size() - 1 - i]];
-        }
-        tensor::ExpandShapeOp newExpandShapeOp =
-            rewriter.create<tensor::ExpandShapeOp>(
-                op.getLoc(),
-                RankedTensorType::get(newOutShape,
-                                      op.getResultType().getElementType()),
-                tInput, reassocIndices);
-        tInput = newExpandShapeOp.getResult();
-        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims, tInput)
-                .failed()) {
-          return failure();
-        }
-        rewriter.eraseOp(op);
+        return rewriter.notifyMatchFailure(
+            op, "We dont support expand shapes yet.");
       } else if (auto convOp = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
         if (convOp.getInput() == tOutput) {
           permuteLayout(convOp, "input_layout", "nhwc", dims, true);
@@ -517,16 +507,13 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       top->replaceAllUsesWith(convOp);
     } else if (tosa::MatMulOp matMulOp =
                    tInput.getDefiningOp<tosa::MatMulOp>()) {
-      llvm::errs() << "matmul is tInput.\n";
       LogicalResult res = checkMatMulTransposeValid(matMulOp, dims);
       if (res.failed()) {
-        llvm::errs() << "matmul transpose is invalid.\n";
         return res;
       }
       setTranspose(matMulOp, "transpose_c", isMatMulNonTrivial(dims));
       matMulOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(matMulOp);
-      llvm::errs() << *top->getParentOp() << "\n";
     } else {
       LogicalResult res =
           mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput);
