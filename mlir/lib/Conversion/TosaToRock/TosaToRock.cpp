@@ -406,6 +406,96 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     op->setAttr(name, BoolAttr::get(op->getContext(), newValue));
   }
 
+  LogicalResult checkMatMulTransposeValid(tosa::MatMulOp matmulOp,
+                                          ArrayRef<int32_t> dims) const {
+    // batch dimension is expected to be 3rd from the last.
+    if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
+      return matmulOp.emitError(
+          "Can't transpose the batch dimension out of place");
+    }
+    return success();
+  }
+
+  bool isMatMulNonTrivial(ArrayRef<int32_t> dims) const {
+    int32_t lastDim = dims.size() - 1;
+    int32_t prevLastDim = dims.size() - 2;
+    return (dims[prevLastDim] == lastDim && dims[lastDim] == prevLastDim);
+  }
+
+  LogicalResult mergeTransposeWithGemmLikeOp(PatternRewriter &rewriter,
+                                             Value tOutput,
+                                             ArrayRef<int32_t> dims,
+                                             Value &tInput) const {
+    for (auto &use : tOutput.getUses()) {
+      if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
+        SmallVector<ReassociationIndices, 4> reassocIndices =
+            op.getReassociationIndices();
+        tensor::CollapseShapeOp newCollapseShapeOp =
+            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
+                                                     reassocIndices);
+        tInput = newCollapseShapeOp.getResult();
+        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims, tInput)
+                .failed()) {
+          return failure();
+        }
+        rewriter.eraseOp(op);
+      } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
+        SmallVector<ReassociationIndices, 4> reassocIndices =
+            op.getReassociationIndices();
+        ArrayRef<int64_t> outShape = op.getResultType().getShape();
+        ArrayRef<int64_t> inShape = op.getSrcType().getShape();
+        SmallVector<int64_t, 4> newOutShape = llvm::to_vector<4>(outShape);
+        // Assumption is shape expansions happen only in higher dimensions.
+        for (size_t i = 0; i < dims.size(); i++) {
+          newOutShape[newOutShape.size() - 1 - i] =
+              inShape[dims[dims.size() - 1 - i]];
+        }
+        tensor::ExpandShapeOp newExpandShapeOp =
+            rewriter.create<tensor::ExpandShapeOp>(
+                op.getLoc(),
+                RankedTensorType::get(newOutShape,
+                                      op.getResultType().getElementType()),
+                tInput, reassocIndices);
+        tInput = newExpandShapeOp.getResult();
+        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims, tInput)
+                .failed()) {
+          return failure();
+        }
+        rewriter.eraseOp(op);
+      } else if (auto convOp = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
+        if (convOp.getInput() == tOutput) {
+          permuteLayout(convOp, "input_layout", "nhwc", dims, true);
+          convOp.getInputMutable().assign(tInput);
+        } else if (convOp.getWeight() == tOutput) {
+          permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+          convOp.getWeightMutable().assign(tInput);
+        } else {
+          return convOp.emitError("transpose found leading to a conv2D input "
+                                  "other than data or weight");
+        }
+      } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
+        LogicalResult res = checkMatMulTransposeValid(matMulOp, dims);
+        if (res.failed()) {
+          return res;
+        }
+        bool mmNonTrivial = isMatMulNonTrivial(dims);
+        if (matMulOp.getA() == tOutput) {
+          setTranspose(matMulOp, "transpose_a", mmNonTrivial);
+          matMulOp.getAMutable().assign(tInput);
+        } else if (matMulOp.getB() == tOutput) {
+          setTranspose(matMulOp, "transpose_b", mmNonTrivial);
+          matMulOp.getBMutable().assign(tInput);
+        } else {
+          return matMulOp.emitError(
+              "transpose found leading to a matmul input other than A or B");
+        }
+      } else {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
@@ -413,24 +503,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
     SmallVector<int32_t> dims;
-    if (failed(getTransposeDims(top.getOperand(1), dims)))
+    if (failed(getTransposeDims(top.getOperand(1), dims))) {
       return failure();
-
-    bool isConvDims = dims.size() == 4;
-    bool isMatmulDims = dims.size() == 3;
-    if (!(isConvDims || isMatmulDims)) {
-      return b.notifyMatchFailure(top, [&](::mlir::Diagnostic &diag) {
-        diag << "Bad constant transpose dims";
-      });
-    }
-    bool matmulNonTrivial = false;
-    if (isMatmulDims) {
-      if (dims[0] != 0) {
-        return b.notifyMatchFailure(top, [&](Diagnostic &diag) {
-          diag << "Can't transpose the batch dimension out of place";
-        });
-      }
-      matmulNonTrivial = (dims[1] == 2 && dims[2] == 1);
     }
 
     Value tInput = top.getOperand(0);
@@ -443,46 +517,25 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       top->replaceAllUsesWith(convOp);
     } else if (tosa::MatMulOp matMulOp =
                    tInput.getDefiningOp<tosa::MatMulOp>()) {
-      setTranspose(matMulOp, "transpose_c", matmulNonTrivial);
+      llvm::errs() << "matmul is tInput.\n";
+      LogicalResult res = checkMatMulTransposeValid(matMulOp, dims);
+      if (res.failed()) {
+        llvm::errs() << "matmul transpose is invalid.\n";
+        return res;
+      }
+      setTranspose(matMulOp, "transpose_c", isMatMulNonTrivial(dims));
       matMulOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(matMulOp);
+      llvm::errs() << *top->getParentOp() << "\n";
     } else {
-      // trace output to tosa.conv2d
-      for (auto &use : tOutput.getUses()) {
-        if (auto op = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          convOp = op;
-        } else if (auto op = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          matMulOp = op;
-        } else {
-          return failure();
-        }
-      }
-
-      // conv Input Modifier
-      if (convOp && convOp.getOperand(0) == tOutput) {
-        // input feature map
-        permuteLayout(convOp, "input_layout", "nhwc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (convOp) {
-        // filter
-        assert(convOp.getOperand(1) == tOutput);
-        permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp && matMulOp.getA() == tOutput) {
-        setTranspose(matMulOp, "transpose_a", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp) {
-        assert(matMulOp.getB() == tOutput);
-        setTranspose(matMulOp, "transpose_b", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
+      LogicalResult res =
+          mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput);
+      if (res.failed()) {
+        return res;
       }
     }
 
-    top.erase();
+    b.eraseOp(top);
     return success();
   }
 };
