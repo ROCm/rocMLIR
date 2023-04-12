@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -61,7 +62,8 @@ struct MIGraphXTransforms
     auto &ctx = getContext();
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect>();
+    target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
+                           tosa::TosaDialect>();
     target.addIllegalOp<migraphx::SqrtOp>();
     auto func = getOperation();
 
