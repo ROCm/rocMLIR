@@ -2941,7 +2941,7 @@ int main(int argc, char **argv) {
   if (!inputFilename.empty()) {
     module = readTestFile(inputFilename.getValue(), hasUserKernel, &context);
   } else {
-    if (genValidation == "clone") {
+    if (0&& genValidation == "clone") {
       llvm::errs()
           << "Clone validation is not compatible with kernel generation.\n";
       exit(1);
