@@ -433,9 +433,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // with tInput. If there are collapse shapes encountered, the collapse
   // is applied on the tInput.
   LogicalResult mergeTransposeWithGemmLikeOp(PatternRewriter &rewriter,
-                                             const Value &tOutput,
+                                             Value tOutput,
                                              ArrayRef<int32_t> dims,
-                                             const Value &tInput) const {
+                                             Value tInput) const {
     for (auto &use : tOutput.getUses()) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
@@ -464,9 +464,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                   "other than data or weight");
         }
       } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
-        LogicalResult res = checkMatMulTransposeValid(matMulOp, dims);
-        if (res.failed()) {
-          return res;
+        if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
+          return failure();
         }
         bool mmNonTrivial = isMatMulNonTrivial(dims);
         if (matMulOp.getA() == tOutput) {
@@ -507,18 +506,15 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       top->replaceAllUsesWith(convOp);
     } else if (tosa::MatMulOp matMulOp =
                    tInput.getDefiningOp<tosa::MatMulOp>()) {
-      LogicalResult res = checkMatMulTransposeValid(matMulOp, dims);
-      if (res.failed()) {
-        return res;
+      if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
+        return failure();
       }
       setTranspose(matMulOp, "transpose_c", isMatMulNonTrivial(dims));
       matMulOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(matMulOp);
     } else {
-      LogicalResult res =
-          mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput);
-      if (res.failed()) {
-        return res;
+      if (mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput).failed()) {
+        return failure();
       }
     }
 
