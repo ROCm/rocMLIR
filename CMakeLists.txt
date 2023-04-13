@@ -67,7 +67,7 @@ endif()
 include(cmake/llvm-project.cmake)
 
 # Update the build-tree RPATH
-set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_LIB_DIR}")
+set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
 message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 # Set up the build for the rocMLIR dialects

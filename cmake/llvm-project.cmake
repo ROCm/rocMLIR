@@ -4,11 +4,11 @@ set(LLVM_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project")
 set(LLVM_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project")
 
 # Pointers to: external LLVM bins/libs
-set(LLVM_BIN_DIR "${LLVM_BINARY_DIR}/llvm/bin" CACHE PATH "")
-set(LLVM_LIB_DIR "${LLVM_BINARY_DIR}/llvm/lib" CACHE PATH "")
+set(LLVM_EXTERNAL_BIN_DIR "${LLVM_BINARY_DIR}/llvm/bin" CACHE PATH "")
+set(LLVM_EXTERNAL_LIB_DIR "${LLVM_BINARY_DIR}/llvm/lib" CACHE PATH "")
 
-message(STATUS "LLVM_BIN_DIR: ${LLVM_BIN_DIR}")
-message(STATUS "LLVM_LIB_DIR: ${LLVM_LIB_DIR}")
+message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
+message(STATUS "LLVM_EXTERNAL_LIB_DIR: ${LLVM_EXTERNAL_LIB_DIR}")
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
 # can find MLIR's CMake configuration
