@@ -6,6 +6,7 @@ add_mlir_library(MLIRTransformUtils
   GreedyPatternRewriteDriver.cpp
   InliningUtils.cpp
   LoopInvariantCodeMotionUtils.cpp
+  OutlinerUtils.cpp
   RegionUtils.cpp
   TopologicalSortUtils.cpp
 
@@ -17,4 +18,5 @@ add_mlir_library(MLIRTransformUtils
   MLIRLoopLikeInterface
   MLIRSideEffectInterfaces
   MLIRRewrite
+  MLIRFuncDialect
   )
