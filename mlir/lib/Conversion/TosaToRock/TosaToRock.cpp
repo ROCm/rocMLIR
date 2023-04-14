@@ -385,21 +385,15 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                      const char *layoutDefault, ArrayRef<int32_t> permDims,
                      bool isInput = false) const {
     StringRef currentLayout(layoutDefault);
-    size_t expectedRank = currentLayout.size();
-    size_t offset = 0;
-    if (permDims.size() > expectedRank) {
-      offset = permDims.size() - expectedRank;
-    }
-    SmallVector<int32_t, 4> dims{permDims.begin() + offset, permDims.end()};
     if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
       currentLayout = attr.getValue();
     SmallString<4> layout(currentLayout);
     if (isInput) {
-      for (int i = 0, e = dims.size(); i < e; ++i)
-        layout[dims[i] - offset] = currentLayout[i];
+      for (int i = 0, e = permDims.size(); i < e; ++i)
+        layout[permDims[i]] = currentLayout[i];
     } else {
-      for (int i = 0, e = dims.size(); i < e; ++i)
-        layout[i] = currentLayout[dims[i] - offset];
+      for (int i = 0, e = permDims.size(); i < e; ++i)
+        layout[i] = currentLayout[permDims[i]];
     }
     op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
   }
@@ -443,7 +437,42 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         tensor::CollapseShapeOp newCollapseShapeOp =
             rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
                                                      reassocIndices);
-        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), dims,
+        ArrayRef<int64_t> inShape = newCollapseShapeOp.getSrcType().getShape();
+
+        // This loops maps reassociated dims back to pre transposed dims.
+        SmallVector<int32_t, 4> newDims;
+        for (ReassociationIndices indices : reassocIndices) {
+          int32_t minIdx = dims[indices[0]];
+          for (size_t i = 0; i < indices.size(); i++) {
+            // We can ignore unit dim collapses
+            if (inShape[indices[i]] == 1) {
+              continue;
+            }
+            int32_t transposedDim = dims[indices[i]];
+            if (std::abs(minIdx - transposedDim) > 1) {
+              return rewriter.notifyMatchFailure(
+                  op, "CollapseShape op following transpose collapses "
+                      "non-contigous pre-transpose dims.");
+            }
+            // Where dims are collapsed, we take the minimum as a
+            // representative.
+            minIdx = std::min(minIdx, dims[indices[i]]);
+          }
+          newDims.push_back(minIdx);
+        }
+
+        // Assign the ordering index of reassociated dims as the dim index
+        SmallVector<int32_t, 4> newDimsSorted = newDims;
+        llvm::sort(newDimsSorted);
+        DenseMap<int32_t, int32_t> dimMap;
+        for (size_t i = 0; i < newDimsSorted.size(); i++) {
+          dimMap[newDimsSorted[i]] = i;
+        }
+        for (size_t i = 0; i < newDims.size(); i++) {
+          newDims[i] = dimMap[newDims[i]];
+        }
+
+        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
                                          newCollapseShapeOp.getResult())
                 .failed()) {
           return failure();
