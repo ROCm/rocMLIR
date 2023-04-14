@@ -7,6 +7,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   RockTuningParamAttrInterface.cpp
   RockAccelTuningParamAttrInterface.cpp
   MfmaInsnGroup.cpp
+  WmmaInsnGroup.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Rock

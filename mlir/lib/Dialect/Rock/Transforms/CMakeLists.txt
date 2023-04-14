@@ -1,4 +1,5 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
+  AccelEmitter.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
   BlockwiseGemmToThreadwise.cpp

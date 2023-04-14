@@ -24,8 +24,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -36,9 +36,11 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
+#include <memory>
 #include <numeric>
 
 namespace mlir {
@@ -180,10 +182,6 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
     Location loc = op.getLoc();
 
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-    // Obtain critical information.
-    int64_t K = tuningParams.getKpackPerBlock() * tuningParams.getKpack();
-    int64_t mPerWave = tuningParams.getMPerWave();
-    int64_t nPerWave = tuningParams.getNPerWave();
 
     auto dataTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -196,81 +194,46 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
       dataTypeB = dataTypeB.cast<VectorType>().getElementType();
     }
 
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-        dataTypeA, dataTypeB, op.getArch(), mPerWave, nPerWave);
-    if (failed(maybeMfmaInsnGroup)) {
-      return emitError(loc) << "Failed to select xdlops instruction group.\n";
-    }
-    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-
-    VectorType vectorType = mfmaGroup.getRetType();
-    auto imms = mfmaGroup.getImms();
-    int64_t nResultVectors = imms.size();
-    Type argTypeA = mfmaGroup.getArgTypeA();
-    Type argTypeB = mfmaGroup.getArgTypeB();
-
-    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-
-    int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
-    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
-    int64_t k_base = mfmaAttr.k_base;
-
-    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-
     Value bufferA = adaptor.getMatrixA();
     Value bufferB = adaptor.getMatrixB();
     Value bufferC = adaptor.getMatrixC();
 
-    int64_t kBasePerThread =
-        (IsKReduction ? K / inputSpansPerMfmaIn : K) / k_base;
+    auto emitter = rock::accel::AccelEmitter::select(
+        op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+
+    if (!emitter)
+      return emitError(loc)
+             << "Failed to select any accelerator instruction.\n";
+
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
 
-    auto populateMfma = [&](OpBuilder &b, Value argA, Value argB,
-                            Value regCOffset) {
-      for (int64_t i = 0; i < nResultVectors; ++i) {
-        Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-        offset = b.create<AddIOp>(loc, offset, regCOffset);
-
-        auto vectorC =
-            b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
-        auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
-            mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
-            /*abid=*/imms[i].abid,
-            /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
-            /*negateB=*/false, /*negateC=*/false);
-        auto vectorD = mfma.getDestD();
-
-        b.create<memref::StoreOp>(loc, vectorD, bufferC, offset);
-      }
-    };
-
-    auto generateMfmaOnKDim = [&](Value regCOffset) {
-      auto mfmaLoop = b.create<TransformingForOp>(
+    auto generateAccelOnKDim = [&](Value regCOffset) {
+      auto accelLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
+          /*bounds=*/ArrayRef<int64_t>{emitter->kBasePerThread},
           /*strides=*/ArrayRef<int64_t>{1},
           /*forceUnroll=*/false, /*useIndexDiffs=*/false);
       {
         OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(mfmaLoop.getBody());
-        Value coord = mfmaLoop.getLowerCoords(/*domain=*/0)[0];
-
-        Value argA = b.create<memref::LoadOp>(loc, argTypeA, bufferA, coord);
-        Value argB = b.create<memref::LoadOp>(loc, argTypeB, bufferB, coord);
-        populateMfma(b, argA, argB, regCOffset);
+        b.setInsertionPointToStart(accelLoop.getBody());
+        Value coord = accelLoop.getLowerCoords(/*domain=*/0)[0];
+        Value argA =
+            b.create<memref::LoadOp>(loc, emitter->argTypeA, bufferA, coord);
+        Value argB =
+            b.create<memref::LoadOp>(loc, emitter->argTypeB, bufferB, coord);
+        emitter->emitThreadwiseLoop(b, loc, argA, argB, bufferC, regCOffset);
       }
     };
 
     auto mRepeat = op.getMRepeat();
     auto nRepeat = op.getNRepeat();
-    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
+
     Value nResultVectorsConstantOp =
-        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
-    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
+        b.createOrFold<ConstantIndexOp>(loc, emitter->nResultVectors);
+    Value nRepeatsConstantOp =
+        b.create<ConstantIndexOp>(loc, emitter->nRepeats);
 
     Value regCOffset = b.create<MulIOp>(
         loc,
@@ -278,7 +241,7 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
             loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
         nResultVectorsConstantOp);
 
-    generateMfmaOnKDim(regCOffset);
+    generateAccelOnKDim(regCOffset);
 
     b.eraseOp(op);
     return success();
@@ -293,6 +256,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
+  target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, AccelGemmV2RewritePattern>(ctx);

@@ -730,6 +730,7 @@ LogicalResult GemmOp::verify() {
            << " k_a = " << kA << " k_b = " << kB;
 
   bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
@@ -744,11 +745,11 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
+  if (getStoreMethod() != StoreMethod::Set && !isXdlops && !isWmma) {
     return emitOpError("general kernels don't support non-set store methods");
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops) {
+  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }

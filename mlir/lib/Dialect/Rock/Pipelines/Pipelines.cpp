@@ -179,7 +179,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    */
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
+      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true,
+      gpu::amd::Runtime::HIP));
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
                                            options.features, options.optLevel));
 }

@@ -105,7 +105,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     perfConfig = perfConfigAttr.getValue().str();
   }
   GemmFeatures features = op.getGemmFeatures();
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+  if (bitEnumContainsAll(features, GemmFeatures::mfma) ||
+      bitEnumContainsAll(features, GemmFeatures::wmma)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
     uint32_t blockSize = 0;

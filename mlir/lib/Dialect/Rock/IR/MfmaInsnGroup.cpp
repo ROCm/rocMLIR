@@ -160,21 +160,19 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
   int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
-  return {
-      mfmaNonKDim,
-      k,
-      blocksMfma,
-      nInputsToMfma,
-      k_base,
-      inputSpanLen,
-      inputSpansPerMfmaIn,
-      nOutputsOfMfma,
-      rowGroupSize,
-      rowsPerMfmaOutput,
-      blocksPerMfmaOutput,
-      rowGroupsPerBlock,
-      blocksInOutRegs,
-  };
+  return {mfmaNonKDim,
+          k,
+          blocksMfma,
+          nInputsToMfma,
+          k_base,
+          inputSpanLen,
+          inputSpansPerMfmaIn,
+          nOutputsOfMfma,
+          rowGroupSize,
+          rowsPerMfmaOutput,
+          blocksPerMfmaOutput,
+          rowGroupsPerBlock,
+          blocksInOutRegs};
 }
 
 auto getMfmaInsnAttrMap = []() -> const llvm::StringMap<MfmaInsnAttr> & {
