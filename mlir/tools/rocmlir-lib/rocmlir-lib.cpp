@@ -105,11 +105,8 @@ LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
 } // namespace
 
 typedef void *MiirHandle;
-static std::mutex mutex;
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
-  const std::lock_guard<std::mutex> lock(mutex);
-
   mlir::rock::Conv2dGenerator conv2dGenerator;
   if (failed(conv2dGenerator.parseConvConfig(arguments))) {
     return nullptr;
@@ -164,7 +161,6 @@ extern "C" int miirGetWorkspaceSize(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -176,7 +172,6 @@ extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
 extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
                                            size_t *globalSize,
                                            size_t *localSize) {
-  const std::lock_guard<std::mutex> lock(mutex);
   if (globalSize == nullptr || localSize == nullptr)
     return MIIR_INVALID_PARAM;
 
@@ -236,8 +231,6 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
 }
 
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -256,8 +249,6 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -281,7 +272,6 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
 extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
                                     size_t *size) {
-  const std::lock_guard<std::mutex> lock(mutex);
   if ((buffer == nullptr) && (size == nullptr))
     return MIIR_INVALID_PARAM;
 
