@@ -1,7 +1,7 @@
 
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/Builders.h"
