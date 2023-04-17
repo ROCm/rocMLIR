@@ -346,6 +346,21 @@ def MIGraphX_ReshapeOp :
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
 }
 
+def MIGraphX_SliceOp :
+    MIGraphX_Op<"slice">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64ArrayAttr:$axes,
+                   I64ArrayAttr:$ends,
+                   I64ArrayAttr:$starts
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {
+  let summary = "slice a tensor";
+  let description = [{
+    The `migraphx.slice` op.
+  }];
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
+}
+
 def MIGraphX_BroadcastOp :
     MIGraphX_Op<"broadcast">,
     Arguments<(ins AnyRankedTensor:$input,
