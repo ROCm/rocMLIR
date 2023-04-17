@@ -80,6 +80,10 @@ LogicalResult RawBufferAtomicUminOp::verify() {
   return verifyRawBufferOp(*this);
 }
 
+LogicalResult RawBufferAtomicCmpswapOp::verify() {
+  return verifyRawBufferOp(*this);
+}
+
 static std::optional<uint32_t> getConstantUint32(Value v) {
   APInt cst;
   if (!v.getType().isInteger(32))
@@ -126,12 +130,11 @@ static bool staticallyOutOfBounds(OpType op) {
 }
 
 namespace {
-struct RemoveStaticallyOobBufferLoads final
-    : public OpRewritePattern<RawBufferLoadOp> {
-  using OpRewritePattern<RawBufferLoadOp>::OpRewritePattern;
+template <typename OpType>
+struct RemoveStaticallyOobBufferLoads final : public OpRewritePattern<OpType> {
+  using OpRewritePattern<OpType>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(RawBufferLoadOp op,
-                                PatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(OpType op, PatternRewriter &rw) const override {
     if (!staticallyOutOfBounds(op))
       return failure();
     Type loadType = op.getResult().getType();
@@ -157,7 +160,7 @@ struct RemoveStaticallyOobBufferWrites final : public OpRewritePattern<OpType> {
 
 void RawBufferLoadOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                                   MLIRContext *context) {
-  results.add<RemoveStaticallyOobBufferLoads>(context);
+  results.add<RemoveStaticallyOobBufferLoads<RawBufferLoadOp>>(context);
 }
 
 void RawBufferStoreOp::getCanonicalizationPatterns(RewritePatternSet &results,
@@ -183,6 +186,12 @@ void RawBufferAtomicSmaxOp::getCanonicalizationPatterns(
 void RawBufferAtomicUminOp::getCanonicalizationPatterns(
     RewritePatternSet &results, MLIRContext *context) {
   results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicUminOp>>(context);
+}
+
+void RawBufferAtomicCmpswapOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferLoads<RawBufferAtomicCmpswapOp>>(
+      context);
 }
 
 //===----------------------------------------------------------------------===//
