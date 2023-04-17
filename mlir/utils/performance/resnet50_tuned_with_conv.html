@@ -1,0 +1,551 @@
+
+<!doctype html>
+<html lang="en_US">
+<head>
+<meta charset="utf-8">
+<title>Fusion performance: Direction = fwd, Chip = gfx90a, InputLayout = nchwg, OutputLayout = nkhwg, N = 1, DilationH = 1, DilationW = 1</title>
+<style type="text/css">
+caption {
+    caption-side: bottom;
+    padding: 0.5em;
+}
+</style>
+</head>
+<body>
+<h1>Fusion performance: Direction = fwd, Chip = gfx90a, InputLayout = nchwg, OutputLayout = nkhwg, N = 1, DilationH = 1, DilationW = 1</h1>
+<h2>Summary</h2>
+
+<style type="text/css">
+#T_42c6c tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_42c6c tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_42c6c table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_42c6c th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_42c6c  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+</style>
+<table id="T_42c6c">
+  <caption>Summary statistics for Fusion performance</caption>
+  <thead>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_42c6c_level0_col0" class="col_heading level0 col0" >TFlops</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >Direction</th>
+      <th class="index_name level1" >DataType</th>
+      <th class="index_name level2" >InputLayout</th>
+      <th class="blank col0" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_42c6c_level0_row0" class="row_heading level0 row0" rowspan="2">fwd</th>
+      <th id="T_42c6c_level1_row0" class="row_heading level1 row0" >f32</th>
+      <th id="T_42c6c_level2_row0" class="row_heading level2 row0" >nchwg</th>
+      <td id="T_42c6c_row0_col0" class="data row0 col0" >6.60</td>
+    </tr>
+    <tr>
+      <th id="T_42c6c_level1_row1" class="row_heading level1 row1" >i8</th>
+      <th id="T_42c6c_level2_row1" class="row_heading level2 row1" >nchwg</th>
+      <td id="T_42c6c_row1_col0" class="data row1 col0" >10.95</td>
+    </tr>
+    <tr>
+      <th id="T_42c6c_level0_row2" class="row_heading level0 row2" >All</th>
+      <th id="T_42c6c_level1_row2" class="row_heading level1 row2" >All</th>
+      <th id="T_42c6c_level2_row2" class="row_heading level2 row2" >All</th>
+      <td id="T_42c6c_row2_col0" class="data row2 col0" >6.86</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Details</h2>
+<style type="text/css">
+#T_f158e tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_f158e tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_f158e table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_f158e th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_f158e  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+</style>
+<table id="T_f158e">
+  <caption>Fusion performance: Per-test breakdown</caption>
+  <thead>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_f158e_level0_col0" class="col_heading level0 col0" >TFlops</th>
+      <th id="T_f158e_level0_col1" class="col_heading level0 col1" >FileName</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >DataType</th>
+      <th class="index_name level1" >FilterLayout</th>
+      <th class="index_name level2" >C</th>
+      <th class="index_name level3" >H</th>
+      <th class="index_name level4" >W</th>
+      <th class="index_name level5" >K</th>
+      <th class="index_name level6" >Y</th>
+      <th class="index_name level7" >X</th>
+      <th class="index_name level8" >StrideH</th>
+      <th class="index_name level9" >StrideW</th>
+      <th class="index_name level10" >PaddingH</th>
+      <th class="index_name level11" >PaddingW</th>
+      <th class="index_name level12" >PerfConfig</th>
+      <th class="blank col0" >&nbsp;</th>
+      <th class="blank col1" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_f158e_level0_row0" class="row_heading level0 row0" rowspan="21">f32</th>
+      <th id="T_f158e_level1_row0" class="row_heading level1 row0" >kcyxg</th>
+      <th id="T_f158e_level2_row0" class="row_heading level2 row0" >256</th>
+      <th id="T_f158e_level3_row0" class="row_heading level3 row0" >28</th>
+      <th id="T_f158e_level4_row0" class="row_heading level4 row0" >28</th>
+      <th id="T_f158e_level5_row0" class="row_heading level5 row0" >256</th>
+      <th id="T_f158e_level6_row0" class="row_heading level6 row0" >3</th>
+      <th id="T_f158e_level7_row0" class="row_heading level7 row0" >3</th>
+      <th id="T_f158e_level8_row0" class="row_heading level8 row0" >2</th>
+      <th id="T_f158e_level9_row0" class="row_heading level9 row0" >2</th>
+      <th id="T_f158e_level10_row0" class="row_heading level10 row0" >1</th>
+      <th id="T_f158e_level11_row0" class="row_heading level11 row0" >1</th>
+      <th id="T_f158e_level12_row0" class="row_heading level12 row0" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row0_col0" class="data row0 col0" >4.83</td>
+      <td id="T_f158e_row0_col1" class="data row0 col1" >mixr-resnet-fusion-case-2.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row1" class="row_heading level1 row1" >kyxcg</th>
+      <th id="T_f158e_level2_row1" class="row_heading level2 row1" >384</th>
+      <th id="T_f158e_level3_row1" class="row_heading level3 row1" >28</th>
+      <th id="T_f158e_level4_row1" class="row_heading level4 row1" >28</th>
+      <th id="T_f158e_level5_row1" class="row_heading level5 row1" >512</th>
+      <th id="T_f158e_level6_row1" class="row_heading level6 row1" >1</th>
+      <th id="T_f158e_level7_row1" class="row_heading level7 row1" >1</th>
+      <th id="T_f158e_level8_row1" class="row_heading level8 row1" >1</th>
+      <th id="T_f158e_level9_row1" class="row_heading level9 row1" >1</th>
+      <th id="T_f158e_level10_row1" class="row_heading level10 row1" >0</th>
+      <th id="T_f158e_level11_row1" class="row_heading level11 row1" >0</th>
+      <th id="T_f158e_level12_row1" class="row_heading level12 row1" >16,64,4,16,16,4,1,1</th>
+      <td id="T_f158e_row1_col0" class="data row1 col0" >13.11</td>
+      <td id="T_f158e_row1_col1" class="data row1 col1" >mixr-resnet-fusion-case-15.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row2" class="row_heading level1 row2" >kcyxg</th>
+      <th id="T_f158e_level2_row2" class="row_heading level2 row2" >512</th>
+      <th id="T_f158e_level3_row2" class="row_heading level3 row2" >14</th>
+      <th id="T_f158e_level4_row2" class="row_heading level4 row2" >14</th>
+      <th id="T_f158e_level5_row2" class="row_heading level5 row2" >512</th>
+      <th id="T_f158e_level6_row2" class="row_heading level6 row2" >3</th>
+      <th id="T_f158e_level7_row2" class="row_heading level7 row2" >3</th>
+      <th id="T_f158e_level8_row2" class="row_heading level8 row2" >2</th>
+      <th id="T_f158e_level9_row2" class="row_heading level9 row2" >2</th>
+      <th id="T_f158e_level10_row2" class="row_heading level10 row2" >1</th>
+      <th id="T_f158e_level11_row2" class="row_heading level11 row2" >1</th>
+      <th id="T_f158e_level12_row2" class="row_heading level12 row2" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row2_col0" class="data row2 col0" >2.73</td>
+      <td id="T_f158e_row2_col1" class="data row2 col1" >mixr-resnet-fusion-case-21.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row3" class="row_heading level1 row3" >kyxcg</th>
+      <th id="T_f158e_level2_row3" class="row_heading level2 row3" >768</th>
+      <th id="T_f158e_level3_row3" class="row_heading level3 row3" >14</th>
+      <th id="T_f158e_level4_row3" class="row_heading level4 row3" >14</th>
+      <th id="T_f158e_level5_row3" class="row_heading level5 row3" >1024</th>
+      <th id="T_f158e_level6_row3" class="row_heading level6 row3" >1</th>
+      <th id="T_f158e_level7_row3" class="row_heading level7 row3" >1</th>
+      <th id="T_f158e_level8_row3" class="row_heading level8 row3" >1</th>
+      <th id="T_f158e_level9_row3" class="row_heading level9 row3" >1</th>
+      <th id="T_f158e_level10_row3" class="row_heading level10 row3" >0</th>
+      <th id="T_f158e_level11_row3" class="row_heading level11 row3" >0</th>
+      <th id="T_f158e_level12_row3" class="row_heading level12 row3" >64,16,4,16,16,8,1,1</th>
+      <td id="T_f158e_row3_col0" class="data row3 col0" >10.70</td>
+      <td id="T_f158e_row3_col1" class="data row3 col1" >mixr-resnet-fusion-case-19.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row4" class="row_heading level1 row4" rowspan="2">kcyxg</th>
+      <th id="T_f158e_level2_row4" class="row_heading level2 row4" >256</th>
+      <th id="T_f158e_level3_row4" class="row_heading level3 row4" >14</th>
+      <th id="T_f158e_level4_row4" class="row_heading level4 row4" >14</th>
+      <th id="T_f158e_level5_row4" class="row_heading level5 row4" >256</th>
+      <th id="T_f158e_level6_row4" class="row_heading level6 row4" >3</th>
+      <th id="T_f158e_level7_row4" class="row_heading level7 row4" >3</th>
+      <th id="T_f158e_level8_row4" class="row_heading level8 row4" >1</th>
+      <th id="T_f158e_level9_row4" class="row_heading level9 row4" >1</th>
+      <th id="T_f158e_level10_row4" class="row_heading level10 row4" >1</th>
+      <th id="T_f158e_level11_row4" class="row_heading level11 row4" >1</th>
+      <th id="T_f158e_level12_row4" class="row_heading level12 row4" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row4_col0" class="data row4 col0" >4.83</td>
+      <td id="T_f158e_row4_col1" class="data row4 col1" >mixr-resnet-fusion-case-4.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row5" class="row_heading level2 row5" >512</th>
+      <th id="T_f158e_level3_row5" class="row_heading level3 row5" >7</th>
+      <th id="T_f158e_level4_row5" class="row_heading level4 row5" >7</th>
+      <th id="T_f158e_level5_row5" class="row_heading level5 row5" >512</th>
+      <th id="T_f158e_level6_row5" class="row_heading level6 row5" >3</th>
+      <th id="T_f158e_level7_row5" class="row_heading level7 row5" >3</th>
+      <th id="T_f158e_level8_row5" class="row_heading level8 row5" >1</th>
+      <th id="T_f158e_level9_row5" class="row_heading level9 row5" >1</th>
+      <th id="T_f158e_level10_row5" class="row_heading level10 row5" >1</th>
+      <th id="T_f158e_level11_row5" class="row_heading level11 row5" >1</th>
+      <th id="T_f158e_level12_row5" class="row_heading level12 row5" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row5_col0" class="data row5 col0" >2.74</td>
+      <td id="T_f158e_row5_col1" class="data row5 col1" >mixr-resnet-fusion-case-17.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row6" class="row_heading level1 row6" rowspan="3">kyxcg</th>
+      <th id="T_f158e_level2_row6" class="row_heading level2 row6" rowspan="2">256</th>
+      <th id="T_f158e_level3_row6" class="row_heading level3 row6" rowspan="2">56</th>
+      <th id="T_f158e_level4_row6" class="row_heading level4 row6" rowspan="2">56</th>
+      <th id="T_f158e_level5_row6" class="row_heading level5 row6" >64</th>
+      <th id="T_f158e_level6_row6" class="row_heading level6 row6" >1</th>
+      <th id="T_f158e_level7_row6" class="row_heading level7 row6" >1</th>
+      <th id="T_f158e_level8_row6" class="row_heading level8 row6" >1</th>
+      <th id="T_f158e_level9_row6" class="row_heading level9 row6" >1</th>
+      <th id="T_f158e_level10_row6" class="row_heading level10 row6" >0</th>
+      <th id="T_f158e_level11_row6" class="row_heading level11 row6" >0</th>
+      <th id="T_f158e_level12_row6" class="row_heading level12 row6" >32,32,4,16,16,8,1,1</th>
+      <td id="T_f158e_row6_col0" class="data row6 col0" >7.93</td>
+      <td id="T_f158e_row6_col1" class="data row6 col1" >mixr-resnet-fusion-case-5.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level5_row7" class="row_heading level5 row7" >128</th>
+      <th id="T_f158e_level6_row7" class="row_heading level6 row7" >1</th>
+      <th id="T_f158e_level7_row7" class="row_heading level7 row7" >1</th>
+      <th id="T_f158e_level8_row7" class="row_heading level8 row7" >1</th>
+      <th id="T_f158e_level9_row7" class="row_heading level9 row7" >1</th>
+      <th id="T_f158e_level10_row7" class="row_heading level10 row7" >0</th>
+      <th id="T_f158e_level11_row7" class="row_heading level11 row7" >0</th>
+      <th id="T_f158e_level12_row7" class="row_heading level12 row7" >64,64,8,64,16,4,1,1</th>
+      <td id="T_f158e_row7_col0" class="data row7 col0" >11.07</td>
+      <td id="T_f158e_row7_col1" class="data row7 col1" >mixr-resnet-fusion-case-24.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row8" class="row_heading level2 row8" >512</th>
+      <th id="T_f158e_level3_row8" class="row_heading level3 row8" >28</th>
+      <th id="T_f158e_level4_row8" class="row_heading level4 row8" >28</th>
+      <th id="T_f158e_level5_row8" class="row_heading level5 row8" >256</th>
+      <th id="T_f158e_level6_row8" class="row_heading level6 row8" >1</th>
+      <th id="T_f158e_level7_row8" class="row_heading level7 row8" >1</th>
+      <th id="T_f158e_level8_row8" class="row_heading level8 row8" >1</th>
+      <th id="T_f158e_level9_row8" class="row_heading level9 row8" >1</th>
+      <th id="T_f158e_level10_row8" class="row_heading level10 row8" >0</th>
+      <th id="T_f158e_level11_row8" class="row_heading level11 row8" >0</th>
+      <th id="T_f158e_level12_row8" class="row_heading level12 row8" >32,32,4,16,16,8,1,1</th>
+      <td id="T_f158e_row8_col0" class="data row8 col0" >11.17</td>
+      <td id="T_f158e_row8_col1" class="data row8 col1" >mixr-resnet-fusion-case-7.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row9" class="row_heading level1 row9" >kcyxg</th>
+      <th id="T_f158e_level2_row9" class="row_heading level2 row9" >128</th>
+      <th id="T_f158e_level3_row9" class="row_heading level3 row9" >56</th>
+      <th id="T_f158e_level4_row9" class="row_heading level4 row9" >56</th>
+      <th id="T_f158e_level5_row9" class="row_heading level5 row9" >128</th>
+      <th id="T_f158e_level6_row9" class="row_heading level6 row9" >3</th>
+      <th id="T_f158e_level7_row9" class="row_heading level7 row9" >3</th>
+      <th id="T_f158e_level8_row9" class="row_heading level8 row9" >2</th>
+      <th id="T_f158e_level9_row9" class="row_heading level9 row9" >2</th>
+      <th id="T_f158e_level10_row9" class="row_heading level10 row9" >1</th>
+      <th id="T_f158e_level11_row9" class="row_heading level11 row9" >1</th>
+      <th id="T_f158e_level12_row9" class="row_heading level12 row9" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row9_col0" class="data row9 col0" >8.07</td>
+      <td id="T_f158e_row9_col1" class="data row9 col1" >mixr-resnet-fusion-case-11.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row10" class="row_heading level1 row10" rowspan="4">kyxcg</th>
+      <th id="T_f158e_level2_row10" class="row_heading level2 row10" >128</th>
+      <th id="T_f158e_level3_row10" class="row_heading level3 row10" >28</th>
+      <th id="T_f158e_level4_row10" class="row_heading level4 row10" >28</th>
+      <th id="T_f158e_level5_row10" class="row_heading level5 row10" >512</th>
+      <th id="T_f158e_level6_row10" class="row_heading level6 row10" >1</th>
+      <th id="T_f158e_level7_row10" class="row_heading level7 row10" >1</th>
+      <th id="T_f158e_level8_row10" class="row_heading level8 row10" >1</th>
+      <th id="T_f158e_level9_row10" class="row_heading level9 row10" >1</th>
+      <th id="T_f158e_level10_row10" class="row_heading level10 row10" >0</th>
+      <th id="T_f158e_level11_row10" class="row_heading level11 row10" >0</th>
+      <th id="T_f158e_level12_row10" class="row_heading level12 row10" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row10_col0" class="data row10 col0" >7.56</td>
+      <td id="T_f158e_row10_col1" class="data row10 col1" >mixr-resnet-fusion-case-6.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row11" class="row_heading level2 row11" >2048</th>
+      <th id="T_f158e_level3_row11" class="row_heading level3 row11" >7</th>
+      <th id="T_f158e_level4_row11" class="row_heading level4 row11" >7</th>
+      <th id="T_f158e_level5_row11" class="row_heading level5 row11" >512</th>
+      <th id="T_f158e_level6_row11" class="row_heading level6 row11" >1</th>
+      <th id="T_f158e_level7_row11" class="row_heading level7 row11" >1</th>
+      <th id="T_f158e_level8_row11" class="row_heading level8 row11" >1</th>
+      <th id="T_f158e_level9_row11" class="row_heading level9 row11" >1</th>
+      <th id="T_f158e_level10_row11" class="row_heading level10 row11" >0</th>
+      <th id="T_f158e_level11_row11" class="row_heading level11 row11" >0</th>
+      <th id="T_f158e_level12_row11" class="row_heading level12 row11" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row11_col0" class="data row11 col0" >2.71</td>
+      <td id="T_f158e_row11_col1" class="data row11 col1" >mixr-resnet-fusion-case-13.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row12" class="row_heading level2 row12" >256</th>
+      <th id="T_f158e_level3_row12" class="row_heading level3 row12" >14</th>
+      <th id="T_f158e_level4_row12" class="row_heading level4 row12" >14</th>
+      <th id="T_f158e_level5_row12" class="row_heading level5 row12" >1024</th>
+      <th id="T_f158e_level6_row12" class="row_heading level6 row12" >1</th>
+      <th id="T_f158e_level7_row12" class="row_heading level7 row12" >1</th>
+      <th id="T_f158e_level8_row12" class="row_heading level8 row12" >1</th>
+      <th id="T_f158e_level9_row12" class="row_heading level9 row12" >1</th>
+      <th id="T_f158e_level10_row12" class="row_heading level10 row12" >0</th>
+      <th id="T_f158e_level11_row12" class="row_heading level11 row12" >0</th>
+      <th id="T_f158e_level12_row12" class="row_heading level12 row12" >64,16,4,16,16,8,1,1</th>
+      <td id="T_f158e_row12_col0" class="data row12 col0" >6.98</td>
+      <td id="T_f158e_row12_col1" class="data row12 col1" >mixr-resnet-fusion-case-8.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row13" class="row_heading level2 row13" >1536</th>
+      <th id="T_f158e_level3_row13" class="row_heading level3 row13" >7</th>
+      <th id="T_f158e_level4_row13" class="row_heading level4 row13" >7</th>
+      <th id="T_f158e_level5_row13" class="row_heading level5 row13" >2048</th>
+      <th id="T_f158e_level6_row13" class="row_heading level6 row13" >1</th>
+      <th id="T_f158e_level7_row13" class="row_heading level7 row13" >1</th>
+      <th id="T_f158e_level8_row13" class="row_heading level8 row13" >1</th>
+      <th id="T_f158e_level9_row13" class="row_heading level9 row13" >1</th>
+      <th id="T_f158e_level10_row13" class="row_heading level10 row13" >0</th>
+      <th id="T_f158e_level11_row13" class="row_heading level11 row13" >0</th>
+      <th id="T_f158e_level12_row13" class="row_heading level12 row13" >32,16,4,16,16,8,1,1</th>
+      <td id="T_f158e_row13_col0" class="data row13 col0" >7.35</td>
+      <td id="T_f158e_row13_col1" class="data row13 col1" >mixr-resnet-fusion-case-16.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row14" class="row_heading level1 row14" >kcyxg</th>
+      <th id="T_f158e_level2_row14" class="row_heading level2 row14" >128</th>
+      <th id="T_f158e_level3_row14" class="row_heading level3 row14" >28</th>
+      <th id="T_f158e_level4_row14" class="row_heading level4 row14" >28</th>
+      <th id="T_f158e_level5_row14" class="row_heading level5 row14" >128</th>
+      <th id="T_f158e_level6_row14" class="row_heading level6 row14" >3</th>
+      <th id="T_f158e_level7_row14" class="row_heading level7 row14" >3</th>
+      <th id="T_f158e_level8_row14" class="row_heading level8 row14" >1</th>
+      <th id="T_f158e_level9_row14" class="row_heading level9 row14" >1</th>
+      <th id="T_f158e_level10_row14" class="row_heading level10 row14" >1</th>
+      <th id="T_f158e_level11_row14" class="row_heading level11 row14" >1</th>
+      <th id="T_f158e_level12_row14" class="row_heading level12 row14" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row14_col0" class="data row14 col0" >8.26</td>
+      <td id="T_f158e_row14_col1" class="data row14 col1" >mixr-resnet-fusion-case-1.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row15" class="row_heading level1 row15" >kyxcg</th>
+      <th id="T_f158e_level2_row15" class="row_heading level2 row15" >512</th>
+      <th id="T_f158e_level3_row15" class="row_heading level3 row15" >7</th>
+      <th id="T_f158e_level4_row15" class="row_heading level4 row15" >7</th>
+      <th id="T_f158e_level5_row15" class="row_heading level5 row15" >2048</th>
+      <th id="T_f158e_level6_row15" class="row_heading level6 row15" >1</th>
+      <th id="T_f158e_level7_row15" class="row_heading level7 row15" >1</th>
+      <th id="T_f158e_level8_row15" class="row_heading level8 row15" >1</th>
+      <th id="T_f158e_level9_row15" class="row_heading level9 row15" >1</th>
+      <th id="T_f158e_level10_row15" class="row_heading level10 row15" >0</th>
+      <th id="T_f158e_level11_row15" class="row_heading level11 row15" >0</th>
+      <th id="T_f158e_level12_row15" class="row_heading level12 row15" >32,16,4,16,16,8,1,1</th>
+      <td id="T_f158e_row15_col0" class="data row15 col0" >4.83</td>
+      <td id="T_f158e_row15_col1" class="data row15 col1" >mixr-resnet-fusion-case-12.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row16" class="row_heading level1 row16" >kcyxg</th>
+      <th id="T_f158e_level2_row16" class="row_heading level2 row16" >3</th>
+      <th id="T_f158e_level3_row16" class="row_heading level3 row16" >224</th>
+      <th id="T_f158e_level4_row16" class="row_heading level4 row16" >224</th>
+      <th id="T_f158e_level5_row16" class="row_heading level5 row16" >64</th>
+      <th id="T_f158e_level6_row16" class="row_heading level6 row16" >7</th>
+      <th id="T_f158e_level7_row16" class="row_heading level7 row16" >7</th>
+      <th id="T_f158e_level8_row16" class="row_heading level8 row16" >2</th>
+      <th id="T_f158e_level9_row16" class="row_heading level9 row16" >2</th>
+      <th id="T_f158e_level10_row16" class="row_heading level10 row16" >3</th>
+      <th id="T_f158e_level11_row16" class="row_heading level11 row16" >3</th>
+      <th id="T_f158e_level12_row16" class="row_heading level12 row16" >64,64,4,64,16,4,1,1</th>
+      <td id="T_f158e_row16_col0" class="data row16 col0" >10.17</td>
+      <td id="T_f158e_row16_col1" class="data row16 col1" >mixr-resnet-fusion-case-18.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row17" class="row_heading level1 row17" rowspan="4">kyxcg</th>
+      <th id="T_f158e_level2_row17" class="row_heading level2 row17" >512</th>
+      <th id="T_f158e_level3_row17" class="row_heading level3 row17" >28</th>
+      <th id="T_f158e_level4_row17" class="row_heading level4 row17" >28</th>
+      <th id="T_f158e_level5_row17" class="row_heading level5 row17" >128</th>
+      <th id="T_f158e_level6_row17" class="row_heading level6 row17" >1</th>
+      <th id="T_f158e_level7_row17" class="row_heading level7 row17" >1</th>
+      <th id="T_f158e_level8_row17" class="row_heading level8 row17" >1</th>
+      <th id="T_f158e_level9_row17" class="row_heading level9 row17" >1</th>
+      <th id="T_f158e_level10_row17" class="row_heading level10 row17" >0</th>
+      <th id="T_f158e_level11_row17" class="row_heading level11 row17" >0</th>
+      <th id="T_f158e_level12_row17" class="row_heading level12 row17" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row17_col0" class="data row17 col0" >6.30</td>
+      <td id="T_f158e_row17_col1" class="data row17 col1" >mixr-resnet-fusion-case-3.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row18" class="row_heading level2 row18" rowspan="2">1024</th>
+      <th id="T_f158e_level3_row18" class="row_heading level3 row18" rowspan="2">14</th>
+      <th id="T_f158e_level4_row18" class="row_heading level4 row18" rowspan="2">14</th>
+      <th id="T_f158e_level5_row18" class="row_heading level5 row18" >512</th>
+      <th id="T_f158e_level6_row18" class="row_heading level6 row18" >1</th>
+      <th id="T_f158e_level7_row18" class="row_heading level7 row18" >1</th>
+      <th id="T_f158e_level8_row18" class="row_heading level8 row18" >1</th>
+      <th id="T_f158e_level9_row18" class="row_heading level9 row18" >1</th>
+      <th id="T_f158e_level10_row18" class="row_heading level10 row18" >0</th>
+      <th id="T_f158e_level11_row18" class="row_heading level11 row18" >0</th>
+      <th id="T_f158e_level12_row18" class="row_heading level12 row18" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row18_col0" class="data row18 col0" >9.18</td>
+      <td id="T_f158e_row18_col1" class="data row18 col1" >mixr-resnet-fusion-case-23.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level5_row19" class="row_heading level5 row19" >256</th>
+      <th id="T_f158e_level6_row19" class="row_heading level6 row19" >1</th>
+      <th id="T_f158e_level7_row19" class="row_heading level7 row19" >1</th>
+      <th id="T_f158e_level8_row19" class="row_heading level8 row19" >1</th>
+      <th id="T_f158e_level9_row19" class="row_heading level9 row19" >1</th>
+      <th id="T_f158e_level10_row19" class="row_heading level10 row19" >0</th>
+      <th id="T_f158e_level11_row19" class="row_heading level11 row19" >0</th>
+      <th id="T_f158e_level12_row19" class="row_heading level12 row19" >32,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row19_col0" class="data row19 col0" >4.94</td>
+      <td id="T_f158e_row19_col1" class="data row19 col1" >mixr-resnet-fusion-case-9.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level2_row20" class="row_heading level2 row20" >64</th>
+      <th id="T_f158e_level3_row20" class="row_heading level3 row20" >56</th>
+      <th id="T_f158e_level4_row20" class="row_heading level4 row20" >56</th>
+      <th id="T_f158e_level5_row20" class="row_heading level5 row20" >64</th>
+      <th id="T_f158e_level6_row20" class="row_heading level6 row20" >1</th>
+      <th id="T_f158e_level7_row20" class="row_heading level7 row20" >1</th>
+      <th id="T_f158e_level8_row20" class="row_heading level8 row20" >1</th>
+      <th id="T_f158e_level9_row20" class="row_heading level9 row20" >1</th>
+      <th id="T_f158e_level10_row20" class="row_heading level10 row20" >0</th>
+      <th id="T_f158e_level11_row20" class="row_heading level11 row20" >0</th>
+      <th id="T_f158e_level12_row20" class="row_heading level12 row20" >8,64,4,4,64,4,1,1</th>
+      <td id="T_f158e_row20_col0" class="data row20 col0" >2.47</td>
+      <td id="T_f158e_row20_col1" class="data row20 col1" >mixr-resnet-fusion-case-22.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level0_row21" class="row_heading level0 row21" >i8</th>
+      <th id="T_f158e_level1_row21" class="row_heading level1 row21" >kcyxg</th>
+      <th id="T_f158e_level2_row21" class="row_heading level2 row21" >128</th>
+      <th id="T_f158e_level3_row21" class="row_heading level3 row21" >56</th>
+      <th id="T_f158e_level4_row21" class="row_heading level4 row21" >56</th>
+      <th id="T_f158e_level5_row21" class="row_heading level5 row21" >128</th>
+      <th id="T_f158e_level6_row21" class="row_heading level6 row21" >3</th>
+      <th id="T_f158e_level7_row21" class="row_heading level7 row21" >3</th>
+      <th id="T_f158e_level8_row21" class="row_heading level8 row21" >2</th>
+      <th id="T_f158e_level9_row21" class="row_heading level9 row21" >2</th>
+      <th id="T_f158e_level10_row21" class="row_heading level10 row21" >1</th>
+      <th id="T_f158e_level11_row21" class="row_heading level11 row21" >1</th>
+      <th id="T_f158e_level12_row21" class="row_heading level12 row21" >64,16,32,16,16,4,1,1</th>
+      <td id="T_f158e_row21_col0" class="data row21 col0" >10.87</td>
+      <td id="T_f158e_row21_col1" class="data row21 col1" >mixr-resnet-fusion-case-1-int8.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level0_row22" class="row_heading level0 row22" >f32</th>
+      <th id="T_f158e_level1_row22" class="row_heading level1 row22" >kyxcg</th>
+      <th id="T_f158e_level2_row22" class="row_heading level2 row22" >128</th>
+      <th id="T_f158e_level3_row22" class="row_heading level3 row22" >56</th>
+      <th id="T_f158e_level4_row22" class="row_heading level4 row22" >56</th>
+      <th id="T_f158e_level5_row22" class="row_heading level5 row22" >256</th>
+      <th id="T_f158e_level6_row22" class="row_heading level6 row22" >1</th>
+      <th id="T_f158e_level7_row22" class="row_heading level7 row22" >1</th>
+      <th id="T_f158e_level8_row22" class="row_heading level8 row22" >1</th>
+      <th id="T_f158e_level9_row22" class="row_heading level9 row22" >1</th>
+      <th id="T_f158e_level10_row22" class="row_heading level10 row22" >0</th>
+      <th id="T_f158e_level11_row22" class="row_heading level11 row22" >0</th>
+      <th id="T_f158e_level12_row22" class="row_heading level12 row22" >64,64,4,64,16,8,1,1</th>
+      <td id="T_f158e_row22_col0" class="data row22 col0" >12.35</td>
+      <td id="T_f158e_row22_col1" class="data row22 col1" >mixr-resnet-fusion-case-20.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level0_row23" class="row_heading level0 row23" >i8</th>
+      <th id="T_f158e_level1_row23" class="row_heading level1 row23" >kcyxg</th>
+      <th id="T_f158e_level2_row23" class="row_heading level2 row23" >128</th>
+      <th id="T_f158e_level3_row23" class="row_heading level3 row23" >56</th>
+      <th id="T_f158e_level4_row23" class="row_heading level4 row23" >56</th>
+      <th id="T_f158e_level5_row23" class="row_heading level5 row23" >128</th>
+      <th id="T_f158e_level6_row23" class="row_heading level6 row23" >3</th>
+      <th id="T_f158e_level7_row23" class="row_heading level7 row23" >3</th>
+      <th id="T_f158e_level8_row23" class="row_heading level8 row23" >2</th>
+      <th id="T_f158e_level9_row23" class="row_heading level9 row23" >2</th>
+      <th id="T_f158e_level10_row23" class="row_heading level10 row23" >1</th>
+      <th id="T_f158e_level11_row23" class="row_heading level11 row23" >1</th>
+      <th id="T_f158e_level12_row23" class="row_heading level12 row23" >64,16,32,16,16,4,1,1</th>
+      <td id="T_f158e_row23_col0" class="data row23 col0" >11.03</td>
+      <td id="T_f158e_row23_col1" class="data row23 col1" >mixr-resnet-fusion-case-1-quantization.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level0_row24" class="row_heading level0 row24" rowspan="2">f32</th>
+      <th id="T_f158e_level1_row24" class="row_heading level1 row24" >kyxcg</th>
+      <th id="T_f158e_level2_row24" class="row_heading level2 row24" >64</th>
+      <th id="T_f158e_level3_row24" class="row_heading level3 row24" >56</th>
+      <th id="T_f158e_level4_row24" class="row_heading level4 row24" >56</th>
+      <th id="T_f158e_level5_row24" class="row_heading level5 row24" >256</th>
+      <th id="T_f158e_level6_row24" class="row_heading level6 row24" >1</th>
+      <th id="T_f158e_level7_row24" class="row_heading level7 row24" >1</th>
+      <th id="T_f158e_level8_row24" class="row_heading level8 row24" >1</th>
+      <th id="T_f158e_level9_row24" class="row_heading level9 row24" >1</th>
+      <th id="T_f158e_level10_row24" class="row_heading level10 row24" >0</th>
+      <th id="T_f158e_level11_row24" class="row_heading level11 row24" >0</th>
+      <th id="T_f158e_level12_row24" class="row_heading level12 row24" >32,32,4,16,16,8,1,1</th>
+      <td id="T_f158e_row24_col0" class="data row24 col0" >6.62</td>
+      <td id="T_f158e_row24_col1" class="data row24 col1" >mixr-resnet-fusion-case-10.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_f158e_level1_row25" class="row_heading level1 row25" >kcyxg</th>
+      <th id="T_f158e_level2_row25" class="row_heading level2 row25" >64</th>
+      <th id="T_f158e_level3_row25" class="row_heading level3 row25" >56</th>
+      <th id="T_f158e_level4_row25" class="row_heading level4 row25" >56</th>
+      <th id="T_f158e_level5_row25" class="row_heading level5 row25" >64</th>
+      <th id="T_f158e_level6_row25" class="row_heading level6 row25" >3</th>
+      <th id="T_f158e_level7_row25" class="row_heading level7 row25" >3</th>
+      <th id="T_f158e_level8_row25" class="row_heading level8 row25" >1</th>
+      <th id="T_f158e_level9_row25" class="row_heading level9 row25" >1</th>
+      <th id="T_f158e_level10_row25" class="row_heading level10 row25" >1</th>
+      <th id="T_f158e_level11_row25" class="row_heading level11 row25" >1</th>
+      <th id="T_f158e_level12_row25" class="row_heading level12 row25" >64,16,8,16,16,8,1,1</th>
+      <td id="T_f158e_row25_col0" class="data row25 col0" >9.70</td>
+      <td id="T_f158e_row25_col1" class="data row25 col1" >mixr-resnet-fusion-case-14.mlir</td>
+    </tr>
+  </tbody>
+</table>
+
+
+</body>
+</html>
+

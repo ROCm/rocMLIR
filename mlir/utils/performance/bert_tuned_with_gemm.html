@@ -1,0 +1,280 @@
+
+<!doctype html>
+<html lang="en_US">
+<head>
+<meta charset="utf-8">
+<title>Fusion performance: DataType = f32, Chip = gfx90a, TransA = False, TransB = False</title>
+<style type="text/css">
+caption {
+    caption-side: bottom;
+    padding: 0.5em;
+}
+</style>
+</head>
+<body>
+<h1>Fusion performance: DataType = f32, Chip = gfx90a, TransA = False, TransB = False</h1>
+<h2>Summary</h2>
+
+<style type="text/css">
+#T_1a567 tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_1a567 tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_1a567 table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_1a567 th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_1a567  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+</style>
+<table id="T_1a567">
+  <caption>Summary statistics for Fusion performance</caption>
+  <thead>
+    <tr>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_1a567_level0_col0" class="col_heading level0 col0" >TFlops</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >DataType</th>
+      <th class="blank col0" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_1a567_level0_row0" class="row_heading level0 row0" >f32</th>
+      <td id="T_1a567_row0_col0" class="data row0 col0" >0.20</td>
+    </tr>
+    <tr>
+      <th id="T_1a567_level0_row1" class="row_heading level0 row1" >All</th>
+      <td id="T_1a567_row1_col0" class="data row1 col0" >0.20</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Details</h2>
+<style type="text/css">
+#T_5bf5d tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_5bf5d tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_5bf5d table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_5bf5d th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_5bf5d  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+</style>
+<table id="T_5bf5d">
+  <caption>Fusion performance: Per-test breakdown</caption>
+  <thead>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_5bf5d_level0_col0" class="col_heading level0 col0" >TFlops</th>
+      <th id="T_5bf5d_level0_col1" class="col_heading level0 col1" >FileName</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >G</th>
+      <th class="index_name level1" >M</th>
+      <th class="index_name level2" >K</th>
+      <th class="index_name level3" >N</th>
+      <th class="index_name level4" >PerfConfig</th>
+      <th class="blank col0" >&nbsp;</th>
+      <th class="blank col1" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_5bf5d_level0_row0" class="row_heading level0 row0" rowspan="5">1</th>
+      <th id="T_5bf5d_level1_row0" class="row_heading level1 row0" rowspan="5">12</th>
+      <th id="T_5bf5d_level2_row0" class="row_heading level2 row0" rowspan="5">384</th>
+      <th id="T_5bf5d_level3_row0" class="row_heading level3 row0" rowspan="2">384</th>
+      <th id="T_5bf5d_level4_row0" class="row_heading level4 row0" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row0_col0" class="data row0 col0" >0.25</td>
+      <td id="T_5bf5d_row0_col1" class="data row0 col1" >bert_part_0.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row1" class="row_heading level4 row1" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row1_col0" class="data row1 col0" >0.25</td>
+      <td id="T_5bf5d_row1_col1" class="data row1 col1" >bert_part_21.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level3_row2" class="row_heading level3 row2" >1536</th>
+      <th id="T_5bf5d_level4_row2" class="row_heading level4 row2" >32,32,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row2_col0" class="data row2 col0" >0.95</td>
+      <td id="T_5bf5d_row2_col1" class="data row2 col1" >bert_part_22.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level3_row3" class="row_heading level3 row3" >384</th>
+      <th id="T_5bf5d_level4_row3" class="row_heading level4 row3" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row3_col0" class="data row3 col0" >0.25</td>
+      <td id="T_5bf5d_row3_col1" class="data row3 col1" >bert_part_13.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level3_row4" class="row_heading level3 row4" >1536</th>
+      <th id="T_5bf5d_level4_row4" class="row_heading level4 row4" >32,32,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row4_col0" class="data row4 col0" >0.94</td>
+      <td id="T_5bf5d_row4_col1" class="data row4 col1" >bert_part_6.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row5" class="row_heading level0 row5" >12</th>
+      <th id="T_5bf5d_level1_row5" class="row_heading level1 row5" >12</th>
+      <th id="T_5bf5d_level2_row5" class="row_heading level2 row5" >12</th>
+      <th id="T_5bf5d_level3_row5" class="row_heading level3 row5" >32</th>
+      <th id="T_5bf5d_level4_row5" class="row_heading level4 row5" >128,16,4,64,16,4,1,1</th>
+      <td id="T_5bf5d_row5_col0" class="data row5 col0" >0.02</td>
+      <td id="T_5bf5d_row5_col1" class="data row5 col1" >bert_part_4.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row6" class="row_heading level0 row6" rowspan="2">1</th>
+      <th id="T_5bf5d_level1_row6" class="row_heading level1 row6" rowspan="2">12</th>
+      <th id="T_5bf5d_level2_row6" class="row_heading level2 row6" rowspan="2">384</th>
+      <th id="T_5bf5d_level3_row6" class="row_heading level3 row6" rowspan="2">384</th>
+      <th id="T_5bf5d_level4_row6" class="row_heading level4 row6" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row6_col0" class="data row6 col0" >0.25</td>
+      <td id="T_5bf5d_row6_col1" class="data row6 col1" >bert_part_5.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row7" class="row_heading level4 row7" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row7_col0" class="data row7 col0" >0.25</td>
+      <td id="T_5bf5d_row7_col1" class="data row7 col1" >bert_part_37.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row8" class="row_heading level0 row8" >12</th>
+      <th id="T_5bf5d_level1_row8" class="row_heading level1 row8" >12</th>
+      <th id="T_5bf5d_level2_row8" class="row_heading level2 row8" >32</th>
+      <th id="T_5bf5d_level3_row8" class="row_heading level3 row8" >12</th>
+      <th id="T_5bf5d_level4_row8" class="row_heading level4 row8" >16,16,4,16,16,4,1,1</th>
+      <td id="T_5bf5d_row8_col0" class="data row8 col0" >0.02</td>
+      <td id="T_5bf5d_row8_col1" class="data row8 col1" >bert_part_11.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row9" class="row_heading level0 row9" rowspan="7">1</th>
+      <th id="T_5bf5d_level1_row9" class="row_heading level1 row9" rowspan="6">12</th>
+      <th id="T_5bf5d_level2_row9" class="row_heading level2 row9" >1536</th>
+      <th id="T_5bf5d_level3_row9" class="row_heading level3 row9" >384</th>
+      <th id="T_5bf5d_level4_row9" class="row_heading level4 row9" >32,16,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row9_col0" class="data row9 col0" >0.55</td>
+      <td id="T_5bf5d_row9_col1" class="data row9 col1" >bert_part_7.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level2_row10" class="row_heading level2 row10" rowspan="3">384</th>
+      <th id="T_5bf5d_level3_row10" class="row_heading level3 row10" rowspan="3">384</th>
+      <th id="T_5bf5d_level4_row10" class="row_heading level4 row10" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row10_col0" class="data row10 col0" >0.25</td>
+      <td id="T_5bf5d_row10_col1" class="data row10 col1" >bert_part_9.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row11" class="row_heading level4 row11" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row11_col0" class="data row11 col0" >0.25</td>
+      <td id="T_5bf5d_row11_col1" class="data row11 col1" >bert_part_10.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row12" class="row_heading level4 row12" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row12_col0" class="data row12 col0" >0.25</td>
+      <td id="T_5bf5d_row12_col1" class="data row12 col1" >bert_part_29.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level2_row13" class="row_heading level2 row13" >1536</th>
+      <th id="T_5bf5d_level3_row13" class="row_heading level3 row13" >384</th>
+      <th id="T_5bf5d_level4_row13" class="row_heading level4 row13" >32,16,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row13_col0" class="data row13 col0" >0.54</td>
+      <td id="T_5bf5d_row13_col1" class="data row13 col1" >bert_part_15.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level2_row14" class="row_heading level2 row14" >384</th>
+      <th id="T_5bf5d_level3_row14" class="row_heading level3 row14" >384</th>
+      <th id="T_5bf5d_level4_row14" class="row_heading level4 row14" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row14_col0" class="data row14 col0" >0.25</td>
+      <td id="T_5bf5d_row14_col1" class="data row14 col1" >bert_part_1.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level1_row15" class="row_heading level1 row15" >1</th>
+      <th id="T_5bf5d_level2_row15" class="row_heading level2 row15" >384</th>
+      <th id="T_5bf5d_level3_row15" class="row_heading level3 row15" >384</th>
+      <th id="T_5bf5d_level4_row15" class="row_heading level4 row15" >64,32,4,64,16,8,1,1</th>
+      <td id="T_5bf5d_row15_col0" class="data row15 col0" >0.02</td>
+      <td id="T_5bf5d_row15_col1" class="data row15 col1" >bert_part_48.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row16" class="row_heading level0 row16" >12</th>
+      <th id="T_5bf5d_level1_row16" class="row_heading level1 row16" >12</th>
+      <th id="T_5bf5d_level2_row16" class="row_heading level2 row16" >32</th>
+      <th id="T_5bf5d_level3_row16" class="row_heading level3 row16" >12</th>
+      <th id="T_5bf5d_level4_row16" class="row_heading level4 row16" >16,16,4,16,16,4,1,1</th>
+      <td id="T_5bf5d_row16_col0" class="data row16 col0" >0.02</td>
+      <td id="T_5bf5d_row16_col1" class="data row16 col1" >bert_part_3.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row17" class="row_heading level0 row17" rowspan="4">1</th>
+      <th id="T_5bf5d_level1_row17" class="row_heading level1 row17" rowspan="4">12</th>
+      <th id="T_5bf5d_level2_row17" class="row_heading level2 row17" rowspan="4">384</th>
+      <th id="T_5bf5d_level3_row17" class="row_heading level3 row17" rowspan="2">1536</th>
+      <th id="T_5bf5d_level4_row17" class="row_heading level4 row17" >32,32,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row17_col0" class="data row17 col0" >0.96</td>
+      <td id="T_5bf5d_row17_col1" class="data row17 col1" >bert_part_14.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row18" class="row_heading level4 row18" >32,32,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row18_col0" class="data row18 col0" >0.97</td>
+      <td id="T_5bf5d_row18_col1" class="data row18 col1" >bert_part_30.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level3_row19" class="row_heading level3 row19" rowspan="2">384</th>
+      <th id="T_5bf5d_level4_row19" class="row_heading level4 row19" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row19_col0" class="data row19 col0" >0.26</td>
+      <td id="T_5bf5d_row19_col1" class="data row19 col1" >bert_part_8.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level4_row20" class="row_heading level4 row20" >32,32,4,16,16,8,1,1</th>
+      <td id="T_5bf5d_row20_col0" class="data row20 col0" >0.24</td>
+      <td id="T_5bf5d_row20_col1" class="data row20 col1" >bert_part_2.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row21" class="row_heading level0 row21" >12</th>
+      <th id="T_5bf5d_level1_row21" class="row_heading level1 row21" >12</th>
+      <th id="T_5bf5d_level2_row21" class="row_heading level2 row21" >32</th>
+      <th id="T_5bf5d_level3_row21" class="row_heading level3 row21" >12</th>
+      <th id="T_5bf5d_level4_row21" class="row_heading level4 row21" >16,16,4,16,16,4,1,1</th>
+      <td id="T_5bf5d_row21_col0" class="data row21 col0" >0.02</td>
+      <td id="T_5bf5d_row21_col1" class="data row21 col1" >bert_part_19.torch-tosa.mlir</td>
+    </tr>
+    <tr>
+      <th id="T_5bf5d_level0_row22" class="row_heading level0 row22" >1</th>
+      <th id="T_5bf5d_level1_row22" class="row_heading level1 row22" >12</th>
+      <th id="T_5bf5d_level2_row22" class="row_heading level2 row22" >384</th>
+      <th id="T_5bf5d_level3_row22" class="row_heading level3 row22" >1536</th>
+      <th id="T_5bf5d_level4_row22" class="row_heading level4 row22" >32,32,8,16,16,8,1,1</th>
+      <td id="T_5bf5d_row22_col0" class="data row22 col0" >0.99</td>
+      <td id="T_5bf5d_row22_col1" class="data row22 col1" >bert_part_38.torch-tosa.mlir</td>
+    </tr>
+  </tbody>
+</table>
+
+
+</body>
+</html>
+
