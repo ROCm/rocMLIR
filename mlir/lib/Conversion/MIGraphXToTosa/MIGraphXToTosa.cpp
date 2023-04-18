@@ -229,7 +229,9 @@ public:
     tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
         rewriter, loc, elemType, op.getInput(),
         rewriter.getDenseI64ArrayAttr(newShape));
-    for (Operation *use : op.getOutput().getUsers()) {
+    SmallVector<Operation *, 4> users =
+        llvm::to_vector<4>(op.getOutput().getUsers());
+    for (Operation *use : users) {
       if (!assignExpandedShapeVal(use, op, sameRankReshapedOp.getResult())) {
         return op.emitError() << use << " does not support broadcasting\n";
       }
@@ -270,7 +272,9 @@ public:
       replacingValue = sameRankReshapedOp.getResult();
     }
 
-    for (Operation *use : op.getOutput().getUsers()) {
+    SmallVector<Operation *, 4> users =
+        llvm::to_vector<4>(op.getOutput().getUsers());
+    for (Operation *use : users) {
       if (!assignExpandedShapeVal(use, op, replacingValue) && use != op) {
         return op.emitError() << use << " does not support broadcasting\n";
       }
