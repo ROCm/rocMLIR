@@ -3,6 +3,7 @@
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
+// CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose
 // CHECK: tosa.transpose
 // CHECK: tosa.transpose
@@ -10,6 +11,7 @@
 // CHECK-NEXT: tosa.transpose
 // CHECK: return
 // CHECK-LABEL: func private @forward__part_1
+// CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose

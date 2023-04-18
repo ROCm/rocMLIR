@@ -117,6 +117,17 @@ bool isTransposeOp(Operation *op) {
   return isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
 }
 
+bool isSliceOp(Operation *op) { return isa<tosa::SliceOp>(op); }
+
+bool isConstSplatOp(Operation *op) {
+  if (tosa::ConstOp constOp = dyn_cast<tosa::ConstOp>(op)) {
+    if (constOp.getValue().isSplat()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool isTransposeConfigConstant(Operation *op) {
   return op->hasTrait<OpTrait::ConstantLike>() &&
          llvm::any_of(op->getUsers(), [&](Operation *u) {
@@ -125,8 +136,8 @@ bool isTransposeConfigConstant(Operation *op) {
 }
 
 bool isAlwaysLeadingOp(Operation *op) {
-  return isConstantZero(op) || isTransposeOp(op) ||
-         isTransposeConfigConstant(op);
+  return isConstantZero(op) || isTransposeOp(op) || isSliceOp(op) ||
+         isConstSplatOp(op) || isTransposeConfigConstant(op);
 }
 
 bool isLeadingOp(Operation *op, bool trailingOnly) {
