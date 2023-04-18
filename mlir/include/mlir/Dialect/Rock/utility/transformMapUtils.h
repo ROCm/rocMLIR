@@ -109,6 +109,12 @@ TransformMapAttr transformExpandShape(OpBuilder &b, Location loc,
                                       ArrayRef<int64_t> outShape,
                                       ArrayRef<ReassociationIndices> reassocs);
 
+TransformMapAttr transformExtractSlice(OpBuilder &b, Location loc,
+                                       ArrayRef<int64_t> inpShape,
+                                       ArrayRef<int64_t> outShape,
+                                       ArrayRef<int64_t> offsets,
+                                       ArrayRef<int64_t> sizes);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

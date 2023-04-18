@@ -86,6 +86,50 @@ struct ExpandShapeRewritePattern
   }
 };
 
+struct ExtractSliceRewritePattern
+    : public OpConversionPattern<tensor::ExtractSliceOp> {
+  using OpConversionPattern<tensor::ExtractSliceOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tensor::ExtractSliceOp sliceOp,
+                                OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final {
+    Location loc = sliceOp.getLoc();
+    ArrayRef<int64_t> inpShape = sliceOp.getSourceType().getShape();
+    ArrayRef<int64_t> outShape = sliceOp.getResult().getType().getShape();
+
+    for (size_t i = 0; i < sliceOp.getSizes().size(); i++) {
+      if (sliceOp.isDynamicOffset(i)) {
+        return sliceOp.emitError("dynamic offsets are not supported.");
+      }
+      if (sliceOp.isDynamicSize(i)) {
+        return sliceOp.emitError("dynamic sizes are not supported.");
+      }
+      if (sliceOp.isDynamicStride(i)) {
+        return sliceOp.emitError("dynamic sizes are not supported.");
+      }
+    }
+
+    ArrayRef<int64_t> offsets = sliceOp.getStaticOffsets();
+    ArrayRef<int64_t> sizes = sliceOp.getStaticSizes();
+    ArrayRef<int64_t> strides = sliceOp.getStaticStrides();
+
+    for (int64_t stride : strides) {
+      if (stride != 1) {
+        return sliceOp.emitError("strided slicing is not supported.");
+      }
+    }
+
+    rock::TransformMapAttr sliceAttr =
+        rock::transformExtractSlice(b, loc, inpShape, outShape, offsets, sizes);
+    if (!sliceAttr)
+      return b.notifyMatchFailure(
+          loc, "could not translate tensor expansion into rock transform");
+    b.replaceOpWithNewOp<rock::TransformOp>(sliceOp, adaptor.getSource(),
+                                            sliceAttr);
+    return success();
+  }
+};
+
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
@@ -152,10 +196,10 @@ public:
 
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect>();
     target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
-                        tosa::TransposeOp>();
+                        tensor::ExtractSliceOp, tosa::TransposeOp>();
 
     patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
-                 ExpandShapeRewritePattern>(ctx);
+                 ExpandShapeRewritePattern, ExtractSliceRewritePattern>(ctx);
 
     if (failed(applyPartialConversion(func, target, std::move(patterns))))
       signalPassFailure();
