@@ -1244,3 +1244,26 @@ TransformMapAttr mlir::rock::transformExpandShape(
   }
   return transform.get();
 }
+
+TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
+                                                   ArrayRef<int64_t> inpShape,
+                                                   ArrayRef<int64_t> outShape,
+                                                   ArrayRef<int64_t> offsets,
+                                                   ArrayRef<int64_t> sizes) {
+  rock::BottomUpTMBuilder transform(b, inpShape, loc);
+  SmallVector<StringRef, 4> lowerNameRefs;
+  transform.getStartNames(lowerNameRefs);
+  SmallVector<SmallString<8>> upperNameStores;
+  SmallVector<StringRef, 4> upperNameRefs;
+  for (StringRef lowerName : lowerNameRefs) {
+    upperNameStores.emplace_back();
+    upperNameRefs.push_back(
+        (lowerName + Twine("_sliced")).toStringRef(upperNameStores.back()));
+  }
+  SmallVector<int64_t, 4> ends;
+  for (auto [offset, size] : llvm::zip(offsets, sizes)) {
+    ends.push_back(offset + size);
+  }
+  transform.slice(upperNameRefs, lowerNameRefs, offsets, ends);
+  return transform.get();
+}
