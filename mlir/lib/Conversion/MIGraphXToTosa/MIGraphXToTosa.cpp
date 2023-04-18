@@ -435,6 +435,43 @@ public:
   }
 };
 
+class SliceConverter final : public OpConversionPattern<migraphx::SliceOp> {
+public:
+  using OpConversionPattern<migraphx::SliceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    SmallVector<int64_t, 5> start;
+    SmallVector<int64_t, 5> size;
+    ArrayAttr axes = op.getAxes();
+    ArrayAttr axesStarts = op.getStarts();
+    ArrayAttr axesEnds = op.getEnds();
+
+    ArrayRef<int64_t> inShape = op.getInput().getType().getShape();
+    for (size_t i = 0; i < inShape.size(); i++) {
+      start.push_back(0);
+      size.push_back(inShape[i]);
+    }
+
+    for (auto [axis, axisS, axisE] : llvm::zip(axes, axesStarts, axesEnds)) {
+      int64_t axisInt = axis.cast<IntegerAttr>().getInt();
+      int64_t axisSInt = axisS.cast<IntegerAttr>().getInt();
+      int64_t axisEInt = axisE.cast<IntegerAttr>().getInt();
+      start[axisInt] = axisSInt;
+      size[axisInt] = axisEInt - axisSInt;
+    }
+
+    auto sliceOp = createOpAndInfer<tosa::SliceOp>(
+        rewriter, loc, op.getInput().getType().getElementType(), op.getInput(),
+        rewriter.getDenseI64ArrayAttr(start),
+        rewriter.getDenseI64ArrayAttr(size));
+    rewriter.replaceOp(op, {sliceOp});
+    return success();
+  }
+};
+
 class ReduceMeanConverter final
     : public OpConversionPattern<migraphx::ReduceMeanOp> {
 public:
@@ -564,8 +601,10 @@ public:
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
-               BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
-               SoftmaxConverter, DotConverter, ReduceMeanConverter,
-               QuantizeLinearConverter, DeQuantizeLinearConverter>(context);
+  patterns
+      .add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+           BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
+           SoftmaxConverter, DotConverter, ReduceMeanConverter,
+           QuantizeLinearConverter, DeQuantizeLinearConverter, SliceConverter>(
+          context);
 }

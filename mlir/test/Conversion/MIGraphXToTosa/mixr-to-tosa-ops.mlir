@@ -219,6 +219,22 @@ module  {
     %2 = "migraphx.mul"(%0, %arg2) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
     return %2 : tensor<1x5x3xf32>
   }
+
+  // CHECK-LABEL: func.func @func_slice1
+  // CHECK: tosa.slice
+  func.func @func_slice1(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.slice"(%arg0) {axes = [1], ends = [12], starts = [0]} : (tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32>
+    return %0 : tensor<1x12x384x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_slice2
+  // CHECK: tosa.slice
+  func.func @func_slice2(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x12x100x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.slice"(%arg0) {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : (tensor<1x36x384x64xf32>) -> tensor<1x12x100x64xf32>
+    return %0 : tensor<1x12x100x64xf32>
+  }
+
+
 }
 
 
