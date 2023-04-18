@@ -82,39 +82,6 @@ Errors = {errs.decode('utf-8')}""")
     nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
     return nanoSeconds
 
-def verifyFusionWithPerfConfig(bestPerf, file_path, paths: Paths) -> float:
-    # find the arguments of rocmlir-gen
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.strip().startswith("//") and "RUN" in line:
-                commands = line.split('|')
-                for subcommand in commands:
-                    if 'rocmlir-gen' in subcommand and 'clone' in subcommand:
-                        index = subcommand.index("rocmlir-gen")
-                        args = subcommand[index+11:].strip()
-
-    if (not args):
-        return np.nan
-    os.system("rm "+perfRunner.BENCHMARKING_RESULT_FILE_NAME)
-    rocmlirGenArgs = ['--perf_config='+bestPerf] + args.split()
-    profiling = perfRunner.generateProfilingProcesses(file_path, rocmlirGenArgs, paths)
-
-    try:
-        outs, errs = profiling.communicate(timeout=600)
-        outs = outs.decode('utf-8')
-        if len(errs) > 0 or not CORRECT_RESULT_RE.search(outs):
-            print(f"Verification failed: , output = {outs}, Errors = {errs.decode('utf-8')}")
-            return np.nan
-    except subprocess.TimeoutExpired:
-        print("Verification timed out")
-        profiling.kill()
-        outs, errs = profiling.communicate()
-        return np.nan
-    # get nanoseconds from rocprof output.
-    nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
-    return nanoSeconds
-
-
 def getWinningConfig(tuningOutput, config, allData, options: Options):
     maxTFlops = -np.inf
     winningConfig = "None"
@@ -176,64 +143,46 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = pd.DataFrame(allData)
     return winners, allData
 
-def tuneFusionKernels(test_dir, paths: Paths, options: Options):
+#Extract gemm or conv configurations from fusion tests
+def extractFusionConfigs(test_dir, paths: Paths, options: Options):
     TABLE_COLUMNS = reportUtils.FUSION_TEST_COL
-    allData = []
-    winners = {}
+    allConfigs = []
+    opType=Operation.FUSION
     for filename in os.listdir(test_dir):
         if filename.endswith(".mlir"):
             file_path = os.path.join(test_dir, filename)
-            print("Tuning:", file_path)
             testVector = perfRunner.getTestVector(file_path, paths)
+            print("Extract from:", file_path, ':', testVector)
             if not testVector:
                 continue
             # skip if the best config already exists
-            if testVector in winners:
+            if testVector in allConfigs:
                 print("An entry already exists in the tuning DB")
                 continue
             commandLine = testVector.split(sep=' ')
             if commandLine[0].startswith('conv'):
-                config = ConvConfiguration.fromCommandLine(commandLine, options.arch)
-            else:
-                config = GemmConfiguration.fromCommandLine(commandLine, options.arch)
-            
-            firstCommand = perfRunner.findRunCommand(file_path, ['RUN', 'xmir-runner'])
-            if not firstCommand:
-                continue
-
-            if "-migraphx-to-tosa" in firstCommand:
-                rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', file_path]
-                rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
-                # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
-                p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-                p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                p1.stdout.close()
-            else: 
-                rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), file_path]
-                p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            # pipe to rocmlir_tuning_driver
-            tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path], stdin=p2.stdout,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
-            p2.stdout.close() 
-            winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
-
-            # Verify with the winning config
-            if options.verifyMode != "none":
-                verifyNs = verifyFusionWithPerfConfig(winningConfig, file_path, paths)
-                if np.isnan(verifyNs):
-                    # Verification failed, abort the loop
+                if opType == Operation.FUSION:
+                    opType = Operation.CONV
+                elif opType != Operation.CONV:
+                    print("Mixed config op: ", testVector)
                     continue
-                verifyTFlops = config.computeTFlops(verifyNs)
-                print(f"Tuned and verified : {filename} : {testVector} : {winningConfig} with {maxTFlops} TFlops and {verifyTFlops} on verification")
+            elif commandLine[0].startswith('gemm'):
+                if opType == Operation.FUSION:
+                    opType = Operaton.GEMM
+                elif opType != Operation.GEMM:
+                    print("Mixed config op: ", testVector)
+                    continue
             else:
-                print(f"Tuned : {filename} : {testVector} : {winningConfig} with {maxTFlops} TFlops")
+                print("Invalid config: ", testVector)
+                continue
+            allConfigs.append(testVector)
 
-            winners[testVector] = winningConfig
+    with open(paths.configuration_file_path, 'w') as outFile:
+        for item in allConfigs:
+            outFile.write("%s\n" % item)
 
-    allData = pd.DataFrame(allData)
-    return winners, allData
- 
+    return opType
+
 # Main function.
 def main(args=None):
     """
@@ -319,15 +268,30 @@ def main(args=None):
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    confClass = PerfConfiguration
     opType = Operation.fromName(parsed_args.op)
+    if opType == Operation.FUSION:
+        configs_path = "./fusion_config_file"
+    else:
+        configs_path = None if parsed_args.config else parsed_args.configs_file
+    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+
+    if not paths.mlir_paths:
+        raise RuntimeError("MLIR build dir was not provided/found")
+
+    options = Options(arch=arch, debug=parsed_args.debug,
+        rocmlir_gen_flags=rocmlir_gen_flags,
+        verifyMode=parsed_args.verify_mode)
+
+    if opType == Operation.FUSION:
+        opType = extractFusionConfigs(parsed_args.test_dir, paths, options)
+
+    confClass = PerfConfiguration
     if opType == Operation.CONV:
         confClass = ConvConfiguration
     elif opType == Operation.GEMM:
         confClass = GemmConfiguration
-
-    configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+    else:
+        raise RuntimeError("Tuning operation was not provided/found")
 
     if parsed_args.config:
         configs = parsed_args.config
@@ -335,20 +299,8 @@ def main(args=None):
         configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
         configs = perfRunner.getGemmConfigurations(paths.configuration_file_path)
-    elif opType != Operation.FUSION:
-        raise RuntimeError("Tuning operation was not provided/found")
 
-    options = Options(arch=arch, debug=parsed_args.debug,
-        rocmlir_gen_flags=rocmlir_gen_flags,
-        verifyMode=parsed_args.verify_mode)
-
-    if not paths.mlir_paths:
-        raise RuntimeError("MLIR build dir was not provided/found")
-
-    if opType == Operation.FUSION:
-        winners, allData = tuneFusionKernels(parsed_args.test_dir, paths, options)
-    else:  
-        winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
+    winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 
     if winners is None:
         # Tuning aborted, bail
