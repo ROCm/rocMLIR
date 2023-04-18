@@ -864,7 +864,13 @@ pipeline {
                                 // Run MLIR perf benchmarks
                                 sh 'python3 ./bin/perfRunner.py'
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-					--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+                                       --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv""" \
+                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+					--configs_file=${WORKSPACE}/mlir/utils/performance/unet-gemm-configs \
+					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
+                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
+					--configs_file=${WORKSPACE}/mlir/utils/performance/unet-conv-configs \
 					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
