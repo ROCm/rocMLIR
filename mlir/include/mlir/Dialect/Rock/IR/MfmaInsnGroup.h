@@ -14,7 +14,7 @@
 #ifndef MLIR_MFMA_INSN_GROUP_H
 #define MLIR_MFMA_INSN_GROUP_H
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
