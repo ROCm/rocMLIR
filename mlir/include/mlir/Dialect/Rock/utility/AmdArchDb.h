@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_ROCK_GENERATOR_AMDARCHDB_H
-#define MLIR_DIALECT_ROCK_GENERATOR_AMDARCHDB_H
+#ifndef MLIR_DIALECT_ROCK_UTILITY_AMDARCHDB_H
+#define MLIR_DIALECT_ROCK_UTILITY_AMDARCHDB_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Support/LLVM.h"
@@ -27,4 +27,4 @@ AmdArchInfo lookupArchInfo(StringRef arch);
 } // namespace rock
 } // namespace mlir
 
-#endif // MLIR_DIALECT_ROCK_GENERATOR_AMDARCHDB_H
+#endif // MLIR_DIALECT_ROCK_UTILITY_AMDARCHDB_H

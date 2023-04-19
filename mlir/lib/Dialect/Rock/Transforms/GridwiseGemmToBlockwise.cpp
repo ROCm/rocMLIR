@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -1162,7 +1163,7 @@ struct GridwiseGemmV2RewritePattern
     auto nPerWaveConstantOp = b.create<ConstantIndexOp>(loc, nPerWave);
     auto nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
 
-    constexpr int64_t waveSize = 64;
+    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, waveSize);
 
     bool useIndexDiffs = true;

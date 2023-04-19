@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -364,7 +365,7 @@ struct BlockwiseGemmV2RewritePattern
     }
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-    constexpr int64_t waveSize = 64;
+    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto laneId =
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 
@@ -476,6 +477,7 @@ struct BlockwiseGemmV2RewritePattern
       }
     };
 
+<<<<<<< HEAD
     auto ldsToRegisterCopyKdim =
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
             Value MN, Value mnPerMfmaGroup, Type ldsBufferElemType,
@@ -495,6 +497,27 @@ struct BlockwiseGemmV2RewritePattern
                               ldsBufferElemType, dataType, ldsOrig, regDest);
           }
         };
+=======
+    auto ldsToRegisterCopyKdim = [&](OpBuilder outerLoopB,
+                                     AffineForOp outerLoopBodyOp,
+                                     Value sourceBase, Value MN,
+                                     Value mnPerMfmaGroup, Type dataType,
+                                     Value ldsOrig, Value regDest) {
+      auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, KPerThread);
+      auto ilkb = ConversionPatternRewriter::atBlockBegin(
+          innerLoopK.getBody(), outerLoopB.getListener());
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPoint(outerLoopBodyOp);
+        OpBuilder::InsertionGuard guardBody(outerLoopB);
+        outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
+        ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
+                          outerLoopBodyOp.getInductionVar(), MN,
+                          innerLoopK.getInductionVar(), KPerThreadConstantOp,
+                          mnPerMfmaGroup, dataType, ldsOrig, regDest);
+      }
+    };
+>>>>>>> 2e9da76443c7 (Avoid assuming the wave size during transformations)
 
     // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)

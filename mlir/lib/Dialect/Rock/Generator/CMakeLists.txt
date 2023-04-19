@@ -3,7 +3,6 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_rocmlir_dialect_library(MLIRRockConv2dGenerator
-  AmdArchDb.cpp
   Conv2dGenerator.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -16,5 +15,6 @@ add_rocmlir_dialect_library(MLIRRockConv2dGenerator
 target_link_libraries(MLIRRockConv2dGenerator
   PRIVATE
   MLIRRockTransforms
+  MLIRRockUtility
   MLIRRockOps
 )
