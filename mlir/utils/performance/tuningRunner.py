@@ -164,17 +164,14 @@ def extractFusionConfigs(test_dir, paths: Paths, options: Options):
                 if opType == Operation.FUSION:
                     opType = Operation.CONV
                 elif opType != Operation.CONV:
-                    print("Mixed config op: ", testVector)
+                    print("Invalid config op: ", testVector)
                     continue
-            elif commandLine[0].startswith('gemm'):
+            else:
                 if opType == Operation.FUSION:
                     opType = Operaton.GEMM
                 elif opType != Operation.GEMM:
-                    print("Mixed config op: ", testVector)
+                    print("Invalid config op: ", testVector)
                     continue
-            else:
-                print("Invalid config: ", testVector)
-                continue
             allConfigs.append(testVector)
 
     with open(paths.configuration_file_path, 'w') as outFile:
