@@ -254,7 +254,7 @@ def main(args=None):
 
     parser.add_argument("--verify-mode",
         default="gpu",
-        choices=["none", "cpu", "gpu", "clone"],
+        choices=["none", "cpu", "gpu"],
         help="How to verify the winning tuned kernel")
 
     parser.add_argument("--test_dir",
