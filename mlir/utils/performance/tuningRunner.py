@@ -168,7 +168,7 @@ def extractFusionConfigs(test_dir, paths: Paths, options: Options):
                     continue
             else:
                 if opType == Operation.FUSION:
-                    opType = Operaton.GEMM
+                    opType = Operation.GEMM
                 elif opType != Operation.GEMM:
                     print("Invalid config op: ", testVector)
                     continue
