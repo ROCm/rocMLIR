@@ -346,7 +346,7 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
 /// vector.
 static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
                                  Location loc, TypeConverter *typeConverter,
-                                 bool isSigned, Value llvmInput,
+                                 bool isUnsigned, Value llvmInput,
                                  SmallVector<Value, 4> &operands) {
   Type inputType = llvmInput.getType();
   auto vectorType = inputType.dyn_cast<VectorType>();
@@ -365,7 +365,7 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   Value result = rewriter.createOrFold<LLVM::BitcastOp>(
       loc, llvmVectorType32bits, llvmInput);
 
-  Value sign = createI1Constant(rewriter, loc, isSigned);
+  Value sign = createI1Constant(rewriter, loc, !isUnsigned);
   operands.push_back(sign);
   operands.push_back(result);
 }
@@ -378,14 +378,14 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
 /// will be stored it in the upper part
 static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
                                   Location loc, TypeConverter *typeConverter,
-                                  Value output, bool isZeroIndexing, bool clamp,
-                                  SmallVector<Value, 4> &operands) {
+                                  Value output, int32_t subwordOffset,
+                                  bool clamp, SmallVector<Value, 4> &operands) {
   Type inputType = output.getType();
   auto vectorType = inputType.dyn_cast<VectorType>();
   Type elemType = vectorType.getElementType();
   operands.push_back(output);
   if (elemType.isF16() || elemType.isBF16()) {
-    operands.push_back(createI1Constant(rewriter, loc, !isZeroIndexing));
+    operands.push_back(createI1Constant(rewriter, loc, subwordOffset));
   } else if (elemType.isInteger(32)) {
     operands.push_back(createI1Constant(rewriter, loc, clamp));
   }
@@ -616,12 +616,12 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
     loweredOp.addTypes(outType);
 
     SmallVector<Value, 4> operands;
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getSignedA(),
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
                          adaptor.getSourceA(), operands);
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getSignedB(),
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
                          adaptor.getSourceB(), operands);
     wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
-                          op.getZeroIndexing(), op.getClamp(), operands);
+                          op.getSubwordOffset(), op.getClamp(), operands);
 
     loweredOp.addOperands(operands);
     Operation *lowered = rewriter.create(loweredOp);
