@@ -150,5 +150,10 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
   return result;
 }
 
+int64_t getByteWidth(Type type) {
+  if (auto vecType = type.dyn_cast<VectorType>())
+    return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
+  return type.getIntOrFloatBitWidth() / 8;
+}
 } // namespace rock
 } // namespace mlir
