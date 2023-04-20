@@ -477,7 +477,6 @@ struct BlockwiseGemmV2RewritePattern
       }
     };
 
-<<<<<<< HEAD
     auto ldsToRegisterCopyKdim =
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
             Value MN, Value mnPerMfmaGroup, Type ldsBufferElemType,
@@ -497,27 +496,6 @@ struct BlockwiseGemmV2RewritePattern
                               ldsBufferElemType, dataType, ldsOrig, regDest);
           }
         };
-=======
-    auto ldsToRegisterCopyKdim = [&](OpBuilder outerLoopB,
-                                     AffineForOp outerLoopBodyOp,
-                                     Value sourceBase, Value MN,
-                                     Value mnPerMfmaGroup, Type dataType,
-                                     Value ldsOrig, Value regDest) {
-      auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopK.getBody(), outerLoopB.getListener());
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPoint(outerLoopBodyOp);
-        OpBuilder::InsertionGuard guardBody(outerLoopB);
-        outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
-        ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
-                          outerLoopBodyOp.getInductionVar(), MN,
-                          innerLoopK.getInductionVar(), KPerThreadConstantOp,
-                          mnPerMfmaGroup, dataType, ldsOrig, regDest);
-      }
-    };
->>>>>>> 2e9da76443c7 (Avoid assuming the wave size during transformations)
 
     // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)

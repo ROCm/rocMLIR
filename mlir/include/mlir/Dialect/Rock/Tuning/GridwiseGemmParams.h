@@ -270,8 +270,7 @@ private:
 
   LogicalResult isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
                                            Type dataTypeA, Type dataTypeB,
-                                           StringRef arch, int64_t waveSize,
-                                           uint32_t blockSize);
+                                           StringRef arch, uint32_t blockSize);
 
   LogicalResult populateDerived(const InitParamsXDL &validParams,
                                 const PopulateParamsInfo &info,

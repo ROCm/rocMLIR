@@ -288,7 +288,9 @@ LogicalResult PopulateParamsXDL::getKBlocks(const int64_t batchSize,
 
 LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
     const InitParamsXDL &param, Type dataTypeA, Type dataTypeB, StringRef arch,
-    int64_t waveSize, uint32_t blockSize) {
+    uint32_t blockSize) {
+
+  const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -382,7 +384,7 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
   blockSize = obtainBlockSize(params, waveSize);
 
   LogicalResult res = isValidBlockwiseGemmXDLOPS(
-      params, info.gemmAType, info.gemmBType, info.arch, waveSize, blockSize);
+      params, info.gemmAType, info.gemmBType, info.arch, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
