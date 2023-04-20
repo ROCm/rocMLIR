@@ -26,6 +26,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -66,6 +67,8 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
 
   LogicalResult matchAndRewrite(rock::GpuAllocOp op,
                                 PatternRewriter &b) const override {
+    constexpr int64_t widestLoadOpBitwidth = 512;
+
     auto type = op.getOutput().getType();
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
@@ -74,16 +77,18 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
                              .dyn_cast_or_null<gpu::AddressSpaceAttr>()
                              .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      Value attribution = func.addWorkgroupAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
+      BlockArgument attribution = func.addWorkgroupAttribution(type, loc);
+      func.setWorkgroupAttributionAttr(
+          attribution.getArgNumber() - func.getFirstWorkgroupAttributionIndex(),
+          LLVM::LLVMDialect::getAlignAttrName(),
+          b.getI64IntegerAttr(widestLoadOpBitwidth / 8));
+      b.replaceOp(op, attribution);
     } else if (memSpaceValue == gpu::GPUDialect::getPrivateAddressSpace()) {
       Value attribution = func.addPrivateAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
+      b.replaceOp(op, attribution);
     } else {
-      // TBD: return failure.
-      llvm::errs() << "unsupported addrspace!\n";
+      return b.notifyMatchFailure(loc, "unsupported addrspace!\n");
     }
-    op.erase();
     return success();
   }
 };
@@ -104,10 +109,7 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    Value nop =
-        b.create<Tgpu>(op.getLoc(), b.getIndexType(), gpu::Dimension::x);
-    op.replaceAllUsesWith(nop);
-    op.erase();
+    b.replaceOpWithNewOp<Tgpu>(op, b.getIndexType(), gpu::Dimension::x);
     return success();
   }
 };
