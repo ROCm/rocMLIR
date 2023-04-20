@@ -434,10 +434,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
             op.getReassociationIndices();
-        tensor::CollapseShapeOp newCollapseShapeOp =
-            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
-                                                     reassocIndices);
-        ArrayRef<int64_t> inShape = newCollapseShapeOp.getSrcType().getShape();
+        ArrayRef<int64_t> inShape = op.getSrcType().getShape();
 
         // This loops maps reassociated dims back to pre transposed dims.
         SmallVector<int32_t, 4> newDims;
@@ -472,9 +469,14 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           newDims[i] = dimMap[newDims[i]];
         }
 
+        tensor::CollapseShapeOp newCollapseShapeOp =
+            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
+                                                     reassocIndices);
+
         if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
                                          newCollapseShapeOp.getResult())
                 .failed()) {
+          rewriter.eraseOp(newCollapseShapeOp);
           return failure();
         }
         rewriter.eraseOp(op);
