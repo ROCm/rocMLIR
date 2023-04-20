@@ -8,8 +8,21 @@ declare -ig TESTFWD=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
-declare -g DRIVER="./bin/MIOpenDriver"
 declare -g CODEPATH="none"
+
+# Execute rocm agent enumerator based on OS
+if [[ "$OSTYPE" == "msys" ]] then
+    declare -g ROCM_AGENT_ENUMERATOR_OUT="$(C:/opt/rocm/bin/rocm_agent_enumerator -name)"
+    declare -g PARALLEL_CMD="rush"
+    declare -g DRIVER="C:\Users\tvukovic\dev\MIOpen\build\bin\MIOpenDriver"
+    declare -g INCLUDE_BASH=""
+else 
+    declare -g ROCM_AGENT_ENUMERATOR_OUT="$(/opt/rocm/bin/rocm_agent_enumerator -name)"
+    declare -g PARALELL_CMD="parallel"
+    declare -g DRIVER="./bin/MIOpenDriver"
+    declare -g INCLUDE_BASH="bash "
+
+fi
 
 
 declare -a ALL_DTYPES=(fp16 fp32)
@@ -81,9 +94,9 @@ function parse_options() {
 
     # Detect CODEPATH if not specified
     if [[ "$CODEPATH" == "none" ]]; then
-      case $(/opt/rocm/bin/rocm_agent_enumerator) in
+      case $ROCM_AGENT_ENUMERATOR_OUT in
           *gfx908*|*gfx90a*) CODEPATH="mfma" ;;
-          *gfx1030*)         CODEPATH="navi21" ;;
+          *gfx1030*|*gfx1031*)         CODEPATH="navi21" ;;
           *gfx906*|*gfx900*) CODEPATH="vanilla" ;;
           *)                 echo "No useful GPU found." ; exit 2 ;;
       esac
@@ -171,8 +184,8 @@ function run_tests() {
     # The extra bash -c accounts for parallel trying to pass each line as one
     # command-line argument
     # The 'awk' invocation prints all lines of output while ensuring indicators of
-    # success are present
-    parallel -j 1 bash -c {} '|' awk \
+    # success are present 
+    $PARALLEL_CMD -j 1 $INCLUDE_BASH -c {} '|' awk \
     "'BEGIN { status=2 } /Verifies OK/ { status=status-1 } /ConvMlirIgemm/ { status=status-1 } 1; END { exit(status) }'" \
     <"$TMPFILE"
     exit_status=$?
