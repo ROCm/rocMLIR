@@ -79,6 +79,7 @@ struct OutliningCandidate {
   std::string partFnName;
   llvm::hash_code hash;
   func::FuncOp function;
+  Location fusedLoc;
 
   /// Return the order index for the given value that is within the block of
   /// this data.
@@ -113,7 +114,7 @@ OutliningCandidate::OutliningCandidate(Operation *anchorOp_,
                                        StringRef partFnName_)
     : anchorOp(anchorOp_), trailingOps(trailingOps_), leadingOps(leadingOps_),
       returnVals(returnVals_), partFnName(partFnName_), hash(0),
-      function(nullptr) {
+      function(nullptr), fusedLoc(UnknownLoc::get(anchorOp_->getContext())) {
   for (auto val : params_) {
     params.push_back(val.getType());
   }
@@ -232,6 +233,7 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
   OpBuilder b(anchorOp);
   Location loc = anchorOp->getLoc();
   func::FuncOp outlinedFunc;
+  Location fusedLoc(loc);
 
   // ------------------------------------------------------------
   // Merging part.
@@ -243,6 +245,7 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
           findOutliningCandidate(newCandidate, candidates)) {
     // Matches one we already have.
     outlinedFunc = found->function;
+    fusedLoc = found->fusedLoc;
   } else {
     // ------------------------------------------------------------
     // Construction part.
@@ -301,11 +304,13 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
       bvm.map(std::get<0>(it), std::get<1>(it));
 
+    SmallVector<Location> collectedLocs{anchorOp->getLoc()};
     newCandidate.leadingOps.clear();
     for (auto *op : llvm::reverse(leadingOps)) {
       newCandidate.leadingOps.push_back(b.clone(*op, bvm));
       newCandidate.opOrderIndex[newCandidate.leadingOps.back()] =
           newCandidate.opOrderIndex[op];
+      collectedLocs.push_back(op->getLoc());
     }
     std::reverse(newCandidate.leadingOps.begin(),
                  newCandidate.leadingOps.end());
@@ -322,6 +327,7 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
       newCandidate.trailingOps.push_back(b.clone(*op, bvm));
       newCandidate.opOrderIndex[newCandidate.trailingOps.back()] =
           newCandidate.opOrderIndex[op];
+      collectedLocs.push_back(op->getLoc());
     }
 
     // Make ReturnOp from trailingOps' results.
@@ -333,6 +339,7 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // in numbers where there isn't one.
     b.create<func::ReturnOp>(loc, returnOperands);
 
+    newCandidate.fusedLoc = FusedLoc::get(ctx, collectedLocs);
     candidates.push_back(newCandidate);
   }
 
@@ -344,7 +351,7 @@ static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
   if (!trailingOps.empty())
     lastOp = trailingOps[trailingOps.size() - 1];
   b.setInsertionPointAfter(lastOp);
-  func::CallOp callOp = b.create<func::CallOp>(loc, outlinedFunc, values);
+  func::CallOp callOp = b.create<func::CallOp>(fusedLoc, outlinedFunc, values);
 
   for (auto it : llvm::zip(returnVals, callOp->getResults())) {
     std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
