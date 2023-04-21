@@ -259,8 +259,6 @@ private:
   static const InitParamsXDL
       initParametersForward8Bit[nInitParametersForward8Bit];
 
-  static constexpr int64_t waveSize = 64;
-
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk.

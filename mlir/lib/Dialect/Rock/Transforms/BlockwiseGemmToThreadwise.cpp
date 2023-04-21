@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -364,7 +365,7 @@ struct BlockwiseGemmV2RewritePattern
     }
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-    constexpr int64_t waveSize = 64;
+    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto laneId =
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 

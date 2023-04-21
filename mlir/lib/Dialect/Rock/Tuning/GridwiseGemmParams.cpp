@@ -6,6 +6,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
@@ -288,6 +289,8 @@ LogicalResult PopulateParamsXDL::getKBlocks(const int64_t batchSize,
 LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
     const InitParamsXDL &param, Type dataTypeA, Type dataTypeB, StringRef arch,
     uint32_t blockSize) {
+
+  const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -327,7 +330,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
 
   // fail with blockSize >= 512
   /// \todo fix the issue with blockSize >= 512
-  if (blockSize < 64 || blockSize > 256)
+  if (blockSize < waveSize || blockSize > 4 * waveSize)
     return failure();
 
   if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
@@ -377,6 +380,7 @@ LogicalResult PopulateParamsXDL::populateDerived(const InitParamsXDL &params,
     requiredPadding = true;
   }
 
+  const int64_t waveSize = mlir::rock::lookupArchInfo(info.arch).waveSize;
   blockSize = obtainBlockSize(params, waveSize);
 
   LogicalResult res = isValidBlockwiseGemmXDLOPS(
@@ -428,6 +432,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     return failure();
   }
 
+  const int64_t waveSize = mlir::rock::lookupArchInfo(info.arch).waveSize;
   LogicalResult res = failure();
   auto paramSets = getTuningParameters(info.kernelType, info.gemmAType,
                                        info.gemmBType, info.arch);

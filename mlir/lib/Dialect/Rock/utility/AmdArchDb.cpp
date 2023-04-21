@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 
