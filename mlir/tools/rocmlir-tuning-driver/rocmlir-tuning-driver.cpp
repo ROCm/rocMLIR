@@ -324,9 +324,26 @@ int main(int argc, char **argv) {
     llvm::errs() << "Could not parse input IR\n";
     return EXIT_FAILURE;
   }
-  if (failed(runTuningLoop(*source))) {
+
+  ModuleOp module;
+  WalkResult findModule = source->walk([&](ModuleOp op) -> WalkResult {
+    if (op->hasAttr("xmodel.arch")) {
+      module = op;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!findModule.wasInterrupted()) {
+    source->emitOpError(
+        "no architecture set, set xmodel.arch on the input module");
     llvm::errs() << "Tuning loop failed\n";
     return EXIT_FAILURE;
   }
+
+  if (failed(runTuningLoop(module))) {
+    llvm::errs() << "Tuning loop failed\n";
+    return EXIT_FAILURE;
+  }
+
   return EXIT_SUCCESS;
 }
