@@ -14,7 +14,7 @@ declare -g CODEPATH="none"
 if [[ "$OSTYPE" == "msys" ]] then
     declare -g ROCM_AGENT_ENUMERATOR_OUT="$(C:/opt/rocm/bin/rocm_agent_enumerator -name)"
     declare -g PARALLEL_CMD="rush"
-    declare -g DRIVER="C:\Users\tvukovic\dev\MIOpen\build\bin\MIOpenDriver"
+    declare -g DRIVER="bin\MIOpenDriver"
     declare -g INCLUDE_BASH=""
 else 
     declare -g ROCM_AGENT_ENUMERATOR_OUT="$(/opt/rocm/bin/rocm_agent_enumerator -name)"
