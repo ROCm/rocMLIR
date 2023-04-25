@@ -17,7 +17,7 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-Type getRetType(Type inputType) {
+static Type getRetType(Type inputType) {
   Builder b(inputType.getContext());
   if (inputType.isInteger(8))
     return b.getI32Type();

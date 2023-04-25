@@ -29,6 +29,45 @@ AccelEmitter::AccelEmitter(StringRef arch, XdlopsGemmParamsAttr tuningParams) {
   waveSize = rock::lookupArchInfo(arch).waveSize;
 }
 
+Value AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
+                                            int64_t matrixM, int64_t matrixN,
+                                            int64_t blockSize, int64_t gridSize,
+                                            Value regVectorOrig, Value regDest,
+                                            bool forceUnroll) {
+
+  Type destType = regDest.getType().dyn_cast<MemRefType>().getElementType();
+
+  int64_t accVectorLen = accVectorType.getNumElements();
+  int64_t numElements = accVectorLen * (mRepeats * nRepeats * nResultVectors);
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
+  toRegCScalar.embed({"vector"}, {0}, {mRepeats * nRepeats * nResultVectors},
+                     "scalar", {accVectorLen});
+  TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
+
+  auto convertLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
+      ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr(toRegCScalarAttr)},
+      /*bounds=*/ArrayRef<int64_t>{mRepeats * nRepeats * nResultVectors},
+      /*strides=*/std::nullopt, forceUnroll, /*useIndexDiffs=*/true);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(convertLoop.getBody());
+    Value loaded =
+        b.create<memref::LoadOp>(loc, accVectorType, regVectorOrig,
+                                 convertLoop.getLowerCoords(/*domain*/ 0));
+    Value cast = loaded;
+    if (destType != accVectorType.getElementType()) {
+      VectorType destVectorType = accVectorType.clone(destType);
+      cast = createTypeConversionOp(b, loc, loaded, destVectorType);
+    }
+    b.create<InBoundsStoreOp>(loc, cast, regDest,
+                              convertLoop.getLowerCoords(/*domain*/ 1));
+  }
+  return regDest;
+}
+
 // **************************
 // Mfma accelerator interface
 // **************************
@@ -41,11 +80,13 @@ MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
   // Specific mfma parameters
   int64_t K = kPerBlock * kPack;
   int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
-  isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
   inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
   inputSpanLen = mfmaAttr.inputSpanLen;
+  isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
   // Accelerator parameters
+  kBase = mfmaAttr.k_base;
+  kBasePerThread = (isKReduction ? K / inputSpansPerMfmaIn : K) / kBase;
   mRepeats = mfmaGroup.getMRepeats(mPerWave);
   nRepeats = mfmaGroup.getNRepeats(nPerWave);
   nResultVectors = mfmaGroup.getImms().size();
@@ -54,9 +95,6 @@ MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
   kPerThread = (isKReduction ? kPerBlock / inputSpansPerMfmaIn : kPerBlock);
   numOutputVectorElements = mfmaGroup.getRetType().getNumElements() *
                             nResultVectors * mRepeats * nRepeats;
-  kBase = mfmaAttr.k_base;
-  kBasePerThread = (isKReduction ? K / inputSpansPerMfmaIn : K) / kBase;
-  inputBufferSize = K / ((isKReduction ? inputSpansPerMfmaIn : 1) * kBase);
 
   // Accelerator data types
   argTypeA = mfmaGroup.getArgTypeA();
@@ -91,15 +129,16 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   }
 }
 
-ArrayAttr MfmaEmitter::computeOutputTransforms(
-    PatternRewriter &b, Location loc, int64_t M, int64_t N, int64_t blockSize,
-    int64_t gridSize, Value regCAllocOp, Value convertedC) {
+ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
+                                               int64_t matrixM, int64_t matrixN,
+                                               int64_t blockSize,
+                                               int64_t gridSize, Value regC) {
 
   auto mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t mPerRepeat = mPerWave / mRepeats;
   int64_t nPerRepeat = nPerWave / nRepeats;
-  int64_t nBlocks = N / nPerBlock;
-  int64_t mBlocks = M / mPerBlock;
+  int64_t nBlocks = matrixN / nPerBlock;
+  int64_t mBlocks = matrixM / mPerBlock;
   int64_t gStride = mBlocks * nBlocks;
   int64_t nWaves = nPerBlock / nPerWave;
   int64_t rowGroupSize = mfmaAttr.rowGroupSize;
@@ -165,11 +204,12 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
 
   toMatrixC.embed(
-      "gemmM", 1, M,
+      "gemmM", 1, matrixM,
       {"m", "wave_m", "m_tid", "m_i", "blk_row", "vec_group", "vec_item"},
       {mPerBlock, mPerWave, rowGroupSize, mPerRepeat, m,
        inputSpansPerMfmaIn * rowGroupSize, 1});
-  toMatrixC.embed("gemmN", 2, N, {"n", "wave_n", "n_i", "blk_col", "n_tid"},
+  toMatrixC.embed("gemmN", 2, matrixN,
+                  {"n", "wave_n", "n_i", "blk_col", "n_tid"},
                   {nPerBlock, nPerWave, nPerRepeat, n, 1});
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
@@ -178,79 +218,45 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   return idToMatrixCMaps;
 }
 
-Value MfmaEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
-                                           int64_t M, int64_t N,
-                                           int64_t blockSize, int64_t gridSize,
-                                           Value regVectorOrig, Value regDest,
-                                           bool forceUnroll) {
+Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
+                                          OpBuilder &dBuilder, Value d_i,
+                                          OpBuilder &builder, Value dPerBlock,
+                                          Location loc, Value sourceBase,
+                                          Value laneId) {
 
-  Type destType = regDest.getType().dyn_cast<MemRefType>().getElementType();
-
-  int64_t accVectorLen = accVectorType.getNumElements();
-  int64_t numElements = accVectorLen * (mRepeats * nRepeats * nResultVectors);
-  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-  BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
-  toRegCScalar.embed({"vector"}, {0}, {mRepeats * nRepeats * nResultVectors},
-                     "scalar", {accVectorLen});
-  TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
-
-  auto convertLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
-      ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr(toRegCScalarAttr)},
-      /*bounds=*/ArrayRef<int64_t>{mRepeats * nRepeats * nResultVectors},
-      /*strides=*/std::nullopt, forceUnroll, /*useIndexDiffs=*/true);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(convertLoop.getBody());
-    Value loaded =
-        b.create<memref::LoadOp>(loc, accVectorType, regVectorOrig,
-                                 convertLoop.getLowerCoords(/*domain*/ 0));
-    Value cast = loaded;
-    if (destType != accVectorType.getElementType()) {
-      VectorType destVectorType = accVectorType.clone(destType);
-      cast = createTypeConversionOp(b, loc, loaded, destVectorType);
-    }
-    b.create<InBoundsStoreOp>(loc, cast, regDest,
-                              convertLoop.getLowerCoords(/*domain*/ 1));
-  }
-  return regDest;
-}
-
-Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kb, Value k_i,
-                                          OpBuilder &mnb, Value mn_i,
-                                          OpBuilder &b, Value MN, Location loc,
-                                          Value sourceOffset, Value laneId) {
-
+  Value sourceOffset = sourceBase;
   if (!isKReduction) {
     // srcOffset = k_i * MN + laneId + mPerMfmaGroup * mn_i;
-    Value mnPerMfmaGroup = b.create<ConstantIndexOp>(loc, nPerAccel);
-    sourceOffset = b.create<AddIOp>(loc, sourceOffset, laneId);
-    sourceOffset = mnb.create<AddIOp>(
-        loc, sourceOffset, mnb.create<MulIOp>(loc, mnPerMfmaGroup, mn_i));
-    sourceOffset =
-        kb.create<AddIOp>(loc, sourceOffset, kb.create<MulIOp>(loc, MN, k_i));
+    Value mnPerMfmaGroup = builder.create<ConstantIndexOp>(loc, nPerAccel);
+    sourceOffset = builder.create<AddIOp>(loc, sourceOffset, laneId);
+    sourceOffset = dBuilder.create<AddIOp>(
+        loc, sourceOffset, dBuilder.create<MulIOp>(loc, mnPerMfmaGroup, d_i));
+    sourceOffset = kBuilder.create<AddIOp>(
+        loc, sourceOffset, kBuilder.create<MulIOp>(loc, dPerBlock, k_i));
   } else {
     // srcOffset = (k_i * input_span_per_mfma + blk_id) * MN + blk_td + mn_i
     // * input_span_length;
-    Value inputSpanLenConstantOp = b.create<ConstantIndexOp>(loc, inputSpanLen);
+    Value inputSpanLenConstantOp =
+        builder.create<ConstantIndexOp>(loc, inputSpanLen);
     Value inputSpansPerMfmaInConstantOp =
-        b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
-    Value blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-    Value blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
+        builder.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
+    Value blk_id = builder.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+    Value blk_td = builder.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
-    sourceOffset = b.create<AddIOp>(loc, sourceOffset, blk_td);
-    sourceOffset = mnb.create<AddIOp>(
+    sourceOffset = builder.create<AddIOp>(loc, sourceOffset, blk_td);
+    sourceOffset = dBuilder.create<AddIOp>(
         loc, sourceOffset,
-        mnb.create<MulIOp>(loc, inputSpanLenConstantOp, mn_i));
-    sourceOffset = kb.create<AddIOp>(
+        dBuilder.create<MulIOp>(loc, inputSpanLenConstantOp, d_i));
+    sourceOffset = kBuilder.create<AddIOp>(
         loc, sourceOffset,
-        kb.create<MulIOp>(
+        kBuilder.create<MulIOp>(
             loc,
-            kb.create<AddIOp>(
-                loc, kb.create<MulIOp>(loc, k_i, inputSpansPerMfmaInConstantOp),
+            kBuilder.create<AddIOp>(
+                loc,
+                kBuilder.create<MulIOp>(loc, k_i,
+                                        inputSpansPerMfmaInConstantOp),
                 blk_id),
-            MN));
+            dPerBlock));
   }
   return sourceOffset;
 }
@@ -270,7 +276,6 @@ WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
   mPerAccel = wmmaInsn.inputLen;
   nPerAccel = wmmaInsn.inputLen;
   kBasePerThread = kPerBlock * kPack / kBase;
-  inputBufferSize = (kPerBlock * kPack) / kBase;
 
   argTypeA = wmmaInsn.argTypeA;
   argTypeB = wmmaInsn.argTypeB;
@@ -283,19 +288,20 @@ WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
   validateAcceleratorProperties();
 }
 
-Value WmmaEmitter::computeLdsSourceOffset(OpBuilder &kb, Value k_i,
-                                          OpBuilder &mnb, Value mn_i,
-                                          OpBuilder &b, Value MN, Location loc,
-                                          Value sourceOffset, Value laneId) {
+Value WmmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
+                                          OpBuilder &dBuilder, Value d_i,
+                                          OpBuilder &builder, Value dPerBlock,
+                                          Location loc, Value sourceBase,
+                                          Value laneId) {
 
   // srcOffset = k_i * MN + (laneId % wmmaInputLen) + wmmaInputLen * mn_i;
-  Value inputLen = b.create<ConstantIndexOp>(loc, wmmaInsn.inputLen);
-  sourceOffset = b.create<AddIOp>(loc, sourceOffset,
-                                  b.create<RemUIOp>(loc, laneId, inputLen));
-  sourceOffset = mnb.create<AddIOp>(loc, sourceOffset,
-                                    mnb.create<MulIOp>(loc, inputLen, mn_i));
-  sourceOffset =
-      kb.create<AddIOp>(loc, sourceOffset, kb.create<MulIOp>(loc, MN, k_i));
+  Value inputLen = builder.create<ConstantIndexOp>(loc, wmmaInsn.inputLen);
+  Value sourceOffset = builder.create<AddIOp>(
+      loc, sourceBase, builder.create<RemUIOp>(loc, laneId, inputLen));
+  sourceOffset = dBuilder.create<AddIOp>(
+      loc, sourceOffset, dBuilder.create<MulIOp>(loc, inputLen, d_i));
+  sourceOffset = kBuilder.create<AddIOp>(
+      loc, sourceOffset, kBuilder.create<MulIOp>(loc, dPerBlock, k_i));
   return sourceOffset;
 }
 
@@ -311,23 +317,27 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
 }
 
-ArrayAttr WmmaEmitter::computeOutputTransforms(
-    PatternRewriter &b, Location loc, int64_t M, int64_t N, int64_t blockSize,
-    int64_t gridSize, Value regCAllocOp, Value convertedC) {
+ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
+                                               int64_t matrixM, int64_t matrixN,
+                                               int64_t blockSize,
+                                               int64_t gridSize, Value regC) {
 
-  int64_t nBlocks = N / nPerBlock;
-  int64_t mBlocks = M / mPerBlock;
+  int64_t nBlocks = matrixN / nPerBlock;
+  int64_t mBlocks = matrixM / mPerBlock;
   int64_t gStride = mBlocks * nBlocks;
   int64_t nWaves = nPerBlock / nPerWave;
 
   // High level code for this loop
   // source: https://gpuopen.com/learn/wmma_on_rdna3/
   //
-  // for (int ele = 0; ele < 8; ele++){
+  // laneIdx = tid % waveSize;
+  // for (int item = 0; item < 8; item++){
+  //    m_tid = laneIdx / 16;
   //    col = laneIdx % 16;
-  //    row = (2*ele + laneIdx / 16);
-  //    c[16 * row+col] = reg[ele];
+  //    row = (2*item + m_tid);
+  //    c[16 * row+col] = regC[item];
   // }
+  //
   //
   int64_t retNumElements = reducedVectorType.getNumElements();
   TopDownTMBuilder splitMemoryCoords(
@@ -351,10 +361,16 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
 
   toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
 
-  toMatrixC.embed("gemmM", 1, M, {"m", "wave_m", "m_tid", "rep_i", "item_i"},
+  // m_tid is liimited to 0 or 1 (or 0,1,2,3 for wave64). Basically every
+  // workitem is computing 8 values, which represent a sub-column of a 16x16
+  // tile. For workitems 0 to 15 m_tid is 0 and they write to 0,2,4,...,14.  For
+  // workitems 16 to 31 m_tid is 1 and they write at positions 1,3,5,..,15 .
+  // This is outlined in https://gpuopen.com/learn/wmma_on_rdna3/
+  toMatrixC.embed("gemmM", 1, matrixM,
+                  {"m", "wave_m", "m_tid", "rep_i", "item_i"},
                   {mPerBlock, mPerWave, 1, wmmaInsn.inputLen, 2});
 
-  toMatrixC.embed("gemmN", 2, N, {"n", "wave_n", "n_tid", "rep_j"},
+  toMatrixC.embed("gemmN", 2, matrixN, {"n", "wave_n", "n_tid", "rep_j"},
                   {nPerBlock, nPerWave, 1, wmmaInsn.inputLen});
 
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
@@ -362,44 +378,6 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   ArrayAttr idToMatrixCMaps =
       b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
   return idToMatrixCMaps;
-}
-
-Value WmmaEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
-                                           int64_t M, int64_t N,
-                                           int64_t blockSize, int64_t gridSize,
-                                           Value regCAllocOp, Value convertedC,
-                                           bool forceUnroll) {
-
-  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-  Value registerC = regCAllocOp;
-  Type destType = convertedC.getType().dyn_cast<MemRefType>().getElementType();
-
-  BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numOutputVectorElements}, loc);
-  toRegCScalar.embed({"vector"}, {0}, {mRepeats * nRepeats}, "scalar",
-                     {reducedVectorType.getNumElements()});
-  TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
-
-  auto convertLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
-      ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr(toRegCScalarAttr)},
-      /*bounds=*/ArrayRef<int64_t>{mRepeats * nRepeats},
-      /*strides=*/std::nullopt, forceUnroll, /*useIndexDiffs=*/true);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(convertLoop.getBody());
-    Value loaded =
-        b.create<memref::LoadOp>(loc, accVectorType, registerC,
-                                 convertLoop.getLowerCoords(/*domain*/ 0));
-    Value cast = loaded;
-    if (destType != accVectorType.getElementType()) {
-      VectorType destVectorType = accVectorType.clone(destType);
-      cast = createTypeConversionOp(b, loc, loaded, destVectorType);
-    }
-    b.create<InBoundsStoreOp>(loc, cast, convertedC,
-                              convertLoop.getLowerCoords(/*domain*/ 1));
-  }
-  return convertedC;
 }
 
 std::unique_ptr<AccelEmitter>

@@ -1271,10 +1271,10 @@ struct GridwiseGemmAccelRewritePattern
     // Logic to setup buffers for blockwise_gemm_accel.
 
     Type arrayAType, arrayBType;
-    arrayAType = MemRefType::get({accelEmitterPtr->inputBufferSize},
+    arrayAType = MemRefType::get({accelEmitterPtr->kBasePerThread},
                                  accelEmitterPtr->argTypeA, AffineMap{},
                                  privateMemoryAddressSpace);
-    arrayBType = MemRefType::get({accelEmitterPtr->inputBufferSize},
+    arrayBType = MemRefType::get({accelEmitterPtr->kBasePerThread},
                                  accelEmitterPtr->argTypeB, AffineMap{},
                                  privateMemoryAddressSpace);
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
@@ -1371,7 +1371,7 @@ struct GridwiseGemmAccelRewritePattern
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
     ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
-        b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC);
+        b, loc, M, N, blockSize, gridSize, regCAllocOp);
 
     Value registerC = accelEmitterPtr->computeOutputConversion(
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
