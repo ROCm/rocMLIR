@@ -606,9 +606,15 @@ pipeline {
                             dir('build') {
                                 // Tune BERT, fail if the DB is not created
                                 sh """python3 ./bin/tuningRunner.py --operation gemm \
---configs_file=../mlir/utils/performance/bert-configs \
---output=mlir_tuning_${ARCH}.tsv
-[ -f mlir_tuning_${ARCH}.tsv ]"""
+                                        --configs_file=../mlir/utils/performance/bert-configs \
+                                        --output=mlir_tuning_${ARCH}.tsv
+                                      python3 ./bin/tuningRunner.py --operation gemm \
+                                        --configs_file=../mlir/utils/performance/unet-gemm-configs \
+                                        --output=mlir_tuning_${ARCH}.tsv
+                                      python3 ./bin/tuningRunner.py --operation conv \
+                                        --configs_file=../mlir/utils/performance/unet-conv-configs \
+                                        --output=mlir_tuning_${ARCH}.tsv
+                                      [ -f mlir_tuning_${ARCH}.tsv ]"""
                             }
                         }
                     }
