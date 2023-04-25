@@ -48,4 +48,3 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRSupport
   MLIRTosaDialect
 )
-

@@ -1,4 +1,3 @@
-
 //===- AccelEmitter.cpp - MLIR helper to emit acceleration intrinsics
 //---------------===//
 //
@@ -108,7 +107,7 @@ struct AccelEmitter {
                                        OpBuilder &dBuilder, Value d_i,
                                        OpBuilder &builder, Value dPerBlock,
                                        Location loc, Value baseOffset,
-                                       Value laneId) = 0;
+                                       Value dWaves, Value laneId) = 0;
 
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile
@@ -151,7 +150,7 @@ struct MfmaEmitter : public AccelEmitter {
   Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
                                OpBuilder &dBuilder, Value d_i,
                                OpBuilder &builder, Value dPerBlock,
-                               Location loc, Value baseOffset,
+                               Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
   ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
@@ -181,7 +180,7 @@ struct WmmaEmitter : public AccelEmitter {
   Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
                                OpBuilder &dBuilder, Value d_i,
                                OpBuilder &builder, Value dPerBlock,
-                               Location loc, Value baseOffset,
+                               Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
   ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,

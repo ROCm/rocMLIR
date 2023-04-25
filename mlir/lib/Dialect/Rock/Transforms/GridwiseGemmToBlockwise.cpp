@@ -1154,11 +1154,8 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-    // int64_t MWaves = mPerBlock / mPerWave;
     int64_t nWaves = nPerBlock / nPerWave;
 
-    auto mPerWaveConstantOp = b.create<ConstantIndexOp>(loc, mPerWave);
-    auto nPerWaveConstantOp = b.create<ConstantIndexOp>(loc, nPerWave);
     auto nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
@@ -1274,8 +1271,12 @@ struct GridwiseGemmAccelRewritePattern
     auto waveId_n = b.create<RemUIOp>(loc, waveId, nWavesConstantOp);
 
     Value mMyWaveOffsetA, mMyWaveOffsetB;
-    mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, mPerWaveConstantOp);
-    mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, nPerWaveConstantOp);
+    Value waveOffsetAConstantOp =
+        b.create<ConstantIndexOp>(loc, params.mPerAccel);
+    Value waveOffsetBConstantOp =
+        b.create<ConstantIndexOp>(loc, params.nPerAccel);
+    mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, waveOffsetAConstantOp);
+    mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, waveOffsetBConstantOp);
 
     // Logic to setup buffers for blockwise_gemm_accel.
 
