@@ -871,7 +871,7 @@ pipeline {
                                 sh 'python3 ./bin/perfRunner.py'
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
-                                       --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv""" \
+                                       --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
 					--configs_file=${WORKSPACE}/mlir/utils/performance/unet-gemm-configs \
 					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
