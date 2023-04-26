@@ -5,7 +5,7 @@ add_mlir_conversion_library(MLIRMHALToGPU
   ${MHAL_MAIN_INCLUDE_DIR}/mlir/Conversion/MHALToGPU
 
   DEPENDS
-  MLIRConversionPassIncGen
+  MHALConversionPassIncGen
 
   LINK_COMPONENTS
   Core

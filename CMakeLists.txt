@@ -8,6 +8,7 @@ message(STATUS "MHAL BINARY: ${MHAL_BINARY_DIR}")
 set(MHAL_MAIN_INCLUDE_DIR "${MHAL_PROJECT_DIR}/include")
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
+set(LLVM_ENABLE_RTTI OFF CACHE BOOL "")
 
 include_directories("${MHAL_PROJECT_DIR}/include")
 include_directories("${MHAL_BINARY_DIR}/include")
