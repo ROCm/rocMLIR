@@ -28,9 +28,9 @@ namespace rock {
 enum class GemmDimension : uint32_t { G = 0, K = 1, MorN = 2 };
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, GemmDimension dim);
 
-// Remove this enum after both xdlops and non-xdlops are converted to new
-// gridwise gemm form. 0 : gemmG dimension. 1 : gemmK dimension. 2 : gemmM or
-// gemmN dimension.
+// Remove this enum after both accelerated and non-accelerated are converted to
+// new gridwise gemm form. 0 : gemmG dimension. 1 : gemmK dimension. 2 : gemmM
+// or gemmN dimension.
 enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
 
 // Remove after old swizzle detector is removed.

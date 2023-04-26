@@ -116,7 +116,7 @@ struct BlockwiseGemmRewritePattern
     int64_t n = blockBType.getShape()[1];
     int64_t kPack = blockAType.getShape()[2];
 
-    // Non-xdlops path.
+    // Non-accelerator path.
 
     // Obtain critical attributes.
     int64_t mC = bufferCType.getShape()[0];
@@ -313,7 +313,7 @@ struct BlockwiseGemmV2RewritePattern
     Location loc = op.getLoc();
 
     StringAttr arch = op.getArchAttr();
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    AccelGemmParamsAttr tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKPerBlock();
@@ -520,10 +520,10 @@ struct BlockwiseGemmV2RewritePattern
                           op.getMatrixB(), bufferB);
 
     b.eraseOp(op);
-    olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
-                                outerLoopN.getInductionVar(),
-                                adaptor.getBufferA(), adaptor.getBufferB(),
-                                adaptor.getMatrixC(), arch, tuningParams);
+    olnb.create<AccelGemmV2Op>(loc, outerLoopM.getInductionVar(),
+                               outerLoopN.getInductionVar(),
+                               adaptor.getBufferA(), adaptor.getBufferB(),
+                               adaptor.getMatrixC(), arch, tuningParams);
     return success();
   }
 };

@@ -1,4 +1,5 @@
-//===- GeneralGemmBlockStructure.h - Gemm block structure non-xdlops --*-===//
+//===- GeneralGemmBlockStructure.h - Gemm block structure, no
+//acceleration--*-===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.

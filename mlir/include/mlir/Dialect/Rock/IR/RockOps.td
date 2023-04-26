@@ -363,10 +363,10 @@ def Rock_GridwiseGemmV2Op :
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   Rock_XdlopsGemmParamsAttr:$params)> {
+                   Rock_AccelGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
-    The `rock.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
+    The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
     `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
@@ -1037,9 +1037,9 @@ def Rock_BlockwiseGemmOp:
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
-  let summary = "Blockwise GEMM non-XDLOPS version";
+  let summary = "Blockwise GEMM non accelerated version";
   let description = [{
-    The `rock.blockwise_gemm` op does gemm at the blockwise level without xdlops.
+    The `rock.blockwise_gemm` op does gemm at the blockwise level without acceleration.
 
     Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kpack].
     Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kpack].
@@ -1061,11 +1061,11 @@ def Rock_BlockwiseGemmOp:
 
 // This is less general than the one in the AMDGPU dialect, since it only
 // accounts for how we call these operations.
-defvar MfmaArgTypes = [F32,
+defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
                     VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                     VectorOfLengthAndType<[4, 8], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
-defvar MfmaResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
+defvar AccelResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
 
 // blockwise_gemm_v2
 def Rock_BlockwiseGemmV2Op:
@@ -1074,13 +1074,13 @@ def Rock_BlockwiseGemmV2Op:
                    MemRefOf<LdsBufferTypes>:$matrixB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<MfmaArgTypes>:$bufferA,
-                   MemRefOf<MfmaArgTypes>:$bufferB,
-                   MemRefOf<MfmaResTypes>:$matrixC,
+                   MemRefOf<AccelArgTypes>:$bufferA,
+                   MemRefOf<AccelArgTypes>:$bufferB,
+                   MemRefOf<AccelResTypes>:$matrixC,
                    StrAttr:$arch,
                    I32Attr:$blockSize,
-                   Rock_XdlopsGemmParamsAttr:$params)>{
-  let summary = "Blockwise GEMM XDLOPS version";
+                   Rock_AccelGemmParamsAttr:$params)>{
+  let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
@@ -1104,7 +1104,7 @@ def Rock_ThreadwiseGemmOp:
     Arguments<(ins MemRefRankOf<GemmOutputTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmOutputTypes, [3]>:$matrixB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC)> {
-  let summary = "Threadwise GEMM non-XDLOPS version";
+  let summary = "Threadwise GEMM non accelerated version";
   let description = [{
     The `rock.threadwise_gemm` op does GEMM at thread level.
     All arguments should be in registers (memref address space 5).
@@ -1119,20 +1119,20 @@ def Rock_ThreadwiseGemmOp:
   let hasVerifier = 1;
 }
 
-// xdlops_gemm_V2
-def Rock_XdlopsGemmV2Op:
-    Rock_Op<"xdlops_gemm_v2">,
+// accel_gemm_V2
+def Rock_AccelGemmV2Op:
+    Rock_Op<"accel_gemm_v2">,
     Arguments<(ins Index:$mRepeat,
                    Index:$nRepeat,
-                   MemRefRankOf<MfmaArgTypes, [1]>:$matrixA,
-                   MemRefRankOf<MfmaArgTypes, [1]>:$matrixB,
-                   MemRefRankOf<MfmaResTypes , [1]>:$matrixC,
+                   MemRefRankOf<AccelArgTypes, [1]>:$matrixA,
+                   MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
+                   MemRefRankOf<AccelResTypes , [1]>:$matrixC,
                    StrAttr:$arch,
-                   Rock_XdlopsGemmParamsAttr:$params)> {
-  let summary = "XDLOPS GEMM V2";
+                   Rock_AccelGemmParamsAttr:$params)> {
+  let summary = "Accelerated GEMM V2";
   let description = [{
-    The `rock.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
-    It would employ a series of `rock.mfma` operations.
+    The `rock.accel_gemm_v2` op is an abstraction of doing GEMM based on an accelerator.
+    It would employ a series of accelerator (e.g., mfma or wmma) operations.
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];

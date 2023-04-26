@@ -8,11 +8,11 @@ func.func @rock_blockwise_gemm_v2_two_results(%matrixA : memref<256xvector<2xf32
                                                 %bufferA : memref<4xf32, #priv>, %bufferB : memref<4xf32, #priv>,
                                                 %matrixC : memref<4xvector<16xf32>, #priv>) {
   %c0 = arith.constant 0 : index
-  // CHECK:  rock.xdlops_gemm_v2
+  // CHECK:  rock.accel_gemm_v2
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize= 256 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.accel_gemm_params<
       kPerBlock = 2,
       kpack = 2,
       mPerBlock = 128,
@@ -29,11 +29,11 @@ func.func @rock_blockwise_gemm_v2_one_result(%matrixA : memref<128xvector<8xi8>,
                                                %bufferA : memref<1xvector<4xi8>, #priv>, %bufferB : memref<1xvector<4xi8>, #priv>,
                                                %matrixC : memref<1xvector<16xi32>, #priv>) {
   %c0 = arith.constant 0 : index
-  // CHECK:  rock.xdlops_gemm_v2
+  // CHECK:  rock.accel_gemm_v2
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.accel_gemm_params<
       kPerBlock = 2,
       kpack = 8,
       mPerBlock = 64,
@@ -51,12 +51,12 @@ func.func @rock_blockwise_gemm_v2_fp8_bf8(%matrixA : memref<1024xvector<8xf8E4M3
                                           %bufferA : memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>>,
                                           %bufferB : memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
                                           %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
-  // CHECK:  rock.xdlops_gemm_v2
+  // CHECK:  rock.accel_gemm_v2
   %c0 = arith.constant 0 : index
   rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] {
     arch = "amdgcn-amd-amdhsa:gfx940",
     blockSize = 256 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.accel_gemm_params<
       kPerBlock = 8,
       mPerBlock = 128,
       nPerBlock = 128,

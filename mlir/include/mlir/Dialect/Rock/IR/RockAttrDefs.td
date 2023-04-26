@@ -247,10 +247,10 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
-  let mnemonic = "xdlops_gemm_params";
+def Rock_AccelGemmParamsAttr : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface]> {
+  let mnemonic = "accel_gemm_params";
   let description = [{
-    The tuning parameters for an xdlops-based matrix multiplication.
+    The tuning parameters for an accelerator-based matrix multiplication.
 
     TODO: Document these once they've settled down
   }];

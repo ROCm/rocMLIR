@@ -183,8 +183,8 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 /// contain the strings "g_block", "m_block", and "n_block" in some order
 /// indicating how the block ID is to be partitioned into offsets (last element
 /// moves fastest) and bidGridLengths should be the lengths of those three
-/// dimensions. This is needed because the xdlops and non-xdlops gemms partition
-/// their block ID in different orders.
+/// dimensions. This is needed because the accelerated and non-accelerated gemms
+/// partition their block ID in different orders.
 static FailureOr<Value> wrapMatrixForGlobalLoad(
     OpBuilder &b, Location loc, Value matrix, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
@@ -1022,7 +1022,7 @@ struct GridwiseGemmV2RewritePattern
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    AccelGemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed

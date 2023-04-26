@@ -162,7 +162,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     rw.create<GridwiseGemmV2Op>(loc, a, b, c, op.getArchAttr(),
                                 op.getFeaturesAttr(), op.getStoreMethodAttr(),
                                 blockSize, gridSize,
-                                params.cast<XdlopsGemmParamsAttr>());
+                                params.cast<AccelGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,

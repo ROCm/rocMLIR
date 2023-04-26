@@ -539,11 +539,11 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
     kPerBlock = generalParams.getKPerBlock();
     mPerBlock = generalParams.getMPerBlock();
     nPerBlock = generalParams.getNPerBlock();
-  } else if (auto xdlopsParams = params.dyn_cast<XdlopsGemmParamsAttr>()) {
-    kPerBlock = xdlopsParams.getKPerBlock();
-    mPerBlock = xdlopsParams.getMPerBlock();
-    nPerBlock = xdlopsParams.getNPerBlock();
-    kPack = xdlopsParams.getKpack();
+  } else if (auto accelParams = params.dyn_cast<AccelGemmParamsAttr>()) {
+    kPerBlock = accelParams.getKPerBlock();
+    mPerBlock = accelParams.getMPerBlock();
+    nPerBlock = accelParams.getNPerBlock();
+    kPack = accelParams.getKpack();
   } else {
     llvm_unreachable("The tuning paramaters are general or xdlops");
   }

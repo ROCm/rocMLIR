@@ -136,7 +136,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+    Attribute gemmParams = b.getAttr<AccelGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
@@ -161,7 +161,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
-    // For non-XDLOPS path, do not use KPack for now.
+    // For non-accelerator path, do not use KPack for now.
 
     // kPerThread and the cuwave parameters are hardcoded, may change in a
     // different pass. Please visit
