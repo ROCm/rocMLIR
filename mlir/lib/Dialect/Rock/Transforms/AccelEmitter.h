@@ -38,68 +38,11 @@
 namespace mlir {
 namespace rock {
 namespace accel {
-struct AccelEmitter {
 
-  // Select the right accelerator based on the set of features and architecture
-  static std::unique_ptr<AccelEmitter>
-  select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
-         XdlopsGemmParamsAttr tuningParams);
-
-  AccelEmitter(StringRef arch, XdlopsGemmParamsAttr tuningParams);
-  /// Emit the actual intrinsic in the threadwise operation
-  virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
-                                  Value argB, Value bufferC,
-                                  Value regCOffset) = 0;
-
-  // Compute the correct lds source offset when loading data from shared memory
-  // into registers. The pseudo-code of the lds-to-register loops is as follows
-  // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
-  //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
-  //       sourceOffset = computeLdsSourceOffset(d_i, k_i, dPerBlock,
-  //       baseOffset)
-  //       ...
-  // In the above loop `d` can be either `m` or `n`.
-  virtual Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                                       OpBuilder &dBuilder, Value d_i,
-                                       OpBuilder &builder, Value dPerBlock,
-                                       Location loc, Value baseOffset,
-                                       Value laneId) = 0;
-
-  // Compute the output transform map to be used to store the result of the
-  // matrix multiplication tile
-  virtual ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
-                                            int64_t matrixM, int64_t matrixN,
-                                            int64_t blockSize, int64_t gridSize,
-                                            Value regC) = 0;
-
-  // Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
-  // is the accumulator type and D is the destination type
-  Value computeOutputConversion(PatternRewriter &b, Location loc,
-                                int64_t matrixM, int64_t matrixN,
-                                int64_t blockSize, int64_t gridSize,
-                                Value regDest, Value convertedC,
-                                bool forceUnroll);
-
-  // Validate the accelerator structure
-  void validateAcceleratorProperties();
-
-  virtual ~AccelEmitter() {}
-
-public:
-  //
-  // Tuning parameters
-  //
-  int64_t mPerBlock;
-  int64_t nPerBlock;
-  int64_t kPerBlock;
-  int64_t mPerWave;
-  int64_t nPerWave;
-  int64_t kPack;
-  int64_t waveSize;
-
-  //
-  // Accelerator parameters
-  //
+//
+// Accelerator parameters
+//
+struct AccelEmitterParams {
   // `mPerAccel`/`nPerAccel` represent how many rows an accelerator intrinsic
   // will compute, while mRepeats and nRepeats represent how many times a given
   // wave needs to iterate to compute the `mPerWave` x `nPerWave` tile. E.g., if
@@ -122,19 +65,74 @@ public:
   // back and generate multiple sets of mRepeats*nRepeats vectors
   int64_t nResultVectors;
 
-  // Each workitem invoking an accelerator receives as a result a given number
-  // of elements stored in VGPR
-  //
-  // numOutputVectorElements =
-  // nResultVectors*mRepeats*nRepeats*accVectorType.getNumElements()
-  int64_t numOutputVectorElements;
-
-  //
-  // Accelerator data types
-  //
   Type argTypeA;            // Type of the arguments (might be scalar or vector)
   Type argTypeB;            // Type of the arguments (might be scalar or vector)
   VectorType accVectorType; // Accumulator vector type (always vector type)
+
+  // Each workitem invoking an accelerator receives as a result a given number
+  // of elements stored in VGPR
+  int64_t numOutputVectorElements() const {
+    return accVectorType.getNumElements() * nResultVectors * mRepeats *
+           nRepeats;
+  }
+};
+
+struct AccelEmitter {
+
+  /// Select the right accelerator based on the set of features and architecture
+  static std::unique_ptr<AccelEmitter>
+  select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
+         XdlopsGemmParamsAttr tuningParams);
+
+  AccelEmitter(StringRef arch, XdlopsGemmParamsAttr tuningParams,
+               AccelEmitterParams accelEmitterParams);
+
+  /// Emit the actual intrinsic in the threadwise operation
+  virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
+                                  Value argB, Value bufferC,
+                                  Value regCOffset) = 0;
+
+  /// Compute the correct lds source offset when loading data from shared memory
+  /// into registers. The pseudo-code of the lds-to-register loops is as follows
+  /// for(index_t m_i = 0; m_i < mRepeats; ++m_i)
+  ///   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
+  ///       sourceOffset = computeLdsSourceOffset(d_i, k_i, dPerBlock,
+  ///       baseOffset)
+  ///       ...
+  /// In the above loop `d` can be either `m` or `n`.
+  virtual Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
+                                       OpBuilder &dBuilder, Value d_i,
+                                       OpBuilder &builder, Value dPerBlock,
+                                       Location loc, Value baseOffset,
+                                       Value laneId) = 0;
+
+  /// Compute the output transform map to be used to store the result of the
+  /// matrix multiplication tile
+  virtual ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
+                                            int64_t matrixM, int64_t matrixN,
+                                            int64_t blockSize, int64_t gridSize,
+                                            Value regC) = 0;
+
+  /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
+  /// is the accumulator type and D is the destination type
+  Value computeOutputConversion(PatternRewriter &b, Location loc,
+                                int64_t matrixM, int64_t matrixN,
+                                int64_t blockSize, int64_t gridSize,
+                                Value regDest, Value convertedC,
+                                bool forceUnroll);
+
+  /// Validate the accelerator structure
+  void validateAcceleratorProperties();
+
+  /// Return the accelerator parameters
+  AccelEmitterParams getParams() const { return accelEmitterParams; }
+
+  virtual ~AccelEmitter() {}
+
+protected:
+  XdlopsGemmParamsAttr tuningParams;
+  AccelEmitterParams accelEmitterParams;
+  int64_t waveSize;
 };
 
 // Accel emitter implementation for mfma
@@ -158,10 +156,11 @@ struct MfmaEmitter : public AccelEmitter {
                                     Value regC) override;
 
 private:
+  /// Initialize the emitter parameters for mfma
+  AccelEmitterParams initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
+                                            XdlopsGemmParamsAttr tuningParams);
+
   // Specifc mfma parameters
-  bool isKReduction;
-  int64_t inputSpansPerMfmaIn;
-  int64_t inputSpanLen;
   MfmaInsnGroup mfmaGroup;
 };
 
@@ -186,9 +185,12 @@ struct WmmaEmitter : public AccelEmitter {
                                     Value regC) override;
 
 private:
+  /// Initialize the emitter parameters for wmma
+  AccelEmitterParams initAccelEmitterParams(WmmaInsn wmmaInsn,
+                                            XdlopsGemmParamsAttr tuningParams);
+
   // Specifc wmma parameters
   WmmaInsn wmmaInsn;
-  VectorType reducedVectorType;
 };
 } // namespace accel
 } // namespace rock

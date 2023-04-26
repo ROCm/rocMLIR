@@ -201,6 +201,14 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
     auto emitter = rock::accel::AccelEmitter::select(
         op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
 
+    // Extract relevant accel emitter parameters
+    rock::accel::AccelEmitterParams params = emitter->getParams();
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    int64_t nResultVectors = params.nResultVectors;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+
     if (!emitter)
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
@@ -212,17 +220,15 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
       auto accelLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/ArrayRef<int64_t>{emitter->kBasePerThread},
+          /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
           /*strides=*/ArrayRef<int64_t>{1},
           /*forceUnroll=*/false, /*useIndexDiffs=*/false);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(accelLoop.getBody());
         Value coord = accelLoop.getLowerCoords(/*domain=*/0)[0];
-        Value argA =
-            b.create<memref::LoadOp>(loc, emitter->argTypeA, bufferA, coord);
-        Value argB =
-            b.create<memref::LoadOp>(loc, emitter->argTypeB, bufferB, coord);
+        Value argA = b.create<memref::LoadOp>(loc, argTypeA, bufferA, coord);
+        Value argB = b.create<memref::LoadOp>(loc, argTypeB, bufferB, coord);
         emitter->emitThreadwiseLoop(b, loc, argA, argB, bufferC, regCOffset);
       }
     };
@@ -231,9 +237,8 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
     auto nRepeat = op.getNRepeat();
 
     Value nResultVectorsConstantOp =
-        b.createOrFold<ConstantIndexOp>(loc, emitter->nResultVectors);
-    Value nRepeatsConstantOp =
-        b.create<ConstantIndexOp>(loc, emitter->nRepeats);
+        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
+    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
 
     Value regCOffset = b.create<MulIOp>(
         loc,

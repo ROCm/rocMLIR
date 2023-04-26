@@ -1167,6 +1167,17 @@ struct GridwiseGemmAccelRewritePattern
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
 
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t nResultVectors = params.nResultVectors;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    VectorType accVectorType = params.accVectorType;
+    int64_t numOutputVectorElements = params.numOutputVectorElements();
+
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, waveSize);
 
@@ -1244,9 +1255,7 @@ struct GridwiseGemmAccelRewritePattern
 
     Type destType = op.getC().getType().getElementType();
 
-    int64_t nOutputVectors = accelEmitterPtr->nResultVectors *
-                             accelEmitterPtr->mRepeats *
-                             accelEmitterPtr->nRepeats;
+    int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
 
     // -----
 
@@ -1271,24 +1280,21 @@ struct GridwiseGemmAccelRewritePattern
     // Logic to setup buffers for blockwise_gemm_accel.
 
     Type arrayAType, arrayBType;
-    arrayAType = MemRefType::get({accelEmitterPtr->kBasePerThread},
-                                 accelEmitterPtr->argTypeA, AffineMap{},
+    arrayAType = MemRefType::get({kBasePerThread}, argTypeA, AffineMap{},
                                  privateMemoryAddressSpace);
-    arrayBType = MemRefType::get({accelEmitterPtr->kBasePerThread},
-                                 accelEmitterPtr->argTypeB, AffineMap{},
+    arrayBType = MemRefType::get({kBasePerThread}, argTypeB, AffineMap{},
                                  privateMemoryAddressSpace);
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
 
     // -----
     // Logic to allocate 0-initialized vectors for C.
-    MemRefType regCAllocType = MemRefType::get(
-        nOutputVectors, accelEmitterPtr->accVectorType, AffineMap{},
-        /*memorySpace=*/privateMemoryAddressSpace);
+    MemRefType regCAllocType =
+        MemRefType::get(nOutputVectors, accVectorType, AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
     Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
 
-    Value zeroConstantCOp =
-        createZeroConstantOp(b, loc, accelEmitterPtr->accVectorType);
+    Value zeroConstantCOp = createZeroConstantOp(b, loc, accVectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
@@ -1365,9 +1371,9 @@ struct GridwiseGemmAccelRewritePattern
     // -----
 
     // Matrix C write out logic.
-    auto convertedCType = MemRefType::get(
-        accelEmitterPtr->numOutputVectorElements, destType, AffineMap{},
-        /*memorySpace=*/privateMemoryAddressSpace);
+    auto convertedCType =
+        MemRefType::get(numOutputVectorElements, destType, AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
     ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(

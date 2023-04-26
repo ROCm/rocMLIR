@@ -56,6 +56,7 @@ struct MfmaInsnAttr {
   int64_t blocksPerMfmaOutput;
   int64_t rowGroupsPerBlock;
   int64_t blocksInOutRegs;
+  bool isKReduction;
 };
 
 class MfmaInsn {

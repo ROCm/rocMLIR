@@ -314,7 +314,13 @@ struct BlockwiseGemmAccelRewritePattern
     Location loc = op.getLoc();
 
     StringAttr arch = op.getArchAttr();
+<<<<<<< HEAD
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+=======
+    XdlopsGemmParamsAttr tuningParams = op.getParams();
+
+    // Extract relevant tuning parameters
+>>>>>>> d3bd042e0b79... Addressing review feedbacks - 2
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKpackPerBlock();
@@ -341,23 +347,30 @@ struct BlockwiseGemmAccelRewritePattern
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
 
-    Type argTypeA = accelEmitterPtr->argTypeA;
-    Type argTypeB = accelEmitterPtr->argTypeB;
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t mPerAccel = params.mPerAccel;
+    int64_t nPerAccel = params.nPerAccel;
+    int64_t kBase = params.kBase;
+    int64_t kPerThread = params.kPerThread;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto laneId =
         b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
-    int64_t kBase = accelEmitterPtr->kBase;
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
                << "argVectorType B: " << argTypeB << "\n"
-               << "k_base: " << accelEmitterPtr->kBase << "\n"
+               << "k_base: " << kBase << "\n"
                << "mPerWave: " << mPerWave << "\n"
                << "nPerWave: " << nPerWave << "\n"
-               << "mRepeat: " << accelEmitterPtr->mRepeats << "\n"
-               << "nRepeat: " << accelEmitterPtr->nRepeats << "\n"
+               << "mRepeat: " << mRepeats << "\n"
+               << "nRepeat: " << nRepeats << "\n"
                << "K: " << K << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
@@ -365,16 +378,13 @@ struct BlockwiseGemmAccelRewritePattern
     Value MConstantOp = b.create<ConstantIndexOp>(loc, M);
     Value NConstantOp = b.create<ConstantIndexOp>(loc, N);
 
-    Value mPerAccelConstantOp =
-        b.create<ConstantIndexOp>(loc, accelEmitterPtr->mPerAccel);
-    Value nPerAccelConstantOp =
-        b.create<ConstantIndexOp>(loc, accelEmitterPtr->nPerAccel);
+    Value mPerAccelConstantOp = b.create<ConstantIndexOp>(loc, mPerAccel);
+    Value nPerAccelConstantOp = b.create<ConstantIndexOp>(loc, nPerAccel);
 
     Value bufferA = adaptor.getBufferA();
     Value bufferB = adaptor.getBufferB();
 
-    Value KPerThreadConstantOp =
-        b.create<ConstantIndexOp>(loc, accelEmitterPtr->kPerThread);
+    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, kPerThread);
 
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
@@ -392,7 +402,7 @@ struct BlockwiseGemmAccelRewritePattern
       Type bufferElementType = bufferType.getElementType();
 
       // We're loading in units of kPack, but storing in units of k_base.
-      if (KPack == accelEmitterPtr->kBase) {
+      if (KPack == kBase) {
         Value destOffset = k_i;
         kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
       } else if (KPack > kBase) {
@@ -437,8 +447,7 @@ struct BlockwiseGemmAccelRewritePattern
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
             Value MN, Value mnPerMfmaGroup, Type ldsBufferElemType,
             Type dataType, Value ldsOrig, Value regDest) {
-          auto innerLoopK = outerLoopB.create<AffineForOp>(
-              loc, 0, accelEmitterPtr->kPerThread);
+          auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, kPerThread);
           auto ilkb = ConversionPatternRewriter::atBlockBegin(
               innerLoopK.getBody(), outerLoopB.getListener());
           {
@@ -458,7 +467,7 @@ struct BlockwiseGemmAccelRewritePattern
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[m_i, k_i]
-    auto outerLoopM = b.create<AffineForOp>(loc, 0, accelEmitterPtr->mRepeats);
+    auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
                                                         b.getListener());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
@@ -469,8 +478,7 @@ struct BlockwiseGemmAccelRewritePattern
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[n_i, k_i]
-    auto outerLoopN =
-        olmb.create<AffineForOp>(loc, 0, accelEmitterPtr->nRepeats);
+    auto outerLoopN = olmb.create<AffineForOp>(loc, 0, nRepeats);
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
                                                         olmb.getListener());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,

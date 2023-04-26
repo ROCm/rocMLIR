@@ -1472,25 +1472,6 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// BlockwiseGemmOp
-//===----------------------------------------------------------------------===//
-LogicalResult BlockwiseGemmOp::verify() {
-  MemRefType blockAType = getMatrixA().getType(),
-             blockBType = getMatrixB().getType();
-
-  int64_t k = blockAType.getShape()[0];
-  int64_t kPack = blockAType.getShape()[2];
-
-  if (k != blockBType.getShape()[0]) {
-    return emitOpError("Mismatched k dimensions between A and B");
-  }
-  if (kPack != blockBType.getShape()[2]) {
-    return emitOpError("Mismatched kPack between A and B");
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {

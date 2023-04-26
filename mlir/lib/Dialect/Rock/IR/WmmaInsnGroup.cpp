@@ -26,23 +26,22 @@ static Type getRetType(Type inputType) {
 }
 
 FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
-                                     mlir::Type elementTypeB, StringRef arch,
-                                     int64_t mPerWave, int64_t nPerWave) {
+                                     mlir::Type elementTypeB, int64_t mPerWave,
+                                     int64_t nPerWave) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Wmma group selection:\n"
                           << "elementTypeA: " << elementTypeA << "\n"
                           << "elementTypeB: " << elementTypeB << "\n"
-                          << "arch: " << arch << "\n"
                           << "mPerWave: " << mPerWave << "\n"
                           << "nPerWave: " << nPerWave << "\n");
-
-  if (!arch.contains("gfx11"))
-    return failure();
 
   if (elementTypeA != elementTypeB)
     return failure();
 
   int64_t inputLen = 16;
+
+  // We are assuming waveSize==32
   int64_t outLen = 8;
+  int64_t outStride = 2;
 
   int64_t mRepeats = mPerWave / inputLen;
   int64_t nRepeats = nPerWave / inputLen;
@@ -62,6 +61,6 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     return failure();
   }
 
-  return WmmaInsn{insn,     inputLen, outLen,   mRepeats,
+  return WmmaInsn{insn,     inputLen, outLen,   outStride, mRepeats,
                   nRepeats, argTypeA, argTypeB, retType};
 }

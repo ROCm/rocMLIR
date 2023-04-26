@@ -26,6 +26,7 @@ struct WmmaInsn {
   StringRef insn;
   int64_t inputLen;
   int64_t outputLen;
+  int64_t outputStride;
   int64_t mRepeats;
   int64_t nRepeats;
   VectorType argTypeA;
@@ -34,8 +35,7 @@ struct WmmaInsn {
 
 public:
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
-                                    StringRef arch, int64_t mPerWave,
-                                    int64_t nPerWave);
+                                    int64_t mPerWave, int64_t nPerWave);
 };
 } // namespace rock
 } // namespace mlir
