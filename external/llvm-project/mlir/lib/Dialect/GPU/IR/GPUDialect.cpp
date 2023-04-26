@@ -737,7 +737,8 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
   auto kernelSymbol =
       SymbolRefAttr::get(kernelModule.getNameAttr(),
                          {SymbolRefAttr::get(kernelFunc.getNameAttr())});
-  result.addAttribute(LaunchFuncOp::getKernelAttrName(result.name), kernelSymbol);
+  result.addAttribute(LaunchFuncOp::getKernelAttrName(result.name),
+                      kernelSymbol);
   SmallVector<int32_t, 9> segmentSizes(9, 1); // initialized all sizes = 1
   int32_t numGridSizeParams = 3;
   int32_t numBlockSizeParams = 3;

@@ -365,17 +365,24 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   Value result = rewriter.createOrFold<LLVM::BitcastOp>(
       loc, llvmVectorType32bits, llvmInput);
 
-  Value sign = createI1Constant(rewriter, loc, !isUnsigned);
+  // if element type is 8-bit signed or unsigned, ignore the isUnsigned flag
+  bool localIsUnsigned = isUnsigned;
+  if (elemType.isUnsignedInteger(8)) {
+    localIsUnsigned = true;
+  } else if (elemType.isSignedInteger(8)) {
+    localIsUnsigned = false;
+  }
+  Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
   operands.push_back(sign);
   operands.push_back(result);
 }
 
-/// Push the output operand. For many cases this is only pushing the output
-/// in the operand list. But when we have f16 -> f16 or bf16 -> bf16 intrinsics,
+/// Push the output operand. For many cases this is only pushing the output in
+/// the operand list. But when we have f16 -> f16 or bf16 -> bf16 intrinsics,
 /// since the same numbers of VGPRs is used, we need to decide if to store the
 /// result in the upper 16 bits of the VGPRs or in the lower part. To store the
-/// result in the lower 16 bits, set isZeroIndexing to true, otherwise result
-/// will be stored it in the upper part
+/// result in the lower 16 bits, set subwordOffset to 1, otherwise result will
+/// be stored it in the upper part
 static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
                                   Location loc, TypeConverter *typeConverter,
                                   Value output, int32_t subwordOffset,

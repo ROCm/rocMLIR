@@ -199,29 +199,13 @@ void RawBufferAtomicCmpswapOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 LogicalResult WMMAOp::verify() {
   Type sourceAType = getSourceA().getType();
-  Type sourceBType = getSourceB().getType();
   Type destType = getDestC().getType();
 
   VectorType sourceVectorAType = sourceAType.dyn_cast<VectorType>();
-  VectorType sourceVectorBType = sourceBType.dyn_cast<VectorType>();
   VectorType destVectorType = destType.dyn_cast<VectorType>();
 
   Type sourceAElemType = sourceVectorAType.getElementType();
-  Type sourceBElemType = sourceVectorBType.getElementType();
   Type destElemType = destVectorType.getElementType();
-
-  if ((sourceAElemType.isSignedInteger() ||
-       sourceAElemType.isSignlessInteger()) &&
-      getUnsignedA()) {
-    return emitOpError(
-        "A is signed/signless but `unsignedA` passed to the Operation");
-  }
-  if ((sourceBElemType.isSignedInteger() ||
-       sourceBElemType.isSignlessInteger()) &&
-      getUnsignedB()) {
-    return emitOpError(
-        "B is signed/signless but `unsignedB` passed to the Operation");
-  }
 
   bool isDestFloat =
       (destElemType.isF32() || destElemType.isF16() || destElemType.isBF16());
