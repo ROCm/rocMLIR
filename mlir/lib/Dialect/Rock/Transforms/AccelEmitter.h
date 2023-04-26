@@ -40,7 +40,7 @@ namespace rock {
 namespace accel {
 
 //
-// Accelerator parameters
+// Accelerator parameters used throughout the GEMM lowering pipeline
 //
 struct AccelEmitterParams {
   // `mPerAccel`/`nPerAccel` represent how many rows an accelerator intrinsic
@@ -77,6 +77,10 @@ struct AccelEmitterParams {
   }
 };
 
+//
+// Accelerator emitter strategy providing helpers to lower GEMM passes using an
+// accelerator
+//
 struct AccelEmitter {
 
   /// Select the right accelerator based on the set of features and architecture

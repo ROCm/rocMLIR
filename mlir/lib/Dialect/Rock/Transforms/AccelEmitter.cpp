@@ -85,9 +85,7 @@ MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
                          XdlopsGemmParamsAttr tuningParams)
     : AccelEmitter{arch, tuningParams,
                    initAccelEmitterParams(mfmaGroup, tuningParams)},
-      mfmaGroup{mfmaGroup} {
-
-}
+      mfmaGroup{mfmaGroup} {}
 
 AccelEmitterParams
 MfmaEmitter::initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
@@ -105,14 +103,16 @@ MfmaEmitter::initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
   // Accelerator parameters
   params.kBase = mfmaAttr.k_base;
   params.kBasePerThread =
-      (mfmaAttr.isKReduction ? K / mfmaAttr.inputSpansPerMfmaIn : K) / params.kBase;
+      (mfmaAttr.isKReduction ? K / mfmaAttr.inputSpansPerMfmaIn : K) /
+      params.kBase;
   params.mRepeats = mfmaGroup.getMRepeats(mPerWave);
   params.nRepeats = mfmaGroup.getNRepeats(nPerWave);
   params.nResultVectors = mfmaGroup.getImms().size();
   params.mPerAccel = mfmaGroup.getLenPerMfmaGroup(mPerWave);
   params.nPerAccel = mfmaGroup.getLenPerMfmaGroup(nPerWave);
   params.kPerThread =
-      (mfmaAttr.isKReduction ? kPerBlock / mfmaAttr.inputSpansPerMfmaIn : kPerBlock);
+      (mfmaAttr.isKReduction ? kPerBlock / mfmaAttr.inputSpansPerMfmaIn
+                             : kPerBlock);
 
   // Accelerator data types
   params.argTypeA = mfmaGroup.getArgTypeA();
@@ -356,7 +356,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = b.create<amdgpu::WMMAOp>(loc, vectorType, argA, argB, vectorC);
+  auto mfma = b.create<amdgpu::WMMAOp>(loc, vectorType, argA, argB, vectorC,
+                                       /*subwordOffset=*/0, /*unsignedA=*/false,
+                                       /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
@@ -452,9 +454,10 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
-    auto maybeWmmaInsnGroup =
-        WmmaInsn::select(dataTypeA, dataTypeB, tuningParams.getMPerWave(),
-                         tuningParams.getNPerWave());
+    int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
+    auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
+                                               tuningParams.getMPerWave(),
+                                               tuningParams.getNPerWave());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }

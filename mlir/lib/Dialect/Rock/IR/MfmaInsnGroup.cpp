@@ -456,7 +456,8 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
                  << "When non-reduction, KPerBlock must be at least k_base\n");
       return false;
     }
-    if (attr.isKReduction && kPerBlock < attr.k_base * attr.inputSpansPerMfmaIn) {
+    if (attr.isKReduction &&
+        kPerBlock < attr.k_base * attr.inputSpansPerMfmaIn) {
       LLVM_DEBUG(llvm::dbgs()
                  << "When reduction, KPerBlock must be at least k_base * "
                     "num_input_blks\n");

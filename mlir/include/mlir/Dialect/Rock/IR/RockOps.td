@@ -1055,6 +1055,8 @@ def Rock_BlockwiseGemmOp:
     $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
+
+  let hasVerifier = 1;
 }
 
 // This is less general than the one in the AMDGPU dialect, since it only

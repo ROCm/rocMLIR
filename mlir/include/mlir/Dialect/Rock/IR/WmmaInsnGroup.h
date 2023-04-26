@@ -35,7 +35,8 @@ struct WmmaInsn {
 
 public:
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
-                                    int64_t mPerWave, int64_t nPerWave);
+                                    int64_t waveSize, int64_t mPerWave,
+                                    int64_t nPerWave);
 };
 } // namespace rock
 } // namespace mlir
