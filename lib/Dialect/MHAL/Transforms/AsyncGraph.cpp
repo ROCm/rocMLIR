@@ -35,7 +35,7 @@ namespace mhal {
 using namespace mlir;
 namespace {
 class MHALAsyncGraphPass
-    : public MHAL::impl::MHALAsyncGraphPassBase<MHALAsyncGraphPass> {
+    : public mhal::impl::MHALAsyncGraphPassBase<MHALAsyncGraphPass> {
 
   static bool isTerminator(Operation *op) {
     return op->mightHaveTrait<OpTrait::IsTerminator>();

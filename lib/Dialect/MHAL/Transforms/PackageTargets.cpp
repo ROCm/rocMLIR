@@ -43,7 +43,7 @@ using namespace mlir;
 namespace {
 
 struct MHALPackageTargetsPass
-    : public MHAL::impl::MHALPackageTargetsPassBase<
+    : public mhal::impl::MHALPackageTargetsPassBase<
           MHALPackageTargetsPass> {
 
   void runOnOperation() override {
