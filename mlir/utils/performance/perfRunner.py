@@ -791,8 +791,8 @@ def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
     chip = GFX_CHIP_RE.search(arch).group(0)
     df.to_csv(chip + '_' + filename, index=False)
 
-RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:")
-ROCMLIRGEN_RE = re.compile(r"rocmlir-gen.*-fut")
+RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:(.*)")
+ROCMLIRGEN_RE = re.compile(r"rocmlir-gen.*-fut\s*(\w+)")
 def findRunCommand(filename):
     firstCommand = None
     futName = None
@@ -801,14 +801,13 @@ def findRunCommand(filename):
             hasRun = RUNNABLE_TEST_RE.search(line)
             hasRocmlirGen = ROCMLIRGEN_RE.search(line)
             if hasRun:
-                command = line.split("RUN")[1].strip()[1:] # Remove the "//" and "RUN" prefixes, leading/trailing whitespace and ':'
+                command = hasRun.group(1)
                 if not firstCommand:
                     parts = command.split('|')  # Split the command using the "|" separator
                     firstCommand = parts[0].strip() # Find the first command
 
                 if hasRocmlirGen:
-                    words = line.split()
-                    futName = words[words.index("-fut") + 1] # Find the word after '-fut'
+                    futName = hasRocmlirGen.group(1)
 
                 if 'runner' in line: # Stop processing lines after finding a runner
                     return firstCommand, futName
