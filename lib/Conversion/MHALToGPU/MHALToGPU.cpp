@@ -20,11 +20,11 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#define DEBUG_TYPE "convert-async-to-gpu"
+#define DEBUG_TYPE "convert-mhal-to-gpu"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTMHALTOGPU
-#include "mlir/Conversion/Passes.h.inc"
+#include "mlir/Conversion/MHALPasses.h.inc"
 } // namespace mlir
 
 using namespace mlir;

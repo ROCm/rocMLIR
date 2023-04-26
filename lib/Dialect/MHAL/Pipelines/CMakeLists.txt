@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRMHALPipeline
   MLIRGPUToROCDLTransforms
   MLIRReconcileUnrealizedCasts
   MLIRMHALTransforms
+  MLIRMHALToGPU
   MLIRIR
   MLIRPass
   MLIRLLVMDialect
