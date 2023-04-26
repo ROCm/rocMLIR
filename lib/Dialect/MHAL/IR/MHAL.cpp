@@ -25,7 +25,7 @@ struct MHALAsmDialectInterface : public OpAsmDialectInterface {
   using OpAsmDialectInterface::OpAsmDialectInterface;
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    if (attr.isa<MHAL::TargetObjectAttr>()) {
+    if (attr.isa<mhal::TargetObjectAttr>()) {
       os << "target_obj";
       return AliasResult::OverridableAlias;
     }
@@ -200,7 +200,7 @@ mlir::Attribute KernelPackageAttr::parse(mlir::AsmParser &parser,
     return {};
   }
 
-  MHAL::TargetObjectAttr object;
+  mhal::TargetObjectAttr object;
   if (parser.parseAttribute(object)) {
     return {};
   }
@@ -250,7 +250,7 @@ void KernelPackageAttr::print(mlir::AsmPrinter &printer) const {
 // MHALDialect
 //===----------------------------------------------------------------------===//
 
-void MHAL::MHALDialect::initialize() {
+void mhal::MHALDialect::initialize() {
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
