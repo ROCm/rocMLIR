@@ -1,4 +1,4 @@
-add_mlir_dialect(MHALBase xmodel)
+add_mlir_dialect(MHALBase mhal)
 add_mlir_doc(MHALBase MHALDialect Dialects/ -gen-dialect-doc)
 add_mlir_doc(MHALBase MHALAttrDefs Dialects/ -gen-attrdef-doc)
 add_mlir_doc(MHALOps MHALOps Dialects/ -gen-op-doc)

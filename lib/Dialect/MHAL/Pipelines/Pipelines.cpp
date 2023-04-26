@@ -1,4 +1,4 @@
-//===- Pipelines.cpp - Create XModel compilation pipelines ---------------===//
+//===- Pipelines.cpp - Create MHAL compilation pipelines ---------------===//
 //
 // Copyright 2021 The MLIR Authors.
 //
@@ -15,12 +15,12 @@
 // limitations under the License.
 // =============================================================================
 //
-// This interface adds the XModel compilation pipeline for various flows but
+// This interface adds the MHAL compilation pipeline for various flows but
 // keeping a unified ordering of the pipeline.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
+#include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
@@ -33,7 +33,7 @@
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
-#include "mlir/Conversion/XModelToGPU/XModelToGPU.h"
+#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
@@ -45,7 +45,7 @@
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
-#include "mlir/Dialect/XModel/Transforms/Passes.h"
+#include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
@@ -54,10 +54,10 @@
 
 using namespace mlir;
 
-//===- Consolidate the XModel Pipelines here ---------------------===//
+//===- Consolidate the MHAL Pipelines here ---------------------===//
 
-void xmodel::buildGraphPipeline(OpPassManager &pm,
-                                const xmodel::GraphOptions &options) {
+void mhal::buildGraphPipeline(OpPassManager &pm,
+                                const mhal::GraphOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
   /* mlir-opt --tosa-make-broadcastable
@@ -74,35 +74,35 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
   pm.addPass(tosa::createTosaPartition(opts));
 
   // make async kernel launch's
-  /* mlir-opt --xmodel-async-graph
+  /* mlir-opt --mhal-async-graph
    */
-  pm.addNestedPass<func::FuncOp>(createXModelAsyncGraphPass());
+  pm.addNestedPass<func::FuncOp>(createMHALAsyncGraphPass());
 
   // clone 'kernel' funcs into __kernel_<arch> module
-  /* mlir-opt --xmodel-target-kernels
+  /* mlir-opt --mhal-target-kernels
    */
-  pm.addPass(xmodel::createXModelTargetKernelsPass(
-      xmodel::XModelTargetKernelsPassOptions{options.targets}));
+  pm.addPass(mhal::createMHALTargetKernelsPass(
+      mhal::MHALTargetKernelsPassOptions{options.targets}));
 }
 
 /// Collect target objects and package with host partitioned kernels
-void xmodel::buildPackagePipeline(OpPassManager &pm,
-                                  const xmodel::PackageOptions &options) {
-  /* mlir-opt --xmodel-package-targets
+void mhal::buildPackagePipeline(OpPassManager &pm,
+                                  const mhal::PackageOptions &options) {
+  /* mlir-opt --mhal-package-targets
    */
-  pm.addPass(xmodel::createXModelPackageTargetsPass());
+  pm.addPass(mhal::createMHALPackageTargetsPass());
 }
 
 // Runner takes an Affine/SCF program with async retargetable launchs
 // and lowers to host LLVM runtime program. JitRunner then calls ORC
 // to generate X86 binary and runs it.
-void xmodel::buildRunnerPipeline(OpPassManager &pm,
-                                 const xmodel::RunnerOptions &options) {
+void mhal::buildRunnerPipeline(OpPassManager &pm,
+                                 const mhal::RunnerOptions &options) {
   // Select targets
-  XModelSelectTargetsPassOptions targetOpts;
+  MHALSelectTargetsPassOptions targetOpts;
   targetOpts.targetTypes = options.targetTypes;
   targetOpts.targetArchs = options.targetArchs;
-  pm.addNestedPass<func::FuncOp>(createXModelSelectTargetsPass(targetOpts));
+  pm.addNestedPass<func::FuncOp>(createMHALSelectTargetsPass(targetOpts));
 
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
@@ -112,7 +112,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   funcPm1.addPass(createConvertSCFToCFPass());
 
   // Target async.launch to cpu.coro or gpu.launch_func
-  pm.addPass(createConvertXModelToGPUPass());
+  pm.addPass(createConvertMHALToGPUPass());
   pm.addPass(createAsyncParallelForPass());
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
@@ -148,19 +148,19 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
-void xmodel::registerPipelines() {
-  PassPipelineRegistration<xmodel::GraphOptions>(
-      "xmodel-graph-pipeline",
-      "The XModel graph pipeline optimizes and partitions TOSA dataflow "
+void mhal::registerPipelines() {
+  PassPipelineRegistration<mhal::GraphOptions>(
+      "mhal-graph-pipeline",
+      "The MHAL graph pipeline optimizes and partitions TOSA dataflow "
       "graphs.",
       buildGraphPipeline);
-  PassPipelineRegistration<xmodel::PackageOptions>(
-      "xmodel-package-pipeline",
-      "The XModel package pipeline collects implementations and applies them"
+  PassPipelineRegistration<mhal::PackageOptions>(
+      "mhal-package-pipeline",
+      "The MHAL package pipeline collects implementations and applies them"
       " to the appropriate the default func.",
       buildPackagePipeline);
-  PassPipelineRegistration<xmodel::RunnerOptions>(
-      "xmodel-runner-pipeline",
+  PassPipelineRegistration<mhal::RunnerOptions>(
+      "mhal-runner-pipeline",
       "The MHAL runner pipeline selects target implementations and generates"
       " host code to run them.",
       buildRunnerPipeline);

@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRXModelPipeline
+add_mlir_dialect_library(MLIRMHALPipeline
   Pipelines.cpp
 
   LINK_LIBS PUBLIC
@@ -14,8 +14,7 @@ add_mlir_dialect_library(MLIRXModelPipeline
   MLIRMathToLibm
   MLIRGPUToROCDLTransforms
   MLIRReconcileUnrealizedCasts
-  MLIRXModelToGPU
-  MLIRXModelTransforms
+  MLIRMHALTransforms
   MLIRIR
   MLIRPass
   MLIRLLVMDialect
