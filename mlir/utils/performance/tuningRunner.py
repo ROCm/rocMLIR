@@ -146,12 +146,14 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
 
 #Extract gemm or conv configurations from fusion tests
 def extractFusionConfigs(test_dir, paths: Paths, options: Options):
-    TABLE_COLUMNS = reportUtils.FUSION_TEST_COL
     allConfigs = []
     opType=Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
-        testVector = perfRunner.getTestVector(filename, paths)
-        print("Extract from:", filename, ':', testVector)
+        print("Extract from:", filename)
+        testEntry = perfRunner.getFusionTestInfo(filename, paths)
+        if not testEntry:
+            continue
+        testVector = testEntry['testVector']
         if not testVector:
             continue
         # skip if the best config already exists

@@ -24,7 +24,6 @@ CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                         'PaddingH', 'PaddingW', 'PerfConfig']
 GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
-FUSION_TEST_COL = ['TestFile', 'PerfConfig', 'Time']
 ROUND_DIGITS = 2
 
 def geoMean(data):

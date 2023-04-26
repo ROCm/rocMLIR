@@ -600,7 +600,7 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Tune Gemm and Fusion") {
+                    stage("Tune Gemm") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
@@ -609,7 +609,12 @@ pipeline {
 --configs_file=../mlir/utils/performance/bert-configs \
 --output=mlir_tuning_${ARCH}.tsv
 [ -f mlir_tuning_${ARCH}.tsv ]"""
-
+                            }
+                        }
+                    }
+                    stage("Tune Fusion") {
+                        steps {
+                            dir('build') {
                                 // Tune resnet50
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
 --test_dir ../mlir/test/fusion/e2e/resnet50/ -o tuning_fusion_resnet50_${ARCH}.tsv"""
@@ -621,7 +626,6 @@ pipeline {
                             sh 'rm build/CMakeCache.txt'
                         }
                     }
-
                     stage("Build MIOpen with librockCompiler") {
                         steps {
                             buildMIOpenWithMLIR()

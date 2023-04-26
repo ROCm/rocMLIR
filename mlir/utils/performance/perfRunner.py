@@ -791,24 +791,38 @@ def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
     chip = GFX_CHIP_RE.search(arch).group(0)
     df.to_csv(chip + '_' + filename, index=False)
 
-RUNNABLE_TEST_RE = re.compile(r"^(?!.*RUN-DISABLE).*RUN.*runner.*$")
+RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:")
+ROCMLIRGEN_RE = re.compile(r"rocmlir-gen.*-fut")
 def findRunCommand(filename):
+    firstCommand = None
+    futName = None
     with open(filename, 'r') as f:
         for line in f:
-            match = RUNNABLE_TEST_RE.search(line)
-            if match:
-                command = match.group(0).split("RUN")[1].strip()[2:] # Remove the "//" and "RUN" prefixes and leading/trailing whitespace
-                parts = command.split('|')  # Split the command using the "|" separator
-                return parts[0].strip()
-                # Stop processing lines after finding the first matching line
-    # Not a valid test
-    print("WARNING: cannot find valid RUN command in ", filename)
-    return None
+            hasRun = RUNNABLE_TEST_RE.search(line)
+            hasRocmlirGen = ROCMLIRGEN_RE.search(line)
+            if hasRun:
+                command = line.split("RUN")[1].strip()[1:] # Remove the "//" and "RUN" prefixes, leading/trailing whitespace and ':'
+                if not firstCommand:
+                    parts = command.split('|')  # Split the command using the "|" separator
+                    firstCommand = parts[0].strip() # Find the first command
 
-def getTestVector(filename, paths: Paths):
-    firstCommand = findRunCommand(filename)
+                if hasRocmlirGen:
+                    words = line.split()
+                    futName = words[words.index("-fut") + 1] # Find the word after '-fut'
+
+                if 'runner' in line: # Stop processing lines after finding a runner
+                    return firstCommand, futName
+
+    # Not found a "RUN" command or a runner
+    print("WARNING: cannot find valid RUN command in ", filename)
+    return None, None
+
+# Extract testVector and test function name from the test file
+def getFusionTestInfo(filename, paths: Paths):
+    testEntry = {}
+    firstCommand, futName = findRunCommand(filename)
     if not firstCommand:
-        return ""
+        return testEntry
 
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
@@ -829,10 +843,11 @@ def getTestVector(filename, paths: Paths):
     p2.stdout.close()
     output, _ = tuningKey.communicate()
     result = output.decode('utf-8').strip().split('\t')
-    return result[1]
+    testEntry = {'filename' : filename, 'testVector' : result[1], 'futName' : futName}
+    return testEntry
 
 def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
-    firstCommand = findRunCommand(filename)
+    firstCommand, _ = findRunCommand(filename)
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
@@ -845,7 +860,6 @@ def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), filename]
         # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        print(rocmlirDriverCommand)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
     kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel,runner', '-kernel-pipeline','full']
@@ -862,55 +876,57 @@ def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
     return profiling
 
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb):
-    TABLE_COLUMNS = reportUtils.FUSION_TEST_COL
     allData = []
-
+    allTests = [] #filename, testVector, futName
     chip = GFX_CHIP_RE.search(arch).group(0)
-    for filename in glob.glob(test_dir+'/*mlir'):
+
+    # Prepare test cases
+    for filename in glob.glob(test_dir+'/*.mlir'):
+        testEntry = getFusionTestInfo(filename, paths)
+        if testEntry:
+            allTests.append(testEntry)
+
+    # Profile each test case
+    for test in allTests:
+        filename = test['filename']
+        testVector = test['testVector']
+        futName = test['futName']
+
         os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
 
         print("Profiling:", filename)
-        testVector = getTestVector(filename, paths)
-        if (not testVector):
+        # Sanity check
+        if not testVector:
+            print("\tCannot find a test vector")
             continue
-        firstCommand = findRunCommand(filename)
-        if not firstCommand:
+        if not futName:
+            print("\tCannot find rocmlir-gen with -fut")
             continue
 
         commandLine = testVector.split(sep=' ')
-        if (commandLine[0].startswith('conv')):
+        if commandLine[0].startswith('conv'):
             op = 'conv'
             config = ConvConfiguration.fromCommandLine(commandLine, arch)
         else:
             op = 'gemm'
             config = GemmConfiguration.fromCommandLine(commandLine, arch)
 
-        # find the best perf_config
+        # Find the best perf_config
         bestPerf =""
         if tuningDb:
             if (arch, testVector) in tuningDb:
                bestPerf = tuningDb[arch, testVector]
                config.setPerfConfig(bestPerf)
-            else: # Tuning DB present but doesn't contain config, return N/A
+            else: # Tuning DB present but doesn't contain config, add a NaN entry
                oneEntry = config.tableEntry(np.nan)
                oneEntry['FileName'] = filename
                allData.append(oneEntry)
                continue;
 
-        # find the name of test function
-        futName = None
-        with open(filename, 'r') as f:
-            for line in f:
-              if re.search(r"rocmlir-gen", line):
-                  words = line.split()
-                  futName = words[words.index("-fut") + 1]
-        if not futName:
-            print("Cannot find rocmlir-gen option -fut")
-            continue
         rocmlirGenArgs = ['-ph', '-fut='+futName, '--perf_config='+bestPerf, '-']
         profiling = generateProfilingProcesses(filename, rocmlirGenArgs, paths)
 
-        # get output.
+        # Get output.
         try:
             outs, errs = profiling.communicate(timeout=60)
             if len(errs) > 0:
@@ -921,12 +937,13 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
             profiling.kill()
             outs, errs = profiling.communicate()
 
-        # get nanoseconds from rocprof output.
+        # Get nanoseconds from rocprof output.
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry = config.tableEntry(nanoSeconds)
         oneEntry['FileName'] = filename
         allData.append(oneEntry)
     df = pd.DataFrame(allData)
+    df.fillna('NaN', inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 #Tune MIOpen with MLIR kernels
