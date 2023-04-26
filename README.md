@@ -1,2 +1,2 @@
 # mlir-hal
-MLIR dialect for a Hardware Abstraction Level
+MLIR dialect for a Hardware Abstraction Layer
