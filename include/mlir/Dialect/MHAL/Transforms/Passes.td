@@ -27,6 +27,12 @@ def MHALInferGraphPass : Pass<"mhal-infer-graph", "func::FuncOp"> {
   let dependentDialects = ["mhal::MHALDialect"];
 }
 
+def MHALBufferize : Pass<"mhal-bufferize", "func::FuncOp"> {
+  let summary = "Bufferize the mhal dialect.";
+  let dependentDialects = ["bufferization::BufferizationDialect",
+                           "memref::MemRefDialect"];
+}
+
 def MHALSelectTargetsPass : Pass<"mhal-select-targets", "func::FuncOp"> {
   let summary = "Select runtime target for execution";
   let options = [

@@ -21,10 +21,17 @@
 namespace mlir {
 namespace mhal {
 
+//===----------------------------------------------------------------------===//
+// Registration
+//===----------------------------------------------------------------------===//
+
+/// Generate the code for registering passes.
+
 #define GEN_PASS_DECL_MHALTARGETKERNELSPASS
 #define GEN_PASS_DECL_MHALINFERGRAPHPASS
 #define GEN_PASS_DECL_MHALPACKAGETARGETSPASS
 #define GEN_PASS_DECL_MHALSELECTTARGETSPASS
+#define GEN_PASS_DECL_MHALBUFFERIZEPASS
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MHAL/Transforms/Passes.h.inc"
