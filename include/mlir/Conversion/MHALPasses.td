@@ -16,7 +16,7 @@ include "mlir/Pass/PassBase.td"
 //===----------------------------------------------------------------------===//
 
 def ConvertMHALToGPU : Pass<"convert-mhal-to-gpu", "ModuleOp"> {
-  let summary = "Convert the async.launch operations to the GPU dialect";
+  let summary = "Convert the mhal.launch operations to the GPU dialect";
   let constructor = "mlir::createConvertMHALToGPUPass()";
   let dependentDialects = ["gpu::GPUDialect"];
 }
