@@ -1,4 +1,6 @@
 add_mlir_dialect_library(MLIRMHALTransforms
+  Bufferize.cpp
+  BufferizableOpInterfaceImpl.cpp
   InferGraph.cpp
   PackageTargets.cpp
   SelectTargets.cpp

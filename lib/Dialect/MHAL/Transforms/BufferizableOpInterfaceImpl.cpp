@@ -8,20 +8,94 @@
 
 #include "mlir/Dialect/MHAL/Transforms/BufferizableOpInterfaceImpl.h"
 
+#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 using namespace mlir;
 using namespace mlir::bufferization;
+using namespace mlir::bufferization::func_ext;
 using namespace mlir::mhal;
+using namespace mlir::func;
 
 namespace mlir {
 namespace mhal {
 namespace {
+
+/// Return the index of the bbArg in the given FuncOp that is equivalent to the
+/// specified return value (if any).
+static std::optional<int64_t>
+getEquivalentFuncArgIdx(FuncOp funcOp, const FuncAnalysisState &state,
+                        int64_t returnValIdx) {
+  auto funcOpIt = state.equivalentFuncArgs.find(funcOp);
+  if (funcOpIt == state.equivalentFuncArgs.end())
+    // No equivalence info stores for funcOp.
+    return std::nullopt;
+
+  auto retValIt = funcOpIt->getSecond().find(returnValIdx);
+  if (retValIt == funcOpIt->getSecond().end())
+    // Return value has no equivalent bbArg.
+    return std::nullopt;
+
+  return retValIt->getSecond();
+}
+
+/// Return the actual call operand index corresponding to the func operand.
+static unsigned getCallOperandIdx(CallOpInterface callOp, unsigned funcIdx) {
+  auto operands = callOp.getCallOperands();
+  if (operands.size() != callOp->getOperands().size()) {
+    // Search for the value
+    for (const auto &it : llvm::enumerate(callOp->getOperands())) {
+      if (it.value() == operands[funcIdx])
+        return it.index();
+    }   
+    assert(0 && "not found!?");
+  }
+  return funcIdx;
+}
+
+/// Return the FuncOp called by `callOp`.
+static FuncOp getCalledFunction(CallOpInterface callOp) {
+  SymbolRefAttr sym = callOp.getCallableForCallee().dyn_cast<SymbolRefAttr>();
+  if (!sym)
+    return nullptr;
+  return dyn_cast_or_null<FuncOp>(
+      SymbolTable::lookupNearestSymbolFrom(callOp, sym));
+}
+
+/// Get FuncAnalysisState.
+static const FuncAnalysisState &
+getFuncAnalysisState(const AnalysisState &state) {
+  assert(isa<OneShotAnalysisState>(state) && "expected OneShotAnalysisState");
+  auto *result = static_cast<const OneShotAnalysisState &>(state)
+                     .getExtension<FuncAnalysisState>();
+  assert(result && "FuncAnalysisState does not exist");
+  return *result;
+}
+
+/// Return the state (phase) of analysis of the FuncOp.
+static FuncOpAnalysisState getFuncOpAnalysisState(const AnalysisState &state,
+                                                  FuncOp funcOp) {
+  if (!isa<OneShotAnalysisState>(state))
+    return FuncOpAnalysisState::NotAnalyzed;
+  auto *funcState = static_cast<const OneShotAnalysisState &>(state)
+                        .getExtension<FuncAnalysisState>();
+  if (!funcState)
+    return FuncOpAnalysisState::NotAnalyzed;
+  const auto &analyzedFuncOps = funcState->analyzedFuncOps;
+  auto it = analyzedFuncOps.find(funcOp);
+  if (it == analyzedFuncOps.end())
+    return FuncOpAnalysisState::NotAnalyzed;
+  return it->second;
+}
 
 /// Bufferization of mhal.launch.
 struct LaunchOpInterface
@@ -255,7 +329,7 @@ struct LaunchOpInterface
 
 void mlir::mhal::registerBufferizableOpInterfaceExternalModels(
     DialectRegistry &registry) {
-  registry.addExtension(+[](MLIRContext *ctx, MHAL::MHALDialect *dialect) {
+  registry.addExtension(+[](MLIRContext *ctx, mhal::MHALDialect *dialect) {
     mhal::LaunchOp::attachInterface<LaunchOpInterface>(*ctx);
   }); 
 }

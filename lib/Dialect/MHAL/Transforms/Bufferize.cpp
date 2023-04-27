@@ -18,8 +18,10 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
-#define GEN_PASS_DEF_MHALBUFFERIZE
+namespace mhal {
+#define GEN_PASS_DEF_MHALBUFFERIZEPASS
 #include "mlir/Dialect/MHAL/Transforms/Passes.h.inc"
+} // namespace mhal
 } // namespace mlir
 
 using namespace mlir;
@@ -27,7 +29,7 @@ using namespace bufferization;
 
 namespace {
 struct MHALBufferizePass
-    : public impl::MHALBufferizeBase<MHALBufferizePass> {
+  : public mhal::impl::MHALBufferizePassBase<MHALBufferizePass> {
   void runOnOperation() override {
     BufferizationOptions options = getPartialBufferizationOptions();
     options.opFilter.allowDialect<mhal::MHALDialect>();
@@ -44,6 +46,3 @@ struct MHALBufferizePass
 };
 } // namespace
 
-std::unique_ptr<OperationPass<func::FuncOp>> mlir::createMHALBufferizePass() {
-  return std::make_unique<MHALBufferizePass>();
-}

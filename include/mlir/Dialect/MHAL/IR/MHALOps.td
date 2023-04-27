@@ -101,7 +101,7 @@ def MHAL_LaunchOp :
 
   let hasVerifier = 1;
   let assemblyFormat = [{ 
-    $callee `[` $dependencies `]` `(` $launchOperands `)` attr-dict
+    $callee (` ` `[` $dependencies^ `]`)? `(` $launchOperands `)` attr-dict
     `:` type(operands) (`->` type($results)^)?
   }];
 

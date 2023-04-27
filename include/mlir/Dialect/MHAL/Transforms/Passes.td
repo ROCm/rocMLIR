@@ -27,7 +27,7 @@ def MHALInferGraphPass : Pass<"mhal-infer-graph", "func::FuncOp"> {
   let dependentDialects = ["mhal::MHALDialect"];
 }
 
-def MHALBufferize : Pass<"mhal-bufferize", "func::FuncOp"> {
+def MHALBufferizePass : Pass<"mhal-bufferize", "func::FuncOp"> {
   let summary = "Bufferize the mhal dialect.";
   let dependentDialects = ["bufferization::BufferizationDialect",
                            "memref::MemRefDialect"];
