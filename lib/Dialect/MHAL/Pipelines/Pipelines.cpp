@@ -73,10 +73,10 @@ void mhal::buildGraphPipeline(OpPassManager &pm,
   opts.trailingOnly = true;
   pm.addPass(tosa::createTosaPartition(opts));
 
-  // make async kernel launch's
-  /* mlir-opt --mhal-async-graph
+  // make mhal kernel launch's
+  /* mlir-opt --mhal-infer-graph
    */
-  pm.addNestedPass<func::FuncOp>(createMHALAsyncGraphPass());
+  pm.addNestedPass<func::FuncOp>(createMHALInferGraphPass());
 
   // clone 'kernel' funcs into __kernel_<arch> module
   /* mlir-opt --mhal-target-kernels
@@ -93,7 +93,7 @@ void mhal::buildPackagePipeline(OpPassManager &pm,
   pm.addPass(mhal::createMHALPackageTargetsPass());
 }
 
-// Runner takes an Affine/SCF program with async retargetable launchs
+// Runner takes an Affine/SCF program with mhal retargetable launchs
 // and lowers to host LLVM runtime program. JitRunner then calls ORC
 // to generate X86 binary and runs it.
 void mhal::buildRunnerPipeline(OpPassManager &pm,
@@ -111,7 +111,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   funcPm1.addPass(createConvertSCFToCFPass());
 
-  // Target async.launch to cpu.coro or gpu.launch_func
+  // Target mhal.launch to cpu.coro or gpu.launch_func
   pm.addPass(createConvertMHALToGPUPass());
   pm.addPass(createAsyncParallelForPass());
   // Make gpu ops async if they didn't come from the async world

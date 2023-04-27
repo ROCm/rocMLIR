@@ -1,5 +1,5 @@
 add_mlir_dialect_library(MLIRMHALTransforms
-  AsyncGraph.cpp
+  InferGraph.cpp
   PackageTargets.cpp
   SelectTargets.cpp
   TargetKernels.cpp
