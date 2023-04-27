@@ -1,6 +1,7 @@
 
 add_mlir_dialect_library(MLIRMHAL
   MHAL.cpp
+  MHALOps.cpp
 
   DEPENDS
   MLIRMHALAttrDefsIncGen
