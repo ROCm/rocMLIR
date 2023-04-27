@@ -9,7 +9,6 @@
 #include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -28,7 +27,7 @@ namespace mlir {
 } // namespace mlir
 
 using namespace mlir;
-using namespace mlir::async;
+using namespace mlir::mhal;
 
 //===----------------------------------------------------------------------===//
 // Convert MHAL dialect types to GPU types.
@@ -49,7 +48,7 @@ public:
 } // namespace
 
 // Helper to pull out the called func
-static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
+static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
   CallOpInterface callIf(op);
   if (auto *callable = callIf.resolveCallable()) {
     if (auto func = dyn_cast<func::FuncOp>(callable))
@@ -60,7 +59,7 @@ static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
 }
 
 // Get target{gpu} attribute from called func
-static Optional<mhal::KernelPackageAttr> getGPUTarget(async::LaunchOp op) {
+static Optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   auto func = getCalledFunc(op);
   if (!func.has_value() || func->getNumResults() != 0)
     return std::nullopt;
@@ -78,13 +77,13 @@ static Optional<mhal::KernelPackageAttr> getGPUTarget(async::LaunchOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// Convert async.launch ops with 'gpu' target to gpu.launch_func ops with
+// Convert mhal.launch ops with 'gpu' target to gpu.launch_func ops with
 // required memory staging.
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
-  using OpRewritePattern<async::LaunchOp>::OpRewritePattern;
+struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
+  using OpRewritePattern<mhal::LaunchOp>::OpRewritePattern;
 
   Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
     auto tokenType = b.getType<gpu::AsyncTokenType>();
@@ -95,7 +94,7 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
   bool isOnDevice(const T &oprUsers) const {
     for (auto opUse : oprUsers) {
       auto gpuLaunch = dyn_cast<gpu::LaunchFuncOp>(opUse);
-      auto launch = dyn_cast<async::LaunchOp>(opUse);
+      auto launch = dyn_cast<mhal::LaunchOp>(opUse);
       // assumes the same GPU
       if (!gpuLaunch && !(launch && getGPUTarget(launch).has_value()))
         return false;
@@ -103,7 +102,7 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     return true;
   }
 
-  Value moveMemory(OpBuilder b, async::LaunchOp launchOp, Value opr,
+  Value moveMemory(OpBuilder b, mhal::LaunchOp launchOp, Value opr,
                    uint32_t fidx, bool readAccess, bool writeAccess,
                    llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
@@ -159,14 +158,14 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     return dstMem;
   }
 
-  LogicalResult matchAndRewrite(async::LaunchOp op,
+  LogicalResult matchAndRewrite(mhal::LaunchOp op,
                                 PatternRewriter &rw) const override {
     Location loc = op.getLoc();
     auto caller = op->getParentOfType<func::FuncOp>();
     auto module = caller->getParentOfType<ModuleOp>();
     auto *ctx = module.getContext();
 
-    assert(op->getNumResults() == 1); // only 1 async.token
+    assert(op->getNumResults() == 1); // only 1 mhal.token
 
     // 1. get target{gpu} attribute from func
 
@@ -301,7 +300,7 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
       }
     }
 
-    // Consolidate tokens for replacement of async.launch
+    // Consolidate tokens for replacement of mhal.launch
     if (tokens.size() > 1) {
       // insert gpu.wait
       token = makeWait(rw, loc, tokens);
@@ -319,19 +318,19 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Convert async.await to the corresponding GPU API call.
+// Convert mhal.await to the corresponding GPU API call.
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
-  using OpRewritePattern<async::AwaitOp>::OpRewritePattern;
+struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
+  using OpRewritePattern<mhal::AwaitOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(async::AwaitOp op,
+  LogicalResult matchAndRewrite(mhal::AwaitOp op,
                                 PatternRewriter &rw) const override {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
     Value input = op.getOperand();
     if (input.getType() == tokenType) {
-      // async.await with token type should never have a result type
+      // mhal.await with token type should never have a result type
       assert(op.getResultType() == std::nullopt);
       rw.create<gpu::WaitOp>(op.getLoc(), Type(), input);
       rw.eraseOp(op);
@@ -357,7 +356,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
   MLIRContext *ctx = module->getContext();
 
   {
-    // Convert async.launch to gpu.launch if mhal.targets[gpu] exists
+    // Convert mhal.launch to gpu.launch if mhal.targets[gpu] exists
     RewritePatternSet patterns(ctx);
     patterns.add<LaunchRewritePattern>(ctx);
 
@@ -366,7 +365,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
   }
 
   {
-    // Convert async.await to gpu.wait if has gpu.tokens
+    // Convert mhal.await to gpu.wait if has gpu.tokens
     RewritePatternSet patterns(ctx);
     patterns.add<AwaitRewritePattern>(ctx);
 

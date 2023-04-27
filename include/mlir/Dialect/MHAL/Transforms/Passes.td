@@ -22,9 +22,9 @@ def MHALPackageTargetsPass : Pass<"mhal-package-targets", "ModuleOp"> {
   let summary = "apply target implementation to host kernel funcs";
 }
 
-def MHALAsyncGraphPass : Pass<"mhal-async-graph", "func::FuncOp"> {
+def MHALInferGraphPass : Pass<"mhal-infer-graph", "func::FuncOp"> {
   let summary = "convert kernel func call ops to mhal.launch ops with dependencies";
-  let dependentDialects = ["mhal::MHALDialect", "async::AsyncDialect"];
+  let dependentDialects = ["mhal::MHALDialect"];
 }
 
 def MHALSelectTargetsPass : Pass<"mhal-select-targets", "func::FuncOp"> {

@@ -1,4 +1,4 @@
-//===- AsyncGraph.cpp - Kernel func call ops to async.launch --------------===//
+//===- InferGraph.cpp - Kernel func call ops to mhal.launch --------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the async.launch pattern rewriter that converts kernel
-// call ops to async.launch ops with inferred data-dependency converted to
-// explicit async.token based dependence graph.
+// This file implements the mhal.launch pattern rewriter that converts kernel
+// call ops to mhal.launch ops with inferred data-dependency converted to
+// explicit mhal.token based dependence graph.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Async/IR/Async.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
@@ -25,17 +25,17 @@
 
 namespace mlir {
 namespace mhal {
-#define GEN_PASS_DEF_MHALASYNCGRAPHPASS
+#define GEN_PASS_DEF_MHALINFERGRAPHPASS
 #include "mlir/Dialect/MHAL/Transforms/Passes.h.inc"
 } // namespace mhal
 } // namespace mlir
 
-#define DEBUG_TYPE "mhal-async-graph"
+#define DEBUG_TYPE "mhal-infer-graph"
 
 using namespace mlir;
 namespace {
-class MHALAsyncGraphPass
-    : public mhal::impl::MHALAsyncGraphPassBase<MHALAsyncGraphPass> {
+class MHALInferGraphPass
+    : public mhal::impl::MHALInferGraphPassBase<MHALInferGraphPass> {
 
   static bool isTerminator(Operation *op) {
     return op->mightHaveTrait<OpTrait::IsTerminator>();
@@ -111,7 +111,7 @@ class MHALAsyncGraphPass
     }
 
     // Clone the op to return a token in addition to the other results.
-    auto alaunch = builder.create<async::LaunchOp>(op.getLoc(), func, tokens,
+    auto alaunch = builder.create<mhal::LaunchOp>(op.getLoc(), func, tokens,
                                                    op->getOperands());
 
     // Replace the op with the async clone.
@@ -135,7 +135,7 @@ class MHALAsyncGraphPass
     Value res;
     assert(token);
     OpBuilder builder(op);
-    auto awaitOp = builder.create<async::AwaitOp>(op->getLoc(), token);
+    auto awaitOp = builder.create<mhal::AwaitOp>(op->getLoc(), token);
     auto results = awaitOp.getResults();
     if (results.size())
       res = results.front();
