@@ -9,31 +9,12 @@
 #ifndef MHAL_ATTRS
 #define MHAL_ATTRS
 
-include "mlir/Dialect/MHAL/IR/MHALDialect.td"
-include "mlir/IR/AttrTypeBase.td"
-include "mlir/IR/EnumAttr.td"
+include "mlir/Dialect/MHAL/IR/MHALBase.td"
+include "mlir/Dialect/MHAL/IR/MHALTypes.td"
 include "mlir/IR/SubElementInterfaces.td"
 
-class MHAL_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
-  : I32EnumAttr<name, summary, cases> {
-  let cppNamespace = "::mlir::mhal";
-
-  let genSpecializedAttr = 0;
-  let stringToSymbolFnName = "get" # name # "ForName";
-  let symbolToStringFnName = "getNameFor" # name;
-}
-
 class MHAL_Attr<string name, list<Trait> traits = []> :
-    AttrDef<MHAL_Dialect, name, traits>;
-
-/// TargetObjectType
-def ELFType : I32EnumAttrCase<"ELF", 0>;
-def SPIRVType : I32EnumAttrCase<"SPIRV", 1>;
-def LLVMIRType : I32EnumAttrCase<"LLVMIR", 2>;
-
-def TargetObjectType : MHAL_I32Enum<"TargetObjectType",
-    "The target object type",
-    [ELFType, SPIRVType, LLVMIRType]>;
+    AttrDef<MHALDialect, name, traits>;
 
 /// TargetObjectAttr
 def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
@@ -65,16 +46,6 @@ def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
     let genVerifyDecl = 0;
     let hasCustomAssemblyFormat = 1;
 }
-
-/// TargetType
-def CPUType : I32EnumAttrCase<"CPU", 0>;
-def GPUType : I32EnumAttrCase<"GPU", 1>;
-def NPUType : I32EnumAttrCase<"NPU", 2>;
-def ALTType : I32EnumAttrCase<"ALT", 3>;
-
-def TargetType : MHAL_I32Enum<"TargetType",
-    "The IP type for a kernel package/target object",
-    [CPUType, GPUType, NPUType, ALTType]>;
 
 /// KernelPackageAttr
 def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage", [

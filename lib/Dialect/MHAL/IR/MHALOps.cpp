@@ -19,20 +19,10 @@
 using namespace mlir;
 using namespace mlir::mhal;
 
-#include "mlir/Dialect/MHAL/IR/MHALOpsDialect.cpp.inc"
+// constexpr StringRef MHALDialect::kAllowedToBlockAttrName;
 
-constexpr StringRef MHALDialect::kAllowedToBlockAttrName;
-
-void MHALDialect::initialize() {
-  addOperations<
-#define GET_OP_LIST
 #include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"
-      >();
-  addTypes<
-#define GET_TYPEDEF_LIST
 #include "mlir/Dialect/MHAL/IR/MHALOpsTypes.cpp.inc"
-      >();
-}
 
 //===----------------------------------------------------------------------===//
 /// LaunchOp

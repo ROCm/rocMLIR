@@ -16,6 +16,7 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 //===----------------------------------------------------------------------===//
 //  MHAL Dialect
@@ -48,8 +49,10 @@ public:
 } // namespace mhal
 } // namespace mlir
 
-#include "mlir/Dialect/MHAL/IR/MHALDialect.h.inc"
-#include "mlir/Dialect/MHAL/IR/MHALTypes.h.inc"
+#include "mlir/Dialect/MHAL/IR/MHALOpsDialect.h.inc"
+#include "mlir/Dialect/MHAL/IR/MHALTypes.h"
+#define GET_OP_CLASSES
+#include "mlir/Dialect/MHAL/IR/MHALOps.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.h.inc"

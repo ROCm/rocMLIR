@@ -19,6 +19,8 @@
 // MHAL Dialect Types
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MHAL/IR/MHALTypes.h.inc"
+
 #define GET_TYPEDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALOpsTypes.h.inc"
 

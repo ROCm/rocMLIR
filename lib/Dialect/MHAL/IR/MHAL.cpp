@@ -14,8 +14,27 @@
 
 using namespace mlir;
 
-#include "mlir/Dialect/MHAL/IR/MHALDialect.cpp.inc"
-#include "mlir/Dialect/MHAL/IR/MHALTypes.cpp.inc"
+#include "mlir/Dialect/MHAL/IR/MHALOpsDialect.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// MHALDialect
+//===----------------------------------------------------------------------===//
+
+void mhal::MHALDialect::initialize() {
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
+      >();
+  addOperations<
+#define GET_OP_LIST
+#include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"
+    >();
+  addTypes<
+#define GET_TYPEDEF_LIST
+#include "mlir/Dialect/MHAL/IR/MHALOpsTypes.cpp.inc"
+      >();
+  // addInterfaces<MHALAsmDialectInterface>();
+}
 
 //===----------------------------------------------------------------------===//
 // MHALDialect Interfaces
@@ -247,27 +266,12 @@ void KernelPackageAttr::print(mlir::AsmPrinter &printer) const {
 } // namespace mlir
 
 //===----------------------------------------------------------------------===//
-// MHALDialect
-//===----------------------------------------------------------------------===//
-
-void mhal::MHALDialect::initialize() {
-  addAttributes<
-#define GET_ATTRDEF_LIST
-#include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
-      >();
-  //   addOperations<
-  // #define GET_OP_LIST
-  // #include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"
-  //       >();
-  addInterfaces<MHALAsmDialectInterface>();
-}
-
-//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
+
+#define GET_TYPEDEF_CLASSES
+#include "mlir/Dialect/MHAL/IR/MHALTypes.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
 
-// #define GET_OP_CLASSES
-// #include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"

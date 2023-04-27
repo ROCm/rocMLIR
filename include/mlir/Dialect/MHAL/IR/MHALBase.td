@@ -11,7 +11,7 @@
 
 include "mlir/IR/OpBase.td"
 
-def MHAL_Dialect : Dialect {
+def MHALDialect : Dialect {
   let name = "mhal";
   let cppNamespace = "::mlir::mhal";
   let useFoldAPI = kEmitFoldAdaptorFolder;

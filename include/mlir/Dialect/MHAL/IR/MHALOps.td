@@ -13,8 +13,8 @@
 #ifndef MHAL_OPS
 #define MHAL_OPS
 
-include "mlir/Dialect/MHAL/IR/MHALDialect.td"
-include "mlir/Dialect/MHAL/IR/MHALTypes.td"
+include "mlir/Dialect/MHAL/IR/MHALBase.td"
+include "mlir/Dialect/MHAL/IR/MHALAttrDefs.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
@@ -117,7 +117,7 @@ def MHAL_AwaitOp : MHAL_Op<"await"> {
     ```
   }];
 
-  let arguments = (ins MHAL_AnyValueOrTokenType:$operand);
+  let arguments = (ins MHAL_TokenType:$operand);
   let results = (outs Optional<AnyType>:$result);
 
   let skipDefaultBuilders = 1;
