@@ -1,6 +1,6 @@
-add_mlir_dialect(MHALBase mhal)
-add_mlir_doc(MHALBase MHALDialect Dialects/ -gen-dialect-doc)
-add_mlir_doc(MHALBase MHALAttrDefs Dialects/ -gen-attrdef-doc)
+add_mlir_dialect(MHALDialect mhal)
+add_mlir_doc(MHALDialect MHALDialect Dialects/ -gen-dialect-doc)
+add_mlir_doc(MHALDialect MHALAttrDefs Dialects/ -gen-attrdef-doc)
 add_mlir_doc(MHALOps MHALOps Dialects/ -gen-op-doc)
 
 set(LLVM_TARGET_DEFINITIONS MHALAttrDefs.td)

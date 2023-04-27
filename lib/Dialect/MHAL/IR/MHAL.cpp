@@ -14,7 +14,7 @@
 
 using namespace mlir;
 
-#include "mlir/Dialect/MHAL/IR/MHALBaseDialect.cpp.inc"
+#include "mlir/Dialect/MHAL/IR/MHALDialect.cpp.inc"
 #include "mlir/Dialect/MHAL/IR/MHALTypes.cpp.inc"
 
 //===----------------------------------------------------------------------===//

@@ -9,7 +9,7 @@
 #ifndef MHAL_ATTRS
 #define MHAL_ATTRS
 
-include "mlir/Dialect/MHAL/IR/MHALBase.td"
+include "mlir/Dialect/MHAL/IR/MHALDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/SubElementInterfaces.td"

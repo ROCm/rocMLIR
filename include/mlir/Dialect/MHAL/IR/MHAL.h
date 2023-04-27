@@ -48,7 +48,7 @@ public:
 } // namespace mhal
 } // namespace mlir
 
-#include "mlir/Dialect/MHAL/IR/MHALBaseDialect.h.inc"
+#include "mlir/Dialect/MHAL/IR/MHALDialect.h.inc"
 #include "mlir/Dialect/MHAL/IR/MHALTypes.h.inc"
 
 #define GET_ATTRDEF_CLASSES
