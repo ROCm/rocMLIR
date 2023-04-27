@@ -234,6 +234,19 @@ module  {
     return %0 : tensor<1x12x100x64xf32>
   }
 
+  // CHECK-LABEL: func.func @func_erf_f32
+  // CHECK: tosa.erf
+  func.func @func_erf_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.erf"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
+    return %0 : tensor<1x36x384x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_erf_f16
+  // CHECK: tosa.erf
+  func.func @func_erf_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
+    %0 = "migraphx.erf"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
+    return %0 : tensor<1x36x384x64xf16>
+  }
 
   // CHECK-LABEL: func.func @func_exp_f32
   // CHECK: tosa.exp
