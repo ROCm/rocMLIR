@@ -616,6 +616,19 @@ public:
     return success();
   }
 };
+
+class ErfConverter final : public OpConversionPattern<migraphx::ErfOp> {
+public:
+  using OpConversionPattern<migraphx::ErfOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(migraphx::ErfOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value output =
+        rewriter.create<tosa::ErfOp>(op.getLoc(), op.getType(), op.getInA());
+    rewriter.replaceOp(op, {output});
+    return success();
+  }
+};
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
@@ -624,5 +637,5 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
                SoftmaxConverter, DotConverter, ReduceMeanConverter,
                QuantizeLinearConverter, DeQuantizeLinearConverter,
-               SliceConverter, DivConverter>(context);
+               SliceConverter, DivConverter, ErfConverter>(context);
 }

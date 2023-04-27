@@ -132,6 +132,17 @@ def MIGraphX_NegOp :
   let summary = "Negation";
   let description = [{
     get neg
+      }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_ErfOp :
+    MIGraphX_Op<"erf">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Gauss error function";
+  let description = [{
+    compute gauss error function
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }

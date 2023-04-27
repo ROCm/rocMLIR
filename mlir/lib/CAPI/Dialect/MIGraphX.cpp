@@ -72,9 +72,14 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
 MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   auto mod = unwrap(module);
   mod.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
-    attrs[0] =
-        llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
-    attrs[1] = llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
+    // There can be math lib ext linkage functions that does not represent
+    // the kernel
+    if (llvmFunc->hasAttr("block_size") && llvmFunc->hasAttr("grid_size")) {
+      attrs[0] =
+          llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
+      attrs[1] =
+          llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
+    }
   });
 }
 
