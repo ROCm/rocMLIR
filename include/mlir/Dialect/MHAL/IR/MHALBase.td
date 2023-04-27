@@ -14,9 +14,12 @@ include "mlir/IR/OpBase.td"
 def MHALDialect : Dialect {
   let name = "mhal";
   let cppNamespace = "::mlir::mhal";
-  let useFoldAPI = kEmitFoldAdaptorFolder;
 
+  let summary = "Types and operations for mhal dialect";
+
+  let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 #endif // MHAL_DIALECT

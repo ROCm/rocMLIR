@@ -99,8 +99,12 @@ def MHAL_LaunchOp :
     void updateSegmentSizes(MLIRContext *);
   }];
 
-  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let assemblyFormat = [{ 
+    $callee `[` $dependencies `]` `(` $launchOperands `)` attr-dict
+    `:` type(operands) (`->` type($results)^)?
+  }];
+
 }
 
 def MHAL_AwaitOp : MHAL_Op<"await"> {

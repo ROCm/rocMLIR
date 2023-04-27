@@ -93,6 +93,7 @@ void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
   assert(!(*this)->hasAttr("result_segment_sizes"));
 }
 
+#if 0
 void LaunchOp::print(OpAsmPrinter &p) {
   // func ref
   p << " " << (*this)->getAttr(getCalleeAttrName());
@@ -179,6 +180,7 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
 
   return success();
 }
+#endif
 
 LogicalResult LaunchOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto callable = (*this)->getAttrOfType<FlatSymbolRefAttr>("callee");
