@@ -19,7 +19,7 @@
 #define DEBUG_TYPE "convert-mhal-to-cpu"
 
 namespace mlir {
-#define GEN_PASS_DEF_CONVERTMHALTOCPU
+#define GEN_PASS_DEF_CONVERTMHALTOCPUPASS
 #include "mlir/Conversion/MHALPasses.h.inc"
 } // namespace mlir
 
@@ -40,6 +40,7 @@ static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
   }
 
   return std::nullopt;
+}
 }
 
 //===----------------------------------------------------------------------===//
@@ -223,15 +224,15 @@ struct ConvertMHALToCPUPass
 } // namespace
 
 void ConvertMHALToCPUPass::runOnOperation() {
-  ModuleOp module = getOperation();
-  MLIRContext *ctx = module->getContext();
+  auto op = getOperation();
+  MLIRContext *ctx = op->getContext();
 
   // Convert mhal.launch to func.call ops, remove all mhal.await ops
   RewritePatternSet patterns(ctx);
   patterns.add<LaunchRewritePattern>(ctx);
   patterns.add<AwaitRewritePattern>(ctx);
 
-  if (failed(applyPatternsAndFoldGreedily(module, std::move(patterns))))
+  if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
 }
 

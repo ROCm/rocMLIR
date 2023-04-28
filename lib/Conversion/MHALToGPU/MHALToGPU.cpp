@@ -22,7 +22,7 @@
 #define DEBUG_TYPE "convert-mhal-to-gpu"
 
 namespace mlir {
-#define GEN_PASS_DEF_CONVERTMHALTOGPU
+#define GEN_PASS_DEF_CONVERTMHALTOGPUPASS
 #include "mlir/Conversion/MHALPasses.h.inc"
 } // namespace mlir
 
@@ -352,15 +352,15 @@ struct ConvertMHALToGPUPass
 } // namespace
 
 void ConvertMHALToGPUPass::runOnOperation() {
-  ModuleOp module = getOperation();
-  MLIRContext *ctx = module->getContext();
+  auto op = getOperation();
+  MLIRContext *ctx = op->getContext();
 
   {
     // Convert mhal.launch to gpu.launch if mhal.targets[gpu] exists
     RewritePatternSet patterns(ctx);
     patterns.add<LaunchRewritePattern>(ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(module, std::move(patterns))))
+    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
       signalPassFailure();
   }
 
@@ -369,7 +369,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
     patterns.add<AwaitRewritePattern>(ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(module, std::move(patterns))))
+    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
       signalPassFailure();
   }
 }
