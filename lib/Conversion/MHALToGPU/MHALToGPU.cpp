@@ -346,7 +346,7 @@ struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
 
 namespace {
 struct ConvertMHALToGPUPass
-    : public impl::ConvertMHALToGPUBase<ConvertMHALToGPUPass> {
+    : public impl::ConvertMHALToGPUPassBase<ConvertMHALToGPUPass> {
   void runOnOperation() override;
 };
 } // namespace

@@ -217,7 +217,7 @@ struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
 
 namespace {
 struct ConvertMHALToCPUPass
-    : public impl::ConvertMHALToCPUBase<ConvertMHALToCPUPass> {
+    : public impl::ConvertMHALToCPUPassBase<ConvertMHALToCPUPass> {
   void runOnOperation() override;
 };
 } // namespace

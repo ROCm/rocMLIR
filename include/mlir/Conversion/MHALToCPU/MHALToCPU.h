@@ -14,7 +14,7 @@
 namespace mlir {
 class Pass;
 
-#define GEN_PASS_DECL_CONVERTMHALTOCPU
+#define GEN_PASS_DECL_CONVERTMHALTOCPUPASS
 #include "mlir/Conversion/MHALPasses.h.inc"
 
 } // namespace mlir
