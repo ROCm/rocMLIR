@@ -1022,7 +1022,7 @@ struct GridwiseGemmV2RewritePattern
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    AccelGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed

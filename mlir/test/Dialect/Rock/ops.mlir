@@ -201,7 +201,7 @@ func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x102
     arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
-    params = #rock.accel_gemm_params<
+    params = #rock.xdlops_gemm_params<
       kPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,

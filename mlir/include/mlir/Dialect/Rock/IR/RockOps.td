@@ -363,7 +363,7 @@ def Rock_GridwiseGemmV2Op :
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   Rock_AccelGemmParamsAttr:$params)> {
+                   RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
@@ -1079,7 +1079,7 @@ def Rock_BlockwiseGemmV2Op:
                    MemRefOf<AccelResTypes>:$matrixC,
                    StrAttr:$arch,
                    I32Attr:$blockSize,
-                   Rock_AccelGemmParamsAttr:$params)>{
+                   RockAccelTuningParamAttrInterface:$params)>{
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
@@ -1128,7 +1128,7 @@ def Rock_AccelGemmV2Op:
                    MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
                    MemRefRankOf<AccelResTypes , [1]>:$matrixC,
                    StrAttr:$arch,
-                   Rock_AccelGemmParamsAttr:$params)> {
+                   RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM V2";
   let description = [{
     The `rock.accel_gemm_v2` op is an abstraction of doing GEMM based on an accelerator.

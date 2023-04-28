@@ -15,8 +15,10 @@
 #ifndef ROCK_TUNING_PARAM_INTERFACE
 #define ROCK_TUNING_PARAM_INTERFACE
 
+include "mlir/Dialect/Rock/IR/RockBase.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
+
 
 def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface"> {
   let description = [{

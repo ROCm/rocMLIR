@@ -179,7 +179,7 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmV2Op> {
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    AccelGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     // Obtain critical information.
     int64_t K = tuningParams.getKPerBlock() * tuningParams.getKpack();
     int64_t mPerWave = tuningParams.getMPerWave();

@@ -62,8 +62,8 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
             for (uint32_t gemmNPerWave : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 for (uint32_t forceUnroll : xdlopsParams[6]) {
-                  AccelGemmParamsAttr gemmParams =
-                      b.getAttr<AccelGemmParamsAttr>(
+                  XdlopsGemmParamsAttr gemmParams =
+                      b.getAttr<XdlopsGemmParamsAttr>(
                           gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
                           gemmKPack, gemmMPerWave, gemmNPerWave, forceUnroll);
                   newSpace->tuningRange.push_back(

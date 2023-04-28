@@ -70,8 +70,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (attr.isa<AccelGemmParamsAttr>()) {
-      os << "accel_gemm_params";
+    if (attr.isa<XdlopsGemmParamsAttr>()) {
+      os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -731,7 +731,7 @@ LogicalResult GemmOp::verify() {
 
   bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isXdlops && !params.isa<AccelGemmParamsAttr>())
+    if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !params.isa<GeneralGemmParamsAttr>())
@@ -1507,7 +1507,7 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmV2Op
+// AccelGemmV2Op
 //===----------------------------------------------------------------------===//
 LogicalResult AccelGemmV2Op::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),

@@ -9,5 +9,5 @@
 // CHECK-SAME: features = mfma|dot
 // CHECK-SAME: arch = "amdgcn-amd-amdhsa:gfx1030"
 // CHECK-SAME: perf_config = 128,64,4,64,64,1,1,1
-// AFFIX: #rock.accel_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 64, kpack = 1, mPerWave = 64, nPerWave = 64, forceUnroll = true>
+// AFFIX: #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 64, kpack = 1, mPerWave = 64, nPerWave = 64, forceUnroll = true>
 // GRIDWISE: rock.gridwise_gemm_v2

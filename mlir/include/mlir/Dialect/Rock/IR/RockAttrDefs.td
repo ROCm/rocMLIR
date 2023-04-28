@@ -12,6 +12,7 @@
 include "mlir/Dialect/Rock/IR/RockBase.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
+include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
@@ -247,12 +248,11 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-def Rock_AccelGemmParamsAttr : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface]> {
-  let mnemonic = "accel_gemm_params";
-  let description = [{
-    The tuning parameters for an accelerator-based matrix multiplication.
 
-    TODO: Document these once they've settled down
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "xdlops_gemm_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
   }];
   let parameters = (ins
     "int64_t":$kPerBlock,
@@ -283,6 +283,7 @@ def Rock_AccelGemmParamsAttr : Rock_Attr<"AccelGemmParams", [RockTuningParamAttr
     `<` struct(params) `>`
   }];
 }
+
 
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;

@@ -313,7 +313,7 @@ struct BlockwiseGemmV2RewritePattern
     Location loc = op.getLoc();
 
     StringAttr arch = op.getArchAttr();
-    AccelGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKPerBlock();
