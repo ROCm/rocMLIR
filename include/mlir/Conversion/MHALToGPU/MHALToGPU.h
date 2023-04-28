@@ -12,11 +12,10 @@
 #include <memory>
 
 namespace mlir {
-
 class Pass;
 
-/// Create a pass to convert MHAL operations to the GPU dialect.
-std::unique_ptr<Pass> createConvertMHALToGPUPass();
+#define GEN_PASS_DECL_CONVERTMHALTOGPU
+#include "mlir/Conversion/MHALPasses.h.inc"
 
 } // namespace mlir
 

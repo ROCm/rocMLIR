@@ -328,7 +328,7 @@ struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
   LogicalResult matchAndRewrite(mhal::AwaitOp op,
                                 PatternRewriter &rw) const override {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
-    Value input = op.getOperand();
+    Value input = op->getOperand(0);
     if (input.getType() == tokenType) {
       // mhal.await with token type should never have a result type
       assert(op.getResultType() == std::nullopt);
@@ -374,6 +374,3 @@ void ConvertMHALToGPUPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> mlir::createConvertMHALToGPUPass() {
-  return std::make_unique<ConvertMHALToGPUPass>();
-}

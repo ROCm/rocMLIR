@@ -15,10 +15,18 @@ include "mlir/Pass/PassBase.td"
 // MHALToGPU
 //===----------------------------------------------------------------------===//
 
-def ConvertMHALToGPU : Pass<"convert-mhal-to-gpu", "ModuleOp"> {
-  let summary = "Convert the mhal.launch operations to the GPU dialect";
-  let constructor = "mlir::createConvertMHALToGPUPass()";
+def ConvertMHALToGPU : Pass<"convert-mhal-to-gpu", "func::FuncOp"> {
+  let summary = "Convert the mhal.launch operations to gpu.launch_func";
   let dependentDialects = ["gpu::GPUDialect"];
+}
+
+//===----------------------------------------------------------------------===//
+// MHALToCPU
+//===----------------------------------------------------------------------===//
+
+def ConvertMHALToCPU : Pass<"convert-mhal-to-cpu", "func::FuncOp"> {
+  let summary = "Convert the mhal.launch operations to func.call";
+  let dependentDialects = ["func::FuncDialect"];
 }
 
 #endif // MHAL_CONVERSION_PASSES

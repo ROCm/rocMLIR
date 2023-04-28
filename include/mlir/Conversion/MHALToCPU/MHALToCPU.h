@@ -1,4 +1,4 @@
-//===- Passes.h - Conversion Pass Construction and Registration -----------===//
+//===- MHALToCPU.h - Convert MHAL to CPU dialect ------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,18 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MHAL_CONVERSION_PASSES_H
-#define MHAL_CONVERSION_PASSES_H
+#ifndef MLIR_CONVERSION_MHALTOCPU_MHALTOCPU_H
+#define MLIR_CONVERSION_MHALTOCPU_MHALTOCPU_H
 
-#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
-#include "mlir/Conversion/MHALToCPU/MHALToCPU.h"
+#include <memory>
 
 namespace mlir {
+class Pass;
 
-/// Generate the code for registering conversion passes.
-#define GEN_PASS_REGISTRATION
+#define GEN_PASS_DECL_CONVERTMHALTOCPU
 #include "mlir/Conversion/MHALPasses.h.inc"
 
 } // namespace mlir
 
-#endif // MHAL_CONVERSION_PASSES_H
+#endif // MLIR_CONVERSION_MHALTOCPU_MHALTOCPU_H
