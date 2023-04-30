@@ -352,9 +352,9 @@ def Rock_GridwiseGemmOp :
   let hasVerifier = 1;
 }
 
-// gridwise_gemm_v2
-def Rock_GridwiseGemmV2Op :
-    Rock_Op<"gridwise_gemm_v2">,
+// gridwise_gemm_accel
+def Rock_GridwiseGemmAccelOp :
+    Rock_Op<"gridwise_gemm_accel">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
@@ -364,7 +364,7 @@ def Rock_GridwiseGemmV2Op :
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
                    RockAccelTuningParamAttrInterface:$params)> {
-  let summary = "Gridwise GEMM V2";
+  let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
@@ -1067,9 +1067,9 @@ defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[4, 8], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
 
-// blockwise_gemm_v2
-def Rock_BlockwiseGemmV2Op:
-    Rock_Op<"blockwise_gemm_v2">,
+// blockwise_gemm_accel
+def Rock_BlockwiseGemmAccelOp:
+    Rock_Op<"blockwise_gemm_accel">,
     Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
                    MemRefOf<LdsBufferTypes>:$matrixB,
                    Index:$waveOffsetA,
@@ -1119,9 +1119,9 @@ def Rock_ThreadwiseGemmOp:
   let hasVerifier = 1;
 }
 
-// accel_gemm_V2
-def Rock_AccelGemmV2Op:
-    Rock_Op<"accel_gemm_v2">,
+// accel_gemm
+def Rock_AccelGemmOp:
+    Rock_Op<"accel_gemm">,
     Arguments<(ins Index:$mRepeat,
                    Index:$nRepeat,
                    MemRefRankOf<AccelArgTypes, [1]>:$matrixA,
@@ -1129,9 +1129,9 @@ def Rock_AccelGemmV2Op:
                    MemRefRankOf<AccelResTypes , [1]>:$matrixC,
                    StrAttr:$arch,
                    RockAccelTuningParamAttrInterface:$params)> {
-  let summary = "Accelerated GEMM V2";
+  let summary = "Accelerated GEMM";
   let description = [{
-    The `rock.accel_gemm_v2` op is an abstraction of doing GEMM based on an accelerator.
+    The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
     It would employ a series of accelerator (e.g., mfma or wmma) operations.
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector

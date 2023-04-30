@@ -17,6 +17,7 @@
 #ifndef MLIR_DIALECT_ROCK_IR_ROCK_ACCEL_TUNINGPARAM_ATTR_INTERFACE_H
 #define MLIR_DIALECT_ROCK_IR_ROCK_ACCEL_TUNINGPARAM_ATTR_INTERFACE_H
 
+#include "RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/OpDefinition.h"
 

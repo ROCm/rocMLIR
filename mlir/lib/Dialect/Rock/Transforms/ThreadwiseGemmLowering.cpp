@@ -170,18 +170,18 @@ struct ThreadwiseGemmRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// AccelGemmV2 lowering.
+// AccelGemm lowering.
 //===----------------------------------------------------------------------===//
-struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmV2Op> {
-  using OpConversionPattern<AccelGemmV2Op>::OpConversionPattern;
+struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
+  using OpConversionPattern<AccelGemmOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(AccelGemmV2Op op, AccelGemmV2OpAdaptor adaptor,
+  LogicalResult matchAndRewrite(AccelGemmOp op, AccelGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     // Obtain critical information.
-    int64_t K = tuningParams.getKPerBlock() * tuningParams.getKpack();
+    int64_t K = tuningParams.getKpackPerBlock() * tuningParams.getKpack();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
@@ -289,7 +289,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   func::FuncOp op = getOperation();
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmV2Op>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();

@@ -37,7 +37,28 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         /*args=*/(ins "std::string &":$perfStr),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
-      >
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Given that the GEMM input blocks layout is `[kOuter, dPerBlock, kPack]` (where `d` can be `m` or `n`)
+          this method returns `kPack`.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getKpack",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Flag used to determine if to unroll the loops in MLIR (return `true`) or leave the decision to the back-end (return `false`)
+        }],
+        /*retType=*/"bool",
+        /*methodName=*/"getForceUnroll",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
 
     // TODO: more methods here as needed
   ];

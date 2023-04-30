@@ -159,10 +159,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
   if (isXdlops) {
     // Onne the attribute copies are gone, make this a replaceOp
-    rw.create<GridwiseGemmV2Op>(loc, a, b, c, op.getArchAttr(),
-                                op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                                blockSize, gridSize,
-                                params.cast<XdlopsGemmParamsAttr>());
+    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
+                                   op.getFeaturesAttr(),
+                                   op.getStoreMethodAttr(), blockSize, gridSize,
+                                   params.cast<XdlopsGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
@@ -178,7 +178,7 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                    rock::GridwiseGemmV2Op>();
+                    rock::GridwiseGemmAccelOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GemmRewritePattern>(ctx);

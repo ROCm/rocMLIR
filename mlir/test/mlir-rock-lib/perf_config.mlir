@@ -8,7 +8,7 @@
 // Tuning: nPerBlock = 32
 // Tuning: mPerThread = 2
 // Tuning: nPerThread = 2
-// Tuning-xdlops: kPerBlock = 8
+// Tuning-xdlops: kpackPerBlock = 8
 // Tuning-xdlops: mPerBlock = 128
 // Tuning-xdlops: nPerBlock = 128
 // Tuning-xdlops: kpack = 4

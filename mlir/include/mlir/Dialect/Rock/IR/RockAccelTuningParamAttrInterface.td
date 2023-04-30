@@ -16,11 +16,12 @@
 #define ROCK_ACCEL_TUNING_PARAM_INTERFACE
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
 
 
-def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrInterface"> {
+def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrInterface", [RockTuningParamAttrInterface]> {
   let description = [{
     This interface is providing generic abstractions to handle tuning params for accelerators
   }];
@@ -55,7 +56,7 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
           this method returns `kOuter`.
         }],
         /*retType=*/"int64_t",
-        /*methodName=*/"getKPerBlock",
+        /*methodName=*/"getKpackPerBlock",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
@@ -79,28 +80,7 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Given that the GEMM input blocks layout is `[kOuter, dPerBlock, kPack]` (where `d` can be `m` or `n`)
-          this method returns `kPack`.
-        }],
-        /*retType=*/"int64_t",
-        /*methodName=*/"getKpack",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/""
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Flag used to determine if to unroll the loops in MLIR (return `true`) or leave the decision to the back-end (return `false`)
-        }],
-        /*retType=*/"bool",
-        /*methodName=*/"getForceUnroll",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/""
-      >,
+      >
 
     // TODO: more methods here as needed
   ];

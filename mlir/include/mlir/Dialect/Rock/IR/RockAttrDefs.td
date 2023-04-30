@@ -241,6 +241,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
       + Twine(getMPerThread()) + ","
       + Twine(getNPerThread())).str();
     }
+    bool getForceUnroll() { return true; }
   }];
 
   let assemblyFormat = [{
@@ -255,7 +256,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     The tuning parameters for an xdlops-based matrix multiplication.
   }];
   let parameters = (ins
-    "int64_t":$kPerBlock,
+    "int64_t":$kpackPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
@@ -269,7 +270,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
       perfStr =
          (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
-        + Twine(getKPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
