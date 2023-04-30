@@ -11,7 +11,7 @@
 
 include "mlir/Dialect/MHAL/IR/MHALBase.td"
 include "mlir/Dialect/MHAL/IR/MHALTypes.td"
-include "mlir/IR/SubElementInterfaces.td"
+//include "mlir/IR/SubElementInterfaces.td"
 
 class MHAL_Attr<string name, list<Trait> traits = []> :
     AttrDef<MHALDialect, name, traits>;
@@ -49,7 +49,7 @@ def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
 
 /// KernelPackageAttr
 def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage", [
-    DeclareAttrInterfaceMethods<SubElementAttrInterface>
+//    DeclareAttrInterfaceMethods<SubElementAttrInterface>
   ]> {
     let mnemonic = "kernel_pkg";
 
