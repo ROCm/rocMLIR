@@ -19,7 +19,6 @@ def MHALDialect : Dialect {
 
   let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
-  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 #endif // MHAL_DIALECT
