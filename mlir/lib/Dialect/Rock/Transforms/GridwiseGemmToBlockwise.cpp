@@ -87,18 +87,22 @@ static Type obtainAccumulatorType(OpBuilder &b, Type elementTypeA,
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
+/// UGLY WORKAROUND NOTE: `numBytes` and `byteOffset` should be
+/// taken from the buffer's type and automatically introduced by the
+/// compiler, respectively, but due to a miscompile we have to use one
+/// big LDS buffer.
 static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
-                                           Type type) {
+                                           Type type, int64_t numBytes,
+                                           int64_t byteOffset) {
   Location loc = buffer.getLoc();
-  Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  Value byteOffsetVal = b.createOrFold<arith::ConstantIndexOp>(loc, byteOffset);
   auto bufferType = buffer.getType().cast<MemRefType>();
   int64_t byteWidth = getByteWidth(type);
-  int64_t numBytes = bufferType.getShape()[0];
   assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
   int64_t length = numBytes / byteWidth;
   auto newBufferType = bufferType.cloneWith({length}, type);
   auto view =
-      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
+      b.create<memref::ViewOp>(loc, newBufferType, buffer, byteOffsetVal,
                                /*dynamic dim sizes=*/ValueRange{});
   return TypedValue<MemRefType>(view.getResult());
 }
@@ -251,12 +255,14 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
 /// element type vector<kpackPerThread x T> (with kpackPerThread == 1 meaning
 /// just T). The resulting view must be iterated over with a stride of no less
 /// than min(kPerThread, kpack).
-static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
-                                              Value buffer, Type ldsReadType,
-                                              int64_t kOuter, StringRef dName,
-                                              int64_t d, int64_t kPerThread,
-                                              int64_t dPerThread,
-                                              GemmDimension vectorDim) {
+/// UGLY WORKAROUND NOTE: `ldsNumBytes` and `ldsByteOffset` should be
+/// taken from the buffer's type and automatically introduced by the
+/// compiler, respectively, but due to a miscompile we have to use one
+/// big LDS buffer.
+static FailureOr<Value> wrapLDSBufferForStore(
+    OpBuilder &b, Location loc, Value buffer, Type ldsReadType, int64_t kOuter,
+    StringRef dName, int64_t d, int64_t kPerThread, int64_t dPerThread,
+    GemmDimension vectorDim, int64_t ldsNumBytes, int64_t ldsByteOffset) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   Type dataType = ldsReadType;
@@ -268,17 +274,18 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
     dataType = vectorDataType.getElementType();
   }
 
-  if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType))
+  if (ldsNumBytes != kOuter * d * kpack * getByteWidth(dataType))
     return emitError(loc, "LDS buffer should have ")
            << kOuter * d * kpack * getByteWidth(dataType)
-           << " elements but has " << bufferShape[0];
+           << " elements but has " << ldsNumBytes;
 
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   int64_t kOuterPerThread = kPerThread / kpackPerThread;
   int64_t threadsPerKpack = kpack / kpackPerThread;
 
   Type ldsWriteType = vectorTypeOrSelf(dataType, kpackPerThread);
-  auto typedBuffer = viewBufferAs(b, buffer, ldsWriteType);
+  auto typedBuffer =
+      viewBufferAs(b, buffer, ldsWriteType, ldsNumBytes, ldsByteOffset);
   BottomUpTMBuilder reshapeBuf(b, {"raw"}, typedBuffer.getType().getShape(),
                                loc);
   reshapeBuf.unmerge({"k_outer", dName, "kpack_idx"}, {0, 1, 2}, "raw",
@@ -679,18 +686,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                             << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
       return op.emitOpError("requires too much LDS");
-
+    // Workaround that we can only have one buffer at complire level at the
+    // moment. No alignment concerns: we're alligned to waveSize >= 32 bytes
+    // anyway, which is more than we need.
+    int64_t totalLdsSize = ldsBlockASize + ldsBlockBSize;
     // Allocate LDS.
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsMemRefAType =
-        MemRefType::get({ldsBlockASize}, b.getI8Type(), AffineMap{},
+    // This should be two variable, but isn't because workarounds.
+    // Try reverting the commit introducing this every once ina while.
+    auto wholeLdsMemRefType =
+        MemRefType::get({totalLdsSize}, b.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    auto ldsBufferA = b.create<GpuAllocOp>(loc, ldsMemRefAType);
-    auto ldsMemRefBType =
-        MemRefType::get({ldsBlockBSize}, b.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
-    auto ldsBufferB = b.create<GpuAllocOp>(loc, ldsMemRefBType);
+    auto wholeLdsBuffer = b.create<GpuAllocOp>(loc, wholeLdsMemRefType);
 
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
@@ -809,13 +817,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        aCopyKPerThread, copyMPerThread, aVectorDim);
+        b, loc, wholeLdsBuffer, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
+        aCopyKPerThread, copyMPerThread, aVectorDim, ldsBlockASize, 0);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        bCopyKPerThread, copyNPerThread, bVectorDim);
+        b, loc, wholeLdsBuffer, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
+        bCopyKPerThread, copyNPerThread, bVectorDim, ldsBlockBSize,
+        ldsBlockASize);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -841,10 +850,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // The blockwise gemm isn't set up for vector-of-kpack loads and so expects
     // a scalar kpacksPerBlock x dPerBlock x kpack x T buffer unconditionally.
-    Value ldsMatrixA = viewBufferAs(b, ldsBufferA, elementTypeA);
+    Value ldsMatrixA =
+        viewBufferAs(b, wholeLdsBuffer, elementTypeA, ldsBlockASize, 0);
     ldsMatrixA = reshapeBuffer(b, loc, ldsMatrixA, {"k", "m", "kpack"},
                                {kpacksPerBlock, mPerBlock, kpack});
-    Value ldsMatrixB = viewBufferAs(b, ldsBufferB, elementTypeB);
+    Value ldsMatrixB = viewBufferAs(b, wholeLdsBuffer, elementTypeB,
+                                    ldsBlockBSize, ldsBlockASize);
     ldsMatrixB = reshapeBuffer(b, loc, ldsMatrixB, {"k", "n", "kpack"},
                                {kpacksPerBlock, nPerBlock, kpack});
 
@@ -1198,18 +1209,20 @@ struct GridwiseGemmV2RewritePattern
                             << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
       return op.emitOpError("requires too much LDS");
+    // Workaround that we can only have one buffer at complire level at the
+    // moment. No alignment concerns: we're alligned to waveSize >= 32 bytes
+    // anyway, which is more than we need.
+    int64_t totalLdsSize = ldsBlockASize + ldsBlockBSize;
 
     // Allocate LDS.
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsMemRefAType =
-        MemRefType::get({ldsBlockASize}, b.getI8Type(), AffineMap{},
+    // This should be two variable, but isn't because workarounds.
+    // Try reverting the commit introducing this every once ina while.
+    auto wholeLdsMemRefType =
+        MemRefType::get({totalLdsSize}, b.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    auto ldsBufferA = b.create<GpuAllocOp>(loc, ldsMemRefAType);
-    auto ldsMemRefBType =
-        MemRefType::get({ldsBlockBSize}, b.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
-    auto ldsBufferB = b.create<GpuAllocOp>(loc, ldsMemRefBType);
+    auto wholeLdsBuffer = b.create<GpuAllocOp>(loc, wholeLdsMemRefType);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -1217,13 +1230,14 @@ struct GridwiseGemmV2RewritePattern
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        aCopyKPerThread, copyMPerThread, aVectorDim);
+        b, loc, wholeLdsBuffer, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
+        aCopyKPerThread, copyMPerThread, aVectorDim, ldsBlockASize, 0);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        bCopyKPerThread, copyNPerThread, bVectorDim);
+        b, loc, wholeLdsBuffer, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
+        bCopyKPerThread, copyNPerThread, bVectorDim, ldsBlockBSize,
+        ldsBlockASize);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
@@ -1236,8 +1250,10 @@ struct GridwiseGemmV2RewritePattern
         createLdsStoreLoop(b, loc, storeBufferB, bVectorLdsMap, wrappedLdsB,
                            bCopyPerThread, tid, forceUnroll);
 
-    Value ldsViewForGemmA = viewBufferAs(b, ldsBufferA, ldsReadTypeA);
-    Value ldsViewForGemmB = viewBufferAs(b, ldsBufferB, ldsReadTypeB);
+    Value ldsViewForGemmA =
+        viewBufferAs(b, wholeLdsBuffer, ldsReadTypeA, ldsBlockASize, 0);
+    Value ldsViewForGemmB = viewBufferAs(b, wholeLdsBuffer, ldsReadTypeB,
+                                         ldsBlockBSize, ldsBlockASize);
     // -----
 
     // Mfma instruction group selection.
