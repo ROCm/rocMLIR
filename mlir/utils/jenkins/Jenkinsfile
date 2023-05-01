@@ -600,19 +600,16 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Tune Gemm") {
+                    stage("rocMLIR Tuning") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
-                                // Tune BERT, fail if the DB is not created
+                                // Tune convs and gemms, fail if the DB is not created
                                 sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/bert-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv
-                                      python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/unet-gemm-configs \
+                                        --configs_file=../mlir/utils/performance/gemm-configs \
                                         --output=mlir_tuning_${ARCH}.tsv
                                       python3 ./bin/tuningRunner.py --operation conv \
-                                        --configs_file=../mlir/utils/performance/unet-conv-configs \
+                                        --configs_file=../mlir/utils/performance/conv-configs \
                                         --output=mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                             }
@@ -870,13 +867,10 @@ pipeline {
                                 // Run MLIR perf benchmarks
                                 sh 'python3 ./bin/perfRunner.py'
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
                                        --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
-                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-					--configs_file=${WORKSPACE}/mlir/utils/performance/unet-gemm-configs \
-					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-					--configs_file=${WORKSPACE}/mlir/utils/performance/unet-conv-configs \
+					--configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
 					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
@@ -920,7 +914,7 @@ pipeline {
 
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                --configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+                                --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
                                 --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --external-gemm-library CK"""
                                     sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP} CK'
                                 }
