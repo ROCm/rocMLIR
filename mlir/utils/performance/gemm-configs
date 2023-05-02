@@ -1,4 +1,4 @@
-# This section of the file has been generated with the following command:
+# The immediately following configs are generated with the following command:
 # convertRocBlasToPerfRunner.py -c bert-configs-raw --output-file bert-configs
 
 -transA true -transB true -g 64 -m 1024 -n 384 -k 1024
@@ -22,3 +22,43 @@
 -transA false -transB false -g 1 -m 128 -n 1280 -k 5120
 -transA false -transB false -g 1 -m 2 -n 20160 -k 1280
 -transA false -transB false -g 2 -m 64 -n 3840 -k 1280
+
+## batch_size=1 berts
+
+# Configs obtained from bert-squad, bert-base-cased, seq_length=384
+-transA false -transB false -g 12 -m 384 -n 64 -k 384
+-transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-transA false -transB false -g 1 -m 384 -n 2 -k 768
+-transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-transA false -transB false -g 1 -m 384 -n 768 -k 3072 
+-transA false -transB false -g 1 -m 384 -n 768 -k 768
+-transA false -transB true -g 12 -m 384 -n 384 -k 64
+-transA false -transB false -g 1 -m 1 -n 768 -k 768
+
+# Configs obtained from bert-large-uncased, seq_length=384
+-transA false -transB false -g 16 -m 384 -n 64 -k 384
+-transA false -transB false -g 1 -m 1 -n 1024 -k 1024
+-transA false -transB false -g 1 -m 384 -n 1024 -k 1024
+-transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-transA false -transB false -g 1 -m 384 -n 3072 -k 1024
+-transA false -transB false -g 1 -m 384 -n 4096 -k 1024
+-transA false -transB true -g 16 -m 384 -n 384 -k 64
+
+## batch_size=64 berts
+
+# Configs obtained from bert-squad, bert-base-cased, seq_length=384
+-transA false -transB false -g 1 -m 24576 -n 2 -k 768
+-transA false -transB false -g 1 -m 24576 -n 3072 -k 768
+-transA false -transB false -g 1 -m 24576 -n 768 -k 3072
+-transA false -transB false -g 1 -m 24576 -n 768 -k 768
+-transA false -transB false -g 64 -m 384 -n 2304 -k 768
+-transA false -transB false -g 768 -m 384 -n 64 -k 384
+-transA false -transB true -g 768 -m 384 -n 384 -k 64
+-transA false -transB false -g 1 -m 64 -n 768 -k 768
+
+# Configs obtained from bert-large-uncased, bert-base-cased, seq_length=384
+-transA false -transB false -g 1 -m 24576 -n 1024 -k 1024
+-transA false -transB false -g 1 -m 24576 -n 1024 -k 4096
+-transA false -transB false -g 1 -m 24576 -n 4096 -k 1024
+-transA false -transB false -g 64 -m 384 -n 3072 -k 1024
+-transA false -transB true -g 1024 -m 384 -n 384 -k 64
