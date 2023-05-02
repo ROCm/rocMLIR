@@ -48,9 +48,7 @@ def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
 }
 
 /// KernelPackageAttr
-def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage", [
-//    DeclareAttrInterfaceMethods<SubElementAttrInterface>
-  ]> {
+def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage"> {
     let mnemonic = "kernel_pkg";
 
     let description = [{
