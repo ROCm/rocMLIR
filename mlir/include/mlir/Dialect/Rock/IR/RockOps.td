@@ -1065,7 +1065,7 @@ defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
                     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
                     VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
-defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32]>];
+defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp:

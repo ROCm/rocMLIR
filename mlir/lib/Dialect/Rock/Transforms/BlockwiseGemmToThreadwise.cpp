@@ -314,13 +314,7 @@ struct BlockwiseGemmAccelRewritePattern
     Location loc = op.getLoc();
 
     StringAttr arch = op.getArchAttr();
-<<<<<<< HEAD
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-=======
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
-
-    // Extract relevant tuning parameters
->>>>>>> d3bd042e0b79... Addressing review feedbacks - 2
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKpackPerBlock();
@@ -356,7 +350,7 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t mPerAccel = params.mPerAccel;
     int64_t nPerAccel = params.nPerAccel;
     int64_t kBase = params.kBase;
-    int64_t kPerThread = params.kPerThread;
+    int64_t kpackPerThread = params.kpackPerThread;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
@@ -384,7 +378,7 @@ struct BlockwiseGemmAccelRewritePattern
     Value bufferA = adaptor.getBufferA();
     Value bufferB = adaptor.getBufferB();
 
-    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, kPerThread);
+    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, kpackPerThread);
 
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
@@ -447,7 +441,8 @@ struct BlockwiseGemmAccelRewritePattern
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
             Value MN, Value mnPerMfmaGroup, Type ldsBufferElemType,
             Type dataType, Value ldsOrig, Value regDest) {
-          auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, kPerThread);
+          auto innerLoopK =
+              outerLoopB.create<AffineForOp>(loc, 0, kpackPerThread);
           auto ilkb = ConversionPatternRewriter::atBlockBegin(
               innerLoopK.getBody(), outerLoopB.getListener());
           {
@@ -488,8 +483,8 @@ struct BlockwiseGemmAccelRewritePattern
     b.eraseOp(op);
     olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),
                              outerLoopN.getInductionVar(), adaptor.getBufferA(),
-                             adaptor.getBufferB(), adaptor.getMatrixC(), arch, op.getFeaturesAttr(),
-                             tuningParams);
+                             adaptor.getBufferB(), adaptor.getMatrixC(), arch,
+                             op.getFeaturesAttr(), tuningParams);
     return success();
   }
 };

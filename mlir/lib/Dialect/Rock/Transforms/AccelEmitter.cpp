@@ -25,7 +25,8 @@ void AccelEmitter::validateAcceleratorProperties() {
   }
 }
 
-AccelEmitter::AccelEmitter(StringRef arch, XdlopsGemmParamsAttr tuningParams,
+AccelEmitter::AccelEmitter(StringRef arch,
+                           RockAccelTuningParamAttrInterface tuningParams,
                            AccelEmitterParams accelEmitterParams)
     : tuningParams(tuningParams), accelEmitterParams(accelEmitterParams),
       waveSize(rock::lookupArchInfo(arch).waveSize) {
@@ -82,23 +83,22 @@ Value AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
 // **************************
 
 MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
-                         XdlopsGemmParamsAttr tuningParams)
+                         RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
                    initAccelEmitterParams(mfmaGroup, tuningParams)},
       mfmaGroup{mfmaGroup} {}
 
-AccelEmitterParams
-MfmaEmitter::initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
-                                    XdlopsGemmParamsAttr tuningParams) {
+AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
+    MfmaInsnGroup mfmaGroup, RockAccelTuningParamAttrInterface tuningParams) {
   AccelEmitterParams params;
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
   // Extract relevant tuning parameters
-  int64_t kPerBlock = tuningParams.getKPerBlock();
+  int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
   int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
-  int64_t K = kPerBlock * kPack;
+  int64_t K = kpackPerBlock * kPack;
 
   // Accelerator parameters
   params.kBase = mfmaAttr.k_base;
@@ -110,9 +110,9 @@ MfmaEmitter::initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
   params.nResultVectors = mfmaGroup.getImms().size();
   params.mPerAccel = mfmaGroup.getLenPerMfmaGroup(mPerWave);
   params.nPerAccel = mfmaGroup.getLenPerMfmaGroup(nPerWave);
-  params.kPerThread =
-      (mfmaAttr.isKReduction ? kPerBlock / mfmaAttr.inputSpansPerMfmaIn
-                             : kPerBlock);
+  params.kpackPerThread =
+      (mfmaAttr.isKReduction ? kpackPerBlock / mfmaAttr.inputSpansPerMfmaIn
+                             : kpackPerBlock);
 
   // Accelerator data types
   params.argTypeA = mfmaGroup.getArgTypeA();
@@ -303,28 +303,27 @@ Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
 // **************************
 
 WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
-                         XdlopsGemmParamsAttr tuningParams)
+                         RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
                    initAccelEmitterParams(wmmaInsn, tuningParams)},
       wmmaInsn(wmmaInsn) {}
 
-AccelEmitterParams
-WmmaEmitter::initAccelEmitterParams(WmmaInsn wmmaInsn,
-                                    XdlopsGemmParamsAttr tuningParams) {
+AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
+    WmmaInsn wmmaInsn, RockAccelTuningParamAttrInterface tuningParams) {
   AccelEmitterParams params;
 
   // Extract relevant tuning parameters
-  int64_t kPerBlock = tuningParams.getKPerBlock();
+  int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
   int64_t kPack = tuningParams.getKpack();
 
   params.mRepeats = wmmaInsn.mRepeats;
   params.nRepeats = wmmaInsn.nRepeats;
   params.nResultVectors = 1;
-  params.kPerThread = kPerBlock;
+  params.kpackPerThread = kpackPerBlock;
   params.kBase = wmmaInsn.inputLen;
   params.mPerAccel = wmmaInsn.inputLen;
   params.nPerAccel = wmmaInsn.inputLen;
-  params.kBasePerThread = kPerBlock * kPack / params.kBase;
+  params.kBasePerThread = kpackPerBlock * kPack / params.kBase;
 
   params.argTypeA = wmmaInsn.argTypeA;
   params.argTypeB = wmmaInsn.argTypeB;
@@ -441,7 +440,8 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
 
 std::unique_ptr<AccelEmitter>
 AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
-                     StringRef arch, XdlopsGemmParamsAttr tuningParams) {
+                     StringRef arch,
+                     RockAccelTuningParamAttrInterface tuningParams) {
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {

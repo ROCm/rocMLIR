@@ -285,6 +285,41 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
+def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "wmma_gemm_params";
+  let description = [{
+    The tuning parameters for an wmma-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(std::string &perfStr){
+      perfStr =
+         (Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .str();
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
 
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;

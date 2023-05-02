@@ -2,9 +2,9 @@
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>
 
-func.func @rock_blockwise_gemm_v2_wmma(%matrixA : memref<16xvector<16xf16>, #wg>, %matrixB : memref<16xvector<16xf16>, #wg>,
-                                               %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
-                                               %matrixC : memref<1xvector<16xf16>, #priv>) {
+func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<16xf16>, #wg>, %matrixB : memref<16xvector<16xf16>, #wg>,
+                                          %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
+                                          %matrixC : memref<1xvector<8xf32>, #priv>) {
   %c0 = arith.constant 0 : index
   // CHECK: %[[tid:.*]] = rock.workitem_id : index
   // CHECK: %[[wid:.*]] = arith.remui %[[tid]], %c32{{.*}} : index
@@ -17,25 +17,25 @@ func.func @rock_blockwise_gemm_v2_wmma(%matrixA : memref<16xvector<16xf16>, #wg>
   // CHECK: affine.for {{.*}} = 0 to 4
   // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<16xvector<16xf16>, #gpu.address_space<workgroup>>
   // CHECK: memref.store
-  // CHECK:  rock.xdlops_gemm_v2
-  rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
+  // CHECK:  rock.accel_gemm
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 32 : i32,
-    params = #rock.xdlops_gemm_params<
-      kPerBlock = 4,
+    params = #rock.wmma_gemm_params<
+      kpackPerBlock = 4,
       kpack = 16,
       mPerBlock = 16,
       mPerWave = 16,
       nPerBlock = 16,
       nPerWave = 16,
       forceUnroll = true>
-  } : memref<1xvector<16xf16>, #priv> += memref<1xvector<16xf16>, #priv> from memref<16xvector<16xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<16xvector<16xf16>, #wg>
+  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<16xvector<16xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<16xvector<16xf16>, #wg>
   return
 }
 
-func.func @rock_blockwise_gemm_v2_wmma_largekpack(%matrixA : memref<32xvector<32xf16>, #wg>, %matrixB : memref<32xvector<32xf16>, #wg>,
-                                                  %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
-                                                  %matrixC : memref<1xvector<16xf16>, #priv>) {
+func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector<32xf16>, #wg>, %matrixB : memref<32xvector<32xf16>, #wg>,
+                                                     %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
+                                                     %matrixC : memref<1xvector<8xf32>, #priv>) {
   %c0 = arith.constant 0 : index
   // CHECK: %[[tid:.*]] = rock.workitem_id : index
   // CHECK: %[[wid:.*]] = arith.remui %[[tid]], %c32{{.*}} : index
@@ -54,25 +54,25 @@ func.func @rock_blockwise_gemm_v2_wmma_largekpack(%matrixA : memref<32xvector<32
   // CHECK: memref.store
   // CHECK: {{.*}} = rock.extract_slice %[[b]][{{.*}}] : vector<32xf16> -> vector<16xf16>
   // CHECK: memref.store
-  // CHECK:  rock.xdlops_gemm_v2
-  rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
+  // CHECK:  rock.accel_gemm
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
-      kPerBlock = 4,
+      kpackPerBlock = 4,
       mPerWave = 16,
       nPerWave = 16,
       kpack = 32,
       forceUnroll = true>
-  } : memref<1xvector<16xf16>, #priv> += memref<1xvector<16xf16>, #priv> from memref<32xvector<32xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<32xf16>, #wg>
+  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<32xvector<32xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<32xf16>, #wg>
   return
 }
 
-func.func @rock_blockwise_gemm_v2_wmma_int8(%matrixA : memref<32xvector<16xi8>, #wg>, %matrixB : memref<32xvector<16xi8>, #wg>,
-                                            %bufferA : memref<4xvector<16xi8>, #priv>, %bufferB : memref<4xvector<16xi8>, #priv>,
-                                            %matrixC : memref<4xvector<8xi32>, #priv>) {
+func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8>, #wg>, %matrixB : memref<32xvector<16xi8>, #wg>,
+                                               %bufferA : memref<4xvector<16xi8>, #priv>, %bufferB : memref<4xvector<16xi8>, #priv>,
+                                               %matrixC : memref<4xvector<8xi32>, #priv>) {
   %c0 = arith.constant 0 : index
   // CHECK: %[[tid:.*]] = rock.workitem_id : index
   // CHECK: %[[wid:.*]] = arith.remui %[[tid]], %c32{{.*}} : index
@@ -85,14 +85,14 @@ func.func @rock_blockwise_gemm_v2_wmma_int8(%matrixA : memref<32xvector<16xi8>, 
   // CHECK: affine.for {{.*}} = 0 to 4
   // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<32xvector<16xi8>, #gpu.address_space<workgroup>>
   // CHECK: memref.store
-  // CHECK:  rock.xdlops_gemm_v2
-  rock.blockwise_gemm_v2 %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
+  // CHECK:  rock.accel_gemm
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,
-      kPerBlock = 4,
+      kpackPerBlock = 4,
       mPerWave = 32,
       nPerWave = 32,
       kpack = 16,

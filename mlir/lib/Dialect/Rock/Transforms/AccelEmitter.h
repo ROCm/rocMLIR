@@ -53,12 +53,12 @@ struct AccelEmitterParams {
   int64_t mPerAccel;
   int64_t nPerAccel;
 
-  // A total of `kPerThread` k values are read by each worktiem.
+  // Each workitem reads a total of `kpackPerThread` vectors of length kpack.
   // Workitems need to read vectors of length `kBase` to compute the correct
   // output tile, but if `kPack>kBase` each thread will read multiple `kBase`
   // vectors.
   int64_t kBase;
-  int64_t kPerThread;
+  int64_t kpackPerThread;
   int64_t kBasePerThread;
 
   // This takes into account the fact that we might invoke accelerators back to
@@ -86,9 +86,9 @@ struct AccelEmitter {
   /// Select the right accelerator based on the set of features and architecture
   static std::unique_ptr<AccelEmitter>
   select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
-         XdlopsGemmParamsAttr tuningParams);
+         RockAccelTuningParamAttrInterface tuningParams);
 
-  AccelEmitter(StringRef arch, XdlopsGemmParamsAttr tuningParams,
+  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
                AccelEmitterParams accelEmitterParams);
 
   /// Emit the actual intrinsic in the threadwise operation
@@ -134,7 +134,7 @@ struct AccelEmitter {
   virtual ~AccelEmitter() {}
 
 protected:
-  XdlopsGemmParamsAttr tuningParams;
+  RockAccelTuningParamAttrInterface tuningParams;
   AccelEmitterParams accelEmitterParams;
   int64_t waveSize;
 };
@@ -143,7 +143,7 @@ protected:
 struct MfmaEmitter : public AccelEmitter {
 
   MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
-              XdlopsGemmParamsAttr tuningParams);
+              RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, Value regCOffset) override;
@@ -161,8 +161,9 @@ struct MfmaEmitter : public AccelEmitter {
 
 private:
   /// Initialize the emitter parameters for mfma
-  AccelEmitterParams initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
-                                            XdlopsGemmParamsAttr tuningParams);
+  AccelEmitterParams
+  initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
+                         RockAccelTuningParamAttrInterface tuningParams);
 
   // Specifc mfma parameters
   MfmaInsnGroup mfmaGroup;
@@ -172,7 +173,7 @@ private:
 struct WmmaEmitter : public AccelEmitter {
 
   WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
-              XdlopsGemmParamsAttr tuningParams);
+              RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, Value regCOffset) override;
@@ -190,8 +191,9 @@ struct WmmaEmitter : public AccelEmitter {
 
 private:
   /// Initialize the emitter parameters for wmma
-  AccelEmitterParams initAccelEmitterParams(WmmaInsn wmmaInsn,
-                                            XdlopsGemmParamsAttr tuningParams);
+  AccelEmitterParams
+  initAccelEmitterParams(WmmaInsn wmmaInsn,
+                         RockAccelTuningParamAttrInterface tuningParams);
 
   // Specifc wmma parameters
   WmmaInsn wmmaInsn;
