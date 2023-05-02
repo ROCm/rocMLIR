@@ -18,7 +18,6 @@
 // This pass converts rock.gridwise_gemm[_v2] into block- and threadwise ops
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -43,6 +42,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -65,7 +65,6 @@ struct RockGridwiseGemmToBlockwisePass
           RockGridwiseGemmToBlockwisePass> {
   void runOnOperation() override;
 };
-} // end anonymous namespace
 
 static Type obtainAccumulatorType(OpBuilder &b, Type elementTypeA,
                                   Type elementTypeB, Type destType) {
@@ -102,6 +101,7 @@ static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
                                /*dynamic dim sizes=*/ValueRange{});
   return TypedValue<MemRefType>(view.getResult());
 }
+} // end anonymous namespace
 
 /// Given a copy layout <copyDPerThread, copyKPerThread>, come up with the best
 /// vectorization strategy for the layout. For instance, if the layout is <D,K>
@@ -1002,8 +1002,6 @@ struct GridwiseGemmAccelRewritePattern
     auto elementTypeB = op.getB().getType().getElementType();
 
     // Prepare some useful constants.
-    Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
     Value matA = op.getA();
     Value matB = op.getB();
 
@@ -1153,7 +1151,7 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, elementTypeB, bVectorDim, kpack, loadBufferB, storeBufferB,
         copyNPerThread, bCopyKPerThread);
 
-    // Obtain XDLOPS-related attributes.
+    // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
     // int64_t MWaves = mPerBlock / mPerWave;
@@ -1163,12 +1161,27 @@ struct GridwiseGemmAccelRewritePattern
     auto nPerWaveConstantOp = b.create<ConstantIndexOp>(loc, nPerWave);
     auto nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
 
+    auto accelEmitterPtr = accel::AccelEmitter::select(
+        op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
+
+    if (!accelEmitterPtr)
+      return op.emitOpError("Unable to emit accelerator code.");
+
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t nResultVectors = params.nResultVectors;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    VectorType accVectorType = params.accVectorType;
+    int64_t numOutputVectorElements = params.numOutputVectorElements();
+
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, waveSize);
 
     bool useIndexDiffs = true;
-
-    int64_t gStride = mBlocks * nBlocks;
 
     LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
                             << "N: " << N << "\n"
@@ -1240,41 +1253,10 @@ struct GridwiseGemmAccelRewritePattern
     Value ldsViewForGemmB = viewBufferAs(b, ldsBufferB, ldsReadTypeB);
     // -----
 
-    // Mfma instruction group selection.
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(elementTypeA, elementTypeB,
-                                                    arch, mPerWave, nPerWave);
-    if (failed(maybeMfmaInsnGroup)) {
-      return emitError(loc) << "Failed to select xdlops instruction group.\n";
-    }
-    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-    if (!mfmaGroup.isCoherentWithK(kpack, kPerBlock)) {
-      return emitError(loc)
-             << "Mfma instruction group selection is not compatible with k.\n";
-    }
+    Type destType = op.getC().getType().getElementType();
 
-    int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
-    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
-    auto imms = mfmaGroup.getImms();
+    int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
 
-    int64_t nResultVectors = imms.size() * mRepeats * nRepeats;
-    int64_t mPerRepeat = mPerWave / mRepeats;
-    int64_t nPerRepeat = nPerWave / nRepeats;
-
-    VectorType vectorType = mfmaGroup.getRetType();
-    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-
-    int64_t m = mfmaAttr.mfmaNonKDim;
-    // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
-    int64_t n = mfmaAttr.inputSpanLen;
-
-    int64_t rowGroupSize = mfmaAttr.rowGroupSize;
-    int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
-    int64_t inputSpanLen = mfmaAttr.inputSpanLen;
-    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
-    int64_t k_base = mfmaAttr.k_base;
-    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
-
-    int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
     // -----
 
     // Logic to setup blockwise_gemm_accel parameters.
@@ -1297,33 +1279,22 @@ struct GridwiseGemmAccelRewritePattern
 
     // Logic to setup buffers for blockwise_gemm_accel.
 
-    bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t inputBufferSize =
-        (kpacksPerBlock * kpack) /
-        ((isKReduction ? inputSpansPerMfmaIn : 1) * k_base);
-
     Type arrayAType, arrayBType;
-    arrayAType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgTypeA(),
-                                 AffineMap{}, privateMemoryAddressSpace);
-    arrayBType = MemRefType::get({inputBufferSize}, mfmaGroup.getArgTypeB(),
-                                 AffineMap{}, privateMemoryAddressSpace);
+    arrayAType = MemRefType::get({kBasePerThread}, argTypeA, AffineMap{},
+                                 privateMemoryAddressSpace);
+    arrayBType = MemRefType::get({kBasePerThread}, argTypeB, AffineMap{},
+                                 privateMemoryAddressSpace);
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
 
     // -----
     // Logic to allocate 0-initialized vectors for C.
-    int64_t regCVectorLen = vectorType.getNumElements();
-    Type destType = op.getC().getType().getElementType();
-    Type accumulatorType =
-        obtainAccumulatorType(b, elementTypeA, elementTypeB, destType);
-    VectorType accumulatorVectorType =
-        vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType =
-        MemRefType::get(nResultVectors, accumulatorVectorType, AffineMap{},
+        MemRefType::get(nOutputVectors, accVectorType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value regCAllocOp = b.create<rock::GpuAllocOp>(loc, regCAllocType);
 
-    Value zeroConstantCOp = createZeroConstantOp(b, loc, vectorType);
+    Value zeroConstantCOp = createZeroConstantOp(b, loc, accVectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
@@ -1360,8 +1331,8 @@ struct GridwiseGemmAccelRewritePattern
       // Emit blockwise GEMM.
       blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
           loc, ldsViewForGemmA, ldsViewForGemmB, mMyWaveOffsetA, mMyWaveOffsetB,
-          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getBlockSizeAttr(),
-          op.getParamsAttr());
+          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
+          op.getBlockSizeAttr(), op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -1400,107 +1371,22 @@ struct GridwiseGemmAccelRewritePattern
     // -----
 
     // Matrix C write out logic.
-    int64_t wavesInKernelBlock = blockSize / waveSize;
-
-    int64_t numElements = regCVectorLen * nResultVectors;
-    TopDownTMBuilder splitMemoryCoords(b, {"bid", "tid", "item"},
-                                       {gridSize, blockSize, numElements}, loc);
-    splitMemoryCoords.merge({"g", "m", "n"}, {0, 1, 2}, {"bid"},
-                            {gridSize / gStride, gStride / nBlocks, nBlocks});
-    splitMemoryCoords.merge(
-        {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
-        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
-    splitMemoryCoords.merge(
-        {"i", "j", "vec_group", "vec_item"}, {6, 7, 8, 9}, "item",
-        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
-         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-
-    // "blkMajor" and "blkMinor" are placeholder names because we don't know if
-    // they'll be column or row until we check for broadcast-ness.
-    auto toRowsAndCols =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
-        splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
-                            {"i", {"m_i", "n_i"}},
-                            {"j", {"blkMajor", "blkMinor"}}});
-    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-    rowsAndColsWrap.passThrough({"g", "m", "n"});
-    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
-                          {wavesInKernelBlock / nWaves, nWaves});
-    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
-    rowsAndColsWrap.merge(
-        {"m_i", "n_i"}, "i",
-        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
-
-    // Here we use the full builder API since we want index and name control
-    bool isABroadcast = (nPerRepeat >= mPerRepeat);
-    SmallVector<StringRef, 2> rowsFirst = {"blk_row", "blk_col"};
-    SmallVector<StringRef, 2> colsFirst = {"blk_col", "blk_row"};
-    toRowsAndCols.merge(
-        isABroadcast ? rowsFirst : colsFirst,
-        {rowsAndColsIdxs["blkMajor"], rowsAndColsIdxs["blkMinor"]}, "j",
-        {splitMemoryCoords.endSize("j") / blocksInOutRegs, blocksInOutRegs});
-    toRowsAndCols.passThrough(
-        {"vec_group", "vec_item"},
-        {rowsAndColsIdxs["vec_group"], rowsAndColsIdxs["vec_item"]},
-        {"vec_group", "vec_item"});
-
-    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
-
-    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
-
-    toMatrixC.embed(
-        "gemmM", 1, M,
-        {"m", "wave_m", "m_tid", "m_i", "blk_row", "vec_group", "vec_item"},
-        {mPerBlock, mPerWave, rowGroupSize, mPerRepeat, m,
-         inputSpansPerMfmaIn * rowGroupSize, 1});
-    toMatrixC.embed("gemmN", 2, N, {"n", "wave_n", "n_i", "blk_col", "n_tid"},
-                    {nPerBlock, nPerWave, nPerRepeat, n, 1});
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-
-    ArrayAttr idToMatrixCMaps = b.getArrayAttr(
-        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
-
-    Value registerC = regCAllocOp;
     auto convertedCType =
-        MemRefType::get(numElements, destType, AffineMap{},
+        MemRefType::get(numOutputVectorElements, destType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
-    BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
-    toRegCScalar.embed({"vector"}, {0}, {nResultVectors}, "scalar",
-                       {regCVectorLen});
-    TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
+    ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
+        b, loc, M, N, blockSize, gridSize, regCAllocOp);
 
-    // Convert from memref<?xvector<?xT>> to memref<?xT> where the source T
-    // is the accumulatorType and destination type is destType
-    auto convertLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
-        ArrayRef<Attribute>{b.getArrayAttr({}),
-                            b.getArrayAttr(toRegCScalarAttr)},
-        /*bounds=*/regCAllocType.getShape(), /*strides=*/std::nullopt,
-        forceUnroll, /*useIndexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(convertLoop.getBody());
-      Value loaded =
-          b.create<memref::LoadOp>(loc, accumulatorVectorType, registerC,
-                                   convertLoop.getLowerCoords(/*domain*/ 0));
-      Value cast = loaded;
-      if (destType != accumulatorType) {
-        VectorType destVectorType = vectorType.clone(destType);
-        cast = createTypeConversionOp(b, loc, loaded, destVectorType);
-      }
-      b.create<InBoundsStoreOp>(loc, cast, convertedC,
-                                convertLoop.getLowerCoords(/*domain*/ 1));
-    }
-    registerC = convertedC;
+    Value registerC = accelEmitterPtr->computeOutputConversion(
+        b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
+        forceUnroll);
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
                                    op.getFeatures(), op.getStoreMethod(),
                                    forceUnroll, useIndexDiffs);
+
     b.eraseOp(op);
     return success();
   }

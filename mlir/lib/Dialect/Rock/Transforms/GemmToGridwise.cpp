@@ -150,6 +150,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(op.getFeatures(), GemmFeatures::wmma);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
   if (isXdlops && !blockSize)
@@ -163,6 +164,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                    op.getFeaturesAttr(),
                                    op.getStoreMethodAttr(), blockSize, gridSize,
                                    params.cast<XdlopsGemmParamsAttr>());
+    rw.eraseOp(op);
+  } else if (isWmma) {
+    // Onne the attribute copies are gone, make this a replaceOp
+    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
+                                   op.getFeaturesAttr(),
+                                   op.getStoreMethodAttr(), blockSize, gridSize,
+                                   params.cast<WmmaGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,

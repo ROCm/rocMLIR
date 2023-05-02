@@ -33,10 +33,11 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "AccelEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
@@ -334,35 +335,22 @@ struct BlockwiseGemmAccelRewritePattern
     Value sourceOffsetA = adaptor.getWaveOffsetA();
     Value sourceOffsetB = adaptor.getWaveOffsetB();
 
-    auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mPerWave, nPerWave);
-    if (failed(maybeMfmaInsnGroup)) {
-      return emitError(loc) << "Failed to select xdlops instruction group.\n";
-    }
-    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
+    auto accelEmitterPtr = rock::accel::AccelEmitter::select(
+        op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
 
-    Type argTypeA = mfmaGroup.getArgTypeA();
-    Type argTypeB = mfmaGroup.getArgTypeB();
+    if (!accelEmitterPtr)
+      return op.emitOpError("Unable to emit accelerator code.");
 
-    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-    int64_t inputSpanLen = mfmaAttr.inputSpanLen;
-    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
-    int64_t k_base = mfmaAttr.k_base;
-
-    int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
-    int64_t nRepeats = mfmaGroup.getNRepeats(nPerWave);
-
-    int64_t mPerMfmaGroup = mfmaGroup.getLenPerMfmaGroup(mPerWave);
-    int64_t nPerMfmaGroup = mfmaGroup.getLenPerMfmaGroup(nPerWave);
-
-    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-
-    if (KPack > 1 && (KPack < k_base || KPack % k_base != 0)) {
-      llvm_unreachable(
-          "Tuning parameter selection guarantees kPack is multiple of k_base,"
-          "this should never happen");
-    }
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t mPerAccel = params.mPerAccel;
+    int64_t nPerAccel = params.nPerAccel;
+    int64_t kBase = params.kBase;
+    int64_t kpackPerThread = params.kpackPerThread;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
@@ -372,7 +360,11 @@ struct BlockwiseGemmAccelRewritePattern
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
                << "argVectorType B: " << argTypeB << "\n"
-               << "k_base: " << k_base << "\n"
+               << "k_base: " << kBase << "\n"
+               << "mPerWave: " << mPerWave << "\n"
+               << "nPerWave: " << nPerWave << "\n"
+               << "mRepeat: " << mRepeats << "\n"
+               << "nRepeat: " << nRepeats << "\n"
                << "K: " << K << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
@@ -380,16 +372,13 @@ struct BlockwiseGemmAccelRewritePattern
     Value MConstantOp = b.create<ConstantIndexOp>(loc, M);
     Value NConstantOp = b.create<ConstantIndexOp>(loc, N);
 
-    Value mPerMfmaGroupConstantOp =
-        b.create<ConstantIndexOp>(loc, mPerMfmaGroup);
-    Value nPerMfmaGroupConstantOp =
-        b.create<ConstantIndexOp>(loc, nPerMfmaGroup);
+    Value mPerAccelConstantOp = b.create<ConstantIndexOp>(loc, mPerAccel);
+    Value nPerAccelConstantOp = b.create<ConstantIndexOp>(loc, nPerAccel);
 
     Value bufferA = adaptor.getBufferA();
     Value bufferB = adaptor.getBufferB();
 
-    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
+    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, kpackPerThread);
 
     auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
                                  Value sourceBase, Value mn_i, Value MN,
@@ -397,55 +386,26 @@ struct BlockwiseGemmAccelRewritePattern
                                  Type ldsBufferElemType, Type dataType,
                                  Value ldsOrig, Value regDest) {
       // Compute source offset
-      Value sourceOffset = sourceBase;
-      if (!IsKReduction) {
-        // srcOffset = k_i * MN + laneId + mPerMfmaGroup * mn_i;
-        sourceOffset = b.create<AddIOp>(loc, sourceOffset, laneId);
-        sourceOffset = mnb.create<AddIOp>(
-            loc, sourceOffset, mnb.create<MulIOp>(loc, mnPerMfmaGroup, mn_i));
-        sourceOffset = kb.create<AddIOp>(loc, sourceOffset,
-                                         kb.create<MulIOp>(loc, MN, k_i));
-      } else {
-        // srcOffset = (k_i * input_span_per_mfma + blk_id) * MN + blk_td + mn_i
-        // * input_span_length;
-        Value inputSpanLenConstantOp =
-            b.create<ConstantIndexOp>(loc, inputSpanLen);
-        Value inputSpansPerMfmaInConstantOp =
-            b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
-        Value blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-        Value blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
-
-        sourceOffset = b.create<AddIOp>(loc, sourceOffset, blk_td);
-        sourceOffset = mnb.create<AddIOp>(
-            loc, sourceOffset,
-            mnb.create<MulIOp>(loc, inputSpanLenConstantOp, mn_i));
-        sourceOffset = kb.create<AddIOp>(
-            loc, sourceOffset,
-            kb.create<MulIOp>(
-                loc,
-                kb.create<AddIOp>(
-                    loc,
-                    kb.create<MulIOp>(loc, k_i, inputSpansPerMfmaInConstantOp),
-                    blk_id),
-                MN));
-      }
+      Value sourceOffset = accelEmitterPtr->computeLdsSourceOffset(
+          kb, k_i, mnb, mn_i, b, MN, loc, sourceBase, laneId);
 
       Value value = kb.create<memref::LoadOp>(loc, ldsBufferElemType, ldsOrig,
                                               sourceOffset);
+
       auto bufferType = regDest.getType().cast<MemRefType>();
       Type bufferElementType = bufferType.getElementType();
 
       // We're loading in units of kPack, but storing in units of k_base.
-      if (KPack == k_base) {
+      if (KPack == kBase) {
         Value destOffset = k_i;
         kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
-      } else if (KPack > k_base) {
-        int64_t numStores = KPack / k_base;
+      } else if (KPack > kBase) {
+        int64_t numStores = KPack / kBase;
         Value baseDestOffset = kb.createOrFold<arith::MulIOp>(
             loc, k_i, kb.createOrFold<arith::ConstantIndexOp>(loc, numStores));
         for (int64_t i = 0; i < numStores; ++i) {
           Value sliceStart =
-              kb.createOrFold<arith::ConstantIndexOp>(loc, k_base * i);
+              kb.createOrFold<arith::ConstantIndexOp>(loc, kBase * i);
           Value slice = kb.create<ExtractSliceOp>(loc, bufferElementType, value,
                                                   sliceStart);
           Value destOffset = kb.createOrFold<arith::AddIOp>(
@@ -454,11 +414,11 @@ struct BlockwiseGemmAccelRewritePattern
           kb.create<memref::StoreOp>(loc, slice, regDest,
                                      ValueRange{destOffset});
         }
-      } else if (KPack < k_base) {
+      } else if (KPack < kBase) {
         // Here we are gathering loaded values into vectors for passing into
         // MFMAs.
         Value destValsPerKpack =
-            kb.createOrFold<arith::ConstantIndexOp>(loc, k_base / KPack);
+            kb.createOrFold<arith::ConstantIndexOp>(loc, kBase / KPack);
         // This is fine, since the inputs to MFMAs are contiguous in the k
         // dimension.
         Value destOffset =
@@ -481,7 +441,8 @@ struct BlockwiseGemmAccelRewritePattern
         [&](OpBuilder outerLoopB, AffineForOp outerLoopBodyOp, Value sourceBase,
             Value MN, Value mnPerMfmaGroup, Type ldsBufferElemType,
             Type dataType, Value ldsOrig, Value regDest) {
-          auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, KPerThread);
+          auto innerLoopK =
+              outerLoopB.create<AffineForOp>(loc, 0, kpackPerThread);
           auto ilkb = ConversionPatternRewriter::atBlockBegin(
               innerLoopK.getBody(), outerLoopB.getListener());
           {
@@ -505,7 +466,7 @@ struct BlockwiseGemmAccelRewritePattern
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
                                                         b.getListener());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
-                          mPerMfmaGroupConstantOp, bufferElemTypeA, dataTypeA,
+                          mPerAccelConstantOp, bufferElemTypeA, dataTypeA,
                           op.getMatrixA(), bufferA);
 
     // load B from LDS into registers
@@ -516,14 +477,14 @@ struct BlockwiseGemmAccelRewritePattern
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
                                                         olmb.getListener());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
-                          nPerMfmaGroupConstantOp, bufferElemTypeB, dataTypeB,
+                          nPerAccelConstantOp, bufferElemTypeB, dataTypeB,
                           op.getMatrixB(), bufferB);
 
     b.eraseOp(op);
     olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),
                              outerLoopN.getInductionVar(), adaptor.getBufferA(),
                              adaptor.getBufferB(), adaptor.getMatrixC(), arch,
-                             tuningParams);
+                             op.getFeaturesAttr(), tuningParams);
     return success();
   }
 };
@@ -757,6 +718,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   auto [buffer, transforms] = untransform(b, destView, op.getExtraViews());
 
   int64_t numValues = source.getType().getNumElements();
+
   ArrayRef<int64_t> bufferShape =
       buffer.getType().cast<ShapedType>().getShape();
 
@@ -801,7 +763,9 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>();
-    writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect>();
+    writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
+                                   memref::MemRefDialect>();
+    writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns.add<ThreadwiseReadIntoRewritePattern,
                          ThreadwiseWriteAllRewritePattern>(ctx);
@@ -814,7 +778,8 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp,
                       GlobalLoadOp, GlobalStoreOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
-                         memref::MemRefDialect>();
+                         vector::VectorDialect, memref::MemRefDialect>();
+  target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,

@@ -1063,9 +1063,9 @@ def Rock_BlockwiseGemmOp:
 // accounts for how we call these operations.
 defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
-                    VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
-defvar AccelResTypes = [VectorOfLengthAndType<[4, 16, 32], [F32, I32]>];
+                    VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
+                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
+defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp:
@@ -1078,6 +1078,7 @@ def Rock_BlockwiseGemmAccelOp:
                    MemRefOf<AccelArgTypes>:$bufferB,
                    MemRefOf<AccelResTypes>:$matrixC,
                    StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    RockAccelTuningParamAttrInterface:$params)>{
   let summary = "Blockwise GEMM accelerated version";
@@ -1091,7 +1092,7 @@ def Rock_BlockwiseGemmAccelOp:
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
-                        $bufferB `from` $matrixB `[` $waveOffsetB `]` attr-dict
+                        $bufferB `from` $matrixB `[` $waveOffsetB `]` `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];
@@ -1128,6 +1129,7 @@ def Rock_AccelGemmOp:
                    MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
                    MemRefRankOf<AccelResTypes , [1]>:$matrixC,
                    StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
@@ -1137,7 +1139,7 @@ def Rock_AccelGemmOp:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA`[`$mRepeat`]` `*` $matrixB`[`$nRepeat`]` attr-dict
+    $matrixC `+` `` `=` $matrixA`[`$mRepeat`]` `*` $matrixB`[`$nRepeat`]` `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;

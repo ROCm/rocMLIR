@@ -160,21 +160,22 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
   int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
-  return {
-      mfmaNonKDim,
-      k,
-      blocksMfma,
-      nInputsToMfma,
-      k_base,
-      inputSpanLen,
-      inputSpansPerMfmaIn,
-      nOutputsOfMfma,
-      rowGroupSize,
-      rowsPerMfmaOutput,
-      blocksPerMfmaOutput,
-      rowGroupsPerBlock,
-      blocksInOutRegs,
-  };
+  bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+
+  return {mfmaNonKDim,
+          k,
+          blocksMfma,
+          nInputsToMfma,
+          k_base,
+          inputSpanLen,
+          inputSpansPerMfmaIn,
+          nOutputsOfMfma,
+          rowGroupSize,
+          rowsPerMfmaOutput,
+          blocksPerMfmaOutput,
+          rowGroupsPerBlock,
+          blocksInOutRegs,
+          isKReduction};
 }
 
 auto getMfmaInsnAttrMap = []() -> const llvm::StringMap<MfmaInsnAttr> & {
@@ -435,8 +436,6 @@ VectorType MfmaInsn::getRetType(Type elementType) {
 }
 
 bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  bool isKReduction =
-      (attr.blocksInOutRegs == 1) && (attr.inputSpansPerMfmaIn > 1);
   if (kpack > 1) {
     if (kpack < attr.k_base) {
       LLVM_DEBUG(llvm::dbgs()
@@ -444,7 +443,7 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
                     "xdlopsgemm cycles\n");
       return false;
     }
-    if (isKReduction && kPerBlock < attr.inputSpansPerMfmaIn) {
+    if (attr.isKReduction && kPerBlock < attr.inputSpansPerMfmaIn) {
       LLVM_DEBUG(
           llvm::dbgs()
           << "When reduction, KPerBlock must be at least num_input_blks\n");
@@ -452,12 +451,13 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
     }
     return true;
   } else {
-    if (!isKReduction && kPerBlock < attr.k_base) {
+    if (!attr.isKReduction && kPerBlock < attr.k_base) {
       LLVM_DEBUG(llvm::dbgs()
                  << "When non-reduction, KPerBlock must be at least k_base\n");
       return false;
     }
-    if (isKReduction && kPerBlock < attr.k_base * attr.inputSpansPerMfmaIn) {
+    if (attr.isKReduction &&
+        kPerBlock < attr.k_base * attr.inputSpansPerMfmaIn) {
       LLVM_DEBUG(llvm::dbgs()
                  << "When reduction, KPerBlock must be at least k_base * "
                     "num_input_blks\n");
