@@ -27,6 +27,9 @@
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
+#include "int8_int8_int32_instances/batched_gemm.h"
+#include "int8_int8_int32_instances/gemm.h"
+
 // System includes
 #include <iostream>
 #include <string>
@@ -46,6 +49,17 @@ using GemmDeviceOp = ck::tensor_operation::device::DeviceGemm<
 template <typename ALayout, typename BLayout, typename DT>
 using BatchedGemmDeviceOp = ck::tensor_operation::device::DeviceBatchedGemm<
     ALayout, BLayout, Row, DT, DT, DT, PassThrough, PassThrough, PassThrough>;
+
+template <typename ALayout, typename BLayout>
+using GemmDeviceOpInt8 =
+    ck::tensor_operation::device::DeviceGemm<ALayout, BLayout, Row, int8_t,
+                                             int8_t, int32_t, PassThrough,
+                                             PassThrough, PassThrough>;
+
+template <typename ALayout, typename BLayout>
+using BatchedGemmDeviceOpInt8 = ck::tensor_operation::device::DeviceBatchedGemm<
+    ALayout, BLayout, Row, int8_t, int8_t, int32_t, PassThrough, PassThrough,
+    PassThrough>;
 
 // Simple structure to wrap memory parameters together
 struct GemmMemoryParameters {
@@ -81,6 +95,26 @@ template <typename ALayout, typename BLayout, typename DT> struct GemmRunner {
   }
 };
 
+// Specialization for int8,int8,int32
+template <typename ALayout, typename BLayout>
+struct GemmRunner<ALayout, BLayout, int8_t> {
+  using D = GemmDeviceOp<ALayout, BLayout, int8_t>;
+  using Dptr = std::unique_ptr<D>;
+
+  static auto makeArg(const Dptr &op_ptr, const GemmMemoryParameters &params,
+                      const benchmark::BenchmarkArgs &args) {
+    return op_ptr->MakeArgumentPointer(
+        params.aDevice, params.bDevice, params.cDevice, args.gemmM, args.gemmN,
+        args.gemmK, params.strideA, params.strideB, params.strideC,
+        PassThrough{}, PassThrough{}, PassThrough{});
+  }
+
+  static auto getInstances() {
+    return ck::tensor_operation::device::instance::
+        DeviceOperationInstanceFactory<D>::GetInstances();
+  }
+};
+
 // Main utility functions to run batched GEMM
 template <typename ALayout, typename BLayout, typename DT>
 struct BatchedGemmRunner {
@@ -96,6 +130,30 @@ struct BatchedGemmRunner {
         params.strideA, params.strideB, params.strideC, params.batchStrideA,
         params.batchStrideB, params.batchStrideC, args.gemmG, PassThrough{},
         PassThrough{}, PassThrough{});
+  }
+
+  static auto getInstances() {
+    return ck::tensor_operation::device::instance::
+        DeviceOperationInstanceFactory<D>::GetInstances();
+  }
+};
+
+// Main utility functions to run batched GEMM
+template <typename ALayout, typename BLayout>
+struct BatchedGemmRunner<ALayout, BLayout, int8_t> {
+
+  using D = BatchedGemmDeviceOpInt8<ALayout, BLayout>;
+  using Dptr = std::unique_ptr<D>;
+
+  static auto makeArg(const Dptr &opPtr, const GemmMemoryParameters &params,
+                      const benchmark::BenchmarkArgs &args) {
+    return opPtr->MakeArgumentPointer(
+        static_cast<int8_t *>(params.aDevice),
+        static_cast<int8_t *>(params.bDevice),
+        static_cast<int32_t *>(params.cDevice), args.gemmM, args.gemmN,
+        args.gemmK, params.strideA, params.strideB, params.strideC,
+        params.batchStrideA, params.batchStrideB, params.batchStrideC,
+        args.gemmG, PassThrough{}, PassThrough{}, PassThrough{});
   }
 
   static auto getInstances() {
