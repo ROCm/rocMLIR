@@ -35,6 +35,11 @@ set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
+# BUILD_MIXR_TARGET is deprecated but still available
+if(BUILD_MIXR_TARGET)
+  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
+-endif()
+
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat librockCompiler to link into Rock driver")
