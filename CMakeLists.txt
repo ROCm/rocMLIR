@@ -38,7 +38,7 @@ message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 # BUILD_MIXR_TARGET is deprecated but still available
 if(BUILD_MIXR_TARGET)
   set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
--endif()
+endif()
 
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
