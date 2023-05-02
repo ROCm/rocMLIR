@@ -212,7 +212,7 @@ struct PushTransformsUpRewritePattern
       return mcop.getTarget() == result;
     } else if (auto rgop = dyn_cast<rock::GridwiseGemmOp>(forwOp)) {
       return rgop.getC() == result;
-    } else if (auto rgop = dyn_cast<rock::GridwiseGemmV2Op>(forwOp)) {
+    } else if (auto rgop = dyn_cast<rock::GridwiseGemmAccelOp>(forwOp)) {
       return rgop.getC() == result;
     } else if (auto rgop = dyn_cast<rock::ThreadwiseWriteAllOp>(forwOp)) {
       return rgop.getDest() == result;

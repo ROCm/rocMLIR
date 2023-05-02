@@ -5,8 +5,8 @@
 
 #general_gemm_params0 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
 #general_gemm_params1 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
-#xdlops_gemm_params0 = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
-#xdlops_gemm_params1 = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, forceUnroll = true>
+#xdlops_gemm_params0 = #rock.xdlops_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+#xdlops_gemm_params1 = #rock.xdlops_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, forceUnroll = true>
 
 // CHECK-LABEL: func.func @gemm_easy_case_from_conv
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
@@ -23,7 +23,7 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 // CHECK-LABEL: func.func @gemm_easy_case_from_conv_xdlops
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
 func.func @gemm_easy_case_from_conv_xdlops(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
-  // CHECK-NEXT: rock.gridwise_gemm_v2(%[[a]], %[[b]], %[[c]])
+  // CHECK-NEXT: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]])
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx908",
     derivedBlockSize = 256 : i32,

@@ -71,7 +71,7 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       return AliasResult::OverridableAlias;
     }
     if (attr.isa<XdlopsGemmParamsAttr>()) {
-      os << "xdlops_gemm_params";
+      os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -730,6 +730,7 @@ LogicalResult GemmOp::verify() {
            << " k_a = " << kA << " k_b = " << kB;
 
   bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
@@ -744,11 +745,11 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
+  if (getStoreMethod() != StoreMethod::Set && !isXdlops && !isWmma) {
     return emitOpError("general kernels don't support non-set store methods");
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops) {
+  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -787,7 +788,7 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 //===-----------------------------------------------------===//
-// GridwiseGemmOp and GridwiseGemmV2 Op
+// GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
@@ -838,7 +839,9 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
 
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
-LogicalResult GridwiseGemmV2Op::verify() { return verifyGridwiseGemm(*this); }
+LogicalResult GridwiseGemmAccelOp::verify() {
+  return verifyGridwiseGemm(*this);
+}
 
 //===-----------------------------------------------------===//
 // ExtractSliceOp
@@ -1507,9 +1510,9 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmV2Op
+// AccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult XdlopsGemmV2Op::verify() {
+LogicalResult AccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
                     bShape = getMatrixB().getType().getShape();
 

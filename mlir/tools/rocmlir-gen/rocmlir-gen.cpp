@@ -290,6 +290,17 @@ static llvm::cl::opt<FeatureToggle> mfmaFeature(
                                 "remove mfma from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
+// wmma
+static llvm::cl::opt<FeatureToggle> wmmaFeature(
+    "wmma", llvm::cl::desc("toggle feature wmma"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force wmma into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove wmma from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
 // dot
 static llvm::cl::opt<FeatureToggle> dotFeature(
     "dot", llvm::cl::desc("toggle feature dot"),
@@ -2134,7 +2145,6 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     verifyFuncName += "Int8";
   } else {
     llvm::errs() << "Unsupported type of validation function output: ";
-    valElemType.dump();
     llvm::errs() << " (Only f32, int32 and int64 are supported)\n";
     exit(1);
   }
@@ -2840,6 +2850,9 @@ int main(int argc, char **argv) {
         enabledFeatures =
             bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                        atomicFMaxF32Feature == FeatureToggle::on);
+      if (wmmaFeature != FeatureToggle::infer)
+        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
+                                     wmmaFeature == FeatureToggle::on);
       genParams.operation = operation;
       genParams.features = enabledFeatures;
       genParams.arch = arch;

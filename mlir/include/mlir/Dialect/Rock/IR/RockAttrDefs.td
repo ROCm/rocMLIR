@@ -12,6 +12,7 @@
 include "mlir/Dialect/Rock/IR/RockBase.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
+include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
@@ -240,6 +241,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
       + Twine(getMPerThread()) + ","
       + Twine(getNPerThread())).str();
     }
+    bool getForceUnroll() { return true; }
   }];
 
   let assemblyFormat = [{
@@ -247,15 +249,14 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
+
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
-
-    TODO: Document these once they've settled down
   }];
   let parameters = (ins
-    "int64_t":$kPerBlock,
+    "int64_t":$kpackPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
@@ -269,7 +270,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
       perfStr =
          (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
-        + Twine(getKPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
@@ -284,17 +285,54 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
+def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "wmma_gemm_params";
+  let description = [{
+    The tuning parameters for an wmma-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(std::string &perfStr){
+      perfStr =
+         (Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .str();
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
 def Rock_GemmFeatures_Mfma : I32BitEnumAttrCaseBit<"mfma", 0>;
 def Rock_GemmFeatures_Dot : I32BitEnumAttrCaseBit<"dot", 1>;
 def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 2>;
 def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 4>;
+def Rock_GemmFeatures_Wmma : I32BitEnumAttrCaseBit<"wmma", 5>;
 
 def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
     "Features that can be enabled on GEMM-based operations",
     [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
-     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicFmaxF32]> {
+     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicFmaxF32, Rock_GemmFeatures_Wmma]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }

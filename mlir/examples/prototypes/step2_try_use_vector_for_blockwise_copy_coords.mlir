@@ -101,7 +101,7 @@ module {
       rock.blockwise_copy_v2(%3, %33, %b_src, %37) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<1024x25088xf32, #map2>, memref<2x4xf32, 5>, vector<2xi32>, vector<2xi32>
 
       rock.workgroup_barrier
-      %204:4 = rock.blockwise_gemm_v2(%29, %31, %41, %42, %43, %44, %arg4, %arg5, %arg6, %arg7) {block_size = 256 : i32, coord_transforms = [], k = 16 : i32, m = 256 : i32, m_per_wave = 128 : i32, m_waves = 2 : i32, n = 128 : i32, n_per_wave = 64 : i32, n_waves = 2 : i32} : memref<16x256xf32, #map3, 3>, memref<16x128xf32, #map5, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<32xf32>
+      %204:4 = rock.blockwise_gemm_accel(%29, %31, %41, %42, %43, %44, %arg4, %arg5, %arg6, %arg7) {block_size = 256 : i32, coord_transforms = [], k = 16 : i32, m = 256 : i32, m_per_wave = 128 : i32, m_waves = 2 : i32, n = 128 : i32, n_per_wave = 64 : i32, n_waves = 2 : i32} : memref<16x256xf32, #map3, 3>, memref<16x128xf32, #map5, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<32xf32>
       rock.workgroup_barrier
 
       rock.blockwise_copy_v2(%32, %29, %a_src, %35) {block_size = 256 : i32, dest_data_per_write = 1 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<4x4xf32, 5>, memref<16x256xf32, #map3, 3>, vector<2xi32>, vector<2xi32>
@@ -109,7 +109,7 @@ module {
       scf.yield %204#0, %204#1, %204#2, %204#3, %a_src, %b_src : vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<2xi32>, vector<2xi32>
     }
     rock.workgroup_barrier
-    %46:4 = rock.blockwise_gemm_v2(%29, %31, %41, %42, %43, %44, %45#0, %45#1, %45#2, %45#3) {block_size = 256 : i32, coord_transforms = [], k = 16 : i32, m = 256 : i32, m_per_wave = 128 : i32, m_waves = 2 : i32, n = 128 : i32, n_per_wave = 64 : i32, n_waves = 2 : i32} : memref<16x256xf32, #map3, 3>, memref<16x128xf32, #map5, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<32xf32>
+    %46:4 = rock.blockwise_gemm_accel(%29, %31, %41, %42, %43, %44, %45#0, %45#1, %45#2, %45#3) {block_size = 256 : i32, coord_transforms = [], k = 16 : i32, m = 256 : i32, m_per_wave = 128 : i32, m_waves = 2 : i32, n = 128 : i32, n_per_wave = 64 : i32, n_waves = 2 : i32} : memref<16x256xf32, #map3, 3>, memref<16x128xf32, #map5, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>, vector<32xf32>, vector<32xf32>
     %47 = rock.transform(%4) : memref<1024x25088xf32, #map2> to memref<128x2x4x25088xf32, #map6>
     %48 = remi_signed %6, %c64 : index
     %49 = divi_signed %48, %c32 : index
