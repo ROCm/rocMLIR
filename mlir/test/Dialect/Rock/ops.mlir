@@ -196,13 +196,13 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
 // CHECK-LABEL: func.func @rock_gridwise_gemm
 //  CHECK-NEXT: rock.gridwise_gemm
 
-func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
-  rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) features = none {
+func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
+  rock.gridwise_gemm_accel(%A, %B, %C) storeMethod(set) features = none {
     arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.xdlops_gemm_params<
-      kPerBlock = 4,
+      kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
       mPerWave = 64,
@@ -213,8 +213,8 @@ func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x102
   return
 }
 
-// CHECK-LABEL: func.func @rock_gridwise_gemm_v2
-// CHECK-NEXT: rock.gridwise_gemm_v2
+// CHECK-LABEL: func.func @rock_gridwise_gemm_accel
+// CHECK-NEXT: rock.gridwise_gemm_accel
 
 func.func @rock_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {
   %i = arith.constant 0 : index

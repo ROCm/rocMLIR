@@ -116,7 +116,7 @@ struct BlockwiseGemmRewritePattern
     int64_t n = blockBType.getShape()[1];
     int64_t kPack = blockAType.getShape()[2];
 
-    // Non-xdlops path.
+    // Non-accelerator path.
 
     // Obtain critical attributes.
     int64_t mC = bufferCType.getShape()[0];
@@ -300,23 +300,23 @@ struct BlockwiseGemmRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// BlockwiseGemmV2 lowering.
+// BlockwiseGemmAccel lowering.
 //===----------------------------------------------------------------------===//
 
-struct BlockwiseGemmV2RewritePattern
-    : public OpConversionPattern<BlockwiseGemmV2Op> {
-  using OpConversionPattern<BlockwiseGemmV2Op>::OpConversionPattern;
+struct BlockwiseGemmAccelRewritePattern
+    : public OpConversionPattern<BlockwiseGemmAccelOp> {
+  using OpConversionPattern<BlockwiseGemmAccelOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(BlockwiseGemmV2Op op,
-                                BlockwiseGemmV2OpAdaptor adaptor,
+  LogicalResult matchAndRewrite(BlockwiseGemmAccelOp op,
+                                BlockwiseGemmAccelOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
     StringAttr arch = op.getArchAttr();
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
-    int64_t K = tuningParams.getKPerBlock();
+    int64_t K = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
     int64_t KPack = tuningParams.getKpack();
@@ -520,10 +520,10 @@ struct BlockwiseGemmV2RewritePattern
                           op.getMatrixB(), bufferB);
 
     b.eraseOp(op);
-    olnb.create<XdlopsGemmV2Op>(loc, outerLoopM.getInductionVar(),
-                                outerLoopN.getInductionVar(),
-                                adaptor.getBufferA(), adaptor.getBufferB(),
-                                adaptor.getMatrixC(), arch, tuningParams);
+    olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),
+                             outerLoopN.getInductionVar(), adaptor.getBufferA(),
+                             adaptor.getBufferB(), adaptor.getMatrixC(), arch,
+                             tuningParams);
     return success();
   }
 };
@@ -811,14 +811,14 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
-                      GlobalStoreOp>();
+  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp,
+                      GlobalLoadOp, GlobalStoreOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
                          memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmV2RewritePattern, GlobalLoadRewritePattern,
+               BlockwiseGemmAccelRewritePattern, GlobalLoadRewritePattern,
                GlobalStoreRewritePattern>(ctx);
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))

@@ -14,7 +14,7 @@ module {
   }
 }
 // 1. Tracks the beginning of the store loop of gemmv2
-//CHECK: rock.blockwise_gemm_v2
+//CHECK: rock.blockwise_gemm_accel
 //CHECK: rock.transforming_for
 
 // 2. Check if ops are fused and copy_v2 is not present here

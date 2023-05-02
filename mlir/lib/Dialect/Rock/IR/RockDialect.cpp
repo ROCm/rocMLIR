@@ -71,7 +71,7 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       return AliasResult::OverridableAlias;
     }
     if (attr.isa<XdlopsGemmParamsAttr>()) {
-      os << "xdlops_gemm_params";
+      os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -787,7 +787,7 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 //===-----------------------------------------------------===//
-// GridwiseGemmOp and GridwiseGemmV2 Op
+// GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
@@ -838,7 +838,9 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
 
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
-LogicalResult GridwiseGemmV2Op::verify() { return verifyGridwiseGemm(*this); }
+LogicalResult GridwiseGemmAccelOp::verify() {
+  return verifyGridwiseGemm(*this);
+}
 
 //===-----------------------------------------------------===//
 // ExtractSliceOp
@@ -1507,9 +1509,9 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmV2Op
+// AccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult XdlopsGemmV2Op::verify() {
+LogicalResult AccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
                     bShape = getMatrixB().getType().getShape();
 

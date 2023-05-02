@@ -161,7 +161,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
-    // For non-XDLOPS path, do not use KPack for now.
+    // For non-accelerator path, do not use KPack for now.
 
     // kPerThread and the cuwave parameters are hardcoded, may change in a
     // different pass. Please visit

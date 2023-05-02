@@ -170,19 +170,18 @@ struct ThreadwiseGemmRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmV2 lowering.
+// AccelGemm lowering.
 //===----------------------------------------------------------------------===//
-struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
-  using OpConversionPattern<XdlopsGemmV2Op>::OpConversionPattern;
+struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
+  using OpConversionPattern<AccelGemmOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(XdlopsGemmV2Op op,
-                                XdlopsGemmV2OpAdaptor adaptor,
+  LogicalResult matchAndRewrite(AccelGemmOp op, AccelGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     // Obtain critical information.
-    int64_t K = tuningParams.getKPerBlock() * tuningParams.getKpack();
+    int64_t K = tuningParams.getKpackPerBlock() * tuningParams.getKpack();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
@@ -290,13 +289,13 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   func::FuncOp op = getOperation();
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::XdlopsGemmV2Op>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, XdlopsGemmV2RewritePattern>(ctx);
+  patterns.add<ThreadwiseGemmRewritePattern, AccelGemmV2RewritePattern>(ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();
 }

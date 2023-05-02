@@ -183,8 +183,8 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 /// contain the strings "g_block", "m_block", and "n_block" in some order
 /// indicating how the block ID is to be partitioned into offsets (last element
 /// moves fastest) and bidGridLengths should be the lengths of those three
-/// dimensions. This is needed because the xdlops and non-xdlops gemms partition
-/// their block ID in different orders.
+/// dimensions. This is needed because the accelerated and non-accelerated gemms
+/// partition their block ID in different orders.
 static FailureOr<Value> wrapMatrixForGlobalLoad(
     OpBuilder &b, Location loc, Value matrix, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
@@ -986,14 +986,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// GridwiseGemmV2 lowering.
+// GridwiseGemmAccel lowering.
 //===----------------------------------------------------------------------===//
 
-struct GridwiseGemmV2RewritePattern
-    : public OpRewritePattern<GridwiseGemmV2Op> {
-  using OpRewritePattern<GridwiseGemmV2Op>::OpRewritePattern;
+struct GridwiseGemmAccelRewritePattern
+    : public OpRewritePattern<GridwiseGemmAccelOp> {
+  using OpRewritePattern<GridwiseGemmAccelOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(GridwiseGemmV2Op op,
+  LogicalResult matchAndRewrite(GridwiseGemmAccelOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -1022,12 +1022,12 @@ struct GridwiseGemmV2RewritePattern
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
     // at some future point, but it'll be worked around for now.
-    int64_t kpacksPerBlock = tuningParams.getKPerBlock();
+    int64_t kpacksPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerBlock = tuningParams.getMPerBlock();
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mBlocks = M / mPerBlock;
@@ -1277,7 +1277,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
     // -----
 
-    // Logic to setup blockwise_gemm_v2 parameters.
+    // Logic to setup blockwise_gemm_accel parameters.
     //
     // Original C++ logic:
     // index_t mMyWaveOffsetA;
@@ -1295,7 +1295,7 @@ struct GridwiseGemmV2RewritePattern
     mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, mPerWaveConstantOp);
     mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, nPerWaveConstantOp);
 
-    // Logic to setup buffers for blockwise_gemm_v2.
+    // Logic to setup buffers for blockwise_gemm_accel.
 
     bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
     int64_t inputBufferSize =
@@ -1328,7 +1328,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit loop.
     int64_t nIterations = K / kPerBlock;
-    BlockwiseGemmV2Op blockwiseGemmV2Op;
+    BlockwiseGemmAccelOp blockwiseGemmAccelOp;
     // Start at 1 to make it clearer we have performed software pipelining.
     auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
     {
@@ -1358,7 +1358,7 @@ struct GridwiseGemmV2RewritePattern
       b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise GEMM.
-      blockwiseGemmV2Op = b.create<BlockwiseGemmV2Op>(
+      blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
           loc, ldsViewForGemmA, ldsViewForGemmB, mMyWaveOffsetA, mMyWaveOffsetB,
           arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getBlockSizeAttr(),
           op.getParamsAttr());
@@ -1389,7 +1389,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise GEMM for the loop tail.
     IRMapping tailGemmCloneMap;
-    b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
+    b.clone(*blockwiseGemmAccelOp, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
     // results properly, remove them ourselves.
@@ -1511,14 +1511,15 @@ struct GridwiseGemmV2RewritePattern
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmV2Op>();
+  target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, AffineDialect,
                          vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
+  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmAccelRewritePattern>(
+      ctx);
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
     signalPassFailure();
