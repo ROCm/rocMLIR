@@ -10,17 +10,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/ExecutionEngine/SystemDevices.h"
-#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/SystemDevice.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define DEBUG_TYPE "execution-engine-system-devices"
+#define DEBUG_TYPE "support-system-device"
 
 using namespace mlir;
+
+SystemDevice::SystemDevice(Type _type)
+  : type(_type) {
+}
 
 static const char *getDeviceTypeStr(SystemDevice::Type type) {
   switch (type) {

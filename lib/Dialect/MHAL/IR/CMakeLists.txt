@@ -15,6 +15,7 @@ target_link_libraries(MLIRMHAL
   PUBLIC
   MLIRIR
   MLIRDialect
+  MLIRFuncDialect
   MLIRCallInterfaces
   MLIRAnalysis
   MLIRParser

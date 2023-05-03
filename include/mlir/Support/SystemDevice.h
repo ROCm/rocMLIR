@@ -27,6 +27,8 @@ namespace mlir {
 struct SystemDevice {
   enum class Type : int32_t { ECPU, EGPU, ENPU, EALT };
 
+  SystemDevice(Type type);
+
   LogicalResult parse(StringRef arch);
   bool isCompatible(const SystemDevice &that) const;
   std::string getArch() const;

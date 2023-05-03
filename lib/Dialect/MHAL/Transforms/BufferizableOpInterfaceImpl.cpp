@@ -50,7 +50,7 @@ getEquivalentFuncArgIdx(FuncOp funcOp, const FuncAnalysisState &state,
 
 /// Return the actual call operand index corresponding to the func operand.
 static unsigned getCallOperandIdx(CallOpInterface callOp, unsigned funcIdx) {
-  auto operands = callOp.getCallOperands();
+  auto operands = callOp.getArgOperands();
   if (operands.size() != callOp->getOperands().size()) {
     // Search for the value
     for (const auto &it : llvm::enumerate(callOp->getOperands())) {
@@ -218,7 +218,7 @@ struct LaunchOpInterface
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
     mlir::CallOpInterface callOp(op);
-    auto callOperands = callOp.getCallOperands();
+    auto callOperands = callOp.getArgOperands();
     auto callResultTypes = callOp.getCallResultTypes();
     unsigned numOperands = callOp->getNumOperands();
     unsigned numResults = callOp->getNumResults();

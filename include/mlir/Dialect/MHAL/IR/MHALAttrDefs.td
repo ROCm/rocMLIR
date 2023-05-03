@@ -75,17 +75,6 @@ def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage"> {
       AttrParameter<"::mlir::mhal::TargetObjectAttr", "The object">:$object
     );
 
-    let extraClassDeclaration = [{
-      public:
-      using iterator = iter_one<const mhal::TargetObjectAttr>;
-      iterator begin() const;
-      iterator end() const;
-      bool empty() const { return false; }
-      void walkImmediateSubElements(function_ref<void(Attribute)> walkAttrsFn,
-                                function_ref<void(Type)> walkTypesFn) const;
-      Attribute replaceImmediateSubElements(ArrayRef<Attribute>, ArrayRef<Type>) const;
-    }];
-
     let genVerifyDecl = 0;
     let hasCustomAssemblyFormat = 1;
 }

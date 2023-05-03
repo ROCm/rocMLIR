@@ -16,38 +16,12 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 
 //===----------------------------------------------------------------------===//
 //  MHAL Dialect
 //===----------------------------------------------------------------------===//
-
-namespace mlir {
-namespace mhal {
-template <typename T>
-class iter_one
-    : public llvm::iterator_facade_base<iter_one<T>, std::forward_iterator_tag,
-                                        T> {
-  T &obj;
-  int idx = 0;
-
-public:
-  iter_one(T &_s, int _idx = 0) : obj(_s), idx(_idx) {}
-  iter_one(const iter_one &) = default;
-  T &operator*() const {
-    assert(idx == 0);
-    return obj;
-  }
-  iter_one &operator++() {
-    ++idx;
-    return *this;
-  }
-  bool operator==(const iter_one &that) const {
-    return obj == that.obj && idx == that.idx;
-  }
-};
-} // namespace mhal
-} // namespace mlir
 
 #include "mlir/Dialect/MHAL/IR/MHALOpsDialect.h.inc"
 #include "mlir/Dialect/MHAL/IR/MHALTypes.h"

@@ -128,9 +128,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createMemRefToLLVMConversionPass());
 
-  AsyncToAsyncRuntimeOptions a2arOpts;
-  a2arOpts.enableCoroutines = options.enableCoroutines;
-  pm.addPass(createAsyncToAsyncRuntime(a2arOpts));
+  pm.addPass(createAsyncToAsyncRuntime());
 
   auto &funcPm3 = pm.nest<func::FuncOp>();
   funcPm3.addPass(createAsyncRuntimeRefCountingPass());
@@ -143,8 +141,6 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
-
-  pm.addPass(LLVM::createSoftwareBF16Pass());
 }
 
 //===----------------------------------------------------------------------===//

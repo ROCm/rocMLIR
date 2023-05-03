@@ -34,7 +34,7 @@ def MHAL_LaunchOp :
                       ["getCallResults", "getCallResultTypes"]>,
                       DeclareOpInterfaceMethods<SymbolUserOpInterface>,
                       AttrSizedOperandSegments]> {
-  let summary = "MHALhronous launch operation";
+  let summary = "asynchronous launch operation";
   let description = [{
     The `mhal.launch` operation encapsulates a call to a `kernel` func that
     may run mhalhronously from the caller. An `mhal.token` is returned to
@@ -96,6 +96,8 @@ def MHAL_LaunchOp :
   ];
 
   let extraClassDeclaration = [{
+    Operation::result_range getCallResults();
+    Operation::result_type_range getCallResultTypes();
     void updateSegmentSizes(MLIRContext *);
   }];
 

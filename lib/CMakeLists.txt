@@ -1,3 +1,6 @@
-add_subdirectory(Conversion)
 add_subdirectory(Dialect)
-add_subdirectory(Support)
+
+if(MHAL_ENABLE_TRANSFORMS)
+  add_subdirectory(Conversion)
+  add_subdirectory(Support)
+endif()

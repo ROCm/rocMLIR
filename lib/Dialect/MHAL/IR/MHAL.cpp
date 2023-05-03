@@ -137,18 +137,6 @@ void TargetObjectAttr::print(mlir::AsmPrinter &printer) const {
 // #mhal.target_kernel<'type' = 'arch' : 'entry_name' ['launch_dims']
 // {attributes} -> #mhal.target_obj<>>
 //===---------------------------------------------------------
-void KernelPackageAttr::walkImmediateSubElements(
-    llvm::function_ref<void(mlir::Attribute)> walkAttrsFn,
-    llvm::function_ref<void(mlir::Type)> walkTypesFn) const {
-  walkAttrsFn(getObject());
-}
-Attribute
-KernelPackageAttr::replaceImmediateSubElements(ArrayRef<Attribute> replAttrs,
-                                               ArrayRef<Type> replTypes) const {
-  assert(0);
-  return getObject();
-}
-
 template <typename T>
 static ParseResult
 parseAndGather(mlir::AsmParser &parser, AsmParser::Delimiter delim,
