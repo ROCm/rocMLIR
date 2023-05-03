@@ -340,7 +340,7 @@ pipeline {
                      description: 'Can this CI instance use xdlops (no for public server)')
         booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
-        string(name: 'MIOpenBranch', defaultValue: 'develop',
+        string(name: 'MIOpenBranch', defaultValue: 'bump-mlir-release/rocm-5.6',
                description: 'The MIOpen branch to be used with the job')
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
