@@ -5,6 +5,7 @@ import reportUtils
 from pathlib import PurePath
 import sys
 from typing import Tuple
+import os
 
 import pandas as pd
 
@@ -120,6 +121,8 @@ if __name__ == '__main__':
         oldLabel = "copy"
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
+    oldNewPaths = {"old" : os.path.abspath(oldDataPath),
+                   "new": os.path.abspath(newDataPath)}
     isGemm = ("TransA" in data)
     hasTuning = ("% change (tuned)" in data)
     if isGemm and len(sys.argv) < 5:
@@ -129,4 +132,4 @@ if __name__ == '__main__':
             else ["% change"]
         reportUtils.htmlReport(data, summary,
             "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            toHighlight, reportUtils.colorForChanges, outputStream)
+            toHighlight, reportUtils.colorForChanges, outputStream, oldNewPaths)

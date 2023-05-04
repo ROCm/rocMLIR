@@ -111,7 +111,8 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     return data, title, list(indexCols.values())
 
 def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str,
-                  speedupCols: list, colorizer=colorForSpeedups, stream=None):
+                  speedupCols: list, colorizer=colorForSpeedups,
+                  stream=None, oldNewCsv={}):
     data, longTitle, indexCols = cleanDataForHumans(data, title)
     print(f"""
 <!doctype html>
@@ -128,9 +129,16 @@ caption {{
 </head>
 <body>
 <h1>{longTitle}</h1>
-<h2>Summary</h2>
 """, file=stream)
 
+    if oldNewCsv:
+        print("<h2>Input files</h2>", file=stream)
+        print("<ul>", file=stream)
+        print(f"<li><b>Old data</b> {oldNewCsv['old']}</li>", file=stream)
+        print(f"<li><b>New data</b> {oldNewCsv['new']}</li>", file=stream)
+        print("</ul>", file=stream)
+
+    print("<h2>Summary</h2>", file=stream)
     statsPrinter = stats.style
     statsPrinter.set_caption(f"Summary statistics for {title}")
     setCommonStyles(statsPrinter, speedupCols, colorizer)
