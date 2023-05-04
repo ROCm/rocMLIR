@@ -235,6 +235,50 @@ module  {
   }
 
 
+  // CHECK-LABEL: func.func @func_exp_f32
+  // CHECK: tosa.exp
+  func.func @func_exp_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.exp"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
+    return %0 : tensor<1x36x384x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_exp_f16
+  // CHECK: tosa.exp
+  func.func @func_exp_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
+    %0 = "migraphx.exp"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
+    return %0 : tensor<1x36x384x64xf16>
+  }
+
+  // CHECK-LABEL: func.func @func_neg_f32
+  // CHECK: tosa.negate
+  func.func @func_neg_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.neg"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
+    return %0 : tensor<1x36x384x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_neg_f16
+  // CHECK: tosa.negate
+  func.func @func_neg_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
+    %0 = "migraphx.neg"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
+    return %0 : tensor<1x36x384x64xf16>
+  }
+
+  // CHECK-LABEL: func.func @func_div_f32
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  func.func @func_div_f32(%arg0: tensor<1x36x384x64xf32>, %arg1: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
+    %0 = "migraphx.div"(%arg0, %arg1) : (tensor<1x36x384x64xf32>, tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
+    return %0 : tensor<1x36x384x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_div_f16
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  func.func @func_div_f16(%arg0: tensor<1x36x384x64xf16>, %arg1: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
+    %0 = "migraphx.div"(%arg0, %arg1) : (tensor<1x36x384x64xf16>, tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
+    return %0 : tensor<1x36x384x64xf16>
+  }
+
 }
 
 
