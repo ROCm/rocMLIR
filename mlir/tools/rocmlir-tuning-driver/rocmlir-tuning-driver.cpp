@@ -109,11 +109,13 @@ static benchmark::DataType getDataType(Type inputType) {
   }
 
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double>
-benchmarkKernel(const char *binary, const char *funcName, uint32_t blockSize,
-                uint32_t gridSize, benchmark::DataType dataType,
-                std::vector<void *> hostBuffers, std::vector<void *> gpuBuffers,
-                std::vector<size_t> bufferSizes) {
+static FailureOr<double> benchmarkKernel(const char *binary,
+                                         const char *funcName,
+                                         uint32_t blockSize, uint32_t gridSize,
+                                         benchmark::DataType dataType,
+                                         ArrayRef<void *> hostBuffers,
+                                         MutableArrayRef<void *> gpuBuffers,
+                                         ArrayRef<size_t> bufferSizes) {
   constexpr double msToNs = 1e6;
   hipModule_t mod;
   HIPCHECK(hipModuleLoadData(&mod, binary))
