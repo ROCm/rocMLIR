@@ -1,5 +1,6 @@
 # Reference: https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang-tidy.ignore
 # Files to be ignored by clang-tidy. Will not appear in short report and inline comments.
 mlir/examples/standalone
+mlir/utils/performance/ck-benchmark-driver
 mlir/test
 
