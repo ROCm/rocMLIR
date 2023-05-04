@@ -597,14 +597,32 @@ public:
     return success();
   }
 };
+
+class DivConverter final : public OpConversionPattern<migraphx::DivOp> {
+public:
+  using OpConversionPattern<migraphx::DivOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    TypedValue<TensorType> inATensor = op.getInA();
+    TypedValue<TensorType> inBTensor = op.getInB();
+    Type elementType = inATensor.getType().getElementType();
+    Value recip = createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc,
+                                                       elementType, inBTensor);
+    Value mul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
+                                              inATensor, recip, /*shift=*/0);
+    rewriter.replaceOp(op, {mul});
+    return success();
+  }
+};
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns
-      .add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
-           BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
-           SoftmaxConverter, DotConverter, ReduceMeanConverter,
-           QuantizeLinearConverter, DeQuantizeLinearConverter, SliceConverter>(
-          context);
+  patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+               BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
+               SoftmaxConverter, DotConverter, ReduceMeanConverter,
+               QuantizeLinearConverter, DeQuantizeLinearConverter,
+               SliceConverter, DivConverter>(context);
 }

@@ -77,6 +77,18 @@ def MIGraphX_MulOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+def MIGraphX_DivOp :
+    MIGraphX_Op<"div">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$inB)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise binary div";
+  let description = [{
+    Divide two tensors elementwise
+  }];
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+}
+
 def MIGraphX_PowOp :
     MIGraphX_Op<"pow">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -98,6 +110,28 @@ def MIGraphX_TanhOp :
   let summary = "Hyperbolic Tan";
   let description = [{
     get tanh
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_ExpOp :
+    MIGraphX_Op<"exp">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Exponential";
+  let description = [{
+    get exp
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_NegOp :
+    MIGraphX_Op<"neg">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Negation";
+  let description = [{
+    get neg
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
