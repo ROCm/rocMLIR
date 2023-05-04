@@ -52,10 +52,12 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   # rocm-runner is not supported with static libraries
   set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
-  set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
-  # Note, this is a hack to ignore Pytorch added conda path
-  list(APPEND CMAKE_IGNORE_PATH /opt/conda)
+  if(NOT WIN32)
+    set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
+    # Note, this is a hack to ignore Pytorch added conda path
+    list(APPEND CMAKE_IGNORE_PATH /opt/conda)
+  endif()
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")

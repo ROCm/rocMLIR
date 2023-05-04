@@ -34,7 +34,7 @@ mlir_check_link_libraries(rocmlir-lib-test)
 llvm_canonicalize_cmake_booleans(BUILD_FAT_LIBROCKCOMPILER)
 # Static library target, enabled only when building static libs
 if(BUILD_FAT_LIBROCKCOMPILER)
-  find_package(ROCM 0.8 REQUIRED PATHS /opt/rocm)
+  find_package(ROCM 0.8 REQUIRED)
   include(ROCMInstallTargets)
   include(ROCMCreatePackage)
 
@@ -43,258 +43,271 @@ if(BUILD_FAT_LIBROCKCOMPILER)
 
   set(PACKAGE_NAME ${CMAKE_PROJECT_NAME})
   set(LIBRARY_NAME rockCompiler)
-  set(COMPONENT_NAME ${LIBRARY_NAME})
-  if (NOT MSVC)
-    set(COMPONENT_NAME lib${COMPONENT_NAME})
+  set(COMPONENT_NAME ${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME})
+
+  if (MSVC)
+    add_library(${LIBRARY_NAME} INTERFACE)
+    set(__rocmlir_libraries
+            MLIRCAPIMIGraphX.lib
+            MLIRCAPIRegisterRocMLIR.lib
+            MLIRCAPIRock.lib
+            MLIRGPUToMIGraphX.lib
+            MLIRMIGraphX.lib
+            MLIRMIGraphXPipeline.lib
+            MLIRMIGraphXToTosa.lib
+            MLIRRockConv2dGenerator.lib
+            MLIRRockOps.lib
+            MLIRRockPipeline.lib
+            MLIRRockThin.lib
+            MLIRRockToGPU.lib
+            MLIRRockTransforms.lib
+            MLIRRockTuning.lib
+            MLIRRockUtility.lib
+            MLIRTosaToRock.lib)
+    set(__llvm_mlir_libraries
+            lldCommon.lib
+            lldELF.lib
+            LLVMAggressiveInstCombine.lib
+            LLVMAMDGPUAsmParser.lib
+            LLVMAMDGPUCodeGen.lib
+            LLVMAMDGPUDesc.lib
+            LLVMAMDGPUDisassembler.lib
+            LLVMAMDGPUInfo.lib
+            LLVMAMDGPUUtils.lib
+            LLVMAnalysis.lib
+            LLVMAsmParser.lib
+            LLVMAsmPrinter.lib
+            LLVMBinaryFormat.lib
+            LLVMBitReader.lib
+            LLVMBitstreamReader.lib
+            LLVMBitWriter.lib
+            LLVMCFGuard.lib
+            LLVMCodeGen.lib
+            LLVMCore.lib
+            LLVMCoroutines.lib
+            LLVMDebugInfoCodeView.lib
+            LLVMDebugInfoDWARF.lib
+            LLVMDebugInfoMSF.lib
+            LLVMDebugInfoPDB.lib
+            LLVMDemangle.lib
+            LLVMExtensions.lib
+            LLVMFrontendOpenMP.lib
+            LLVMGlobalISel.lib
+            LLVMInstCombine.lib
+            LLVMInstrumentation.lib
+            LLVMipo.lib
+            LLVMIRPrinter.lib
+            LLVMIRReader.lib
+            LLVMLinker.lib
+            LLVMLTO.lib
+            LLVMMC.lib
+            LLVMMCDisassembler.lib
+            LLVMMCParser.lib
+            LLVMMIRParser.lib
+            LLVMObjCARCOpts.lib
+            LLVMObject.lib
+            LLVMOption.lib
+            LLVMPasses.lib
+            LLVMProfileData.lib
+            LLVMRemarks.lib
+            LLVMScalarOpts.lib
+            LLVMSelectionDAG.lib
+            LLVMSupport.lib
+            LLVMSymbolize.lib
+            LLVMTableGen.lib
+            LLVMTableGenGlobalISel.lib
+            LLVMTarget.lib
+            LLVMTargetParser.lib
+            LLVMTextAPI.lib
+            LLVMTransformUtils.lib
+            LLVMVectorize.lib
+            LLVMX86AsmParser.lib
+            LLVMX86CodeGen.lib
+            LLVMX86Desc.lib
+            LLVMX86Disassembler.lib
+            LLVMX86Info.lib
+            MLIRAffineAnalysis.lib
+            MLIRAffineDialect.lib
+            MLIRAffineToStandard.lib
+            MLIRAffineTransforms.lib
+            MLIRAffineUtils.lib
+            MLIRAMDGPUDialect.lib
+            MLIRAMDGPUToROCDL.lib
+            MLIRAMXDialect.lib
+            MLIRAMXToLLVMIRTranslation.lib
+            MLIRAMXTransforms.lib
+            MLIRAnalysis.lib
+            MLIRArithAttrToLLVMConversion.lib
+            MLIRArithDialect.lib
+            MLIRArithToLLVM.lib
+            MLIRArithTransforms.lib
+            MLIRArithUtils.lib
+            MLIRArmNeonDialect.lib
+            MLIRArmNeonToLLVMIRTranslation.lib
+            MLIRArmSVEDialect.lib
+            MLIRArmSVEToLLVMIRTranslation.lib
+            MLIRArmSVETransforms.lib
+            MLIRAsmParser.lib
+            MLIRAsyncDialect.lib
+            MLIRAsyncToLLVM.lib
+            MLIRBufferizationDialect.lib
+            MLIRBufferizationTransformOps.lib
+            MLIRBufferizationTransforms.lib
+            MLIRBytecodeReader.lib
+            MLIRBytecodeWriter.lib
+            MLIRCallInterfaces.lib
+            MLIRCAPIIR.lib
+            MLIRCastInterfaces.lib
+            MLIRComplexDialect.lib
+            MLIRControlFlowDialect.lib
+            MLIRControlFlowInterfaces.lib
+            MLIRControlFlowToLLVM.lib
+            MLIRCopyOpInterface.lib
+            MLIRDataLayoutInterfaces.lib
+            MLIRDestinationStyleOpInterface.lib
+            MLIRDialect.lib
+            MLIRDialectUtils.lib
+            MLIRDLTIDialect.lib
+            MLIRExecutionEngineUtils.lib
+            MLIRFuncDialect.lib
+            MLIRFuncToLLVM.lib
+            MLIRFuncTransforms.lib
+            MLIRGPUOps.lib
+            MLIRGPUToGPURuntimeTransforms.lib
+            MLIRGPUToROCDLTransforms.lib
+            MLIRGPUTransforms.lib
+            MLIRInferIntRangeInterface.lib
+            MLIRInferTypeOpInterface.lib
+            MLIRIR.lib
+            MLIRLinalgAnalysis.lib
+            MLIRLinalgDialect.lib
+            MLIRLinalgTransforms.lib
+            MLIRLinalgUtils.lib
+            MLIRLLVMCommonConversion.lib
+            MLIRLLVMDialect.lib
+            MLIRLLVMIRTransforms.lib
+            MLIRLLVMToLLVMIRTranslation.lib
+            MLIRLoopLikeInterface.lib
+            MLIRMaskableOpInterface.lib
+            MLIRMaskingOpInterface.lib
+            MLIRMathDialect.lib
+            MLIRMathToLLVM.lib
+            MLIRMemRefDialect.lib
+            MLIRMemRefToLLVM.lib
+            MLIRMemRefTransforms.lib
+            MLIRNVVMDialect.lib
+            MLIRNVVMToLLVMIRTranslation.lib
+            MLIROpenACCDialect.lib
+            MLIROpenACCToLLVM.lib
+            MLIROpenACCToLLVMIRTranslation.lib
+            MLIROpenMPDialect.lib
+            MLIROpenMPToLLVMIRTranslation.lib
+            MLIRParallelCombiningOpInterface.lib
+            MLIRParser.lib
+            MLIRPass.lib
+            MLIRPDLDialect.lib
+            MLIRPDLInterpDialect.lib
+            MLIRPDLToPDLInterp.lib
+            MLIRPresburger.lib
+            MLIRQuantDialect.lib
+            MLIRQuantUtils.lib
+            MLIRReconcileUnrealizedCasts.lib
+            MLIRRewrite.lib
+            MLIRROCDLDialect.lib
+            MLIRROCDLToLLVMIRTranslation.lib
+            MLIRRuntimeVerifiableOpInterface.lib
+            MLIRSCFDialect.lib
+            MLIRSCFToControlFlow.lib
+            MLIRSCFTransforms.lib
+            MLIRSCFUtils.lib
+            MLIRShapedOpInterfaces.lib
+            MLIRSideEffectInterfaces.lib
+            MLIRSparseTensorDialect.lib
+            MLIRSupport.lib
+            MLIRSupportIndentedOstream.lib
+            MLIRTableGen.lib
+            MLIRTargetLLVMIRExport.lib
+            MLIRTblgenLib.lib
+            MLIRTensorDialect.lib
+            MLIRTensorInferTypeOpInterfaceImpl.lib
+            MLIRTensorTilingInterfaceImpl.lib
+            MLIRTensorToLinalg.lib
+            MLIRTensorTransforms.lib
+            MLIRTensorUtils.lib
+            MLIRTilingInterface.lib
+            MLIRToLLVMIRTranslationRegistration.lib
+            MLIRTosaDialect.lib
+            MLIRTosaToArith.lib
+            MLIRTosaToLinalg.lib
+            MLIRTosaToSCF.lib
+            MLIRTosaToTensor.lib
+            MLIRTosaTransforms.lib
+            MLIRTransformDialect.lib
+            MLIRTransformDialectUtils.lib
+            MLIRTransforms.lib
+            MLIRTransformUtils.lib
+            MLIRTranslateLib.lib
+            MLIRVectorDialect.lib
+            MLIRVectorInterfaces.lib
+            MLIRVectorToLLVM.lib
+            MLIRVectorToSCF.lib
+            MLIRVectorTransforms.lib
+            MLIRVectorUtils.lib
+            MLIRViewLikeInterface.lib
+            MLIRX86VectorDialect.lib
+            MLIRX86VectorToLLVMIRTranslation.lib
+            MLIRX86VectorTransforms.lib
+            MLIRXModel.lib
+            MLIRXModelTransforms.lib)
+
+    foreach(__library ${__llvm_mlir_libraries})
+      list(APPEND __install_libraries ${LLVM_EXTERNAL_LIB_DIR}/${__library})
+      target_link_libraries(${LIBRARY_NAME}
+          INTERFACE
+              $<BUILD_INTERFACE:${LLVM_EXTERNAL_LIB_DIR}/${__library}>
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${PACKAGE_NAME}/llvm/${__library}>)
+    endforeach()
+
+    foreach(__library ${__rocmlir_libraries})
+      target_link_libraries(${LIBRARY_NAME}
+          INTERFACE
+              $<BUILD_INTERFACE:${ROCMLIR_LIB_DIR}/${__library}>
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library}>)
+    endforeach()
+
+    install(TARGETS MLIRRockThin
+            DESTINATION lib
+            COMPONENT ${COMPONENT_NAME})
+
+    install(FILES ${__install_libraries}
+         DESTINATION lib/${PACKAGE_NAME}/llvm
+         COMPONENT ${COMPONENT_NAME})
+  else()
+
+    set(output_archive_dummy_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.dummy.cpp)
+    file(TOUCH ${output_archive_dummy_file})
+    set(full_output_path ${ROCMLIR_LIB_DIR}/lib${LIBRARY_NAME}.a)
+    set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.mri)
+
+    # Step one: construct mri file.
+    add_custom_command(OUTPUT ${LIBRARY_NAME}.mri
+                       COMMAND echo "create ${full_output_path}" >> ${LIBRARY_NAME}.mri
+                       COMMAND for archive in ${ROCMLIR_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
+                       do echo "addlib $$archive" >> ${LIBRARY_NAME}.mri \; done
+                       COMMAND echo "save" >> ${LIBRARY_NAME}.mri
+                       COMMAND echo "end" >> ${LIBRARY_NAME}.mri)
+
+    # Step two: use mri file to generate the fat library.
+    llvm_add_library(${LIBRARY_NAME}
+      PARTIAL_SOURCES_INTENDED
+      STATIC ${output_archive_dummy_file})
+    add_custom_command(TARGET ${LIBRARY_NAME}
+                       POST_BUILD
+                       COMMAND ${CMAKE_AR} -M < ${mri_file})
+    add_dependencies(${LIBRARY_NAME} ${LIBRARY_NAME}.mri)
   endif()
 
-  function(combine_archives output_archive)
-    set(output_archive_dummy_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.dummy.cpp)
-    file(TOUCH ${output_archive_dummy_file})
-    if (MSVC)
-      llvm_add_library(${output_archive}
-        PARTIAL_SOURCES_INTENDED
-        STATIC ${output_archive_dummy_file})
-      add_custom_command(
-        TARGET ${output_archive}
-        POST_BUILD
-        COMMAND LIB.EXE /OUT:${output_archive}.lib
-              MLIRCAPIMIGraphX.lib
-              MLIRCAPIRegisterRocMLIR.lib
-              MLIRCAPIRock.lib
-              MLIRGPUToMIGraphX.lib
-              MLIRMIGraphX.lib
-              MLIRMIGraphXPipeline.lib
-              MLIRMIGraphXToTosa.lib
-              MLIRRockConv2dGenerator.lib
-              MLIRRockOps.lib
-              MLIRRockPipeline.lib
-              MLIRRockThin.lib
-              MLIRRockToGPU.lib
-              MLIRRockTransforms.lib
-              MLIRRockTuning.lib
-              MLIRRockUtility.lib
-              MLIRTosaToRock.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/lldCommon.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/lldELF.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAggressiveInstCombine.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUAsmParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUCodeGen.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUDesc.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUDisassembler.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUInfo.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAMDGPUUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAnalysis.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAsmParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMAsmPrinter.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMBinaryFormat.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMBitReader.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMBitstreamReader.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMBitWriter.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMCFGuard.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMCodeGen.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMCore.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMCoroutines.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMDebugInfoCodeView.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMDebugInfoDWARF.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMDebugInfoMSF.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMDebugInfoPDB.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMDemangle.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMExtensions.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMFrontendOpenMP.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMGlobalISel.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMInstCombine.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMInstrumentation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMipo.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMIRPrinter.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMIRReader.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMLinker.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMLTO.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMMC.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMMCDisassembler.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMMCParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMMIRParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMObjCARCOpts.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMObject.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMOption.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMPasses.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMProfileData.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMRemarks.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMScalarOpts.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMSelectionDAG.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMSupport.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMSymbolize.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTableGen.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTableGenGlobalISel.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTarget.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTargetParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTextAPI.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMTransformUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMVectorize.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMX86AsmParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMX86CodeGen.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMX86Desc.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMX86Disassembler.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/LLVMX86Info.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAffineAnalysis.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAffineDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAffineToStandard.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAffineTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAffineUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMDGPUDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMDGPUToROCDL.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMXDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMXToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAMXTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAnalysis.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithAttrToLLVMConversion.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArithUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmNeonDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmNeonToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmSVEDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmSVEToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRArmSVETransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAsmParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAsyncDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRAsyncToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRBufferizationDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRBufferizationTransformOps.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRBufferizationTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRBytecodeReader.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRBytecodeWriter.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRCallInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRCAPIIR.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRCastInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRComplexDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRControlFlowDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRControlFlowInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRControlFlowToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRCopyOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDataLayoutInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDestinationStyleOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDialectUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRDLTIDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRExecutionEngineUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRFuncDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRFuncToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRFuncTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRGPUOps.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRGPUToGPURuntimeTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRGPUToROCDLTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRGPUTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRInferIntRangeInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRInferTypeOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRIR.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLinalgAnalysis.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLinalgDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLinalgTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLinalgUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMCommonConversion.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMIRTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLLVMToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRLoopLikeInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMaskableOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMaskingOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMathDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMathToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMemRefDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMemRefToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRMemRefTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRNVVMDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRNVVMToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIROpenACCDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIROpenACCToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIROpenACCToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIROpenMPDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIROpenMPToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRParallelCombiningOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRParser.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRPass.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRPDLDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRPDLInterpDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRPDLToPDLInterp.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRPresburger.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRQuantDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRQuantUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRReconcileUnrealizedCasts.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRRewrite.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRROCDLDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRROCDLToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRRuntimeVerifiableOpInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFToControlFlow.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSCFUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRShapedOpInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSideEffectInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSparseTensorDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSupport.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRSupportIndentedOstream.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTableGen.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTargetLLVMIRExport.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTblgenLib.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorInferTypeOpInterfaceImpl.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorTilingInterfaceImpl.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorToLinalg.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTensorUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTilingInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRToLLVMIRTranslationRegistration.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaToArith.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaToLinalg.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaToSCF.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaToTensor.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTosaTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformDialectUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTransformUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRTranslateLib.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorInterfaces.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorToLLVM.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorToSCF.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRVectorUtils.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRViewLikeInterface.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRX86VectorDialect.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRX86VectorToLLVMIRTranslation.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRX86VectorTransforms.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRXModel.lib
-              ${LLVM_EXTERNAL_LIB_DIR}/MLIRXModelTransforms.lib
-        WORKING_DIRECTORY ${ROCMLIR_LIB_DIR})
-    else()
-      set(full_output_path ${ROCMLIR_LIB_DIR}/lib${output_archive}.a)
-      set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
-
-      # Step one: construct mri file.
-      add_custom_command(OUTPUT ${output_archive}.mri
-                         COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                         COMMAND for archive in ${ROCMLIR_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
-                         do echo "addlib $$archive" >> ${output_archive}.mri \; done
-                         COMMAND echo "save" >> ${output_archive}.mri
-                         COMMAND echo "end" >> ${output_archive}.mri)
-
-      # Step two: use mri file to generate the fat library.
-      llvm_add_library(${output_archive}
-        PARTIAL_SOURCES_INTENDED
-        STATIC ${output_archive_dummy_file})
-      add_custom_command(TARGET ${output_archive}
-                         POST_BUILD
-                         COMMAND ${CMAKE_AR} -M < ${mri_file})
-      add_dependencies(${output_archive} ${output_archive}.mri)
-    endif()
-    add_dependencies(${output_archive} MLIRRockThin)
-  endfunction()
-
-  combine_archives(${LIBRARY_NAME})
+  add_dependencies(${LIBRARY_NAME} MLIRRockThin)
 
   rocm_package_setup_component(${LIBRARY_NAME}
         LIBRARY_NAME lib${LIBRARY_NAME}
@@ -368,13 +381,13 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     # Generate package config and version file
     include(CMakePackageConfigHelpers)
     write_basic_package_version_file(
-      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
+      ${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}
       VERSION ${CMAKE_PROJECT_VERSION}
       COMPATIBILITY AnyNewerVersion
     )
 
     configure_package_config_file(cmake/${pkg_config_file}.in
-      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
+      ${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}
       INSTALL_DESTINATION lib/cmake/${package_name}
       PATH_VARS LIB_CMAKE_DIR
       NO_SET_AND_CHECK_MACRO
@@ -391,11 +404,12 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     # Install package configuration and version files
     rocm_install(
       FILES
-      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
-      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
+      ${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}
+      ${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}
       DESTINATION ${LIB_CMAKE_DIR}
       COMPONENT ${component_name}
     )
+
   endfunction()
 
   set(extra_include_dir "")
