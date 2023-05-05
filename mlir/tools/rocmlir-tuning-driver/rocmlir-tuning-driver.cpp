@@ -102,18 +102,21 @@ static benchmark::DataType getDataType(Type inputType) {
   }
 }
 
-// In order to match rocprof, returns time in nanoseconds
-static FailureOr<double> benchmarkKernel(const char *binary,
-                                         const char *funcName,
-                                         uint32_t blockSize, uint32_t gridSize,
-                                         benchmark::DataType dataType,
-                                         ArrayRef<size_t> bufferSizes) {
-  constexpr double msToNs = 1e6;
 // intentionally leaky macro
 #define HIPCHECK(expr)                                                         \
   if (hipSuccess != (expr)) {                                                  \
     return failure();                                                          \
   }
+
+// In order to match rocprof, returns time in nanoseconds
+static FailureOr<double> benchmarkKernel(const char *binary,
+                                         const char *funcName,
+                                         uint32_t blockSize, uint32_t gridSize,
+                                         benchmark::DataType dataType,
+                                         ArrayRef<void *> hostBuffers,
+                                         MutableArrayRef<void *> gpuBuffers,
+                                         ArrayRef<size_t> bufferSizes) {
+  constexpr double msToNs = 1e6;
   hipModule_t mod;
   HIPCHECK(hipModuleLoadData(&mod, binary))
   hipFunction_t func;
@@ -122,15 +125,10 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream))
 
-  // Start allocating buffers
-  std::vector<void *> gpuBuffers;
-  std::vector<void *> hostBuffers;
+  // Initialize device buffers
   for (size_t i = 0; i < bufferSizes.size(); i++) {
-    bool isOut = (i == bufferSizes.size() - 1);
-    void *hostBuffer = benchmark::allocAndFill(dataType, bufferSizes[i], isOut);
-    void *gpuBuffer = benchmark::getGpuBuffer(hostBuffer, bufferSizes[i]);
-    hostBuffers.push_back(hostBuffer);
-    gpuBuffers.push_back(gpuBuffer);
+    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferSizes[i],
+                            hipMemcpyHostToDevice, stream));
   }
 
   hipEvent_t startEvent, stopEvent;
@@ -151,18 +149,10 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   HIPCHECK(hipEventElapsedTime(&milliseconds, startEvent, stopEvent))
   double ret = msToNs * static_cast<double>(milliseconds);
 
-  // cleanup
-  for (void *buffer : hostBuffers) {
-    free(buffer);
-  }
-  for (void *buffer : gpuBuffers) {
-    HIPCHECK(hipFree(buffer))
-  }
   HIPCHECK(hipEventDestroy(stopEvent))
   HIPCHECK(hipEventDestroy(startEvent))
   HIPCHECK(hipStreamDestroy(stream))
   HIPCHECK(hipModuleUnload(mod))
-#undef HIPCHECK
 
   return ret;
 }
@@ -203,7 +193,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   // We need a copy since HIP'll want a C string
   std::string kernelFuncName = kernelFunc.getSymName().str();
-  SmallVector<size_t, 4> bufferLengths;
+  std::vector<size_t> bufferLengths;
   for (Type argType : kernelFunc.getArgumentTypes()) {
     auto shapedTy = argType.dyn_cast<ShapedType>();
     if (!shapedTy)
@@ -250,7 +240,20 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   DiagnosticEngine &engine = ctx->getDiagEngine();
   engine.registerHandler([](Diagnostic &diag) {});
 
-  // 3. Actually tune
+  // 3. Initialize host buffers and allocate device buffers
+  std::vector<void *> hostBuffers;
+  std::vector<void *> gpuBuffers;
+  for (size_t i = 0; i < bufferLengths.size(); i++) {
+    bool isOut = (i == bufferLengths.size() - 1);
+    void *hostBuffer =
+        benchmark::allocAndFill(dataType, bufferLengths[i], isOut);
+    void *gpuBuffer;
+    HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
+    hostBuffers.push_back(hostBuffer);
+    gpuBuffers.push_back(gpuBuffer);
+  }
+
+  // 4. Actually tune
   rock::TunableParams *tuningSpace = rock::createTunableParamSpace(source);
   for (rock::RockTuningParamAttrInterface tuningAttr :
        tuningSpace->tuningRange) {
@@ -292,9 +295,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return WalkResult::interrupt();
     });
 
-    FailureOr<double> timing =
-        benchmarkKernel(hipModule.c_str(), kernelFuncName.c_str(), blockSize,
-                        gridSize, dataType, bufferLengths);
+    FailureOr<double> timing = benchmarkKernel(
+        hipModule.c_str(), kernelFuncName.c_str(), blockSize, gridSize,
+        dataType, hostBuffers, gpuBuffers, bufferLengths);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
@@ -302,8 +305,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     llvm::outs() << perfConfig << "\t" << timing << "\n";
     tuneCopy->erase();
   }
+  for (void *buffer : hostBuffers) {
+    free(buffer);
+  }
+  for (void *buffer : gpuBuffers) {
+    HIPCHECK(hipFree(buffer))
+  }
   return success();
 }
+#undef HIPCHECK
 
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
