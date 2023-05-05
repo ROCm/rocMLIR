@@ -636,10 +636,10 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
         }
         int64_t lowerLen = groupLengths[lowerDim];
         int64_t thisMaxLen = math_util::gcd(maxLen, lowerLen);
-        int64_t thisAlignment = std::max(align / stride, 1ll);
+        int64_t thisAlignment = std::max(align / stride, (int64_t)1);
         result[lowerDim] =
             VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
-        maxLen = std::max(maxLen / lowerLen, 1ll);
+        maxLen = std::max(maxLen / lowerLen, (int64_t)1);
         stride *= lowerLen;
       }
       break;

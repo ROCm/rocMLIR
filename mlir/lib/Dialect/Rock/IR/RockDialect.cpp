@@ -638,9 +638,9 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
                                   dilationW * (sizes.x - 1), strideW);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max(0ll, leftPadH - dilationH * (yTilda - 1)), strideH);
+      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
   int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max(0ll, leftPadW - dilationW * (xTilda - 1)), strideW);
+      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strideW);
 
   int64_t iHTildaRight = std::min(
       hTilda,
