@@ -11,7 +11,7 @@ import sys
 def printAllPerformance(chip, op):
     perfReportFound = False
 
-    COLUMNS_TO_AVERAGE = ['TFlops']
+    COLUMNS_TO_AVERAGE = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
     try:
         df = pd.read_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE)
         perfReportFound = True
@@ -23,7 +23,7 @@ def printAllPerformance(chip, op):
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
-    plotMean[['TFlops']]\
+    plotMean[['Fusion TFlops']]\
         .to_csv(chip + '_' + op + '_' + reportUtils.PERF_PLOT_REPORT_FUSION_FILE, index=False)
 
     if (op == 'conv'):

@@ -845,7 +845,9 @@ def getFusionTestInfo(filename, paths: Paths):
     testEntry = {'filename' : filename, 'testVector' : result[1], 'futName' : futName}
     return testEntry
 
-def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
+def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
+    os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
+
     firstCommand, _ = findRunCommand(filename)
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
@@ -872,8 +874,20 @@ def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
     p3.stdout.close()
     profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p4.stdout.close()
-    return profiling
 
+    # Get output.
+    try:
+        outs, errs = profiling.communicate(timeout=60)
+        if len(errs) > 0:
+            print("Test printed errors: ", errs.decode('utf-8'))
+            print("Failing: ", filename)
+    except subprocess.TimeoutExpired:
+        print("Test timed out: ", filename)
+        profiling.kill()
+        outs, errs = profiling.communicate()
+
+
+# Generate fusion vs. gemm/conv performance results
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb):
     allData = []
     allTests = [] #filename, testVector, futName
@@ -891,8 +905,6 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
         testVector = test['testVector']
         futName = test['futName']
 
-        os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
-
         print("Profiling:", filename)
         # Sanity check
         if not testVector:
@@ -905,9 +917,11 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
         commandLine = testVector.split(sep=' ')
         if commandLine[0].startswith('conv'):
             op = 'conv'
+            confClass = ConvConfiguration
             config = ConvConfiguration.fromCommandLine(commandLine, arch)
         else:
             op = 'gemm'
+            confClass = GemmConfiguration
             config = GemmConfiguration.fromCommandLine(commandLine, arch)
 
         # Find the best perf_config
@@ -922,27 +936,26 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
                allData.append(oneEntry)
                continue;
 
+        # Run fusion test
         rocmlirGenArgs = ['-ph', '-fut='+futName, '--perf_config='+bestPerf, '-']
-        profiling = generateProfilingProcesses(filename, rocmlirGenArgs, paths)
-
-        # Get output.
-        try:
-            outs, errs = profiling.communicate(timeout=60)
-            if len(errs) > 0:
-                print("Test printed errors: ", errs.decode('utf-8'))
-                print("Failing: ", filename)
-        except subprocess.TimeoutExpired:
-            print("Test timed out: ", filename)
-            profiling.kill()
-            outs, errs = profiling.communicate()
-
-        # Get nanoseconds from rocprof output.
+        runFusionKernel(filename, rocmlirGenArgs, paths)
+        # Get nanoseconds of fusion test
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry = config.tableEntry(nanoSeconds)
+
+        # Run gemm or conv op with the same configuration
+        runConfigWithMLIR(config, paths, '')
+        # Get nanoseconds of gemm/conv
+        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+
+        oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
+        oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
         allData.append(oneEntry)
+
     df = pd.DataFrame(allData)
     df.fillna('NaN', inplace=True)
+    df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 #Tune MIOpen with MLIR kernels
