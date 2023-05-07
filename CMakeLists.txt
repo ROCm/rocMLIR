@@ -37,6 +37,8 @@ set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
+set(BUILD_PERFORMANCE_TESTING ON CACHE BOOL "Build performance tests for components dependent on rocMLIR")
+
 if(BUILD_MIXR_TARGET)
   set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static rockCompiler library")
   set(EXPORT_ALL_HEADERS ON CACHE BOOL "Export internal headers")
