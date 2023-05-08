@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRArithTransforms
   BufferizableOpInterfaceImpl.cpp
   Bufferize.cpp
+  EmulateUnsupportedFloats.cpp
   EmulateWideInt.cpp
   ExpandOps.cpp
   IntRangeOptimizations.cpp
