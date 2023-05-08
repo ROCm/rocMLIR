@@ -6,7 +6,9 @@ set(LIBS
   ${rocmlir_capi_libs}
 )
 
-set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
+if(NOT WIN32)
+    set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
+endif()
 
 llvm_add_library(MLIRRockThin
 PARTIAL_SOURCES_INTENDED
@@ -45,7 +47,8 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(LIBRARY_NAME rockCompiler)
   set(COMPONENT_NAME ${LIBRARY_NAME})
 
-  set(__rocmlir_library_names
+  set(__rocmlir_names
+          GpuModuleToRocdlirTranslation
           MLIRCAPIMIGraphX
           MLIRCAPIRegisterRocMLIR
           MLIRCAPIRock
@@ -56,6 +59,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRRockConv2dGenerator
           MLIRRockOps
           MLIRRockPipeline
+          MLIRRockTestPasses
           MLIRRockThin
           MLIRRockToGPU
           MLIRRockTransforms
@@ -63,7 +67,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRRockUtility
           MLIRTosaToRock)
 
-  set(__llvm_library_names
+  set(__llvm_names
           lldCommon
           lldELF
           LLVMAggressiveInstCombine
@@ -89,6 +93,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           LLVMDebugInfoMSF
           LLVMDebugInfoPDB
           LLVMDemangle
+          LLVMExecutionEngine
           LLVMExtensions
           LLVMFrontendOpenMP
           LLVMGlobalISel
@@ -97,6 +102,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           LLVMipo
           LLVMIRPrinter
           LLVMIRReader
+          LLVMJITLink
           LLVMLinker
           LLVMLTO
           LLVMMC
@@ -106,9 +112,13 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           LLVMObjCARCOpts
           LLVMObject
           LLVMOption
+          LLVMOrcJIT
+          LLVMOrcShared
+          LLVMOrcTargetProcess
           LLVMPasses
           LLVMProfileData
           LLVMRemarks
+          LLVMRuntimeDyld
           LLVMScalarOpts
           LLVMSelectionDAG
           LLVMSupport
@@ -120,6 +130,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           LLVMTextAPI
           LLVMTransformUtils
           LLVMVectorize
+          LLVMWindowsDriver
           LLVMX86AsmParser
           LLVMX86CodeGen
           LLVMX86Desc
@@ -132,6 +143,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRAffineUtils
           MLIRAMDGPUDialect
           MLIRAMDGPUToROCDL
+          MLIRAMDGPUUtils
           MLIRAMXDialect
           MLIRAMXToLLVMIRTranslation
           MLIRAMXTransforms
@@ -149,12 +161,14 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRAsmParser
           MLIRAsyncDialect
           MLIRAsyncToLLVM
+          MLIRAsyncTransforms
           MLIRBufferizationDialect
           MLIRBufferizationTransformOps
           MLIRBufferizationTransforms
           MLIRBytecodeReader
           MLIRBytecodeWriter
           MLIRCallInterfaces
+          MLIRCAPIGPU
           MLIRCAPIIR
           MLIRCastInterfaces
           MLIRComplexDialect
@@ -167,7 +181,10 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRDialect
           MLIRDialectUtils
           MLIRDLTIDialect
+          MLIREmitCDialect
+          MLIRExecutionEngine
           MLIRExecutionEngineUtils
+          MLIRFromLLVMIRTranslationRegistration
           MLIRFuncDialect
           MLIRFuncToLLVM
           MLIRFuncTransforms
@@ -180,16 +197,21 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRIR
           MLIRLinalgAnalysis
           MLIRLinalgDialect
+          MLIRLinalgToLLVM
           MLIRLinalgTransforms
           MLIRLinalgUtils
           MLIRLLVMCommonConversion
           MLIRLLVMDialect
+          MLIRLLVMIRToLLVMTranslation
           MLIRLLVMIRTransforms
           MLIRLLVMToLLVMIRTranslation
           MLIRLoopLikeInterface
+          MLIRLspServerLib
+          MLIRLspServerSupportLib
           MLIRMaskableOpInterface
           MLIRMaskingOpInterface
           MLIRMathDialect
+          MLIRMathToLibm
           MLIRMathToLLVM
           MLIRMemRefDialect
           MLIRMemRefToLLVM
@@ -201,6 +223,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIROpenACCToLLVMIRTranslation
           MLIROpenMPDialect
           MLIROpenMPToLLVMIRTranslation
+          MLIROptLib
           MLIRParallelCombiningOpInterface
           MLIRParser
           MLIRPass
@@ -222,10 +245,17 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRShapedOpInterfaces
           MLIRSideEffectInterfaces
           MLIRSparseTensorDialect
+          MLIRSPIRVBinaryUtils
+          MLIRSPIRVDeserialization
+          MLIRSPIRVDialect
+          MLIRSPIRVSerialization
+          MLIRSPIRVTranslateRegistration
           MLIRSupport
           MLIRSupportIndentedOstream
           MLIRTableGen
+          MLIRTargetCpp
           MLIRTargetLLVMIRExport
+          MLIRTargetLLVMIRImport
           MLIRTblgenLib
           MLIRTensorDialect
           MLIRTensorInferTypeOpInterfaceImpl
@@ -257,21 +287,23 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRX86VectorToLLVMIRTranslation
           MLIRX86VectorTransforms
           MLIRXModel
+          MLIRXModelPipeline
+          MLIRXModelToGPU
           MLIRXModelTransforms)
 
-  foreach(__library_name ${__llvm_library_names})
-      list(APPEND __llvm_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  foreach(__name ${__llvm_names})
+      list(APPEND __llvm_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__name}${CMAKE_STATIC_LIBRARY_SUFFIX})
   endforeach()
 
-  foreach(__library_name ${__rocmlir_library_names})
-      list(APPEND __rocmlir_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  foreach(__name ${__rocmlir_names})
+      list(APPEND __rocmlir_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__name}${CMAKE_STATIC_LIBRARY_SUFFIX})
   endforeach()
 
   if (MSVC)
     add_library(${LIBRARY_NAME} INTERFACE)
 
     foreach(__library ${__llvm_libraries})
-      list(APPEND __install_libraries ${LLVM_EXTERNAL_LIB_DIR}/${__library})
+      list(APPEND __llvm_install ${LLVM_EXTERNAL_LIB_DIR}/${__library})
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${LLVM_EXTERNAL_LIB_DIR}/${__library}>
@@ -279,23 +311,25 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     endforeach()
 
     foreach(__library ${__rocmlir_libraries})
+      list(APPEND __rocmlir_install ${ROCMLIR_LIB_DIR}/${__library})
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${ROCMLIR_LIB_DIR}/${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library}>)
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${PACKAGE_NAME}/${__library}>)
     endforeach()
 
     add_dependencies(${LIBRARY_NAME} MLIRRockThin)
 
-    install(TARGETS MLIRRockThin
-            DESTINATION lib
-            COMPONENT ${COMPONENT_NAME})
+    install(FILES ${__rocmlir_install}
+         DESTINATION lib/${PACKAGE_NAME}
+         COMPONENT ${COMPONENT_NAME})
 
-    install(FILES ${__install_libraries}
+    install(FILES ${__llvm_install}
          DESTINATION lib/${PACKAGE_NAME}/llvm
          COMPONENT ${COMPONENT_NAME})
 
-    unset(__install_libraries)
+    unset(__llvm_libraries)
+    unset(__rocmlir_libraries)
 
   else()
 
@@ -304,18 +338,13 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     set(full_output_path ${ROCMLIR_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.mri)
 
-    foreach(__library ${__llvm_libraries})
-      list(APPEND __llvm_libraries__ ${LLVM_EXTERNAL_LIB_DIR}/${__library})
-    endforeach()
-
-    foreach(__library ${__rocmlir_libraries})
-      list(APPEND __rocmlir_libraries__ ${ROCMLIR_LIB_DIR}/${__library})
-    endforeach()
+    list(TRANSFORM __llvm_libraries PREPEND ${LLVM_EXTERNAL_LIB_DIR}/)
+    list(TRANSFORM __rocmlir_libraries PREPEND ${ROCMLIR_LIB_DIR}/)
 
     # Step one: construct mri file.
     add_custom_command(OUTPUT ${mri_file}
                        COMMAND echo "create ${full_output_path}" >> ${mri_file}
-                       COMMAND for archive in ${__rocmlir_libraries__} ${__llvm_libraries__} \; do echo "addlib $$archive" >> ${mri_file} \; done
+                       COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
                        COMMAND echo "save" >> ${mri_file}
                        COMMAND echo "end" >> ${mri_file}
                        DEPENDS MLIRRockThin)
@@ -334,8 +363,6 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     unset(mri_file)
     unset(output_archive_dummy_file)
     unset(full_output_path)
-    unset(__rocmlir_libraries__)
-    unset(__llvm_libraries__)
 
   endif()
 

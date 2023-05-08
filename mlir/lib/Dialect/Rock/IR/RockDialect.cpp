@@ -457,6 +457,8 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   case KernelType::Gemm:
     llvm_unreachable(
         "Gemm ops shouldn't be in convolution-specific lowering passes");
+  default:
+    llvm_unreachable("Unsuppported KernelType");
   }
 }
 
@@ -468,6 +470,8 @@ KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
     return KernelType::Conv2DBwdData;
   case ConvOpType::BwdWeight:
     return KernelType::Conv2DBwdWeight;
+  default:
+    llvm_unreachable("Unsupported ConvOpType");
   }
 }
 
