@@ -9468,6 +9468,12 @@ SDValue SITargetLowering::performSHLPtrCombine(SDNode *N,
   if (!CAdd)
     return SDValue();
 
+  // EMERGENCY WORKAROUND! When this rewrite triggers, it causes some other
+  // currently unknown pattern causes a miscompile for certain cases.
+  // Therefore, disable this unconditionally. We'll want to remove this as
+  // soon as these's an actual fix to whatever the underlying problem is.
+  return SDValue();
+
   // If the resulting offset is too large, we can't fold it into the addressing
   // mode offset.
   APInt Offset = CAdd->getAPIntValue() << CN1->getAPIntValue();
