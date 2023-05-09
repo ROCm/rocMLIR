@@ -2491,18 +2491,9 @@ static LogicalResult populateHostHarnessLogic(
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
 
   if (isRandom) {
-    llvm::SmallDenseMap<int32_t, Value> i32vals;
-    auto getI32Val = [&](int32_t v) {
-      if (i32vals.find(v) == i32vals.end()) {
-        auto i32Type = b.getIntegerType(32);
-        i32vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
-      }
-      return i32vals[v];
-    };
-
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
-    Value seedConst = getI32Val(seed);
+    Value seedConst = b.create<arith::ConstantIntOp>(loc, seed, b.getI32Type());
     b.create<func::CallOp>(loc, seedFunc, seedConst);
   }
 
