@@ -1,4 +1,4 @@
-//===--- InterpState.cpp - Interpreter for the constexpr VM -----*- C++ -*-===//
+//===------- Interp.cpp - Interpreter for the constexpr VM ------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -51,27 +51,6 @@ static bool Ret(InterpState &S, CodePtr &PC, APValue &Result) {
       return false;
   }
   return true;
-}
-
-template <PrimType Name, class T = typename PrimConv<Name>::T>
-static bool Call(InterpState &S, CodePtr &PC, const Function *Func) {
-  S.Current =
-      new InterpFrame(S, const_cast<Function *>(Func), S.Current, PC, {});
-  APValue CallResult;
-  // Note that we cannot assert(CallResult.hasValue()) here since
-  // Ret() above only sets the APValue if the curent frame doesn't
-  // have a caller set.
-  return Interpret(S, CallResult);
-}
-
-static bool CallVoid(InterpState &S, CodePtr &PC, const Function *Func) {
-  APValue VoidResult;
-  S.Current =
-      new InterpFrame(S, const_cast<Function *>(Func), S.Current, PC, {});
-  bool Success = Interpret(S, VoidResult);
-  assert(VoidResult.isAbsent());
-
-  return Success;
 }
 
 static bool RetVoid(InterpState &S, CodePtr &PC, APValue &Result) {
@@ -222,8 +201,8 @@ bool CheckArray(InterpState &S, CodePtr OpPC, const Pointer &Ptr) {
 
 bool CheckLive(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
                AccessKinds AK) {
-  const auto &Src = S.Current->getSource(OpPC);
   if (Ptr.isZero()) {
+    const auto &Src = S.Current->getSource(OpPC);
 
     if (Ptr.isField())
       S.FFDiag(Src, diag::note_constexpr_null_subobject) << CSK_Field;
@@ -234,6 +213,7 @@ bool CheckLive(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
   }
 
   if (!Ptr.isLive()) {
+    const auto &Src = S.Current->getSource(OpPC);
     bool IsTemp = Ptr.isTemporary();
 
     S.FFDiag(Src, diag::note_constexpr_lifetime_ended, 1) << AK << !IsTemp;
@@ -351,17 +331,18 @@ bool CheckInit(InterpState &S, CodePtr OpPC, const Pointer &Ptr) {
   return true;
 }
 
-bool CheckCallable(InterpState &S, CodePtr OpPC, Function *F) {
-  const SourceLocation &Loc = S.Current->getLocation(OpPC);
+bool CheckCallable(InterpState &S, CodePtr OpPC, const Function *F) {
 
   if (F->isVirtual()) {
     if (!S.getLangOpts().CPlusPlus20) {
+      const SourceLocation &Loc = S.Current->getLocation(OpPC);
       S.CCEDiag(Loc, diag::note_constexpr_virtual_call);
       return false;
     }
   }
 
   if (!F->isConstexpr()) {
+    const SourceLocation &Loc = S.Current->getLocation(OpPC);
     if (S.getLangOpts().CPlusPlus11) {
       const FunctionDecl *DiagDecl = F->getDecl();
 
@@ -418,6 +399,78 @@ bool CheckPure(InterpState &S, CodePtr OpPC, const CXXMethodDecl *MD) {
   S.FFDiag(E, diag::note_constexpr_pure_virtual_call, 1) << MD;
   S.Note(MD->getLocation(), diag::note_declared_at);
   return false;
+}
+
+static void DiagnoseUninitializedSubobject(InterpState &S, const SourceInfo &SI,
+                                           QualType SubObjType,
+                                           SourceLocation SubObjLoc) {
+  S.FFDiag(SI, diag::note_constexpr_uninitialized) << true << SubObjType;
+  if (SubObjLoc.isValid())
+    S.Note(SubObjLoc, diag::note_constexpr_subobject_declared_here);
+}
+
+static bool CheckFieldsInitialized(InterpState &S, CodePtr OpPC,
+                                   const Pointer &BasePtr, const Record *R);
+
+static bool CheckArrayInitialized(InterpState &S, CodePtr OpPC,
+                                  const Pointer &BasePtr,
+                                  const ConstantArrayType *CAT) {
+  bool Result = true;
+  size_t NumElems = CAT->getSize().getZExtValue();
+  QualType ElemType = CAT->getElementType();
+
+  if (isa<RecordType>(ElemType.getTypePtr())) {
+    const Record *R = BasePtr.getElemRecord();
+    for (size_t I = 0; I != NumElems; ++I) {
+      Pointer ElemPtr = BasePtr.atIndex(I).narrow();
+      Result &= CheckFieldsInitialized(S, OpPC, ElemPtr, R);
+    }
+  } else if (auto *ElemCAT = dyn_cast<ConstantArrayType>(ElemType)) {
+    for (size_t I = 0; I != NumElems; ++I) {
+      Pointer ElemPtr = BasePtr.atIndex(I).narrow();
+      Result &= CheckArrayInitialized(S, OpPC, ElemPtr, ElemCAT);
+    }
+  } else {
+    for (size_t I = 0; I != NumElems; ++I) {
+      if (!BasePtr.atIndex(I).isInitialized()) {
+        DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC), ElemType,
+                                       BasePtr.getFieldDesc()->getLocation());
+        Result = false;
+      }
+    }
+  }
+
+  return Result;
+}
+
+static bool CheckFieldsInitialized(InterpState &S, CodePtr OpPC,
+                                   const Pointer &BasePtr, const Record *R) {
+  assert(R);
+  bool Result = true;
+  // Check all fields of this record are initialized.
+  for (const Record::Field &F : R->fields()) {
+    Pointer FieldPtr = BasePtr.atField(F.Offset);
+    QualType FieldType = F.Decl->getType();
+
+    if (FieldType->isRecordType()) {
+      Result &= CheckFieldsInitialized(S, OpPC, FieldPtr, FieldPtr.getRecord());
+    } else if (FieldType->isArrayType()) {
+      const auto *CAT =
+          cast<ConstantArrayType>(FieldType->getAsArrayTypeUnsafe());
+      Result &= CheckArrayInitialized(S, OpPC, FieldPtr, CAT);
+    } else if (!FieldPtr.isInitialized()) {
+      DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC),
+                                     F.Decl->getType(), F.Decl->getLocation());
+      Result = false;
+    }
+  }
+  return Result;
+}
+
+bool CheckCtorCall(InterpState &S, CodePtr OpPC, const Pointer &This) {
+  assert(!This.isZero());
+  const Record *R = This.getRecord();
+  return CheckFieldsInitialized(S, OpPC, This, R);
 }
 
 bool Interpret(InterpState &S, APValue &Result) {

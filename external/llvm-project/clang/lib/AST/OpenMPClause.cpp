@@ -23,6 +23,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 #include <cassert>
+#include <optional>
 
 using namespace clang;
 using namespace llvm;
@@ -152,6 +153,9 @@ const OMPClauseWithPreInit *OMPClauseWithPreInit::get(const OMPClause *C) {
   case OMPC_reverse_offload:
   case OMPC_dynamic_allocators:
   case OMPC_atomic_default_mem_order:
+  case OMPC_at:
+  case OMPC_severity:
+  case OMPC_message:
   case OMPC_device_type:
   case OMPC_match:
   case OMPC_nontemporal:
@@ -251,6 +255,9 @@ const OMPClauseWithPostUpdate *OMPClauseWithPostUpdate::get(const OMPClause *C) 
   case OMPC_reverse_offload:
   case OMPC_dynamic_allocators:
   case OMPC_atomic_default_mem_order:
+  case OMPC_at:
+  case OMPC_severity:
+  case OMPC_message:
   case OMPC_device_type:
   case OMPC_match:
   case OMPC_nontemporal:
@@ -307,7 +314,7 @@ OMPClause::child_range OMPNumTasksClause::used_children() {
 OMPClause::child_range OMPFinalClause::used_children() {
   if (Stmt **C = getAddrOfExprAsWritten(getPreInitStmt()))
     return child_range(C, C + 1);
-  return child_range(&Condition, &Condition + 1);
+  return children();
 }
 
 OMPClause::child_range OMPPriorityClause::used_children() {
@@ -319,13 +326,13 @@ OMPClause::child_range OMPPriorityClause::used_children() {
 OMPClause::child_range OMPNovariantsClause::used_children() {
   if (Stmt **C = getAddrOfExprAsWritten(getPreInitStmt()))
     return child_range(C, C + 1);
-  return child_range(&Condition, &Condition + 1);
+  return children();
 }
 
 OMPClause::child_range OMPNocontextClause::used_children() {
   if (Stmt **C = getAddrOfExprAsWritten(getPreInitStmt()))
     return child_range(C, C + 1);
-  return child_range(&Condition, &Condition + 1);
+  return children();
 }
 
 OMPOrderedClause *OMPOrderedClause::Create(const ASTContext &C, Expr *Num,
@@ -361,7 +368,7 @@ void OMPOrderedClause::setLoopNumIterations(unsigned NumLoop,
 }
 
 ArrayRef<Expr *> OMPOrderedClause::getLoopNumIterations() const {
-  return llvm::makeArrayRef(getTrailingObjects<Expr *>(), NumberOfLoops);
+  return llvm::ArrayRef(getTrailingObjects<Expr *>(), NumberOfLoops);
 }
 
 void OMPOrderedClause::setLoopCounter(unsigned NumLoop, Expr *Counter) {
@@ -1781,6 +1788,22 @@ void OMPClausePrinter::VisitOMPAtomicDefaultMemOrderClause(
      << ")";
 }
 
+void OMPClausePrinter::VisitOMPAtClause(OMPAtClause *Node) {
+  OS << "at(" << getOpenMPSimpleClauseTypeName(OMPC_at, Node->getAtKind())
+     << ")";
+}
+
+void OMPClausePrinter::VisitOMPSeverityClause(OMPSeverityClause *Node) {
+  OS << "severity("
+     << getOpenMPSimpleClauseTypeName(OMPC_severity, Node->getSeverityKind())
+     << ")";
+}
+
+void OMPClausePrinter::VisitOMPMessageClause(OMPMessageClause *Node) {
+  OS << "message(\""
+     << cast<StringLiteral>(Node->getMessageString())->getString() << "\")";
+}
+
 void OMPClausePrinter::VisitOMPScheduleClause(OMPScheduleClause *Node) {
   OS << "schedule(";
   if (Node->getFirstScheduleModifier() != OMPC_SCHEDULE_MODIFIER_unknown) {
@@ -1905,12 +1928,22 @@ void OMPClausePrinter::VisitOMPPriorityClause(OMPPriorityClause *Node) {
 
 void OMPClausePrinter::VisitOMPGrainsizeClause(OMPGrainsizeClause *Node) {
   OS << "grainsize(";
+  OpenMPGrainsizeClauseModifier Modifier = Node->getModifier();
+  if (Modifier != OMPC_GRAINSIZE_unknown) {
+    OS << getOpenMPSimpleClauseTypeName(Node->getClauseKind(), Modifier)
+       << ": ";
+  }
   Node->getGrainsize()->printPretty(OS, nullptr, Policy, 0);
   OS << ")";
 }
 
 void OMPClausePrinter::VisitOMPNumTasksClause(OMPNumTasksClause *Node) {
   OS << "num_tasks(";
+  OpenMPNumTasksClauseModifier Modifier = Node->getModifier();
+  if (Modifier != OMPC_NUMTASKS_unknown) {
+    OS << getOpenMPSimpleClauseTypeName(Node->getClauseKind(), Modifier)
+       << ": ";
+  }
   Node->getNumTasks()->printPretty(OS, nullptr, Policy, 0);
   OS << ")";
 }
@@ -2338,8 +2371,12 @@ void OMPClausePrinter::VisitOMPNontemporalClause(OMPNontemporalClause *Node) {
 }
 
 void OMPClausePrinter::VisitOMPOrderClause(OMPOrderClause *Node) {
-  OS << "order(" << getOpenMPSimpleClauseTypeName(OMPC_order, Node->getKind())
-     << ")";
+  OS << "order(";
+  if (Node->getModifier() != OMPC_ORDER_MODIFIER_unknown) {
+    OS << getOpenMPSimpleClauseTypeName(OMPC_order, Node->getModifier());
+    OS << ": ";
+  }
+  OS << getOpenMPSimpleClauseTypeName(OMPC_order, Node->getKind()) << ")";
 }
 
 void OMPClausePrinter::VisitOMPInclusiveClause(OMPInclusiveClause *Node) {
@@ -2418,7 +2455,7 @@ void OMPTraitInfo::getAsVariantMatchInfo(ASTContext &ASTCtx,
                    TraitProperty::user_condition_unknown &&
                "Ill-formed user condition, expected unknown trait property!");
 
-        if (Optional<APSInt> CondVal =
+        if (std::optional<APSInt> CondVal =
                 Selector.ScoreOrCondition->getIntegerConstantExpr(ASTCtx))
           VMI.addTrait(CondVal->isZero() ? TraitProperty::user_condition_false
                                          : TraitProperty::user_condition_true,
@@ -2428,7 +2465,7 @@ void OMPTraitInfo::getAsVariantMatchInfo(ASTContext &ASTCtx,
         continue;
       }
 
-      Optional<llvm::APSInt> Score;
+      std::optional<llvm::APSInt> Score;
       llvm::APInt *ScorePtr = nullptr;
       if (Selector.ScoreOrCondition) {
         if ((Score = Selector.ScoreOrCondition->getIntegerConstantExpr(ASTCtx)))

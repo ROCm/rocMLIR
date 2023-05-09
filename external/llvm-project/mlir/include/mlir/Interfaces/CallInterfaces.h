@@ -14,8 +14,8 @@
 #ifndef MLIR_INTERFACES_CALLINTERFACES_H
 #define MLIR_INTERFACES_CALLINTERFACES_H
 
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/PointerUnion.h"
 
@@ -33,5 +33,13 @@ struct CallInterfaceCallable : public PointerUnion<SymbolRefAttr, Value> {
 
 /// Include the generated interface declarations.
 #include "mlir/Interfaces/CallInterfaces.h.inc"
+
+namespace llvm {
+
+template <typename To>
+struct CastInfo<To, mlir::CallInterfaceCallable>
+    : public CastInfo<To, mlir::CallInterfaceCallable::PointerUnion> {};
+
+} // namespace llvm
 
 #endif // MLIR_INTERFACES_CALLINTERFACES_H

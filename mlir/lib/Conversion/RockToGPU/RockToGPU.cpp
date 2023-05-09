@@ -21,17 +21,17 @@
 
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -67,23 +67,28 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
 
   LogicalResult matchAndRewrite(rock::GpuAllocOp op,
                                 PatternRewriter &b) const override {
+    constexpr int64_t widestLoadOpBitwidth = 512;
+
     auto type = op.getOutput().getType();
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
 
-    if (type.getMemorySpaceAsInt() ==
-        gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      Value attribution = func.addWorkgroupAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
-    } else if (type.getMemorySpaceAsInt() ==
-               gpu::GPUDialect::getPrivateAddressSpace()) {
+    auto memSpaceValue = type.getMemorySpace()
+                             .dyn_cast_or_null<gpu::AddressSpaceAttr>()
+                             .getValue();
+    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      BlockArgument attribution = func.addWorkgroupAttribution(type, loc);
+      func.setWorkgroupAttributionAttr(
+          attribution.getArgNumber() - func.getFirstWorkgroupAttributionIndex(),
+          LLVM::LLVMDialect::getAlignAttrName(),
+          b.getI64IntegerAttr(widestLoadOpBitwidth / 8));
+      b.replaceOp(op, attribution);
+    } else if (memSpaceValue == gpu::GPUDialect::getPrivateAddressSpace()) {
       Value attribution = func.addPrivateAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
+      b.replaceOp(op, attribution);
     } else {
-      // TBD: return failure.
-      llvm::errs() << "unsupported addrspace!\n";
+      return b.notifyMatchFailure(loc, "unsupported addrspace!\n");
     }
-    op.erase();
     return success();
   }
 };
@@ -104,10 +109,7 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    Value nop =
-        b.create<Tgpu>(op.getLoc(), b.getIndexType(), gpu::Dimension::x);
-    op.replaceAllUsesWith(nop);
-    op.erase();
+    b.replaceOpWithNewOp<Tgpu>(op, b.getIndexType(), gpu::Dimension::x);
     return success();
   }
 };
@@ -168,12 +170,12 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     }
 
     // associate arguments for newly created GPUFuncOp.
-    BlockAndValueMapping map;
+    IRMapping map;
     for (auto pair : llvm::zip(theFunc.getArguments(), gpuFunc.getArguments()))
       map.map(std::get<0>(pair), std::get<1>(pair));
 
     // clone function body into newly created GPUFuncOp.
-    Region &gpuFuncBody = gpuFunc.body();
+    Region &gpuFuncBody = gpuFunc.getBody();
     Region &funcBody = theFunc.getBody();
     funcBody.cloneInto(&gpuFuncBody, map);
 

@@ -10,7 +10,7 @@ add_mlir_dialect_library(MLIRAMDGPUDialect
   MLIRAMDGPUIncGen
 
   LINK_LIBS PUBLIC
-  MLIRArithmeticDialect
+  MLIRArithDialect
   MLIRIR
   MLIRSideEffectInterfaces
   )

@@ -396,17 +396,10 @@ static const MemoryMapParams Linux_I386_MemoryMapParams = {
 
 // x86_64 Linux
 static const MemoryMapParams Linux_X86_64_MemoryMapParams = {
-#ifdef MSAN_LINUX_X86_64_OLD_MAPPING
-    0x400000000000, // AndMask
-    0,              // XorMask (not used)
-    0,              // ShadowBase (not used)
-    0x200000000000, // OriginBase
-#else
     0,              // AndMask (not used)
     0x500000000000, // XorMask
     0,              // ShadowBase (not used)
     0x100000000000, // OriginBase
-#endif
 };
 
 // mips64 Linux
@@ -435,10 +428,10 @@ static const MemoryMapParams Linux_S390X_MemoryMapParams = {
 
 // aarch64 Linux
 static const MemoryMapParams Linux_AArch64_MemoryMapParams = {
-    0,             // AndMask (not used)
-    0x06000000000, // XorMask
-    0,             // ShadowBase (not used)
-    0x01000000000, // OriginBase
+    0,               // AndMask (not used)
+    0x0B00000000000, // XorMask
+    0,               // ShadowBase (not used)
+    0x0200000000000, // OriginBase
 };
 
 // aarch64 FreeBSD
@@ -546,9 +539,9 @@ private:
   friend struct VarArgSystemZHelper;
 
   void initializeModule(Module &M);
-  void initializeCallbacks(Module &M);
-  void createKernelApi(Module &M);
-  void createUserspaceApi(Module &M);
+  void initializeCallbacks(Module &M, const TargetLibraryInfo &TLI);
+  void createKernelApi(Module &M, const TargetLibraryInfo &TLI);
+  void createUserspaceApi(Module &M, const TargetLibraryInfo &TLI);
 
   /// True if we're compiling the Linux kernel.
   bool CompileKernel;
@@ -737,7 +730,7 @@ static GlobalVariable *createPrivateConstGlobalForString(Module &M,
 }
 
 /// Create KMSAN API callbacks.
-void MemorySanitizer::createKernelApi(Module &M) {
+void MemorySanitizer::createKernelApi(Module &M, const TargetLibraryInfo &TLI) {
   IRBuilder<> IRB(*C);
 
   // These will be initialized in insertKmsanPrologue().
@@ -749,8 +742,10 @@ void MemorySanitizer::createKernelApi(Module &M) {
   VAArgOriginTLS = nullptr;
   VAArgOverflowSizeTLS = nullptr;
 
-  WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(),
-                                    IRB.getInt32Ty());
+  WarningFn = M.getOrInsertFunction("__msan_warning",
+                                    TLI.getAttrList(C, {0}, /*Signed=*/false),
+                                    IRB.getVoidTy(), IRB.getInt32Ty());
+
   // Requests the per-task context state (kmsan_context_state*) from the
   // runtime library.
   MsanContextStateTy = StructType::get(
@@ -801,7 +796,7 @@ static Constant *getOrInsertGlobal(Module &M, StringRef Name, Type *Ty) {
 }
 
 /// Insert declarations for userspace-specific functions and globals.
-void MemorySanitizer::createUserspaceApi(Module &M) {
+void MemorySanitizer::createUserspaceApi(Module &M, const TargetLibraryInfo &TLI) {
   IRBuilder<> IRB(*C);
 
   // Create the callback.
@@ -810,8 +805,9 @@ void MemorySanitizer::createUserspaceApi(Module &M) {
   if (TrackOrigins) {
     StringRef WarningFnName = Recover ? "__msan_warning_with_origin"
                                       : "__msan_warning_with_origin_noreturn";
-    WarningFn =
-        M.getOrInsertFunction(WarningFnName, IRB.getVoidTy(), IRB.getInt32Ty());
+    WarningFn = M.getOrInsertFunction(WarningFnName,
+                                      TLI.getAttrList(C, {0}, /*Signed=*/false),
+                                      IRB.getVoidTy(), IRB.getInt32Ty());
   } else {
     StringRef WarningFnName =
         Recover ? "__msan_warning" : "__msan_warning_noreturn";
@@ -848,23 +844,13 @@ void MemorySanitizer::createUserspaceApi(Module &M) {
        AccessSizeIndex++) {
     unsigned AccessSize = 1 << AccessSizeIndex;
     std::string FunctionName = "__msan_maybe_warning_" + itostr(AccessSize);
-    SmallVector<std::pair<unsigned, Attribute>, 2> MaybeWarningFnAttrs;
-    MaybeWarningFnAttrs.push_back(std::make_pair(
-        AttributeList::FirstArgIndex, Attribute::get(*C, Attribute::ZExt)));
-    MaybeWarningFnAttrs.push_back(std::make_pair(
-        AttributeList::FirstArgIndex + 1, Attribute::get(*C, Attribute::ZExt)));
     MaybeWarningFn[AccessSizeIndex] = M.getOrInsertFunction(
-        FunctionName, AttributeList::get(*C, MaybeWarningFnAttrs),
+        FunctionName, TLI.getAttrList(C, {0, 1}, /*Signed=*/false),
         IRB.getVoidTy(), IRB.getIntNTy(AccessSize * 8), IRB.getInt32Ty());
 
     FunctionName = "__msan_maybe_store_origin_" + itostr(AccessSize);
-    SmallVector<std::pair<unsigned, Attribute>, 2> MaybeStoreOriginFnAttrs;
-    MaybeStoreOriginFnAttrs.push_back(std::make_pair(
-        AttributeList::FirstArgIndex, Attribute::get(*C, Attribute::ZExt)));
-    MaybeStoreOriginFnAttrs.push_back(std::make_pair(
-        AttributeList::FirstArgIndex + 2, Attribute::get(*C, Attribute::ZExt)));
     MaybeStoreOriginFn[AccessSizeIndex] = M.getOrInsertFunction(
-        FunctionName, AttributeList::get(*C, MaybeStoreOriginFnAttrs),
+        FunctionName, TLI.getAttrList(C, {0, 2}, /*Signed=*/false),
         IRB.getVoidTy(), IRB.getIntNTy(AccessSize * 8), IRB.getInt8PtrTy(),
         IRB.getInt32Ty());
   }
@@ -880,7 +866,7 @@ void MemorySanitizer::createUserspaceApi(Module &M) {
 }
 
 /// Insert extern declaration of runtime-provided functions and globals.
-void MemorySanitizer::initializeCallbacks(Module &M) {
+void MemorySanitizer::initializeCallbacks(Module &M, const TargetLibraryInfo &TLI) {
   // Only do this once.
   if (CallbacksInitialized)
     return;
@@ -888,29 +874,31 @@ void MemorySanitizer::initializeCallbacks(Module &M) {
   IRBuilder<> IRB(*C);
   // Initialize callbacks that are common for kernel and userspace
   // instrumentation.
-  MsanChainOriginFn = M.getOrInsertFunction("__msan_chain_origin",
-                                            IRB.getInt32Ty(), IRB.getInt32Ty());
-  MsanSetOriginFn =
-      M.getOrInsertFunction("__msan_set_origin", IRB.getVoidTy(),
-                            IRB.getInt8PtrTy(), IntptrTy, IRB.getInt32Ty());
+  MsanChainOriginFn = M.getOrInsertFunction(
+      "__msan_chain_origin",
+      TLI.getAttrList(C, {0}, /*Signed=*/false, /*Ret=*/true), IRB.getInt32Ty(),
+      IRB.getInt32Ty());
+  MsanSetOriginFn = M.getOrInsertFunction(
+      "__msan_set_origin", TLI.getAttrList(C, {2}, /*Signed=*/false),
+      IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, IRB.getInt32Ty());
   MemmoveFn =
       M.getOrInsertFunction("__msan_memmove", IRB.getInt8PtrTy(),
                             IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy);
   MemcpyFn =
       M.getOrInsertFunction("__msan_memcpy", IRB.getInt8PtrTy(),
                             IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy);
-  MemsetFn =
-      M.getOrInsertFunction("__msan_memset", IRB.getInt8PtrTy(),
-                            IRB.getInt8PtrTy(), IRB.getInt32Ty(), IntptrTy);
+  MemsetFn = M.getOrInsertFunction(
+      "__msan_memset", TLI.getAttrList(C, {1}, /*Signed=*/true),
+      IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt32Ty(), IntptrTy);
 
   MsanInstrumentAsmStoreFn =
       M.getOrInsertFunction("__msan_instrument_asm_store", IRB.getVoidTy(),
                             PointerType::get(IRB.getInt8Ty(), 0), IntptrTy);
 
   if (CompileKernel) {
-    createKernelApi(M);
+    createKernelApi(M, TLI);
   } else {
-    createUserspaceApi(M);
+    createUserspaceApi(M, TLI);
   }
   CallbacksInitialized = true;
 }
@@ -1139,7 +1127,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // It's easier to remove unreachable blocks than deal with missing shadow.
     removeUnreachableBlocks(F);
 
-    MS.initializeCallbacks(*F.getParent());
+    MS.initializeCallbacks(*F.getParent(), TLI);
     FnPrologueEnd = IRBuilder<>(F.getEntryBlock().getFirstNonPHI())
                         .CreateIntrinsic(Intrinsic::donothing, {}, {});
 
@@ -1540,7 +1528,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Type *getShadowTyNoVec(Type *ty) {
     if (VectorType *vt = dyn_cast<VectorType>(ty))
       return IntegerType::get(*MS.C,
-                              vt->getPrimitiveSizeInBits().getFixedSize());
+                              vt->getPrimitiveSizeInBits().getFixedValue());
     return ty;
   }
 
@@ -1906,7 +1894,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             // argument shadow to the underlying memory.
             // Figure out maximal valid memcpy alignment.
             const Align ArgAlign = DL.getValueOrABITypeAlignment(
-                MaybeAlign(FArg.getParamAlignment()), FArg.getParamByValType());
+                FArg.getParamAlign(), FArg.getParamByValType());
             Value *CpShadowPtr, *CpOriginPtr;
             std::tie(CpShadowPtr, CpOriginPtr) =
                 getShadowOriginPtr(V, EntryIRB, EntryIRB.getInt8Ty(), ArgAlign,
@@ -2073,7 +2061,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         (int)AtomicOrderingCABI::seq_cst;
 
     return ConstantDataVector::get(IRB.getContext(),
-                                   makeArrayRef(OrderingTable, NumOrderings));
+                                   ArrayRef(OrderingTable, NumOrderings));
   }
 
   AtomicOrdering addAcquireOrdering(AtomicOrdering a) {
@@ -2108,7 +2096,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         (int)AtomicOrderingCABI::seq_cst;
 
     return ConstantDataVector::get(IRB.getContext(),
-                                   makeArrayRef(OrderingTable, NumOrderings));
+                                   ArrayRef(OrderingTable, NumOrderings));
   }
 
   // ------------------- Visitors.
@@ -2965,9 +2953,30 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Op = I.getArgOperand(0);
     Type *OpType = Op->getType();
     Function *BswapFunc = Intrinsic::getDeclaration(
-        F.getParent(), Intrinsic::bswap, makeArrayRef(&OpType, 1));
+        F.getParent(), Intrinsic::bswap, ArrayRef(&OpType, 1));
     setShadow(&I, IRB.CreateCall(BswapFunc, getShadow(Op)));
     setOrigin(&I, getOrigin(Op));
+  }
+
+  void handleCountZeroes(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Src = I.getArgOperand(0);
+
+    // Set the Output shadow based on input Shadow
+    Value *BoolShadow = IRB.CreateIsNotNull(getShadow(Src), "_mscz_bs");
+
+    // If zero poison is requested, mix in with the shadow
+    Constant *IsZeroPoison = cast<Constant>(I.getOperand(1));
+    if (!IsZeroPoison->isZeroValue()) {
+      Value *BoolZeroPoison = IRB.CreateIsNull(Src, "_mscz_bzp");
+      BoolShadow = IRB.CreateOr(BoolShadow, BoolZeroPoison, "_mscz_bs");
+    }
+
+    Value *OutputShadow =
+        IRB.CreateSExt(BoolShadow, getShadowTy(Src), "_mscz_os");
+
+    setShadow(&I, OutputShadow);
+    setOriginForNaryOp(I);
   }
 
   // Instrument vector convert intrinsic.
@@ -3592,6 +3601,19 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  void handleVtestIntrinsic(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Shadow0 = getShadow(&I, 0);
+    Value *Shadow1 = getShadow(&I, 1);
+    Value *Or = IRB.CreateOr(Shadow0, Shadow1);
+    Value *NZ = IRB.CreateICmpNE(Or, Constant::getNullValue(Or->getType()));
+    Value *Scalar = convertShadowToScalar(NZ, IRB);
+    Value *Shadow = IRB.CreateZExt(Scalar, getShadowTy(&I));
+
+    setShadow(&I, Shadow);
+    setOriginForNaryOp(I);
+  }
+
   void handleBinarySdSsIntrinsic(IntrinsicInst &I) {
     IRBuilder<> IRB(&I);
     unsigned Width =
@@ -3637,6 +3659,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       break;
     case Intrinsic::bswap:
       handleBswap(I);
+      break;
+    case Intrinsic::ctlz:
+    case Intrinsic::cttz:
+      handleCountZeroes(I);
       break;
     case Intrinsic::masked_compressstore:
       handleMaskedCompressStore(I);
@@ -3865,11 +3891,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       handleVectorCompareScalarIntrinsic(I);
       break;
 
-    case Intrinsic::x86_sse_cmp_ps:
+    case Intrinsic::x86_avx_cmp_pd_256:
+    case Intrinsic::x86_avx_cmp_ps_256:
     case Intrinsic::x86_sse2_cmp_pd:
-      // FIXME: For x86_avx_cmp_pd_256 and x86_avx_cmp_ps_256 this function
-      // generates reasonably looking IR that fails in the backend with "Do not
-      // know how to split the result of this operator!".
+    case Intrinsic::x86_sse_cmp_ps:
       handleVectorComparePackedIntrinsic(I);
       break;
 
@@ -3899,6 +3924,27 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     case Intrinsic::x86_sse2_min_sd:
     case Intrinsic::x86_sse_min_ss:
       handleBinarySdSsIntrinsic(I);
+      break;
+
+    case Intrinsic::x86_avx_vtestc_pd:
+    case Intrinsic::x86_avx_vtestc_pd_256:
+    case Intrinsic::x86_avx_vtestc_ps:
+    case Intrinsic::x86_avx_vtestc_ps_256:
+    case Intrinsic::x86_avx_vtestnzc_pd:
+    case Intrinsic::x86_avx_vtestnzc_pd_256:
+    case Intrinsic::x86_avx_vtestnzc_ps:
+    case Intrinsic::x86_avx_vtestnzc_ps_256:
+    case Intrinsic::x86_avx_vtestz_pd:
+    case Intrinsic::x86_avx_vtestz_pd_256:
+    case Intrinsic::x86_avx_vtestz_ps:
+    case Intrinsic::x86_avx_vtestz_ps_256:
+    case Intrinsic::x86_avx_ptestc_256:
+    case Intrinsic::x86_avx_ptestnzc_256:
+    case Intrinsic::x86_avx_ptestz_256:
+    case Intrinsic::x86_sse41_ptestc:
+    case Intrinsic::x86_sse41_ptestnzc:
+    case Intrinsic::x86_sse41_ptestz:
+      handleVtestIntrinsic(I);
       break;
 
     case Intrinsic::fshl:
@@ -4016,12 +4062,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // will become a non-readonly function after it is instrumented by us. To
       // prevent this code from being optimized out, mark that function
       // non-readonly in advance.
+      // TODO: We can likely do better than dropping memory() completely here.
       AttributeMask B;
-      B.addAttribute(Attribute::ReadOnly)
-          .addAttribute(Attribute::ReadNone)
-          .addAttribute(Attribute::WriteOnly)
-          .addAttribute(Attribute::ArgMemOnly)
-          .addAttribute(Attribute::Speculatable);
+      B.addAttribute(Attribute::Memory).addAttribute(Attribute::Speculatable);
 
       Call->removeFnAttrs(B);
       if (Function *Func = Call->getCalledFunction()) {
@@ -4073,7 +4116,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           if (ArgOffset + Size > kParamTLSSize)
             break;
           const MaybeAlign ParamAlignment(CB.getParamAlign(i));
-          MaybeAlign Alignment = llvm::None;
+          MaybeAlign Alignment = std::nullopt;
           if (ParamAlignment)
             Alignment = std::min(*ParamAlignment, kShadowTLSAlignment);
           Value *AShadowPtr, *AOriginPtr;
@@ -5711,13 +5754,9 @@ bool MemorySanitizer::sanitizeFunction(Function &F, TargetLibraryInfo &TLI) {
 
   MemorySanitizerVisitor Visitor(F, *this, TLI);
 
-  // Clear out readonly/readnone attributes.
+  // Clear out memory attributes.
   AttributeMask B;
-  B.addAttribute(Attribute::ReadOnly)
-      .addAttribute(Attribute::ReadNone)
-      .addAttribute(Attribute::WriteOnly)
-      .addAttribute(Attribute::ArgMemOnly)
-      .addAttribute(Attribute::Speculatable);
+  B.addAttribute(Attribute::Memory).addAttribute(Attribute::Speculatable);
   F.removeFnAttrs(B);
 
   return Visitor.runOnFunction();

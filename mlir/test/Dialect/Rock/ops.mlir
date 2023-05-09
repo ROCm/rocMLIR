@@ -33,6 +33,21 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
 // CHECK-LABEL: func.func @rock_conv2d_f16
 // CHECK-NEXT: rock.conv2d
 
+func.func @rock_conv2d_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv2d(%filter, %input, %output) features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+  } : memref<?x?x?x?x?xf8E4M3FNUZ>, memref<?x?x?x?x?xf8E5M2FNUZ>, memref<?x?x?x?x?xf32>
+  return
+}
+// CHECK-LABEL: func.func @rock_conv2d_fp8_mixed
+// CHECK-NEXT: rock.conv2d
+
 func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
@@ -162,8 +177,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 //  CHECK-NEXT: rock.transform
 
 func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
-  rock.gridwise_gemm %C = %A * %B {
-    arch = "amdgcn-amd-amdhsa:gfx900",
+  rock.gridwise_gemm %C = %A * %B features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.general_gemm_params<
@@ -182,13 +196,13 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
 // CHECK-LABEL: func.func @rock_gridwise_gemm
 //  CHECK-NEXT: rock.gridwise_gemm
 
-func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
-  rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
+func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
+  rock.gridwise_gemm_accel(%A, %B, %C) storeMethod(set) features = none {
     arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.xdlops_gemm_params<
-      kPerBlock = 4,
+      kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
       mPerWave = 64,
@@ -199,8 +213,8 @@ func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x102
   return
 }
 
-// CHECK-LABEL: func.func @rock_gridwise_gemm_v2
-// CHECK-NEXT: rock.gridwise_gemm_v2
+// CHECK-LABEL: func.func @rock_gridwise_gemm_accel
+// CHECK-NEXT: rock.gridwise_gemm_accel
 
 func.func @rock_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {
   %i = arith.constant 0 : index
@@ -218,16 +232,16 @@ func.func @rock_insert_slice(%u: vector<4xf32>, %v: vector<32xf32>) -> vector<32
 // CHECK-LABEL: func.func @rock_insert_slice
 // CHECK: rock.insert_slice
 
-func.func @rock_buffer_load(%buffer: memref<128x128xf32>, %idx0: index, %idx1: index) -> vector<4xf32> {
-  %ret = rock.buffer_load %buffer[%idx0, %idx1] { leftOobDims = [], rightOobDims = [1 : i32] }
+func.func @rock_buffer_load(%buffer: memref<128x128xf32>, %valid: i1, %idx0: index, %idx1: index) -> vector<4xf32> {
+  %ret = rock.buffer_load %buffer[%idx0, %idx1] if %valid
     : memref<128x128xf32>, index, index -> vector<4xf32>
   return %ret : vector<4xf32>
 }
 // CHECK-LABEL: func.func @rock_buffer_load
 // CHECK-NEXT: rock.buffer_load
 
-func.func @rock_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
-  rock.buffer_store set %data -> %buffer[%idx0, %idx1] { leftOobDims = [], rightOobDims = [1 : i32] }
+func.func @rock_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %valid: i1, %idx0: index, %idx1: index) {
+  rock.buffer_store set %data -> %buffer[%idx0, %idx1] if %valid features = none
   : vector<4xf32> -> memref<128x128xf32>, index, index
   return
 }
@@ -265,13 +279,13 @@ func.func @rock_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
 
 
 func.func @zero_init_kernel(%arg0 : memref<2x4xf32>) {
-  rock.zero_init_kernel %arg0 {arch = "amdgcn-amd-amdhsa:gfx900"} : memref<2x4xf32>
+  rock.zero_init_kernel %arg0 features = none : memref<2x4xf32>
   func.return
 }
 // CHECK-LABEL func.func @zero_init_kernel
 // CHECK: rock.zero_init_kernel
 
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
-  rock.converting_copy_kernel %arg0 to %arg1 {arch = "amdgcn-amd-amdhsa:gfx900"} : memref<2x4xf32> to memref<2x4xf16>
+  rock.converting_copy_kernel %arg0 to %arg1 features = none : memref<2x4xf32> to memref<2x4xf16>
   func.return
 }

@@ -1,18 +1,21 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
+  AccelEmitter.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
   BlockwiseGemmToThreadwise.cpp
   BufferLoadMerge.cpp
   BufferizableOpInterfaceImpl.cpp
   CleanMath.cpp
-  CopyOpt.cpp
   ConvToGemm.cpp
-  FoldTranspose.cpp
   GemmToGridwise.cpp
+  Regularize.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   LoopsToCf.cpp
   ThreadwiseGemmLowering.cpp
+  TransformToMemref.cpp
+  ViewToTransform.cpp
+  LowerRockReduce.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -23,14 +26,16 @@ add_rocmlir_dialect_library(MLIRRockTransforms
 
   LINK_LIBS PUBLIC
   MLIRAffineTransforms
-  MLIRArithmeticTransforms
+  MLIRArithTransforms
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
   MLIRDialect
   MLIRXModel
+  MLIRXModelTransforms
   MLIRFuncDialect
   MLIRIR
   MLIRPass
+  MLIRLinalgUtils
   MLIRLLVMDialect
   MLIRMathToLLVM
   MLIRMemRefTransforms
@@ -41,5 +46,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRRockUtility
   MLIRSCFToControlFlow
   MLIRSupport
+  MLIRTosaDialect
 )
 

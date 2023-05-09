@@ -14,7 +14,7 @@
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -294,6 +294,58 @@ public:
                                 PatternRewriter &rewriter) const override;
 };
 
+/// Folds subview(subview(x)) to a single subview(x).
+class SubViewOfSubViewFolder : public OpRewritePattern<memref::SubViewOp> {
+public:
+  using OpRewritePattern<memref::SubViewOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::SubViewOp subView,
+                                PatternRewriter &rewriter) const override {
+    Location loc = subView.getLoc();
+    auto srcSubView = subView.getSource().getDefiningOp<memref::SubViewOp>();
+    if (!srcSubView)
+      return failure();
+    int64_t srcRank = srcSubView.getSourceType().getRank();
+
+    // TODO: Only stride 1 is supported.
+    for (auto s : {subView.getMixedStrides(), srcSubView.getMixedStrides()})
+      if (!llvm::all_of(
+              s, [](OpFoldResult ofr) { return isConstantIntValue(ofr, 1); }))
+        return failure();
+
+    // Get original offsets and sizes.
+    SmallVector<OpFoldResult> offsets = subView.getMixedOffsets();
+    SmallVector<OpFoldResult> srcOffsets = srcSubView.getMixedOffsets();
+    SmallVector<OpFoldResult> sizes = subView.getMixedSizes();
+    SmallVector<OpFoldResult> srcSizes = srcSubView.getMixedSizes();
+
+    // Compute new offsets and sizes.
+    llvm::SmallBitVector srcReducedDims = srcSubView.getDroppedDims();
+    SmallVector<OpFoldResult> newOffsets, newSizes;
+    int64_t dim = 0;
+    for (int64_t srcDim = 0; srcDim < srcRank; ++srcDim) {
+      if (srcReducedDims[srcDim]) {
+        // Dim is reduced in srcSubView.
+        assert(isConstantIntValue(srcSizes[srcDim], 1) && "expected size 1");
+        newOffsets.push_back(srcOffsets[srcDim]);
+        newSizes.push_back(srcSizes[srcDim]);
+        continue;
+      }
+      AffineExpr sym0, sym1;
+      bindSymbols(subView.getContext(), sym0, sym1);
+      newOffsets.push_back(makeComposedFoldedAffineApply(
+          rewriter, loc, sym0 + sym1, {srcOffsets[srcDim], offsets[dim]}));
+      newSizes.push_back(sizes[dim]);
+      ++dim;
+    }
+
+    // Replace original op.
+    rewriter.replaceOpWithNewOp<memref::SubViewOp>(
+        subView, subView.getType(), srcSubView.getSource(), newOffsets,
+        newSizes, srcSubView.getMixedStrides());
+    return success();
+  }
+};
 } // namespace
 
 static SmallVector<Value>
@@ -333,13 +385,13 @@ LogicalResult LoadOpOfSubViewOpFolder<OpTy>::matchAndRewrite(
 
   llvm::TypeSwitch<Operation *, void>(loadOp)
       .Case<AffineLoadOp, memref::LoadOp>([&](auto op) {
-        rewriter.replaceOpWithNewOp<decltype(op)>(loadOp, subViewOp.source(),
+        rewriter.replaceOpWithNewOp<decltype(op)>(loadOp, subViewOp.getSource(),
                                                   sourceIndices);
       })
       .Case([&](vector::TransferReadOp transferReadOp) {
         rewriter.replaceOpWithNewOp<vector::TransferReadOp>(
-            transferReadOp, transferReadOp.getVectorType(), subViewOp.source(),
-            sourceIndices,
+            transferReadOp, transferReadOp.getVectorType(),
+            subViewOp.getSource(), sourceIndices,
             getPermutationMapAttr(rewriter.getContext(), subViewOp,
                                   transferReadOp.getPermutationMap()),
             transferReadOp.getPadding(),
@@ -440,11 +492,11 @@ LogicalResult StoreOpOfSubViewOpFolder<OpTy>::matchAndRewrite(
   llvm::TypeSwitch<Operation *, void>(storeOp)
       .Case<AffineStoreOp, memref::StoreOp>([&](auto op) {
         rewriter.replaceOpWithNewOp<decltype(op)>(
-            storeOp, storeOp.getValue(), subViewOp.source(), sourceIndices);
+            storeOp, storeOp.getValue(), subViewOp.getSource(), sourceIndices);
       })
       .Case([&](vector::TransferWriteOp op) {
         rewriter.replaceOpWithNewOp<vector::TransferWriteOp>(
-            op, op.getValue(), subViewOp.source(), sourceIndices,
+            op, op.getValue(), subViewOp.getSource(), sourceIndices,
             getPermutationMapAttr(rewriter.getContext(), subViewOp,
                                   op.getPermutationMap()),
             op.getInBoundsAttr());
@@ -533,8 +585,8 @@ void memref::populateFoldMemRefAliasOpPatterns(RewritePatternSet &patterns) {
                LoadOpOfCollapseShapeOpFolder<AffineLoadOp>,
                LoadOpOfCollapseShapeOpFolder<memref::LoadOp>,
                StoreOpOfCollapseShapeOpFolder<AffineStoreOp>,
-               StoreOpOfCollapseShapeOpFolder<memref::StoreOp>>(
-      patterns.getContext());
+               StoreOpOfCollapseShapeOpFolder<memref::StoreOp>,
+               SubViewOfSubViewFolder>(patterns.getContext());
 }
 
 //===----------------------------------------------------------------------===//

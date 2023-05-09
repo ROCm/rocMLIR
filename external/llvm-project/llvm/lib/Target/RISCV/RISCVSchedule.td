@@ -25,7 +25,6 @@ def WriteNop        : SchedWrite;
 def WriteLDB        : SchedWrite;    // Load byte
 def WriteLDH        : SchedWrite;    // Load half-word
 def WriteLDW        : SchedWrite;    // Load word
-def WriteLDWU       : SchedWrite;    // Load word unsigned
 def WriteLDD        : SchedWrite;    // Load double-word
 def WriteCSR        : SchedWrite;    // CSR instructions
 def WriteSTB        : SchedWrite;    // Store byte
@@ -104,6 +103,10 @@ def WriteFLD64        : SchedWrite;    // Floating point dp load
 def WriteFST16        : SchedWrite;    // Floating point sp store
 def WriteFST32        : SchedWrite;    // Floating point sp store
 def WriteFST64        : SchedWrite;    // Floating point dp store
+
+// short forward branch for Bullet
+def WriteSFB        : SchedWrite;
+def ReadSFB         : SchedRead;
 
 /// Define scheduler resources associated with use operands.
 def ReadJmp         : SchedRead;
@@ -229,6 +232,14 @@ def : ReadAdvance<ReadFSqrt16, 0>;
 } // Unsupported = true
 }
 
+multiclass UnsupportedSchedSFB {
+let Unsupported = true in {
+def : WriteRes<WriteSFB, []>;
+
+def : ReadAdvance<ReadSFB, 0>;
+} // Unsupported = true
+}
+
 // Include the scheduler resources for other instruction extensions.
-include "RISCVScheduleB.td"
+include "RISCVScheduleZb.td"
 include "RISCVScheduleV.td"

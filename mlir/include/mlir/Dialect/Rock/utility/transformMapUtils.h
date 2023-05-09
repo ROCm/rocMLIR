@@ -8,15 +8,18 @@
 #ifndef ROCK_UTILITY_TRANSFORMMAPUTILS_H
 #define ROCK_UTILITY_TRANSFORMMAPUTILS_H
 
-#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 
 namespace mlir {
 class AffineMap;
 class Builder;
 class OpBuilder;
 class Value;
+class ValueRange;
 
 namespace rock {
+class TransformMapAttr;
 class TransformOp;
 
 /// Unwrap a value from the transforms surrounding it, gathering up the
@@ -32,18 +35,6 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayRef<Attribute> existing);
-
-/// Given an array of transform_maps `transforms` (to be composed left to
-/// right), returns the array of dimensions in the lowest space of these
-/// transforms that need to be checked for out of bounds stores on the left
-/// (checking for indices less than 0) and on the right (indices greater than
-/// the dimension on the memref). If initialOob is specified, it is a tuple
-/// of out of bounds judgements applicable to the inputs to this transform
-/// sequence.
-std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
-    Builder &b, ArrayAttr transforms,
-    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob = llvm::None);
-
 /// Return a `rock.transform` op that reshapes a given 1D buffer `buffer`
 /// into `shape`, using `names` as the names of the reshaped dimensions.
 TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
@@ -54,13 +45,52 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 /// dimension, returns the largest stride `s` such that length-`s` slices of
 /// `dim` correspond to contiguous slices of the underlying memory the
 /// `transforms` will be applied to, which is assumed to have shape
-/// `outputShape`.
+/// `outputShape`. `implicitStride` is used for vector-valued buffers whose
+/// indexing functions are scalar-valued. It scales the implicit
+/// index linearization at the end of the vectorization analysis by
+/// `implicitStride`, so that the low-order bits of the scalar index that are
+/// discarded do not cause incorrect conclusions. The returned vectorization
+/// length is scaled by `implicitStride`.
 int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
-                            ArrayRef<int64_t> outputShape);
+                            ArrayRef<int64_t> outputShape,
+                            int64_t implicitStride = 1);
+
+/// Returns the maximum vectorization constrained by the `dataType` we are
+/// vectorizing for
+int64_t getMaxVectorizationForDatatype(ArrayAttr transforms, uint32_t dim,
+                                       int64_t len,
+                                       ArrayRef<int64_t> outputShape,
+                                       Type dataType);
+
+/// Rewrites the given array of transformations to (under the assumption that
+/// they will target a space of size outputShape) collapse contiguous merge
+/// dimensions. That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
+/// and then later either have y or z appear (with the same length) in the
+/// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
+/// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
+/// and merging. Note that the corresponding Unmerge or Embed is not updated by
+/// this function.
+ArrayAttr collapseContiguousMerges(ArrayAttr transforms,
+                                   ArrayRef<int64_t> outputShape);
+
+/// Returns true if the given `TransformMapAttr` has impacts on the validity
+/// of the underlying coordinates. If this returns true, the code generating
+/// indexing must pause and generate a validity tests using the inputs (upper
+/// values) to the map.
+bool mapImpactsValidity(TransformMapAttr map);
+
+/// Constructs code to determine if the results from the application of `map`
+/// are still valid values. If this function returns the `false` value, then
+/// the values in `outputs` (which must be the results of `map` being applied
+/// to some input) are not valid indices into the underlying buffer.
+/// Further computations using `outputs` may be performed but may yield
+/// incorrect results.
+Value updateValidityAfter(OpBuilder &b, Location loc, TransformMapAttr map,
+                          ValueRange outputs);
 
 /// Get the affine map corresponding to the composition of these affine maps.
 /// Returns null when passed an empty array.
-AffineMap composeTransforms(ArrayAttr transforms);
+AffineMap composeTransforms(ArrayRef<TransformMapAttr> transforms);
 
 // This function will take a input Value and a index map that represents the
 // coordinate mapping that could be a combination of tranposes and broadcasts
@@ -68,6 +98,28 @@ AffineMap composeTransforms(ArrayAttr transforms);
 Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
                                             ArrayRef<int64_t> outShape,
                                             Value inp, AffineMap inpIdxMap);
+
+// This function will take an input TransformMapAttr and invert the
+// shapes and transforms.
+TransformMapAttr invertTransformMap(OpBuilder &b,
+                                    TransformMapAttr originalTransformMap,
+                                    Location loc);
+
+TransformMapAttr
+transformCollapseShape(OpBuilder &b, Location loc, ArrayRef<int64_t> inpShape,
+                       ArrayRef<int64_t> outShape,
+                       ArrayRef<ReassociationIndices> reassocs);
+
+TransformMapAttr transformExpandShape(OpBuilder &b, Location loc,
+                                      ArrayRef<int64_t> inpShape,
+                                      ArrayRef<int64_t> outShape,
+                                      ArrayRef<ReassociationIndices> reassocs);
+
+TransformMapAttr transformExtractSlice(OpBuilder &b, Location loc,
+                                       ArrayRef<int64_t> inpShape,
+                                       ArrayRef<int64_t> outShape,
+                                       ArrayRef<int64_t> offsets,
+                                       ArrayRef<int64_t> sizes);
 
 } // end namespace rock
 } // end namespace mlir

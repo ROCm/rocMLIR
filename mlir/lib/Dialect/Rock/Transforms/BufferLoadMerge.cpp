@@ -14,7 +14,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Visitors.h"

@@ -33,11 +33,11 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.3-latest'
+    return 'rocm/mlir:rocm5.4-latest'
 }
 
 
@@ -61,6 +61,8 @@ pipeline {
             description: 'Run static library and MIOpen integration tests')
         string(name: 'MIOpenBranch', defaultValue: 'develop',
             description: 'The MIOpen branch to be used with the job')
+        string(name: 'CKBranch', defaultValue: 'develop',
+            description: 'The Composable Kernel branch to be used with the job')
     }
     stages {
         stage('Kill old PR builds') {
@@ -139,10 +141,14 @@ pipeline {
                         stage("Igemm build") {
                             steps {
                                 checkout scm
-                                buildProject('librockCompiler',
-                                             '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
-                                installation: 'InSearchPath', workingDir: 'build'
+                                buildProject('package',
+                                             "-DBUILD_FAT_LIBROCKCOMPILER=ON -DCPACK_INSTALL_PREFIX=${WORKSPACE}/MIOpenDeps")
+                                dir('build'){
+                                    sh "cat install_manifest_librockCompiler.txt"
+                                    // Cannot use 'dpkg -i' because it requires superuser privilege
+                                    // Ignore an error due to the system call utime
+                                    sh "dpkg -x librockcompiler-rocmlir_1.1.0_amd64.deb / || true"
+                                }
                             }
                         }
                         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
@@ -166,9 +172,9 @@ pipeline {
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                HOME="${WORKSPACE}"
                             }
                             steps {
-                                sh 'ldconfig'
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\

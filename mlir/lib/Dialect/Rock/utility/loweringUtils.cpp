@@ -17,14 +17,14 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
+bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
   return bitEnumContainsAll(features,
                             GemmFeatures::mfma | GemmFeatures::atomic_add) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }
 
-LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
+LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
                                              const GemmSize &gemmSize,
                                              int64_t MPerBlock,
                                              int64_t NPerBlock,
@@ -41,14 +41,14 @@ LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
     return failure();
 
   const int64_t gridSize =
-      convDims.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+      gemmSize.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
   const int64_t maxGridSize = 20 * num_cu;
 
   gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
-  gemmKBlock = std::min(gemmKBlock, convDims.n);
+  gemmKBlock = std::min(gemmKBlock, batchSize);
 
   for (; gemmKBlock > 1; --gemmKBlock) {
-    if (convDims.n % gemmKBlock != 0)
+    if (batchSize % gemmKBlock != 0)
       continue;
 
     if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
@@ -57,7 +57,7 @@ LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
     break;
   }
   // not more than n
-  gemmKBlock = std::min(convDims.n, gemmKBlock);
+  gemmKBlock = std::min(batchSize, gemmKBlock);
   // not less than 1
   gemmKBlock = std::max((__int64_t)1, gemmKBlock);
 

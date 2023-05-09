@@ -19,7 +19,7 @@
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -150,6 +150,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(op.getFeatures(), GemmFeatures::wmma);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
   if (isXdlops && !blockSize)
@@ -159,12 +160,20 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
   if (isXdlops) {
     // Onne the attribute copies are gone, make this a replaceOp
-    rw.create<GridwiseGemmV2Op>(loc, a, b, c, op.getStoreMethodAttr(),
-                                op.getArchAttr(), blockSize, gridSize,
-                                params.cast<XdlopsGemmParamsAttr>());
+    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
+                                   op.getFeaturesAttr(),
+                                   op.getStoreMethodAttr(), blockSize, gridSize,
+                                   params.cast<XdlopsGemmParamsAttr>());
+    rw.eraseOp(op);
+  } else if (isWmma) {
+    // Onne the attribute copies are gone, make this a replaceOp
+    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
+                                   op.getFeaturesAttr(),
+                                   op.getStoreMethodAttr(), blockSize, gridSize,
+                                   params.cast<WmmaGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), gridSize,
+    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
                               params.cast<GeneralGemmParamsAttr>());
     rw.eraseOp(op);
   }
@@ -177,7 +186,7 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                    rock::GridwiseGemmV2Op>();
+                    rock::GridwiseGemmAccelOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GemmRewritePattern>(ctx);

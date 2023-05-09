@@ -55,6 +55,7 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 } // end namespace rock
 } // end namespace mlir
 
+#include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
@@ -76,7 +77,7 @@ TransformAttr getTransformAttrChecked(
 TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds);
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_ROCKOPS_OPS_H_

@@ -16,7 +16,9 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/Support/SHA1.h"
 #include <numeric>
+#include <optional>
 
 using namespace mlir;
 
@@ -40,8 +42,8 @@ NamedAttrList::NamedAttrList(const_iterator inStart, const_iterator inEnd) {
 
 ArrayRef<NamedAttribute> NamedAttrList::getAttrs() const { return attrs; }
 
-Optional<NamedAttribute> NamedAttrList::findDuplicate() const {
-  Optional<NamedAttribute> duplicate =
+std::optional<NamedAttribute> NamedAttrList::findDuplicate() const {
+  std::optional<NamedAttribute> duplicate =
       DictionaryAttr::findDuplicate(attrs, isSorted());
   // DictionaryAttr::findDuplicate will sort the list, so reset the sorted
   // state.
@@ -88,14 +90,14 @@ Attribute NamedAttrList::get(StringAttr name) const {
   return it.second ? it.first->getValue() : Attribute();
 }
 
-/// Return the specified named attribute if present, None otherwise.
-Optional<NamedAttribute> NamedAttrList::getNamed(StringRef name) const {
+/// Return the specified named attribute if present, std::nullopt otherwise.
+std::optional<NamedAttribute> NamedAttrList::getNamed(StringRef name) const {
   auto it = findAttr(*this, name);
-  return it.second ? *it.first : Optional<NamedAttribute>();
+  return it.second ? *it.first : std::optional<NamedAttribute>();
 }
-Optional<NamedAttribute> NamedAttrList::getNamed(StringAttr name) const {
+std::optional<NamedAttribute> NamedAttrList::getNamed(StringAttr name) const {
   auto it = findAttr(*this, name);
-  return it.second ? *it.first : Optional<NamedAttribute>();
+  return it.second ? *it.first : std::optional<NamedAttribute>();
 }
 
 /// If the an attribute exists with the specified name, change it to the new
@@ -421,7 +423,7 @@ MutableOperandRange::MutableOperandRange(Operation *owner)
 /// Slice this range into a sub range, with the additional operand segment.
 MutableOperandRange
 MutableOperandRange::slice(unsigned subStart, unsigned subLen,
-                           Optional<OperandSegment> segment) const {
+                           std::optional<OperandSegment> segment) const {
   assert((subStart + subLen) <= length && "invalid sub-range");
   MutableOperandRange subSlice(owner, start + subStart, subLen,
                                operandSegments);
@@ -720,16 +722,34 @@ bool OperationEquivalence::isEquivalentTo(
   ValueRange lhsOperands = lhs->getOperands(), rhsOperands = rhs->getOperands();
   SmallVector<Value> lhsOperandStorage, rhsOperandStorage;
   if (lhs->hasTrait<mlir::OpTrait::IsCommutative>()) {
-    lhsOperandStorage.append(lhsOperands.begin(), lhsOperands.end());
-    llvm::sort(lhsOperandStorage, [](Value a, Value b) -> bool {
-      return a.getAsOpaquePointer() < b.getAsOpaquePointer();
-    });
-    lhsOperands = lhsOperandStorage;
+    auto sortValues = [](ValueRange values) {
+      SmallVector<Value> sortedValues = llvm::to_vector(values);
+      llvm::sort(sortedValues, [](Value a, Value b) {
+        auto aArg = a.dyn_cast<BlockArgument>();
+        auto bArg = b.dyn_cast<BlockArgument>();
 
-    rhsOperandStorage.append(rhsOperands.begin(), rhsOperands.end());
-    llvm::sort(rhsOperandStorage, [](Value a, Value b) -> bool {
-      return a.getAsOpaquePointer() < b.getAsOpaquePointer();
-    });
+        // Case 1. Both `a` and `b` are `BlockArgument`s.
+        if (aArg && bArg) {
+          if (aArg.getParentBlock() == bArg.getParentBlock())
+            return aArg.getArgNumber() < bArg.getArgNumber();
+          return aArg.getParentBlock() < bArg.getParentBlock();
+        }
+
+        // Case 2. One of then is a `BlockArgument` and other is not. Treat
+        // `BlockArgument` as lesser.
+        if (aArg && !bArg)
+          return true;
+        if (bArg && !aArg)
+          return false;
+
+        // Case 3. Both are values.
+        return a.getAsOpaquePointer() < b.getAsOpaquePointer();
+      });
+      return sortedValues;
+    };
+    lhsOperandStorage = sortValues(lhsOperands);
+    lhsOperands = lhsOperandStorage;
+    rhsOperandStorage = sortValues(rhsOperands);
     rhsOperands = rhsOperandStorage;
   }
   auto checkValueRangeMapping =
@@ -756,4 +776,43 @@ bool OperationEquivalence::isEquivalentTo(
                               flags))
       return false;
   return true;
+}
+
+//===----------------------------------------------------------------------===//
+// OperationFingerPrint
+//===----------------------------------------------------------------------===//
+
+template <typename T>
+static void addDataToHash(llvm::SHA1 &hasher, const T &data) {
+  hasher.update(
+      ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(&data), sizeof(T)));
+}
+
+OperationFingerPrint::OperationFingerPrint(Operation *topOp) {
+  llvm::SHA1 hasher;
+
+  // Hash each of the operations based upon their mutable bits:
+  topOp->walk([&](Operation *op) {
+    //   - Operation pointer
+    addDataToHash(hasher, op);
+    //   - Attributes
+    addDataToHash(hasher, op->getAttrDictionary());
+    //   - Blocks in Regions
+    for (Region &region : op->getRegions()) {
+      for (Block &block : region) {
+        addDataToHash(hasher, &block);
+        for (BlockArgument arg : block.getArguments())
+          addDataToHash(hasher, arg);
+      }
+    }
+    //   - Location
+    addDataToHash(hasher, op->getLoc().getAsOpaquePointer());
+    //   - Operands
+    for (Value operand : op->getOperands())
+      addDataToHash(hasher, operand);
+    //   - Successors
+    for (unsigned i = 0, e = op->getNumSuccessors(); i != e; ++i)
+      addDataToHash(hasher, op->getSuccessor(i));
+  });
+  hash = hasher.result();
 }

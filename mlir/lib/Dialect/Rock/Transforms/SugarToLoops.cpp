@@ -20,15 +20,19 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Utils.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -67,6 +71,7 @@ struct TransformingForRewritePattern
   using OpRewritePattern<TransformingForOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(TransformingForOp op,
                                 PatternRewriter &b) const override {
+    using AffineResults = SmallVector<Value, 8>;
     Location loc = op.getLoc();
     SmallVector<int64_t> bounds;
     bounds.reserve(op.getBounds().size());
@@ -86,49 +91,74 @@ struct TransformingForRewritePattern
     bool unroll = op.getForceUnroll().value_or(false);
 
     uint32_t nDomains = op.domains();
-    // Compute the initial output values of the lower coordinates.
-    // In the case of an index diff map-based loop, compute all intermediate
-    // results. When there are no index diff maps, use the composed affine map
-    SmallVector<AffineMap, 2> composedMaps;
-    SmallVector<SmallVector<SmallVector<Value, 8>, 2>, 2> lowerInits;
-    for (uint32_t i = 0; i < nDomains; ++i) {
-      SmallVector<SmallVector<Value, 8>, 2> lowerInit;
-      ArrayAttr transforms = op.getTransforms(i);
-      if (transforms.empty()) {
-        SmallVector<Value, 8> init;
-        llvm::copy(op.getUpperInits(i), std::back_inserter(init));
-        lowerInit.push_back(std::move(init));
-        composedMaps.push_back({}); // don't throw off composed maps count
-      } else if (useDiffs) {
+
+    // For each iteration domain, store the initial outputs of each affine map
+    // in the transform chain when using index diffs. When there are no index
+    // diffs, this value is ignored.
+    SmallVector<SmallVector<AffineResults>, 2> lowerInits;
+    // For each domain, store the sequence of composed affine maps needed to
+    // compute the result coordinate, along with the transform map that
+    // triggered each break in the chain. Such a break is created at any point
+    // where the validity of map coordinates is impacted.
+    SmallVector<SmallVector<std::pair<AffineMap, TransformMapAttr>>, 2>
+        allComposedMaps;
+
+    if (useDiffs) {
+      for (uint32_t i = 0; i < nDomains; ++i) {
+        lowerInits.emplace_back();
+        // Needed to handle the empty map case correctly.
+        allComposedMaps.emplace_back();
+        SmallVectorImpl<AffineResults> &lowerInit = lowerInits.back();
+        ArrayAttr transforms = op.getTransforms(i);
+        lowerInit.reserve(transforms.size());
+        if (transforms.empty()) {
+          AffineResults init(op.getUpperInits(i));
+          lowerInit.push_back(init);
+          continue;
+        }
         for (auto t : transforms.getAsRange<TransformMapAttr>()) {
           AffineMap map = t.getMap().getAffineMap();
-          Optional<SmallVector<Value, 8>> init;
-          if (lowerInit.size() == 0)
+          std::optional<AffineResults> init;
+          if (lowerInit.empty())
             init = expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
             init =
                 expandAffineMap(b, loc, map, lowerInit[lowerInit.size() - 1]);
           if (!init)
             return failure();
-          lowerInit.push_back(std::move(*init));
+          lowerInit.push_back(*init);
         }
-      } else {
-        AffineMap composed = composeTransforms(transforms);
-        composedMaps.push_back(composed);
-        Optional<SmallVector<Value, 8>> init =
-            expandAffineMap(b, loc, composed, op.getUpperInits(i));
-        if (!init.has_value())
-          return failure();
-        lowerInit.push_back(std::move(*init));
       }
-      lowerInits.push_back(lowerInit);
+    } else { // !useDiffs
+      for (uint32_t i = 0; i < nDomains; ++i) {
+        allComposedMaps.emplace_back();
+        SmallVectorImpl<std::pair<AffineMap, TransformMapAttr>> &composedMaps =
+            allComposedMaps.back();
+        ArrayAttr transforms = op.getTransforms(i);
+        SmallVector<TransformMapAttr> toCompose;
+        for (auto t : transforms.getAsRange<TransformMapAttr>()) {
+          toCompose.push_back(t);
+          if (mapImpactsValidity(t)) {
+            AffineMap composed = composeTransforms(toCompose);
+            composedMaps.emplace_back(composed, t);
+            toCompose.clear();
+          }
+        }
+        // Account for all maps after the last validity impact.
+        AffineMap finalComposed = composeTransforms(toCompose);
+        composedMaps.emplace_back(finalComposed, nullptr);
+      }
     }
 
     // Having done pre-computation, create an affine loop nest over the upper
     // rectangle. This'll be unrolled as needed.
     llvm::SmallVector<AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
-    OpBuilder ilb = b;
+
+    // We're about to setInsertionPointTo{Start,End} a bunch to jum around
+    // inside loops, so save the original insertion point to not mess up the
+    // rewriting infrastructure and to avoid copying builders around.
+    OpBuilder::InsertionGuard goingIntoLoopsGuard(b);
     for (const auto &pair : llvm::zip(bounds, strides)) {
       int64_t bound, stride;
       std::tie(bound, stride) = pair;
@@ -138,52 +168,71 @@ struct TransformingForRewritePattern
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
-      auto loop = ilb.create<AffineForOp>(loc, 0, bound, stride, iterInits);
+      auto loop = b.create<AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
-      if (iterInits
-              .empty()) // remove default affine.yield for cleaner code later
+      // remove default affine.yield for cleaner code later
+      if (iterInits.empty())
         b.eraseOp(loop.getBody()->getTerminator());
-      ilb = OpBuilder::atBlockBegin(loop.getBody(), ilb.getListener());
+      b.setInsertionPointToStart(loop.getBody());
       loops.push_back(loop);
     }
 
     // Create code to actually transform the coordinates
-    BlockAndValueMapping cloneMap;
+    IRMapping cloneMap;
+    Block::BlockArgListType validities = op.getValidities();
     for (uint32_t i = 0; i < nDomains; ++i) {
       Block::BlockArgListType lower = op.getLowerCoords(i);
       ArrayAttr transforms = op.getTransforms(i);
       if (!useDiffs || transforms.empty()) {
-        llvm::SmallVector<Value, 5> stepped;
+        AffineResults computed;
+        Value isValid =
+            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+        // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
-          stepped.push_back(
-              ilb.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
+          computed.push_back(
+              b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
         }
-        if (!transforms.empty()) {
-          Optional<SmallVector<Value, 8>> transformed =
-              expandAffineMap(ilb, loc, composedMaps[i], stepped);
+        for (const auto &[composedMap, transform] : allComposedMaps[i]) {
+          if (!composedMap) // empty transformations
+            continue;
+          std::optional<AffineResults> transformed =
+              expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
             return failure();
-          stepped.clear();
-          stepped.assign(std::move(*transformed));
+          computed.assign(*transformed);
+          if (transform) { // Time for bounds checks or other validity updates
+            Value validityUpdate =
+                updateValidityAfter(b, loc, transform, computed);
+            isValid =
+                b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+          }
         }
-        for (auto p : llvm::zip(lower, stepped)) {
+        for (auto p : llvm::zip(lower, computed)) {
           cloneMap.map(std::get<0>(p), std::get<1>(p));
         }
+        cloneMap.map(validities[i], isValid);
       } else { // index diff maps
         IndexDiffUpdateOp lastDiff;
-        for (auto p : llvm::zip(transforms.getAsRange<TransformMapAttr>(),
-                                lowerInits[i])) {
-          TransformMapAttr t = std::get<0>(p);
-          SmallVector<Value, 8> &lowerInit = std::get<1>(p);
+        Value isValid =
+            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+        for (const auto &[t, lowerInit] : llvm::zip(
+                 transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
-            lastDiff = ilb.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
+            lastDiff = b.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
           else
-            lastDiff = ilb.create<IndexDiffUpdateOp>(
+            lastDiff = b.create<IndexDiffUpdateOp>(
                 loc, t, lastDiff.getLowerDiff(), lowerInit);
+          if (mapImpactsValidity(t)) {
+            Value validityUpdate =
+                updateValidityAfter(b, loc, t, lastDiff.getLowerIndices());
+            isValid =
+                b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+          }
         }
         for (auto p : llvm::zip(lower, lastDiff.getLowerIndices())) {
           cloneMap.map(std::get<0>(p), std::get<1>(p));
         }
+        cloneMap.map(validities[i], isValid);
       }
     }
 
@@ -198,18 +247,17 @@ struct TransformingForRewritePattern
         for (Value v : op.getBody()->getTerminator()->getOperands()) {
           terminatorArgs.push_back(cloneMap.lookupOrDefault(v));
         }
-        ilb.create<AffineYieldOp>(loc, terminatorArgs);
+        b.create<AffineYieldOp>(loc, terminatorArgs);
       } else {
-        ilb.clone(bodyOp, cloneMap);
+        b.clone(bodyOp, cloneMap);
       }
     }
 
     if (loops.size() > 1) {
       for (size_t i = 0, e = loops.size() - 1; i < e; ++i) {
         AffineForOp inner = loops[i + 1];
-        OpBuilder lb =
-            OpBuilder::atBlockEnd(loops[i].getBody(), b.getListener());
-        lb.create<AffineYieldOp>(loc, inner.getResults());
+        b.setInsertionPointToEnd(loops[i].getBody());
+        b.create<AffineYieldOp>(loc, inner.getResults());
       }
     }
 
@@ -227,10 +275,10 @@ struct TransformingForRewritePattern
 
 // Determine if the operation provided is a constant, and return its value if it
 // is
-Optional<int64_t> isConstantValue(Value v) {
+std::optional<int64_t> isConstantValue(Value v) {
   auto *op = v.getDefiningOp();
   if (nullptr == op)
-    return llvm::None;
+    return std::nullopt;
   while (auto cast = dyn_cast<IndexCastOp>(op)) {
     op = cast.getIn().getDefiningOp();
   }
@@ -240,7 +288,7 @@ Optional<int64_t> isConstantValue(Value v) {
   if (auto indexOp = dyn_cast<ConstantIndexOp>(op)) {
     return indexOp.value();
   }
-  return llvm::None;
+  return std::nullopt;
 }
 
 struct IndexDiffUpdateRewritePattern
@@ -479,8 +527,7 @@ struct IndexDiffUpdateRewritePattern
           lowerIndicesUpdatedMap[lowerDim] =
               addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
         }
-      } else if ((transformation == TransformType::Merge) ||
-                 (transformation == TransformType::Unfold)) {
+      } else if (transformation == TransformType::Merge) {
         assert(p.size() == 1);
         uint32_t upperDim = p[0];
 
@@ -556,103 +603,110 @@ struct IndexDiffUpdateRewritePattern
         }
         assert(lowerIndicesModified.size() == q.size());
 
-        // Add carry check for Merge.
-        // For Unfold it's not needed.
-        if (transformation == TransformType::Merge) {
-          // Carry checked lower indices.
-          // FIXME: study how to properly lowerDiffsCarryChecked.
-          DenseMap<uint32_t, Value> lowerDiffsCarryChecked;
-          DenseMap<uint32_t, Value> lowerIndicesCarryChecked;
-          for (uint32_t iter = 0; iter < q.size(); ++iter) {
-            int64_t lowerDim = q[iter];
-            lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
-            lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
-          }
-          assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
-          assert(lowerIndicesCarryChecked.size() ==
-                 lowerIndicesModified.size());
+        // Add carry check, excluding leading runs of unit dimensions,
+        // whose carry information is irrelevant.
 
-          // We only implement carry logic. Borrow logic would never happen as
-          // upper index diffs would always be positive in the current
-          // algorithm.
-          Value overflowOp = zeroConstantOp;
-          for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
-            uint32_t lowerDim = q[iter];
-            int64_t upperBound = e[iter];
-            // If the overflow is statically 0, nothing gets added
-            Value diff =
-                addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
-            Value index =
-                addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
-
-            // Don't generate overflow for the uppermost dimension,
-            // as this can lead to adresses wrapping back into bounds
-            if (iter == 0) {
-              lowerDiffsCarryChecked[lowerDim] = diff;
-              lowerIndicesCarryChecked[lowerDim] = index;
-              continue;
-            }
-            auto mbConstantDiff = isConstantValue(diff);
-            auto mbConstantIndex = isConstantValue(index);
-
-            // If we get lucky, everything is constant and so we have a constant
-            // result
-            if (mbConstantIndex.has_value() && mbConstantDiff.has_value()) {
-              int64_t index = mbConstantIndex.value();
-              int64_t diff = mbConstantDiff.value();
-              if (index < upperBound) {
-                overflowOp = zeroConstantOp;
-                lowerIndicesCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, index);
-                lowerDiffsCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, diff);
-              } else {
-                int64_t carry = index / upperBound;
-                int64_t newIndex = index % upperBound;
-                int64_t newDiff = diff - (carry * upperBound);
-                overflowOp = b.create<ConstantIndexOp>(loc, carry);
-                lowerIndicesCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, newIndex);
-                lowerDiffsCarryChecked[lowerDim] =
-                    b.create<ConstantIndexOp>(loc, newDiff);
-              }
-              continue;
-            }
-            // No change -> no carry-out
-            if (mbConstantDiff.value_or(-1L) == 0) {
-              overflowOp = zeroConstantOp;
-              lowerDiffsCarryChecked[lowerDim] = diff;
-              lowerIndicesCarryChecked[lowerDim] = index;
-              continue;
-            }
-
-            Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
-            Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
-            Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
-            // If the merge is, as is typical, near the end of the
-            // transformations this computation should get hit by the dead code
-            // eleminator
-            Value newDiff = b.create<SubIOp>(
-                loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
-
-            overflowOp = carry;
-            lowerDiffsCarryChecked[lowerDim] = newDiff;
-            lowerIndicesCarryChecked[lowerDim] = newIndex;
-          }
-
-          assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
-          assert(lowerIndicesCarryChecked.size() ==
-                 lowerIndicesModified.size());
-          lowerDiffs.clear();
-          lowerIndicesModified.clear();
-          for (uint32_t iter = 0; iter < q.size(); ++iter) {
-            uint32_t lowerDim = q[iter];
-            lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
-            lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
-          }
-          assert(lowerDiffs.size() == q.size());
-          assert(lowerIndicesModified.size() == q.size());
+        // Carry checked lower indices.
+        DenseMap<uint32_t, Value> lowerDiffsCarryChecked;
+        DenseMap<uint32_t, Value> lowerIndicesCarryChecked;
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          int64_t lowerDim = q[iter];
+          lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
+          lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
         }
+        assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
+        assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
+
+        // Runs of initial length 1 don't require a carry check. This replaces
+        // MIOpen's Unfold. In the affine map, these initial 1s are the constant
+        // 0, and so they should stay there.
+        ssize_t slowestDimIdx =
+            e.take_while([](int64_t len) { return len == 1; }).size();
+
+        // We only implement carry logic. Borrow logic would never happen as
+        // upper index diffs would always be positive in the current
+        // algorithm.
+        Value overflowOp = zeroConstantOp;
+        for (ssize_t iter = q.size() - 1; iter >= slowestDimIdx; --iter) {
+          uint32_t lowerDim = q[iter];
+          int64_t upperBound = e[iter];
+          if (upperBound == 1) {
+            // The carry will necessarily bounce to the next dimension,
+            // so don't bother generating code for it.
+            continue;
+          }
+          // If the overflow is statically 0, nothing gets added
+          Value diff =
+              addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
+          Value index =
+              addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
+
+          // Don't generate overflow for the uppermost dimension,
+          // as this can lead to adresses wrapping back into bounds
+          if (iter == slowestDimIdx) {
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
+          auto mbConstantDiff = isConstantValue(diff);
+          auto mbConstantIndex = isConstantValue(index);
+
+          // If we get lucky, everything is constant and so we have a constant
+          // result
+          if (mbConstantIndex.has_value() && mbConstantDiff.has_value()) {
+            int64_t index = mbConstantIndex.value();
+            int64_t diff = mbConstantDiff.value();
+            if (index < upperBound) {
+              overflowOp = zeroConstantOp;
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, index);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, diff);
+            } else {
+              int64_t carry = index / upperBound;
+              int64_t newIndex = index % upperBound;
+              int64_t newDiff = diff - (carry * upperBound);
+              overflowOp = b.create<ConstantIndexOp>(loc, carry);
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, newIndex);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIndexOp>(loc, newDiff);
+            }
+            continue;
+          }
+          // No change -> no carry-out
+          if (mbConstantDiff.value_or(-1L) == 0) {
+            overflowOp = zeroConstantOp;
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
+
+          Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
+          Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
+          Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
+          // If the merge is, as is typical, near the end of the
+          // transformations this computation should get hit by the dead code
+          // eleminator
+          Value newDiff = b.create<SubIOp>(
+              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
+
+          overflowOp = carry;
+          lowerDiffsCarryChecked[lowerDim] = newDiff;
+          lowerIndicesCarryChecked[lowerDim] = newIndex;
+        }
+
+        assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
+        assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
+        lowerDiffs.clear();
+        lowerIndicesModified.clear();
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          uint32_t lowerDim = q[iter];
+          lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
+          lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
+        }
+        assert(lowerDiffs.size() == q.size());
+        assert(lowerIndicesModified.size() == q.size());
 
         // Set lowerIndicesDiffMap and lowerIndicesUpdatedMap.
         for (uint32_t iter = 0; iter < q.size(); ++iter) {
@@ -683,6 +737,12 @@ struct IndexDiffUpdateRewritePattern
               b.createOrFold<SubIOp>(loc, newLower, lowerIndicesOriginal[q[i]]);
           lowerIndicesDiffMap[q[i]] = lowerDiff;
           lowerIndicesUpdatedMap[q[i]] = newLower;
+        }
+      } else if (transformation == TransformType::ConstDim) {
+        for (uint32_t i = 0; i < q.size(); ++i) {
+          // A constant dimension has its original value and no difference
+          lowerIndicesDiffMap[q[i]] = zeroConstantOp;
+          lowerIndicesUpdatedMap[q[i]] = lowerIndicesOriginal[q[i]];
         }
       }
     } // for (auto mapping : transforms.getOps())
@@ -773,63 +833,46 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
 //===----------------------------------------------------------------------===//
 // BufferLoad lowering.
 //===----------------------------------------------------------------------===//
-// TODO(kdrewnia): use "OOB reads = 0" from hardware to remove
-// hardcoded zero value
+
+/// Return the number of elements in `memref`, accounting for the possibility
+/// of dynamic shapes.
+static Value computeMemRefNumElements(OpBuilder &b, Location loc,
+                                      Value memref) {
+  auto type = memref.getType().cast<MemRefType>();
+  if (type.hasStaticShape())
+    return b.createOrFold<ConstantIndexOp>(loc, type.getNumElements());
+  Value result = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+  for (int64_t i = 0, e = type.getRank(); i < e; ++i) {
+    Value dimConst = b.createOrFold<arith::ConstantIndexOp>(loc, i);
+    Value dim = b.createOrFold<memref::DimOp>(loc, memref, dimConst);
+    result = b.createOrFold<arith::MulIOp>(loc, b.getIndexType(), dim, result);
+  }
+  return result;
+}
+
 struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
   using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(BufferLoadOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value source = op.getSource();
-    auto sourceType = source.getType().cast<MemRefType>();
-    ArrayRef<int64_t> sourceShape = sourceType.getShape();
-    int64_t sourceNumElems = sourceType.getNumElements();
-    SmallVector<int64_t, 5> sourceStrides;
-    int64_t sourceOffset;
-    if (failed(getStridesAndOffset(sourceType, sourceStrides, sourceOffset))) {
-      return op.emitOpError("Somehow we don't have static strides\n");
-    }
+    Value valid = op.getValid();
 
     Type loadedType = op.getResult().getType();
-    SmallVector<Value, 5> coords;
-    coords.reserve(op.getCoords().size());
-    llvm::copy(op.getCoords(), std::back_inserter(coords));
+    SmallVector<Value, 5> coords(op.getCoords());
 
-    Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
-
-    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-    for (llvm::APInt leftOobDim :
-         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
-      leftOob.insert(leftOobDim.getZExtValue());
-    for (llvm::APInt rightOobDim :
-         op.getRightOobDims().getAsValueRange<IntegerAttr>())
-      rightOob.insert(rightOobDim.getZExtValue());
-
-    // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer over the stride in that dimension, ensuring
-    // we get an out of bounds store
-    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
-      // oob checks on the right for dimension 0 are already handled by the
-      // buffer intrinsic
-      Value isOob = falseOp;
-      if (rightOob.contains(i) && i != 0) {
-        Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[i],
-            b.createOrFold<ConstantIndexOp>(loc, sourceShape[i]));
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    llvm::APInt validConst = APInt::getZero(1);
+    bool needOobChecks =
+        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
+                            validConst.isZero());
+    if (needOobChecks) {
+      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+      Value numElements = computeMemRefNumElements(b, loc, source);
+      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
+        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      if (leftOob.contains(i)) {
-        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
-                                      zeroConstantOp);
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
-      }
-      if (isOob != falseOp) {
-        Value oobConst =
-            b.create<ConstantIndexOp>(loc, sourceNumElems / sourceStrides[i]);
-        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
-      }
+      Value &lastCoord = coords.back();
+      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
     // Emit load instruction
@@ -838,13 +881,16 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.getOffset()
-            .transform([&b](const APInt &offset) -> IntegerAttr {
-              return b.getI32IntegerAttr(offset.getZExtValue());
-            })
+        llvm::transformOptional(op.getOffset(),
+                                [&b](const APInt &offset) -> IntegerAttr {
+                                  return b.getI32IntegerAttr(
+                                      offset.getZExtValue());
+                                })
             .value_or(IntegerAttr());
+    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source, coordsI32, /*boundsCheck=*/true, indexOffset,
+        op, loadedType, source, coordsI32, /*boundsCheck=*/needHardwareOob,
+        indexOffset,
         /*sgprOffset=*/nullptr);
     return success();
   }
@@ -856,59 +902,99 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
 struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
   using OpRewritePattern<BufferStoreOp>::OpRewritePattern;
 
+  // This function creates integer buffer atomic max ops that is numerically
+  // identical to floating point integer buffer atomic max ops via controlled
+  // type punning. This is done mainly because gfx9 GPUs lack buffer.atomic.fmax
+  // intrinsic support.
+  LogicalResult createAtomicFMaxUsingIntegerAtomics(
+      BufferStoreOp op, Value stVal, Value destMemRef,
+      SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
+      IntegerAttr indexOffset, PatternRewriter &b) const {
+    if (!stVal.getType().isF32()) {
+      return op.emitError(
+          "for atomic fmax we only currently support f32 types");
+    }
+    Location loc = op.getLoc();
+    auto stValIntCasted = b.create<LLVM::BitcastOp>(loc, b.getI32Type(), stVal);
+    Value zeroConstantOp = b.createOrFold<ConstantIntOp>(loc, 0, 32);
+    Value signbitConstantOp =
+        b.createOrFold<ConstantIntOp>(loc, 0x80000000, 32);
+    Value sign =
+        b.create<arith::AndIOp>(loc, signbitConstantOp, stValIntCasted);
+    auto isPos = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                         zeroConstantOp, sign);
+
+    scf::IfOp ifb = b.create<scf::IfOp>(loc, isPos, /*withElseRegion=*/true);
+    {
+      OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
+      // If the current value is positive doing a signed max integer comparison
+      // will be equivalent to a floating point max comparison.
+      thenb.create<amdgpu::RawBufferAtomicSmaxOp>(
+          loc, stValIntCasted, destMemRef, coordsI32,
+          /*boundsCheck=*/needHWBoundsCheck,
+          /*indexOffset=*/indexOffset,
+          /*sgprOffset=*/nullptr);
+    }
+    {
+      OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
+      // If the current value is negative doing a unsigned min integer
+      // comparison will be equivalent to a floating point max comparison
+      // because signed bit will always make negative number larger. Moreover,
+      // if both are negative, then smaller of those unsigend integers should be
+      // the larger floating point value.
+      elseb.create<amdgpu::RawBufferAtomicUminOp>(
+          loc, stValIntCasted, destMemRef, coordsI32,
+          /*boundsCheck=*/needHWBoundsCheck,
+          /*indexOffset=*/indexOffset,
+          /*sgprOffset=*/nullptr);
+    }
+    return success();
+  }
+
+  LogicalResult
+  createAtomicFMax(BufferStoreOp op, Value stVal, Value destMemRef,
+                   SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
+                   IntegerAttr indexOffset, PatternRewriter &b) const {
+    Location loc = op.getLoc();
+    bool hasAtomicFmaxF32 =
+        bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_fmax_f32);
+    if (hasAtomicFmaxF32) {
+      b.create<amdgpu::RawBufferAtomicFmaxOp>(loc, stVal, destMemRef, coordsI32,
+                                              /*boundsCheck=*/needHWBoundsCheck,
+                                              /*indexOffset=*/indexOffset,
+                                              /*sgprOffset=*/nullptr);
+    } else {
+      LogicalResult result = createAtomicFMaxUsingIntegerAtomics(
+          op, stVal, destMemRef, coordsI32, needHWBoundsCheck, indexOffset, b);
+      if (failed(result)) {
+        return result;
+      }
+    }
+    return success();
+  }
+
   LogicalResult matchAndRewrite(BufferStoreOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
     Value data = op.getData();
     Value dest = op.getDest();
-    auto destType = dest.getType().cast<MemRefType>();
-    ArrayRef<int64_t> destShape = destType.getShape();
-    int64_t destNumElems = destType.getNumElements();
-    SmallVector<int64_t, 5> destStrides;
-    int64_t destOffset;
-    if (failed(getStridesAndOffset(destType, destStrides, destOffset))) {
-      return op.emitOpError("Somehow we don't have static strides\n");
-    }
+    Value valid = op.getValid();
 
-    SmallVector<Value, 5> coords;
-    coords.reserve(op.getCoords().size());
-    llvm::copy(op.getCoords(), std::back_inserter(coords));
+    SmallVector<Value, 5> coords(op.getCoords());
 
-    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
-
-    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
-    for (llvm::APInt leftOobDim :
-         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
-      leftOob.insert(leftOobDim.getZExtValue());
-    for (llvm::APInt rightOobDim :
-         op.getRightOobDims().getAsValueRange<IntegerAttr>())
-      rightOob.insert(rightOobDim.getZExtValue());
-
-    // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer over the stride in that dimension, ensuring
-    // we get an out of bounds store
-    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
-      // oob checks on the right for dimension 0 are already handled by the
-      // buffer intrinsic
-      Value isOob = falseOp;
-      if (rightOob.contains(i) && i != 0) {
-        Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[i],
-            b.createOrFold<ConstantIndexOp>(loc, destShape[i]));
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    llvm::APInt validConst = APInt::getZero(1);
+    bool needOobChecks =
+        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
+                            validConst.isZero());
+    if (needOobChecks) {
+      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+      Value numElements = computeMemRefNumElements(b, loc, dest);
+      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
+        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
       }
-      if (leftOob.contains(i)) {
-        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
-                                      zeroConstantOp);
-        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
-      }
-      if (isOob != falseOp) {
-        Value oobConst =
-            b.create<ConstantIndexOp>(loc, destNumElems / destStrides[i]);
-        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
-      }
+      Value &lastCoord = coords.back();
+      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
     }
 
     StoreMethod memoryOp = op.getStoreMethod();
@@ -916,38 +1002,69 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     for (Value v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.getOffset()
-            .transform([&b](const APInt &offset) -> IntegerAttr {
-              return b.getI32IntegerAttr(offset.getZExtValue());
-            })
+        llvm::transformOptional(op.getOffset(),
+                                [&b](const APInt &offset) -> IntegerAttr {
+                                  return b.getI32IntegerAttr(
+                                      offset.getZExtValue());
+                                })
             .value_or(IntegerAttr());
 
+    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
     if (memoryOp == StoreMethod::AtomicAdd) {
       // TODO: test padding in atomic add kernels now that we can oob with them
       if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
         int32_t nAtomics = dataVector.getNumElements();
-        int32_t offset = op.getOffset()
-                             .transform([](const APInt &v) -> int32_t {
-                               return v.getZExtValue();
-                             })
+        int32_t offset = llvm::transformOptional(op.getOffset(),
+                                                 [](const APInt &v) -> int32_t {
+                                                   return v.getZExtValue();
+                                                 })
                              .value_or(0);
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
           b.create<amdgpu::RawBufferAtomicFaddOp>(
-              loc, item, dest, coordsI32, /*boundsCheck=*/true,
+              loc, item, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
               /*indexOffset=*/b.getI32IntegerAttr(i + offset),
               /*sgprOffset=*/nullptr);
         }
         b.eraseOp(op);
       } else {
         b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+            op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
+            indexOffset,
             /*sgprOffset=*/nullptr);
+      }
+    } else if (memoryOp == StoreMethod::AtomicMax) {
+      if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
+        int32_t nAtomics = dataVector.getNumElements();
+        int32_t offset = llvm::transformOptional(op.getOffset(),
+                                                 [](const APInt &v) -> int32_t {
+                                                   return v.getZExtValue();
+                                                 })
+                             .value_or(0);
+        for (int32_t i = 0; i < nAtomics; ++i) {
+          Value item = b.create<vector::ExtractElementOp>(
+              loc, data, b.create<ConstantIndexOp>(loc, i));
+          LogicalResult result =
+              createAtomicFMax(op, item, dest, coordsI32, needHardwareOob,
+                               b.getI32IntegerAttr(i + offset), b);
+          if (failed(result)) {
+            return result;
+          }
+        }
+        b.eraseOp(op);
+      } else {
+        LogicalResult result = createAtomicFMax(
+            op, data, dest, coordsI32, needHardwareOob, indexOffset, b);
+        if (failed(result)) {
+          return result;
+        }
+        b.eraseOp(op);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+          op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
+          indexOffset,
           /*sgprOffset=*/nullptr);
     }
     return success();
@@ -1028,7 +1145,7 @@ struct InWarpTransposeRewritePattern
   Value emitRotations(Location loc, PatternRewriter &b, Value vector,
                       Value laneId, RotationDirection dir, uint32_t groupSize,
                       uint32_t totalSize,
-                      Optional<ArrayRef<uint32_t>> lanePerm) const {
+                      std::optional<ArrayRef<uint32_t>> lanePerm) const {
     assert(totalSize % groupSize == 0 &&
            "block size is divisible by group size");
 
@@ -1298,13 +1415,13 @@ struct InWarpTransposeRewritePattern
                                 .getZExtValue());
     }
 
-    Optional<ArrayRef<uint32_t>> maybeInGroupPerm = llvm::None;
+    std::optional<ArrayRef<uint32_t>> maybeInGroupPerm = std::nullopt;
     if (inGroupPermAttr != b.getI32ArrayAttr({0, 1, 2, 3})) {
       maybeInGroupPerm = inGroupPerm;
     }
 
     Value rotatedRight = emitRotations(loc, b, vector, laneId, Right, groupSize,
-                                       totalSize, llvm::None);
+                                       totalSize, std::nullopt);
     Value swizzled =
         emitSwizzles(loc, b, rotatedRight, groupSize, totalSize, inGroupPerm);
     Value rotatedLeft = emitRotations(loc, b, swizzled, laneId, Left, groupSize,
@@ -1320,11 +1437,19 @@ struct InWarpTransposeRewritePattern
 void RockSugarToLoopsPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   func::FuncOp op = getOperation();
+  // Expand transforming_for loops so that the load/store patterns have as much
+  // info about validity as possible.
+  RewritePatternSet initialLoopPatterns(ctx);
+  initialLoopPatterns.add<TransformingForRewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                          std::move(initialLoopPatterns))))
+    signalPassFailure();
+
   RewritePatternSet patterns(ctx);
-  patterns.add<TransformingForRewritePattern, ExtractSliceRewritePattern,
-               InsertSliceRewritePattern, BufferLoadRewritePattern,
-               BufferStoreRewritePattern, InBoundsLoadRewritePattern,
-               InBoundsStoreRewritePattern, InWarpTransposeRewritePattern>(ctx);
+  patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
+               BufferLoadRewritePattern, BufferStoreRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern,
+               InWarpTransposeRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

@@ -5,7 +5,9 @@ add_rocmlir_dialect_library(MLIRRockOps
   RockGemmWrapperInterface.cpp
   RockConvInterface.cpp
   RockTuningParamAttrInterface.cpp
+  RockAccelTuningParamAttrInterface.cpp
   MfmaInsnGroup.cpp
+  WmmaInsnGroup.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Rock
@@ -14,6 +16,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   MLIRRockAttrDefsIncGen
   MLIRRockGemmWrapperInterfaceIncGen
   MLIRRockTuningParamAttrInterfaceIncGen
+  MLIRRockAccelTuningParamAttrInterfaceIncGen
   MLIRRockOpsIncGen
   )
 

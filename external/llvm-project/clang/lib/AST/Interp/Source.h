@@ -13,6 +13,7 @@
 #ifndef LLVM_CLANG_AST_INTERP_SOURCE_H
 #define LLVM_CLANG_AST_INTERP_SOURCE_H
 
+#include "PrimType.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Stmt.h"
 #include "llvm/Support/Endian.h"
@@ -47,9 +48,10 @@ public:
 
   /// Reads data and advances the pointer.
   template <typename T> std::enable_if_t<!std::is_pointer<T>::value, T> read() {
+    assert(aligned(Ptr));
     using namespace llvm::support;
     T Value = endian::read<T, endianness::native, 1>(Ptr);
-    Ptr += sizeof(T);
+    Ptr += align(sizeof(T));
     return Value;
   }
 
@@ -91,12 +93,12 @@ public:
   virtual ~SourceMapper() {}
 
   /// Returns source information for a given PC in a function.
-  virtual SourceInfo getSource(Function *F, CodePtr PC) const = 0;
+  virtual SourceInfo getSource(const Function *F, CodePtr PC) const = 0;
 
   /// Returns the expression if an opcode belongs to one, null otherwise.
-  const Expr *getExpr(Function *F, CodePtr PC) const;
+  const Expr *getExpr(const Function *F, CodePtr PC) const;
   /// Returns the location from which an opcode originates.
-  SourceLocation getLocation(Function *F, CodePtr PC) const;
+  SourceLocation getLocation(const Function *F, CodePtr PC) const;
 };
 
 } // namespace interp

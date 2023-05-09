@@ -251,7 +251,7 @@ static int constructAndTraverseIr(MlirContext ctx) {
   return 0;
 }
 
-int main() {
+int main(void) {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);

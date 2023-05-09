@@ -22,7 +22,7 @@
 
 // MLIR includes
 #include "mlir/Dialect/Affine/Passes.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
@@ -33,6 +33,7 @@
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
@@ -44,11 +45,11 @@ inline void registerUpstreamPasses() {
   // Conversion passes
   registerConvertAffineToStandard();
   registerConvertAMDGPUToROCDL();
-  registerConvertArithmeticToLLVM();
+  registerArithToLLVMConversionPass();
   registerConvertFuncToLLVM();
   registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVM();
-  registerConvertMemRefToLLVM();
+  registerMemRefToLLVMConversionPass();
   registerReconcileUnrealizedCasts();
   registerSCFToControlFlow();
   registerTosaToArith();
@@ -59,7 +60,7 @@ inline void registerUpstreamPasses() {
   // MLIR passes
   registerTransformsPasses();
   registerAffinePasses();
-  arith::registerArithmeticPasses();
+  arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();
   registerGPUPasses();
@@ -71,6 +72,7 @@ inline void registerUpstreamPasses() {
   tensor::registerTensorPasses();
   tosa::registerTosaOptPasses();
   vector::registerVectorPasses();
+  xmodel::registerPasses();
 }
 
 // This function may be called to register the rocMLIR passes with the

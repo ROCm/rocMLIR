@@ -91,25 +91,4 @@ inline std::string joinStrings(Strings strings, std::string delim) {
       [&](std::string x, std::string y) { return x + delim + y; });
 }
 
-template <class Derived> struct SQLiteSerializable {
-  std::vector<std::string> fieldNames() const {
-    std::vector<std::string> names;
-    Derived::visit(static_cast<const Derived &>(*this),
-                   [&](const std::string &value, const std::string &name) {
-                     std::ignore = value;
-                     names.push_back(name);
-                   });
-    return names;
-  }
-  std::string queryClause() const {
-    std::vector<std::string> clauses;
-    Derived::visit(static_cast<const Derived &>(*this),
-                   [&](const std::string &value, const std::string &name) {
-                     clauses.push_back("(" + name + " = " + value + " )");
-                   });
-    std::string clause = joinStrings(clauses, " AND ");
-    return clause;
-  }
-};
-
 #endif // MLIR_DIALECT_ROCK_SERIALIZABLE_H

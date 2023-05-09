@@ -46,8 +46,10 @@
 #include "clang/Sema/TemplateInstCallback.h"
 #include "clang/Sema/TypoCorrection.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/TimeProfiler.h"
+#include <optional>
 
 using namespace clang;
 using namespace sema;
@@ -563,12 +565,12 @@ void Sema::PrintStats() const {
 void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
                                                SourceLocation Loc) {
-  Optional<NullabilityKind> ExprNullability = SrcType->getNullability(Context);
+  std::optional<NullabilityKind> ExprNullability = SrcType->getNullability();
   if (!ExprNullability || (*ExprNullability != NullabilityKind::Nullable &&
                            *ExprNullability != NullabilityKind::NullableResult))
     return;
 
-  Optional<NullabilityKind> TypeNullability = DstType->getNullability(Context);
+  std::optional<NullabilityKind> TypeNullability = DstType->getNullability();
   if (!TypeNullability || *TypeNullability != NullabilityKind::NonNull)
     return;
 
@@ -595,6 +597,12 @@ void Sema::diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E) {
       CodeSynthesisContexts.back().Kind ==
           CodeSynthesisContext::RewritingOperatorAsSpaceship)
     return;
+
+  // Ignore null pointers in defaulted comparison operators.
+  FunctionDecl *FD = getCurFunctionDecl();
+  if (FD && FD->isDefaulted()) {
+    return;
+  }
 
   // If it is a macro from system header, and if the macro name is not "NULL",
   // do not warn.
@@ -1490,7 +1498,7 @@ void Sema::EmitCurrentDiagnostic(unsigned DiagID) {
   // eliminated. If it truly cannot be (for example, there is some reentrancy
   // issue I am not seeing yet), then there should at least be a clarifying
   // comment somewhere.
-  if (Optional<TemplateDeductionInfo*> Info = isSFINAEContext()) {
+  if (std::optional<TemplateDeductionInfo *> Info = isSFINAEContext()) {
     switch (DiagnosticIDs::getDiagnosticSFINAEResponse(
               Diags.getCurrentDiagID())) {
     case DiagnosticIDs::SFINAE_Report:
@@ -2028,6 +2036,15 @@ void Sema::checkTypeSupport(QualType Ty, SourceLocation Loc, ValueDecl *D) {
       if (D)
         targetDiag(D->getLocation(), diag::note_defined_here, FD) << D;
     }
+
+    // Don't allow SVE types in functions without a SVE target.
+    if (Ty->isSVESizelessBuiltinType() && FD && FD->hasBody()) {
+      llvm::StringMap<bool> CallerFeatureMap;
+      Context.getFunctionFeatureMap(CallerFeatureMap, FD);
+      if (!Builtin::evaluateRequiredTargetFeatures(
+          "sve", CallerFeatureMap))
+        Diag(D->getLocation(), diag::err_sve_vector_in_non_sve_target) << Ty;
+    }
   };
 
   CheckType(Ty);
@@ -2468,7 +2485,7 @@ bool Sema::tryExprAsCall(Expr &E, QualType &ZeroArgCallReturnTy,
   if (IsMemExpr && !E.isTypeDependent()) {
     Sema::TentativeAnalysisScope Trap(*this);
     ExprResult R = BuildCallToMemberFunction(nullptr, &E, SourceLocation(),
-                                             None, SourceLocation());
+                                             std::nullopt, SourceLocation());
     if (R.isUsable()) {
       ZeroArgCallReturnTy = R.get()->getType();
       return true;
@@ -2531,6 +2548,9 @@ static void noteOverloads(Sema &S, const UnresolvedSetImpl &Overloads,
     if (const auto *FD = Fn->getAsFunction()) {
       if (FD->isMultiVersion() && FD->hasAttr<TargetAttr>() &&
           !FD->getAttr<TargetAttr>()->isDefaultVersion())
+        continue;
+      if (FD->isMultiVersion() && FD->hasAttr<TargetVersionAttr>() &&
+          !FD->getAttr<TargetVersionAttr>()->isDefaultVersion())
         continue;
     }
     S.Diag(Fn->getLocation(), diag::note_possible_target_of_call);
@@ -2618,7 +2638,7 @@ bool Sema::tryToRecoverWithCall(ExprResult &E, const PartialDiagnostic &PD,
 
       // FIXME: Try this before emitting the fixit, and suppress diagnostics
       // while doing so.
-      E = BuildCallExpr(nullptr, E.get(), Range.getEnd(), None,
+      E = BuildCallExpr(nullptr, E.get(), Range.getEnd(), std::nullopt,
                         Range.getEnd().getLocWithOffset(1));
       return true;
     }
@@ -2678,4 +2698,27 @@ Sema::FPFeaturesStateRAII::~FPFeaturesStateRAII() {
   S.CurFPFeatures = OldFPFeaturesState;
   S.FpPragmaStack.CurrentValue = OldOverrides;
   S.PP.setCurrentFPEvalMethod(OldFPPragmaLocation, OldEvalMethod);
+}
+
+bool Sema::isDeclaratorFunctionLike(Declarator &D) {
+  assert(D.getCXXScopeSpec().isSet() &&
+         "can only be called for qualified names");
+
+  auto LR = LookupResult(*this, D.getIdentifier(), D.getBeginLoc(),
+                         LookupOrdinaryName, forRedeclarationInCurContext());
+  DeclContext *DC = computeDeclContext(D.getCXXScopeSpec(),
+                                       !D.getDeclSpec().isFriendSpecified());
+  if (!DC)
+    return false;
+
+  LookupQualifiedName(LR, DC);
+  bool Result = std::all_of(LR.begin(), LR.end(), [](Decl *Dcl) {
+    if (NamedDecl *ND = dyn_cast<NamedDecl>(Dcl)) {
+      ND = ND->getUnderlyingDecl();
+      return isa<FunctionDecl>(ND) || isa<FunctionTemplateDecl>(ND) ||
+             isa<UsingDecl>(ND);
+    }
+    return false;
+  });
+  return Result;
 }

@@ -34,24 +34,18 @@ std::ostream &operator<<(std::ostream &OS,
 // Check that we can't accidentally assign a temporary std::string to a
 // StringRef. (Unfortunately we can't make use of the same thing with
 // constructors.)
-static_assert(
-    !std::is_assignable<StringRef&, std::string>::value,
-    "Assigning from prvalue std::string");
-static_assert(
-    !std::is_assignable<StringRef&, std::string &&>::value,
-    "Assigning from xvalue std::string");
-static_assert(
-    std::is_assignable<StringRef&, std::string &>::value,
-    "Assigning from lvalue std::string");
-static_assert(
-    std::is_assignable<StringRef&, const char *>::value,
-    "Assigning from prvalue C string");
-static_assert(
-    std::is_assignable<StringRef&, const char * &&>::value,
-    "Assigning from xvalue C string");
-static_assert(
-    std::is_assignable<StringRef&, const char * &>::value,
-    "Assigning from lvalue C string");
+static_assert(!std::is_assignable_v<StringRef &, std::string>,
+              "Assigning from prvalue std::string");
+static_assert(!std::is_assignable_v<StringRef &, std::string &&>,
+              "Assigning from xvalue std::string");
+static_assert(std::is_assignable_v<StringRef &, std::string &>,
+              "Assigning from lvalue std::string");
+static_assert(std::is_assignable_v<StringRef &, const char *>,
+              "Assigning from prvalue C string");
+static_assert(std::is_assignable_v<StringRef &, const char *&&>,
+              "Assigning from xvalue C string");
+static_assert(std::is_assignable_v<StringRef &, const char *&>,
+              "Assigning from lvalue C string");
 
 namespace {
 TEST(StringRefTest, Construction) {
@@ -87,12 +81,12 @@ TEST(StringRefTest, StringOps) {
   EXPECT_EQ(p, StringRef(p, 0).data());
   EXPECT_TRUE(StringRef().empty());
   EXPECT_EQ((size_t) 5, StringRef("hello").size());
-  EXPECT_EQ(-1, StringRef("aab").compare("aad"));
+  EXPECT_GT( 0, StringRef("aab").compare("aad"));
   EXPECT_EQ( 0, StringRef("aab").compare("aab"));
-  EXPECT_EQ( 1, StringRef("aab").compare("aaa"));
-  EXPECT_EQ(-1, StringRef("aab").compare("aabb"));
-  EXPECT_EQ( 1, StringRef("aab").compare("aa"));
-  EXPECT_EQ( 1, StringRef("\xFF").compare("\1"));
+  EXPECT_LT( 0, StringRef("aab").compare("aaa"));
+  EXPECT_GT( 0, StringRef("aab").compare("aabb"));
+  EXPECT_LT( 0, StringRef("aab").compare("aa"));
+  EXPECT_LT( 0, StringRef("\xFF").compare("\1"));
 
   EXPECT_EQ(-1, StringRef("AaB").compare_insensitive("aAd"));
   EXPECT_EQ( 0, StringRef("AaB").compare_insensitive("aab"));
@@ -356,20 +350,20 @@ TEST(StringRefTest, Trim) {
 
 TEST(StringRefTest, StartsWith) {
   StringRef Str("hello");
-  EXPECT_TRUE(Str.startswith(""));
-  EXPECT_TRUE(Str.startswith("he"));
-  EXPECT_FALSE(Str.startswith("helloworld"));
-  EXPECT_FALSE(Str.startswith("hi"));
+  EXPECT_TRUE(Str.starts_with(""));
+  EXPECT_TRUE(Str.starts_with("he"));
+  EXPECT_FALSE(Str.starts_with("helloworld"));
+  EXPECT_FALSE(Str.starts_with("hi"));
 }
 
 TEST(StringRefTest, StartsWithInsensitive) {
   StringRef Str("heLLo");
-  EXPECT_TRUE(Str.startswith_insensitive(""));
-  EXPECT_TRUE(Str.startswith_insensitive("he"));
-  EXPECT_TRUE(Str.startswith_insensitive("hell"));
-  EXPECT_TRUE(Str.startswith_insensitive("HELlo"));
-  EXPECT_FALSE(Str.startswith_insensitive("helloworld"));
-  EXPECT_FALSE(Str.startswith_insensitive("hi"));
+  EXPECT_TRUE(Str.starts_with_insensitive(""));
+  EXPECT_TRUE(Str.starts_with_insensitive("he"));
+  EXPECT_TRUE(Str.starts_with_insensitive("hell"));
+  EXPECT_TRUE(Str.starts_with_insensitive("HELlo"));
+  EXPECT_FALSE(Str.starts_with_insensitive("helloworld"));
+  EXPECT_FALSE(Str.starts_with_insensitive("hi"));
 }
 
 TEST(StringRefTest, ConsumeFront) {
@@ -408,21 +402,21 @@ TEST(StringRefTest, ConsumeFrontInsensitive) {
 
 TEST(StringRefTest, EndsWith) {
   StringRef Str("hello");
-  EXPECT_TRUE(Str.endswith(""));
-  EXPECT_TRUE(Str.endswith("lo"));
-  EXPECT_FALSE(Str.endswith("helloworld"));
-  EXPECT_FALSE(Str.endswith("worldhello"));
-  EXPECT_FALSE(Str.endswith("so"));
+  EXPECT_TRUE(Str.ends_with(""));
+  EXPECT_TRUE(Str.ends_with("lo"));
+  EXPECT_FALSE(Str.ends_with("helloworld"));
+  EXPECT_FALSE(Str.ends_with("worldhello"));
+  EXPECT_FALSE(Str.ends_with("so"));
 }
 
 TEST(StringRefTest, EndsWithInsensitive) {
   StringRef Str("heLLo");
-  EXPECT_TRUE(Str.endswith_insensitive(""));
-  EXPECT_TRUE(Str.endswith_insensitive("lo"));
-  EXPECT_TRUE(Str.endswith_insensitive("LO"));
-  EXPECT_TRUE(Str.endswith_insensitive("ELlo"));
-  EXPECT_FALSE(Str.endswith_insensitive("helloworld"));
-  EXPECT_FALSE(Str.endswith_insensitive("hi"));
+  EXPECT_TRUE(Str.ends_with_insensitive(""));
+  EXPECT_TRUE(Str.ends_with_insensitive("lo"));
+  EXPECT_TRUE(Str.ends_with_insensitive("LO"));
+  EXPECT_TRUE(Str.ends_with_insensitive("ELlo"));
+  EXPECT_FALSE(Str.ends_with_insensitive("helloworld"));
+  EXPECT_FALSE(Str.ends_with_insensitive("hi"));
 }
 
 TEST(StringRefTest, ConsumeBack) {
@@ -1144,7 +1138,6 @@ TEST(StringRefTest, LFCRLineEnding) {
   EXPECT_EQ(StringRef("\n\r"), Cases[2].detectEOL());
 }
 
-static_assert(std::is_trivially_copyable<StringRef>::value,
-              "trivially copyable");
+static_assert(std::is_trivially_copyable_v<StringRef>, "trivially copyable");
 
 } // end anonymous namespace

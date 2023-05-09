@@ -7,8 +7,8 @@
 
 
 // CHECK-LABEL: func @host_naive_gemm
-// F16-SAME: (%{{.*}}: memref<3x1024x769xf32>, %{{.*}}: memref<3x769x512xf32>, %{{.*}}: memref<3x1024x512xf32>)
-// I8-SAME: (%{{.*}}: memref<3x1024x769xi8>, %{{.*}}: memref<3x769x512xi8>, %{{.*}}: memref<3x1024x512xi32>)
+// F16-SAME: (%{{.*}}: memref<3x1024x769xf16>, %{{.*}}: memref<3x769x512xf16>, %{{.*}}: memref<3x1024x512xf16>)
+// I8-SAME: (%{{.*}}: memref<3x1024x769xi8>, %{{.*}}: memref<3x769x512xi8>, %{{.*}}: memref<3x1024x512xi64>)
 
 // F16: arith.mulf
 // F16-NEXT: arith.addf

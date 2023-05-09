@@ -47,10 +47,12 @@
 #include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace llvm {
@@ -88,10 +90,12 @@ private:
     InstructionCost Cost = 0;
     // Broadcast cost is equal to the cost of extracting the zero'th element
     // plus the cost of inserting it into every element of the result vector.
-    Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, VTy, 0);
+    Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, VTy, 0,
+                                        nullptr, nullptr);
 
     for (int i = 0, e = VTy->getNumElements(); i < e; ++i) {
-      Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, VTy, i);
+      Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, VTy, i,
+                                          nullptr, nullptr);
     }
     return Cost;
   }
@@ -108,8 +112,10 @@ private:
     // vector and finally index 3 of second vector and insert them at index
     // <0,1,2,3> of result vector.
     for (int i = 0, e = VTy->getNumElements(); i < e; ++i) {
-      Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, VTy, i);
-      Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, VTy, i);
+      Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, VTy, i,
+                                          nullptr, nullptr);
+      Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, VTy, i,
+                                          nullptr, nullptr);
     }
     return Cost;
   }
@@ -132,9 +138,9 @@ private:
     // type.
     for (int i = 0; i != NumSubElts; ++i) {
       Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, VTy,
-                                          i + Index);
-      Cost +=
-          thisT()->getVectorInstrCost(Instruction::InsertElement, SubVTy, i);
+                                          i + Index, nullptr, nullptr);
+      Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, SubVTy, i,
+                                          nullptr, nullptr);
     }
     return Cost;
   }
@@ -156,10 +162,10 @@ private:
     // the source type plus the cost of inserting them into the result vector
     // type.
     for (int i = 0; i != NumSubElts; ++i) {
-      Cost +=
-          thisT()->getVectorInstrCost(Instruction::ExtractElement, SubVTy, i);
+      Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, SubVTy,
+                                          i, nullptr, nullptr);
       Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, VTy,
-                                          i + Index);
+                                          i + Index, nullptr, nullptr);
     }
     return Cost;
   }
@@ -210,7 +216,7 @@ private:
                                  FixedVectorType::get(
                                      PointerType::get(VT->getElementType(), 0),
                                      VT->getNumElements()),
-                                 -1)
+                                 -1, nullptr, nullptr)
             : 0;
     InstructionCost LoadCost =
         VT->getNumElements() *
@@ -235,7 +241,7 @@ private:
                Instruction::ExtractElement,
                FixedVectorType::get(Type::getInt1Ty(DataTy->getContext()),
                                     VT->getNumElements()),
-               -1) +
+               -1, nullptr, nullptr) +
            getCFInstrCost(Instruction::Br, CostKind) +
            getCFInstrCost(Instruction::PHI, CostKind));
     }
@@ -255,7 +261,7 @@ public:
   /// @{
   bool allowsMisalignedMemoryAccesses(LLVMContext &Context, unsigned BitWidth,
                                       unsigned AddressSpace, Align Alignment,
-                                      bool *Fast) const {
+                                      unsigned *Fast) const {
     EVT E = EVT::getIntegerVT(Context, BitWidth);
     return getTLI()->allowsMisalignedMemoryAccesses(
         E, AddressSpace, Alignment, MachineMemOperand::MONone, Fast);
@@ -285,6 +291,11 @@ public:
 
   unsigned getAssumedAddrSpace(const Value *V) const {
     return getTLI()->getTargetMachine().getAssumedAddrSpace(V);
+  }
+
+  bool isSingleThreaded() const {
+    return getTLI()->getTargetMachine().Options.ThreadModel ==
+           ThreadModel::Single;
   }
 
   std::pair<const Value *, unsigned>
@@ -614,21 +625,20 @@ public:
     return BaseT::emitGetActiveLaneMask();
   }
 
-  Optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
+  std::optional<Instruction *> instCombineIntrinsic(InstCombiner &IC,
                                                IntrinsicInst &II) {
     return BaseT::instCombineIntrinsic(IC, II);
   }
 
-  Optional<Value *> simplifyDemandedUseBitsIntrinsic(InstCombiner &IC,
-                                                     IntrinsicInst &II,
-                                                     APInt DemandedMask,
-                                                     KnownBits &Known,
-                                                     bool &KnownBitsComputed) {
+  std::optional<Value *>
+  simplifyDemandedUseBitsIntrinsic(InstCombiner &IC, IntrinsicInst &II,
+                                   APInt DemandedMask, KnownBits &Known,
+                                   bool &KnownBitsComputed) {
     return BaseT::simplifyDemandedUseBitsIntrinsic(IC, II, DemandedMask, Known,
                                                    KnownBitsComputed);
   }
 
-  Optional<Value *> simplifyDemandedVectorEltsIntrinsic(
+  std::optional<Value *> simplifyDemandedVectorEltsIntrinsic(
       InstCombiner &IC, IntrinsicInst &II, APInt DemandedElts, APInt &UndefElts,
       APInt &UndefElts2, APInt &UndefElts3,
       std::function<void(Instruction *, unsigned, APInt, APInt &)>
@@ -638,15 +648,15 @@ public:
         SimplifyAndSetOp);
   }
 
-  virtual Optional<unsigned>
+  virtual std::optional<unsigned>
   getCacheSize(TargetTransformInfo::CacheLevel Level) const {
-    return Optional<unsigned>(
-      getST()->getCacheSize(static_cast<unsigned>(Level)));
+    return std::optional<unsigned>(
+        getST()->getCacheSize(static_cast<unsigned>(Level)));
   }
 
-  virtual Optional<unsigned>
+  virtual std::optional<unsigned>
   getCacheAssociativity(TargetTransformInfo::CacheLevel Level) const {
-    Optional<unsigned> TargetResult =
+    std::optional<unsigned> TargetResult =
         getST()->getCacheAssociativity(static_cast<unsigned>(Level));
 
     if (TargetResult)
@@ -692,8 +702,8 @@ public:
     return TypeSize::getFixed(32);
   }
 
-  Optional<unsigned> getMaxVScale() const { return None; }
-  Optional<unsigned> getVScaleForTuning() const { return None; }
+  std::optional<unsigned> getMaxVScale() const { return std::nullopt; }
+  std::optional<unsigned> getVScaleForTuning() const { return std::nullopt; }
 
   /// Estimate the overhead of scalarizing an instruction. Insert and Extract
   /// are set if the demanded result elements need to be inserted and/or
@@ -716,9 +726,11 @@ public:
       if (!DemandedElts[i])
         continue;
       if (Insert)
-        Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, Ty, i);
+        Cost += thisT()->getVectorInstrCost(Instruction::InsertElement, Ty, i,
+                                            nullptr, nullptr);
       if (Extract)
-        Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, i);
+        Cost += thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, i,
+                                            nullptr, nullptr);
     }
 
     return Cost;
@@ -934,7 +946,7 @@ public:
                                  ArrayRef<int> Mask,
                                  TTI::TargetCostKind CostKind, int Index,
                                  VectorType *SubTp,
-                                 ArrayRef<const Value *> Args = None) {
+                                 ArrayRef<const Value *> Args = std::nullopt) {
 
     switch (improveShuffleKindFromMask(Kind, Mask)) {
     case TTI::SK_Broadcast:
@@ -1117,7 +1129,7 @@ public:
   InstructionCost getExtractWithExtendCost(unsigned Opcode, Type *Dst,
                                            VectorType *VecTy, unsigned Index) {
     return thisT()->getVectorInstrCost(Instruction::ExtractElement, VecTy,
-                                       Index) +
+                                       Index, nullptr, nullptr) +
            thisT()->getCastInstrCost(Opcode, Dst, VecTy->getElementType(),
                                      TTI::CastContextHint::None,
                                      TTI::TCK_RecipThroughput);
@@ -1178,14 +1190,20 @@ public:
     return 1;
   }
 
-  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val,
-                                     unsigned Index) {
+  InstructionCost getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index,
+                                     Value *Op0, Value *Op1) {
     return getRegUsageForType(Val->getScalarType());
   }
 
   InstructionCost getVectorInstrCost(const Instruction &I, Type *Val,
                                      unsigned Index) {
-    return thisT()->getVectorInstrCost(I.getOpcode(), Val, Index);
+    Value *Op0 = nullptr;
+    Value *Op1 = nullptr;
+    if (auto *IE = dyn_cast<InsertElementInst>(&I)) {
+      Op0 = IE->getOperand(0);
+      Op1 = IE->getOperand(1);
+    }
+    return thisT()->getVectorInstrCost(I.getOpcode(), Val, Index, Op0, Op1);
   }
 
   InstructionCost getReplicationShuffleCost(Type *EltTy, int ReplicationFactor,
@@ -1516,7 +1534,7 @@ public:
       unsigned Index = cast<ConstantInt>(Args[1])->getZExtValue();
       return thisT()->getShuffleCost(
           TTI::SK_ExtractSubvector, cast<VectorType>(Args[0]->getType()),
-          None, CostKind, Index, cast<VectorType>(RetTy));
+          std::nullopt, CostKind, Index, cast<VectorType>(RetTy));
     }
     case Intrinsic::vector_insert: {
       // FIXME: Handle case where a scalable vector is inserted into a scalable
@@ -1525,19 +1543,19 @@ public:
         return BaseT::getIntrinsicInstrCost(ICA, CostKind);
       unsigned Index = cast<ConstantInt>(Args[2])->getZExtValue();
       return thisT()->getShuffleCost(
-          TTI::SK_InsertSubvector, cast<VectorType>(Args[0]->getType()), None,
-          CostKind, Index, cast<VectorType>(Args[1]->getType()));
+          TTI::SK_InsertSubvector, cast<VectorType>(Args[0]->getType()),
+          std::nullopt, CostKind, Index, cast<VectorType>(Args[1]->getType()));
     }
     case Intrinsic::experimental_vector_reverse: {
-      return thisT()->getShuffleCost(TTI::SK_Reverse,
-                                     cast<VectorType>(Args[0]->getType()), None,
-                                     CostKind, 0, cast<VectorType>(RetTy));
+      return thisT()->getShuffleCost(
+          TTI::SK_Reverse, cast<VectorType>(Args[0]->getType()), std::nullopt,
+          CostKind, 0, cast<VectorType>(RetTy));
     }
     case Intrinsic::experimental_vector_splice: {
       unsigned Index = cast<ConstantInt>(Args[2])->getZExtValue();
-      return thisT()->getShuffleCost(TTI::SK_Splice,
-                                     cast<VectorType>(Args[0]->getType()), None,
-                                     CostKind, Index, cast<VectorType>(RetTy));
+      return thisT()->getShuffleCost(
+          TTI::SK_Splice, cast<VectorType>(Args[0]->getType()), std::nullopt,
+          CostKind, Index, cast<VectorType>(RetTy));
     }
     case Intrinsic::vector_reduce_add:
     case Intrinsic::vector_reduce_mul:
@@ -1813,19 +1831,19 @@ public:
     }
     case Intrinsic::vector_reduce_add:
       return thisT()->getArithmeticReductionCost(Instruction::Add, VecOpTy,
-                                                 None, CostKind);
+                                                 std::nullopt, CostKind);
     case Intrinsic::vector_reduce_mul:
       return thisT()->getArithmeticReductionCost(Instruction::Mul, VecOpTy,
-                                                 None, CostKind);
+                                                 std::nullopt, CostKind);
     case Intrinsic::vector_reduce_and:
       return thisT()->getArithmeticReductionCost(Instruction::And, VecOpTy,
-                                                 None, CostKind);
+                                                 std::nullopt, CostKind);
     case Intrinsic::vector_reduce_or:
-      return thisT()->getArithmeticReductionCost(Instruction::Or, VecOpTy, None,
-                                                 CostKind);
+      return thisT()->getArithmeticReductionCost(Instruction::Or, VecOpTy,
+                                                 std::nullopt, CostKind);
     case Intrinsic::vector_reduce_xor:
       return thisT()->getArithmeticReductionCost(Instruction::Xor, VecOpTy,
-                                                 None, CostKind);
+                                                 std::nullopt, CostKind);
     case Intrinsic::vector_reduce_fadd:
       return thisT()->getArithmeticReductionCost(Instruction::FAdd, VecOpTy,
                                                  FMF, CostKind);
@@ -2218,8 +2236,9 @@ public:
     while (NumVecElts > MVTLen) {
       NumVecElts /= 2;
       VectorType *SubTy = FixedVectorType::get(ScalarTy, NumVecElts);
-      ShuffleCost += thisT()->getShuffleCost(TTI::SK_ExtractSubvector, Ty, None,
-                                             CostKind, NumVecElts, SubTy);
+      ShuffleCost +=
+          thisT()->getShuffleCost(TTI::SK_ExtractSubvector, Ty, std::nullopt,
+                                  CostKind, NumVecElts, SubTy);
       ArithCost += thisT()->getArithmeticInstrCost(Opcode, SubTy, CostKind);
       Ty = SubTy;
       ++LongVectorCount;
@@ -2235,11 +2254,12 @@ public:
     // By default reductions need one shuffle per reduction level.
     ShuffleCost +=
         NumReduxLevels * thisT()->getShuffleCost(TTI::SK_PermuteSingleSrc, Ty,
-                                                 None, CostKind, 0, Ty);
+                                                 std::nullopt, CostKind, 0, Ty);
     ArithCost +=
         NumReduxLevels * thisT()->getArithmeticInstrCost(Opcode, Ty, CostKind);
     return ShuffleCost + ArithCost +
-           thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, 0);
+           thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, 0,
+                                       nullptr, nullptr);
   }
 
   /// Try to calculate the cost of performing strict (in-order) reductions,
@@ -2276,7 +2296,7 @@ public:
   }
 
   InstructionCost getArithmeticReductionCost(unsigned Opcode, VectorType *Ty,
-                                             Optional<FastMathFlags> FMF,
+                                             std::optional<FastMathFlags> FMF,
                                              TTI::TargetCostKind CostKind) {
     if (TTI::requiresOrderedReduction(FMF))
       return getOrderedReductionCost(Opcode, Ty, CostKind);
@@ -2316,8 +2336,9 @@ public:
       auto *SubTy = FixedVectorType::get(ScalarTy, NumVecElts);
       CondTy = FixedVectorType::get(ScalarCondTy, NumVecElts);
 
-      ShuffleCost += thisT()->getShuffleCost(TTI::SK_ExtractSubvector, Ty,
-                                             None, CostKind, NumVecElts, SubTy);
+      ShuffleCost +=
+          thisT()->getShuffleCost(TTI::SK_ExtractSubvector, Ty, std::nullopt,
+                                  CostKind, NumVecElts, SubTy);
       MinMaxCost +=
           thisT()->getCmpSelInstrCost(CmpOpcode, SubTy, CondTy,
                                       CmpInst::BAD_ICMP_PREDICATE, CostKind) +
@@ -2335,7 +2356,7 @@ public:
     // architecture-dependent length.
     ShuffleCost +=
         NumReduxLevels * thisT()->getShuffleCost(TTI::SK_PermuteSingleSrc, Ty,
-                                                 None, CostKind, 0, Ty);
+                                                 std::nullopt, CostKind, 0, Ty);
     MinMaxCost +=
         NumReduxLevels *
         (thisT()->getCmpSelInstrCost(CmpOpcode, Ty, CondTy,
@@ -2345,12 +2366,13 @@ public:
     // The last min/max should be in vector registers and we counted it above.
     // So just need a single extractelement.
     return ShuffleCost + MinMaxCost +
-           thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, 0);
+           thisT()->getVectorInstrCost(Instruction::ExtractElement, Ty, 0,
+                                       nullptr, nullptr);
   }
 
   InstructionCost getExtendedReductionCost(unsigned Opcode, bool IsUnsigned,
                                            Type *ResTy, VectorType *Ty,
-                                           Optional<FastMathFlags> FMF,
+                                           std::optional<FastMathFlags> FMF,
                                            TTI::TargetCostKind CostKind) {
     // Without any native support, this is equivalent to the cost of
     // vecreduce.opcode(ext(Ty A)).
@@ -2372,7 +2394,7 @@ public:
     // vecreduce.add(mul(A, B)).
     VectorType *ExtTy = VectorType::get(ResTy, Ty);
     InstructionCost RedCost = thisT()->getArithmeticReductionCost(
-        Instruction::Add, ExtTy, None, CostKind);
+        Instruction::Add, ExtTy, std::nullopt, CostKind);
     InstructionCost ExtCost = thisT()->getCastInstrCost(
         IsUnsigned ? Instruction::ZExt : Instruction::SExt, ExtTy, Ty,
         TTI::CastContextHint::None, CostKind);

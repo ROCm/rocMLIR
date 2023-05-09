@@ -47,7 +47,6 @@ if config.enable_rock_driver:
     config.available_features.add('rock-driver')
 config.enable_rock_driver_e2e_test = @ROCMLIR_DRIVER_E2E_TEST_ENABLED@
 config.enable_rock_driver_pr_e2e_test = @ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED@
-config.enable_rock_sqlite = @ROCMLIR_SQLITE_ENABLED@
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
@@ -64,11 +63,43 @@ except KeyError:
     key, = e.args
     lit_config.fatal("unable to find %r parameter, use '--param=%s=VALUE'" % (key,key))
 
+# Helper function to decode arch to its features
+# Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
+def set_arch_features(arch: str):
+    chip_name = arch.split(':')[0]
+    if(len(chip_name) < 5):
+        return
+
+    arch_features = None
+    major = chip_name[:-2]
+    minor = chip_name[-2:]
+    if major == 'gfx9':
+        if minor in ['08', '0a', '40']:
+            arch_features = 'mfma|dot|atomic_add'
+        elif minor == '06':
+            arch_features = 'dot'
+        else:
+            arch_features = 'none'
+    elif major == 'gfx10':
+        if minor in ['11', '13']:
+            arch_features = 'atomic_fmax_f32'
+        elif minor in ['10', '12'] or minor[0] == '3':
+            arch_features = 'dot|atomic_fmax_f32'
+        else:
+            arch_features = 'atomic_fmax_f32'
+    elif major == 'gfx11':
+        arch_features = 'dot|atomic_add|atomic_fmax_f32'
+    if arch_features and 'mfma' in arch_features:
+        config.arch_support_mfma = True
+    config.features = arch_features
+    config.substitutions.append(('%features', config.features))
+
 # If rocm_agent_enumerator shows no viable GPUs, skip tests that need one,
 # because the default target will lead to compilation failures.
 config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
+config.features = None
 if config.rocm_path:
     try:
         p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
@@ -82,9 +113,8 @@ if config.rocm_path:
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
         for x in agents:
-            if "gfx908" in x or "gfx90a" in x:
-                config.arch_support_mfma = True
-            # Check other features here
+            if not config.features:
+                set_arch_features(x)
         if not config.arch:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:

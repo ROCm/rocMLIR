@@ -18,8 +18,9 @@
 #include "llvm/ADT/StringRef.h"
 using namespace clang;
 
-static const Builtin::Info BuiltinInfo[] = {
-  { "not a builtin function", nullptr, nullptr, nullptr, ALL_LANGUAGES,nullptr},
+static constexpr Builtin::Info BuiltinInfo[] = {
+    {"not a builtin function", nullptr, nullptr, nullptr, ALL_LANGUAGES,
+     nullptr},
 #define BUILTIN(ID, TYPE, ATTRS)                                               \
   { #ID, TYPE, ATTRS, nullptr, ALL_LANGUAGES, nullptr },
 #define LANGBUILTIN(ID, TYPE, ATTRS, LANGS)                                    \
@@ -209,6 +210,7 @@ bool Builtin::Context::performsCallback(unsigned ID,
 
 bool Builtin::Context::canBeRedeclared(unsigned ID) const {
   return ID == Builtin::NotBuiltin || ID == Builtin::BI__va_start ||
+         ID == Builtin::BI__builtin_assume_aligned ||
          (!hasReferenceArgsOrResult(ID) && !hasCustomTypechecking(ID)) ||
          isInStdNamespace(ID);
 }

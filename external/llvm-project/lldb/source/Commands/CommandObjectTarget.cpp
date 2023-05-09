@@ -153,7 +153,7 @@ public:
   ~OptionGroupDependents() override = default;
 
   llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-    return llvm::makeArrayRef(g_target_dependents_options);
+    return llvm::ArrayRef(g_target_dependents_options);
   }
 
   Status SetOptionValue(uint32_t option_idx, llvm::StringRef option_value,
@@ -1546,14 +1546,19 @@ static uint32_t LookupSymbolInModule(CommandInterpreter &interpreter,
           DumpAddress(
               interpreter.GetExecutionContext().GetBestExecutionContextScope(),
               symbol->GetAddressRef(), verbose, all_ranges, strm);
+          strm.EOL();
         } else {
           strm.IndentMore();
+          strm.Indent("    Name: ");
+          strm.PutCString(symbol->GetDisplayName().GetStringRef());
+          strm.EOL();
           strm.Indent("    Value: ");
           strm.Printf("0x%16.16" PRIx64 "\n", symbol->GetRawValue());
           if (symbol->GetByteSizeIsValid()) {
             strm.Indent("    Size: ");
             strm.Printf("0x%16.16" PRIx64 "\n", symbol->GetByteSize());
           }
+          strm.IndentLess();
         }
       }
     }
@@ -1658,8 +1663,8 @@ static size_t LookupTypeInModule(Target *target,
         typedef_type_sp = typedefed_type_sp;
         typedefed_type_sp = typedef_type_sp->GetTypedefType();
       }
+      strm.EOL();
     }
-    strm.EOL();
   }
   return type_list.GetSize();
 }
@@ -1965,7 +1970,7 @@ public:
     }
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_modules_dump_symtab_options);
+      return llvm::ArrayRef(g_target_modules_dump_symtab_options);
     }
 
     SortOrder m_sort_order = eSortOrderNone;
@@ -2417,7 +2422,7 @@ protected:
     }
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_modules_dump_options);
+      return llvm::ArrayRef(g_target_modules_dump_options);
     }
 
     bool m_verbose;
@@ -2927,7 +2932,7 @@ public:
     }
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_modules_list_options);
+      return llvm::ArrayRef(g_target_modules_list_options);
     }
 
     // Instance variables to hold the values for command options.
@@ -3283,7 +3288,7 @@ public:
     }
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_modules_show_unwind_options);
+      return llvm::ArrayRef(g_target_modules_show_unwind_options);
     }
 
     // Instance variables to hold the values for command options.
@@ -3695,7 +3700,7 @@ public:
     }
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_modules_lookup_options);
+      return llvm::ArrayRef(g_target_modules_lookup_options);
     }
 
     int m_type;        // Should be a eLookupTypeXXX enum after parsing options
@@ -4524,7 +4529,7 @@ public:
     ~CommandOptions() override = default;
 
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-      return llvm::makeArrayRef(g_target_stop_hook_add_options);
+      return llvm::ArrayRef(g_target_stop_hook_add_options);
     }
 
     Status SetOptionValue(uint32_t option_idx, llvm::StringRef option_arg,
@@ -5088,8 +5093,9 @@ public:
 protected:
   bool DoExecute(Args &command, CommandReturnObject &result) override {
     // Go over every scratch TypeSystem and dump to the command output.
-    for (TypeSystem *ts : GetSelectedTarget().GetScratchTypeSystems())
-      ts->Dump(result.GetOutputStream().AsRawOstream());
+    for (lldb::TypeSystemSP ts : GetSelectedTarget().GetScratchTypeSystems())
+      if (ts)
+        ts->Dump(result.GetOutputStream().AsRawOstream());
 
     result.SetStatus(eReturnStatusSuccessFinishResult);
     return result.Succeeded();

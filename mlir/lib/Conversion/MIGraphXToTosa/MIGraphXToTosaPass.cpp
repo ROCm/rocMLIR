@@ -12,8 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Quant/QuantOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/PatternMatch.h"
@@ -36,22 +37,15 @@ struct MIGraphXToTosa : public impl::MIGraphXToTosaPassBase<MIGraphXToTosa> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                    arith::ArithmeticDialect, func::FuncDialect>();
+                    arith::ArithDialect, func::FuncDialect>();
   }
 
   void runOnOperation() override {
     auto &ctx = getContext();
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                           func::FuncDialect>();
-    target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
-                        migraphx::ConvolutionOp, migraphx::RsqrtOp,
-                        migraphx::ReluOp, migraphx::TransposeOp,
-                        migraphx::BroadcastOp, migraphx::MultiBroadcastOp,
-                        migraphx::ReshapeOp, migraphx::DotOp, migraphx::PowOp,
-                        migraphx::RecipOp, migraphx::SoftmaxOp>();
-
+    target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
+    target.addIllegalDialect<migraphx::MIGraphXDialect>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     func::FuncOp func = getOperation();

@@ -15,34 +15,23 @@
 #define LLVM_CLANG_ANALYSIS_FLOWSENSITIVE_DATAFLOWANALYSIS_H
 
 #include <iterator>
+#include <optional>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/Stmt.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/ControlFlowContext.h"
 #include "clang/Analysis/FlowSensitive/DataflowEnvironment.h"
+#include "clang/Analysis/FlowSensitive/DataflowLattice.h"
 #include "clang/Analysis/FlowSensitive/TypeErasedDataflowAnalysis.h"
 #include "llvm/ADT/Any.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Error.h"
 
 namespace clang {
 namespace dataflow {
-
-template <typename AnalysisT, typename LatticeT, typename InputT,
-          typename = std::void_t<>>
-struct HasTransferFor : std::false_type {};
-
-template <typename AnalysisT, typename LatticeT, typename InputT>
-struct HasTransferFor<
-    AnalysisT, LatticeT, InputT,
-    std::void_t<decltype(std::declval<AnalysisT>().transfer(
-        std::declval<const InputT *>(), std::declval<LatticeT &>(),
-        std::declval<Environment &>()))>> : std::true_type {};
 
 /// Base class template for dataflow analyses built on a single lattice type.
 ///
@@ -55,6 +44,11 @@ struct HasTransferFor<
 ///   * `void transfer(const CFGElement *, LatticeT &, Environment &)` - applies
 ///     the analysis transfer function for a given CFG element and lattice
 ///     element.
+///
+///  `Derived` can optionally provide the following members:
+///  * `void transferBranch(bool Branch, const Stmt *Stmt, TypeErasedLattice &E,
+///                         Environment &Env)` - applies the analysis transfer
+///    function for a given edge from a CFG block of a conditional statement.
 ///
 ///  `Derived` can optionally override the following members:
 ///   * `bool merge(QualType, const Value &, const Value &, Value &,
@@ -69,6 +63,15 @@ struct HasTransferFor<
 ///     made to it;
 ///   * `bool operator==(const LatticeT &) const` - returns true if and only if
 ///     the object is equal to the argument.
+///
+/// `LatticeT` can optionally provide the following members:
+///  * `LatticeJoinEffect widen(const LatticeT &Previous)` - replaces the
+///    lattice element with an  approximation that can reach a fixed point more
+///    quickly than iterated application of the transfer function alone. The
+///    previous value is provided to inform the choice of widened value. The
+///    function must also serve as a comparison operation, by indicating whether
+///    the widened value is equivalent to the previous value with the returned
+///    `LatticeJoinEffect`.
 template <typename Derived, typename LatticeT>
 class DataflowAnalysis : public TypeErasedDataflowAnalysis {
 public:
@@ -79,9 +82,11 @@ public:
 
   /// Deprecated. Use the `DataflowAnalysisOptions` constructor instead.
   explicit DataflowAnalysis(ASTContext &Context, bool ApplyBuiltinTransfer)
-      : DataflowAnalysis(Context, {ApplyBuiltinTransfer
-                                       ? TransferOptions{}
-                                       : llvm::Optional<TransferOptions>()}) {}
+      : DataflowAnalysis(
+            Context,
+            {ApplyBuiltinTransfer
+                 ? DataflowAnalysisContext::Options{}
+                 : std::optional<DataflowAnalysisContext::Options>()}) {}
 
   explicit DataflowAnalysis(ASTContext &Context,
                             DataflowAnalysisOptions Options)
@@ -100,6 +105,13 @@ public:
     return L1.join(L2);
   }
 
+  LatticeJoinEffect widenTypeErased(TypeErasedLattice &Current,
+                                    const TypeErasedLattice &Previous) final {
+    Lattice &C = llvm::any_cast<Lattice &>(Current.Value);
+    const Lattice &P = llvm::any_cast<const Lattice &>(Previous.Value);
+    return widenInternal(Rank0{}, C, P);
+  }
+
   bool isEqualTypeErased(const TypeErasedLattice &E1,
                          const TypeErasedLattice &E2) final {
     const Lattice &L1 = llvm::any_cast<const Lattice &>(E1.Value);
@@ -110,20 +122,52 @@ public:
   void transferTypeErased(const CFGElement *Element, TypeErasedLattice &E,
                           Environment &Env) final {
     Lattice &L = llvm::any_cast<Lattice &>(E.Value);
-    if constexpr (HasTransferFor<Derived, LatticeT, CFGElement>::value) {
-      static_cast<Derived *>(this)->transfer(Element, L, Env);
-    }
+    static_cast<Derived *>(this)->transfer(Element, L, Env);
+  }
 
-    // FIXME: Remove after users have been updated to implement `transfer` on
-    // `CFGElement`.
-    if constexpr (HasTransferFor<Derived, LatticeT, Stmt>::value) {
-      if (auto Stmt = Element->getAs<CFGStmt>()) {
-        static_cast<Derived *>(this)->transfer(Stmt->getStmt(), L, Env);
-      }
-    }
+  void transferBranchTypeErased(bool Branch, const Stmt *Stmt,
+                                TypeErasedLattice &E, Environment &Env) final {
+    transferBranchInternal(Rank0{}, *static_cast<Derived *>(this), Branch, Stmt,
+                           E, Env);
   }
 
 private:
+  // These `Rank` structs are used for template metaprogramming to choose
+  // between overloads.
+  struct Rank1 {};
+  struct Rank0 : Rank1 {};
+
+  // The first-choice implementation: use `widen` when it is available.
+  template <typename T>
+  static auto widenInternal(Rank0, T &Current, const T &Prev)
+      -> decltype(Current.widen(Prev)) {
+    return Current.widen(Prev);
+  }
+
+  // The second-choice implementation: `widen` is unavailable. Widening is
+  // merged with equality checking, so when widening is unimplemented, we
+  // default to equality checking.
+  static LatticeJoinEffect widenInternal(Rank1, const Lattice &Current,
+                                         const Lattice &Prev) {
+    return Prev == Current ? LatticeJoinEffect::Unchanged
+                           : LatticeJoinEffect::Changed;
+  }
+
+  // The first-choice implementation: `transferBranch` is implemented.
+  template <typename Analysis>
+  static auto transferBranchInternal(Rank0, Analysis &A, bool Branch,
+                                     const Stmt *Stmt, TypeErasedLattice &L,
+                                     Environment &Env)
+      -> std::void_t<decltype(A.transferBranch(
+          Branch, Stmt, std::declval<LatticeT &>(), Env))> {
+    A.transferBranch(Branch, Stmt, llvm::any_cast<Lattice &>(L.Value), Env);
+  }
+
+  // The second-choice implementation: `transferBranch` is unimplemented. No-op.
+  template <typename Analysis>
+  static void transferBranchInternal(Rank1, Analysis &A, bool, const Stmt *,
+                                     TypeErasedLattice &, Environment &) {}
+
   ASTContext &Context;
 };
 
@@ -145,7 +189,7 @@ template <typename LatticeT> struct DataflowAnalysisState {
 /// program point.
 template <typename AnalysisT>
 llvm::Expected<std::vector<
-    llvm::Optional<DataflowAnalysisState<typename AnalysisT::Lattice>>>>
+    std::optional<DataflowAnalysisState<typename AnalysisT::Lattice>>>>
 runDataflowAnalysis(
     const ControlFlowContext &CFCtx, AnalysisT &Analysis,
     const Environment &InitEnv,
@@ -171,20 +215,20 @@ runDataflowAnalysis(
   if (!TypeErasedBlockStates)
     return TypeErasedBlockStates.takeError();
 
-  std::vector<
-      llvm::Optional<DataflowAnalysisState<typename AnalysisT::Lattice>>>
+  std::vector<std::optional<DataflowAnalysisState<typename AnalysisT::Lattice>>>
       BlockStates;
   BlockStates.reserve(TypeErasedBlockStates->size());
 
-  llvm::transform(std::move(*TypeErasedBlockStates),
-                  std::back_inserter(BlockStates), [](auto &OptState) {
-                    return std::move(OptState).transform([](auto &&State) {
-                      return DataflowAnalysisState<typename AnalysisT::Lattice>{
-                          llvm::any_cast<typename AnalysisT::Lattice>(
-                              std::move(State.Lattice.Value)),
-                          std::move(State.Env)};
-                    });
-                  });
+  llvm::transform(
+      std::move(*TypeErasedBlockStates), std::back_inserter(BlockStates),
+      [](auto &OptState) {
+        return llvm::transformOptional(std::move(OptState), [](auto &&State) {
+          return DataflowAnalysisState<typename AnalysisT::Lattice>{
+              llvm::any_cast<typename AnalysisT::Lattice>(
+                  std::move(State.Lattice.Value)),
+              std::move(State.Env)};
+        });
+      });
   return BlockStates;
 }
 

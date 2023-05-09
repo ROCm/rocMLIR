@@ -44,6 +44,12 @@ def : WriteRes<WriteJal, [SiFive7PipeB]>;
 def : WriteRes<WriteJalr, [SiFive7PipeB]>;
 def : WriteRes<WriteJmpReg, [SiFive7PipeB]>;
 
+//Short forward branch
+def : WriteRes<WriteSFB, [SiFive7PipeA, SiFive7PipeB]> {
+  let Latency = 3;
+  let NumMicroOps = 2;
+}
+
 // Integer arithmetic and logic
 let Latency = 3 in {
 def : WriteRes<WriteIALU, [SiFive7PipeAB]>;
@@ -82,7 +88,6 @@ let Latency = 3 in {
 def : WriteRes<WriteLDB, [SiFive7PipeA]>;
 def : WriteRes<WriteLDH, [SiFive7PipeA]>;
 def : WriteRes<WriteLDW, [SiFive7PipeA]>;
-def : WriteRes<WriteLDWU, [SiFive7PipeA]>;
 def : WriteRes<WriteLDD, [SiFive7PipeA]>;
 }
 
@@ -223,6 +228,8 @@ def : ReadAdvance<ReadFMovI64ToF64, 0>;
 def : ReadAdvance<ReadFClass32, 0>;
 def : ReadAdvance<ReadFClass64, 0>;
 
+def : ReadAdvance<ReadSFB, 0>;
+
 //===----------------------------------------------------------------------===//
 // Unsupported extensions
 defm : UnsupportedSchedV;
@@ -230,11 +237,7 @@ defm : UnsupportedSchedZba;
 defm : UnsupportedSchedZbb;
 defm : UnsupportedSchedZbc;
 defm : UnsupportedSchedZbs;
-defm : UnsupportedSchedZbe;
-defm : UnsupportedSchedZbf;
-defm : UnsupportedSchedZbm;
-defm : UnsupportedSchedZbp;
-defm : UnsupportedSchedZbr;
-defm : UnsupportedSchedZbt;
+defm : UnsupportedSchedZbkb;
+defm : UnsupportedSchedZbkx;
 defm : UnsupportedSchedZfh;
 }

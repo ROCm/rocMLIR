@@ -34,7 +34,7 @@ def AsyncParallelFor : Pass<"async-parallel-for", "ModuleOp"> {
   ];
 
   let dependentDialects = [
-    "arith::ArithmeticDialect",
+    "arith::ArithDialect",
     "async::AsyncDialect",
     "scf::SCFDialect"
   ];
@@ -44,18 +44,20 @@ def AsyncToAsyncRuntime : Pass<"async-to-async-runtime", "ModuleOp"> {
   let summary = "Lower high level async operations (e.g. async.execute) to the"
                 "explicit async.runtime and async.coro operations";
   let options = [
-    // Temporary for bringup, should become the default.
-    Option<"eliminateBlockingAwaitOps", "eliminate-blocking-await-ops", "bool",
-            /*default=*/"false",
-           "Rewrite functions with blocking async.runtime.await as coroutines "
-           "with async.runtime.await_and_resume.">,
     Option<"enableCoroutines", "enable-coroutines",
       "bool", /*default=*/"true",
       "Dispatch async compute tasks using coroutines. If `false` "
       "async compute tasks will be launched using simple call ops in the "
       "caller thread.">,
   ];
-  let dependentDialects = ["async::AsyncDialect"];
+  let dependentDialects = ["async::AsyncDialect", "func::FuncDialect"];
+}
+
+def AsyncFuncToAsyncRuntime : Pass<"async-func-to-async-runtime", "ModuleOp"> {
+  let summary = "Lower async.func operations to the explicit async.runtime and"
+                "async.coro operations";
+  let constructor = "mlir::createAsyncFuncToAsyncRuntimePass()";
+  let dependentDialects = ["async::AsyncDialect", "func::FuncDialect"];
 }
 
 def AsyncRuntimeRefCounting : Pass<"async-runtime-ref-counting"> {

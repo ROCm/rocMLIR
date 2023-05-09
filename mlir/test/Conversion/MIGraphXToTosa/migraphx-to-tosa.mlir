@@ -15,6 +15,7 @@ module  {
     %1 = "migraphx.convolution"(%arg0, %0) {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>) -> tensor<1x64x56x56xf32>
      return %1 : tensor<1x64x56x56xf32>
   }
+
 }
 
 // -----

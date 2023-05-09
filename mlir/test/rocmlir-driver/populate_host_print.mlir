@@ -65,8 +65,8 @@
 // F16: call @_memcpy_f16_f32_{{[0-9]+}}(%{{.*}}, %{{.*}})
 // BF16: memref.alloc() : memref<{{.*}}>
 // BF16: call @_memcpy_bf16_f32_{{[0-9]+}}(%{{.*}}, %{{.*}})
-// I8: memref.alloc() : memref<{{.*}}>
-// I8: call @_memcpy_i32_f32_{{[0-9]+}}(%{{.*}}, %{{.*}})
+// I8: memref.cast %{{.*}} : memref<{{.*}}> to memref<*xi32>
+// I8: call @printMemrefI32(%{{.*}}) : (memref<*xi32>) -> ()
 // F16: memref.dealloc {{.*}} : memref<{{.*}}>
 // BF16: memref.dealloc {{.*}} : memref<{{.*}}>
 // I8: memref.dealloc {{.*}} : memref<{{.*}}>

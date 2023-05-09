@@ -154,6 +154,7 @@ LANGOPT(NoBuiltin         , 1, 0, "disable builtin functions")
 LANGOPT(NoMathBuiltin     , 1, 0, "disable math builtin functions")
 LANGOPT(GNUAsm            , 1, 1, "GNU-style inline assembly")
 LANGOPT(Coroutines        , 1, 0, "C++20 coroutines")
+LANGOPT(CoroAlignedAllocation, 1, 0, "prefer Aligned Allocation according to P2014 Option 2")
 LANGOPT(DllExportInlines  , 1, 1, "dllexported classes dllexport inline methods")
 LANGOPT(RelaxedTemplateTemplateArgs, 1, 0, "C++17 relaxed matching of template template arguments")
 LANGOPT(ExperimentalLibrary, 1, 0, "enable unstable and experimental library features")
@@ -236,7 +237,6 @@ LANGOPT(OpenCLGenericAddressSpace, 1, 0, "OpenCL generic keyword")
 LANGOPT(OpenCLPipes              , 1, 0, "OpenCL pipes language constructs and built-ins")
 LANGOPT(NativeHalfType    , 1, 0, "Native half type support")
 LANGOPT(NativeHalfArgsAndReturns, 1, 0, "Native half args and returns")
-LANGOPT(HalfArgsAndReturns, 1, 0, "half args and returns")
 LANGOPT(CUDA              , 1, 0, "CUDA")
 LANGOPT(HIP               , 1, 0, "HIP")
 LANGOPT(OpenMP            , 32, 0, "OpenMP support and version of OpenMP (31, 40 or 45)")
@@ -317,6 +317,7 @@ COMPATIBLE_LANGOPT(ExpStrictFP, 1, false, "Enable experimental strict floating p
 BENIGN_LANGOPT(RoundingMath, 1, false, "Do not assume default floating-point rounding behavior")
 BENIGN_ENUM_LANGOPT(FPExceptionMode, FPExceptionModeKind, 2, FPE_Default, "FP Exception Behavior Mode type")
 BENIGN_ENUM_LANGOPT(FPEvalMethod, FPEvalMethodKind, 2, FEM_UnsetOnCommandLine, "FP type used for floating point arithmetic")
+ENUM_LANGOPT(Float16ExcessPrecision, ExcessPrecisionKind, 2, FPP_Standard, "Intermediate truncation behavior for floating point arithmetic")
 LANGOPT(NoBitFieldTypeAlign , 1, 0, "bit-field type alignment")
 LANGOPT(HexagonQdsp6Compat , 1, 0, "hexagon-qdsp6 backward compatibility")
 LANGOPT(ObjCAutoRefCount , 1, 0, "Objective-C automated reference counting")
@@ -427,7 +428,10 @@ LANGOPT(PaddingOnUnsignedFixedPoint, 1, 0,
 LANGOPT(RegisterStaticDestructors, 1, 1, "Register C++ static destructors")
 
 LANGOPT(MatrixTypes, 1, 0, "Enable or disable the builtin matrix type")
-LANGOPT(StrictFlexArrays, 2, 0, "Rely on strict definition of flexible arrays")
+
+ENUM_LANGOPT(StrictFlexArraysLevel, StrictFlexArraysLevelKind, 2,
+             StrictFlexArraysLevelKind::Default,
+             "Rely on strict definition of flexible arrays")
 
 COMPATIBLE_VALUE_LANGOPT(MaxTokens, 32, 0, "Max number of tokens per TU or 0")
 
@@ -455,6 +459,11 @@ VALUE_LANGOPT(FuchsiaAPILevel, 32, 0, "Fuchsia API level")
 // supports all operations (like division or float-to-integer conversion)
 // on large _BitInts.
 BENIGN_VALUE_LANGOPT(MaxBitIntWidth, 32, 128, "Maximum width of a _BitInt")
+
+LANGOPT(IncrementalExtensions, 1, 0, " True if we want to process statements"
+        "on the global scope, ignore EOF token and continue later on (thus "
+        "avoid tearing the Lexer and etc. down). Controlled by "
+        "-fincremental-extensions.")
 
 #undef LANGOPT
 #undef COMPATIBLE_LANGOPT

@@ -17,7 +17,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -36,7 +35,7 @@ public:
     std::string perfConfig;
     int num_cu;
     GemmFeatures features;
-    llvm::Optional<rock::ConvOpType> operation;
+    std::optional<rock::ConvOpType> operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -58,28 +57,27 @@ public:
     int filterWidth;
   };
 
-  Conv2dGenerator(const std::string &arch = "", const std::string &chip = "",
-                  const std::string &triple = "",
-                  const std::string &chipFeatures = "",
-                  const std::string &perfConfig = "", int num_cu = 0,
-                  GemmFeatures features = GemmFeatures::none,
-                  const Optional<rock::ConvOpType> operation = llvm::None,
-                  const std::string &dataTypeStr = "f32",
-                  int dilationHeight = 1, int dilationWidth = 1,
-                  int strideHeight = 1, int strideWidth = 1,
-                  int paddingHeightLeft = 0, int paddingHeightRight = 0,
-                  int paddingWidthLeft = 0, int paddingWidthRight = 0,
-                  const std::string &filterLayout = "kcyx",
-                  const std::string &inputLayout = "nchw",
-                  const std::string &outputLayout = "nkhw",
-                  const std::string &kernelBaseName = "");
+  Conv2dGenerator(
+      const std::string &arch = "", const std::string &chip = "",
+      const std::string &triple = "", const std::string &chipFeatures = "",
+      const std::string &perfConfig = "", int num_cu = 0,
+      GemmFeatures features = GemmFeatures::none,
+      const std::optional<rock::ConvOpType> operation = std::nullopt,
+      const std::string &dataTypeStr = "f32", int dilationHeight = 1,
+      int dilationWidth = 1, int strideHeight = 1, int strideWidth = 1,
+      int paddingHeightLeft = 0, int paddingHeightRight = 0,
+      int paddingWidthLeft = 0, int paddingWidthRight = 0,
+      const std::string &filterLayout = "kcyx",
+      const std::string &inputLayout = "nchw",
+      const std::string &outputLayout = "nkhw",
+      const std::string &kernelBaseName = "");
 
   Conv2dGenerator(const Config &_config);
 
   const Config &getConfig() const { return config; }
   void setKernelName(const std::string &newName);
 
-  int getKernelCount(OpBuilder &builder) const;
+  LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
 
   Type getDataType(OpBuilder &builder) const;
 
@@ -128,10 +126,10 @@ public:
   LogicalResult isApplicable(bool checkChip = true) const;
 
   // Utility function to query if a config requires additional workspace.
-  bool hasWorkspace(OpBuilder &builder) const;
+  LogicalResult hasWorkspace(OpBuilder &builder, bool &needWorkspace) const;
 
   // Utility function to fetch the size of workspace.
-  int getWorkspaceSize(ModuleOp &module) const;
+  LogicalResult getWorkspaceSize(ModuleOp &module, int &workspaceSize) const;
 
 private:
   template <typename Vector>
@@ -146,8 +144,10 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
-  int getBwdWeightKernelCount(OpBuilder &builder) const;
-  bool needExtraPadBwdWeight(OpBuilder &builder) const;
+  LogicalResult getBwdWeightKernelCount(OpBuilder &builder,
+                                        int &kernelCount) const;
+  LogicalResult needExtraPadBwdWeight(OpBuilder &builder,
+                                      bool &needExtraPad) const;
   LogicalResult hasValidDimension() const;
   LogicalResult hasValidChip() const;
 

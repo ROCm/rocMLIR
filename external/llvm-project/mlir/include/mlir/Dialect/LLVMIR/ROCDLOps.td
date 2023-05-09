@@ -25,6 +25,7 @@ def ROCDL_Dialect : Dialect {
   let cppNamespace = "::mlir::ROCDL";
   let dependentDialects = ["LLVM::LLVMDialect"];
   let hasOperationAttrVerify = 1;
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 
   let extraClassDeclaration = [{
     /// Get the name of the attribute used to annotate external kernel
@@ -36,6 +37,13 @@ def ROCDL_Dialect : Dialect {
     static constexpr ::llvm::StringLiteral getReqdWorkGroupSizeAttrName() {
       return ::llvm::StringLiteral("rocdl.reqd_work_group_size");
     }
+
+    /// The address space value that represents global memory.
+    static constexpr unsigned kGlobalMemoryAddressSpace = 1;
+    /// The address space value that represents shared memory.
+    static constexpr unsigned kSharedMemoryAddressSpace = 3;
+    /// The address space value that represents private memory.
+    static constexpr unsigned kPrivateMemoryAddressSpace = 5;
   }];
 }
 
@@ -59,7 +67,7 @@ class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
 
 class ROCDL_SpecialRegisterOp<string mnemonic,
     list<Trait> traits = []> :
-  ROCDL_Op<mnemonic, !listconcat(traits, [NoSideEffect])>,
+  ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
   string llvmBuilder = "$res = createIntrinsicCallWithRange(builder,"
     # "llvm::Intrinsic::amdgcn_" # !subst(".","_", mnemonic)
@@ -69,7 +77,7 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
 
 class ROCDL_DeviceFunctionOp<string mnemonic, string device_function,
                              int parameter, list<Trait> traits = []> :
-  ROCDL_Op<mnemonic, !listconcat(traits, [NoSideEffect])>,
+  ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
   string llvmBuilder = "$res = createDeviceFunctionCall(builder, \""
   # device_function # "\", " # parameter # ");";
@@ -123,6 +131,7 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
 
@@ -171,6 +180,35 @@ def ROCDL_mfma_i32_16x16x32_i8 : ROCDL_Mfma_IntrOp<"mfma.i32.16x16x32.i8">;
 def ROCDL_mfma_i32_32x32x16_i8 : ROCDL_Mfma_IntrOp<"mfma.i32.32x32x16.i8">;
 def ROCDL_mfma_f32_16x16x8_xf32 : ROCDL_Mfma_IntrOp<"mfma.f32.16x16x8.xf32">;
 def ROCDL_mfma_f32_32x32x4_xf32 : ROCDL_Mfma_IntrOp<"mfma.f32.32x32x4.xf32">;
+// fp8, only on gfx940
+def ROCDL_mfma_f32_16x16x32_bf8_bf8 : ROCDL_Mfma_IntrOp<"mfma.f32.16x16x32.bf8.bf8">;
+def ROCDL_mfma_f32_16x16x32_bf8_fp8 : ROCDL_Mfma_IntrOp<"mfma.f32.16x16x32.bf8.fp8">;
+def ROCDL_mfma_f32_16x16x32_fp8_bf8 : ROCDL_Mfma_IntrOp<"mfma.f32.16x16x32.fp8.bf8">;
+def ROCDL_mfma_f32_16x16x32_fp8_fp8 : ROCDL_Mfma_IntrOp<"mfma.f32.16x16x32.fp8.fp8">;
+def ROCDL_mfma_f32_32x32x16_bf8_bf8 : ROCDL_Mfma_IntrOp<"mfma.f32.32x32x16.bf8.bf8">;
+def ROCDL_mfma_f32_32x32x16_bf8_fp8 : ROCDL_Mfma_IntrOp<"mfma.f32.32x32x16.bf8.fp8">;
+def ROCDL_mfma_f32_32x32x16_fp8_bf8 : ROCDL_Mfma_IntrOp<"mfma.f32.32x32x16.fp8.bf8">;
+def ROCDL_mfma_f32_32x32x16_fp8_fp8 : ROCDL_Mfma_IntrOp<"mfma.f32.32x32x16.fp8.fp8">;
+
+//===---------------------------------------------------------------------===//
+// WMMA intrinsics
+class ROCDL_Wmma_IntrOp<string mnemonic, list<Trait> traits = []> :
+  LLVM_IntrOpBase<ROCDL_Dialect, mnemonic,
+                  "amdgcn_" # !subst(".","_", mnemonic),
+                  [0], [], traits, 1>,
+  Arguments<(ins Variadic<LLVM_Type>:$args)> {
+  let assemblyFormat =
+    "$args attr-dict `:` functional-type($args, $res)";
+}
+
+// Available on RDNA3
+def ROCDL_wmma_f32_16x16x16_f16 : ROCDL_Wmma_IntrOp<"wmma.f32.16x16x16.f16">;
+def ROCDL_wmma_f32_16x16x16_bf16 : ROCDL_Wmma_IntrOp<"wmma.f32.16x16x16.bf16">;
+def ROCDL_wmma_f16_16x16x16_f16 : ROCDL_Wmma_IntrOp<"wmma.f16.16x16x16.f16">;
+def ROCDL_wmma_bf16_16x16x16_bf16 : ROCDL_Wmma_IntrOp<"wmma.bf16.16x16x16.bf16">;
+def ROCDL_wmma_i32_16x16x16_iu8 : ROCDL_Wmma_IntrOp<"wmma.i32.16x16x16.iu8">;
+def ROCDL_wmma_i32_16x16x16_iu4 : ROCDL_Wmma_IntrOp<"wmma.i32.16x16x16.iu4">;
+
 
 //===---------------------------------------------------------------------===//
 // Vector buffer load/store intrinsics
@@ -242,6 +280,25 @@ def ROCDL_RawBufferStoreOp :
   let hasCustomAssemblyFormat = 1;
 }
 
+def ROCDL_RawBufferAtomicCmpSwap :
+  ROCDL_Op<"raw.buffer.atomic.cmpswap", [AllTypesMatch<["res", "src", "cmp"]>]>,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_Type:$src,
+                 LLVM_Type:$cmp,
+                 LLVM_Type:$rsrc,
+                 I32:$offset,
+                 I32:$soffset,
+                 I32:$aux)>{
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_cmpswap, {$src, $cmp, $rsrc,
+            $offset, $soffset, $aux}, {$_resultType});
+  }];
+  let assemblyFormat = [{
+    attr-dict `(` operands `)` `:` type($res) `,` type($rsrc)
+  }];
+}
+
 //===---------------------------------------------------------------------===//
 // MI-100 and MI-200 buffer atomic floating point add intrinsic
 
@@ -256,6 +313,54 @@ def ROCDL_RawBufferAtomicFAddOp :
       auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
       createIntrinsicCall(builder,
           llvm::Intrinsic::amdgcn_raw_buffer_atomic_fadd, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def ROCDL_RawBufferAtomicFMaxOp :
+  ROCDL_Op<"raw.buffer.atomic.fmax">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_fmax, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def ROCDL_RawBufferAtomicSMaxOp :
+  ROCDL_Op<"raw.buffer.atomic.smax">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_smax, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def ROCDL_RawBufferAtomicUMinOp :
+  ROCDL_Op<"raw.buffer.atomic.umin">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_umin, {$vdata, $rsrc,
             $offset, $soffset, $aux}, {vdataType});
   }];
   let hasCustomAssemblyFormat = 1;

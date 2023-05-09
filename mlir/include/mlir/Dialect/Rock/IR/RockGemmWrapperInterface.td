@@ -72,16 +72,23 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the element type of the input to this operation.
+          Return the element type of [what will become] matrix A for this operation.
         }],
         /*retType=*/"::mlir::Type",
-        /*methodName=*/"getInputType",
+        /*methodName=*/"getAType",
         /*args=*/(ins),
         /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          return $_op->getOperand(1).getType().template cast<::mlir::ShapedType>()
-            .getElementType();
-        }]
+        /*defaultImplementation=*/""
+      >,
+      InterfaceMethod<
+        /*desc=*/[{
+          Return the element type of [what will become] matrix B for this operation.
+        }],
+        /*retType=*/"::mlir::Type",
+        /*methodName=*/"getBType",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
       >,
     InterfaceMethod<
         /*desc=*/[{
@@ -143,7 +150,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*desc=*/[{
           Get the value of the derived block size attribute if it is set.
         }],
-        /*retType=*/"Optional<uint32_t>",
+        /*retType=*/"std::optional<uint32_t>",
         /*methodName=*/"getDerivedBlockSize",
         /*args=*/(ins),
         /*methodBody=*/"",
@@ -151,7 +158,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the block size this operation will execute with if it has been selected 
+          Return the block size this operation will execute with if it has been selected
           or None otherwise. Prioritizes the block size defined in tuning parameters
         }],
         /*retType=*/"uint32_t",

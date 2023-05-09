@@ -313,7 +313,7 @@ ARMBaseInstrInfo::convertToThreeAddress(MachineInstr &MI, LiveVariables *LV,
   // Transfer LiveVariables states, kill / dead info.
   if (LV) {
     for (const MachineOperand &MO : MI.operands()) {
-      if (MO.isReg() && Register::isVirtualRegister(MO.getReg())) {
+      if (MO.isReg() && MO.getReg().isVirtual()) {
         Register Reg = MO.getReg();
 
         LiveVariables::VarInfo &VI = LV->getVarInfo(Reg);
@@ -1053,7 +1053,7 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     Mov->addRegisterKilled(SrcReg, TRI);
 }
 
-Optional<DestSourcePair>
+std::optional<DestSourcePair>
 ARMBaseInstrInfo::isCopyInstrImpl(const MachineInstr &MI) const {
   // VMOVRRD is also a copy instruction but it requires
   // special way of handling. It is more complex copy version
@@ -1065,11 +1065,11 @@ ARMBaseInstrInfo::isCopyInstrImpl(const MachineInstr &MI) const {
   if (!MI.isMoveReg() ||
       (MI.getOpcode() == ARM::VORRq &&
        MI.getOperand(1).getReg() != MI.getOperand(2).getReg()))
-    return None;
+    return std::nullopt;
   return DestSourcePair{MI.getOperand(0), MI.getOperand(1)};
 }
 
-Optional<ParamLoadedValue>
+std::optional<ParamLoadedValue>
 ARMBaseInstrInfo::describeLoadedValue(const MachineInstr &MI,
                                       Register Reg) const {
   if (auto DstSrcPair = isCopyInstrImpl(MI)) {
@@ -1094,7 +1094,7 @@ ARMBaseInstrInfo::describeLoadedValue(const MachineInstr &MI,
     // We need to produce a fragment description (the call site value of s1 is
     // /not/ just d8).
     if (DstReg != Reg)
-      return None;
+      return std::nullopt;
   }
   return TargetInstrInfo::describeLoadedValue(MI, Reg);
 }
@@ -1111,11 +1111,12 @@ ARMBaseInstrInfo::AddDReg(MachineInstrBuilder &MIB, unsigned Reg,
   return MIB.addReg(Reg, State, SubIdx);
 }
 
-void ARMBaseInstrInfo::
-storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                    Register SrcReg, bool isKill, int FI,
-                    const TargetRegisterClass *RC,
-                    const TargetRegisterInfo *TRI) const {
+void ARMBaseInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator I,
+                                           Register SrcReg, bool isKill, int FI,
+                                           const TargetRegisterClass *RC,
+                                           const TargetRegisterInfo *TRI,
+                                           Register VReg) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
   Align Alignment = MFI.getObjectAlign(FI);
@@ -1367,11 +1368,12 @@ unsigned ARMBaseInstrInfo::isStoreToStackSlotPostFE(const MachineInstr &MI,
   return false;
 }
 
-void ARMBaseInstrInfo::
-loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                     Register DestReg, int FI,
-                     const TargetRegisterClass *RC,
-                     const TargetRegisterInfo *TRI) const {
+void ARMBaseInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                            MachineBasicBlock::iterator I,
+                                            Register DestReg, int FI,
+                                            const TargetRegisterClass *RC,
+                                            const TargetRegisterInfo *TRI,
+                                            Register VReg) const {
   DebugLoc DL;
   if (I != MBB.end()) DL = I->getDebugLoc();
   MachineFunction &MF = *MBB.getParent();
@@ -1441,7 +1443,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
         MIB = AddDReg(MIB, DestReg, ARM::gsub_1, RegState::DefineNoRead, TRI);
       }
 
-      if (Register::isPhysicalRegister(DestReg))
+      if (DestReg.isPhysical())
         MIB.addReg(DestReg, RegState::ImplicitDefine);
     } else
       llvm_unreachable("Unknown reg class!");
@@ -1487,7 +1489,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
         MIB = AddDReg(MIB, DestReg, ARM::dsub_0, RegState::DefineNoRead, TRI);
         MIB = AddDReg(MIB, DestReg, ARM::dsub_1, RegState::DefineNoRead, TRI);
         MIB = AddDReg(MIB, DestReg, ARM::dsub_2, RegState::DefineNoRead, TRI);
-        if (Register::isPhysicalRegister(DestReg))
+        if (DestReg.isPhysical())
           MIB.addReg(DestReg, RegState::ImplicitDefine);
       }
     } else
@@ -1517,7 +1519,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
          MIB = AddDReg(MIB, DestReg, ARM::dsub_1, RegState::DefineNoRead, TRI);
          MIB = AddDReg(MIB, DestReg, ARM::dsub_2, RegState::DefineNoRead, TRI);
          MIB = AddDReg(MIB, DestReg, ARM::dsub_3, RegState::DefineNoRead, TRI);
-         if (Register::isPhysicalRegister(DestReg))
+         if (DestReg.isPhysical())
            MIB.addReg(DestReg, RegState::ImplicitDefine);
        }
      } else
@@ -1542,7 +1544,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
       MIB = AddDReg(MIB, DestReg, ARM::dsub_5, RegState::DefineNoRead, TRI);
       MIB = AddDReg(MIB, DestReg, ARM::dsub_6, RegState::DefineNoRead, TRI);
       MIB = AddDReg(MIB, DestReg, ARM::dsub_7, RegState::DefineNoRead, TRI);
-      if (Register::isPhysicalRegister(DestReg))
+      if (DestReg.isPhysical())
         MIB.addReg(DestReg, RegState::ImplicitDefine);
     } else
       llvm_unreachable("Unknown reg class!");
@@ -1908,8 +1910,7 @@ bool ARMBaseInstrInfo::produceSameValue(const MachineInstr &MI0,
     Register Addr0 = MI0.getOperand(1).getReg();
     Register Addr1 = MI1.getOperand(1).getReg();
     if (Addr0 != Addr1) {
-      if (!MRI || !Register::isVirtualRegister(Addr0) ||
-          !Register::isVirtualRegister(Addr1))
+      if (!MRI || !Addr0.isVirtual() || !Addr1.isVirtual())
         return false;
 
       // This assumes SSA form.
@@ -2316,7 +2317,7 @@ ARMBaseInstrInfo::canFoldIntoMOVCC(Register Reg, const MachineRegisterInfo &MRI,
     // MI can't have any tied operands, that would conflict with predication.
     if (MO.isTied())
       return nullptr;
-    if (Register::isPhysicalRegister(MO.getReg()))
+    if (MO.getReg().isPhysical())
       return nullptr;
     if (MO.isDef() && !MO.isDead())
       return nullptr;
@@ -2979,20 +2980,38 @@ static bool isOptimizeCompareCandidate(MachineInstr *MI, bool &IsThumb1) {
   case ARM::t2SBCri:
   case ARM::ANDrr:
   case ARM::ANDri:
+  case ARM::ANDrsr:
+  case ARM::ANDrsi:
   case ARM::t2ANDrr:
   case ARM::t2ANDri:
+  case ARM::t2ANDrs:
   case ARM::ORRrr:
   case ARM::ORRri:
+  case ARM::ORRrsr:
+  case ARM::ORRrsi:
   case ARM::t2ORRrr:
   case ARM::t2ORRri:
+  case ARM::t2ORRrs:
   case ARM::EORrr:
   case ARM::EORri:
+  case ARM::EORrsr:
+  case ARM::EORrsi:
   case ARM::t2EORrr:
   case ARM::t2EORri:
+  case ARM::t2EORrs:
+  case ARM::BICri:
+  case ARM::BICrr:
+  case ARM::BICrsi:
+  case ARM::BICrsr:
+  case ARM::t2BICri:
+  case ARM::t2BICrr:
+  case ARM::t2BICrs:
   case ARM::t2LSRri:
   case ARM::t2LSRrr:
   case ARM::t2LSLri:
   case ARM::t2LSLrr:
+  case ARM::MOVsr:
+  case ARM::MOVsi:
     return true;
   }
 }
@@ -3266,8 +3285,9 @@ bool ARMBaseInstrInfo::optimizeCompareInstr(
   // Toggle the optional operand to CPSR (if it exists - in Thumb1 we always
   // set CPSR so this is represented as an explicit output)
   if (!IsThumb1) {
-    MI->getOperand(5).setReg(ARM::CPSR);
-    MI->getOperand(5).setIsDef(true);
+    unsigned CPSRRegNum = MI->getNumExplicitOperands() - 1;
+    MI->getOperand(CPSRRegNum).setReg(ARM::CPSR);
+    MI->getOperand(CPSRRegNum).setIsDef(true);
   }
   assert(!isPredicated(*MI) && "Can't use flags from predicated instruction");
   CmpInstr.eraseFromParent();
@@ -5359,7 +5379,7 @@ unsigned ARMBaseInstrInfo::getPartialRegUpdateClearance(
     return 0;
 
   // We must be able to clobber the whole D-reg.
-  if (Register::isVirtualRegister(Reg)) {
+  if (Reg.isVirtual()) {
     // Virtual register must be a def undef foo:ssub_0 operand.
     if (!MO.getSubReg() || MI.readsVirtualRegister(Reg))
       return 0;
@@ -5385,8 +5405,7 @@ void ARMBaseInstrInfo::breakPartialRegDependency(
 
   const MachineOperand &MO = MI.getOperand(OpNum);
   Register Reg = MO.getReg();
-  assert(Register::isPhysicalRegister(Reg) &&
-         "Can't break virtual register dependencies.");
+  assert(Reg.isPhysical() && "Can't break virtual register dependencies.");
   unsigned DReg = Reg;
 
   // If MI defines an S-reg, find the corresponding D super-register.
@@ -5519,7 +5538,7 @@ ARMBaseInstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
 
   static const std::pair<unsigned, const char *> TargetFlags[] = {
       {MO_LO16, "arm-lo16"}, {MO_HI16, "arm-hi16"}};
-  return makeArrayRef(TargetFlags);
+  return ArrayRef(TargetFlags);
 }
 
 ArrayRef<std::pair<unsigned, const char *>>
@@ -5533,11 +5552,11 @@ ARMBaseInstrInfo::getSerializableBitmaskMachineOperandTargetFlags() const {
       {MO_DLLIMPORT, "arm-dllimport"},
       {MO_SECREL, "arm-secrel"},
       {MO_NONLAZY, "arm-nonlazy"}};
-  return makeArrayRef(TargetFlags);
+  return ArrayRef(TargetFlags);
 }
 
-Optional<RegImmPair> ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI,
-                                                      Register Reg) const {
+std::optional<RegImmPair>
+ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI, Register Reg) const {
   int Sign = 1;
   unsigned Opcode = MI.getOpcode();
   int64_t Offset = 0;
@@ -5546,19 +5565,19 @@ Optional<RegImmPair> ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI,
   // destination register.
   const MachineOperand &Op0 = MI.getOperand(0);
   if (!Op0.isReg() || Reg != Op0.getReg())
-    return None;
+    return std::nullopt;
 
   // We describe SUBri or ADDri instructions.
   if (Opcode == ARM::SUBri)
     Sign = -1;
   else if (Opcode != ARM::ADDri)
-    return None;
+    return std::nullopt;
 
   // TODO: Third operand can be global address (usually some string). Since
   //       strings can be relocated we cannot calculate their offsets for
   //       now.
   if (!MI.getOperand(1).isReg() || !MI.getOperand(2).isImm())
-    return None;
+    return std::nullopt;
 
   Offset = MI.getOperand(2).getImm() * Sign;
   return RegImmPair{MI.getOperand(1).getReg(), Offset};
@@ -6698,7 +6717,7 @@ MachineBasicBlock::iterator ARMBaseInstrInfo::insertOutlinedCall(
   const ARMFunctionInfo &AFI = *C.getMF()->getInfo<ARMFunctionInfo>();
   // Can we save to a register?
   if (C.CallConstructionID == MachineOutlinerRegSave) {
-    unsigned Reg = findRegisterToSaveLRTo(C);
+    Register Reg = findRegisterToSaveLRTo(C);
     assert(Reg != 0 && "No callee-saved register available?");
 
     // Save and restore LR from that register.
@@ -6796,7 +6815,7 @@ public:
     return true;
   }
 
-  Optional<bool> createTripCountGreaterCondition(
+  std::optional<bool> createTripCountGreaterCondition(
       int TC, MachineBasicBlock &MBB,
       SmallVectorImpl<MachineOperand> &Cond) override {
 
@@ -6866,14 +6885,14 @@ bool ARMPipelinerLoopInfo::tooMuchRegisterPressure(SwingSchedulerDAG &SSD,
     for (auto &S : SU.Succs)
       if (MI->isPHI() && S.getKind() == SDep::Anti) {
         Register Reg = S.getReg();
-        if (Register::isVirtualRegister(Reg))
+        if (Reg.isVirtual())
           CrossIterationNeeds.insert(std::make_pair(Reg.id(), IterNeed()))
               .first->second.set(0);
       } else if (S.isAssignedRegDep()) {
         int OStg = SMS.stageScheduled(S.getSUnit());
         if (OStg >= 0 && OStg != Stg) {
           Register Reg = S.getReg();
-          if (Register::isVirtualRegister(Reg))
+          if (Reg.isVirtual())
             CrossIterationNeeds.insert(std::make_pair(Reg.id(), IterNeed()))
                 .first->second |= ((1 << (OStg - Stg)) - 1);
         }

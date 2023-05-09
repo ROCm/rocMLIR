@@ -13,6 +13,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SetVector.h"
+#include <optional>
+
+#include "mlir/Dialect/Bufferization/IR/BufferizationEnums.h.inc"
 
 namespace mlir {
 class OpBuilder;
@@ -21,7 +24,6 @@ namespace bufferization {
 
 class AnalysisState;
 class BufferizableOpInterface;
-struct DialectAnalysisState;
 
 class OpFilter {
 public:
@@ -179,19 +181,10 @@ struct BufferizationOptions {
       std::function<LogicalResult(OpBuilder &, Location, Value, Value)>;
   /// Initializer function for analysis state.
   using AnalysisStateInitFn = std::function<void(AnalysisState &)>;
-  /// Initializer function for dialect-specific analysis state.
-  using DialectStateInitFn =
-      std::function<std::unique_ptr<DialectAnalysisState>()>;
   /// Tensor -> MemRef type converter.
   /// Parameters: Value, memory space, bufferization options
   using UnknownTypeConverterFn = std::function<BaseMemRefType(
-      Value, unsigned, const BufferizationOptions &)>;
-
-  enum class LayoutMapOption : int8_t {
-    InferLayoutMap = 0,
-    IdentityLayoutMap = 1,
-    FullyDynamicLayoutMap = 2
-  };
+      Value, Attribute memorySpace, const BufferizationOptions &)>;
 
   BufferizationOptions();
 
@@ -211,9 +204,9 @@ struct BufferizationOptions {
   bool isOpAllowed(Operation *op) const;
 
   /// Helper functions for allocation, deallocation, memory copying.
-  Optional<AllocationFn> allocationFn;
-  Optional<DeallocationFn> deallocationFn;
-  Optional<MemCpyFn> memCpyFn;
+  std::optional<AllocationFn> allocationFn;
+  std::optional<DeallocationFn> deallocationFn;
+  std::optional<MemCpyFn> memCpyFn;
 
   /// Create a memref allocation with the given type and dynamic extents.
   FailureOr<Value> createAlloc(OpBuilder &b, Location loc, MemRefType type,
@@ -238,9 +231,9 @@ struct BufferizationOptions {
   bool bufferizeFunctionBoundaries = false;
 
   /// The default memory space that should be used when it cannot be inferred
-  /// from the context. If no default memory space is specified, bufferization
-  /// fails when the memory space cannot be inferred at any point.
-  Optional<unsigned> defaultMemorySpace = 0;
+  /// from the context. If case of std::nullopt, bufferization fails when the
+  /// memory space cannot be inferred at any point.
+  std::optional<Attribute> defaultMemorySpace = Attribute();
 
   /// Certain ops have aliasing OpOperand/OpResult invariants (e.g., scf.for).
   /// If this flag is set to `false`, those invariants are no longer enforced
@@ -300,15 +293,11 @@ struct BufferizationOptions {
   bool printConflicts = false;
 
   /// Buffer alignment for new memory allocations.
-  unsigned int bufferAlignment = 128;
+  unsigned int bufferAlignment = 64;
 
   /// Initializer functions for analysis state. These can be used to
   /// initialize dialect-specific analysis state.
   SmallVector<AnalysisStateInitFn> stateInitializers;
-
-  /// Add a analysis state initializer that initializes the specified
-  /// dialect-specific analysis state.
-  void addDialectStateInitializer(StringRef name, const DialectStateInitFn &fn);
 };
 
 /// Specify fine-grain relationship between buffers to enable more analysis.
@@ -321,18 +310,6 @@ enum class BufferRelation {
 
 /// Return `true` if the given value is a BlockArgument of a func::FuncOp.
 bool isFunctionArgument(Value value);
-
-/// Dialect-specific analysis state. Analysis/bufferization information
-/// that is specific to ops from a certain dialect can be stored in derived
-/// variants of this struct.
-struct DialectAnalysisState {
-  DialectAnalysisState() = default;
-
-  virtual ~DialectAnalysisState() = default;
-
-  // Copying state is forbidden. Always pass as reference.
-  DialectAnalysisState(const DialectAnalysisState &) = delete;
-};
 
 /// AnalysisState provides a variety of helper functions for dealing with
 /// tensor values.
@@ -390,8 +367,12 @@ public:
   /// In the above example, Values with a star satisfy the condition. When
   /// starting the traversal from Value 1, the resulting SetVector is:
   /// { 2, 7, 8, 5 }
-  SetVector<Value> findValueInReverseUseDefChain(
-      Value value, llvm::function_ref<bool(Value)> condition) const;
+  ///
+  /// If `followEquivalentOnly` is set, only equivalent OpOperands are selected.
+  SetVector<Value>
+  findValueInReverseUseDefChain(Value value,
+                                llvm::function_ref<bool(Value)> condition,
+                                bool followEquivalentOnly = false) const;
 
   /// Find the Values of the last preceding write of a given Value.
   ///
@@ -422,52 +403,29 @@ public:
   /// any given tensor.
   virtual bool isTensorYielded(Value tensor) const;
 
-  /// Return `true` if the given dialect state exists.
-  bool hasDialectState(StringRef name) const {
-    auto it = dialectState.find(name);
-    return it != dialectState.end();
-  }
-
-  /// Return dialect-specific bufferization state.
-  template <typename StateT>
-  Optional<const StateT *> getDialectState(StringRef name) const {
-    auto it = dialectState.find(name);
-    if (it == dialectState.end())
-      return None;
-    return static_cast<const StateT *>(it->getSecond().get());
-  }
-
-  /// Return dialect-specific analysis state or create one if none exists.
-  template <typename StateT>
-  StateT &getOrCreateDialectState(StringRef name) {
-    // Create state if it does not exist yet.
-    if (!hasDialectState(name))
-      dialectState[name] = std::make_unique<StateT>();
-    return static_cast<StateT &>(*dialectState[name]);
-  }
-
-  void insertDialectState(StringRef name,
-                          std::unique_ptr<DialectAnalysisState> state) {
-    assert(!dialectState.count(name) && "dialect state already initialized");
-    dialectState[name] = std::move(state);
-  }
-
   /// Return a reference to the BufferizationOptions.
   const BufferizationOptions &getOptions() const { return options; }
 
-  explicit AnalysisState(const BufferizationOptions &options);
+  AnalysisState(const BufferizationOptions &options);
 
   // AnalysisState should be passed as a reference.
   AnalysisState(const AnalysisState &) = delete;
 
   virtual ~AnalysisState() = default;
 
-private:
-  /// Dialect-specific analysis state.
-  DenseMap<StringRef, std::unique_ptr<DialectAnalysisState>> dialectState;
+  static bool classof(const AnalysisState *base) { return true; }
 
+  TypeID getType() const { return type; }
+
+protected:
+  AnalysisState(const BufferizationOptions &options, TypeID type);
+
+private:
   /// A reference to current bufferization options.
   const BufferizationOptions &options;
+
+  /// The type of analysis.
+  TypeID type;
 };
 
 /// Create an AllocTensorOp for the given shaped value (memref or tensor).
@@ -547,21 +505,36 @@ bool shouldDeallocateOpResult(OpResult opResult,
 /// canonicalizations are currently not implemented.
 BaseMemRefType getMemRefType(Value value, const BufferizationOptions &options,
                              MemRefLayoutAttrInterface layout = {},
-                             unsigned memorySpace = 0);
+                             Attribute memorySpace = nullptr);
 
 /// Return a MemRef type with fully dynamic layout. If the given tensor type
 /// is unranked, return an unranked MemRef type.
-BaseMemRefType getMemRefTypeWithFullyDynamicLayout(TensorType tensorType,
-                                                   unsigned memorySpace = 0);
+BaseMemRefType
+getMemRefTypeWithFullyDynamicLayout(TensorType tensorType,
+                                    Attribute memorySpace = nullptr);
 
 /// Return a MemRef type with a static identity layout (i.e., no layout map). If
 /// the given tensor type is unranked, return an unranked MemRef type.
-BaseMemRefType getMemRefTypeWithStaticIdentityLayout(TensorType tensorType,
-                                                     unsigned memorySpace = 0);
+BaseMemRefType
+getMemRefTypeWithStaticIdentityLayout(TensorType tensorType,
+                                      Attribute memorySpace = nullptr);
 
 /// Return the owner of the given value. In case of a BlockArgument that is the
 /// owner of the block. In case of an OpResult that is the defining op.
 Operation *getOwnerOfValue(Value value);
+
+/// Return the closest enclosing repetitive region around the given op.
+Region *getEnclosingRepetitiveRegion(Operation *op,
+                                     const BufferizationOptions &options);
+
+/// Return the closest enclosing repetitive region around the place where the
+/// given value is defined.
+Region *getEnclosingRepetitiveRegion(Value value,
+                                     const BufferizationOptions &options);
+
+/// Return the closest enclosing repetitive region around the given block.
+Region *getEnclosingRepetitiveRegion(Block *block,
+                                     const BufferizationOptions &options);
 
 namespace detail {
 /// This is the default implementation of
@@ -580,6 +553,12 @@ bool defaultIsRepetitiveRegion(BufferizableOpInterface bufferizableOp,
 
 } // namespace bufferization
 } // namespace mlir
+
+MLIR_DECLARE_EXPLICIT_TYPE_ID(mlir::bufferization::AnalysisState)
+
+//===----------------------------------------------------------------------===//
+// Bufferization Interfaces
+//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h.inc"
 

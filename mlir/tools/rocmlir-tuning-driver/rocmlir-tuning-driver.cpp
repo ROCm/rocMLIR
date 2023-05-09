@@ -41,7 +41,8 @@
 #include "llvm/Support/SourceMgr.h"
 #include <cstdlib>
 
-#include <hip/hip_runtime.h>
+// Utilities to allocate buffers
+#include "../utils/performance/common/benchmarkUtils.h"
 
 #if !defined(_HIP_CLANG_ONLY__)
 // GCC complains if we don't do this
@@ -87,39 +88,35 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
   return parseSourceFile<ModuleOp>(sourceMgr, context);
 }
 
-// Note, that this simplified init value handling will flood int8 output buffers
-// with 0x01010101, but that's fine, since they get overwritten and we don't
-// actulaly care too much what the values are, so long as they're legal for the
-// type
-static std::pair<uint32_t, uint32_t> getInitValue(Type inputType) {
-  APInt ret;
-  if (auto intType = inputType.dyn_cast<IntegerType>()) {
-    ret = APInt(intType.getWidth(), 1);
-  } else if (auto floatType = inputType.dyn_cast<FloatType>()) {
-    // Avoid getting to inf so as to prevent overly unrealistic benchmarks
-    APFloat val(0.01);
-    bool dontCare;
-    val.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
-                &dontCare);
-    ret = val.bitcastToAPInt();
+static benchmark::DataType getDataType(Type inputType) {
+  if (inputType.isF32()) {
+    return benchmark::DataType::F32;
+  } else if (inputType.isF16()) {
+    return benchmark::DataType::F16;
+  } else if (inputType.isBF16()) {
+    return benchmark::DataType::BF16;
+  } else if (inputType.isInteger(8)) {
+    return benchmark::DataType::I8;
   } else {
     llvm_unreachable("Kernels only accept ints or floats");
   }
-  return {ret.getZExtValue(), ret.getBitWidth()};
 }
 
-// In order to match rocprof, returns time in nanoseconds
-static FailureOr<double> benchmarkKernel(const char *binary,
-                                         const char *funcName,
-                                         uint32_t blockSize, uint32_t gridSize,
-                                         uint32_t initValue, uint32_t bitWidth,
-                                         ArrayRef<size_t> bufferSizes) {
-  constexpr double msToNs = 1e6;
 // intentionally leaky macro
 #define HIPCHECK(expr)                                                         \
   if (hipSuccess != (expr)) {                                                  \
     return failure();                                                          \
   }
+
+// In order to match rocprof, returns time in nanoseconds
+static FailureOr<double> benchmarkKernel(const char *binary,
+                                         const char *funcName,
+                                         uint32_t blockSize, uint32_t gridSize,
+                                         benchmark::DataType dataType,
+                                         ArrayRef<void *> hostBuffers,
+                                         MutableArrayRef<void *> gpuBuffers,
+                                         ArrayRef<size_t> bufferSizes) {
+  constexpr double msToNs = 1e6;
   hipModule_t mod;
   HIPCHECK(hipModuleLoadData(&mod, binary))
   hipFunction_t func;
@@ -128,25 +125,10 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream))
 
-  // Start allocating buffers
-  std::vector<void *> gpuBuffers;
-  for (size_t byteLen : bufferSizes) {
-    void *buffer = nullptr;
-    HIPCHECK(hipMalloc(&buffer, byteLen))
-    switch (bitWidth) {
-    case 8:
-      HIPCHECK(hipMemsetD8Async(buffer, initValue, byteLen, stream))
-      break;
-    case 16:
-      HIPCHECK(hipMemsetD16Async(buffer, initValue, byteLen / 2, stream));
-      break;
-    case 32:
-      HIPCHECK(hipMemsetD32Async(buffer, initValue, byteLen / 4, stream))
-      break;
-    default:
-      llvm_unreachable("Unsupported initial vaule bitwidth");
-    }
-    gpuBuffers.push_back(buffer);
+  // Initialize device buffers
+  for (size_t i = 0; i < bufferSizes.size(); i++) {
+    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferSizes[i],
+                            hipMemcpyHostToDevice, stream));
   }
 
   hipEvent_t startEvent, stopEvent;
@@ -167,15 +149,10 @@ static FailureOr<double> benchmarkKernel(const char *binary,
   HIPCHECK(hipEventElapsedTime(&milliseconds, startEvent, stopEvent))
   double ret = msToNs * static_cast<double>(milliseconds);
 
-  // cleanup
-  for (void *buffer : gpuBuffers) {
-    HIPCHECK(hipFree(buffer))
-  }
   HIPCHECK(hipEventDestroy(stopEvent))
   HIPCHECK(hipEventDestroy(startEvent))
   HIPCHECK(hipStreamDestroy(stream))
   HIPCHECK(hipModuleUnload(mod))
-#undef HIPCHECK
 
   return ret;
 }
@@ -205,8 +182,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   if (failed(maybeToTune))
     return failure();
   rock::RockGemmWrapperInterface toTune = std::move(*maybeToTune);
-  uint32_t initValue, bitWidth;
-  std::tie(initValue, bitWidth) = getInitValue(toTune.getInputType());
+  // Provisionally use the type of input A to set up the init value - this
+  // should be a per-buffer value in the futurue.
+  benchmark::DataType dataType = getDataType(toTune.getAType());
 
   auto kernelFunc = toTune->getParentOfType<func::FuncOp>();
   if (!kernelFunc || !kernelFunc->hasAttr("kernel"))
@@ -215,7 +193,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   // We need a copy since HIP'll want a C string
   std::string kernelFuncName = kernelFunc.getSymName().str();
-  SmallVector<size_t, 4> bufferLengths;
+  std::vector<size_t> bufferLengths;
   for (Type argType : kernelFunc.getArgumentTypes()) {
     auto shapedTy = argType.dyn_cast<ShapedType>();
     if (!shapedTy)
@@ -262,7 +240,20 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   DiagnosticEngine &engine = ctx->getDiagEngine();
   engine.registerHandler([](Diagnostic &diag) {});
 
-  // 3. Actually tune
+  // 3. Initialize host buffers and allocate device buffers
+  std::vector<void *> hostBuffers;
+  std::vector<void *> gpuBuffers;
+  for (size_t i = 0; i < bufferLengths.size(); i++) {
+    bool isOut = (i == bufferLengths.size() - 1);
+    void *hostBuffer =
+        benchmark::allocAndFill(dataType, bufferLengths[i], isOut);
+    void *gpuBuffer;
+    HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
+    hostBuffers.push_back(hostBuffer);
+    gpuBuffers.push_back(gpuBuffer);
+  }
+
+  // 4. Actually tune
   rock::TunableParams *tuningSpace = rock::createTunableParamSpace(source);
   for (rock::RockTuningParamAttrInterface tuningAttr :
        tuningSpace->tuningRange) {
@@ -304,9 +295,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return WalkResult::interrupt();
     });
 
-    FailureOr<double> timing =
-        benchmarkKernel(hipModule.c_str(), kernelFuncName.c_str(), blockSize,
-                        gridSize, initValue, bitWidth, bufferLengths);
+    FailureOr<double> timing = benchmarkKernel(
+        hipModule.c_str(), kernelFuncName.c_str(), blockSize, gridSize,
+        dataType, hostBuffers, gpuBuffers, bufferLengths);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
@@ -314,8 +305,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     llvm::outs() << perfConfig << "\t" << timing << "\n";
     tuneCopy->erase();
   }
+  for (void *buffer : hostBuffers) {
+    free(buffer);
+  }
+  for (void *buffer : gpuBuffers) {
+    HIPCHECK(hipFree(buffer))
+  }
   return success();
 }
+#undef HIPCHECK
 
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
@@ -336,9 +334,26 @@ int main(int argc, char **argv) {
     llvm::errs() << "Could not parse input IR\n";
     return EXIT_FAILURE;
   }
-  if (failed(runTuningLoop(*source))) {
+
+  ModuleOp module;
+  WalkResult findModule = source->walk([&](ModuleOp op) -> WalkResult {
+    if (op->hasAttr("xmodel.arch")) {
+      module = op;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!findModule.wasInterrupted()) {
+    source->emitOpError(
+        "no architecture set, set xmodel.arch on the input module");
     llvm::errs() << "Tuning loop failed\n";
     return EXIT_FAILURE;
   }
+
+  if (failed(runTuningLoop(module))) {
+    llvm::errs() << "Tuning loop failed\n";
+    return EXIT_FAILURE;
+  }
+
   return EXIT_SUCCESS;
 }

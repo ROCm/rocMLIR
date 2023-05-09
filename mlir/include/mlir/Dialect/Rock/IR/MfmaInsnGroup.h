@@ -14,7 +14,7 @@
 #ifndef MLIR_MFMA_INSN_GROUP_H
 #define MLIR_MFMA_INSN_GROUP_H
 
-#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
@@ -22,7 +22,16 @@
 namespace mlir {
 namespace rock {
 
-enum class MfmaTypeId : uint32_t { Fp32TyId = 0, Fp16TyId, Bf16TyId, I8TyId };
+enum class MfmaTypeId : uint32_t {
+  Fp32TyId = 0,
+  Fp16TyId,
+  Bf16TyId,
+  I8TyId,
+  Fp8Fp8TyId,
+  Fp8Bf8TyId,
+  Bf8Fp8TyId,
+  Bf8Bf8TyId
+};
 
 struct MfmaInsnInfo {
   MfmaTypeId type;
@@ -47,6 +56,7 @@ struct MfmaInsnAttr {
   int64_t blocksPerMfmaOutput;
   int64_t rowGroupsPerBlock;
   int64_t blocksInOutRegs;
+  bool isKReduction;
 };
 
 class MfmaInsn {
@@ -58,7 +68,7 @@ public:
   MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr);
 
   MfmaInsnAttr getAttr();
-  Type getArgType(Type elementType);
+  Type getArgTypeFor(Type elementTypeA);
   VectorType getRetType(Type elementType);
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };
@@ -107,29 +117,37 @@ struct MFMAParams {
 
 struct MfmaInsnGroupAttr {
   SmallString<16> insn;
-  int64_t mRepeats;
-  int64_t nRepeats;
   SmallVector<MFMAParams, 2> imms;
+  // Reduction constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn)
+      : insn{insn}, imms{{{0, 0, amdgpu::MFMAPermB::none}}} {}
+  // Broadcast constructor
+  MfmaInsnGroupAttr(const SmallString<16> &insn,
+                    const SmallVector<MFMAParams, 2> &imms)
+      : insn{insn}, imms{imms} {}
 };
 
 class MfmaInsnGroup {
 private:
-  Type elementType;
+  Type elementTypeA;
+  Type elementTypeB;
   MfmaInsn insn;
   MfmaInsnGroupAttr groupAttr;
 
 public:
-  static FailureOr<MfmaInsnGroup> select(Type elementType, int64_t mPerWave,
+  static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
+                                         StringRef arch, int64_t mPerWave,
                                          int64_t nPerWave);
-  MfmaInsnGroup(Type elementType, const MfmaInsn &insn,
+  MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
-  int64_t getMRepeats();
-  int64_t getNRepeats();
+  int64_t getMRepeats(int64_t mPerWave);
+  int64_t getNRepeats(int64_t nPerWave);
   static int64_t getLenPerMfmaGroup(int64_t lenPerWave);
   SmallVector<mlir::rock::MFMAParams, 2> getImms();
 
   MfmaInsnAttr getInsnAttr();
-  Type getArgType();
+  Type getArgTypeA();
+  Type getArgTypeB();
   VectorType getRetType();
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
 };

@@ -25,9 +25,14 @@ if (NOT DEFINED ROCM_PATH)
     set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
   endif()
 endif()
+# A lot of the ROCm CMake files expect to find their own dependencies in
+# CMAKE_PREFIX_PATH and don't respect PATHS or HINTS :( .
+# Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
+# load HIP, then remove it
+set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
 list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
 find_package(hip REQUIRED)
-
+set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
 # Supress compiler warnings from HIP headers
 check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
@@ -60,5 +65,6 @@ set_property(TARGET rocmlir-tuning-driver
 
   llvm_update_compile_flags(rocmlir-tuning-driver)
   target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
+  target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
   target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
 endif()

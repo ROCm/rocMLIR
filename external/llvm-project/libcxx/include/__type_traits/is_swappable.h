@@ -64,7 +64,7 @@ template <class _Tp, class _Up = _Tp,
 struct __swappable_with
 {
     template <class _LHS, class _RHS>
-    static decltype(swap(declval<_LHS>(), declval<_RHS>()))
+    static decltype(swap(std::declval<_LHS>(), std::declval<_RHS>()))
     __test_swap(int);
     template <class, class>
     static __nat __test_swap(long);
@@ -84,8 +84,8 @@ template <class _Tp, class _Up = _Tp, bool _Swappable = __swappable_with<_Tp, _U
 struct __nothrow_swappable_with {
   static const bool value =
 #ifndef _LIBCPP_HAS_NO_NOEXCEPT
-      noexcept(swap(declval<_Tp>(), declval<_Up>()))
-  &&  noexcept(swap(declval<_Up>(), declval<_Tp>()));
+      noexcept(swap(std::declval<_Tp>(), std::declval<_Up>()))
+  &&  noexcept(swap(std::declval<_Up>(), std::declval<_Tp>()));
 #else
       false;
 #endif
@@ -118,13 +118,13 @@ struct _LIBCPP_TEMPLATE_VIS is_swappable_with
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_swappable
-    : public conditional<
+    : public __conditional_t<
         __libcpp_is_referenceable<_Tp>::value,
         is_swappable_with<
             __add_lvalue_reference_t<_Tp>,
             __add_lvalue_reference_t<_Tp> >,
         false_type
-    >::type
+    >
 {
 };
 
@@ -136,13 +136,13 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_swappable_with
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_nothrow_swappable
-    : public conditional<
+    : public __conditional_t<
         __libcpp_is_referenceable<_Tp>::value,
         is_nothrow_swappable_with<
             __add_lvalue_reference_t<_Tp>,
             __add_lvalue_reference_t<_Tp> >,
         false_type
-    >::type
+    >
 {
 };
 

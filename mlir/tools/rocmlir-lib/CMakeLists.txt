@@ -4,7 +4,6 @@ get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_capi_libs}
-  LLVMX86AsmParser
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
@@ -16,11 +15,6 @@ PARTIAL_SOURCES_INTENDED
 
   LINK_LIBS
   ${LIBS}
-
-  LINK_COMPONENTS
-  X86CodeGen
-  X86Desc
-  X86Info
   )
 
 add_llvm_executable(rocmlir-lib-test
@@ -40,6 +34,13 @@ mlir_check_link_libraries(rocmlir-lib-test)
 llvm_canonicalize_cmake_booleans(BUILD_FAT_LIBROCKCOMPILER)
 # Static library target, enabled only when building static libs
 if(BUILD_FAT_LIBROCKCOMPILER)
+  find_package(ROCM 0.8 REQUIRED PATHS /opt/rocm)
+  include(ROCMInstallTargets)
+  include(ROCMCreatePackage)
+
+  set(ROCMCHECKS_WARN_TOOLCHAIN_VAR OFF)
+  set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+
   set(PACKAGE_NAME ${CMAKE_PROJECT_NAME})
   set(LIBRARY_NAME rockCompiler)
   function(combine_archives output_archive)
@@ -76,9 +77,18 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     ${LIBRARY_NAME}
   )
 
+  rocm_package_setup_component(lib${LIBRARY_NAME}
+        LIBRARY_NAME lib${LIBRARY_NAME}
+        PACKAGE_NAME ${PACKAGE_NAME}
+  )
+
+  rocm_install(FILES LICENSE
+    DESTINATION share/doc/${PACKAGE_NAME}
+    COMPONENT lib${LIBRARY_NAME})
+
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/${PACKAGE_NAME}/
   # as part of component libroCompiler
-  install(FILES Miir.h
+  rocm_install(FILES Miir.h
     DESTINATION include/${PACKAGE_NAME}
     COMPONENT lib${LIBRARY_NAME})
 
@@ -128,6 +138,8 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     if(ARG_EXTRA_INCLUDES)
       set(EXTRA_INCLUDES ${ARG_EXTRA_INCLUDES})
     endif()
+    # Call install() instead of rocm_install() here in order to install
+    # the package in a specific direcotry. 
     install(TARGETS ${lib_name}
       EXPORT ${export_set}
       ARCHIVE DESTINATION lib/${package_name}
@@ -152,14 +164,14 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     )
 
     # Generate Targets.cmake file for the export-set to contain imported targets
-    install(EXPORT ${export_set}
+    rocm_install(EXPORT ${export_set}
       NAMESPACE ${package_name}::
       DESTINATION ${LIB_CMAKE_DIR}
       COMPONENT ${component_name}
     )
 
     # Install package configuration and version files
-    install(
+    rocm_install(
       FILES
       "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
       "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
@@ -171,7 +183,11 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(extra_include_dir "")
 
   if ((NOT LLVM_INSTALL_TOOLCHAIN_ONLY) AND EXPORT_ALL_HEADERS)
-    install(DIRECTORY
+  rocm_package_setup_component(${LIBRARY_NAME}-headers
+        LIBRARY_NAME ${LIBRARY_NAME}-headers
+        PACKAGE_NAME ${PACKAGE_NAME}
+  )
+    rocm_install(DIRECTORY
       ${PROJECT_SOURCE_DIR}/mlir/include/mlir
       ${PROJECT_SOURCE_DIR}/mlir/include/mlir-c
       DESTINATION include/${PACKAGE_NAME}
@@ -184,7 +200,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       PATTERN "LICENSE.TXT"
     )
 
-    install(DIRECTORY ${MLIR_INCLUDE_DIRS}
+    rocm_install(DIRECTORY ${MLIR_INCLUDE_DIRS}
       DESTINATION include/${PACKAGE_NAME}/external
       COMPONENT ${LIBRARY_NAME}-headers
       FILES_MATCHING
@@ -197,7 +213,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       PATTERN "config.h" EXCLUDE
     )
 
-    install(DIRECTORY ${PROJECT_BINARY_DIR}/mlir/include
+    rocm_install(DIRECTORY ${PROJECT_BINARY_DIR}/mlir/include
       DESTINATION include/${PACKAGE_NAME}/build
       COMPONENT ${LIBRARY_NAME}-headers
       FILES_MATCHING
@@ -220,5 +236,11 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     lib${LIBRARY_NAME}          # component name
     EXTRA_INCLUDES              # extra include directories
     ${extra_include_dir}
+  )
+
+  rocm_create_package(
+    NAME ${PACKAGE_NAME}
+    DESCRIPTION "MLIR packages"
+    MAINTAINER "rocMLIR Dev Team dl.dl-mlir@amd.com"
   )
 endif()

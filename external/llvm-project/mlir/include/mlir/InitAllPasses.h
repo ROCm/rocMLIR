@@ -15,8 +15,9 @@
 #define MLIR_INITALLPASSES_H_
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/Passes.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
@@ -58,8 +59,9 @@ inline void registerAllPasses() {
 
   // Dialect passes
   registerAffinePasses();
+  amdgpu::registerAMDGPUPasses();
   registerAsyncPasses();
-  arith::registerArithmeticPasses();
+  arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();
   registerGPUPasses();

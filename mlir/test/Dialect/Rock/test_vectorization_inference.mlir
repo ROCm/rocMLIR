@@ -161,6 +161,19 @@
   by [<Embed{1, 3} ["a", "c"] at [0, 1] -> ["x"] at [0]>]
   bounds = [3, 8] -> [24]>
 
+#transform_inject_unit_const = #rock.transform_map<affine_map<(d0, d1) -> (d0, 0, d1)>
+  by [<PassThrough ["a", "b"] at [0, 1] -> ["a", "c"] at [0, 2]>,
+    <ConstDim{0, 1} [] at [] -> ["b"] at [1]>]
+  bounds = [8, 3] -> [8, 1, 3]>
+
+#transform_inject_non_unit_const = #rock.transform_map<affine_map<(d0, d1) -> (d0, 0, d1)>
+  by [<PassThrough ["a", "b"] at [0, 1] -> ["a", "c"] at [0, 2]>,
+    <ConstDim{0, 2} [] at [] -> ["b"] at [1]>]
+  bounds = [8, 3] -> [8, 2, 3]>
+
+#transform_unmerge_injected_non_unit = #rock.transform_map<affine_map<(d0, d1, d2) -> (d2 + 3 * (d1 + d0 * 2))>
+  by [<Unmerge{8, 2, 3} ["a", "b", "c"] at [0, 1, 2] -> ["x"] at [0]>]
+  bounds = [8, 2, 3] -> [48]>
 
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
@@ -277,9 +290,11 @@ func.func @test_vectorization() {
   %37 = "get_length"() {transforms = [#transform_merge_7, #transform_shuffle_5, #transform_unmerge_8], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
   // CHECK-NEXT: result = 4
   %38 = "get_length"() {transforms = [#transform_merge_9, #transform_shuffle_6, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
-
-
-
+  // CHECK-NEXT: result = 4
+  %39 = "get_length"() {transforms = [#transform_merge, #transform_inject_unit_const, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
+  // Even though we injected a 0, it _could_ have been a 1.
+  // CHECK-NEXT: result = 1
+  %40 = "get_length"() {transforms = [#transform_merge, #transform_inject_non_unit_const, #transform_unmerge_injected_non_unit], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<48xf32>)
  func.return
 }
 

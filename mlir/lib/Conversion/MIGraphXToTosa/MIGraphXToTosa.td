@@ -12,18 +12,21 @@ include "mlir/IR/PatternBase.td"
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
 include "mlir/Dialect/Func/IR/FuncOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
-include "mlir/Dialect/Arithmetic/IR/ArithmeticOps.td"
+include "mlir/Dialect/Arith/IR/ArithOps.td"
+
+def GetNullAttr : NativeCodeCall<"Attribute()">;
 
 def : Pat<(MIGraphX_AddOp $input1, $input2), (Tosa_AddOp $input1, $input2)>;
 def : Pat<(MIGraphX_SubOp $input1, $input2), (Tosa_SubOp $input1, $input2)>;
 def : Pat<(MIGraphX_MulOp $input1, $input2), (Tosa_MulOp $input1, $input2, ConstantAttr<I32Attr, "0">)>;
 def : Pat<(MIGraphX_PowOp $input1, $input2), (Tosa_PowOp $input1, $input2)>;
 def : Pat<(MIGraphX_RecipOp $input1), (Tosa_ReciprocalOp $input1)>;
+def : Pat<(MIGraphX_ExpOp $input1), (Tosa_ExpOp $input1)>;
+def : Pat<(MIGraphX_NegOp $input1), (Tosa_NegateOp $input1, (GetNullAttr))>;
 
 def : Pat<(MIGraphX_ConstantOp ElementsAttr:$valueAttr, $shapeAttr, $valueTypeAttr), (Arith_ConstantOp $valueAttr)>;
 def Convert2DTo4DSymmPad : NativeCodeCall<
     "$_builder.getArrayAttr({($0.getValue()[0]), ($0.getValue()[0]), ($0.getValue()[1]), ($0.getValue()[1])})">;
-def GetNullAttr : NativeCodeCall<"Attribute()">;
 /* convolution is converted in the cpp file to handle more options.
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
@@ -43,7 +46,5 @@ def ConvertI64ArrayAttrtoDenseElementsAttr : NativeCodeCall<
     "DenseIntElementsAttr::get(RankedTensorType::get({static_cast<int64_t>($0.size())}, rewriter.getI64Type()), $0.getValue())">;
 def : Pat<(MIGraphX_TransposeOp $input1, $permAttr), 
   (Tosa_TransposeOp $input1, (Arith_ConstantOp (ConvertI64ArrayAttrtoDenseElementsAttr $permAttr)))>;
-
-def : Pat<(MIGraphX_ReshapeOp $input1, $newshape), (Tosa_ReshapeOp $input1, $newshape)>;
 
 #endif // MLIR_CONVERSION_MIGRAPHX_TO_TOSA

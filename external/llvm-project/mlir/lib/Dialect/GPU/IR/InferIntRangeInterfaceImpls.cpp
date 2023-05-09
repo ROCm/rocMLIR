@@ -9,7 +9,10 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::gpu;
@@ -44,13 +47,14 @@ static Value valueByDim(KernelDim3 dims, Dimension dim) {
   case Dimension::z:
     return dims.z;
   }
+  llvm_unreachable("All dimension enum cases handled above");
 }
 
 static uint64_t zext(uint32_t arg) { return static_cast<uint64_t>(arg); }
 
 template <typename Op>
-static Optional<uint64_t> getKnownLaunchDim(Op op, LaunchDims type) {
-  Dimension dim = op.dimension();
+static std::optional<uint64_t> getKnownLaunchDim(Op op, LaunchDims type) {
+  Dimension dim = op.getDimension();
   if (auto launch = op->template getParentOfType<LaunchOp>()) {
     KernelDim3 bounds;
     switch (type) {
@@ -70,17 +74,18 @@ static Optional<uint64_t> getKnownLaunchDim(Op op, LaunchDims type) {
   if (auto func = op->template getParentOfType<GPUFuncOp>()) {
     switch (type) {
     case LaunchDims::Block:
-      return func.getKnownBlockSize(dim).transform(zext);
+      return llvm::transformOptional(func.getKnownBlockSize(dim), zext);
     case LaunchDims::Grid:
-      return func.getKnownGridSize(dim).transform(zext);
+      return llvm::transformOptional(func.getKnownGridSize(dim), zext);
     }
   }
-  return None;
+  return std::nullopt;
 }
 
 void BlockDimOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                    SetIntRangeFn setResultRange) {
-  Optional<uint64_t> knownVal = getKnownLaunchDim(*this, LaunchDims::Block);
+  std::optional<uint64_t> knownVal =
+      getKnownLaunchDim(*this, LaunchDims::Block);
   if (knownVal)
     setResultRange(getResult(), getIndexRange(*knownVal, *knownVal));
   else
@@ -95,7 +100,7 @@ void BlockIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
 
 void GridDimOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                   SetIntRangeFn setResultRange) {
-  Optional<uint64_t> knownVal = getKnownLaunchDim(*this, LaunchDims::Grid);
+  std::optional<uint64_t> knownVal = getKnownLaunchDim(*this, LaunchDims::Grid);
   if (knownVal)
     setResultRange(getResult(), getIndexRange(*knownVal, *knownVal));
   else
@@ -120,11 +125,12 @@ void SubgroupIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
 
 void GlobalIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                    SetIntRangeFn setResultRange) {
-  uint64_t blockIdMax =
-      getKnownLaunchDim(*this, LaunchDims::Block).value_or(kMaxDim) - 1ULL;
-  uint64_t gridIdMax =
-      getKnownLaunchDim(*this, LaunchDims::Grid).value_or(kMaxDim) - 1ULL;
-  setResultRange(getResult(), getIndexRange(0, blockIdMax * gridIdMax));
+  uint64_t blockDimMax =
+      getKnownLaunchDim(*this, LaunchDims::Block).value_or(kMaxDim);
+  uint64_t gridDimMax =
+      getKnownLaunchDim(*this, LaunchDims::Grid).value_or(kMaxDim);
+  setResultRange(getResult(),
+                 getIndexRange(0, (blockDimMax * gridDimMax) - 1ULL));
 }
 
 void NumSubgroupsOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
@@ -151,7 +157,7 @@ void LaunchOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
     setResultRange(idxResult, idxRange);
   };
 
-  argRanges = argRanges.drop_front(asyncDependencies().size());
+  argRanges = argRanges.drop_front(getAsyncDependencies().size());
   KernelDim3 gridDims = getGridSize();
   KernelDim3 blockIds = getBlockIds();
   setRange(argRanges[0], gridDims.x, blockIds.x);

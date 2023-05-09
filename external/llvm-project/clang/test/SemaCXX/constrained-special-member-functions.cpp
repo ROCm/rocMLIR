@@ -196,17 +196,13 @@ static_assert(!__is_trivial(ComplexConstraints<int>), "");
 
 // This is evaluated at the completion of CRTPBase, while `T` is not yet completed.
 // This is probably correct behavior.
-// FIXME: We should not throw an error, instead SFINAE should make the constraint
-// silently unsatisfied. See [temp.constr.constr]p5
 template <class T>
 struct CRTPBase {
-  CRTPBase() requires (sizeof(T) > 0); // expected-error {{to an incomplete type}}
+  CRTPBase() requires (sizeof(T) > 0);
   CRTPBase() = default;
 };
 
 struct Child : CRTPBase<Child> { int x; };
-// expected-note@-1 {{definition of 'Child' is not complete until}}
-// expected-note@-2 {{in instantiation of template class 'CRTPBase<Child>' requested here}}
 static Child c;
 
 
@@ -228,4 +224,44 @@ void func() {
   S<2, 1> s1; // expected-error {{is not a constant expression}} expected-note {{in call to 'S()'}}
   S<2, 2> s2;
 }
+}
+
+namespace GH59206 {
+
+struct A {
+  A() = default; //eligible, second constructor unsatisfied
+  template<class... Args>
+  A(Args&&... args) requires (sizeof...(Args) > 0) {}
+};
+
+struct B {
+  B() = default; //ineligible, second constructor more constrained
+  template<class... Args>
+  B(Args&&... args) requires (sizeof...(Args) == 0) {}
+};
+
+struct C {
+  C() = default; //eligible, but
+  template<class... Args> //also eligible and non-trivial
+  C(Args&&... args) {}
+};
+
+struct D : B {};
+
+static_assert(__is_trivially_copyable(A), "");
+static_assert(__is_trivially_copyable(B), "");
+static_assert(__is_trivially_copyable(C), "");
+static_assert(__is_trivially_copyable(D), "");
+
+// FIXME: Update when https://github.com/llvm/llvm-project/issues/59206 is
+// resolved.
+static_assert(!__is_trivial(A), "");
+static_assert(!__is_trivial(B), "");
+static_assert(!__is_trivial(C), "");
+static_assert(__is_trivial(D), "");
+static_assert(__is_trivially_constructible(A), "");
+static_assert(__is_trivially_constructible(B), "");
+static_assert(__is_trivially_constructible(C), "");
+static_assert(__is_trivially_constructible(D), "");
+
 }

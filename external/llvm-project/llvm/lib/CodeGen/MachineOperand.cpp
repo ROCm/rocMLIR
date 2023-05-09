@@ -29,6 +29,7 @@
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/Target/TargetIntrinsicInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -117,7 +118,7 @@ void MachineOperand::setIsDef(bool Val) {
 
 bool MachineOperand::isRenamable() const {
   assert(isReg() && "Wrong MachineOperand accessor");
-  assert(Register::isPhysicalRegister(getReg()) &&
+  assert(getReg().isPhysical() &&
          "isRenamable should only be checked on physical registers");
   if (!IsRenamable)
     return false;
@@ -135,7 +136,7 @@ bool MachineOperand::isRenamable() const {
 
 void MachineOperand::setIsRenamable(bool Val) {
   assert(isReg() && "Wrong MachineOperand accessor");
-  assert(Register::isPhysicalRegister(getReg()) &&
+  assert(getReg().isPhysical() &&
          "setIsRenamable should only be called on physical registers");
   IsRenamable = Val;
 }
@@ -232,6 +233,19 @@ void MachineOperand::ChangeToTargetIndex(unsigned Idx, int64_t Offset,
   OpKind = MO_TargetIndex;
   setIndex(Idx);
   setOffset(Offset);
+  setTargetFlags(TargetFlags);
+}
+
+void MachineOperand::ChangeToDbgInstrRef(unsigned InstrIdx, unsigned OpIdx,
+                                         unsigned TargetFlags) {
+  assert((!isReg() || !isTied()) &&
+         "Cannot change a tied operand into a DbgInstrRef");
+
+  removeRegFromUses();
+
+  OpKind = MO_DbgInstrRef;
+  setInstrRefInstrIndex(InstrIdx);
+  setInstrRefOpIndex(OpIdx);
   setTargetFlags(TargetFlags);
 }
 
@@ -336,6 +350,9 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
   }
   case MachineOperand::MO_MCSymbol:
     return getMCSymbol() == Other.getMCSymbol();
+  case MachineOperand::MO_DbgInstrRef:
+    return getInstrRefInstrIndex() == Other.getInstrRefInstrIndex() &&
+           getInstrRefOpIndex() == Other.getInstrRefOpIndex();
   case MachineOperand::MO_CFIIndex:
     return getCFIIndex() == Other.getCFIIndex();
   case MachineOperand::MO_Metadata:
@@ -400,6 +417,9 @@ hash_code llvm::hash_value(const MachineOperand &MO) {
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getMetadata());
   case MachineOperand::MO_MCSymbol:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getMCSymbol());
+  case MachineOperand::MO_DbgInstrRef:
+    return hash_combine(MO.getType(), MO.getTargetFlags(),
+                        MO.getInstrRefInstrIndex(), MO.getInstrRefOpIndex());
   case MachineOperand::MO_CFIIndex:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getCFIIndex());
   case MachineOperand::MO_IntrinsicID:
@@ -457,7 +477,7 @@ static void printCFIRegister(unsigned DwarfReg, raw_ostream &OS,
     return;
   }
 
-  if (Optional<unsigned> Reg = TRI->getLLVMRegNum(DwarfReg, true))
+  if (std::optional<unsigned> Reg = TRI->getLLVMRegNum(DwarfReg, true))
     OS << printReg(*Reg, TRI);
   else
     OS << "<badreg>";
@@ -470,7 +490,7 @@ static void printIRBlockReference(raw_ostream &OS, const BasicBlock &BB,
     printLLVMNameWithoutPrefix(OS, BB.getName());
     return;
   }
-  Optional<int> Slot;
+  std::optional<int> Slot;
   if (const Function *F = BB.getParent()) {
     if (F == MST.getCurrentFunction()) {
       Slot = MST.getLocalSlot(&BB);
@@ -531,7 +551,7 @@ static void printFrameIndex(raw_ostream& OS, int FrameIndex, bool IsFixed,
 void MachineOperand::printSubRegIdx(raw_ostream &OS, uint64_t Index,
                                     const TargetRegisterInfo *TRI) {
   OS << "%subreg.";
-  if (TRI)
+  if (TRI && Index != 0 && Index < TRI->getNumSubRegIndices())
     OS << TRI->getSubRegIndexName(Index);
   else
     OS << Index;
@@ -748,15 +768,16 @@ void MachineOperand::print(raw_ostream &OS, LLT TypeToPrint,
                            const TargetIntrinsicInfo *IntrinsicInfo) const {
   tryToGetTargetInfo(*this, TRI, IntrinsicInfo);
   ModuleSlotTracker DummyMST(nullptr);
-  print(OS, DummyMST, TypeToPrint, None, /*PrintDef=*/false,
+  print(OS, DummyMST, TypeToPrint, std::nullopt, /*PrintDef=*/false,
         /*IsStandalone=*/true,
         /*ShouldPrintRegisterTies=*/true,
         /*TiedOperandIdx=*/0, TRI, IntrinsicInfo);
 }
 
 void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
-                           LLT TypeToPrint, Optional<unsigned> OpIdx, bool PrintDef,
-                           bool IsStandalone, bool ShouldPrintRegisterTies,
+                           LLT TypeToPrint, std::optional<unsigned> OpIdx,
+                           bool PrintDef, bool IsStandalone,
+                           bool ShouldPrintRegisterTies,
                            unsigned TiedOperandIdx,
                            const TargetRegisterInfo *TRI,
                            const TargetIntrinsicInfo *IntrinsicInfo) const {
@@ -779,13 +800,13 @@ void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
       OS << "undef ";
     if (isEarlyClobber())
       OS << "early-clobber ";
-    if (Register::isPhysicalRegister(getReg()) && isRenamable())
+    if (getReg().isPhysical() && isRenamable())
       OS << "renamable ";
     // isDebug() is exactly true for register operands of a DBG_VALUE. So we
     // simply infer it when parsing and do not need to print it.
 
     const MachineRegisterInfo *MRI = nullptr;
-    if (Register::isVirtualRegister(Reg)) {
+    if (Reg.isVirtual()) {
       if (const MachineFunction *MF = getMFIfAvailable(*this)) {
         MRI = &MF->getRegInfo();
       }
@@ -800,7 +821,7 @@ void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
         OS << ".subreg" << SubReg;
     }
     // Print the register class / bank.
-    if (Register::isVirtualRegister(Reg)) {
+    if (Reg.isVirtual()) {
       if (const MachineFunction *MF = getMFIfAvailable(*this)) {
         const MachineRegisterInfo &MRI = MF->getRegInfo();
         if (IsStandalone || !PrintDef || MRI.def_empty(Reg)) {
@@ -940,6 +961,11 @@ void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
   case MachineOperand::MO_MCSymbol:
     printSymbol(OS, *getMCSymbol());
     break;
+  case MachineOperand::MO_DbgInstrRef: {
+    OS << "dbg-instr-ref(" << getInstrRefInstrIndex() << ", "
+       << getInstrRefOpIndex() << ')';
+    break;
+  }
   case MachineOperand::MO_CFIIndex: {
     if (const MachineFunction *MF = getMFIfAvailable(*this))
       printCFI(OS, MF->getFrameInstructions()[getCFIIndex()], TRI);

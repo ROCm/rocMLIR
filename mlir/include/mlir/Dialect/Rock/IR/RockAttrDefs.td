@@ -12,8 +12,10 @@
 include "mlir/Dialect/Rock/IR/RockBase.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
+include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/OpBase.td"
 
 //TODO: submit this to upstream
 class ArrayRefOfStringRefParameter<string desc = ""> :
@@ -72,24 +74,37 @@ def Slice : I32EnumAttrCase<"Slice", 2>;
 def Embed : I32EnumAttrCase<"Embed", 3>;
 def Unmerge : I32EnumAttrCase<"Unmerge", 4>;
 def Merge : I32EnumAttrCase<"Merge", 5>;
-def Unfold : I32EnumAttrCase<"Unfold", 6>;
 def AddDim : I32EnumAttrCase<"AddDim", 7>;
 def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
+def ConstDim : I32EnumAttrCase<"ConstDim", 9>;
 
 def TransformType : Rock_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast]>;
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, AddDim, Broadcast,
+     ConstDim]>;
 
 /// StoreMethod
 
 def StoreMethod_Set : I32EnumAttrCase<"Set", 0, "set">;
 def StoreMethod_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1, "atomic_add">;
+def StoreMethod_AtomicMax : I32EnumAttrCase<"AtomicMax", 2, "atomic_max">;
 
 def StoreMethod : Rock_I32Enum<"StoreMethod",
     "What operation should be used to write data to memory",
-    [StoreMethod_Set, StoreMethod_AtomicAdd]>;
+    [StoreMethod_Set, StoreMethod_AtomicAdd, StoreMethod_AtomicMax]>;
 
 def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
+
+/// ReduceMethod
+
+def ReduceMethod_Sum : I32EnumAttrCase<"Sum", 0, "sum">;
+def ReduceMethod_Max : I32EnumAttrCase<"Max", 1, "max">;
+
+def ReduceMethod : Rock_I32Enum<"ReduceMethod",
+    "What operation should be used for the reduction",
+    [ReduceMethod_Sum, ReduceMethod_Max]>;
+
+def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
 
 /// TransformAttr
 def Rock_TransformAttr : Rock_Attr<"Transform"> {
@@ -129,13 +144,11 @@ def Rock_TransformAttr : Rock_Attr<"Transform"> {
         - Merge{c1, c2, ..., cN} - Combines N lower dimensions into 1 upper dimension
           with the parameters holding the sizes of the lower dimensions.
           This has the effect of concatentating the dimensions if they are consecutive
-        - Unfold{c1, ..., cN} - Has the semantics of merge, but asserts that the lower
-          dimensions are consecutive so that the derivative operation does not need
-          to perform carry checks on indices.
         - AddDim{size} - Adds one upper dimension of the given size that does not
           correspond to any lower dimension.
         - Broadcast{c1, c2, ..., cN} - Broadcast lower dimensions of size 1 to
           upper dimensions.
+        - ConstDim{c1, l1, c2, l2, .. cN, lN} a
     }];
 
     let parameters = (ins
@@ -174,12 +187,19 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     AttrParameter<"AffineMapAttr", "The composed map describing the `ops`">:$map,
     // Thes aren't strictly needed and can probably be removed if we're willing to
     // pay an ergonomics penalty.
-    ArrayRefParameter<"int64_t", "The shape of the transform input">:$upperBounds,
-    ArrayRefParameter<"int64_t", "The shape of the transform output">:$lowerBounds
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
+    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds
     );
 
+    let builders = [
+      AttrBuilderWithInferredContext<
+        (ins "ArrayRef<::mlir::rock::TransformAttr>":$transforms,
+            "ArrayRef<int64_t>":$upperBounds,
+            "ArrayRef<int64_t>":$lowerBounds)>,
+    ];
+
     let assemblyFormat = [{
-        `<` $map `by` ` ` `[` $ops `]` `bounds` `=` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
+        `<` $map `by` ` ` `[` $ops `]` `bounds` `=` ($upperBounds^) : (`[` `]`)? `->` ($lowerBounds^) : (`[` `]`)? `>`
     }];
     let genVerifyDecl = 1;
 }
@@ -213,15 +233,15 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      const Twine paramsConcat =
-        Twine(getBlockSize()) + ","
+      perfStr =
+       (Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread());
-      perfStr = paramsConcat.str();
+      + Twine(getNPerThread())).str();
     }
+    bool getForceUnroll() { return true; }
   }];
 
   let assemblyFormat = [{
@@ -229,15 +249,14 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
+
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
-
-    TODO: Document these once they've settled down
   }];
   let parameters = (ins
-    "int64_t":$kPerBlock,
+    "int64_t":$kpackPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
@@ -248,16 +267,16 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(std::string &perfStr){
-      const Twine paramsConcat = 
-          Twine(getMPerBlock()) + ","
+      perfStr =
+         (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
-        + Twine(getKPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
         + Twine(getForceUnroll()) + ","
-        + "1"; /* *ThreadCopyMore* */
-      perfStr = paramsConcat.str();
+          + "1") /* *ThreadCopyMore* */
+        .str();
     }
   }];
 
@@ -266,19 +285,62 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
+def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "wmma_gemm_params";
+  let description = [{
+    The tuning parameters for an wmma-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(std::string &perfStr){
+      perfStr =
+         (Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .str();
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
 def Rock_GemmFeatures_Mfma : I32BitEnumAttrCaseBit<"mfma", 0>;
 def Rock_GemmFeatures_Dot : I32BitEnumAttrCaseBit<"dot", 1>;
 def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 2>;
+def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 4>;
+def Rock_GemmFeatures_Wmma : I32BitEnumAttrCaseBit<"wmma", 5>;
 
 def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
     "Features that can be enabled on GEMM-based operations",
     [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
-     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd]> {
+     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicFmaxF32, Rock_GemmFeatures_Wmma]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }
 
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
+
+// Misc Attrs
+def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
+  let mnemonic = "rock.prefill";
+}
 #endif

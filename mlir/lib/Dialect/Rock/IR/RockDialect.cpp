@@ -7,10 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -69,7 +71,7 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       return AliasResult::OverridableAlias;
     }
     if (attr.isa<XdlopsGemmParamsAttr>()) {
-      os << "xdlops_gemm_params";
+      os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -122,7 +124,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
   }
 
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  Optional<TransformType> transformType =
+  std::optional<TransformType> transformType =
       getTransformTypeForName(transformName);
   if (!transformType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known transform")
@@ -233,10 +235,10 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     return emitError() << "Have " << lowerNames.size() << " names for "
                        << lowerDims.size() << " dimensions";
   }
-  if (type != TransformType::AddDim && lowerDims.size() == 0) {
+  if (type != TransformType::AddDim && lowerDims.empty()) {
     return emitError() << "The transformation must define outputs";
   }
-  if (upperDims.size() == 0) {
+  if (type != TransformType::ConstDim && upperDims.empty()) {
     return emitError() << "The transformation must have at least one input";
   }
 
@@ -246,7 +248,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
       return emitError()
              << "PassThrough must have the same number of inputs and outputs";
     }
-    if (params.size() != 0) {
+    if (!params.empty()) {
       return emitError() << "PassThrough has no parameters";
     }
     break;
@@ -267,8 +269,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     }
     break;
   }
-  case TransformType::Merge:
-  case TransformType::Unfold: {
+  case TransformType::Merge: {
     if (upperDims.size() != 1) {
       return emitError()
              << "Merge and unfold can only have one input dimension";
@@ -286,7 +287,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != upperDims.size()) {
       return emitError() << "Must supply a size parameter for each dimension";
     }
-    if (lowerDims.size() != 0) {
+    if (!lowerDims.empty()) {
       return emitError() << "The added dimension cannot be mapped anywhere";
     }
     break;
@@ -297,6 +298,21 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (params.size() != lowerDims.size()) {
       return emitError()
              << "Broadcast must specify the output length for each dimension";
+    }
+    break;
+  case TransformType::ConstDim:
+    if (!upperDims.empty())
+      return emitError() << "ConstDim must not take any inputs";
+    if (params.size() != 2 * lowerDims.size())
+      return emitError()
+             << "ConstDim is parameterized by [value, length] pairs";
+    for (size_t i = 0, e = params.size(); i < e; i += 2) {
+      if (params[i] >= params[i + 1])
+        return emitError() << "For constant dimension " << lowerDims[i / 2]
+                           << " constant value " << params[i]
+                           << " must be less than dimension "
+                              "length "
+                           << params[i + 1];
     }
     break;
   }
@@ -319,7 +335,7 @@ TransformAttr getTransformAttrChecked(
 TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   return TransformMapAttr::getChecked(emitError, context, ops, map, upperBounds,
                                       lowerBounds);
 }
@@ -327,7 +343,7 @@ TransformMapAttr getTransformMapAttrChecked(
 LogicalResult TransformMapAttr::verify(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<::mlir::rock::TransformAttr> ops, AffineMapAttr map,
-    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+    DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds) {
   AffineMap rawMap = map.getAffineMap();
   if (rawMap.getNumInputs() != upperBounds.size()) {
     return emitError() << "Affine map has " << rawMap.getNumInputs()
@@ -340,12 +356,12 @@ LogicalResult TransformMapAttr::verify(
                        << " outut dimensions";
   }
 
-  for (int64_t v : upperBounds) {
+  for (int64_t v : upperBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Upper bound/shape component less than 0";
     }
   }
-  for (int64_t v : lowerBounds) {
+  for (int64_t v : lowerBounds.asArrayRef()) {
     if (v < 0) {
       return emitError() << "Lower bound/shape component less than 0";
     }
@@ -480,6 +496,40 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
+static LogicalResult verifyGemmTypes(Operation *op, Type elemTypeA,
+                                     Type elemTypeB, Type elemTypeC) {
+  if (elemTypeA != elemTypeB &&
+      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
+      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
+    return op->emitOpError("mixed input types (")
+           << elemTypeA << " and " << elemTypeB
+           << ") are only supported for 8-bit floats";
+  if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
+    return op->emitOpError("floating-point input type ")
+           << elemTypeA
+           << " requires a floating-point output type, but the output type is "
+           << elemTypeC;
+  }
+  if (elemTypeA.isa<IntegerType>() && !elemTypeC.isa<IntegerType>()) {
+    return op->emitOpError("integer input type ")
+           << elemTypeA
+           << " requires an integer output type, but the output type is "
+           << elemTypeC;
+  }
+  return success();
+}
+
+static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
+  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType();
+  Type elemTypeC = gemmOp.getOutArgument()
+                       ->get()
+                       .getType()
+                       .cast<ShapedType>()
+                       .getElementType();
+
+  return verifyGemmTypes(gemmOp, elemTypeA, elemTypeB, elemTypeC);
+}
+
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
@@ -501,6 +551,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
 
   bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+  if (failed(verifyGemmTypes(gemmOp)))
+    return failure();
   if (gemmOp.getDerivedBlockSize().has_value() && !isXdlops) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -523,6 +575,26 @@ KernelType Conv2DBwdDataOp::getKernelType() {
 
 KernelType Conv2DBwdWeightOp::getKernelType() {
   return KernelType::Conv2DBwdWeight;
+}
+
+Type Conv2DOp::getAType() { return getFilter().getType().getElementType(); }
+
+Type Conv2DBwdDataOp::getAType() {
+  return getFilter().getType().getElementType();
+}
+
+Type Conv2DBwdWeightOp::getAType() {
+  return getOutput().getType().getElementType();
+}
+
+Type Conv2DOp::getBType() { return getInput().getType().getElementType(); }
+
+Type Conv2DBwdDataOp::getBType() {
+  return getOutput().getType().getElementType();
+}
+
+Type Conv2DBwdWeightOp::getBType() {
+  return getInput().getType().getElementType();
 }
 
 OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
@@ -602,7 +674,8 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 // GemmOp
 //===-----------------------------------------------------===//
 
-LogicalResult checkGemmSize(Value matrix, Operation *op, StringRef name) {
+static LogicalResult checkGemmSize(Value matrix, Operation *op,
+                                   StringRef name) {
   constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
   // Hack: remove padding, other transformations that add "size" to a matrix
   // without affecting the underlying buffer's maximum index, which must be
@@ -657,6 +730,7 @@ LogicalResult GemmOp::verify() {
            << " k_a = " << kA << " k_b = " << kB;
 
   bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
@@ -671,11 +745,11 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
+  if (getStoreMethod() != StoreMethod::Set && !isXdlops && !isWmma) {
     return emitOpError("general kernels don't support non-set store methods");
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops) {
+  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -685,10 +759,19 @@ LogicalResult GemmOp::verify() {
       failed(checkGemmSize(getC(), *this, "C"))) {
     return failure();
   }
+
+  RockGemmWrapperInterface gemmIfaceOp =
+      cast<RockGemmWrapperInterface>(this->getOperation());
+  if (failed(verifyGemmTypes(gemmIfaceOp)))
+    return failure();
   return success();
 }
 
 KernelType GemmOp::getKernelType() { return KernelType::Gemm; }
+
+Type GemmOp::getAType() { return getA().getType().getElementType(); }
+
+Type GemmOp::getBType() { return getB().getType().getElementType(); }
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
@@ -705,19 +788,19 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 //===-----------------------------------------------------===//
-// GridwiseGemmOp and GridwiseGemmV2 Op
+// GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
-  if (aElem != bElem)
-    return op.emitOpError("cannot mix element types for A and B");
-  if (cElem.isInteger(32) && !aElem.isInteger(8))
-    return op.emitOpError("i32 output requires i8 input");
+  if (failed(verifyGemmTypes(op, aElem, bElem, cElem)))
+    return failure();
   if (aElem.isInteger(8) && !cElem.isInteger(32))
     return op.emitOpError("i8 input requires i32 output");
+  if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
+    return op.emitOpError("8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();
@@ -756,7 +839,9 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
 
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
-LogicalResult GridwiseGemmV2Op::verify() { return verifyGridwiseGemm(*this); }
+LogicalResult GridwiseGemmAccelOp::verify() {
+  return verifyGridwiseGemm(*this);
+}
 
 //===-----------------------------------------------------===//
 // ExtractSliceOp
@@ -814,9 +899,9 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 
 static ArrayAttr maybeIndexArray(OpBuilder &b,
-                                 Optional<ArrayRef<int64_t>> vals) {
-  return vals
-      .transform([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
+                                 std::optional<ArrayRef<int64_t>> vals) {
+  return llvm::transformOptional(
+             vals, [&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
       .value_or(ArrayAttr{});
 }
 
@@ -824,7 +909,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, b.getArrayAttr(transforms),
@@ -844,7 +929,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits, ArrayAttr transforms,
                               ArrayRef<int64_t> bounds,
-                              Optional<ArrayRef<int64_t>> strides,
+                              std::optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   build(b, state, inits, transforms, b.getIndexArrayAttr(bounds),
@@ -905,6 +990,14 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
       bodyBlock.addArgument(indexType, state.location);
     nLower += len;
   }
+  // Validity arguments
+  lowerStarts.push_back(nLower);
+  int32_t nTransforms = transforms.size();
+  for (int32_t i = 0; i < nTransforms; ++i) {
+    bodyBlock.addArgument(b.getI1Type(), state.location);
+  }
+  nLower += nTransforms;
+  // Iteration arguments
   lowerStarts.push_back(nLower);
   state.addAttribute(getLowerStartsAttrName(state.name),
                      b.getI32VectorAttr(lowerStarts));
@@ -946,7 +1039,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
             parser.parseEqual()) {
           return failure();
         }
-        for (size_t i = 0; i < lowerArgs.size(); i++) {
+        for (size_t i = oldNLower; i < lowerArgs.size(); ++i) {
           lowerArgs[i].type = indexTy;
         }
         ArrayAttr theseTransforms;
@@ -956,7 +1049,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         if (parser.parseOperandList(upperInits, Delimiter::Paren)) {
           return failure();
         }
-        if (theseTransforms.size() == 0) {
+        if (theseTransforms.empty()) {
           if (upperInits.size() - oldNUpper != lowerArgs.size() - oldNLower) {
             return parser.emitError(loopIterLoc,
                                     "Expected same number of lower and upper "
@@ -999,7 +1092,23 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
     return failure();
   }
   lowerStarts.push_back(lowerArgs.size());
+  size_t preValiditiesNLower = lowerArgs.size();
+  // Validity arguments.
+  llvm::SMLoc validitiesLoc = parser.getCurrentLocation();
+  if (parser.parseArgumentList(lowerArgs, Delimiter::Paren) ||
+      parser.parseEqual() || parser.parseKeyword("validity")) {
+    return failure();
+  }
+  if (lowerArgs.size() - preValiditiesNLower != transforms.size())
+    return parser.emitError(
+        validitiesLoc, "Expected " + Twine(transforms.size()) +
+                           " validity arguments, one per domain, but found " +
+                           Twine(lowerArgs.size() - preValiditiesNLower));
+  for (size_t i = preValiditiesNLower, e = lowerArgs.size(); i < e; ++i) {
+    lowerArgs[i].type = b.getI1Type();
+  }
 
+  lowerStarts.push_back(lowerArgs.size());
   result.addAttribute(TransformingForOp::getTransformsAttrName(result.name),
                       b.getArrayAttr(transforms));
   result.addAttribute(TransformingForOp::getLowerStartsAttrName(result.name),
@@ -1103,7 +1212,11 @@ void TransformingForOp::print(OpAsmPrinter &p) {
     }
   }
 
-  if (getIterInits().size() > 0) {
+  p << " (";
+  p.printOperands(getValidities());
+  p << ") = validity";
+
+  if (!getIterInits().empty()) {
     p << " iter_args (";
     llvm::interleaveComma(llvm::zip(getIterArgs(), getIterInits()), p,
                           [&](auto i) {
@@ -1114,11 +1227,11 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   }
   p << " bounds [";
   llvm::interleaveComma(getBounds().getAsValueRange<IntegerAttr>(), p,
-                        [&](llvm::APInt bound) { p << bound; });
+                        [&](const llvm::APInt &bound) { p << bound; });
   p << "] ";
   p << "strides [";
   llvm::interleaveComma(getStrides().getAsValueRange<IntegerAttr>(), p,
-                        [&](llvm::APInt stride) { p << stride; });
+                        [&](const llvm::APInt &stride) { p << stride; });
   p << "] ";
   p.printRegion(getRegion(), /*printEntryBlockArgs=*/false);
 }
@@ -1147,9 +1260,12 @@ LogicalResult TransformingForOp::verify() {
   }
 
   uint32_t lowerArgsCount = 0;
-  if (getLowerStarts().size() != domains() + 1) {
+  if (getLowerStarts().size() != domains() + 2) {
     return emitOpError(
-        "Lower starts attribute doesn't have one entry per domain plus 1");
+        "Lower starts attribute doesn't have one entry per domain plus 2");
+  }
+  if (getLowerStart(domains() + 1) - getLowerStart(domains()) != domains()) {
+    return emitOpError("Validity domain doesn't contain one value per domain");
   }
   if (getLowerStart(0) != 0) {
     return emitOpError("Region args don't start with lower coords");
@@ -1159,7 +1275,7 @@ LogicalResult TransformingForOp::verify() {
     ArrayAttr transforms = getTransforms(i);
     auto lowerArgs = getLowerCoords(i);
     auto upperInits = getUpperInits(i);
-    if (transforms.size() == 0) {
+    if (transforms.empty()) {
       if (upperInits.size() != lowerArgs.size()) {
         return emitOpError("Mismatch between number of lower and upper "
                            "coordinates without a transform in domain #" +
@@ -1247,30 +1363,13 @@ LogicalResult IndexDiffUpdateOp::verify() {
 LogicalResult BufferLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
-  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Left OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Left OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
-  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Right OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Right OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
 
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (sourceType.getMemorySpaceAsInt() != 0)
+  Attribute memSpaceAttr = sourceType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr ||
+                       gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Source memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
     return emitOpError(
@@ -1284,29 +1383,12 @@ LogicalResult BufferLoadOp::verify() {
 LogicalResult BufferStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Left OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Left OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
-  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
-    int32_t dim = dimVal.getSExtValue();
-    if (dim < 0)
-      return emitOpError("Right OOB dimensions must be non-negative, got " +
-                         Twine(dim));
-    if (static_cast<uint32_t>(dim) >= nDims)
-      return emitOpError(
-          "Right OOB dims must refer to one of the " + Twine(nDims) +
-          " dimensions of the memref but got dimension " + Twine(dim));
-  }
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
-  if (destType.getMemorySpaceAsInt() != 0)
+  Attribute memSpaceAttr = destType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr ||
+                       gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Destination memref must live in global memory");
   if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
     return emitOpError(
@@ -1349,7 +1431,10 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
-  if (destType.getMemorySpaceAsInt() != 5)
+  Attribute memSpaceAttr = destType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
+                                               gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1368,7 +1453,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
-  if (sourceType.getMemorySpaceAsInt() != 5)
+  Attribute memSpaceAttr = sourceType.getMemorySpace();
+  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
+                                               gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> viewInputShape;
@@ -1422,19 +1510,14 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmV2Op
+// AccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult XdlopsGemmV2Op::verify() {
+LogicalResult AccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape(),
-                    cShape = getMatrixC().getType().getShape();
+                    bShape = getMatrixB().getType().getShape();
 
-  if (aShape[1] != bShape[1])
+  if (aShape != bShape)
     return emitOpError("K dimensions don't match");
-  if (aShape[0] != cShape[0])
-    return emitOpError("M dimensions don't match");
-  if (bShape[0] != cShape[1])
-    return emitOpError("N dimensions don't match");
   return success();
 }
 //===----------------------------------------------------------------------===//
@@ -1514,6 +1597,32 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                      SetIntRangeFn setResultRanges) {
   setResultRanges(getResult(), getIdRange("block_size", getOperation()));
 }
+
+//===-----------------------------------------------------===//
+// ReduceOp
+//===-----------------------------------------------------===//
+
+LogicalResult ReduceOp::verify() {
+  APInt axis = getAxis();
+  ArrayRef<int64_t> inpShape = getIn().getType().cast<ShapedType>().getShape();
+  for (const auto &dimAndSize :
+       llvm::enumerate(getOut().getType().cast<ShapedType>().getShape())) {
+    size_t dim = dimAndSize.index();
+    int64_t dimSize = dimAndSize.value();
+    if (dim == axis) {
+      if (dimSize != 1) {
+        return emitError("The size of the reduction dimension should be 1.");
+      }
+    } else {
+      if (dimSize != inpShape[dim]) {
+        return emitError(
+            "The size of the non-reduction dimension should match the input.");
+      }
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//

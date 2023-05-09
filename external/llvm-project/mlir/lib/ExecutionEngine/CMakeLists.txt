@@ -5,7 +5,7 @@ set(LLVM_OPTIONAL_SOURCES
   AsyncRuntime.cpp
   CRunnerUtils.cpp
   CudaRuntimeWrappers.cpp
-  SparseTensorUtils.cpp
+  SparseTensorRuntime.cpp
   ExecutionEngine.cpp
   Float16bits.cpp
   RocmDeviceName.cpp
@@ -44,6 +44,7 @@ add_mlir_library(MLIRExecutionEngineUtils
   TransformUtils
   IPO
   Passes
+  TargetParser
   )
 
 if(NOT MLIR_ENABLE_EXECUTION_ENGINE)
@@ -125,13 +126,28 @@ add_mlir_library(MLIRJitRunner
   MLIRSupport
 )
 
+add_mlir_library(mlir_float16_utils
+  SHARED
+  Float16bits.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+  )
+set_property(TARGET mlir_float16_utils PROPERTY CXX_STANDARD 17)
+target_compile_definitions(mlir_float16_utils PRIVATE mlir_float16_utils_EXPORTS)
+
+add_subdirectory(SparseTensor)
+
 add_mlir_library(mlir_c_runner_utils
   SHARED
   CRunnerUtils.cpp
-  Float16bits.cpp
-  SparseTensorUtils.cpp
+  SparseTensorRuntime.cpp
 
   EXCLUDE_FROM_LIBMLIR
+
+  LINK_LIBS PUBLIC
+  mlir_float16_utils
+  MLIRSparseTensorEnums
+  MLIRSparseTensorRuntime
   )
 set_property(TARGET mlir_c_runner_utils PROPERTY CXX_STANDARD 17)
 target_compile_definitions(mlir_c_runner_utils PRIVATE mlir_c_runner_utils_EXPORTS)
@@ -197,8 +213,14 @@ if(MLIR_ENABLE_ROCM_RUNNER)
       set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
     endif()
   endif()
+  # A lot of the ROCm CMake files expect to find their own dependencies in
+  # CMAKE_PREFIX_PATH and don't respect PATHS or HINTS :( .
+  # Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
+  # load HIP, then remove it
+  set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
   list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
   find_package(hip REQUIRED)
+  set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
   if (NOT DEFINED ROCM_TEST_CHIPSET)
     execute_process(COMMAND "${ROCM_PATH}/bin/rocm_agent_enumerator"

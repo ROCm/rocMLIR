@@ -3,13 +3,17 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/InitRocMLIRDialects.h"
+#include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 
+#include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <iostream>
@@ -24,11 +28,31 @@ using namespace mlir;
 namespace {
 struct MiirHandle_s {
   MiirHandle_s() {
-    OpBuilder builder(&getContext());
-    module = ModuleOp::create(builder.getUnknownLoc());
+    DialectRegistry &registry = getRegistry();
+    llvm::ThreadPool &pool = getThreadPool();
+    context = new MLIRContext(registry, MLIRContext::Threading::DISABLED);
+    context->setThreadPool(pool);
+    // Turn off all diagnotic printing on op and stacktrace
+    // Note: This is not necessary with below handler
+    context->printOpOnDiagnostic(false);
+    context->printStackTraceOnDiagnostic(false);
+    // Register a handler that swallows all diagnostic print
+    DiagnosticEngine &engine = context->getDiagEngine();
+    engine.registerHandler([](Diagnostic &diag) {});
+    context->loadDialect<rock::RockDialect, func::FuncDialect>();
+
+    module = ModuleOp::create(UnknownLoc::get(context));
   }
+
+  ~MiirHandle_s() { delete context; }
+
+  mlir::MLIRContext &getContext() { return *context; }
+
   mlir::ModuleOp getModule() { return module.get(); }
+
+  mlir::MLIRContext *context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
+
   std::string triple;
   std::string chip;
   std::string features;
@@ -37,51 +61,30 @@ struct MiirHandle_s {
   int workspace = 0;
 
 private:
-  MLIRContext &getContext() {
-    auto getRegistry = []() {
-      DialectRegistry registry;
-      registerRocMLIRDialects(registry);
-      return registry;
-    };
-    static MLIRContext context(getRegistry());
+  // In multi-threaded context, static intialization is guaranteed to
+  // be thread safe, since C++11. Refer to
+  // https://en.cppreference.com/w/cpp/language/storage_duration
+  //
+  // With this guarantee, we are protected from the possible race
+  // condition of one thread doing intialization and another doing
+  // lowering.
+  DialectRegistry &getRegistry() {
+    static DialectRegistry registry;
     static std::once_flag once;
     std::call_once(once, []() {
-      // Turn off all diagnotic printing on op and stacktrace
-      // Note: This is not necessary with below handler
-      context.printOpOnDiagnostic(false);
-      context.printStackTraceOnDiagnostic(false);
-      // Register a handler that swallows all diagnostic print
-      DiagnosticEngine &engine = context.getDiagEngine();
-      engine.registerHandler([](Diagnostic &diag) {});
-      context.loadDialect<rock::RockDialect, func::FuncDialect>();
+      registerRocMLIRDialects(registry);
+      registerRocMLIRPasses();
     });
-    return context;
+    return registry;
+  }
+
+  // While we have multiple contexts, we'll only have one thread pool among
+  // them.
+  llvm::ThreadPool &getThreadPool() {
+    static llvm::ThreadPool pool;
+    return pool;
   }
 };
-
-// In multi-threaded context, static intialization is guaranteed to
-// be thread safe, since C++11. Refer to
-// https://en.cppreference.com/w/cpp/language/storage_duration
-//
-// With this guarantee, we are protected from the possible race
-// condition of one thread doing intialization and another doing
-// lowering.
-void miirLazyInit() {
-  static std::once_flag once;
-  std::call_once(once, []() {
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
-
-    // Initialize LLVM AMDGPU backend.
-    LLVMInitializeAMDGPUTarget();
-    LLVMInitializeAMDGPUTargetInfo();
-    LLVMInitializeAMDGPUTargetMC();
-    LLVMInitializeAMDGPUAsmPrinter();
-  });
-}
 
 LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
   const std::string &inLayout = conf.inputLayout;
@@ -129,8 +132,14 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   ModuleOp module = handle->getModule();
   OpBuilder builder(module.getContext());
-  handle->kernelCount = conv2dGenerator.getKernelCount(builder);
-  handle->workspace = conv2dGenerator.getWorkspaceSize(module);
+
+  if (failed(conv2dGenerator.getKernelCount(builder, handle->kernelCount))) {
+    return nullptr;
+  }
+
+  if (failed(conv2dGenerator.getWorkspaceSize(module, handle->workspace))) {
+    return nullptr;
+  }
 
   if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
@@ -233,7 +242,6 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
-  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
@@ -254,7 +262,6 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
-  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);

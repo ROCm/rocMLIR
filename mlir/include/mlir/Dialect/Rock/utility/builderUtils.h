@@ -26,6 +26,9 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 /// Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 
+/// Utility function to get the number of bytes a value of type `type` takes up.
+int64_t getByteWidth(Type type);
+
 } // namespace rock
 } // namespace mlir
 

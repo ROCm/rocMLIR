@@ -50,7 +50,7 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
-static LogicalResult runMLIRPasses(ModuleOp m) {
+static LogicalResult runMLIRPasses(Operation *m, JitRunnerOptions &options) {
   // Canonicalize target arch
   if (targetType == "GPU" && !targetArch.empty()) {
     RocmDeviceName devName;
@@ -80,7 +80,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
 
   // Host Compiler/Scheduler Pipeline
-  PassManager pm(m.getContext());
+  PassManager pm(m->getContext());
   applyPassManagerCLOptions(pm);
 
   xmodel::RunnerOptions opts;

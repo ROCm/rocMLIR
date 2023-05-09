@@ -1,5 +1,4 @@
-//===- AlignTiling.cpp - Align Linalg ops with Rock ops
-//------------------===//
+//===- AlignTiling.cpp - Align Linalg ops with Rock ops -------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -21,8 +20,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -32,9 +32,13 @@
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Visitors.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -61,400 +65,563 @@ struct RockLinalgAlignPass
   void runOnOperation() override;
 };
 
-struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
+struct LAGenericRewritePattern : public OpRewritePattern<linalg::GenericOp> {
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
                                 PatternRewriter &b) const override;
 };
+
+struct MemcpyRewritePattern : public OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern<memref::CopyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::CopyOp copy,
+                                PatternRewriter &b) const override;
+};
+
+struct ReduceRewritePattern : public OpRewritePattern<rock::ReduceOp> {
+  using OpRewritePattern<rock::ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::ReduceOp reduceOp,
+                                PatternRewriter &rewriter) const override;
+};
 } // end anonymous namespace
 
-static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
-                                      GlobalStoreOp gemmStoreOp, Value srcOp,
-                                      Value dest) {
-  LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType() << " dest type: "
-                          << gemmStoreOp.getDest().getType() << "\n");
-  SmallVector<Value, 6> loadCoord = gemmStoreOp.getDestCoord();
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+static void moveTransformsBefore(PatternRewriter &b, Value val) {
+  if (auto defOp = val.getDefiningOp()) {
+    if (auto rtop = dyn_cast<TransformOp>(defOp)) {
+      moveTransformsBefore(b, rtop.getOperand());
 
-  auto writeCLoop = gemmStoreOp->getParentOfType<TransformingForOp>();
-  assert(writeCLoop && "global_store must be in a transforming_for");
-
-  // Handle broadcasts introduced during fusion.
-  ArrayAttr sourceTransformsFromOp;
-  Value source;
-  std::tie(source, sourceTransformsFromOp) = untransform(b, srcOp);
-
-  int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
-  Type destElemType = dest.getType().cast<MemRefType>().getElementType();
-
-  ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
-  ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
-
-  // In general, note that keeping the vectorization of the writeback is safe
-  // on account of the fact that vectorization means that the maps for the
-  // gemm output (and thus the extra argument) are contiguous in the
-  // underlying memory.
-
-  // If there are no broadcasts, re-use the coordianes for the writeback
-  if (sourceTransformsFromOp.empty()) {
-    Type typeToLoad = destElemType;
-    if (copyLength > 1)
-      typeToLoad = VectorType::get({copyLength}, typeToLoad);
-
-    Value loaded = b.create<GlobalLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
-    b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
-  } else {
-    // Note: the vectorization of extra argument may be smaller than the
-    // vectorization of the convolution.
-    size_t extraMapInSize = loadCoord.size();
-    std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
-        b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
-
-    int64_t lastDim = extraMapInSize - 1;
-    int64_t maxVectorLen =
-        getMaxVectorization(sourceTransformsFromOp, lastDim, copyLength,
-                            source.getType().cast<MemRefType>().getShape());
-
-    SmallVector<int64_t> bounds(extraMapInSize, 1LL),
-        strides(extraMapInSize, 1LL);
-    bounds[lastDim] = copyLength;
-    strides[lastDim] = maxVectorLen;
-
-    SmallVector<Value> zeroes(extraMapInSize, zero);
-
-    Type typeToLoad = destElemType;
-    if (maxVectorLen > 1)
-      typeToLoad = VectorType::get(maxVectorLen, typeToLoad);
-
-    auto copyLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{loadCoord, zeroes},
-        ArrayRef<Attribute>{sourceTransformsFromOp, b.getArrayAttr({})},
-        /*bounds=*/ArrayRef<int64_t>(bounds),
-        /*strides=*/ArrayRef<int64_t>(strides), /*forceUnroll=*/true,
-        /*useIndexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(copyLoop.getBody());
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
-      b.create<InBoundsStoreOp>(loc, loaded, dest,
-                                copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
+      defOp->remove();
+      b.insert(defOp);
+    } else {
+      llvm_unreachable("must trace to func.arg");
     }
   }
 }
 
-static Value makeTransformingCopyLoop(PatternRewriter &b, GlobalStoreOp storeOp,
-                                      Value inp) {
+static Value applyViewsOnDest(PatternRewriter &rewriter, Location loc,
+                              Value dest, ArrayRef<TransformMapAttr> views) {
+  for (TransformMapAttr trMap : views) {
+    dest = rewriter.create<TransformOp>(loc, dest, trMap);
+  }
+  return dest;
+}
+
+Value makeRegs(PatternRewriter &b, MemRefType::Builder &mrb, Location loc,
+               Type srcType) {
+  auto srcMemType = srcType.cast<MemRefType>();
+  // 1. create a second allocation of the same type to hold loaded elements
+  return b.create<GpuAllocOp>(loc, static_cast<MemRefType>(mrb.setElementType(
+                                       srcMemType.getElementType())));
+}
+
+static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
+                             Value src,
+                             ArrayRef<TransformMapAttr> relativeViewsOnStore) {
   // 0. capture the memref containing the outputs being written
   Location loc = storeOp.getLoc();
-  Value gemmOuts = storeOp.getSource();
-  auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
-  int64_t sliceLength = storeOp.getLength().getSExtValue();
-  auto sliceLengthType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
+  Value gemmOut = storeOp.getSource();
 
   // 1. create a second allocation of the same type to hold loaded elements
-  Value alloc = b.create<GpuAllocOp>(loc, sliceLengthType);
+  MemRefType::Builder mrb(gemmOut.getType().cast<MemRefType>());
+  Value alloc = makeRegs(b, mrb, loc, src.getType());
 
-  // 2. clone twcopy for <addend> -> regs as transforming_for
-  insertLoadFromOtherSource(b, loc, storeOp, inp, alloc);
+  // 2. clone twcopy for <addend> into regs
+  LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType() << " dest type: "
+                          << storeOp.getDest().getType() << "\n");
+
+  // 2.0. first move all transforms before the relocated linalg.generic
+  moveTransformsBefore(b, src);
+
+  // 2.1. apply transform chain from output
+  src = applyViewsOnDest(b, loc, src, relativeViewsOnStore);
+
+  // 2.2. load into registers
+  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, storeOp.getExtraViews(),
+                                 storeOp.getForceUnroll(),
+                                 storeOp.getUseIndexDiffs());
   return alloc;
 }
 
-Value applyTransforms(PatternRewriter &b, GlobalStoreOp gemmStoreOp, Value inp,
-                      AffineMap outToInpMap) {
-  Value ret = inp;
-
-  // 1. insert broadcast op if necessary
-  MemRefType outType = gemmStoreOp.getDest().getType();
-  ret = insertTransposeAndBroadcastTransforms(b, outType.getShape(), ret,
-                                              outToInpMap);
-
-  // 2. also create global_store from global to regs
-  //    TODO(sjw): make sure output buffer writes (means these inputs will be
-  //    buffer reads)
-  return makeTransformingCopyLoop(b, gemmStoreOp, ret);
+static void traceToNonViewUsers(Operation *op,
+                                SmallVectorImpl<Operation *> &nonViewOps) {
+  if (auto transform = dyn_cast<TransformOp>(op)) {
+    Value result = transform.getResult();
+    for (auto &use : result.getUses()) {
+      traceToNonViewUsers(use.getOwner(), nonViewOps);
+    }
+  } else {
+    nonViewOps.push_back(op);
+  }
 }
 
-static GlobalStoreOp traceToGlobalStore(Value inp) {
+// This function traces to non view readers.
+// TODO(@manupak): we should really be implementing
+// MemoryEffectOpInterface to ops to make this simpler
+// to identify readers.
+static LogicalResult
+traceToNonViewReaders(Operation *op, Value parentVal,
+                      SmallVectorImpl<Operation *> &nonViewReaders) {
+  if (auto transform = dyn_cast<TransformOp>(op)) {
+    Value result = transform.getResult();
+    for (auto &use : result.getUses()) {
+      return traceToNonViewReaders(use.getOwner(), result, nonViewReaders);
+    }
+  } else {
+    if (ThreadwiseWriteAllOp twWriteAllOp =
+            dyn_cast<ThreadwiseWriteAllOp>(op)) {
+      if (twWriteAllOp.getSource() == parentVal) {
+        nonViewReaders.push_back(op);
+      }
+    } else if (MemoryEffectOpInterface memEffectOp =
+                   dyn_cast<MemoryEffectOpInterface>(op)) {
+      if (hasEffect<MemoryEffects::Read>(memEffectOp, parentVal)) {
+        nonViewReaders.push_back(op);
+      }
+    } else if (CopyOpInterface copyOp = dyn_cast<CopyOpInterface>(op)) {
+      if (copyOp.getSource() == parentVal) {
+        nonViewReaders.push_back(op);
+      }
+    } else {
+      return op->emitError() << "Found an unsupported operator that needs to "
+                                "be added reader checks \n"
+                             << op;
+    }
+  }
+  return success();
+}
+
+static Operation *traceToNonViewDef(Operation *op,
+                                    SmallVectorImpl<TransformMapAttr> &views,
+                                    Operation *terminator) {
+  if (op == terminator) {
+    return op;
+  }
+  if (auto transform = dyn_cast<TransformOp>(op)) {
+    Operation *nonViewDef = traceToNonViewDef(
+        transform.getViewSource().getDefiningOp(), views, terminator);
+    views.push_back(transform.getTransformAttr());
+    return nonViewDef;
+  }
+  return op;
+}
+
+static Operation *traceToNonViewDef(Operation *op) {
+  if (auto transform = dyn_cast<TransformOp>(op)) {
+    return traceToNonViewDef(transform.getViewSource().getDefiningOp());
+  } else {
+    return op;
+  }
+}
+
+// This function checks given a parent operation and a reader candidate
+// whether that reader is the unique reader of the parent operation.
+// This is to be used identify where interrim memrefs could be eliminated
+// and fused.
+static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
+                                       bool &isUnique) {
+  op = traceToNonViewDef(op);
+  SmallVector<Operation *, 4> nonViewReaders;
+  Operation *nonViewDef = traceToNonViewDef(op);
+  for (Value result : nonViewDef->getResults()) {
+    // if its block arg, it can have uses beyond the unit of compilation
+    // in scope here.
+    if (result.isa<BlockArgument>()) {
+      isUnique = false;
+    }
+    for (auto &use : result.getUses()) {
+      LogicalResult traceResult =
+          traceToNonViewReaders(use.getOwner(), result, nonViewReaders);
+      if (traceResult.failed()) {
+        return traceResult;
+      }
+    }
+  }
+  if (nonViewReaders.size() != 1) {
+    isUnique = false;
+  }
+  isUnique = (nonViewReaders[0] == reader);
+  return success();
+}
+
+static ThreadwiseWriteAllOp traceToThreadwiseWrite(
+    Value inp, SmallVectorImpl<TransformMapAttr> &inpToTWWriteAllViews) {
   // 1. Validate that the only uses of the linalg.generic input are the one
   // generic and a copy operation or transform.
-  bool allValidUses = true;
-  GlobalStoreOp result;
+  ThreadwiseWriteAllOp result;
   for (Operation *use : inp.getUsers()) {
-    if (isa<memref::DeallocOp>(use)) {
-      // ignore
-      continue;
-    }
-    if (isa<linalg::GenericOp>(use)) {
-      // reader
-    } else if (auto store = dyn_cast<GlobalStoreOp>(use)) {
-      // Threadwise copy that is already unttransformed (new style)
-      if (result) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Multiple global stores somehow, no fusion\n");
-        allValidUses = false;
+    SmallVector<Operation *, 4> nonViewUsers;
+    traceToNonViewUsers(use, nonViewUsers);
+    for (Operation *nonViewUse : nonViewUsers) {
+      if (isa<memref::DeallocOp>(nonViewUse)) {
+        // ignore
+        continue;
       }
-      result = store;
-    } else {
-      allValidUses = false;
+      if (auto lgop = dyn_cast<linalg::GenericOp>(nonViewUse)) {
+        // We dont check for linalg.generic readers
+        // here because they could both be reading and writing
+        // to intermediary buffer that could be copied as an
+        // additional kernel output.
+      } else if (auto reduceOp = dyn_cast<ReduceOp>(nonViewUse)) {
+        // reader
+        if (inp != reduceOp.getIn()) {
+          return ThreadwiseWriteAllOp();
+        }
+      } else if (auto memcpy = dyn_cast<memref::CopyOp>(nonViewUse)) {
+        // reader
+        if (memcpy.getSource() != inp) {
+          return ThreadwiseWriteAllOp();
+        }
+      } else if (auto store = dyn_cast<ThreadwiseWriteAllOp>(nonViewUse)) {
+        // Threadwise copy that is already unttransformed (new style)
+        if (result) {
+          LLVM_DEBUG(llvm::dbgs() << "Multiple global stores somehow\n");
+          return ThreadwiseWriteAllOp();
+        } else {
+          SmallVector<TransformMapAttr> views;
+          traceToNonViewDef(store.getDest().getDefiningOp(), views,
+                            inp.getDefiningOp());
+          result = store;
+          inpToTWWriteAllViews.insert(inpToTWWriteAllViews.begin(),
+                                      views.begin(), views.end());
+        }
+      } else {
+        return ThreadwiseWriteAllOp();
+      }
     }
   }
 
   if (!result)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy\n");
-  if (!allValidUses)
-    LLVM_DEBUG(llvm::dbgs() << "Align tiling: found invalid use\n");
-  return allValidUses ? result : GlobalStoreOp();
+  return result;
 }
 
 // Returns the value of the buffer that's meant to be the new writeback.
-static Value reconfigureLAGeneric(PatternRewriter &b,
-                                  linalg::GenericOp laGeneric, Value laIn,
-                                  ArrayRef<AffineMap> idxMaps,
-                                  GlobalStoreOp gemmGlobalStore) {
-  MLIRContext *ctx = laGeneric.getContext();
-  Location loc = laGeneric.getLoc();
-  Value twout = gemmGlobalStore.getDest();
-  auto regType = laIn.getType().template cast<MemRefType>();
-  auto laOut = b.create<GpuAllocOp>(loc, regType);
-
-  AffineMap outIdxMap = idxMaps.back();
-  auto invertOutIdxMap = inversePermutation(outIdxMap);
-  SmallVector<AffineMap, 5> laGenericAMaps;
+static void
+reconfigureLAGeneric(PatternRewriter &b, linalg::GenericOp laGeneric,
+                     Value inRegs, Value outRegs,
+                     ThreadwiseWriteAllOp twWriteOp,
+                     ArrayRef<TransformMapAttr> relativeViewsOnStore) {
   SmallVector<Value, 5> newInputs;
-  for (auto pair : llvm::zip(laGeneric.inputs(), idxMaps)) {
-    if (Value inp = std::get<0>(pair)) {
-      AffineMap inpIdxMap = std::get<1>(pair);
-      auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
-      Value newInput;
-      if (inp == twout) {
-        newInput = laIn;
-      } else {
-        // 2.1.1. Align tiling of other inputs
-        newInput = applyTransforms(b, gemmGlobalStore, inp, outToInMap);
-      }
-      newInputs.push_back(newInput);
-      laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(
-          newInput.getType().template cast<MemRefType>().getRank(), ctx));
-    }
-  }
-  laGenericAMaps.push_back(
-      AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
+  SmallVector<AffineMap, 5> lgAMaps;
 
-  laGeneric.inputsMutable().assign(newInputs);
-  laGeneric.outputsMutable().assign(laOut);
+  for (auto inp : laGeneric.getInputs()) {
+    Value newInput;
+    SmallVector<TransformMapAttr> views;
+    if (traceToThreadwiseWrite(inp, views)) {
+      newInput = inRegs;
+    } else {
+      // 2.1.1. Align tiling of other inputs
+      newInput = applyTransforms(b, twWriteOp, inp, relativeViewsOnStore);
+    }
+    newInputs.push_back(newInput);
+
+    auto inpRank = newInput.getType().cast<ShapedType>().getRank();
+    lgAMaps.push_back(b.getMultiDimIdentityMap(inpRank));
+  }
+
+  laGeneric.getInputsMutable().assign(newInputs);
+  laGeneric.getOutputsMutable().assign(outRegs);
 
   // 2.2. Reset affine maps
-  laGeneric.indexing_mapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
+  auto regRank = inRegs.getType().cast<ShapedType>().getRank();
+
+  lgAMaps.push_back(b.getMultiDimIdentityMap(regRank));
+  laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(lgAMaps));
 
   // 2.3. Reset iterator types
-  SmallVector<StringAttr, 5> laGenericIteratorArr(regType.getRank(),
-                                                  b.getStringAttr("parallel"));
-  laGeneric.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
-      laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
-  return laOut;
+  MLIRContext *ctx = b.getContext();
+  SmallVector<Attribute, 5> iteratorTypes;
+  iteratorTypes.resize(regRank, linalg::IteratorTypeAttr::get(
+                                    ctx, utils::IteratorType::parallel));
+  laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
 }
 
-static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
-                                     Value &inputLeadingToGlobalStore,
-                                     GlobalStoreOp &gemmStoreOp) {
-  for (auto pair :
-       llvm::zip(laGeneric.inputs(), laGeneric.getIndexingMapsArray())) {
-    AffineMap inpIdxMap = std::get<1>(pair);
-    Value input = std::get<0>(pair);
-    GlobalStoreOp maybeStore = traceToGlobalStore(input);
-    if (maybeStore) {
-      if (gemmStoreOp) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Multiple generic inputs come from writeback\n");
-        return failure();
-      }
-
-      auto laGenericOut = laGeneric.getOutputOperand(0);
-      auto laGenericOutIdxMap = laGeneric.getTiedIndexingMap(laGenericOut);
-      auto invertOutIdxMap = inversePermutation(laGenericOutIdxMap);
-      auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
-      SmallVector<unsigned> permutedDims;
-      // This is not to allow broadcasting but due to canonical linalg
-      // form if the unit dims can carry affine expr to be zero in the
-      // translation, hence there is a following check.
-      if (!outToInMap.isMinorIdentityWithBroadcasting(&permutedDims)) {
-        LLVM_DEBUG(llvm::dbgs() << outToInMap << "\n");
-        LLVM_DEBUG(
-            llvm::dbgs()
-            << "The store is not even a minor identity with broadcasting.\n");
-        return failure();
-      }
-      auto inpShape = input.getType().cast<ShapedType>().getShape();
-      LLVM_DEBUG(llvm::dbgs() << "outToInMap = " << outToInMap << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "inp shape = "
-                              << input.getType().cast<ShapedType>() << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "permutedDims = ");
-      LLVM_DEBUG(llvm::interleaveComma(permutedDims, llvm::dbgs()));
-      LLVM_DEBUG(llvm::dbgs() << "\n");
-
-      for (auto bDim : permutedDims) {
-        if (inpShape[bDim] != 1) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "The store input cannot be a real broacast.\n");
-          return failure();
-        };
-      }
-      gemmStoreOp = maybeStore;
-      inputLeadingToGlobalStore = input;
+static Value
+findThreadwiseWrite(linalg::GenericOp laGeneric,
+                    ThreadwiseWriteAllOp &twWriteOp,
+                    SmallVector<TransformMapAttr> &laInToOutViews) {
+  for (auto input : laGeneric.getInputs()) {
+    if (auto twop = traceToThreadwiseWrite(input, laInToOutViews)) {
+      twWriteOp = twop;
+      return input;
     }
   }
-  if (!gemmStoreOp) {
-    LLVM_DEBUG(llvm::dbgs() << "No input is leading to a global store.\n");
-    return failure();
-  }
-  return success();
+
+  LLVM_DEBUG(llvm::dbgs() << "No input is leading to a global store.\n");
+  return Value();
 }
 
-LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
-                                                  PatternRewriter &b) const {
+LogicalResult
+LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
+                                         PatternRewriter &b) const {
   Location loc = laGeneric.getLoc();
 
   // 0. Test compatibility
   // 0.0. Only fully parallel for now
-  for (StringRef iterType :
-       laGeneric.iterator_types().getAsValueRange<StringAttr>())
-    if (iterType != "parallel")
-      return failure();
+  for (utils::IteratorType iterType : laGeneric.getIteratorTypesArray())
+    if (!linalg::isParallelIterator(iterType))
+      return laGeneric.emitError("must be fully parallel");
 
-  Value out = *laGeneric.outputs().begin(); // may be another arg
   // 0.1. Test compatibility,  Only 1 output supported
-  if (laGeneric.outputs().size() > 1)
-    return failure();
+  if (laGeneric.getOutputs().size() != 1)
+    return laGeneric.emitError("only 1 output supported");
+  Value out = *laGeneric.getOutputs().begin();
 
   // 0.2. Sanity check, skip already fused.
-  for (auto inp : laGeneric.inputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
       LLVM_DEBUG(llvm::dbgs() << "Found existing fusion, bailing\n");
       return failure();
     }
   }
 
-  if (laGeneric.getNumOutputs() != 1) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Currently, multi-output fusion is not supported.\n");
-    return failure();
-  }
-
   // 1. Trace input to global_store.
   // 1.1. Find the (implicit) gemm output
-  GlobalStoreOp gemmStoreOp;
-  Value laGenericInputLeadingToGlobalStore;
-  if (failed(findGlobalStore(laGeneric, laGenericInputLeadingToGlobalStore,
-                             gemmStoreOp))) {
+  ThreadwiseWriteAllOp gemmStoreOp;
+  SmallVector<TransformMapAttr> laInToOutViews;
+  Value laGenericInputLeadingToGemmStore =
+      findThreadwiseWrite(laGeneric, gemmStoreOp, laInToOutViews);
+  if (!laGenericInputLeadingToGemmStore)
     return failure();
-  }
-  auto actualLAGenericOut = laGeneric.getOutputOperand(0);
-  auto actualLAGenericOutIdxMap =
-      laGeneric.getTiedIndexingMap(actualLAGenericOut);
-  auto invertOutIdxMap = inversePermutation(actualLAGenericOutIdxMap);
-  if (laGenericInputLeadingToGlobalStore.getType() !=
-      actualLAGenericOut->get().getType()) {
-    LLVM_DEBUG(llvm::dbgs() << "Currently, we assume the shape of gemmStore op "
-                               "and linalg output is the same.\n");
-    LLVM_DEBUG(llvm::dbgs()
-               << "This instance it differs : "
-               << laGenericInputLeadingToGlobalStore.getType() << " vs "
-               << actualLAGenericOut->get().getType() << " .\n");
-    return failure();
+
+  auto outType = out.getType().cast<ShapedType>();
+  auto inpType = laGenericInputLeadingToGemmStore.getType().cast<ShapedType>();
+  if (outType.getShape() != inpType.getShape()) {
+    return laGeneric.emitError("input and output types must match");
   }
 
-  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
-  for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
-    AffineMap inpIdxMap = std::get<0>(pair);
-    auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
-    Value inp = std::get<1>(pair);
-    if (inp != laGenericInputLeadingToGlobalStore) {
-      SmallVector<unsigned> permutedDims;
-      if (!outToInMap.isProjectedPermutation(/*allowZeroInResults=*/true)) {
-        LLVM_DEBUG(llvm::dbgs() << outToInMap << "\n");
-        LLVM_DEBUG(llvm::dbgs() << "^ is not a isProjectedPermutation from "
-                                   "output coords to fusion input\n");
-        return failure();
-      }
+  for (auto idxMap : laGeneric.getIndexingMapsArray()) {
+    if (!idxMap.isIdentity()) {
+      return laGeneric.emitError("indexing_maps must all be identity");
     }
   }
+
   if (!gemmStoreOp) {
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: couldn't find writeback\n");
     return failure();
   }
-  // 2. Apply if input found
 
-  Value gemmOuts = gemmStoreOp.getSource();
-  auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
+  // We check the input leading to GEMM store has the current LA generic,
+  // that is being rewritten, as the unique reader. This is because if it is the
+  // unique reader, the previous memref does not need to be maintained anymore
+  // and we can directly write into the outputs of the current linalg blocks.
+  // Moreover, this is checked before any rewrite happens to avoid interference
+  // and used later below.
+  bool isUniqueReader;
+  LogicalResult checkResult =
+      checkUniqueReader(laGenericInputLeadingToGemmStore.getDefiningOp(),
+                        laGeneric, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
+  }
+
+  // 2. Apply if input found
+  Value gemmOut = gemmStoreOp.getSource();
+  auto gemmOutType = gemmOut.getType().cast<MemRefType>();
+
+  Value fusionRegs;
   {
     PatternRewriter::InsertionGuard guard(b);
     // 2.0. Reset insertion point to before the copy.
-    b.setInsertionPoint(gemmStoreOp);
-    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
+    b.setInsertionPoint(gemmOut.getDefiningOp());
     // 2.1. Take out a slice of the result vector to create a vector-sized
     // slice to enable creating the fusion section.
-    int64_t sliceLength = gemmStoreOp.getLength().getSExtValue();
-    MemRefType sliceType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
-    Value fusionSlice = b.create<GpuAllocOp>(loc, sliceType);
-    Type typeToCopy = sliceType.getElementType();
-    if (sliceType.getNumElements() > 1)
-      typeToCopy =
-          VectorType::get(sliceType.getShape(), sliceType.getElementType());
-    Value sliceVals = b.create<InBoundsLoadOp>(loc, typeToCopy, gemmOuts,
-                                               gemmStoreOp.getSourceCoord());
-    b.create<InBoundsStoreOp>(loc, sliceVals, fusionSlice, zero);
+    fusionRegs = b.create<GpuAllocOp>(loc, gemmOutType);
+  }
 
-    // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
-    Value laOutRegs =
-        reconfigureLAGeneric(b, laGeneric, fusionSlice, idxMaps, gemmStoreOp);
-    // 2.2.0. Move the generic before the write-back. This'll put all
-    // the copy loops for other inputs before the generic due to insertion
-    // order.
-    laGeneric->moveBefore(gemmStoreOp);
+  PatternRewriter::InsertionGuard guard(b);
+  // 2.0. Reset insertion point to before the copy.
+  b.setInsertionPoint(gemmStoreOp);
 
-    // 2.3. Replace twcopy inputs with la.generic result vgprs
+  MemRefType::Builder mrb(gemmOutType);
+  auto laOutRegs = makeRegs(b, mrb, loc, out.getType());
+  // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
+  reconfigureLAGeneric(b, laGeneric, fusionRegs, laOutRegs, gemmStoreOp,
+                       laInToOutViews);
+  // 2.2.0. Move the generic before the write-back. This'll put all
+  // the copy loops for other inputs before the generic due to insertion
+  // order.
 
-    // Since the threadwise copy arg has gone through untransform()
-    // its expected output type is the same as the output type of the
-    // linalg.generic.
-    gemmStoreOp.getSourceMutable().assign(laOutRegs);
-    // The indexing has been moved into slice creation, reset source
-    // coord.
-    gemmStoreOp.getSourceCoordMutable().assign(zero);
-    gemmStoreOp.getDestMutable().assign(out);
+  // We need to clone ThreadwiseWriteAllOp if the current op is not the unique
+  // reader of it because the fusion process will eliminate the input memref.
+  if (!isUniqueReader) {
+    gemmStoreOp =
+        static_cast<ThreadwiseWriteAllOp>(b.clone(*gemmStoreOp.getOperation()));
+  }
+  gemmStoreOp->moveAfter(laGeneric);
+  gemmOut.replaceAllUsesWith(fusionRegs);
 
-    return success();
+  // 2.3. Replace rock.threadwise_write_all inputs with la.generic result vgprs
+  gemmStoreOp.getSourceMutable().assign(laOutRegs);
+  out = applyViewsOnDest(b, loc, out, laInToOutViews);
+  gemmStoreOp.getDestMutable().assign(out);
+
+  if (auto outAlloc = out.getDefiningOp<memref::AllocOp>()) {
+    outAlloc->moveBefore(gemmStoreOp);
+  }
+
+  return success();
+}
+
+LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
+                                                    PatternRewriter &b) const {
+  auto src = copy.getSource();
+  auto target = copy.getTarget();
+  Location loc = copy.getLoc();
+
+  Operation *gemmStoreOp = nullptr;
+  SmallVector<TransformMapAttr> views;
+  if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
+    if (auto twop = traceToThreadwiseWrite(src, views)) {
+      // We check the input leading to GEMM store has the current memref
+      // copy, that is being rewritten, as the unique reader. This is because if
+      // it is the unique reader, the previous memref does not need to be
+      // maintained anymore and we can directly write into the target of the
+      // memref copy.
+      bool isUniqueReader;
+      LogicalResult checkResult =
+          checkUniqueReader(src.getDefiningOp(), copy, isUniqueReader);
+      if (checkResult.failed()) {
+        return checkResult;
+      }
+      if (!isUniqueReader) {
+        gemmStoreOp =
+            static_cast<ThreadwiseWriteAllOp>(b.clone(*twop.getOperation()));
+      } else {
+        gemmStoreOp = twop;
+      }
+    }
+  }
+
+  if (gemmStoreOp) {
+    if (ThreadwiseWriteAllOp twWriteAllOp =
+            dyn_cast<ThreadwiseWriteAllOp>(gemmStoreOp)) {
+      PatternRewriter::InsertionGuard guard(b);
+      b.setInsertionPoint(twWriteAllOp);
+
+      // 1. replace memref.copy with rock.threadwise_write_all
+      target = applyViewsOnDest(b, loc, target, views);
+      twWriteAllOp.getDestMutable().assign(target);
+      // twWriteAllOp->moveAfter(target.getDefiningOp());
+
+      if (auto outAlloc = target.getDefiningOp<memref::AllocOp>()) {
+        outAlloc->moveBefore(gemmStoreOp);
+      }
+
+      b.eraseOp(copy);
+      return success();
+    }
   }
 
   return failure();
 }
 
-static bool isUnfusedKernelStore(rock::GlobalStoreOp store) {
+static bool isUnfusedKernelStore(ThreadwiseWriteAllOp store) {
   bool ret = isa_and_nonnull<memref::AllocOp>(store.getDest().getDefiningOp());
   if (ret) {
     store.getDest().getDefiningOp()->emitOpError(
         "could not use fusion to eliminate this intermediate buffer. Kernel "
-        "compilation canot proceed");
+        "compilation cannot proceed");
   }
   return ret;
 }
 
+LogicalResult
+ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
+                                      PatternRewriter &rewriter) const {
+  Location loc = reduceOp.getLoc();
+  SmallVector<TransformMapAttr, 4> views;
+  ThreadwiseWriteAllOp threadwiseWriteOp =
+      traceToThreadwiseWrite(reduceOp.getIn(), views);
+  if (!threadwiseWriteOp) {
+    return rewriter.notifyMatchFailure(
+        reduceOp, "rock.reduce input is not leading to ThreadwiseWriteAllOp of "
+                  "the previous op.");
+  }
+
+  StoreMethodAttr stMethod;
+  if (reduceOp.getReduceMethod() == ReduceMethod::Sum) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd);
+  } else if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicMax);
+  } else {
+    // We are failing the pass here because rock.reduce appearing here means
+    // we are committed to fusion and this is case, we cant handle (so far) in
+    // this or a later pass.
+    return reduceOp.emitError()
+           << "Unsupported reduction type : " << reduceOp.getReduceMethodAttr();
+  }
+
+  if (threadwiseWriteOp.getStoreMethod() != rock::StoreMethod::Set) {
+    // We are failing the pass here because another rock.reduce appearing here
+    // means we are committed to fusion and this is case, we cant handle (so
+    // far) in this or a later pass.
+    return reduceOp.emitError("Another reduction op is not able to be fused "
+                              "with a prior reduction op.");
+  }
+
+  bool isUniqueReader;
+  LogicalResult checkResult = checkUniqueReader(
+      reduceOp.getIn().getDefiningOp(), reduceOp, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
+  }
+  if (!isUniqueReader) {
+    threadwiseWriteOp = static_cast<ThreadwiseWriteAllOp>(
+        rewriter.clone(*threadwiseWriteOp.getOperation()));
+  }
+  int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  TypedValue<ShapedType> redOut = reduceOp.getOut();
+  ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
+  TypedValue<ShapedType> redIn = reduceOp.getIn();
+  ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
+  BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);
+  for (uint32_t i = 0; i < reduceOutShape.size(); ++i) {
+    if (i == reductionAxis) {
+      dropReductionDim.broadcast({i}, {reduceInShape[i]});
+    } else {
+      dropReductionDim.passThrough({i}, {i});
+    }
+  }
+  TransformMapAttr trAttr = dropReductionDim.get();
+  views.push_back(trAttr);
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(threadwiseWriteOp);
+    TypedValue<ShapedType> reduceOut = reduceOp.getOut();
+    reduceOut = applyViewsOnDest(rewriter, loc, reduceOut, views);
+    threadwiseWriteOp.getDestMutable().assign(reduceOut);
+    threadwiseWriteOp.setStoreMethodAttr(stMethod);
+  }
+  rewriter.eraseOp(reduceOp);
+  return success();
+}
+
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  RewritePatternSet patterns(ctx);
-  patterns.add<MILARewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-  WalkResult verifyAllStores =
-      getOperation().walk([](rock::GlobalStoreOp store) {
-        return isUnfusedKernelStore(store) ? WalkResult::interrupt()
-                                           : WalkResult::advance();
-      });
-  if (verifyAllStores.wasInterrupted())
-    signalPassFailure();
+  {
+    RewritePatternSet patterns(ctx);
+    patterns.add<LAGenericRewritePattern>(ctx);
+    patterns.add<ReduceRewritePattern>(ctx);
+    patterns.add<MemcpyRewritePattern>(ctx);
+    GreedyRewriteConfig config;
+    config.useTopDownTraversal = true;
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
+                                            config)))
+      signalPassFailure();
+  }
+
+  {
+    WalkResult verifyAllStores =
+        getOperation().walk([](ThreadwiseWriteAllOp store) {
+          return isUnfusedKernelStore(store) ? WalkResult::interrupt()
+                                             : WalkResult::advance();
+        });
+    if (verifyAllStores.wasInterrupted())
+      signalPassFailure();
+  }
 }

@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -53,7 +53,8 @@ public:
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp>();
+    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp, tosa::ReduceSumOp,
+                        tosa::ReduceMaxOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

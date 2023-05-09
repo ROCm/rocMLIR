@@ -1,4 +1,5 @@
 add_rocmlir_dialect_library(MLIRRockUtility
+  AmdArchDb.cpp
   builderUtils.cpp
   loweringUtils.cpp
   transformMapUtils.cpp
@@ -8,6 +9,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
 
   LINK_LIBS PUBLIC
   MLIRDialect
+  MLIRArithDialect
   MLIRFuncDialect
   MLIRRockOps
   MLIRIR

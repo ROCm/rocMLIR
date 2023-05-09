@@ -15,8 +15,8 @@
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/XModel/Transforms/Passes.h"
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LLVM.h"
@@ -41,7 +41,10 @@ class XModelAsyncGraphPass
     return op->mightHaveTrait<OpTrait::IsTerminator>();
   }
   static bool hasSideEffects(Operation *op) {
-    return !MemoryEffectOpInterface::hasNoEffect(op);
+    if (auto memInterface = dyn_cast<MemoryEffectOpInterface>(op)) {
+      return !memInterface.hasNoEffect();
+    }
+    return true;
   }
 
   llvm::SmallDenseMap<Value, Value> res2tokens;
@@ -70,8 +73,10 @@ class XModelAsyncGraphPass
     // Insert host sync before operation that reads an async::value
     for (auto operand : op->getOperands()) {
       if (auto itoken = res2tokens.lookup(operand)) {
-        createWaitOp(op, itoken);
-        currentTokens.erase(itoken);
+        if (currentTokens.contains(itoken)) {
+          createWaitOp(op, itoken);
+          currentTokens.erase(itoken);
+        }
       }
     }
     // Insert host synchronization before terminator or op with side effects.

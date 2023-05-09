@@ -11,12 +11,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -78,15 +78,15 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static std::tuple<StringAttr, Optional<uint32_t>, rock::GemmFeatures>
+static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op) {
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
-  Optional<uint32_t> num_cu = None;
-  Optional<bool> xdlopsV2 = None;
+  std::optional<uint32_t> num_cu = std::nullopt;
+  std::optional<bool> xdlopsV2 = std::nullopt;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     arch = attr;
@@ -118,8 +118,9 @@ getArchAttributes(Operation *op) {
 static FailureOr<rock::Conv2DOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                StringRef inputLayout, Value filter, StringRef filterLayout,
-               Value output, StringRef outputLayout, const ArrayAttr &pad,
-               const ArrayAttr &stride, const ArrayAttr &dilation) {
+               Value output, StringRef outputLayout,
+               const DenseI64ArrayAttr &pad, const DenseI64ArrayAttr &stride,
+               const DenseI64ArrayAttr &dilation) {
   Location loc = op->getLoc();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
@@ -128,24 +129,22 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto outputExp = expandTensor(rw, op, output);
 
   StringAttr arch;
-  Optional<uint32_t> num_cu;
+  std::optional<uint32_t> num_cu;
   rock::GemmFeatures features;
-
   std::tie(arch, num_cu, features) = getArchAttributes(op);
 
-  // translate attributes
-  int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
-  int32_t padLeft = pad[2].dyn_cast<IntegerAttr>().getInt();
-  int32_t padRight = pad[3].dyn_cast<IntegerAttr>().getInt();
-  int32_t strideHeight = stride[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t strideWidth = stride[1].dyn_cast<IntegerAttr>().getInt();
-  int32_t dilationHeight = dilation[0].dyn_cast<IntegerAttr>().getInt();
-  int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
-
-  SmallVector<int32_t, 4> paddingArray{padTop, padBottom, padLeft, padRight};
-  SmallVector<int32_t, 2> strideArray{strideHeight, strideWidth};
-  SmallVector<int32_t, 2> dilationArray{dilationHeight, dilationWidth};
+  ArrayRef<int64_t> pad64 = pad;
+  ArrayRef<int64_t> stride64 = stride;
+  ArrayRef<int64_t> dilation64 = dilation;
+  SmallVector<int32_t, 4> paddingArray;
+  SmallVector<int32_t, 2> strideArray;
+  SmallVector<int32_t, 2> dilationArray;
+  for (auto i : pad64)
+    paddingArray.push_back(i);
+  for (auto i : stride64)
+    strideArray.push_back(i);
+  for (auto i : dilation64)
+    dilationArray.push_back(i);
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
@@ -216,7 +215,7 @@ public:
 
     FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
         rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
-        op.getPad(), op.getStride(), op.getDilation());
+        op.getPadAttr(), op.getStrideAttr(), op.getDilationAttr());
     if (failed(rockConv))
       return failure();
 
@@ -266,6 +265,47 @@ public:
     return nullptr;
   }
 
+  Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape, Location loc,
+                        ConversionPatternRewriter &rw) const {
+    ArrayRef<int64_t> inpShape = inp.getType().cast<ShapedType>().getShape();
+    bool broadcastDone = false;
+    rock::BottomUpTMBuilder broadcastDims(rw, inpShape, loc);
+    for (unsigned int i = 0; i < outShape.size(); i++) {
+      if (inpShape[i] == 1 && outShape[i] != 1) {
+        broadcastDims.broadcast({i}, {outShape[i]});
+        broadcastDone = true;
+      } else {
+        broadcastDims.passThrough({i}, {i});
+      }
+    }
+    if (!broadcastDone) {
+      return inp;
+    }
+    return rw.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+  }
+
+  std::tuple<int64_t, int64_t> getLastDims(UnitAttr transposed,
+                                           RankedTensorType type) const {
+    ArrayRef<int64_t> shape = type.getShape();
+    int64_t rank = type.getRank();
+    if (transposed) {
+      return {shape[rank - 1], shape[rank - 2]};
+    }
+    return {shape[rank - 2], shape[rank - 1]};
+  }
+
+  void setLastDims(UnitAttr transposed, SmallVectorImpl<int64_t> &shape,
+                   std::pair<int64_t, int64_t> lastDims) const {
+    size_t rank = shape.size();
+    if (transposed) {
+      shape[rank - 1] = lastDims.first;
+      shape[rank - 2] = lastDims.second;
+    } else {
+      shape[rank - 2] = lastDims.first;
+      shape[rank - 1] = lastDims.second;
+    }
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
@@ -279,13 +319,33 @@ public:
              transposeC = getTranspose(op, "transpose_c");
 
     StringAttr arch;
-    Optional<uint32_t> num_cu;
+    std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
 
+    auto [mDim, nDim] = getLastDims(transposeC, outputType);
+
+    int64_t kDimOfA;
+    std::tie(std::ignore, kDimOfA) =
+        getLastDims(transposeA, op.getA().getType().cast<RankedTensorType>());
+    int64_t kDimOfB;
+    std::tie(kDimOfB, std::ignore) =
+        getLastDims(transposeB, op.getB().getType().cast<RankedTensorType>());
+    int kDim = (kDimOfA > kDimOfB) ? kDimOfA : kDimOfB;
+
+    SmallVector<int64_t, 3> aShape = llvm::to_vector<3>(
+        op.getA().getType().cast<RankedTensorType>().getShape());
+    setLastDims(transposeA, aShape, {mDim, kDim});
+    Value brA = insertBroadcast(adaptor.getA(), aShape, loc, rw);
+
+    SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
+        op.getB().getType().cast<RankedTensorType>().getShape());
+    setLastDims(transposeB, bShape, {kDim, nDim});
+    Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
+
     auto rockGemm = rw.create<rock::GemmOp>(
-        loc, outputType, adaptor.getA(), adaptor.getB(), output, transposeA,
-        transposeB, transposeC, arch,
+        loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
+        arch,
         num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
         rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
@@ -303,24 +363,22 @@ public:
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
-  SmallVector<int32_t> getTransposeDims(Value v) const {
-    if (Operation *cval = v.getDefiningOp<arith::ConstantOp>()) {
-      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-      return SmallVector<int32_t>(cattr.getValues<int64_t>());
-    }
-    if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
+  LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
+    Operation *cval = v.getDefiningOp();
+    if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
       auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
       auto vals = cattr.tryGetValues<int32_t>();
-      if (succeeded(vals))
-        return SmallVector<int32_t>(*vals);
+      if (succeeded(vals)) {
+        perms.assign((*vals).begin(), (*vals).end());
+        return success();
+      }
       auto vals64 = cattr.tryGetValues<int64_t>();
-      if (succeeded(vals64))
-        return SmallVector<int32_t>(*vals64);
+      if (succeeded(vals64)) {
+        perms.assign((*vals64).begin(), (*vals64).end());
+        return success();
+      }
     }
-    // May be bufferization cast
-    //  but this is no longer a bufferization pass, so assert
-    assert(0);
-    return getTransposeDims(v.getDefiningOp()->getOperand(0));
+    return failure();
   }
 
   void permuteLayout(Operation *op, const char *attrKey,
@@ -348,29 +406,125 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     op->setAttr(name, BoolAttr::get(op->getContext(), newValue));
   }
 
+  LogicalResult checkMatMulTransposeValid(tosa::MatMulOp matmulOp,
+                                          ArrayRef<int32_t> dims) const {
+    // batch dimension is expected to be 3rd from the last.
+    if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
+      return matmulOp.emitError(
+          "Can't transpose the batch dimension out of place");
+    }
+    return success();
+  }
+
+  bool isMatMulNonTrivial(ArrayRef<int32_t> dims) const {
+    int32_t lastDim = dims.size() - 1;
+    int32_t prevLastDim = dims.size() - 2;
+    return (dims[prevLastDim] == lastDim && dims[lastDim] == prevLastDim);
+  }
+
+  // This function traverses the uses of tOutput and then modifies
+  // the uses to indicate the input are transposed and replaces them
+  // with tInput. If there are collapse shapes encountered, the collapse
+  // is applied on the tInput.
+  LogicalResult mergeTransposeWithGemmLikeOp(PatternRewriter &rewriter,
+                                             Value tOutput,
+                                             ArrayRef<int32_t> dims,
+                                             Value tInput) const {
+    for (auto &use : tOutput.getUses()) {
+      if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
+        SmallVector<ReassociationIndices, 4> reassocIndices =
+            op.getReassociationIndices();
+        ArrayRef<int64_t> inShape = op.getSrcType().getShape();
+
+        // This loops maps reassociated dims back to pre transposed dims.
+        SmallVector<int32_t, 4> newDims;
+        for (ReassociationIndices indices : reassocIndices) {
+          int32_t minIdx = dims[indices[0]];
+          for (size_t i = 0; i < indices.size(); i++) {
+            // We can ignore unit dim collapses
+            if (inShape[indices[i]] == 1) {
+              continue;
+            }
+            int32_t transposedDim = dims[indices[i]];
+            if (std::abs(minIdx - transposedDim) > 1) {
+              return rewriter.notifyMatchFailure(
+                  op, "CollapseShape op following transpose collapses "
+                      "non-contigous pre-transpose dims.");
+            }
+            // Where dims are collapsed, we take the minimum as a
+            // representative.
+            minIdx = std::min(minIdx, dims[indices[i]]);
+          }
+          newDims.push_back(minIdx);
+        }
+
+        // Assign the ordering index of reassociated dims as the dim index
+        SmallVector<int32_t, 4> newDimsSorted = newDims;
+        llvm::sort(newDimsSorted);
+        DenseMap<int32_t, int32_t> dimMap;
+        for (size_t i = 0; i < newDimsSorted.size(); i++) {
+          dimMap[newDimsSorted[i]] = i;
+        }
+        for (size_t i = 0; i < newDims.size(); i++) {
+          newDims[i] = dimMap[newDims[i]];
+        }
+
+        tensor::CollapseShapeOp newCollapseShapeOp =
+            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
+                                                     reassocIndices);
+
+        if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
+                                         newCollapseShapeOp.getResult())
+                .failed()) {
+          rewriter.eraseOp(newCollapseShapeOp);
+          return failure();
+        }
+        rewriter.eraseOp(op);
+      } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
+        return rewriter.notifyMatchFailure(
+            op, "We dont support expand shapes yet.");
+      } else if (auto convOp = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
+        if (convOp.getInput() == tOutput) {
+          permuteLayout(convOp, "input_layout", "nhwc", dims, true);
+          convOp.getInputMutable().assign(tInput);
+        } else if (convOp.getWeight() == tOutput) {
+          permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+          convOp.getWeightMutable().assign(tInput);
+        } else {
+          return convOp.emitError("transpose found leading to a conv2D input "
+                                  "other than data or weight");
+        }
+      } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
+        if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
+          return failure();
+        }
+        bool mmNonTrivial = isMatMulNonTrivial(dims);
+        if (matMulOp.getA() == tOutput) {
+          setTranspose(matMulOp, "transpose_a", mmNonTrivial);
+          matMulOp.getAMutable().assign(tInput);
+        } else if (matMulOp.getB() == tOutput) {
+          setTranspose(matMulOp, "transpose_b", mmNonTrivial);
+          matMulOp.getBMutable().assign(tInput);
+        } else {
+          return matMulOp.emitError(
+              "transpose found leading to a matmul input other than A or B");
+        }
+      } else {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    auto dims = getTransposeDims(top.getOperand(1));
-
-    bool isConvDims = dims.size() == 4;
-    bool isMatmulDims = dims.size() == 3;
-    if (!(isConvDims || isMatmulDims)) {
-      return b.notifyMatchFailure(top, [&](::mlir::Diagnostic &diag) {
-        diag << "Bad constant transpose dims";
-      });
-    }
-    bool matmulNonTrivial = false;
-    if (isMatmulDims) {
-      if (dims[0] != 0) {
-        return b.notifyMatchFailure(top, [&](Diagnostic &diag) {
-          diag << "Can't transpose the batch dimension out of place";
-        });
-      }
-      matmulNonTrivial = (dims[1] == 2 && dims[2] == 1);
+    SmallVector<int32_t> dims;
+    if (failed(getTransposeDims(top.getOperand(1), dims))) {
+      return failure();
     }
 
     Value tInput = top.getOperand(0);
@@ -383,47 +537,124 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       top->replaceAllUsesWith(convOp);
     } else if (tosa::MatMulOp matMulOp =
                    tInput.getDefiningOp<tosa::MatMulOp>()) {
-      setTranspose(matMulOp, "transpose_c", matmulNonTrivial);
+      if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
+        return failure();
+      }
+      setTranspose(matMulOp, "transpose_c", isMatMulNonTrivial(dims));
       matMulOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(matMulOp);
     } else {
-      // trace output to tosa.conv2d
-      for (auto &use : tOutput.getUses()) {
-        if (auto op = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          convOp = op;
-        } else if (auto op = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
-          if (convOp || matMulOp)
-            return failure();
-          matMulOp = op;
-        } else {
-          return failure();
-        }
-      }
-
-      // conv Input Modifier
-      if (convOp && convOp.getOperand(0) == tOutput) {
-        // input feature map
-        permuteLayout(convOp, "input_layout", "nhwc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (convOp) {
-        // filter
-        assert(convOp.getOperand(1) == tOutput);
-        permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp && matMulOp.getA() == tOutput) {
-        setTranspose(matMulOp, "transpose_a", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
-      } else if (matMulOp) {
-        assert(matMulOp.getB() == tOutput);
-        setTranspose(matMulOp, "transpose_b", matmulNonTrivial);
-        top.replaceAllUsesWith({tInput});
+      if (mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput).failed()) {
+        return failure();
       }
     }
 
-    top.erase();
+    b.eraseOp(top);
     return success();
+  }
+};
+
+template <typename TosaReduceOp>
+typename std::enable_if_t<
+    std::is_same<TosaReduceOp, tosa::ReduceSumOp>::value ||
+        std::is_same<TosaReduceOp, tosa::ReduceMaxOp>::value,
+    LogicalResult> static matchAndRewriteReductions(TosaReduceOp op,
+                                                    rock::ReduceMethod rMethod,
+                                                    Attribute outputInitVal,
+                                                    ConversionPatternRewriter
+                                                        &rw) {
+  Location loc = op->getLoc();
+  auto outputType = op.getType().template cast<RankedTensorType>();
+  Value output =
+      rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+  StringAttr arch;
+  Optional<uint32_t> num_cu;
+  rock::GemmFeatures features;
+  std::tie(arch, num_cu, features) = getArchAttributes(op);
+
+  int32_t blockSize = 256;
+  auto elementCount =
+      op.getInput().getType().template cast<ShapedType>().getNumElements();
+  int32_t gridSize = (elementCount + blockSize - 1) / blockSize;
+  if (num_cu.has_value()) {
+    gridSize = std::min((int32_t)(20 * num_cu.value()), gridSize);
+  }
+
+  auto rockReduce = rw.create<rock::ReduceOp>(
+      loc, outputType, op.getInput(), output,
+      rw.getAttr<rock::GemmFeaturesAttr>(features),
+      rw.getAttr<rock::ReduceMethodAttr>(rMethod),
+      rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
+      rw.getI32IntegerAttr(gridSize),
+      /*useLDS=*/nullptr,
+      /*useDPP=*/nullptr);
+
+  func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+  func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
+  func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
+                     rw.getUnitAttr());
+  // The original function also need the read access attr for the output.
+  if (func->hasAttr("original_func")) {
+    if (ModuleOp rootMod =
+            func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
+      SymbolTable symTable(rootMod);
+      SymbolRefAttr originalFuncAttr =
+          func->getAttrOfType<SymbolRefAttr>("original_func");
+      if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
+              symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+        originalFunc.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
+                                   rw.getUnitAttr());
+      }
+    }
+  }
+  rw.replaceOp(op, rockReduce.getResult());
+  return success();
+}
+
+class ReduceSumConverter final : public OpConversionPattern<tosa::ReduceSumOp> {
+public:
+  using OpConversionPattern<tosa::ReduceSumOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::ReduceSumOp op,
+                                tosa::ReduceSumOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    StringAttr arch;
+    Optional<uint32_t> num_cu;
+    rock::GemmFeatures features;
+    std::tie(arch, num_cu, features) = getArchAttributes(op);
+    if (!rock::bitEnumContainsAll(features, rock::GemmFeatures::atomic_add)) {
+      op.emitError("Currently, we only support ReduceSum operators on GPUs "
+                   "with atomic add support.!.");
+    }
+    Type elementType =
+        op.getInput().getType().cast<ShapedType>().getElementType();
+    if (!elementType.isF32()) {
+      return rw.notifyMatchFailure(op, "We only support F32 reductions, yet.");
+    }
+    Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0000);
+    return matchAndRewriteReductions(op, rock::ReduceMethod::Sum, outputInitVal,
+                                     rw);
+  }
+};
+
+class ReduceMaxConverter final : public OpConversionPattern<tosa::ReduceMaxOp> {
+public:
+  using OpConversionPattern<tosa::ReduceMaxOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::ReduceMaxOp op,
+                                tosa::ReduceMaxOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    Type elementType =
+        op.getInput().getType().cast<ShapedType>().getElementType();
+    Attribute outputInitVal;
+    if (elementType.isF32()) {
+      outputInitVal = rw.getFloatAttr(
+          elementType, APFloat::getInf(APFloat::IEEEsingle(), true));
+    } else {
+      return rw.notifyMatchFailure(op, "We only support F32 reductions, yet.");
+    }
+    return matchAndRewriteReductions(op, rock::ReduceMethod::Max, outputInitVal,
+                                     rw);
   }
 };
 
@@ -431,7 +662,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, MatMulConverter>(context);
+  patterns.add<ConvConverter, MatMulConverter, ReduceSumConverter,
+               ReduceMaxConverter>(context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(

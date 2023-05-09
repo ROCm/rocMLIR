@@ -14,7 +14,7 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 
 #include "mlir/Analysis/DataLayoutAnalysis.h"
-#include "mlir/Conversion/ArithmeticToLLVM/ArithmeticToLLVM.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
@@ -26,11 +26,11 @@
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Attributes.h"
-#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Support/LogicalResult.h"
@@ -56,19 +56,23 @@ using namespace mlir;
 
 #define PASS_NAME "convert-func-to-llvm"
 
+static constexpr StringRef varargsAttrName = "func.varargs";
+static constexpr StringRef linkageAttrName = "llvm.linkage";
+
 /// Only retain those attributes that are not constructed by
 /// `LLVMFuncOp::build`. If `filterArgAttrs` is set, also filter out argument
 /// attributes.
-static void filterFuncAttributes(ArrayRef<NamedAttribute> attrs,
-                                 bool filterArgAndResAttrs,
+static void filterFuncAttributes(func::FuncOp func, bool filterArgAndResAttrs,
                                  SmallVectorImpl<NamedAttribute> &result) {
-  for (const auto &attr : attrs) {
+  for (const NamedAttribute &attr : func->getAttrs()) {
     if (attr.getName() == SymbolTable::getSymbolAttrName() ||
-        attr.getName() == FunctionOpInterface::getTypeAttrName() ||
-        attr.getName() == "func.varargs" ||
+        attr.getName() == func.getFunctionTypeAttrName() ||
+        attr.getName() == linkageAttrName ||
+        attr.getName() == varargsAttrName ||
+        attr.getName() == LLVM::LLVMDialect::getReadnoneAttrName() ||
         (filterArgAndResAttrs &&
-         (attr.getName() == FunctionOpInterface::getArgDictAttrName() ||
-          attr.getName() == FunctionOpInterface::getResultDictAttrName())))
+         (attr.getName() == func.getArgAttrsAttrName() ||
+          attr.getName() == func.getResAttrsAttrName())))
       continue;
     result.push_back(attr);
   }
@@ -91,18 +95,19 @@ static auto wrapAsStructAttrs(OpBuilder &b, ArrayAttr attrs) {
 static void
 prependResAttrsToArgAttrs(OpBuilder &builder,
                           SmallVectorImpl<NamedAttribute> &attributes,
-                          size_t numArguments) {
+                          func::FuncOp func) {
+  size_t numArguments = func.getNumArguments();
   auto allAttrs = SmallVector<Attribute>(
       numArguments + 1, DictionaryAttr::get(builder.getContext()));
   NamedAttribute *argAttrs = nullptr;
   for (auto *it = attributes.begin(); it != attributes.end();) {
-    if (it->getName() == FunctionOpInterface::getArgDictAttrName()) {
+    if (it->getName() == func.getArgAttrsAttrName()) {
       auto arrayAttrs = it->getValue().cast<ArrayAttr>();
       assert(arrayAttrs.size() == numArguments &&
              "Number of arg attrs and args should match");
       std::copy(arrayAttrs.begin(), arrayAttrs.end(), allAttrs.begin() + 1);
       argAttrs = it;
-    } else if (it->getName() == FunctionOpInterface::getResultDictAttrName()) {
+    } else if (it->getName() == func.getResAttrsAttrName()) {
       auto arrayAttrs = it->getValue().cast<ArrayAttr>();
       assert(!arrayAttrs.empty() && "expected array to be non-empty");
       allAttrs[0] = (arrayAttrs.size() == 1)
@@ -114,9 +119,8 @@ prependResAttrsToArgAttrs(OpBuilder &builder,
     it++;
   }
 
-  auto newArgAttrs =
-      builder.getNamedAttr(FunctionOpInterface::getArgDictAttrName(),
-                           builder.getArrayAttr(allAttrs));
+  auto newArgAttrs = builder.getNamedAttr(func.getArgAttrsAttrName(),
+                                          builder.getArrayAttr(allAttrs));
   if (!argAttrs) {
     attributes.emplace_back(newArgAttrs);
     return;
@@ -138,12 +142,11 @@ static void wrapForExternalCallers(OpBuilder &rewriter, Location loc,
                                    LLVM::LLVMFuncOp newFuncOp) {
   auto type = funcOp.getFunctionType();
   SmallVector<NamedAttribute, 4> attributes;
-  filterFuncAttributes(funcOp->getAttrs(), /*filterArgAndResAttrs=*/false,
-                       attributes);
+  filterFuncAttributes(funcOp, /*filterArgAndResAttrs=*/false, attributes);
   auto [wrapperFuncType, resultIsNowArg] =
       typeConverter.convertFunctionTypeCWrapper(type);
   if (resultIsNowArg)
-    prependResAttrsToArgAttrs(rewriter, attributes, funcOp.getNumArguments());
+    prependResAttrsToArgAttrs(rewriter, attributes, funcOp);
   auto wrapperFuncOp = rewriter.create<LLVM::LLVMFuncOp>(
       loc, llvm::formatv("_mlir_ciface_{0}", funcOp.getName()).str(),
       wrapperFuncType, LLVM::Linkage::External, /*dsoLocal*/ false,
@@ -204,11 +207,10 @@ static void wrapExternalFunction(OpBuilder &builder, Location loc,
   assert(wrapperType && "unexpected type conversion failure");
 
   SmallVector<NamedAttribute, 4> attributes;
-  filterFuncAttributes(funcOp->getAttrs(), /*filterArgAndResAttrs=*/false,
-                       attributes);
+  filterFuncAttributes(funcOp, /*filterArgAndResAttrs=*/false, attributes);
 
   if (resultIsNowArg)
-    prependResAttrsToArgAttrs(builder, attributes, funcOp.getNumArguments());
+    prependResAttrsToArgAttrs(builder, attributes, funcOp);
   // Create the auxiliary function.
   auto wrapperFunc = builder.create<LLVM::LLVMFuncOp>(
       loc, llvm::formatv("_mlir_ciface_{0}", funcOp.getName()).str(),
@@ -293,7 +295,7 @@ protected:
                             ConversionPatternRewriter &rewriter) const {
     // Convert the original function arguments. They are converted using the
     // LLVMTypeConverter provided to this legalization pattern.
-    auto varargsAttr = funcOp->getAttrOfType<BoolAttr>("func.varargs");
+    auto varargsAttr = funcOp->getAttrOfType<BoolAttr>(varargsAttrName);
     TypeConverter::SignatureConversion result(funcOp.getNumArguments());
     auto llvmType = getTypeConverter()->convertFunctionSignature(
         funcOp.getFunctionType(), varargsAttr && varargsAttr.getValue(),
@@ -304,8 +306,7 @@ protected:
     // Propagate argument/result attributes to all converted arguments/result
     // obtained after converting a given original argument/result.
     SmallVector<NamedAttribute, 4> attributes;
-    filterFuncAttributes(funcOp->getAttrs(), /*filterArgAndResAttrs=*/true,
-                         attributes);
+    filterFuncAttributes(funcOp, /*filterArgAndResAttrs=*/true, attributes);
     if (ArrayAttr resAttrDicts = funcOp.getAllResultAttrs()) {
       assert(!resAttrDicts.empty() && "expected array to be non-empty");
       auto newResAttrDicts =
@@ -313,8 +314,8 @@ protected:
               ? resAttrDicts
               : rewriter.getArrayAttr(
                     {wrapAsStructAttrs(rewriter, resAttrDicts)});
-      attributes.push_back(rewriter.getNamedAttr(
-          FunctionOpInterface::getResultDictAttrName(), newResAttrDicts));
+      attributes.push_back(
+          rewriter.getNamedAttr(funcOp.getResAttrsAttrName(), newResAttrDicts));
     }
     if (ArrayAttr argAttrDicts = funcOp.getAllArgAttrs()) {
       SmallVector<Attribute, 4> newArgAttrs(
@@ -360,33 +361,45 @@ protected:
           newArgAttrs[mapping->inputNo + j] =
               DictionaryAttr::get(rewriter.getContext(), convertedAttrs);
       }
-      attributes.push_back(
-          rewriter.getNamedAttr(FunctionOpInterface::getArgDictAttrName(),
-                                rewriter.getArrayAttr(newArgAttrs)));
-    }
-    for (const auto &pair : llvm::enumerate(attributes)) {
-      if (pair.value().getName() == "llvm.linkage") {
-        attributes.erase(attributes.begin() + pair.index());
-        break;
-      }
+      attributes.push_back(rewriter.getNamedAttr(
+          funcOp.getArgAttrsAttrName(), rewriter.getArrayAttr(newArgAttrs)));
     }
 
     // Create an LLVM function, use external linkage by default until MLIR
     // functions have linkage.
     LLVM::Linkage linkage = LLVM::Linkage::External;
-    if (funcOp->hasAttr("llvm.linkage")) {
+    if (funcOp->hasAttr(linkageAttrName)) {
       auto attr =
-          funcOp->getAttr("llvm.linkage").dyn_cast<mlir::LLVM::LinkageAttr>();
+          funcOp->getAttr(linkageAttrName).dyn_cast<mlir::LLVM::LinkageAttr>();
       if (!attr) {
-        funcOp->emitError()
-            << "Contains llvm.linkage attribute not of type LLVM::LinkageAttr";
+        funcOp->emitError() << "Contains " << linkageAttrName
+                            << " attribute not of type LLVM::LinkageAttr";
         return nullptr;
       }
       linkage = attr.getLinkage();
     }
+
+    // Create a memory effect attribute corresponding to readnone.
+    StringRef readnoneAttrName = LLVM::LLVMDialect::getReadnoneAttrName();
+    LLVM::MemoryEffectsAttr memoryAttr = {};
+    if (funcOp->hasAttr(readnoneAttrName)) {
+      auto attr = funcOp->getAttrOfType<UnitAttr>(readnoneAttrName);
+      if (!attr) {
+        funcOp->emitError() << "Contains " << readnoneAttrName
+                            << " attribute not of type UnitAttr";
+        return nullptr;
+      }
+      memoryAttr = LLVM::MemoryEffectsAttr::get(rewriter.getContext(),
+                                                {LLVM::ModRefInfo::NoModRef,
+                                                 LLVM::ModRefInfo::NoModRef,
+                                                 LLVM::ModRefInfo::NoModRef});
+    }
     auto newFuncOp = rewriter.create<LLVM::LLVMFuncOp>(
         funcOp.getLoc(), funcOp.getName(), llvmType, linkage,
         /*dsoLocal*/ false, /*cconv*/ LLVM::CConv::C, attributes);
+    // If the memory attribute was created, add it to the function.
+    if (memoryAttr)
+      newFuncOp.setMemoryAttr(memoryAttr);
     rewriter.inlineRegionBefore(funcOp.getBody(), newFuncOp.getBody(),
                                 newFuncOp.end());
     if (failed(rewriter.convertRegionTypes(&newFuncOp.getBody(), *typeConverter,
@@ -744,7 +757,7 @@ struct ConvertFuncToLLVMPass
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);
 
     // TODO: Remove these in favor of their dedicated conversion passes.
-    arith::populateArithmeticToLLVMConversionPatterns(typeConverter, patterns);
+    arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
 
     LLVMConversionTarget target(getContext());

@@ -22,6 +22,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 def MIGraphX_Dialect : Dialect {
   let name = "migraphx";
   let cppNamespace = "mlir::migraphx";
+  let useFoldAPI = kEmitFoldAdaptorFolder;
 }
 
 // Base class for MIGraphX dialect ops.
@@ -76,6 +77,18 @@ def MIGraphX_MulOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+def MIGraphX_DivOp :
+    MIGraphX_Op<"div">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$inB)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise binary div";
+  let description = [{
+    Divide two tensors elementwise
+  }];
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+}
+
 def MIGraphX_PowOp :
     MIGraphX_Op<"pow">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -97,6 +110,28 @@ def MIGraphX_TanhOp :
   let summary = "Hyperbolic Tan";
   let description = [{
     get tanh
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_ExpOp :
+    MIGraphX_Op<"exp">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Exponential";
+  let description = [{
+    get exp
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_NegOp :
+    MIGraphX_Op<"neg">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Negation";
+  let description = [{
+    get neg
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
@@ -157,27 +192,51 @@ def MIGraphX_FloorOp :
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
-// Convolution operations
-
-def MIGraphX_ConvolutionOp :
-    MIGraphX_Op<"convolution">,
-    Arguments<(ins AnyRankedTensor:$input,
-                   AnyRankedTensor:$filter,
-
-                   I64ArrayAttr:$padding,
-                   I64ArrayAttr:$stride,
-                   I64ArrayAttr:$dilation,
-                   I64Attr:$group,
-                   OptionalAttr<I64Attr>:$padding_mode,
-                   OptionalAttr<BoolAttr>:$xdlopsV2,
-                   OptionalAttr<StrAttr>:$perf_config
-                   )>,
-	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "convolution forward";
+def MIGraphX_QuantizeLinearOp :
+    MIGraphX_Op<"quantizelinear">,
+    Arguments<(ins TensorOf<[F32, F16]>:$input,
+                   TensorOf<[F32]>:$scale,
+                   Optional<TensorOf<[AnyInteger]>>:$bias)>,
+	  Results<(outs TensorOf<[AnyInteger]>:$output)> {
+  let summary = "Channelwise quantization";
   let description = [{
-    The `migraphx.convolution` op computes convolution forward.
+    Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = tensor[n,c,h,w] / quantScale[c] + quantBias[c]
   }];
-  let builders = [
+  let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
+  let hasVerifier = 1;
+}
+
+def MIGraphX_DeQuantizeLinearOp :
+    MIGraphX_Op<"dequantizelinear">,
+    Arguments<(ins TensorOf<[AnyInteger]>:$input,
+                   TensorOf<[F32]>:$scale,
+                   Optional<TensorOf<[AnyInteger]>>:$bias)>,
+	  Results<(outs TensorOf<[F32, F16]>:$output)> {
+  let summary = "Channelwise dequantization";
+  let description = [{
+    De-Quantization tensor channelwise. It computes the following:
+    tensor[n,c,h,w] = (tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
+  }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
+  let hasVerifier = 1;
+}
+
+// Convolution operations
+class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
+    MIGraphX_Op<mnemonic>{
+    let arguments = (ins TensorOf<inputTypes>:$input,
+                         TensorOf<inputTypes>:$filter,
+
+                         I64ArrayAttr:$padding,
+                         I64ArrayAttr:$stride,
+                         I64ArrayAttr:$dilation,
+                         I64Attr:$group,
+                         OptionalAttr<I64Attr>:$padding_mode,
+                         OptionalAttr<BoolAttr>:$xdlopsV2,
+                         OptionalAttr<StrAttr>:$perf_config);
+	  let results = (outs TensorOf<outputTypes>:$output);
+    let builders = [
     OpBuilder<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
       "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group,
       "::mlir::migraphx::padding_mode_tAttr":$padding_mode,
@@ -197,6 +256,22 @@ def MIGraphX_ConvolutionOp :
     }]>];
 
   let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` `(`type($input) `,` type($filter) `)` `->` type($output)";
+}
+
+def MIGraphX_QuantConvolutionOp :
+    MIGraphX_ConvOpBase<"quant_convolution", [I8], [I32]>{
+  let summary = "quantized convolution forward";
+  let description = [{
+    The `migraphx.quant_convolution` op computes quantized convolution forward.
+  }];
+}
+
+def MIGraphX_ConvolutionOp :
+    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16], [F32, F16, BF16]>{
+  let summary = "convolution forward";
+  let description = [{
+    The `migraphx.convolution` op computes convolution forward.
+  }];
 }
 
 def MIGraphX_BatchNormOp :
@@ -282,7 +357,7 @@ def MIGraphX_FlattenOp :
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I64ArrayAttr:$dims
+                   I64ArrayAttr:$permutation
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "transpose dimensions";
@@ -301,6 +376,21 @@ def MIGraphX_ReshapeOp :
   let summary = "reshape a tensor";
   let description = [{
     The `migraphx.reshape` op.
+  }];
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
+}
+
+def MIGraphX_SliceOp :
+    MIGraphX_Op<"slice">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64ArrayAttr:$axes,
+                   I64ArrayAttr:$ends,
+                   I64ArrayAttr:$starts
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {
+  let summary = "slice a tensor";
+  let description = [{
+    The `migraphx.slice` op.
   }];
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
 }
@@ -376,7 +466,7 @@ def MIGraphX_SoftmaxOp :
 def MIGraphX_ReduceMeanOp :
     MIGraphX_Op<"reduce_mean">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I64Attr:$axis
+                   I64ArrayAttr:$axes
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Get the mean of the values in given axis";

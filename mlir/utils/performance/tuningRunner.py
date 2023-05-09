@@ -9,14 +9,18 @@ import subprocess
 import sys
 from pathlib import Path
 import argparse
+import glob
 
+from collections import OrderedDict
 from typing import Optional
 import perfRunner
 from perfRunner import PerfConfiguration
 from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
 from perfRunner import Paths
+from perfRunner import getChip
 from perfCommonUtils import CORRECT_RESULT_RE
+import reportUtils
 
 import numpy as np
 import pandas as pd
@@ -79,6 +83,32 @@ Errors = {errs.decode('utf-8')}""")
     nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
     return nanoSeconds
 
+def getWinningConfig(tuningOutput, config, allData, options: Options):
+    maxTFlops = -np.inf
+    winningConfig = "None"
+    for i, result in enumerate(tuningOutput):
+        result = result.decode('utf-8').strip()
+        if i > 0 and i % 1000 == 0:
+            print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}")
+        if options.debug:
+            print(result)
+        # Time is in ns
+        perfConfig, time = result.split('\t')
+        if time == "N/A":
+            nanoSeconds = np.nan
+        else:
+            nanoSeconds = float(time)
+
+        config.setPerfConfig(perfConfig)
+        entry = config.tableEntry(nanoSeconds)
+        allData.append(entry)
+        theseTFlops = entry['TFlops']
+        if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
+            maxTFlops = theseTFlops
+            winningConfig = perfConfig
+
+    return winningConfig, maxTFlops
+
 #Tune MLIR Gemm or Convolution kernels
 def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = []
@@ -97,28 +127,8 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
         kernelGen.stdout.close()
 
         # Tune, printing progress as we go to avoid CI timeouts
-        maxTFlops = -np.inf
-        winningConfig = "None"
-        for i, result in enumerate(tuningLoop.stdout):
-            result = result.decode('utf-8').strip()
-            if i > 0 and i % 50 == 0:
-                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}")
-            if options.debug:
-                print(result)
-            # Time is in ns
-            perfConfig, time = result.split('\t')
-            if time == "N/A":
-                nanoSeconds = np.nan
-            else:
-                nanoSeconds = float(time)
+        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
 
-            config.setPerfConfig(perfConfig)
-            entry = config.tableEntry(nanoSeconds)
-            allData.append(entry)
-            theseTFlops = entry['TFlops']
-            if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
-                maxTFlops = theseTFlops
-                winningConfig = perfConfig
         if options.verifyMode != "none":
             verifyNs = verifyKernelWithPerfConfig(winningConfig, config, paths, options)
             if np.isnan(verifyNs):
@@ -134,6 +144,43 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = pd.DataFrame(allData)
     return winners, allData
 
+#Extract gemm or conv configurations from fusion tests
+def extractFusionConfigs(test_dir, paths: Paths, options: Options):
+    allConfigs = []
+    opType=Operation.FUSION
+    for filename in glob.glob(test_dir + '/*mlir'):
+        print("Extract from:", filename)
+        testEntry = perfRunner.getFusionTestInfo(filename, paths)
+        if not testEntry:
+            continue
+        testVector = testEntry['testVector']
+        if not testVector:
+            continue
+        # skip if the best config already exists
+        if testVector in allConfigs:
+            print("An entry already exists in the tuning DB")
+            continue
+        commandLine = testVector.split(sep=' ')
+        if commandLine[0].startswith('conv'):
+            if opType == Operation.FUSION:
+                opType = Operation.CONV
+            elif opType != Operation.CONV:
+                print("Invalid config op: ", testVector)
+                continue
+        else:
+            if opType == Operation.FUSION:
+                opType = Operation.GEMM
+            elif opType != Operation.GEMM:
+                print("Invalid config op: ", testVector)
+                continue
+        allConfigs.append(testVector)
+
+    with open(paths.configuration_file_path, 'w') as outFile:
+        for item in allConfigs:
+            outFile.write("%s\n" % item)
+
+    return opType
+
 # Main function.
 def main(args=None):
     """
@@ -142,7 +189,8 @@ def main(args=None):
     python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs --output=tuning_db.tsv
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
     python3 tuningRunner.py --op conv --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
-
+    python3 tuningRunner.py --op fusion -test_dir=../mlir/test/fusion/e2e/resnet50 --output=tuning_db.tsv
+   
     """
     if args is None:
         args = sys.argv[1:]
@@ -159,7 +207,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion'],
         default='conv',
         help="Operation for tuning")
 
@@ -207,21 +255,41 @@ def main(args=None):
         choices=["none", "cpu", "gpu"],
         help="How to verify the winning tuned kernel")
 
+    parser.add_argument("--test_dir",
+        default="../mlir/test/fusion/e2e/resnet50",
+        type=str,
+        help="fusion E2E tests directory")
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    confClass = PerfConfiguration
     opType = Operation.fromName(parsed_args.op)
+    if opType == Operation.FUSION:
+        configs_path = "./fusion_config_file"
+    else:
+        configs_path = None if parsed_args.config else parsed_args.configs_file
+    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+
+    if not paths.mlir_paths:
+        raise RuntimeError("MLIR build dir was not provided/found")
+
+    options = Options(arch=arch, debug=parsed_args.debug,
+        rocmlir_gen_flags=rocmlir_gen_flags,
+        verifyMode=parsed_args.verify_mode)
+
+    if opType == Operation.FUSION:
+        opType = extractFusionConfigs(parsed_args.test_dir, paths, options)
+
+    confClass = PerfConfiguration
     if opType == Operation.CONV:
         confClass = ConvConfiguration
     elif opType == Operation.GEMM:
         confClass = GemmConfiguration
-
-    configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+    else:
+        raise RuntimeError("Tuning operation was not provided/found")
 
     if parsed_args.config:
         configs = parsed_args.config
@@ -229,15 +297,6 @@ def main(args=None):
         configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
         configs = perfRunner.getGemmConfigurations(paths.configuration_file_path)
-    else:
-        raise RuntimeError("Tuning operation was not provided/found")
-
-    options = Options(arch=arch, debug=parsed_args.debug,
-        rocmlir_gen_flags=rocmlir_gen_flags,
-        verifyMode=parsed_args.verify_mode)
-
-    if not paths.mlir_paths:
-        raise RuntimeError("MLIR build dir was not provided/found")
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 
@@ -248,6 +307,7 @@ def main(args=None):
     if parsed_args.debug:
         print(allData)
         allData.to_csv(f"{parsed_args.output}.debug", sep='\t')
+
     # Note, appending results here to allow multiple config sets
     with open(parsed_args.output, 'a') as outFile:
         print("# arch\ttestVector\tperfConfig", file=outFile)

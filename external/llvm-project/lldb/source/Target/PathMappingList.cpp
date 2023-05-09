@@ -8,6 +8,7 @@
 
 #include <climits>
 #include <cstring>
+#include <optional>
 
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/PosixApi.h"
@@ -76,16 +77,17 @@ void PathMappingList::Append(const PathMappingList &rhs, bool notify) {
   }
 }
 
-void PathMappingList::AppendUnique(llvm::StringRef path,
+bool PathMappingList::AppendUnique(llvm::StringRef path,
                                    llvm::StringRef replacement, bool notify) {
   auto normalized_path = NormalizePath(path);
   auto normalized_replacement = NormalizePath(replacement);
   for (const auto &pair : m_pairs) {
     if (pair.first.GetStringRef().equals(normalized_path) &&
         pair.second.GetStringRef().equals(normalized_replacement))
-      return;
+      return false;
   }
   Append(path, replacement, notify);
+  return true;
 }
 
 void PathMappingList::Insert(llvm::StringRef path, llvm::StringRef replacement,
@@ -163,7 +165,7 @@ void PathMappingList::Clear(bool notify) {
 
 bool PathMappingList::RemapPath(ConstString path,
                                 ConstString &new_path) const {
-  if (llvm::Optional<FileSpec> remapped = RemapPath(path.GetStringRef())) {
+  if (std::optional<FileSpec> remapped = RemapPath(path.GetStringRef())) {
     new_path.SetString(remapped->GetPath());
     return true;
   }
@@ -173,18 +175,17 @@ bool PathMappingList::RemapPath(ConstString path,
 /// Append components to path, applying style.
 static void AppendPathComponents(FileSpec &path, llvm::StringRef components,
                                  llvm::sys::path::Style style) {
-    auto component = llvm::sys::path::begin(components, style);
-    auto e = llvm::sys::path::end(components);
-    while (component != e &&
-        llvm::sys::path::is_separator(*component->data(), style))
-      ++component;
-    for (; component != e; ++component)
-      path.AppendPathComponent(*component);
+  auto component = llvm::sys::path::begin(components, style);
+  auto e = llvm::sys::path::end(components);
+  while (component != e &&
+         llvm::sys::path::is_separator(*component->data(), style))
+    ++component;
+  for (; component != e; ++component)
+    path.AppendPathComponent(*component);
 }
 
-llvm::Optional<FileSpec>
-PathMappingList::RemapPath(llvm::StringRef mapping_path,
-                           bool only_if_exists) const {
+std::optional<FileSpec> PathMappingList::RemapPath(llvm::StringRef mapping_path,
+                                                   bool only_if_exists) const {
   if (m_pairs.empty() || mapping_path.empty())
     return {};
   LazyBool path_is_relative = eLazyBoolCalculate;
@@ -219,7 +220,7 @@ PathMappingList::RemapPath(llvm::StringRef mapping_path,
   return {};
 }
 
-llvm::Optional<llvm::StringRef>
+std::optional<llvm::StringRef>
 PathMappingList::ReverseRemapPath(const FileSpec &file, FileSpec &fixed) const {
   std::string path = file.GetPath();
   llvm::StringRef path_ref(path);
@@ -228,16 +229,17 @@ PathMappingList::ReverseRemapPath(const FileSpec &file, FileSpec &fixed) const {
     if (!path_ref.consume_front(it.second.GetStringRef()))
       continue;
     auto orig_file = it.first.GetStringRef();
-    auto orig_style = FileSpec::GuessPathStyle(orig_file).getValueOr(
+    auto orig_style = FileSpec::GuessPathStyle(orig_file).value_or(
         llvm::sys::path::Style::native);
     fixed.SetFile(orig_file, orig_style);
     AppendPathComponents(fixed, path_ref, orig_style);
     return removed_prefix;
   }
-  return llvm::None;
+  return std::nullopt;
 }
 
-llvm::Optional<FileSpec> PathMappingList::FindFile(const FileSpec &orig_spec) const {
+std::optional<FileSpec>
+PathMappingList::FindFile(const FileSpec &orig_spec) const {
   // We must normalize the orig_spec again using the host's path style,
   // otherwise there will be mismatch between the host and remote platform
   // if they use different path styles.

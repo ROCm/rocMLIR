@@ -43,17 +43,19 @@ MemRefDescriptor
 MemRefDescriptor::fromStaticShape(OpBuilder &builder, Location loc,
                                   LLVMTypeConverter &typeConverter,
                                   MemRefType type, Value memory) {
+  return fromStaticShape(builder, loc, typeConverter, type, memory, memory);
+}
+
+MemRefDescriptor MemRefDescriptor::fromStaticShape(
+    OpBuilder &builder, Location loc, LLVMTypeConverter &typeConverter,
+    MemRefType type, Value memory, Value alignedMemory) {
   assert(type.hasStaticShape() && "unexpected dynamic shape");
 
   // Extract all strides and offsets and verify they are static.
-  int64_t offset;
-  SmallVector<int64_t, 4> strides;
-  auto result = getStridesAndOffset(type, strides, offset);
-  (void)result;
-  assert(succeeded(result) && "unexpected failure in stride computation");
-  assert(!ShapedType::isDynamicStrideOrOffset(offset) &&
+  auto [strides, offset] = getStridesAndOffset(type);
+  assert(!ShapedType::isDynamic(offset) &&
          "expected static offset");
-  assert(!llvm::any_of(strides, ShapedType::isDynamicStrideOrOffset) &&
+  assert(!llvm::any_of(strides, ShapedType::isDynamic) &&
          "expected static strides");
 
   auto convertedType = typeConverter.convertType(type);
@@ -61,7 +63,7 @@ MemRefDescriptor::fromStaticShape(OpBuilder &builder, Location loc,
 
   auto descr = MemRefDescriptor::undef(builder, loc, convertedType);
   descr.setAllocatedPtr(builder, loc, memory);
-  descr.setAlignedPtr(builder, loc, memory);
+  descr.setAlignedPtr(builder, loc, alignedMemory);
   descr.setConstantOffset(builder, loc, offset);
 
   // Fill in sizes and strides
@@ -137,7 +139,7 @@ Value MemRefDescriptor::size(OpBuilder &builder, Location loc, Value pos,
   // Copy size values to stack-allocated memory.
   auto one = createIndexAttrConstant(builder, loc, indexType, 1);
   auto sizes = builder.create<LLVM::ExtractValueOp>(
-      loc, value, llvm::makeArrayRef<int64_t>({kSizePosInMemRefDescriptor}));
+      loc, value, llvm::ArrayRef<int64_t>({kSizePosInMemRefDescriptor}));
   auto sizesPtr =
       builder.create<LLVM::AllocaOp>(loc, arrayPtrTy, one, /*alignment=*/0);
   builder.create<LLVM::StoreOp>(loc, sizes, sizesPtr);

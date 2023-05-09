@@ -11,7 +11,7 @@ add_mlir_dialect_library(MLIRXModelTransforms
   MLIRXModelPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRArithmeticTransforms
+  MLIRArithTransforms
   MLIRDialect
   MLIRXModel
   MLIRFuncDialect

@@ -19,7 +19,7 @@
 // rock.gemm.
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -255,16 +255,16 @@ struct ZeroInitKernelRewritePattern final
         buffer.getType(), op.getElemsPerThread()->getZExtValue());
     Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
     Value zeroOp = createZeroConstantOp(b, loc, storeType);
-    ArrayAttr leftOob = b.getI32ArrayAttr({});
-    ArrayAttr rightOob = b.getI32ArrayAttr({0});
+    Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    GemmFeaturesAttr features = op.getFeaturesAttr();
 
-    auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
-                                                   ValueRange collapsed,
-                                                   Value index) {
-      b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob,
-                              index,
-                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                              /*offset=*/IntegerAttr());
+    auto loopBody = [&zeroOp, &trueOp, &features](OpBuilder &b, Location loc,
+                                                  ValueRange collapsed,
+                                                  Value index) {
+      b.create<BufferStoreOp>(
+          loc, zeroOp, collapsed[0], /*valid=*/trueOp, index, features,
+          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
     LogicalResult res =
         createElementwiseLoop(b, loc, op, buffer, zeroInitVectorLen, loopBody);
@@ -298,20 +298,19 @@ struct ConvertingCopyKernelRewritePattern final
 
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
-    ArrayAttr leftOob = b.getI32ArrayAttr({});
-    ArrayAttr rightOob = b.getI32ArrayAttr({0});
-
-    auto loopBody = [&loadType, &storeType, &leftOob,
-                     &rightOob](OpBuilder &b, Location loc,
+    Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    GemmFeaturesAttr features = op.getFeaturesAttr();
+    auto loopBody = [&loadType, &storeType, &trueOp,
+                     &features](OpBuilder &b, Location loc,
                                 ValueRange collapsed, Value index) {
-      Value loaded =
-          b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
-                                 index, /*offset=*/IntegerAttr());
+      Value loaded = b.create<BufferLoadOp>(
+          loc, loadType, collapsed[0], /*valid=*/trueOp, index,
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-      b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
-                              index,
-                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                              /*offset=*/IntegerAttr());
+      b.create<BufferStoreOp>(
+          loc, converted, collapsed[1], /*valid=*/trueOp, index, features,
+          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
                                               conversionVectorLen, loopBody);
@@ -325,16 +324,6 @@ struct ConvertingCopyKernelRewritePattern final
 
 /// Layout normalization.
 
-/// In most cases, we can treat the CYX or YXC parts of the filter dimension
-/// as a single unit for the purposes of vectorization, coordinate computations,
-/// and so on. However, if the filter layout is created by transposing the
-/// underlying memory in order to match another tensor, we cannot do this
-/// and so must flag when we have performed such a relayout.
-///
-/// This is a nominally temporary hack that should be removed once we can more
-/// precisely handle Unfold{} by static analysis instead of by heuristic.
-/// As such, it'll probably presist for quite some time.
-constexpr llvm::StringLiteral dontUnfoldAttrName("has_relayout_do_not_unfold");
 /// Make the dimensions that are the values in `mapping` and exist within
 /// `toLayout` be in the same relative order as the dimensions that the keys of
 /// `mappping` have within `fromLayout`, where both layout are given by the
@@ -414,8 +403,6 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
       operand.set(transformed);
 
   op->setAttr(toLayoutAttrName, b.getArrayAttr(newToLayout));
-  if (toLayoutAttrName == "filter_layout")
-    op->setAttr(dontUnfoldAttrName, b.getUnitAttr());
   return success();
 }
 
@@ -536,17 +523,11 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     // Here, we merge the KBlock dimension into the G dimension
     // keeping the kBlock dimension as the minor index
     // and send K to the M dimension and CYX to the N dimension as usual
-    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
-    bool isUnfold = (addKBlockTransform.endIndex("c") + 1 ==
-                     addKBlockTransform.endIndex("y")) &&
-                    (addKBlockTransform.endIndex("y") + 1 ==
-                     addKBlockTransform.endIndex("x")) &&
-                    !forceNoUnfold;
     auto gemmTransform =
         BottomUpTMBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
-    gemmTransform.merge("gemmN", 2, nonKDims, isUnfold);
+    gemmTransform.merge("gemmN", 2, nonKDims);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter = b.create<TransformOp>(loc, withKBlock, gemmTransformAttr);
@@ -943,7 +924,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     Attribute tuningParams = op.getParamsAttr();
     GemmSize gemmSize = op.getGemmSize();
-    Optional<GemmSize> maybeGemmExtraPad;
+    std::optional<GemmSize> maybeGemmExtraPad;
 
     if (tuningParams) {
       maybeGemmExtraPad = requiredPadding(tuningParams, gemmSize);
@@ -960,7 +941,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
-    auto gemmExtraPad = maybeGemmExtraPad.value_or(GemmSize{0, 0, 0, 0});
 
     // Transform filter tensor.
 
@@ -980,25 +960,16 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       if (name != "g" && name != "k")
         filterNonKDims.push_back(name);
 
-    bool noNonKPad =
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n == 0) ||
-        (convOpType == ConvOpType::Fwd && gemmExtraPad.k == 0);
-
     BottomUpTMBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
-    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
-    bool isUnfold = filterTransform.startIndex("g") == 0 &&
-                    (filterTransform.startIndex("k") == 1 ||
-                     filterTransform.startIndex("k") == 4) &&
-                    noNonKPad && !forceNoUnfold;
     switch (convOpType) {
     case ConvOpType::Fwd:
-      filterTransform.merge("gemmK", 1, filterNonKDims, isUnfold);
+      filterTransform.merge("gemmK", 1, filterNonKDims);
       filterTransform.passThrough({"gemmM"}, {2}, {"k"});
       break;
     case ConvOpType::BwdWeight:
       filterTransform.passThrough({"gemmM"}, {1}, {"k"});
-      filterTransform.merge("gemmN", 2, filterNonKDims, isUnfold);
+      filterTransform.merge("gemmN", 2, filterNonKDims);
       break;
     case ConvOpType::BwdData:
       llvm_unreachable("Backward data has been sent elsewhere");
@@ -1208,7 +1179,7 @@ void RockConvToGemmPass::runOnOperation() {
                     rock::WorkitemIdOp, rock::BufferLoadOp,
                     rock::BufferStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
-  target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
+  target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);

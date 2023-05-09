@@ -8,20 +8,20 @@ import pandas as pd
 import sys
 
 #Create html reports from .csv files
-def printAllPerformance(chip):
+def printAllPerformance(chip, lib='rocBLAS'):
     perfReportFound = False
 
     try:
-        df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_GEMM_FILE)
+        df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_GEMM_FILE[lib])
         perfReportFound = True
         if 'Tuned MLIR TFlops' in df:
             COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'Tuned MLIR TFlops',
-                'rocBLAS TFlops (no MLIR Kernels)', 'Tuned/Untuned',
-                'MLIR/rocBLAS', 'Tuned/rocBLAS']
+                f'{lib} TFlops (no MLIR Kernels)', 'Tuned/Untuned',
+                f'MLIR/{lib}', f'Tuned/{lib}']
         else:
             COLUMNS_TO_AVERAGE = ['MLIR TFlops',
-                'rocBLAS TFlops (no MLIR Kernels)',
-                'MLIR/rocBLAS']
+                f'{lib} TFlops (no MLIR Kernels)',
+                f'MLIR/{lib}']
     except FileNotFoundError:
         print('Perf report not found.')
         return
@@ -32,22 +32,23 @@ def printAllPerformance(chip):
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
-    plotMean[['MLIR TFlops', 'rocBLAS TFlops (no MLIR Kernels)']]\
-        .to_csv(chip + '_' + reportUtils.PERF_PLOT_REPORT_GEMM_FILE, index=False)
+    plotMean[['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)']]\
+        .to_csv(chip + '_' + reportUtils.PERF_PLOT_REPORT_GEMM_FILE[lib], index=False)
 
     means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
         .agg(reportUtils.geoMean)
     means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
-    means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_GEMM_FILE)
+    means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_GEMM_FILE[lib])
 
-    toHighlight = ["MLIR/rocBLAS"]
+    toHighlight = [f"MLIR/{lib}"]
     if "Tuned/Untuned" in df:
-        toHighlight += ["Tuned/rocBLAS", "Tuned/Untuned"]
+        toHighlight += [f"Tuned/{lib}", f"Tuned/Untuned"]
 
-    with open(chip + "_" + "MLIR_vs_rocBLAS.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, "MLIR vs. rocBLAS performance",
-        toHighlight, htmlOutput)
+    with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as htmlOutput:
+        reportUtils.htmlReport(df, means, f"MLIR vs. {lib} performance",
+        toHighlight, reportUtils.colorForSpeedups, htmlOutput)
 
 # Main function.
 if __name__ == '__main__':
-    printAllPerformance(sys.argv[1])
+    lib = sys.argv[2] if len(sys.argv) > 2 else 'rocBLAS'
+    printAllPerformance(sys.argv[1], lib)
