@@ -131,6 +131,18 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+def ROCDL_SetPrioOp : ROCDL_IntrOp<"s.setprio", [], [], [], 0>,
+  Arguments<(ins I16:$priority)> {
+  let results = (outs);
+  let assemblyFormat = "$priority attr-dict `:` type($priority)";
+}
+
+def ROCDL_SchedBarrier : ROCDL_IntrOp<"sched.barrier", [], [], [], 0>,
+  Arguments<(ins I32:$mask)> {
+  let results = (outs);
+  let assemblyFormat = "$mask attr-dict `:` type($mask)";
+}
+
 
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
