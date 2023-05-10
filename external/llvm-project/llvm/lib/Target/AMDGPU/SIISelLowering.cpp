@@ -9434,6 +9434,8 @@ SDValue SITargetLowering::performUCharToFloatCombine(SDNode *N,
 }
 
 // (shl (add x, c1), c2) -> add (shl x, c2), (shl c1, c2)
+// (shl (or x, c1), c2) -> add (shl x, c2), (shl c1, c2) iff x and c1 share no
+// bits
 
 // This is a variant of
 // (mul (add x, c1), c2) -> add (mul x, c2), (mul c1, c2),
@@ -9468,8 +9470,14 @@ SDValue SITargetLowering::performSHLPtrCombine(SDNode *N,
   if (!CAdd)
     return SDValue();
 
-  // If the resulting offset is too large, we can't fold it into the addressing
-  // mode offset.
+  SelectionDAG &DAG = DCI.DAG;
+
+  if (N0->getOpcode() == ISD::OR &&
+      !DAG.haveNoCommonBitsSet(N0.getOperand(0), N0.getOperand(1)))
+    return SDValue();
+
+  // If the resulting offset is too large, we can't fold it into the
+  // addressing mode offset.
   APInt Offset = CAdd->getAPIntValue() << CN1->getAPIntValue();
   Type *Ty = MemVT.getTypeForEVT(*DCI.DAG.getContext());
 
@@ -9479,7 +9487,6 @@ SDValue SITargetLowering::performSHLPtrCombine(SDNode *N,
   if (!isLegalAddressingMode(DCI.DAG.getDataLayout(), AM, Ty, AddrSpace))
     return SDValue();
 
-  SelectionDAG &DAG = DCI.DAG;
   SDLoc SL(N);
   EVT VT = N->getValueType(0);
 
