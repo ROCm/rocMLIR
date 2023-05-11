@@ -896,7 +896,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
     # Prepare test cases
     for filename in glob.glob(test_dir+'/*.mlir'):
         testEntry = getFusionTestInfo(filename, paths)
-        if testEntry:
+        if testEntry and not testEntry['testVector'] in [tv['testVector'] for tv in allTests]:
             allTests.append(testEntry)
 
     # Profile each test case

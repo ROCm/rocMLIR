@@ -37,7 +37,7 @@ def printAllPerformance(chip, op):
         means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
         means.to_csv(chip + '_' + op + '_' + reportUtils.PERF_STATS_REPORT_FUSION_FILE)
 
-    toHighlight = []
+    toHighlight = ['Fusion/MLIR']
 
     with open(chip + "_" + op + '_' + f"fusion.html", 'w') as htmlOutput:
         reportUtils.htmlReport(df, means, f"Fusion performance",
