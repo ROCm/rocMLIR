@@ -360,16 +360,6 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
     return failure();
   }
 
-  // This case triggers a miscompile, remove when it's patched. See
-  // issue #873.
-  if (dataTypeA.getIntOrFloatBitWidth() <= 16 && param.gemmMPerBlock == 64 &&
-      param.gemmNPerBlock == 64 && param.gemmMPerWave == 32 &&
-      param.gemmNPerWave == 64 && param.gemmKPerBlock >= 4 &&
-      param.gemmKPack == 8) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Rejecting due to the special compiler bug workaround case");
-    return failure();
-  }
   return success();
 }
 
