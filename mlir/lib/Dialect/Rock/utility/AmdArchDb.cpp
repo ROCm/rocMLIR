@@ -22,7 +22,7 @@ static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
-                  GemmFeatures::atomic_fmax_f32,
+                  GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {

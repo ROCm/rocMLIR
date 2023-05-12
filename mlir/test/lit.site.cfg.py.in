@@ -88,9 +88,11 @@ def set_arch_features(arch: str):
         else:
             arch_features = 'atomic_fmax_f32'
     elif major == 'gfx11':
-        arch_features = 'dot|atomic_add|atomic_fmax_f32'
+        arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
         config.arch_support_mfma = True
+    elif arch_features and 'wmma' in arch_features:
+        config.arch_support_wmma = True
     config.features = arch_features
     config.substitutions.append(('%features', config.features))
 
@@ -99,6 +101,7 @@ def set_arch_features(arch: str):
 config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
+config.arch_support_wmma = False
 config.features = None
 if config.rocm_path:
     try:

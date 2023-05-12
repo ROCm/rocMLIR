@@ -87,7 +87,7 @@ public:
 
   Type getOutputDataType(OpBuilder &builder) const;
 
-  void flipXdlops();
+  void flipAccel();
 
   void setPerfConfig(StringRef perfConfig);
 

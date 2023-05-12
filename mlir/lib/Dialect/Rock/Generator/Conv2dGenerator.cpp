@@ -257,7 +257,7 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
 
   constexpr size_t NUM_SUPPORTED_CHIPS = 8;
   static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030};
+      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030, 0x1100};
   const unsigned int *ptr;
   ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
                   chipHexNumber);
@@ -267,6 +267,11 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
   if (bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
       (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
+    return failure();
+
+  // WMMA is only supported on gfx1100
+  if (bitEnumContainsAll(config.features, GemmFeatures::wmma) &&
+      (chipHexNumber != 0x1100))
     return failure();
   return success();
 }
@@ -297,8 +302,8 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  if (bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
-    Type dataType = getDataType(builder);
+  Type dataType = getDataType(builder);
+  if (rock::isAccel(config.features, dataType)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -388,9 +393,23 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCu=*/static_cast<uint32_t>(config.num_cu)};
 
-  if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
+  if (rock::isAccel(config.features, dataType)) {
+    auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
+    InitParamsAccel validParams;
+    uint32_t blockSize;
+    uint32_t gridSize;
+    int64_t gemmKBlocks;
+    auto res = populateParamsAccelPtr->obtainTuningParameters(
+        info, 0, config.perfConfig, validParams, blockSize, gridSize,
+        gemmKBlocks);
+    if (succeeded(res)) {
+      needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
+                          validParams, gemmSize) != 0);
+      return success();
+    }
+  } else {
     PopulateParams populateParams;
-    InitParamsNonXDL validParams;
+    InitParamsNonAccel validParams;
     uint32_t gridSize;
     auto res = populateParams.obtainTuningParameters(info, 0, config.perfConfig,
                                                      validParams, gridSize);
@@ -398,21 +417,6 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
     if (succeeded(res)) {
       needExtraPad =
           (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
-      return success();
-    }
-
-  } else {
-    PopulateParamsXDL populateParamsXDL;
-    InitParamsXDL validParams;
-    uint32_t blockSize;
-    uint32_t gridSize;
-    int64_t gemmKBlocks;
-    auto res = populateParamsXDL.obtainTuningParameters(
-        info, 0, config.perfConfig, validParams, blockSize, gridSize,
-        gemmKBlocks);
-    if (succeeded(res)) {
-      needExtraPad = (populateParamsXDL.calculatePaddingAmount(validParams,
-                                                               gemmSize) != 0);
       return success();
     }
   }
@@ -432,7 +436,7 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.value();
     if ((dir == ConvOpType::BwdWeight) &&
-        bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
+        rock::isAccel(config.features, dataType) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -677,8 +681,9 @@ void Conv2dGenerator::setDataType(std::string newType) {
   config.dataTypeStr = newType;
 }
 
-void Conv2dGenerator::flipXdlops() {
-  config.features = config.features ^ GemmFeatures::mfma;
+void Conv2dGenerator::flipAccel() {
+  config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+  config.features = bitEnumClear(config.features, GemmFeatures::wmma);
 }
 
 void Conv2dGenerator::setPerfConfig(StringRef perfConfig) {

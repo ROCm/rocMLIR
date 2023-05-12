@@ -19,9 +19,27 @@ using namespace mlir::rock;
 
 bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
-  return bitEnumContainsAll(features,
-                            GemmFeatures::mfma | GemmFeatures::atomic_add) &&
+  return mlir::rock::isAccel(features, dataType) &&
+         bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
+}
+
+bool mlir::rock::isAccel(GemmFeatures features, Type dataType) {
+  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
+  if (isMfma)
+    return true;
+
+  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
+  if (!isWmma)
+    return false;
+
+  Type elementType = dataType;
+  if (auto vectorType = dataType.dyn_cast<VectorType>())
+    elementType = vectorType.getElementType();
+  else if (auto memrefType = dataType.dyn_cast<MemRefType>())
+    elementType = memrefType.getElementType();
+
+  return (elementType.isF16() || elementType.isInteger(8));
 }
 
 LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,

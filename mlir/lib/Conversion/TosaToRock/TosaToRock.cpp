@@ -132,6 +132,12 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   std::optional<uint32_t> num_cu;
   rock::GemmFeatures features;
   std::tie(arch, num_cu, features) = getArchAttributes(op);
+  // Even if acceleration is supported by the arch, datatype might not be
+  // valid accelerated data types
+  if (!rock::isAccel(features, input.getType())) {
+    features = bitEnumClear(features, rock::GemmFeatures::mfma |
+                                          rock::GemmFeatures::wmma);
+  }
 
   ArrayRef<int64_t> pad64 = pad;
   ArrayRef<int64_t> stride64 = stride;
@@ -322,6 +328,10 @@ public:
     std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
+    if (!rock::isAccel(features, op.getA().getType())) {
+      features = bitEnumClear(features, rock::GemmFeatures::mfma |
+                                            rock::GemmFeatures::wmma);
+    }
 
     auto [mDim, nDim] = getLastDims(transposeC, outputType);
 

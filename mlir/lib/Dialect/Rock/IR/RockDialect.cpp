@@ -496,8 +496,15 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, Type elemTypeA,
-                                     Type elemTypeB, Type elemTypeC) {
+static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
+                                     Type elemTypeA, Type elemTypeB,
+                                     Type elemTypeC) {
+  if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    if (!(elemTypeA.isF16() || elemTypeA.isInteger(8))) {
+      return op->emitOpError(
+          "Wmma gridwise supports only F16 and Int8 data types");
+    }
+  }
   if (elemTypeA != elemTypeB &&
       !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
       !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
@@ -527,7 +534,8 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
                        .cast<ShapedType>()
                        .getElementType();
 
-  return verifyGemmTypes(gemmOp, elemTypeA, elemTypeB, elemTypeC);
+  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), elemTypeA, elemTypeB,
+                         elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -550,10 +558,15 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
     return op->emitError("Disjointed yx or hw!");
 
   bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::wmma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+  Type inputType = gemmOp.getAType();
+  bool isAccel =
+      isXdlops || (isWmma && (inputType.isF16() || inputType.isInteger(8)));
+
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
-  if (gemmOp.getDerivedBlockSize().has_value() && !isXdlops) {
+  if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
   }
@@ -795,7 +808,8 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
-  if (failed(verifyGemmTypes(op, aElem, bElem, cElem)))
+
+  if (failed(verifyGemmTypes(op, op.getFeatures(), aElem, bElem, cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
