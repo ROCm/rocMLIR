@@ -69,9 +69,9 @@ llvm.func @rocdl.setprio() {
   %zero = llvm.mlir.constant(0 : i16) : i16
   %one = llvm.mlir.constant(1 : i16) : i16
   // CHECK: call void @llvm.amdgcn.s.setprio(i16 0)
-  rocdl.s.setprio %zero : i16
+  rocdl.s.setprio %zero
   // CHECK-NEXT: call void @llvm.amdgcn.s.setprio(i16 1)
-  rocdl.s.setprio %one : i16
+  rocdl.s.setprio %one
   llvm.return
 }
 
@@ -79,9 +79,9 @@ llvm.func @rocdl.schedbarrier() {
   %zero = llvm.mlir.constant(0 : i32) : i32
   %one = llvm.mlir.constant(1 : i32) : i32
   // CHECK: call void @llvm.amdgcn.sched.barrier(i32 0)
-  rocdl.sched.barrier %zero : i32
+  rocdl.sched.barrier %zero
   // CHECK-NEXT: call void @llvm.amdgcn.sched.barrier(i32 1)
-  rocdl.sched.barrier %one : i32
+  rocdl.sched.barrier %one
   llvm.return
 }
 

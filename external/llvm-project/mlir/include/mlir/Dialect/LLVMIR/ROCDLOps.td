@@ -134,13 +134,13 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
 def ROCDL_SetPrioOp : ROCDL_IntrOp<"s.setprio", [], [], [], 0>,
   Arguments<(ins I16:$priority)> {
   let results = (outs);
-  let assemblyFormat = "$priority attr-dict `:` type($priority)";
+  let assemblyFormat = "$priority attr-dict";
 }
 
 def ROCDL_SchedBarrier : ROCDL_IntrOp<"sched.barrier", [], [], [], 0>,
   Arguments<(ins I32:$mask)> {
   let results = (outs);
-  let assemblyFormat = "$mask attr-dict `:` type($mask)";
+  let assemblyFormat = "$mask attr-dict";
 }
 
 
