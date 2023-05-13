@@ -44,6 +44,7 @@ public:
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
+    std::string outputDataTypeStr;
 
     std::string kernelBaseName;
 
@@ -70,6 +71,7 @@ public:
       const std::string &filterLayout = "kcyx",
       const std::string &inputLayout = "nchw",
       const std::string &outputLayout = "nkhw",
+      const std::string &outputDataTypeStr = "",
       const std::string &kernelBaseName = "");
 
   Conv2dGenerator(const Config &_config);
@@ -82,6 +84,8 @@ public:
   Type getDataType(OpBuilder &builder) const;
 
   void setDataType(std::string dataTypeStr);
+
+  Type getOutputDataType(OpBuilder &builder) const;
 
   void flipXdlops();
 

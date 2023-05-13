@@ -340,6 +340,13 @@ static llvm::cl::opt<std::string>
                    llvm::cl::value_desc("Data type for convolution"),
                    llvm::cl::init("f32"));
 
+// output data type
+static llvm::cl::opt<std::string>
+    outputDataType("out_datatype",
+                   llvm::cl::desc("Output data type for convolution"),
+                   llvm::cl::value_desc("Output data type for convolution"),
+                   llvm::cl::init(""));
+
 // conv-config
 static llvm::cl::opt<std::string> populateConvConfig(
     "conv-config",
@@ -597,6 +604,7 @@ struct KernelIF {
 struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
   Type dtype = nullptr;
+  Type outDType = nullptr;
   rock::GemmFeatures features = rock::GemmFeatures::none;
   std::optional<const rock::Conv2dGenerator::Config *> convConfig =
       std::nullopt;
@@ -1745,11 +1753,13 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-static void getGemmTypes(Type inType, SmallVectorImpl<Type> &result,
-                         bool isCpuVerifier) {
+static void getGemmTypes(Type inType, Type outputType,
+                         SmallVectorImpl<Type> &result, bool isCpuVerifier) {
   Type outType = inType;
   if (inType.isInteger(8)) {
     outType = IntegerType::get(inType.getContext(), 32);
+    if (outputType)
+      outType = outputType;
     // Verify in int64_t to detect overflow
     if (isCpuVerifier)
       outType = IntegerType::get(inType.getContext(), 64);
@@ -1783,7 +1793,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     module->setAttr("xmodel.arch", archAttr);
 
   SmallVector<Type, 3> argTypes;
-  getGemmTypes(params.dtype, argTypes, /*isCpuVerifier=*/false);
+  getGemmTypes(params.dtype, params.outDType, argTypes,
+               /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
 
@@ -1826,7 +1837,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
     cpuInType = b.getF32Type();
 
   SmallVector<Type, 3> argTypes;
-  getGemmTypes(cpuInType, argTypes, /*isCpuVerifier=*/true);
+  getGemmTypes(cpuInType, params.outDType, argTypes, /*isCpuVerifier=*/true);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
   auto func =
@@ -2118,11 +2129,11 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16
   // datatypes
   //         0.000001f for other data types
-  auto thr_RMS = getF32Val(RMSThreshold.getValue());
-  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-  Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
-  if (testOutType.isF16())
-    thr_relDiff = getF32Val(100.0f);
+  //  auto thr_RMS = getF32Val(RMSThreshold.getValue());
+  //  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+  //  Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
+  //  if (testOutType.isF16())
+  //    thr_relDiff = getF32Val(100.0f);
   char printDebug = static_cast<char>(printVerifyResults.getValue());
 
   auto printDebugVal =
@@ -2132,10 +2143,13 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   std::string verifyFuncName = "mcpuVerify";
   if (valElemType.isF32()) {
     verifyFuncName += "Float";
+  } else if (valElemType.isInteger(8)) {
+    verifyFuncName += "Int8";
   } else if (valElemType.isInteger(32)) {
     verifyFuncName += "Int32";
   } else if (valElemType.isInteger(64)) {
-    verifyFuncName += "Int32Int64";
+    verifyFuncName +=
+        "Int" + std::to_string(testOutType.getIntOrFloatBitWidth()) + "Int64";
   } else if (valElemType.isInteger(8)) {
     verifyFuncName += "Int8";
   } else {
@@ -2150,7 +2164,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
       MemRefType::get({mlir::ShapedType::kDynamic}, valElemType);
 
   bool isTestAndValSameType =
-      (testOutType.isInteger(32) || testOutType.isF32());
+      (testOutType.isIntOrIndex() || testOutType.isF32());
 
   Value testResult, valResult; // Values passed to the verify function
   Value testResultNew;         // Values used for type conversion
@@ -2213,6 +2227,12 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   func::FuncOp verifyFuncDecl;
 
   if (testOutType.isa<FloatType>()) {
+    auto thr_RMS = getF32Val(RMSThreshold.getValue());
+    auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+    Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
+    if (testOutType.isF16())
+      thr_relDiff = getF32Val(100.0f);
+
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
                                    floatType, floatType, charType});
@@ -2738,8 +2758,8 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
-    OpBuilder b(context);
-    genParams.dtype = conv2dGenerator.getDataType(b);
+    genParams.dtype = conv2dGenerator.getDataType(builder);
+    genParams.dtype = conv2dGenerator.getOutputDataType(builder);
     const auto *convConfig = &conv2dGenerator.getConfig();
     genParams.convConfig = convConfig;
     genParams.features = convConfig->features;
@@ -2792,6 +2812,8 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       Type elemType = typeFromString(tensorDataType, context);
       genParams.dtype = elemType;
       genParams.convConfig = std::nullopt;
+      if (!outputDataType.getValue().empty())
+        genParams.outDType = typeFromString(outputDataType, context);
       (void)createGpuGemmKernel(module, genParams);
     } else {
       conv2dGenerator = rock::Conv2dGenerator(
@@ -2803,7 +2825,8 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           strideWidth.getValue(), paddingHeightLeft.getValue(),
           paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
           paddingWidthRight.getValue(), filterLayout.getValue(),
-          inputLayout.getValue(), outputLayout.getValue());
+          inputLayout.getValue(), outputLayout.getValue(),
+          outputDataType.getValue());
 
       status = conv2dGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,
@@ -2812,8 +2835,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
         llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);
       }
-      genParams.dtype =
-          typeFromString(conv2dGenerator.getConfig().dataTypeStr, context);
+
+      genParams.dtype = conv2dGenerator.getDataType(builder);
+      genParams.outDType = conv2dGenerator.getOutputDataType(builder);
       genParams.convConfig = &conv2dGenerator.getConfig();
     }
   }

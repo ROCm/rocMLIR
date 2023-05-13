@@ -41,7 +41,8 @@ Conv2dGenerator::Conv2dGenerator(
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelBaseName)
+    const std::string &outputLayout, const std::string &outputDataTypeStr,
+    const std::string &kernelBaseName)
     : config{arch,
              chip,
              triple,
@@ -62,6 +63,7 @@ Conv2dGenerator::Conv2dGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
+             outputDataTypeStr,
              kernelBaseName,
              -1,
              {},
@@ -337,18 +339,28 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
   return static_cast<int>(gemmIds.size());
 }
 
-Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
+static Type strToType(std::string dataTypeStr, OpBuilder &builder) {
   Type dataType;
-  if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
+  if (dataTypeStr == "f32" || dataTypeStr == "fp32") {
     dataType = builder.getF32Type();
-  } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
+  } else if (dataTypeStr == "f16" || dataTypeStr == "fp16") {
     dataType = builder.getF16Type();
-  } else if (config.dataTypeStr == "bf16") {
+  } else if (dataTypeStr == "bf16") {
     dataType = builder.getBF16Type();
-  } else if (config.dataTypeStr == "i8") {
+  } else if (dataTypeStr == "i8") {
     dataType = builder.getI8Type();
   }
   return dataType;
+}
+
+Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
+  return strToType(config.dataTypeStr, builder);
+}
+
+Type Conv2dGenerator::getOutputDataType(OpBuilder &builder) const {
+  if (config.outputDataTypeStr.empty())
+    return NULL;
+  return strToType(config.outputDataTypeStr, builder);
 }
 
 LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
@@ -482,7 +494,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         (argMap["in_type"] == argMap["fil_type"] &&
          argMap["out_type"] == argMap["in_type"]) ||
         (argMap["in_type"] == "i8" && argMap["fil_type"] == "i8" &&
-         argMap["out_type"] == "i32");
+         (argMap["out_type"] == "i32" || argMap["out_type"] == "i8"));
     return noMixedTypes;
   };
 
@@ -556,6 +568,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_h", config.paddingHeightRight);
   strToInt("padding_w", config.paddingWidthLeft);
   strToInt("padding_w", config.paddingWidthRight);
+  config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
 
   strToStr("kernel_name", config.kernelBaseName);
 
@@ -690,7 +703,11 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   Type outputDataType = dataType;
   if (dataType.isInteger(8)) {
     outputDataType = builder.getIntegerType(32);
+    Type outType = getOutputDataType(builder);
+    if (outType)
+      outputDataType = outType;
   }
+
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),

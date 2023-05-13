@@ -555,9 +555,9 @@ extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
 }
 
 // Compare the results in int32
-template <typename VALTYPE>
-void mcpuVerifyInt(int32_t *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
-                   char printDebug) {
+template <typename GPUTYPE, typename VALTYPE>
+void mcpuVerifyInt(GPUTYPE *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
+                   int64_t MIN, int64_t MAX, char printDebug) {
   int64_t failure_count = 0;  // the number of incorrect elements
   int64_t overflow_count = 0; // the number of overflow elements
   int64_t maxAbsDiff = 0;
@@ -566,7 +566,7 @@ void mcpuVerifyInt(int32_t *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
   for (int64_t i = 0; i < dataSize; ++i) {
     int64_t valNum = static_cast<int64_t>(valAligned[i]);
     int32_t gpuNum = gpuAligned[i];
-    if (valNum > INT32_MAX || valNum < INT32_MIN) {
+    if (valNum > MAX || valNum < MIN) {
       overflow_count++;
       if (print_option == PrintOption::Always)
         printf("overflow at element : %ld, gpu=%d, val=%ld\n", i, gpuNum,
@@ -617,7 +617,8 @@ extern "C" void mcpuVerifyInt32(int32_t *gpuAllocated, int32_t *gpuAligned,
                                 char printDebug) {
 
   assert(gpuSize == valSize);
-  mcpuVerifyInt<int32_t>(gpuAligned, valAligned, valSize, printDebug);
+  mcpuVerifyInt<int32_t, int32_t>(gpuAligned, valAligned, valSize, INT32_MAX,
+                                  INT32_MIN, printDebug);
 }
 
 extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
@@ -628,7 +629,20 @@ extern "C" void mcpuVerifyInt32Int64(int32_t *gpuAllocated, int32_t *gpuAligned,
                                      char printDebug) {
 
   assert(gpuSize == valSize);
-  mcpuVerifyInt<int64_t>(gpuAligned, valAligned, valSize, printDebug);
+  mcpuVerifyInt<int32_t, int64_t>(gpuAligned, valAligned, valSize, INT32_MAX,
+                                  INT32_MIN, printDebug);
+}
+
+extern "C" void mcpuVerifyInt8Int64(int8_t *gpuAllocated, int8_t *gpuAligned,
+                                    int64_t gpuOffset, int64_t gpuSize,
+                                    int64_t gpuStride, int64_t *valAllocated,
+                                    int64_t *valAligned, int64_t valOffset,
+                                    int64_t valSize, int64_t valStride,
+                                    char printDebug) {
+
+  assert(gpuSize == valSize);
+  mcpuVerifyInt<int8_t, int64_t>(gpuAligned, valAligned, valSize, INT8_MAX,
+                                 INT8_MIN, printDebug);
 }
 
 template <typename T>

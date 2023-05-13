@@ -697,7 +697,8 @@ LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
-  if (inElems.isa<IntegerType>() && !outElems.isInteger(32))
+  if (inElems.isa<IntegerType>() &&
+      !(outElems.isInteger(32) || outElems.isInteger(8)))
     return emitOpError("integer-valued multiply must have i32 as its result");
   if (inElems.isa<FloatType>() && !outElems.isa<FloatType>())
     return emitOpError(
@@ -797,8 +798,8 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
        cElem = cType.getElementType();
   if (failed(verifyGemmTypes(op, aElem, bElem, cElem)))
     return failure();
-  if (aElem.isInteger(8) && !cElem.isInteger(32))
-    return op.emitOpError("i8 input requires i32 output");
+  if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
+    return op.emitOpError("i8 input requires i32 or i8 output");
   if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
     return op.emitOpError("8-bit float input requires f32 output");
 
