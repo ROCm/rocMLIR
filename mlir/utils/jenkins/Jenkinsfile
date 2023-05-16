@@ -65,9 +65,9 @@ void getAndBuildCK(String cmakeOpts) {
 }
 
 void buildMIOpenWithMLIR() {
-    buildProject('librockCompiler',
+    buildProject('package',
                     '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-    cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
+    cmake arguments: "--install . --prefix ${WORKSPACE}/MIOpenDeps",\
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
@@ -986,7 +986,7 @@ pipeline {
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_MIXR_TARGET=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
