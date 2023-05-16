@@ -300,6 +300,10 @@ createLinalgBodyCalculationForElementwiseOp(Operation *op, ValueRange args,
   if (isa<tosa::TanhOp>(op) && elementTy.isa<FloatType>())
     return rewriter.create<mlir::math::TanhOp>(loc, resultTypes, args);
 
+  // tosa::ErfOp
+  if (isa<tosa::ErfOp>(op) && elementTy.isa<FloatType>())
+    return rewriter.create<mlir::math::ErfOp>(loc, resultTypes, args);
+
   // tosa::GreaterOp
   if (isa<tosa::GreaterOp>(op) && elementTy.isa<FloatType>())
     return rewriter.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
@@ -2080,6 +2084,7 @@ void mlir::tosa::populateTosaToLinalgConversionPatterns(
       PointwiseConverter<tosa::ExpOp>,
       PointwiseConverter<tosa::AbsOp>,
       PointwiseConverter<tosa::TanhOp>,
+      PointwiseConverter<tosa::ErfOp>,
       PointwiseConverter<tosa::BitwiseAndOp>,
       PointwiseConverter<tosa::BitwiseOrOp>,
       PointwiseConverter<tosa::BitwiseNotOp>,

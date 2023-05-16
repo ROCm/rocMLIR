@@ -47,22 +47,22 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
 
 static bool assignExpandedShapeVal(Operation *use, Operation *originalOp,
                                    Value maybeExpandedVal) {
-  if (isa<migraphx::DotOp>(use)) {
-    use->replaceUsesOfWith(originalOp->getResult(0), maybeExpandedVal);
+  // Tosa only broadcast implicitly on the second input of the binary
+  // elementwise operators. Try to swap the operands if trying to broadcast on
+  // the first input.
+  if (use->hasTrait<OpTrait::IsCommutative>() && use->getNumOperands() == 2) {
+    if (use->getOperand(0) == originalOp->getResult(0)) {
+      use->setOperand(0, use->getOperand(1));
+      use->setOperand(1, maybeExpandedVal);
+    } else {
+      use->setOperand(1, maybeExpandedVal);
+    }
     return true;
   }
-  if (use->getNumOperands() != 2) {
-    return false;
-  }
-  // tosa only broadcast implicitly on the second input of the binary
-  // elementwise operators.
-  if (use->getOperand(1) != originalOp->getResult(0)) {
-    // swap, if possible
-    use->setOperand(0, use->getOperand(1));
-    use->setOperand(1, maybeExpandedVal);
-  } else {
-    use->setOperand(1, maybeExpandedVal);
-  }
+
+  // Do the in place broadcast replacement as-is, assuming it will work.
+  // If not, it will fail the Tosa lowering.
+  use->replaceUsesOfWith(originalOp->getResult(0), maybeExpandedVal);
   return true;
 }
 

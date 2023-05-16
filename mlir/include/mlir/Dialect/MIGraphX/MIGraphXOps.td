@@ -42,7 +42,7 @@ class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
 // Elementwise binary operations
 
 def MIGraphX_AddOp :
-    MIGraphX_Op<"add">,
+    MIGraphX_Op<"add", [Commutative]>,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
 	  Results<(outs AnyRankedTensor:$output)> {
@@ -66,7 +66,7 @@ def MIGraphX_SubOp :
 }
 
 def MIGraphX_MulOp :
-    MIGraphX_Op<"mul">,
+    MIGraphX_Op<"mul", [Commutative]>,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
 	  Results<(outs AnyRankedTensor:$output)> {

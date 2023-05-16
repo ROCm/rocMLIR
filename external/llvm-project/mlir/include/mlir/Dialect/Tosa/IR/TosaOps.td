@@ -390,6 +390,35 @@ def Tosa_TanhOp : Tosa_Op<"tanh", [
   );
 }
 
+
+//===----------------------------------------------------------------------===//
+// Operator: erf
+//===----------------------------------------------------------------------===//
+def Tosa_ErfOp : Tosa_Op<"erf", [
+    DeclareOpInterfaceMethods<InferShapedTypeOpInterface,
+                              ["inferReturnTypeComponents"]>,
+    Pure]> {
+  let summary = "Computes gauss error function of input";
+
+  let description = [{
+    Gauss error function:
+                           - x
+    erf(x) = 2 / sqrt(pi) /  e^(-t^2) dt
+                         - 0
+    For quantized integer data types, the TABLE operator should be used instead
+    with the following definition.  The erf_table has 513 entries each of
+    16-bit/8-bit precision and covering the input range -4.0 to +4.0 in steps of 1/64.
+  }];
+
+  let arguments = (ins
+    Tosa_Tensor:$input
+  );
+
+  let results = (outs
+    Tosa_Tensor:$output
+  );
+}
+
 //===----------------------------------------------------------------------===//
 // TOSA Spec Section 2.4
 // Operator Class: Elementwise unary/binary/ternary operators.
