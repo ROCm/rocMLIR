@@ -274,17 +274,9 @@ void check_randomE2ETests(String codepath) {
 }
 
 void parameterSweep(String CONFIG, String codepath) {
-    if (codepath == "navi21") {
-        timeout(time: 60, activity: true, unit: 'MINUTES') {
-            dir('build') {
-                sh """python3 ./bin/parameterSweeps.py -j 8 ${CONFIG}"""
-            }
-        }
-    } else {
-        timeout(time: 60, activity: true, unit: 'MINUTES') {
-            dir('build') {
-                sh """python3 ./bin/parameterSweeps.py ${CONFIG}"""
-            }
+    timeout(time: 300, activity: true, unit: 'MINUTES') {
+        dir('build') {
+            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
         }
     }
 }
