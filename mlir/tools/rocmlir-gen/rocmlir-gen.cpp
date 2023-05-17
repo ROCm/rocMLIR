@@ -2129,11 +2129,6 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16
   // datatypes
   //         0.000001f for other data types
-  //  auto thr_RMS = getF32Val(RMSThreshold.getValue());
-  //  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-  //  Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
-  //  if (testOutType.isF16())
-  //    thr_relDiff = getF32Val(100.0f);
   char printDebug = static_cast<char>(printVerifyResults.getValue());
 
   auto printDebugVal =
@@ -2759,7 +2754,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       exit(1);
     }
     genParams.dtype = conv2dGenerator.getDataType(builder);
-    genParams.dtype = conv2dGenerator.getOutputDataType(builder);
+    genParams.outDType = conv2dGenerator.getOutputDataType(builder);
     const auto *convConfig = &conv2dGenerator.getConfig();
     genParams.convConfig = convConfig;
     genParams.features = convConfig->features;

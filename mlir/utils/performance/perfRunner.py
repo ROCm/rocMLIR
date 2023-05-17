@@ -574,7 +574,6 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         transA = None
         transB = None
-
         for i in range(0, len(argv), 2):
             opt = argv[i]
             val = argv[i + 1]

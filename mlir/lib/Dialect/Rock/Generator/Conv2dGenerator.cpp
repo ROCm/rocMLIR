@@ -560,6 +560,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   config.operation = op.value();
   strToInt("kernel_id", config.kernelId);
   config.dataTypeStr = canonicalizeDataType(argMap["in_type"]);
+  config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
   strToInt("dilation_h", config.dilationHeight);
   strToInt("dilation_w", config.dilationWidth);
   strToInt("conv_stride_h", config.strideHeight);
@@ -568,7 +569,6 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_h", config.paddingHeightRight);
   strToInt("padding_w", config.paddingWidthLeft);
   strToInt("padding_w", config.paddingWidthRight);
-  config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
 
   strToStr("kernel_name", config.kernelBaseName);
 
