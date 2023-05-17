@@ -318,7 +318,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
               $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${PACKAGE_NAME}/${__library}>)
     endforeach()
 
-    add_dependencies(${LIBRARY_NAME} MLIRRockThin)
+    add_dependencies(${LIBRARY_NAME} ${__rocmlir_names})
 
     install(FILES ${__rocmlir_install}
          DESTINATION lib/${PACKAGE_NAME}
@@ -347,7 +347,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
                        COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
                        COMMAND echo "save" >> ${mri_file}
                        COMMAND echo "end" >> ${mri_file}
-                       DEPENDS MLIRRockThin)
+                       DEPENDS ${__rocmlir_names})
 
     # Step two: use mri file to generate the fat library.
     llvm_add_library(${LIBRARY_NAME}
