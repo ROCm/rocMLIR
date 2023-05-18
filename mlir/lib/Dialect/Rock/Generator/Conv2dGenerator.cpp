@@ -347,6 +347,7 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
           .Case("f16", builder.getF16Type())
           .Case("fp16", builder.getF16Type())
           .Case("bf16", builder.getBF16Type())
+          .Case("i32", builder.getI32Type())
           .Case("i8", builder.getI8Type())
           .Default(std::nullopt);
   if (!type) {
