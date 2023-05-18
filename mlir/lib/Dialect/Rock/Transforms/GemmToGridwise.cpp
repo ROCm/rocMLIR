@@ -151,7 +151,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  bool isAccel = rock::isAccel(op.getFeatures(), a.getType());
+  bool isAccel = bitEnumContainsAny(op.getFeatures(),
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
   IntegerAttr gridSize = op.getGridSizeAttr();
@@ -159,24 +160,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
 
   if (isAccel) {
-    bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
-    bool isWmma = bitEnumContainsAll(op.getFeatures(), GemmFeatures::wmma);
+    rw.create<GridwiseGemmAccelOp>(
+        loc, a, b, c, op.getArchAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), blockSize, gridSize,
+        params.cast<RockAccelTuningParamAttrInterface>());
+    rw.eraseOp(op);
 
-    if (isXdlops) {
-      // Onne the attribute copies are gone, make this a replaceOp
-      rw.create<GridwiseGemmAccelOp>(
-          loc, a, b, c, op.getArchAttr(), op.getFeaturesAttr(),
-          op.getStoreMethodAttr(), blockSize, gridSize,
-          params.cast<XdlopsGemmParamsAttr>());
-      rw.eraseOp(op);
-    } else if (isWmma) {
-      // Onne the attribute copies are gone, make this a replaceOp
-      rw.create<GridwiseGemmAccelOp>(
-          loc, a, b, c, op.getArchAttr(), op.getFeaturesAttr(),
-          op.getStoreMethodAttr(), blockSize, gridSize,
-          params.cast<WmmaGemmParamsAttr>());
-      rw.eraseOp(op);
-    }
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
                               params.cast<GeneralGemmParamsAttr>());

@@ -255,9 +255,9 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
     return failure();
 
-  constexpr size_t NUM_SUPPORTED_CHIPS = 8;
+  constexpr size_t NUM_SUPPORTED_CHIPS = 12;
   static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030, 0x1100};
+      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030, 0x1100, 0x1101, 0x1102, 0x1103};
   const unsigned int *ptr;
   ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
                   chipHexNumber);
@@ -269,9 +269,9 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
       (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
     return failure();
 
-  // WMMA is only supported on gfx1100
+  // WMMA is only supported on gfx11xx
   if (bitEnumContainsAll(config.features, GemmFeatures::wmma) &&
-      (chipHexNumber != 0x1100))
+      (chipHexNumber > 0x1103))
     return failure();
   return success();
 }
@@ -302,13 +302,15 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  Type dataType = getDataType(builder);
-  if (rock::isAccel(config.features, dataType)) {
+  bool isAccel = bitEnumContainsAny(config.features,
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  if (isAccel) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
     }
     if (!needExtraPad) {
+      Type dataType = getDataType(builder);
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -393,7 +395,9 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCu=*/static_cast<uint32_t>(config.num_cu)};
 
-  if (rock::isAccel(config.features, dataType)) {
+  bool isAccel = bitEnumContainsAny(config.features,
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  if (isAccel) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
     uint32_t blockSize;
@@ -431,12 +435,14 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
   // - operation: backward weight conv2d.
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
+
+  bool isAccel = bitEnumContainsAny(config.features,
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
   needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) &&
-        rock::isAccel(config.features, dataType) &&
+    if ((dir == ConvOpType::BwdWeight) && isAccel &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -542,14 +548,9 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   config.chip = splitter.getChip().str();
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
-  AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.defaultFeatures;
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  int hasXdlops = 0;
-  strToInt("x2", hasXdlops);
-  config.features = bitEnumSet(config.features, GemmFeatures::mfma, hasXdlops);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -579,6 +580,18 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_w", config.paddingWidthRight);
 
   strToStr("kernel_name", config.kernelBaseName);
+
+  // Get the default features associated with the chip (and with the data type)
+  AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
+  config.features = archInfo.getDefaultFeatures(config.dataTypeStr);
+
+  // Force acceleration if that's what the client wants
+  int hasAccel = 0;
+  strToInt("x2", hasAccel);
+  config.features =
+      bitEnumSet(config.features, GemmFeatures::mfma, hasAccel == 1);
+  config.features =
+      bitEnumSet(config.features, GemmFeatures::wmma, hasAccel == 2);
 
   // Allow only fwd direction for int8. Reject other directions.
   if (config.operation.value() != ConvOpType::Fwd &&

@@ -60,3 +60,32 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
                << arch << "\n";
   return gcnInfo;
 }
+
+GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
+  GemmFeatures theseFeatures = defaultFeatures;
+  bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
+  if (isWmma) {
+    Type elementType = dataType;
+    if (auto vectorType = dataType.dyn_cast<VectorType>())
+      elementType = vectorType.getElementType();
+    else if (auto memrefType = dataType.dyn_cast<MemRefType>())
+      elementType = memrefType.getElementType();
+    if (!elementType.isF16() && !elementType.isBF16() &&
+        !elementType.isInteger(8)) {
+      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
+    }
+  }
+  return theseFeatures;
+}
+
+GemmFeatures
+mlir::rock::AmdArchInfo::getDefaultFeatures(StringRef strDataType) {
+  GemmFeatures theseFeatures = defaultFeatures;
+  bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
+  if (isWmma) {
+    if (strDataType != "f16" && strDataType != "bf16" && strDataType != "i8") {
+      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
+    }
+  }
+  return theseFeatures;
+}

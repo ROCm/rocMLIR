@@ -2778,8 +2778,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
     LogicalResult status = success();
 
+    Type elemType = typeFromString(tensorDataType, context);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+    rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
     if (mfmaFeature != FeatureToggle::infer)
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
@@ -2796,16 +2797,10 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
 
-    if (wmmaFeature != FeatureToggle::infer) {
+    if (wmmaFeature != FeatureToggle::infer)
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
-    } else {
-      Type elemType = typeFromString(tensorDataType, context);
-      if (!elemType.isF16() && !elemType.isInteger(8)) {
-        enabledFeatures =
-            bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
-      }
-    }
+
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;

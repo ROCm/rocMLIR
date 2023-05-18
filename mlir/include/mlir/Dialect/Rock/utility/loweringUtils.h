@@ -25,8 +25,6 @@ struct GemmSize;
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
-bool isAccel(GemmFeatures features, Type dataType);
-
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
 //

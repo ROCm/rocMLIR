@@ -36,8 +36,8 @@ bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
     return true;
   } else {
     if (kPerBlock < inputLen) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "When KPack is 1, KPerBlock must be at least k_base\n");
+      LLVM_DEBUG(llvm::dbgs() << "When KPack is 1, KPerBlock must be at least "
+                              << inputLen << "\n");
       return false;
     }
     return true;

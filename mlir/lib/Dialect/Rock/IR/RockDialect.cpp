@@ -500,7 +500,7 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      Type elemTypeA, Type elemTypeB,
                                      Type elemTypeC) {
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    if (!(elemTypeA.isF16() || elemTypeA.isInteger(8))) {
+    if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
       return op->emitOpError(
           "Wmma gridwise supports only F16 and Int8 data types");
     }
@@ -557,15 +557,13 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
       isDisjointed("input_layout", "hi", "wi"))
     return op->emitError("Disjointed yx or hw!");
 
-  bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::wmma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
-  Type inputType = gemmOp.getAType();
-  bool isAccel =
-      isXdlops || (isWmma && (inputType.isF16() || inputType.isInteger(8)));
 
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
+
+  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
