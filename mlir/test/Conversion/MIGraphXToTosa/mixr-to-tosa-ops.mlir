@@ -52,21 +52,28 @@ module  {
   // CHECK-LABEL: func.func @matmul
   // CHECK: tosa.matmul
   func.func @matmul(%arg0: tensor<2x256x384xf32>, %arg1: tensor<2x384x768xf32>) -> tensor<2x256x768xf32> {
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<2x256x384xf32>, tensor<2x384x768xf32>) -> tensor<2x256x768xf32>
+    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x256x384xf32>, tensor<2x384x768xf32>) -> tensor<2x256x768xf32>
      return %0 : tensor<2x256x768xf32>
+  }
+
+  // CHECK-LABEL: func.func @quant_matmul
+  // CHECK: tosa.matmul
+  func.func @quant_matmul(%arg0: tensor<2x256x384xi8>, %arg1: tensor<2x384x768xi8>) -> tensor<2x256x768xi32> {
+    %0 = migraphx.quant_dot(%arg0, %arg1) : (tensor<2x256x384xi8>, tensor<2x384x768xi8>) -> tensor<2x256x768xi32>
+     return %0 : tensor<2x256x768xi32>
   }
 
   // CHECK-LABEL: func.func @matmul_larger_batch
   // CHECK: tosa.matmul
   func.func @matmul_larger_batch(%arg0: tensor<2x16x256x384xf32>, %arg1: tensor<2x16x384x768xf32>) -> tensor<2x16x256x768xf32> {
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<2x16x256x384xf32>, tensor<2x16x384x768xf32>) -> tensor<2x16x256x768xf32>
+    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x16x256x384xf32>, tensor<2x16x384x768xf32>) -> tensor<2x16x256x768xf32>
      return %0 : tensor<2x16x256x768xf32>
   }
 
   // CHECK-LABEL: func.func @matmul_rank2
   // CHECK: tosa.matmul
   func.func @matmul_rank2(%arg0: tensor<32x72xf32>, %arg1: tensor<72x64xf32>) -> tensor<32x64xf32> {
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<32x72xf32>, tensor<72x64xf32>) -> tensor<32x64xf32>
+    %0 = migraphx.dot(%arg0, %arg1) : (tensor<32x72xf32>, tensor<72x64xf32>) -> tensor<32x64xf32>
      return %0 : tensor<32x64xf32>
   }
 
@@ -75,7 +82,7 @@ module  {
     %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 768, 2304]} : (tensor<1x768x2304xf16>) -> tensor<64x768x2304xf16>
     // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 4096, 768>}
     // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%arg2) {new_shape = array<i64: 1, 768, 2304>}
-    %1 = migraphx.dot(%arg1, %0) : tensor<64x64x768xf16>, tensor<64x768x2304xf16> -> tensor<64x64x2304xf16>
+    %1 = migraphx.dot(%arg1, %0) : (tensor<64x64x768xf16>, tensor<64x768x2304xf16>) -> tensor<64x64x2304xf16>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) {new_shape = array<i64: 64, 64, 2304>}
     %2 = migraphx.add(%1, %arg0) : (tensor<64x64x2304xf16>, tensor<64x64x2304xf16>) -> tensor<64x64x2304xf16>
@@ -87,7 +94,7 @@ module  {
     %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : (tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x768x2304xf16>
     // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 4096, 768>}
     // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%arg2) {new_shape = array<i64: 1, 768, 2304>}
-    %1 = migraphx.dot(%arg1, %0) : tensor<2x4x8x64x768xf16>, tensor<2x4x8x768x2304xf16> -> tensor<2x4x8x64x2304xf16>
+    %1 = migraphx.dot(%arg1, %0) : (tensor<2x4x8x64x768xf16>, tensor<2x4x8x768x2304xf16>) -> tensor<2x4x8x64x2304xf16>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) {new_shape = array<i64: 2, 4, 8, 64, 2304>}
     %2 = migraphx.add(%1, %arg0) : (tensor<2x4x8x64x2304xf16>, tensor<2x4x8x64x2304xf16>) -> tensor<2x4x8x64x2304xf16>
@@ -215,7 +222,7 @@ module  {
   // CHECK: tosa.matmul
   // CHECK: tosa.mul
   func.func @func_dot_mul(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<1x5x3xf32>) -> tensor<1x5x3xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
+    %0 = migraphx.dot(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
     %2 = "migraphx.mul"(%0, %arg2) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
     return %2 : tensor<1x5x3xf32>
   }

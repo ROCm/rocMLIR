@@ -433,17 +433,29 @@ def MIGraphX_MultiBroadcastOp :
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
 }
 
-def MIGraphX_DotOp :
-    MIGraphX_Op<"dot">,
-    Arguments<(ins AnyRankedTensor:$in_a,
-                   AnyRankedTensor:$in_b
+class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
+    MIGraphX_Op<mnemonic>,
+    Arguments<(ins TensorOf<inputTypes>:$in_a,
+                   TensorOf<inputTypes>:$in_b
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Broadcast tensor in multiple dimensions";
+	Results<(outs TensorOf<outputTypes>:$output)> {
+  let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
+}
+
+def MIGraphX_QuantDotOp :
+    MIGraphX_DotOpBase<"quant_dot", [I8], [I32]>{
+  let summary = "Dot product of quantized tensors";
   let description = [{
-    The `migraphx.dot` op.
+    The `migraphx.quant_dot` op computes the dot product of two tensors.
   }];
-  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
+}
+
+def MIGraphX_DotOp :
+    MIGraphX_DotOpBase<"dot", [F32, F16, BF16], [F32, F16, BF16]>{
+  let summary = "Dot product of tensors";
+  let description = [{
+    The `migraphx.dot` op computes the dot product of two tensors.
+  }];
 }
 
 def MIGraphX_ConstantOp :
