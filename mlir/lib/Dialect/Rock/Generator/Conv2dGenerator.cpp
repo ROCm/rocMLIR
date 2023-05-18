@@ -255,9 +255,9 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
     return failure();
 
-  constexpr size_t NUM_SUPPORTED_CHIPS = 5;
+  constexpr size_t NUM_SUPPORTED_CHIPS = 8;
   static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906, 0x908, 0x90a, 0x1030};
+      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030};
   const unsigned int *ptr;
   ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
                   chipHexNumber);

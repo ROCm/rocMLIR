@@ -39,7 +39,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("08", "0a", "40", cdnaInfo)
+        .Cases("08", "0a", "40", "41", "42", cdnaInfo)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64))
         .Default(gcnInfo);
