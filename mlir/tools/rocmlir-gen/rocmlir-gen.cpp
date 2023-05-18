@@ -2102,7 +2102,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   auto test = block->getArgument(0);
   auto val = block->getArgument(1);
   // obtain element type
-  auto testOutType = testType.getElementType();
+  auto testElemType = testType.getElementType();
   auto valElemType = valType.getElementType();
 
   // Flatten the arguments to 1D for passing to the verification function
@@ -2138,15 +2138,11 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   std::string verifyFuncName = "mcpuVerify";
   if (valElemType.isF32()) {
     verifyFuncName += "Float";
-  } else if (valElemType.isInteger(8)) {
-    verifyFuncName += "Int8";
-  } else if (valElemType.isInteger(32)) {
-    verifyFuncName += "Int32";
-  } else if (valElemType.isInteger(64)) {
+  } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
+             valElemType.isInteger(64)) {
     verifyFuncName +=
-        "Int" + std::to_string(testOutType.getIntOrFloatBitWidth()) + "Int64";
-  } else if (valElemType.isInteger(8)) {
-    verifyFuncName += "Int8";
+        "Int" + std::to_string(testElemType.getIntOrFloatBitWidth()) + "Int" +
+        std::to_string(valElemType.getIntOrFloatBitWidth());
   } else {
     llvm::errs() << "Unsupported type of validation function output: ";
     llvm::errs() << " (Only f32, int32 and int64 are supported)\n";
@@ -2154,12 +2150,12 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   }
 
   auto mr1DUnkTestType =
-      MemRefType::get({mlir::ShapedType::kDynamic}, testOutType);
+      MemRefType::get({mlir::ShapedType::kDynamic}, testElemType);
   auto mr1DUnkValType =
       MemRefType::get({mlir::ShapedType::kDynamic}, valElemType);
 
   bool isTestAndValSameType =
-      (testOutType.isIntOrIndex() || testOutType.isF32());
+      (testElemType.isIntOrIndex() || testElemType.isF32());
 
   Value testResult, valResult; // Values passed to the verify function
   Value testResultNew;         // Values used for type conversion
@@ -2199,14 +2195,14 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     SmallVector<int64_t, 1> upperBounds = {valFlatType.getNumElements()};
     SmallVector<int64_t, 1> steps(1, 1);
 
-    if (testOutType != valElemType) {
+    if (testElemType != valElemType) {
       buildAffineLoopNest(
           b, loc, lowerBounds, upperBounds, steps,
-          [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
-                                              ValueRange ivs) {
+          [valFlat, testElemType, valElemType](OpBuilder &b, Location loc,
+                                               ValueRange ivs) {
             auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
             auto valTruncated =
-                b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+                b.create<arith::TruncFOp>(loc, testElemType, valOrig);
             auto valExt =
                 b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
             b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
@@ -2221,11 +2217,11 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   // Declare and call the wrapper verify function
   func::FuncOp verifyFuncDecl;
 
-  if (testOutType.isa<FloatType>()) {
+  if (testElemType.isa<FloatType>()) {
     auto thr_RMS = getF32Val(RMSThreshold.getValue());
     auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
     Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
-    if (testOutType.isF16())
+    if (testElemType.isF16())
       thr_relDiff = getF32Val(100.0f);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,

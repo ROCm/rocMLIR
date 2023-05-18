@@ -326,7 +326,8 @@ class ConvConfiguration(PerfConfiguration):
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
-                           f"--perf_config={self.perfConfig} "])
+                           f"--perf_config={self.perfConfig}"])
+        result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -558,8 +559,9 @@ class GemmConfiguration(PerfConfiguration):
                            f"-transA={self.transA}",
                            f"-transB={self.transB}",
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
-                           f"--perf_config={self.perfConfig} "])
+                           f"--perf_config={self.perfConfig}"])
 
+        result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result

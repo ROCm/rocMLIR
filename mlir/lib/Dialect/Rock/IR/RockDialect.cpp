@@ -697,9 +697,8 @@ LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
-  if (inElems.isa<IntegerType>() &&
-      !(outElems.isInteger(32) || outElems.isInteger(8)))
-    return emitOpError("integer-valued multiply must have i32 as its result");
+  // The integer gemm will produce i32 and then truncate/extend to the requested
+  // iN e.g. i8.
   if (inElems.isa<FloatType>() && !outElems.isa<FloatType>())
     return emitOpError(
         "float-valued inputs must have a floating-point output type");

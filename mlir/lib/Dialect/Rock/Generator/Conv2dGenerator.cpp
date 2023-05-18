@@ -339,18 +339,21 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
   return static_cast<int>(gemmIds.size());
 }
 
-static Type strToType(std::string dataTypeStr, OpBuilder &builder) {
-  Type dataType;
-  if (dataTypeStr == "f32" || dataTypeStr == "fp32") {
-    dataType = builder.getF32Type();
-  } else if (dataTypeStr == "f16" || dataTypeStr == "fp16") {
-    dataType = builder.getF16Type();
-  } else if (dataTypeStr == "bf16") {
-    dataType = builder.getBF16Type();
-  } else if (dataTypeStr == "i8") {
-    dataType = builder.getI8Type();
+static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
+  std::optional<Type> type =
+      llvm::StringSwitch<std::optional<Type>>(dataTypeStr)
+          .Case("f32", builder.getF32Type())
+          .Case("fp32", builder.getF32Type())
+          .Case("f16", builder.getF16Type())
+          .Case("fp16", builder.getF16Type())
+          .Case("bf16", builder.getBF16Type())
+          .Case("i8", builder.getI8Type())
+          .Default(std::nullopt);
+  if (!type) {
+    llvm::errs() << "Unknown data type: " << dataTypeStr << "\n";
+    exit(1);
   }
-  return dataType;
+  return *type;
 }
 
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
