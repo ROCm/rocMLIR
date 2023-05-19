@@ -30,7 +30,7 @@ class MHAL_Op<string mnemonic, list<Trait> traits = []> :
     Op<MHALDialect, mnemonic, traits>;
 
 def MHAL_LaunchOp :
-  MHAL_Op<"launch", [DeclareOpInterfaceMethods<CallOpInterface,
+  MHAL_Op<"launch", [DeclareOpInterfaceMethods<CallOpInterface>,
                       DeclareOpInterfaceMethods<SymbolUserOpInterface>,
                       AttrSizedOperandSegments]> {
   let summary = "asynchronous launch operation";
