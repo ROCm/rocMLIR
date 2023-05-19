@@ -891,12 +891,13 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb):
     allData = []
     allTests = [] #filename, testVector, futName
+    minNanoSecs = {} #map testVector to minimum run time
     chip = GFX_CHIP_RE.search(arch).group(0)
 
     # Prepare test cases
     for filename in glob.glob(test_dir+'/*.mlir'):
         testEntry = getFusionTestInfo(filename, paths)
-        if testEntry and not testEntry['testVector'] in [tv['testVector'] for tv in allTests]:
+        if testEntry:
             allTests.append(testEntry)
 
     # Profile each test case
@@ -941,13 +942,17 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
         runFusionKernel(filename, rocmlirGenArgs, paths)
         # Get nanoseconds of fusion test
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-        oneEntry = config.tableEntry(nanoSeconds)
+        # Keep the best performance
+        if not testVector in minNanoSecs:
+            minNanoSecs[testVector] = nanoSeconds
+        elif nanoSeconds >= minNanoSecs[testVector]:
+            continue
 
+        oneEntry = config.tableEntry(nanoSeconds)
         # Run gemm or conv op with the same configuration
         runConfigWithMLIR(config, paths, '')
         # Get nanoseconds of gemm/conv
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-
         oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
         oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
