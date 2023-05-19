@@ -96,8 +96,6 @@ def MHAL_LaunchOp :
   ];
 
   let extraClassDeclaration = [{
-    Operation::result_range getCallResults();
-    Operation::result_type_range getCallResultTypes();
     void updateSegmentSizes(MLIRContext *);
   }];
 

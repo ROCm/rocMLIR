@@ -99,7 +99,6 @@ static FuncOpAnalysisState getFuncOpAnalysisState(const AnalysisState &state,
 
 /// Bufferization of mhal.launch.
 struct LaunchOpInterface
-//    : public BufferizableOpInterface::ExternalModel<CallOpInterface<mhal::LaunchOp>, mhal::LaunchOp>
   : public BufferizableOpInterface::ExternalModel<LaunchOpInterface, mhal::LaunchOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {

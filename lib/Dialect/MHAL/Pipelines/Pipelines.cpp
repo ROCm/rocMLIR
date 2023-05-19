@@ -128,7 +128,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createMemRefToLLVMConversionPass());
 
-  pm.addPass(createAsyncToAsyncRuntime());
+  pm.addPass(createAsyncToAsyncRuntimePass());
 
   auto &funcPm3 = pm.nest<func::FuncOp>();
   funcPm3.addPass(createAsyncRuntimeRefCountingPass());

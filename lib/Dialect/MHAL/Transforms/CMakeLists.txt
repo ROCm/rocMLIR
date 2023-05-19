@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRMHALTransforms
   MLIRArithTransforms
   MLIRDialect
   MLIRMHAL
+  MLIRMHALSupport
   MLIRFuncDialect
   MLIRExecutionEngineUtils
   MLIRGPUTransforms

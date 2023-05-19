@@ -102,7 +102,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
       // Replace the original `async.execute` with a call to outlined
       // function.
-      rw.create<func::CallOp>(loc, *func, op.getCallOperands());
+      rw.create<func::CallOp>(loc, *func, op.getArgOperands());
 
       // make dummy token
       // auto retToken =
