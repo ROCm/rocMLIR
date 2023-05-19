@@ -31,7 +31,6 @@ class MHAL_Op<string mnemonic, list<Trait> traits = []> :
 
 def MHAL_LaunchOp :
   MHAL_Op<"launch", [DeclareOpInterfaceMethods<CallOpInterface,
-                      ["getCallResults", "getCallResultTypes"]>,
                       DeclareOpInterfaceMethods<SymbolUserOpInterface>,
                       AttrSizedOperandSegments]> {
   let summary = "asynchronous launch operation";
@@ -96,6 +95,8 @@ def MHAL_LaunchOp :
   ];
 
   let extraClassDeclaration = [{
+    Operation::result_range getCallResults();
+    Operation::result_type_range getCallResultTypes();
     void updateSegmentSizes(MLIRContext *);
   }];
 
