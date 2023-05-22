@@ -53,8 +53,11 @@ void buildMIGraphX(String cmakeOpts) {
 }
 
 void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    // TODO: https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/889
+    // git branch: params.MIGraphXBranch, poll: false,\
+    //     url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    checkout([$class: 'GitSCM', branches: [[name: '0e6ee3f7ff7880e9e65b84fbceed8686e426bc8a' ]],
+              userRemoteConfigs: [[url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git']]])
     buildMIGraphX(cmakeOpts)
 }
 
