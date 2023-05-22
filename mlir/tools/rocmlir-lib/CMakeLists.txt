@@ -309,7 +309,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${LLVM_EXTERNAL_LIB_DIR}/${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${PACKAGE_NAME}/llvm/${__library}>)
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/llvm/${__library}>)
     endforeach()
 
     foreach(__library ${__rocmlir_libraries})
@@ -317,18 +317,16 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${ROCMLIR_LIB_DIR}/${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${PACKAGE_NAME}/${__library}>)
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library}>)
     endforeach()
 
     add_dependencies(${LIBRARY_NAME} ${__rocmlir_names})
 
-    install(FILES ${__rocmlir_install}
-         DESTINATION lib/${PACKAGE_NAME}
-         COMPONENT ${COMPONENT_NAME})
+    rocm_install(FILES MLIRRockThin
+        DESTINATION lib)
 
-    install(FILES ${__llvm_install}
-         DESTINATION lib/${PACKAGE_NAME}/llvm
-         COMPONENT ${COMPONENT_NAME})
+    rocm_install(FILES ${__llvm_install}
+         DESTINATION lib/llvm)
 
     unset(__llvm_libraries)
     unset(__rocmlir_libraries)
@@ -419,7 +417,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       set(EXTRA_INCLUDES ${ARG_EXTRA_INCLUDES})
     endif()
     # Call install() instead of rocm_install() here in order to install
-    # header files  in a subdirecotry.
+    # header files in a subdirecotry.
     install(TARGETS ${lib_name}
       EXPORT ${export_set}
       ARCHIVE DESTINATION lib
