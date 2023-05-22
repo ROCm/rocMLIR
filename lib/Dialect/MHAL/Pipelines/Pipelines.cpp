@@ -112,13 +112,13 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   funcPm1.addPass(createConvertSCFToCFPass());
 
+  // Make gpu ops async if they didn't come from the async world
+  pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
   // Target mhal.launch to gpu.launch_func
   pm.addPass(createConvertMHALToGPUPass());
   // Target remaining mhal.launch to cpu.call
   pm.addPass(createConvertMHALToCPUPass());
   pm.addPass(createAsyncParallelForPass());
-  // Make gpu ops async if they didn't come from the async world
-  pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
 
   auto &funcPm2 = pm.nest<func::FuncOp>();
   funcPm2.addPass(arith::createArithExpandOpsPass());
