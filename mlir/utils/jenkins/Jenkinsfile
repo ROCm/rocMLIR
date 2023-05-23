@@ -53,8 +53,11 @@ void buildMIGraphX(String cmakeOpts) {
 }
 
 void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    // TODO: https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/889
+    // git branch: params.MIGraphXBranch, poll: false,\
+    //     url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    checkout([$class: 'GitSCM', branches: [[name: '0e6ee3f7ff7880e9e65b84fbceed8686e426bc8a' ]],
+              userRemoteConfigs: [[url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git']]])
     buildMIGraphX(cmakeOpts)
 }
 
@@ -156,7 +159,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -867,18 +870,18 @@ pipeline {
                             }
                         }
                     }
-                    //stage("Test Fusion") {
-                    //    steps {
-                    //        dir('build') {
+                    stage("Test Fusion") {
+                        steps {
+                            dir('build') {
                                 // Run fusion resnet50 perf benchmarks
-                                //sh """python3 ./bin/perfRunner.py --op=fusion \
-          //--test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/tuning_fusion_resnet50_${CHIP}.tsv"""
+                                sh """python3 ./bin/perfRunner.py --op=fusion \
+          --test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/tuning_fusion_resnet50_${CHIP}.tsv"""
                                 // Run bert perf benchmarks
-                                //sh """python3 ./bin/perfRunner.py --op fusion \
-          //--test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv"""
-                            //}
-                        //}
-                    //}
+                                sh """python3 ./bin/perfRunner.py --op fusion \
+          --test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv"""
+                            }
+                        }
+                    }
                     stage("Test MLIR vs CK") {
                         when {
                             beforeAgent true;
@@ -919,7 +922,7 @@ pipeline {
                                 sh 'ls -l'
                                 sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP}'
-                                //sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                 sh 'mkdir -p reports && cp ./*.html reports'

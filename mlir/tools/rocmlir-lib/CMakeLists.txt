@@ -49,7 +49,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(LIBRARY_NAME rockCompiler)
   set(COMPONENT_NAME ${LIBRARY_NAME})
 
-  set(__rocmlir_names
+  set(__rocmlir_targets
           GpuModuleToRocdlirTranslation
           MLIRCAPIMIGraphX
           MLIRCAPIRegisterRocMLIR
@@ -69,7 +69,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRRockUtility
           MLIRTosaToRock)
 
-  set(__llvm_names
+  set(__llvm_targets
           lldCommon
           lldELF
           LLVMAggressiveInstCombine
@@ -293,12 +293,14 @@ if(BUILD_FAT_LIBROCKCOMPILER)
           MLIRXModelToGPU
           MLIRXModelTransforms)
 
-  foreach(__name ${__llvm_names})
-      list(APPEND __llvm_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__name}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  foreach(__target ${__llvm_targets})
+      list(APPEND __llvm_libraries
+        ${CMAKE_STATIC_LIBRARY_PREFIX}${__target}${CMAKE_STATIC_LIBRARY_SUFFIX})
   endforeach()
 
-  foreach(__name ${__rocmlir_names})
-      list(APPEND __rocmlir_libraries ${CMAKE_STATIC_LIBRARY_PREFIX}${__name}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  foreach(__target ${__rocmlir_targets})
+      list(APPEND __rocmlir_libraries
+        ${CMAKE_STATIC_LIBRARY_PREFIX}${__target}${CMAKE_STATIC_LIBRARY_SUFFIX})
   endforeach()
 
   if (MSVC)
@@ -313,22 +315,22 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     endforeach()
 
     foreach(__library ${__rocmlir_libraries})
-      list(APPEND __rocmlir_install ${ROCMLIR_LIB_DIR}/${__library})
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${ROCMLIR_LIB_DIR}/${__library}>
               $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library}>)
     endforeach()
 
-    add_dependencies(${LIBRARY_NAME} ${__rocmlir_names})
-
-    rocm_install(FILES MLIRRockThin
-        DESTINATION lib)
+    add_dependencies(${LIBRARY_NAME} ${__rocmlir_targets})
 
     rocm_install(FILES ${__llvm_install}
          DESTINATION lib/llvm)
 
+    rocm_install(FILES ${ROCMLIR_LIB_DIR}/MLIRRockThin.lib
+         DESTINATION lib)
+
     unset(__llvm_libraries)
+    unset(__llvm_install)
     unset(__rocmlir_libraries)
 
   else()
@@ -347,7 +349,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
                        COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
                        COMMAND echo "save" >> ${mri_file}
                        COMMAND echo "end" >> ${mri_file}
-                       DEPENDS ${__rocmlir_names})
+                       DEPENDS ${__rocmlir_targets})
 
     # Step two: use mri file to generate the fat library.
     llvm_add_library(${LIBRARY_NAME}
@@ -370,7 +372,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   # as part of component rockCompiler
   rocm_install(FILES Miir.h
     DESTINATION include/${PACKAGE_NAME})
-
+  
   # Install a target, i.e. ${package_name}::${component_name}, as part of
   # devel component and export it to be searchable by find_package().
   # The include directories are propagated to the downstream targets
@@ -402,27 +404,20 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   # which is used to auto generate ${package_name}Config.cmake
   function(export_target package_name lib_name)
     cmake_parse_arguments(ARG "" "" "EXTRA_INCLUDES" ${ARGN})
-    set(export_set ${package_name}-targets)
-    set(INCLUDE_DIR include/${package_name}/)
-    set(LIB_CMAKE_DIR lib/cmake/${package_name}/)
-    set(development "devel")
 
     # Install ${component_name} to ${CMAKE_INSTALL_PREFIX}/lib/${package_name}/
     # and group it into the ${export-set}
     # The INTERFACE_INCLUDE_DIRECTORIES will be set as the property of the exported library
     # so that when consumer libraries (Rock) link in ${COMPONENT_NAME}, ${INCLUDE_DIR} is
     # automatically propagated to the consumer library's include_dirs
-    set(EXTRA_INCLUDES "")
-    if(ARG_EXTRA_INCLUDES)
-      set(EXTRA_INCLUDES ${ARG_EXTRA_INCLUDES})
-    endif()
+
     # Call install() instead of rocm_install() here in order to install
-    # header files in a subdirecotry.
+    # header files in a subdirectory.
     install(TARGETS ${lib_name}
-      EXPORT ${export_set}
+      EXPORT ${package_name}-targets
       ARCHIVE DESTINATION lib
-      COMPONENT ${development} 
-      INCLUDES DESTINATION ${INCLUDE_DIR} ${EXTRA_INCLUDES}
+      COMPONENT devel
+      INCLUDES DESTINATION include/${package_name} ${ARG_EXTRA_INCLUDES}
     )
 
     # Generate package config and version file
@@ -431,12 +426,10 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       NAME ${package_name}
       TARGETS ${package_name}
       COMPATIBILITY AnyNewerVersion
-      )
+    )
 
   endfunction()
-
-  set(extra_include_dir "")
-
+  
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     rocm_install(DIRECTORY
       ${PROJECT_SOURCE_DIR}/mlir/include/mlir
@@ -477,18 +470,20 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     set(extra_include_dir include/${PACKAGE_NAME}/external/include)
   endif()
 
-  # Install ${COMPONENT_NAME}.a as part of component ${LIBRARY_NAME}
+  # Install ${LIBRARY_NAME} as component of ${PACKAGE_NAME}
   # and export it to be searchable by find_package()
   export_target(${PACKAGE_NAME} # package name
     ${LIBRARY_NAME}             # library name
     EXTRA_INCLUDES              # extra include directories
     ${extra_include_dir}
   )
-
+  
   rocm_create_package(
     NAME ${CMAKE_PROJECT_NAME}
     DESCRIPTION "MLIR packages"
     MAINTAINER "rocMLIR Dev Team dl.dl-mlir@amd.com"
     HEADER_ONLY
   )
+
 endif()
+  
