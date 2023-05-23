@@ -43,6 +43,7 @@ class MLIRPaths:
     rocmlir_driver_path : str
     rocmlir_opt_path : str
     cpu_runner_path : str
+    xmir_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
@@ -137,6 +138,7 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
             rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
             rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
             cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
+            xmir_runner_path = mlir_bin_dir + '/xmir-runner',
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
@@ -845,7 +847,9 @@ def getFusionTestInfo(filename, paths: Paths):
     testEntry = {'filename' : filename, 'testVector' : result[1], 'futName' : futName}
     return testEntry
 
-def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
+def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
+    os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
+
     firstCommand, _ = findRunCommand(filename)
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
@@ -861,9 +865,9 @@ def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
         p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
-    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel,runner', '-kernel-pipeline','full']
-    mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel', '-kernel-pipeline','full']
+    xmir_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.xmir_runner_path] + xmir_runner_args
     # pipe to rocmlir-gen -ph --perf_config
     p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p2.stdout.close()
@@ -872,11 +876,23 @@ def generateProfilingProcesses(filename, rocmlirGenArgs, paths: Paths):
     p3.stdout.close()
     profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p4.stdout.close()
-    return profiling
 
+    # Get output.
+    try:
+        outs, errs = profiling.communicate(timeout=60)
+        if len(errs) > 0:
+            print("Test printed errors: ", errs.decode('utf-8'))
+            print("Failing: ", filename)
+    except subprocess.TimeoutExpired:
+        print("Test timed out: ", filename)
+        profiling.kill()
+        outs, errs = profiling.communicate()
+
+
+# Generate fusion vs. gemm/conv performance results
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb):
-    allData = []
     allTests = [] #filename, testVector, futName
+    perfResults = {} #associate testVector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
 
     # Prepare test cases
@@ -891,8 +907,6 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
         testVector = test['testVector']
         futName = test['futName']
 
-        os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
-
         print("Profiling:", filename)
         # Sanity check
         if not testVector:
@@ -905,9 +919,11 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
         commandLine = testVector.split(sep=' ')
         if commandLine[0].startswith('conv'):
             op = 'conv'
+            confClass = ConvConfiguration
             config = ConvConfiguration.fromCommandLine(commandLine, arch)
         else:
             op = 'gemm'
+            confClass = GemmConfiguration
             config = GemmConfiguration.fromCommandLine(commandLine, arch)
 
         # Find the best perf_config
@@ -917,32 +933,36 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, tuningDb: MaybeTuningDb
                bestPerf = tuningDb[arch, testVector]
                config.setPerfConfig(bestPerf)
             else: # Tuning DB present but doesn't contain config, add a NaN entry
-               oneEntry = config.tableEntry(np.nan)
-               oneEntry['FileName'] = filename
-               allData.append(oneEntry)
+               if not testVector in perfResults:
+                   oneEntry = config.tableEntry(np.nan)
+                   oneEntry['FileName'] = filename
+                   oneEntry['MLIR TFlops'] = np.nan
+                   oneEntry['Fusion/MLIR'] = np.nan
+                   perfResults[testVector] = oneEntry
                continue;
 
+        # Run fusion test
         rocmlirGenArgs = ['-ph', '-fut='+futName, '--perf_config='+bestPerf, '-']
-        profiling = generateProfilingProcesses(filename, rocmlirGenArgs, paths)
-
-        # Get output.
-        try:
-            outs, errs = profiling.communicate(timeout=60)
-            if len(errs) > 0:
-                print("Test printed errors: ", errs.decode('utf-8'))
-                print("Failing: ", filename)
-        except subprocess.TimeoutExpired:
-            print("Test timed out: ", filename)
-            profiling.kill()
-            outs, errs = profiling.communicate()
-
-        # Get nanoseconds from rocprof output.
+        runFusionKernel(filename, rocmlirGenArgs, paths)
+        # Get nanoseconds of fusion test
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry = config.tableEntry(nanoSeconds)
+        # Keep the best performance
+        if testVector in perfResults and oneEntry['TFlops'] <= perfResults[testVector]['TFlops']:
+            continue
+
+        # Run gemm or conv op with the same configuration
+        runConfigWithMLIR(config, paths, '')
+        # Get nanoseconds of gemm/conv
+        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
+        oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
-        allData.append(oneEntry)
-    df = pd.DataFrame(allData)
+        perfResults[testVector] = oneEntry
+
+    df = pd.DataFrame(perfResults.values())
     df.fillna('NaN', inplace=True)
+    df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 #Tune MIOpen with MLIR kernels
