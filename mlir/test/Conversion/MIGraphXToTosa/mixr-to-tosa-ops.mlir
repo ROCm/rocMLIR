@@ -227,6 +227,16 @@ module  {
     return %2 : tensor<1x5x3xf32>
   }
 
+  // CHECK-LABEL: func.func @func_mul_bcast
+  // CHECK: tosa.reshape{{.*}}1x10x4
+  // CHECK: tosa.reshape{{.*}}1x4x3
+  // CHECK: tosa.matmul
+  // CHECK: tosa.reshape{{.*}}2x5x3
+  func.func @func_mul_bcast(%arg0: tensor<2x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<2x5x3xf32>) -> tensor<2x5x3xf32> attributes{kernel, arch = ""} {
+    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x5x4xf32>, tensor<1x4x3xf32>) -> tensor<2x5x3xf32>
+    return %0 : tensor<2x5x3xf32>
+  }
+
   // CHECK-LABEL: func.func @func_slice1
   // CHECK: tosa.slice
   func.func @func_slice1(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32> attributes{kernel, arch = ""} {
