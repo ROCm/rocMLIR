@@ -124,8 +124,7 @@ public:
     auto input_t = op.getInput();
     auto filter_t = op.getFilter();
     auto results = op->getResults();
-    auto elementTy =
-        input_t.getType().template cast<ShapedType>().getElementType();
+    auto elementTy = input_t.getType().getElementType();
     auto outputTy = results[0].getType().template cast<ShapedType>();
     SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
@@ -177,9 +176,9 @@ public:
                             {padTop, padBottom, padLeft, padRight}));
 
     // Convert optional attributes
-    if (auto attr = op->getAttr("xdlopsV2"))
+    if (auto attr = (*op).template getAttrOfType<BoolAttr>("xdlopsV2"))
       cop->setAttr("xdlopsV2", attr.template cast<BoolAttr>());
-    if (auto attr = op->getAttr("perf_config"))
+    if (auto attr = (*op).template getAttrOfType<BoolAttr>("perf_config"))
       cop->setAttr("perf_config", attr.template cast<StringAttr>());
 
     // Note: For TOSA convolution, a non-float type is considered as a
@@ -298,9 +297,8 @@ public:
     TypedValue<TensorType> in_A = op.getInA();
     TypedValue<TensorType> in_B = op.getInB();
     auto results = op->getResults();
-    auto elementTy =
-        in_A.getType().template cast<ShapedType>().getElementType();
-    ShapedType outputTy = results[0].getType().template cast<ShapedType>();
+    auto elementTy = in_A.getType().getElementType();
+    ShapedType outputTy = results[0].getType();
 
     // check batch dimension. Tosa matmul only allow a single dimension for it,
     // add reshape ops to flatten and restore the original dimension.
@@ -364,10 +362,10 @@ public:
     auto mop = rewriter.create<tosa::MatMulOp>(loc, newOutType, in_A, in_B);
 
     // Convert optional attributes
-    if (auto attr = op->getAttr("xdlopsV2"))
-      mop->setAttr("xdlopsV2", attr.template cast<BoolAttr>());
-    if (auto attr = op->getAttr("perf_config"))
-      mop->setAttr("perf_config", attr.template cast<StringAttr>());
+    if (auto attr = (*op).template getAttrOfType<BoolAttr>("xdlopsV2"))
+      mop->setAttr("xdlopsV2", attr);
+    if (auto attr = (*op).template getAttrOfType<BoolAttr>("perf_config"))
+      mop->setAttr("perf_config", attr);
 
     // Note: For TOSA matmul, a non-float type is considered as a
     // quantized convolution. For quantized convolution, it is required
