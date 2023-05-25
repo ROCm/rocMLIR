@@ -50,7 +50,9 @@ module  {
 }
 
   // CHECK-LABEL: func.func @matmul
+  // CHECK-NOT: tosa.reshape
   // CHECK: tosa.matmul
+  // CHECK-NOT: tosa.reshape
   func.func @matmul(%arg0: tensor<2x256x384xf32>, %arg1: tensor<2x384x768xf32>) -> tensor<2x256x768xf32> {
     %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x256x384xf32>, tensor<2x384x768xf32>) -> tensor<2x256x768xf32>
      return %0 : tensor<2x256x768xf32>
@@ -225,16 +227,6 @@ module  {
     %0 = migraphx.dot(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
     %2 = "migraphx.mul"(%0, %arg2) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
     return %2 : tensor<1x5x3xf32>
-  }
-
-  // CHECK-LABEL: func.func @func_mul_bcast
-  // CHECK: tosa.reshape{{.*}}1x10x4
-  // CHECK: tosa.reshape{{.*}}1x4x3
-  // CHECK: tosa.matmul
-  // CHECK: tosa.reshape{{.*}}2x5x3
-  func.func @func_mul_bcast(%arg0: tensor<2x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<2x5x3xf32>) -> tensor<2x5x3xf32> attributes{kernel, arch = ""} {
-    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x5x4xf32>, tensor<1x4x3xf32>) -> tensor<2x5x3xf32>
-    return %0 : tensor<2x5x3xf32>
   }
 
   // CHECK-LABEL: func.func @func_slice1
