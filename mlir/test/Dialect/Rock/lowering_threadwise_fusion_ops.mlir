@@ -18,9 +18,9 @@
     <Pad{2, 0} ["z"] at [2] -> ["z"] at [2]>]
   bounds = [2, 64, 32] -> [2, 64, 30]>
 
-// CHECK-LABEL: func @threadwise_read_into
+// CHECK-LABEL: func @threadwise_memcpy
 // CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
-func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
+func.func @threadwise_memcpy( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -34,7 +34,7 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
 
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
-  rock.threadwise_read_into {forceUnroll, useIndexDiffs}
+  rock.threadwise_memcpy {forceUnroll, useIndexDiffs}
     [#transform_map0](%view) -> %dest
     : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return

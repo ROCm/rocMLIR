@@ -2,7 +2,7 @@
 // ALLOW_RETRIES: 2
 
 module {
-    // CHECK: rock.threadwise_read_into 
+    // CHECK: rock.threadwise_memcpy 
     // CHECK: linalg.generic
     // CHECK: rock.threadwise_write_all
     // CHECK-NOT: memref.copy

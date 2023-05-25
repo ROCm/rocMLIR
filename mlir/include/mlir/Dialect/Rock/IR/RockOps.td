@@ -904,57 +904,102 @@ def Rock_GlobalStoreOp :
   }];
 }
 
-// threadwise_read_into
-def Rock_ThreadwiseReadIntoOp :
-    Rock_Op<"threadwise_read_into">,
+def Rock_ThreadwiseMemCpyOp :
+    Rock_Op<"threadwise_memcpy">,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
       Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
         "destination registers", [MemWrite]>:$dest,
-      TransformMapArrayAttr:$extraViews,
+      OptionalAttr<TransformMapArrayAttr>:$extraSrcViews,
+      OptionalAttr<TransformMapArrayAttr>:$extraDstViews,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
     )> {
   let summary = "Read values from transformed source into destination";
 
   let description = [{
-    A high-level representation of a global -> register read loop that
-    accounts for coordinate transformations.
+    A high-level representation of a 
+    1) global -> register or 
+    2) register -> LDS 
+    read loop that accounts for coordinate transformations.
 
-    If `%source = rock.transform #transform_mapN %buffer`
+    Case (1) :
+
+    Let `%source = rock.transform #transform_mapS1 %buffer`
     (with the one transformation representing an entire sequence),
-    and `%buffer` is in global memory, the operation
+    and `%buffer` is in global memory.
+    
+    Let `%dest = rock.transform #transform_mapD1 %regs`
+    (with the one transformation representing an entire sequence),
+    and `%regs` is in registers.
 
     ```mlir
-    rock.threadwise_read_into [#transform_mapM](%source) -> %dest
+    rock.threadwise_memcpy [#transform_mapS2](%source) -> [#transform_mapD2](%dest)
     ```
+
+    `#transform_mapS2` must have the form (workgroup_id, workitem_id, iteration_number)
+    `#transform_mapD2` must have the form (workgroup_id, workitem_id, iteration_number)
+
+    Let SRC_MAPS = [#transform_mapS2, #transform_mapS1]
+    Let DST_MAPS = [#transform_mapD2, #transform_mapD1]
 
     will lower to
     ```mlir
     %bid = rock.workgroup_id
     %tid = rock.workitem_id
     rock.transforming_for
-      (%args, ...) = MAPS(%bid, %tid, %c0)
-      (%_, %_, %i) = [](%c0, %c0, %c0)
+      (%sargs, ...) = SRC_MAPS(%bid, %tid, %c0)
+      (%dargs, ...) = DST_MAPS(%bid, %tid, %c0)
       (%isValid, %isValid) = isValid
       bounds = [1, 1, L], strides = [1, 1, V] {
-        %v = rock.global_load {length = V} %buffer[%args] if %isValid
-        rock.in_bounds_store %v -> %dest[%i]
+        %v = rock.global_load {length = V} %buffer[%sargs] if %isValid
+        rock.in_bounds_store %v -> %dest[%dargs]
     }
     ```
-    where MAPS is `[#transform_mapM, #transform_mapN]`,
-    L is the length of `%dest`, V is the maximum vectorization computed
-    for MAPS.
 
-    The input to extraViews ; (the transforms on %source) must have the form
-    (workgroup_id, workitem_id, iteration_number)
+    extraDestViews(#transform_mapD2) will default to (%bid, %tid, %c0) -> (%c0)
+    to facilitate to common usage of register dests w/o any views on it.
 
-    This is used during fusion to represent loads from addition arguments like
-    bias tensors.
+    Case (2) :
+
+    Let `%source = rock.transform #transform_mapS1 %regs`
+    (with the one transformation representing an entire sequence),
+    and `%regs` are registers.
+
+    Let `%dest = rock.transform #transform_mapD1 %lds`
+    (with the one transformation representing an entire sequence),
+    and `%lds` is in LDS.
+
+    ```mlir
+    rock.threadwise_memcpy [#transform_mapS2](%source) -> [#transform_mapD2](%dest)
+    ```
+
+    `#transform_mapS2` must have the form (workgroup_id, workitem_id, iteration_number)
+    `#transform_mapD2` must have the form (workgroup_id, workitem_id, iteration_number)
+
+    Let SRC_MAPS = [#transform_mapS2, #transform_mapS1]
+    Let DST_MAPS = [#transform_mapD2, #transform_mapD1]
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for
+      (%sargs, ...) = SRC_MAPS(%bid, %tid, %c0)
+      (%dargs, ...) = DST_MAPS(%bid, %tid, %c0)
+      bounds = [1, 1, L], strides = [1, 1, V] {
+        %v = rock.in_bounds_load {length = V} %regs[%sargs]
+        rock.in_bounds_store %v -> %lds[%dargs]
+    }
+    ```
+
+    extraSrcViews(#transform_mapS2) will default to (%bid, %tid, %c0) -> (%c0)
+    to facilitate to common usage of register dests w/o any views on it.
+
   }];
 
   let assemblyFormat = [{
-    attr-dict $extraViews `(` $source `)` `->` $dest
+    attr-dict ($extraSrcViews^)? `(` $source `)` `->` ($extraDstViews^)? $dest
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
