@@ -19,6 +19,7 @@ set(MLIR_CMAKE_CONFIG_DIR
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings that have an effect on the MLIR dialect
+set(LLVM_ENABLE_ZSTD "OFF" CACHE STRING "")
 set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")

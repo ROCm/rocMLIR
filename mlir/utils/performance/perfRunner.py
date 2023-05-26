@@ -329,6 +329,7 @@ class ConvConfiguration(PerfConfiguration):
                            '--padding_w', str(self.paddingW),
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
+        result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -498,7 +499,6 @@ def getGemmConfigurations(fileName):
             for datatype, transA, transB, line in \
                     itertools.product(DATA_TYPES_GEMM, ['false', 'true'], ['false', 'true'], lines):
                 line = line.strip()
-
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
@@ -563,6 +563,7 @@ class GemmConfiguration(PerfConfiguration):
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
 
+        result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
@@ -764,6 +765,7 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, tuningDb:
         reportFile = reportUtils.PERF_REPORT_GEMM_FILE['CK']
     else:
         reportFile = reportUtils.PERF_REPORT_FILE
+    df.fillna('NaN', inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch):
@@ -1191,6 +1193,9 @@ def main(args=None):
             confClass = RocBLASGemmConfig
         elif externalLib == GEMMLibrary.CK:
             confClass = CKGemmConfig
+            # Make MLIR to be compatible with CK by forcing int8xint8->int8
+            # This flag is ignored by non-int8 test cases.
+            rocmlir_gen_flags += "--out_datatype=i8"
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
@@ -1243,9 +1248,9 @@ def main(args=None):
                 raise RuntimeError("MLIR build dir was not provided/found")
             else:
                 df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, tuningDb, rocmlir_gen_flags)])
-                df.to_csv(parsed_args.fileName)
-                with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
-                    print(df) # for interactive consumption
+        df.to_csv(parsed_args.fileName)
+        with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
+            print(df) # for interactive consumption
 
 if __name__ == '__main__':
     sys.exit(main())
