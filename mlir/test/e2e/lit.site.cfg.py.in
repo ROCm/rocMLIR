@@ -2,6 +2,7 @@
 
 import sys
 import subprocess
+import platform
 
 config.llvm_obj_root = "@LLVM_BINARY_DIR@"
 config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"
@@ -43,14 +44,22 @@ config.arch = ""
 config.arch_support_mfma = False
 if config.rocm_path:
     try:
-        p = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                           check=True, stdout=subprocess.PIPE, shell=True)
+        if platform.system() == "Windows":
+            p = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+	                         check=True, stdout=subprocess.PIPE, shell=True)
+        else:
+            p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+		                 check=True, stdout=subprocess.PIPE)
         agents = set(x.decode("utf-8") for x in p.stdout.split() if x != b"gfx000")
         if not agents:
             # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
             # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-            q = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator"],
+            if platform.system() == "Windows":
+                q = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator"],
                                 check=True, stdout=subprocess.PIPE, shell=True)
+            else:
+                q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
+                                check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
         for x in agents:

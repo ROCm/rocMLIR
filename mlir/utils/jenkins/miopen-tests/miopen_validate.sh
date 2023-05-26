@@ -11,19 +11,18 @@ declare -g LAYOUT=""
 declare -g CODEPATH="none"
 
 # Execute rocm agent enumerator based on OS
-if [[ "$OSTYPE" == "msys" ]] then
+if [[ "$OSTYPE" == "msys" ]]; then
     declare -g ROCM_AGENT_ENUMERATOR_OUT="$(C:/opt/rocm/bin/rocm_agent_enumerator -name)"
-    declare -g PARALLEL_CMD="rush"
     declare -g DRIVER="bin\MIOpenDriver"
     declare -g INCLUDE_BASH=""
+    declare -g PARALLEL="rush"
 else 
-    declare -g ROCM_AGENT_ENUMERATOR_OUT="$(/opt/rocm/bin/rocm_agent_enumerator -name)"
-    declare -g PARALELL_CMD="parallel"
+    declare -g ROCM_AGENT_ENUMERATOR_OUT="$(/opt/rocm/bin/rocm_agent_enumerator)"
     declare -g DRIVER="./bin/MIOpenDriver"
     declare -g INCLUDE_BASH="bash "
+    declare -g PARALLEL="parallel"
 
 fi
-
 
 declare -a ALL_DTYPES=(fp16 fp32)
 declare -a ALL_DIRECTIONS=(1 2 4)
@@ -35,14 +34,11 @@ function usage() {
 $0: [-d | --direction] DIR [-t | --dtype] [int8 | fp16 | fp32] [-l | --layout] LAYOUT
 [-c | --codepath CODEPATH (default none)] [--tuning | --no-tuning (default)]
 [--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
-
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or
 4 (backward weights (wrw)), other values are currently unsupported
 for testing.
-
 LAYOUT is a four-letter string containing the letters N, C, H, and W
 that specifies the memory layout to test.
-
 Configs (lists of arguments to the driver) should be sent on
 standard input.
 END
@@ -185,7 +181,7 @@ function run_tests() {
     # command-line argument
     # The 'awk' invocation prints all lines of output while ensuring indicators of
     # success are present 
-    $PARALLEL_CMD -j 1 $INCLUDE_BASH -c {} '|' awk \
+    $PARALLEL -j 1 $INCLUDE_BASH -c {} '|' awk \
     "'BEGIN { status=2 } /Verifies OK/ { status=status-1 } /ConvMlirIgemm/ { status=status-1 } 1; END { exit(status) }'" \
     <"$TMPFILE"
     exit_status=$?
