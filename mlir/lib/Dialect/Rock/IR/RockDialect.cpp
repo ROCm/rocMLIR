@@ -1460,6 +1460,7 @@ LogicalResult ThreadwiseMemCpyOp::verify() {
       allowedCombinations = {
           {gpu::AddressSpace::Global, gpu::AddressSpace::Private},
           {gpu::AddressSpace::Private, gpu::AddressSpace::Workgroup},
+          {gpu::AddressSpace::Workgroup, gpu::AddressSpace::Private},
       };
 
   if (!llvm::any_of(
@@ -1472,58 +1473,55 @@ LogicalResult ThreadwiseMemCpyOp::verify() {
   }
 
   auto maybeExtraSrcViews = getExtraSrcViews();
-  if (srcGpuMemSpace == gpu::AddressSpace::Global) {
-    ArrayRef<int64_t> inputShape;
-    if (maybeExtraSrcViews && !maybeExtraSrcViews.value().empty()) {
-      inputShape = maybeExtraSrcViews.value()[0]
-                       .cast<TransformMapAttr>()
-                       .getUpperBounds();
-    } else {
-      inputShape = getSource().getType().getShape();
-    }
+  ArrayRef<int64_t> inputShape;
+  if (maybeExtraSrcViews && !maybeExtraSrcViews.value().empty()) {
+    inputShape =
+        maybeExtraSrcViews.value()[0].cast<TransformMapAttr>().getUpperBounds();
+  } else {
+    inputShape = getSource().getType().getShape();
+  }
 
-    if (inputShape.size() != 3)
+  if (srcGpuMemSpace == gpu::AddressSpace::Global) {
+    if (inputShape.size() != 3) {
       return emitOpError(
           "global source view must accept (bid, tid, iter) coordinates");
-  } else {
-    // This should be private
-    if (!maybeExtraSrcViews || maybeExtraSrcViews.value().empty()) {
-      if (getSource().getType().getRank() != 1) {
-        return emitOpError("register source with no view must be flat.");
-      }
-    } else {
-      if (getSource().getType().getRank() != 3) {
-        return emitOpError("register source with view must accept (bid, tid, "
-                           "iter) coordinates.");
-      }
+    }
+  }
+  if (srcGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (inputShape.size() != 2) {
+      return emitOpError(
+          "workgroup source view must accept (tid, iter) coordinates");
+    }
+  }
+  if (srcGpuMemSpace == gpu::AddressSpace::Private) {
+    if (inputShape.size() != 1) {
+      return emitOpError("register source view must accept (iter) coordinates");
     }
   }
 
   auto maybeExtraDstViews = getExtraDstViews();
-  if (destGpuMemSpace == gpu::AddressSpace::Workgroup) {
-    ArrayRef<int64_t> outputShape;
-    if (maybeExtraDstViews && !maybeExtraDstViews.value().empty()) {
-      outputShape = maybeExtraDstViews.value()[0]
-                        .cast<TransformMapAttr>()
-                        .getUpperBounds();
-    } else {
-      outputShape = getDest().getType().getShape();
-    }
-
-    if (outputShape.size() != 3)
-      return emitOpError(
-          "workgroup dest view must accept (bid, tid, iter) coordinates");
+  ArrayRef<int64_t> outputShape;
+  if (maybeExtraDstViews && !maybeExtraDstViews.value().empty()) {
+    outputShape =
+        maybeExtraDstViews.value()[0].cast<TransformMapAttr>().getUpperBounds();
   } else {
-    // This should be private
-    if (!maybeExtraDstViews || maybeExtraDstViews.value().empty()) {
-      if (getDest().getType().getRank() != 1) {
-        return emitOpError("register dest with no view must be flat.");
-      }
-    } else {
-      if (getDest().getType().getRank() != 3) {
-        return emitOpError("register dest with view must accept (bid, tid, "
-                           "iter) coordinates.");
-      }
+    outputShape = getDest().getType().getShape();
+  }
+  if (destGpuMemSpace == gpu::AddressSpace::Global) {
+    if (outputShape.size() != 3) {
+      return emitOpError(
+          "global source view must accept (bid, tid, iter) coordinates");
+    }
+  }
+  if (destGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (outputShape.size() != 2) {
+      return emitOpError(
+          "workgroup source view must accept (tid, iter) coordinates");
+    }
+  }
+  if (destGpuMemSpace == gpu::AddressSpace::Private) {
+    if (outputShape.size() != 1) {
+      return emitOpError("register source view must accept (iter) coordinates");
     }
   }
 

@@ -908,7 +908,7 @@ def Rock_ThreadwiseMemCpyOp :
     Rock_Op<"threadwise_memcpy">,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
-      Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
+      Arg<MemRefOf<SupportedMemoryElems>,
         "destination registers", [MemWrite]>:$dest,
       OptionalAttr<TransformMapArrayAttr>:$extraSrcViews,
       OptionalAttr<TransformMapArrayAttr>:$extraDstViews,
@@ -920,7 +920,8 @@ def Rock_ThreadwiseMemCpyOp :
   let description = [{
     A high-level representation of a 
     1) global -> register or 
-    2) register -> LDS 
+    2) register -> LDS
+    3) LDS -> register
     read loop that accounts for coordinate transformations.
 
     Case (1) :
@@ -938,7 +939,7 @@ def Rock_ThreadwiseMemCpyOp :
     ```
 
     `#transform_mapS2` must have the form (workgroup_id, workitem_id, iteration_number)
-    `#transform_mapD2` must have the form (workgroup_id, workitem_id, iteration_number)
+    `#transform_mapD2` must have the form (iteration_number)
 
     Let SRC_MAPS = [#transform_mapS2, #transform_mapS1]
     Let DST_MAPS = [#transform_mapD2, #transform_mapD1]
@@ -960,7 +961,7 @@ def Rock_ThreadwiseMemCpyOp :
     extraDestViews(#transform_mapD2) will default to (%bid, %tid, %c0) -> (%c0)
     to facilitate to common usage of register dests w/o any views on it.
 
-    Case (2) :
+    Case (2) / (3) :
 
     Let `%source = rock.transform #transform_mapS1 %regs`
     (with the one transformation representing an entire sequence),
@@ -974,8 +975,8 @@ def Rock_ThreadwiseMemCpyOp :
     rock.threadwise_memcpy [#transform_mapS2](%source) -> [#transform_mapD2](%dest)
     ```
 
-    `#transform_mapS2` must have the form (workgroup_id, workitem_id, iteration_number)
-    `#transform_mapD2` must have the form (workgroup_id, workitem_id, iteration_number)
+    `#transform_mapS2` must have the form (workitem_id, iteration_number) if LDS or (iteration_number) if regs
+    `#transform_mapD2` must have the form (workitem_id, iteration_number) if LDS or (iteration_number) if regs
 
     Let SRC_MAPS = [#transform_mapS2, #transform_mapS1]
     Let DST_MAPS = [#transform_mapD2, #transform_mapD1]

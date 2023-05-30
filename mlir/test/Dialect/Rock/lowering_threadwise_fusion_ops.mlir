@@ -6,6 +6,7 @@
 // CHECK-DAG-SAME: [0, 1, 2]
 // CHECK-DAG-SAME: [0, 1, 2]
 // CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map
+// CHECK-DAG: #[[$OUT_FUNC:transform_map.+]] = #rock.transform_map
 // CHECK-DAG-SAME: PassThrough
 // CHECK-DAG-SAME: [0, 1]
 // CHECK-DAG-SAME: [0, 1]
@@ -26,7 +27,7 @@ func.func @threadwise_memcpy( %source: memref<2x64x30xf32>, %dest: memref<32xf32
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
-  // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = [#[[$OUT_FUNC]]]([[bid]], [[tid]], [[zero]])
   // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]

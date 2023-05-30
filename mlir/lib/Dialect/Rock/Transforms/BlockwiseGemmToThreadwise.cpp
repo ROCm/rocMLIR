@@ -641,8 +641,182 @@ struct ThreadwiseMemCpyRewritePattern
     : public OpConversionPattern<ThreadwiseMemCpyOp> {
   using OpConversionPattern<ThreadwiseMemCpyOp>::OpConversionPattern;
 
+  // Depending on the memory space, the views might accept different
+  // views (e.g. global memory might require all bid, tid and iter whilst
+  // workgroup memory only requires tid and iter.). Equivalize the views
+  // by adding a broadcast.
+  std::tuple<ArrayAttr, ArrayAttr>
+  equivalizeSrcDestViews(ThreadwiseMemCpyOp op, ArrayAttr srcViews,
+                         ArrayAttr destViews,
+                         ConversionPatternRewriter &b) const {
+    Location loc = op.getLoc();
+    SmallVector<Attribute> transformList;
+    ArrayRef<int64_t> srcLowerShape;
+    if (srcViews.empty()) {
+      srcLowerShape = op.getSource().getType().getShape();
+    } else {
+      srcLowerShape =
+          srcViews[0].cast<TransformMapAttr>().getUpperBounds().asArrayRef();
+    }
+    ArrayRef<int64_t> destLowerShape;
+    if (destViews.empty()) {
+      destLowerShape = op.getDest().getType().getShape();
+    } else {
+      destLowerShape =
+          destViews[0].cast<TransformMapAttr>().getUpperBounds().asArrayRef();
+    }
+
+    if (srcLowerShape.size() == destLowerShape.size()) {
+      return {srcViews, destViews};
+    }
+
+    if (srcLowerShape.size() < destLowerShape.size()) {
+      BottomUpTMBuilder bcastAdder(b, srcLowerShape, loc);
+      for (size_t i = 0; i < destLowerShape.size(); i++) {
+        unsigned int dim = i;
+        if (destLowerShape.size() - i > srcLowerShape.size()) {
+          bcastAdder.broadcast({dim}, {destLowerShape[i]});
+        } else {
+          bcastAdder.passThrough({dim}, {dim});
+        }
+      }
+      transformList.push_back(bcastAdder.get());
+      transformList.append(srcViews.begin(), srcViews.end());
+      return {b.getArrayAttr(transformList), destViews};
+    } else {
+      BottomUpTMBuilder bcastAdder(b, srcLowerShape, loc);
+      for (size_t i = 0; i < srcLowerShape.size(); i++) {
+        unsigned int dim = i;
+        if (srcLowerShape.size() - i > destLowerShape.size()) {
+          bcastAdder.broadcast({dim}, {srcLowerShape[i]});
+        } else {
+          bcastAdder.passThrough({dim}, {dim});
+        }
+      }
+      transformList.push_back(bcastAdder.get());
+      transformList.append(destViews.begin(), destViews.end());
+      return {srcViews, b.getArrayAttr(transformList)};
+    }
+  }
+
   LogicalResult matchAndRewrite(ThreadwiseMemCpyOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const final;
+                                ConversionPatternRewriter &b) const final {
+    Location loc = op.getLoc();
+    TypedValue<MemRefType> sourceView = adaptor.getSource();
+    TypedValue<MemRefType> destView = adaptor.getDest();
+
+    auto [srcBuffer, srcTransforms] =
+        untransform(b, sourceView, op.getExtraSrcViews().value_or(nullptr));
+    MemRefType srcBufferType = srcBuffer.getType().cast<MemRefType>();
+    auto [dstBuffer, dstTransforms] =
+        untransform(b, destView, op.getExtraDstViews().value_or(nullptr));
+    MemRefType dstBufferType = dstBuffer.getType().cast<MemRefType>();
+
+    ArrayRef<int64_t> srcBufferShape =
+        srcBuffer.getType().cast<ShapedType>().getShape();
+    ArrayRef<int64_t> dstBufferShape =
+        dstBuffer.getType().cast<ShapedType>().getShape();
+
+    // Unless specified it is assumed to be global
+    gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+    if (srcBufferType.getMemorySpace()) {
+      srcAddrSpace = srcBufferType.getMemorySpace()
+                         .cast<gpu::AddressSpaceAttr>()
+                         .getValue();
+    }
+    // Unless specified it is assumed to be global
+    gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Global;
+    if (dstBufferType.getMemorySpace()) {
+      dstAddrSpace = dstBufferType.getMemorySpace()
+                         .cast<gpu::AddressSpaceAttr>()
+                         .getValue();
+    }
+
+    int64_t iterLen;
+    if (srcAddrSpace == gpu::AddressSpace::Private) {
+      iterLen = srcBufferType.getNumElements();
+    } else {
+      // op verifiers gurantees this
+      assert(dstAddrSpace == gpu::AddressSpace::Private);
+      iterLen = dstBufferType.getNumElements();
+    }
+
+    // We are vectorizing in the iter dimension, not block ID or thread ID
+    auto elementType = sourceView.getType().getElementType();
+
+    // if src addr space is registers and with no transforms, there is no
+    // constrain on vectorization coming from src
+    const int64_t maxVectorLenBits = 128;
+    int64_t srcVectorLen =
+        std::min(maxVectorLenBits, srcBufferType.getNumElements());
+    if (!(srcAddrSpace == gpu::AddressSpace::Private &&
+          srcTransforms.empty())) {
+      srcVectorLen = getMaxVectorizationForDatatype(
+          srcTransforms, /*dim=*/2, iterLen, srcBufferShape, elementType);
+    }
+
+    // if dest addr space is registers and with no transforms, there is no
+    // constrain on vectorization coming from dest
+    int64_t destVectorLen =
+        std::min(maxVectorLenBits, dstBufferType.getNumElements());
+    if (!(dstAddrSpace == gpu::AddressSpace::Private &&
+          dstTransforms.empty())) {
+      destVectorLen = getMaxVectorizationForDatatype(
+          dstTransforms, /*dim=*/2, iterLen, dstBufferShape, elementType);
+    }
+
+    int64_t vectorLen = std::min(srcVectorLen, destVectorLen);
+    LLVM_DEBUG(llvm::dbgs()
+               << "Max vectorization for read_into = " << vectorLen << "\n");
+
+    Type loadType = vectorTypeOrSelf(elementType, vectorLen);
+    bool forceUnroll = op.getForceUnroll();
+    bool useIndexDiffs = op.getUseIndexDiffs();
+
+    // In the future, this might get merged into the vectorizer.
+    srcTransforms = collapseContiguousMerges(srcTransforms, srcBufferShape);
+    dstTransforms = collapseContiguousMerges(dstTransforms, dstBufferShape);
+
+    std::tie(srcTransforms, dstTransforms) =
+        equivalizeSrcDestViews(op, srcTransforms, dstTransforms, b);
+
+    // Constant / consistent arguments
+    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
+    Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+
+    SmallVector<Value, 3> startCoords{bid, tid, zero};
+
+    auto loadLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{startCoords, startCoords},
+        ArrayRef<Attribute>{srcTransforms, dstTransforms},
+        ArrayRef<int64_t>{1, 1, iterLen}, ArrayRef<int64_t>{1, 1, vectorLen},
+        forceUnroll, useIndexDiffs);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(loadLoop.getBody());
+
+      Value loaded;
+      if (srcAddrSpace != gpu::AddressSpace::Global) {
+        auto slice_n = loadLoop.getLowerCoords(/*domain=*/0).size() -
+                       srcBufferType.getRank();
+        loaded = b.create<InBoundsLoadOp>(
+            loc, loadType, srcBuffer,
+            loadLoop.getLowerCoords(/*domain=*/0).slice(slice_n));
+      } else {
+        loaded = b.create<GlobalLoadOp>(loc, loadType, srcBuffer,
+                                        loadLoop.getValidity(/*domain=*/0),
+                                        loadLoop.getLowerCoords(/*domain=*/0));
+      }
+      auto slice_n = loadLoop.getLowerCoords(/*domain=*/1).size() -
+                     dstBufferType.getRank();
+      b.create<InBoundsStoreOp>(
+          loc, loaded, dstBuffer,
+          loadLoop.getLowerCoords(/*domain=*/1).slice(slice_n));
+    }
+    b.eraseOp(op);
+    return success();
+  }
 };
 
 struct ThreadwiseWriteAllRewritePattern
@@ -653,126 +827,6 @@ struct ThreadwiseWriteAllRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 } // end anonymous namespace
-
-LogicalResult ThreadwiseMemCpyRewritePattern::matchAndRewrite(
-    ThreadwiseMemCpyOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  TypedValue<MemRefType> sourceView = adaptor.getSource();
-  TypedValue<MemRefType> destView = adaptor.getDest();
-
-  auto [srcBuffer, srcTransforms] =
-      untransform(b, sourceView, op.getExtraSrcViews().value_or(nullptr));
-  MemRefType srcBufferType = srcBuffer.getType().cast<MemRefType>();
-  auto [dstBuffer, dstTransforms] =
-      untransform(b, destView, op.getExtraDstViews().value_or(nullptr));
-  MemRefType dstBufferType = dstBuffer.getType().cast<MemRefType>();
-
-  ArrayRef<int64_t> srcBufferShape =
-      srcBuffer.getType().cast<ShapedType>().getShape();
-  ArrayRef<int64_t> dstBufferShape =
-      dstBuffer.getType().cast<ShapedType>().getShape();
-
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-  if (srcBufferType.getMemorySpace()) {
-    srcAddrSpace =
-        srcBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
-  }
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Global;
-  if (dstBufferType.getMemorySpace()) {
-    dstAddrSpace =
-        dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
-  }
-
-  int64_t iterLen;
-  if (srcAddrSpace == gpu::AddressSpace::Private) {
-    iterLen = srcBufferType.getNumElements();
-  } else {
-    // op verifiers gurantees this
-    assert(dstAddrSpace == gpu::AddressSpace::Private);
-    iterLen = dstBufferType.getNumElements();
-  }
-
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  auto elementType = sourceView.getType().getElementType();
-
-  // if src addr space is registers and with no transforms, there is no
-  // constrain on vectorization coming from src
-  const int64_t maxVectorLenBits = 128;
-  int64_t srcVectorLen =
-      std::min(maxVectorLenBits, srcBufferType.getNumElements());
-  if (!(srcAddrSpace == gpu::AddressSpace::Private && srcTransforms.empty())) {
-    srcVectorLen = getMaxVectorizationForDatatype(
-        srcTransforms, /*dim=*/2, iterLen, srcBufferShape, elementType);
-  }
-
-  // if dest addr space is registers and with no transforms, there is no
-  // constrain on vectorization coming from dest
-  int64_t destVectorLen =
-      std::min(maxVectorLenBits, dstBufferType.getNumElements());
-  if (!(dstAddrSpace == gpu::AddressSpace::Private && dstTransforms.empty())) {
-    destVectorLen = getMaxVectorizationForDatatype(
-        dstTransforms, /*dim=*/2, iterLen, dstBufferShape, elementType);
-  }
-
-  int64_t vectorLen = std::min(srcVectorLen, destVectorLen);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
-                          << "\n");
-
-  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // In the future, this might get merged into the vectorizer.
-  srcTransforms = collapseContiguousMerges(srcTransforms, srcBufferShape);
-  dstTransforms = collapseContiguousMerges(dstTransforms, dstBufferShape);
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-
-  SmallVector<Value, 3> readStartCoords = {bid, tid, zero};
-
-  auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
-      ArrayRef<Attribute>{srcTransforms, dstTransforms},
-      ArrayRef<int64_t>{1, 1, iterLen}, ArrayRef<int64_t>{1, 1, vectorLen},
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loadLoop.getBody());
-
-    Value loaded;
-    if (srcAddrSpace == gpu::AddressSpace::Private) {
-      Block::BlockArgListType loadCoords;
-      if (srcTransforms.empty()) {
-        loadCoords = loadLoop.getLowerCoords(/*domain=*/0)[2];
-      } else {
-        loadCoords = loadLoop.getLowerCoords(/*domain=*/0);
-      }
-      loaded = b.create<InBoundsLoadOp>(loc, loadType, srcBuffer, loadCoords);
-    } else {
-      loaded = b.create<GlobalLoadOp>(loc, loadType, srcBuffer,
-                                      loadLoop.getValidity(/*domain=*/0),
-                                      loadLoop.getLowerCoords(/*domain=*/0));
-    }
-
-    Block::BlockArgListType storeCoords;
-    if (dstAddrSpace == gpu::AddressSpace::Private) {
-      if (dstTransforms.empty()) {
-        storeCoords = loadLoop.getLowerCoords(/*domain=*/1)[2];
-      } else {
-        storeCoords = loadLoop.getLowerCoords(/*domain=*/1);
-      }
-    }
-    b.create<InBoundsStoreOp>(loc, loaded, dstBuffer, storeCoords);
-  }
-  b.eraseOp(op);
-  return success();
-}
 
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
