@@ -662,7 +662,7 @@ define amdgpu_kernel void @private_nontemporal_store_1(
 ; GFX940-NOTTGSPLIT-NEXT:    s_load_dword s0, s[2:3], 0x0
 ; GFX940-NOTTGSPLIT-NEXT:    s_waitcnt lgkmcnt(0)
 ; GFX940-NOTTGSPLIT-NEXT:    v_mov_b32_e32 v1, s0
-; GFX940-NOTTGSPLIT-NEXT:    scratch_store_dword v0, v1, off sc0 nt sc1
+; GFX940-NOTTGSPLIT-NEXT:    scratch_store_dword v0, v1, s4 sc0 nt sc1
 ; GFX940-NOTTGSPLIT-NEXT:    s_endpgm
 ;
 ; GFX940-TGSPLIT-LABEL: private_nontemporal_store_1:
@@ -674,7 +674,7 @@ define amdgpu_kernel void @private_nontemporal_store_1(
 ; GFX940-TGSPLIT-NEXT:    s_load_dword s0, s[2:3], 0x0
 ; GFX940-TGSPLIT-NEXT:    s_waitcnt lgkmcnt(0)
 ; GFX940-TGSPLIT-NEXT:    v_mov_b32_e32 v1, s0
-; GFX940-TGSPLIT-NEXT:    scratch_store_dword v0, v1, off sc0 nt sc1
+; GFX940-TGSPLIT-NEXT:    scratch_store_dword v0, v1, s4 sc0 nt sc1
 ; GFX940-TGSPLIT-NEXT:    s_endpgm
 ;
 ; GFX11-WGP-LABEL: private_nontemporal_store_1:
