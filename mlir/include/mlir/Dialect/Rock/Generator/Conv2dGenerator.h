@@ -36,7 +36,9 @@ public:
     int num_cu;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
-    std::string dataTypeStr;
+    std::string filterDataTypeStr;
+    std::string inputDataTypeStr;
+    std::string outputDataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
     int paddingHeightLeft, paddingHeightRight;
@@ -44,7 +46,6 @@ public:
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
-    std::string outputDataTypeStr;
 
     std::string kernelBaseName;
 
@@ -64,14 +65,15 @@ public:
       const std::string &perfConfig = "", int num_cu = 0,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
-      const std::string &dataTypeStr = "f32", int dilationHeight = 1,
+      const std::string &filterDataTypeStr = "f32",
+      const std::string &inputDataTypeStr = "f32",
+      const std::string &outputDataTypeStr = "", int dilationHeight = 1,
       int dilationWidth = 1, int strideHeight = 1, int strideWidth = 1,
       int paddingHeightLeft = 0, int paddingHeightRight = 0,
       int paddingWidthLeft = 0, int paddingWidthRight = 0,
       const std::string &filterLayout = "kcyx",
       const std::string &inputLayout = "nchw",
       const std::string &outputLayout = "nkhw",
-      const std::string &outputDataTypeStr = "",
       const std::string &kernelBaseName = "");
 
   Conv2dGenerator(const Config &_config);
@@ -81,11 +83,11 @@ public:
 
   LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
 
-  Type getDataType(OpBuilder &builder) const;
-
-  void setDataType(std::string dataTypeStr);
-
+  Type getFilterDataType(OpBuilder &builder) const;
+  Type getInputDataType(OpBuilder &builder) const;
   Type getOutputDataType(OpBuilder &builder) const;
+
+  void setDataTypes(const std::string &dataTypeStr);
 
   void flipAccel();
 

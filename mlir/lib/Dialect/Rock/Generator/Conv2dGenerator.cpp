@@ -37,12 +37,12 @@ Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
     GemmFeatures features, const std::optional<ConvOpType> operation,
-    const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
+    const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
+    const std::string &outputDataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &outputDataTypeStr,
-    const std::string &kernelBaseName)
+    const std::string &outputLayout, const std::string &kernelBaseName)
     : config{arch,
              chip,
              triple,
@@ -51,7 +51,9 @@ Conv2dGenerator::Conv2dGenerator(
              num_cu,
              features,
              operation,
-             dataTypeStr,
+             filterDataTypeStr,
+             inputDataTypeStr,
+             outputDataTypeStr,
              dilationHeight,
              dilationWidth,
              strideHeight,
@@ -63,7 +65,6 @@ Conv2dGenerator::Conv2dGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
-             outputDataTypeStr,
              kernelBaseName,
              -1,
              {},
@@ -152,16 +153,20 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   static const llvm::StringMap<size_t> typeWidths{
       {"f32", sizeof(float)},     {"fp32", sizeof(float)},
       {"fp16", sizeof(uint16_t)}, {"f16", sizeof(uint16_t)},
-      {"bf16", sizeof(uint16_t)}, {"i8", sizeof(int8_t)}};
+      {"bf16", sizeof(uint16_t)}, {"i8", sizeof(int8_t)},
+      {"fp8", sizeof(uint8_t)},   {"bf8", sizeof(int8_t)}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
                        [](const int64_t &a) { return a > 0; });
   };
 
-  if (typeWidths.count(config.dataTypeStr) == 0) {
-    LLVM_DEBUG(llvm::dbgs()
-               << config.dataTypeStr << " is not a known datatype\n");
+  for (const std::string &type :
+       {config.filterDataTypeStr, config.inputDataTypeStr,
+        config.outputDataTypeStr}) {
+    if (typeWidths.count(type) == 0) {
+      LLVM_DEBUG(llvm::dbgs() << type << " is not a known datatype\n");
+    }
   }
 
   if (!checkDimSizes(config.inputDimension)) {
@@ -304,12 +309,13 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
   kernelCount = 1;
   if (isAccel(config.features)) {
+    Type dataType = getInputDataType(builder);
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
     }
     if (!needExtraPad) {
-      Type dataType = getDataType(builder);
+      Type dataType = getInputDataType(builder);
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -355,6 +361,8 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
           .Case("bf16", builder.getBF16Type())
           .Case("i32", builder.getI32Type())
           .Case("i8", builder.getI8Type())
+          .Cases("f8E5M2FNUZ", "bf8", builder.getFloat8E5M2FNUZType())
+          .Cases("f8E4M3FNUZ", "fp8", builder.getFloat8E4M3FNUZType())
           .Default(std::nullopt);
   if (!type) {
     llvm::errs() << "Unknown data type: " << dataTypeStr << "\n";
@@ -363,19 +371,29 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
   return *type;
 }
 
-Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
-  return strToType(config.dataTypeStr, builder);
+Type Conv2dGenerator::getFilterDataType(OpBuilder &builder) const {
+  if (config.filterDataTypeStr.empty())
+    return getInputDataType(builder);
+  return strToType(config.filterDataTypeStr, builder);
+}
+
+Type Conv2dGenerator::getInputDataType(OpBuilder &builder) const {
+  return strToType(config.inputDataTypeStr, builder);
 }
 
 Type Conv2dGenerator::getOutputDataType(OpBuilder &builder) const {
-  if (config.outputDataTypeStr.empty())
-    return NULL;
+  if (config.outputDataTypeStr.empty()) {
+    // Special-case i8 -> i32 translation as a default
+    Type inType = getInputDataType(builder);
+    if (inType.isInteger(8))
+      return builder.getIntegerType(32);
+  }
   return strToType(config.outputDataTypeStr, builder);
 }
 
 LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                                                      bool &needExtraPad) const {
-  Type dataType = getDataType(builder);
+  Type dataType = getInputDataType(builder);
   ConvOpType dir = config.operation.value();
   assert(dir == ConvOpType::BwdWeight &&
          "This method should only be called for wrw ops");
@@ -435,7 +453,7 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
 
   needWorkspace = false;
   if (config.operation.has_value()) {
-    Type dataType = getDataType(builder);
+    Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
     if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
@@ -499,13 +517,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
                      })) {
       return false;
     }
-
-    bool noMixedTypes =
-        (argMap["in_type"] == argMap["fil_type"] &&
-         argMap["out_type"] == argMap["in_type"]) ||
-        (argMap["in_type"] == "i8" && argMap["fil_type"] == "i8" &&
-         (argMap["out_type"] == "i32" || argMap["out_type"] == "i8"));
-    return noMixedTypes;
+    return true;
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
@@ -513,7 +525,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
   if (!isValid())
     return failure();
 
-  auto strToLong = [&argMap](std::string argKey) {
+  auto strToLong = [&argMap](const std::string &argKey) {
     return std::stoul(argMap[argKey]);
   };
 
@@ -554,17 +566,21 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
     return failure();
   }
 
-  auto canonicalizeDataType = [](const std::string type) {
+  auto canonicalizeDataType = [](const std::string &type) {
     if (type == "fp32")
       return std::string("f32");
-    else if (type == "fp16")
+    if (type == "fp16")
       return std::string("f16");
-    else
-      return type;
+    if (type == "f8E5M2FNUZ")
+      return std::string("bf8");
+    if (type == "f8E4M3FNUZ")
+      return std::string("fp8");
+    return type;
   };
   config.operation = op.value();
   strToInt("kernel_id", config.kernelId);
-  config.dataTypeStr = canonicalizeDataType(argMap["in_type"]);
+  config.filterDataTypeStr = canonicalizeDataType(argMap["fil_type"]);
+  config.inputDataTypeStr = canonicalizeDataType(argMap["in_type"]);
   config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
   strToInt("dilation_h", config.dilationHeight);
   strToInt("dilation_w", config.dilationWidth);
@@ -579,7 +595,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 
   // Get the default features associated with the chip (and with the data type)
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.getDefaultFeatures(getDataType(builder));
+  config.features = archInfo.getDefaultFeatures(getInputDataType(builder));
 
   // Force acceleration if that's what the client wants
   int hasAccel = 0;
@@ -589,9 +605,10 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
   config.features =
       bitEnumSet(config.features, GemmFeatures::wmma, hasAccel == 2);
 
-  // Allow only fwd direction for int8. Reject other directions.
+  // Allow only fwd direction for 8-bit types. Reject other directions.
   if (config.operation.value() != ConvOpType::Fwd &&
-      config.dataTypeStr == "i8") {
+      (config.inputDataTypeStr == "i8" || config.inputDataTypeStr == "fp8" ||
+       config.inputDataTypeStr == "bf8")) {
     return failure();
   }
 
@@ -686,8 +703,9 @@ void Conv2dGenerator::setKernelName(const std::string &newName) {
   config.kernelBaseName = newName;
 }
 
-void Conv2dGenerator::setDataType(std::string newType) {
-  config.dataTypeStr = newType;
+void Conv2dGenerator::setDataTypes(const std::string &dataTypeStr) {
+  config.filterDataTypeStr = config.inputDataTypeStr =
+      config.outputDataTypeStr = dataTypeStr;
 }
 
 void Conv2dGenerator::flipAccel() {
@@ -713,28 +731,21 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                                              bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
-  Type dataType = getDataType(builder);
-  if (!dataType) {
+  Type filterDataType = getFilterDataType(builder);
+  Type inputDataType = getInputDataType(builder);
+  Type outputDataType = getOutputDataType(builder);
+  if (!filterDataType || !inputDataType || !outputDataType)
     return failure();
-  }
-
-  Type outputDataType = dataType;
-  if (dataType.isInteger(8)) {
-    outputDataType = builder.getIntegerType(32);
-    Type outType = getOutputDataType(builder);
-    if (outType)
-      outputDataType = outType;
-  }
 
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
                                         config.filterDimension.end()),
-                      dataType);
+                      filterDataType);
   auto inputArgType =
       MemRefType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
                                         config.inputDimension.end()),
-                      dataType);
+                      inputDataType);
   auto outputArgType =
       MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
                                         config.outputDimension.end()),
