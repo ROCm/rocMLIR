@@ -177,9 +177,9 @@ public:
 
     // Convert optional attributes
     if (auto attr = (*op).template getAttrOfType<BoolAttr>("xdlopsV2"))
-      cop->setAttr("xdlopsV2", attr.template cast<BoolAttr>());
-    if (auto attr = (*op).template getAttrOfType<BoolAttr>("perf_config"))
-      cop->setAttr("perf_config", attr.template cast<StringAttr>());
+      cop->setAttr("xdlopsV2", attr);
+    if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
+      cop->setAttr("perf_config", attr);
 
     // Note: For TOSA convolution, a non-float type is considered as a
     // quantized convolution. For quantized convolution, it is required
@@ -364,7 +364,7 @@ public:
     // Convert optional attributes
     if (auto attr = (*op).template getAttrOfType<BoolAttr>("xdlopsV2"))
       mop->setAttr("xdlopsV2", attr);
-    if (auto attr = (*op).template getAttrOfType<BoolAttr>("perf_config"))
+    if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
       mop->setAttr("perf_config", attr);
 
     // Note: For TOSA matmul, a non-float type is considered as a
