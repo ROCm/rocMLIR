@@ -338,6 +338,42 @@ std::string getTuningProblemStr(ModuleOp &mod) {
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
+    // Data type
+    problemOS << "-t ";
+    Type elemTypeA = gemmIF.getAType(), elemTypeB = gemmIF.getBType();
+    if (elemTypeA.isF32() && elemTypeB.isF32()) {
+      problemOS << "f32";
+    } else if (elemTypeA.isF16() && elemTypeB.isF16()) {
+      problemOS << "f16";
+    } else if (elemTypeA.isBF16() && elemTypeB.isBF16()) {
+      problemOS << "bf16";
+    } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
+      problemOS << "i8";
+    } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
+      problemOS << "fp8_fp8";
+    } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
+      problemOS << "fp8_bf8";
+    } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
+      problemOS << "bf8_fp8";
+    } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
+      problemOS << "bf8_bf8";
+    } else {
+      // Unknown data type
+      return std::string();
+    }
+
+    // OUtput datatype
+    auto outType = gemmIF.getOutArgument()->get().getType();
+    auto elemTypeC = outType.dyn_cast<mlir::MemRefType>().getElementType();
+    problemOS << " -out_datatype ";
+    if (elemTypeC.isFloat8E4M3FNUZ()) {
+      problemOS << "fp8" << sep;
+    } else if (elemTypeC.isFloat8E5M2FNUZ()) {
+      problemOS << "bf8" << sep;
+    } else {
+      problemOS << elemTypeC << sep;
+    }
+
     // TransA
     problemOS << "-transA ";
     if (rGemmOp.getATransposed())
@@ -359,30 +395,6 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-k " << gemmIF.getGemmSize().k << sep;
   } else {
     // Unknown op type, unreachable.
-    return std::string();
-  }
-
-  // Data type
-  problemOS << "-t ";
-  Type elemTypeA = gemmIF.getAType(), elemTypeB = gemmIF.getBType();
-  if (elemTypeA.isF32() && elemTypeB.isF32()) {
-    problemOS << "f32";
-  } else if (elemTypeA.isF16() && elemTypeB.isF16()) {
-    problemOS << "f16";
-  } else if (elemTypeA.isBF16() && elemTypeB.isBF16()) {
-    problemOS << "bf16";
-  } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
-    problemOS << "i8";
-  } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
-    problemOS << "fp8_fp8";
-  } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
-    problemOS << "fp8_bf8";
-  } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
-    problemOS << "bf8_fp8";
-  } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
-    problemOS << "bf8_bf8";
-  } else {
-    // Unknown data type
     return std::string();
   }
 

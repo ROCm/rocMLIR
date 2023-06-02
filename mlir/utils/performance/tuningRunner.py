@@ -181,6 +181,18 @@ def extractFusionConfigs(test_dir, paths: Paths, options: Options):
 
     return opType
 
+def getExtendedGemmConfigurations(filename):
+    # generate configurations using default datatypes
+    configs = perfRunner.getGemmConfigurations(filename, '')
+
+    # generate int8xint8->int8 configurations
+    int8_configs = []
+    for config in configs:
+        if '-t i8' in config and '-out_datatype i32' in config:
+            int8_configs.append(config.replace('i32', 'i8'))
+    configs.extend(int8_configs)
+    return configs
+
 # Main function.
 def main(args=None):
     """

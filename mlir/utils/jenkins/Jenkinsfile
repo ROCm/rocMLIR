@@ -629,11 +629,11 @@ pipeline {
                             dir('build') {
                                 // Tune resnet50
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_resnet50_${ARCH}.tsv"""
+--test_dir ../mlir/test/fusion/e2e/resnet50/ -o tuning_fusion_${ARCH}.tsv"""
 
                                 // Tune bert
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_bert_${ARCH}.tsv"""
+--test_dir ../mlir/test/xmir/e2e/bert-torch-tosa/ -o tuning_fusion_${ARCH}.tsv"""
                             }
                             sh 'rm build/CMakeCache.txt'
                         }
@@ -894,10 +894,10 @@ pipeline {
                             dir('build') {
                                 // Run fusion resnet50 perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=fusion \
-          --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/tuning_fusion_resnet50_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/tuning_fusion_${CHIP}.tsv"""
                                 // Run bert perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op fusion \
-          --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_${CHIP}.tsv"""
                             }
                         }
                     }

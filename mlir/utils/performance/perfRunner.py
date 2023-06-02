@@ -489,8 +489,11 @@ class ConvConfiguration(PerfConfiguration):
             outs, errs = p1.communicate()
         return config.tableEntry(nanoSeconds)
 
+OUT_DATATYPE = re.compile(r"-out_datatype[=\s*](.*)")
 def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
     configs = []
+    outDataType = None
+
     if fileName:
         with open(fileName, 'r') as configFile:
             lines = configFile.readlines()
@@ -521,8 +524,15 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
                 if "-transB " not in line:
                     transBString = f"-transB {transB} "
 
+                # Skip out_datatype if already in
+                outDataTypeString = ""
+                if "-out_datatype" not in line:
+                    outDataTypeString = f"-out_datatype {datatype} "
+                    if datatype == 'i8':
+                        outDataTypeString = f"-out_datatype i32 "
+
                 # Strip to avoid spurious spaces
-                oneConfig = f"{dataTypeString}{transAString}{transBString}{line}".strip()
+                oneConfig = f"{dataTypeString}{outDataTypeString}{transAString}{transBString}{line}".strip()
                 if oneConfig not in configs:
                     configs.append(oneConfig)
     return configs
@@ -537,7 +547,7 @@ class GemmConfiguration(PerfConfiguration):
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
-        values = [self.dataType, self.chip, self.transA, self.transB, \
+        values = [self.dataType, self.outDataType, self.chip, self.transA, self.transB, \
                    self.g, self.m, self.k, self.n, self.perfConfig, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
@@ -546,7 +556,7 @@ class GemmConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""GemmConfiguration(dtype={self.dataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
+        return f"""GemmConfiguration(dtype={self.dataType!r}, outDataType={self.outDataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
                 transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
@@ -597,20 +607,23 @@ class GemmConfiguration(PerfConfiguration):
                 transA = (val.lower() in ["1", "true"])
             elif opt.endswith("-transB"):
                 transB = (val.lower() in ["1", "true"])
+            elif opt.endswith("-out_datatype"):
+                outDataType =val.lower()
             else:
                 raise ValueError(f"Unknown GEMM config argument {opt} -> {val}")
-        for v in [dtype, g, m, k, n, transA, transB]:
+        for v in [dtype, outDataType, g, m, k, n, transA, transB]:
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, g, m, k, n, transA, transB, arch)
+        return cls(dtype, outDataType, g, m, k, n, transA, transB, arch)
 
-    def __init__(self, dtype: str, g: int, m: int, k: int, n: int,
+    def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
                  transA: bool, transB: bool, arch: str):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         self.MLIR_N_REPEATS = 5
         self.dataType = dtype
+        self.outDataType = outDataType
         self.g = g
         self.m = m
         self.k = k
@@ -1210,9 +1223,6 @@ def main(args=None):
             confClass = RocBLASGemmConfig
         elif externalLib == GEMMLibrary.CK:
             confClass = CKGemmConfig
-            # Make MLIR to be compatible with CK by forcing int8xint8->int8
-            # This flag is ignored by non-int8 test cases.
-            rocmlir_gen_flags += "--out_datatype=i8"
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
@@ -1221,6 +1231,9 @@ def main(args=None):
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
         configs = getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
+        # Make MLIR to be compatible with CK by forcing int8xint8->int8
+        if confClass == CKGemmConfig:
+          configs = [c.replace("-out_datatype i32", "-out_datatype i8") for c in configs]
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not foundExternalTool(paths, opType, externalLib):
