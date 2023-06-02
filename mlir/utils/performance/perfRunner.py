@@ -491,7 +491,7 @@ class ConvConfiguration(PerfConfiguration):
             outs, errs = p1.communicate()
         return config.tableEntry(nanoSeconds)
 
-def getGemmConfigurations(fileName):
+def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
     configs = []
     if fileName:
         with open(fileName, 'r') as configFile:
@@ -503,6 +503,8 @@ def getGemmConfigurations(fileName):
                 line = line.strip()
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
+                    continue
+                if datatype not in dataTypes:
                     continue
 
                 # We need trailing spaces here to account for the concat below
@@ -1177,6 +1179,13 @@ def main(args=None):
         help="(rocBLAS | CK) external library to run GEMM routines"
     )
 
+    parser.add_argument(
+        '--data-type',
+         nargs='+',
+         choices=["f32", "f16", "i8"],
+         default=["f32", "f16", "i8"],
+         help='Force a set of datatypes'
+    )
 
     parsed_args = parser.parse_args(args)
 
@@ -1213,7 +1222,7 @@ def main(args=None):
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        configs = getGemmConfigurations(paths.configuration_file_path)
+        configs = getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not foundExternalTool(paths, opType, externalLib):
