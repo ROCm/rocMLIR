@@ -13,7 +13,7 @@ module {
     %6 = migraphx.transpose(%5) {permutation = [0, 2, 1, 3]} : (tensor<1x384x36x64xf32>) -> tensor<1x36x384x64xf32>
     %7 = migraphx.slice(%6) {axes = [1], ends = [24], starts = [12]} : (tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32>
     %8 = migraphx.transpose(%7) {permutation = [0, 1, 3, 2]} : (tensor<1x12x384x64xf32>) -> tensor<1x12x64x384xf32>
-    %9 = migraphx.dot(%4, %8) : tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32> -> tensor<1x12x384x384xf32>
+    %9 = migraphx.dot(%4, %8) : (tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32>) -> tensor<1x12x384x384xf32>
     %10 = migraphx.multibroadcast(%0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1xf32>) -> tensor<1x12x384x384xf32>
     %11 = migraphx.mul(%9, %10) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
     %12 = migraphx.add(%11, %1) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
