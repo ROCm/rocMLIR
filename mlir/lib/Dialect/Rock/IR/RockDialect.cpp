@@ -1673,6 +1673,68 @@ LogicalResult ReduceOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// Blockwise_ReduceOp
+//===-----------------------------------------------------===//
+
+LogicalResult BlockwiseReduceOp::verify() {
+  ArrayAttr inputViewArrayAttr = getInputRegViewAttr();
+  // This view should be {bid, tid, iter} to {bid, d0, ... , Dr , ... , dn};
+  // Moreover, {bid, d0, ... , Dr , ... , dn} --> {D0, ... , Dr , ... , Dn}
+  // should not be a part of this view where the latter is the larger
+  // input tensors that being reduced accross blocks.
+
+  TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
+  ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
+  ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
+  int64_t blockSize = getBlockSize();
+  int64_t gridSize = getGridSize();
+
+  if (getInput()
+          .getType()
+          .getMemorySpace()
+          .cast<gpu::AddressSpaceAttr>()
+          .getValue() != gpu::AddressSpace::Private) {
+    return emitError("input should be in regs.");
+  }
+  if (getOutput()
+          .getType()
+          .getMemorySpace()
+          .cast<gpu::AddressSpaceAttr>()
+          .getValue() != gpu::AddressSpace::Private) {
+    return emitError("output should be in regs.");
+  }
+  if (getWorkspaceBuffer()
+          .getType()
+          .getMemorySpace()
+          .cast<gpu::AddressSpaceAttr>()
+          .getValue() != gpu::AddressSpace::Workgroup) {
+    return emitError("workspace should be in LDS.");
+  }
+
+  if (inputTensorShape[0] != gridSize) {
+    return emitError("first dim of the input tensor should bid");
+  }
+  if (inputThreadView[0] != gridSize) {
+    return emitError("first dim of the input thread should bid");
+  }
+  if (inputThreadView[1] != blockSize) {
+    return emitError("second dim of the input thread should tid");
+  }
+  if (inputTensorShape.slice(1).size() != wsShape.size()) {
+    return emitError("The input and workspace should be of same rank!");
+  }
+  for (auto [inDimSize, wsDimSize] :
+       llvm::zip(inputTensorShape.slice(1), wsShape)) {
+    if (inDimSize != wsDimSize) {
+      return emitError("The workspace and input dims are not matching...");
+    }
+  }
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//

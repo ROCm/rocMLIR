@@ -1145,6 +1145,45 @@ def Rock_AccelGemmOp:
   let hasVerifier = 1;
 }
 
+// blockwise_reduction
+def Rock_BlockwiseReduceOp:
+    Rock_Op<"blockwise_reduce">,
+    Arguments<(ins MemRefOf<GemmOutputTypes>:$input,
+                   MemRefOf<LdsBufferTypes>:$workspace_buffer,
+                   MemRefOf<GemmOutputTypes>:$output,
+                   IndexAttr:$axis,
+                   ReduceMethodAttr:$reduceMethod,
+                   TransformMapArrayAttr:$inputRegView,
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize
+                   )> {
+  let summary = "Blockwise reduce operation";
+  let description = [{
+    The `rock.blockwise_reduce` op does reduce at a blockwise level.
+
+    $input tensor resides in registers in threads.
+
+    $inputRegView should be register {bid, tid, iter}
+    to virtual tensor {bid, d0, ... , Dr , ... , dn} which is a slice of
+    a larger tensor {D0, ... , Dr , ... , Dn}. Note that the reduction
+    axis (Dr) is not sliced because it is not supported.
+
+    $output tensor resides in registers in threads. It would have
+    the same dimensionality of the input tensor but broadcasted.
+    So the users of the op, has to add a extraView if they are writing back
+    to some memory (LDS/Global) to bar threads (or iteration within threads)
+    to not to create a broadcasted tensor.
+
+    $workspace_buffer resides in LDS. This should have the shape of tensor per
+    block.
+  }];
+  let assemblyFormat = [{
+    $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)
+  }];
+
+  let hasVerifier = 1;
+}
+
 /// ONLY NEEDEF FOR in_warp_transpose BELOW. DEAD BUT LEFT IN FOR FUTURE
 /// USE, JUST LIKE in_warp_transpose ITSELF.
 
