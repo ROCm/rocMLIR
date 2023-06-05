@@ -1435,7 +1435,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
   if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
                                                gpu::AddressSpace::Private))
-    return emitOpError("source must be private registers");
+    return emitOpError("dest must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1443,8 +1443,27 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   else
     inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (inputShape.size() != 3)
-    return emitOpError("source view must accept (bid, tid, iter) coordinates");
+  MemRefType srcType = getSource().getType().cast<MemRefType>();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace srcGpuMemSpace = gpu::AddressSpace::Global;
+  if (srcMemSpaceAttr) {
+    srcGpuMemSpace = srcMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
+  }
+
+  if (srcGpuMemSpace == gpu::AddressSpace::Global) {
+    if (inputShape.size() != 3) {
+      return emitOpError(
+          "source view must accept (bid, tid, iter) coordinates");
+    }
+  } else if (srcGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (inputShape.size() != 2) {
+      return emitOpError("source view must accept (tid, iter) coordinates");
+    }
+  } else {
+    return emitError("source has to be either workgroup or global memory.");
+  }
+
   return success();
 }
 
@@ -1459,15 +1478,33 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
                                                gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> viewInputShape;
+  ArrayRef<int64_t> outputShape;
   if (extraViews.empty())
-    viewInputShape = getDest().getType().getShape();
+    outputShape = getDest().getType().getShape();
   else
-    viewInputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (viewInputShape.size() != 3)
-    return emitOpError(
-        "destination view must accept (bid, tid, iter) coordinates");
+  MemRefType dstType = getDest().getType().cast<MemRefType>();
+  Attribute dstMemSpaceAttr = dstType.getMemorySpace();
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace dstGpuMemSpace = gpu::AddressSpace::Global;
+  if (dstMemSpaceAttr) {
+    dstGpuMemSpace = dstMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
+  }
+
+  if (dstGpuMemSpace == gpu::AddressSpace::Global) {
+    if (outputShape.size() != 3) {
+      return emitOpError(
+          "source view must accept (bid, tid, iter) coordinates");
+    }
+  } else if (dstGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (outputShape.size() != 2) {
+      return emitOpError("source view must accept (tid, iter) coordinates");
+    }
+  } else {
+    return emitError("source has to be either workgroup or global memory.");
+  }
+
   return success();
 }
 
