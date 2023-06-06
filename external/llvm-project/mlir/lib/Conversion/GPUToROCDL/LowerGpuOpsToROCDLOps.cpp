@@ -200,6 +200,10 @@ struct LowerGpuOpsToROCDLOpsPass
         op->setAttr(ROCDL::ROCDLDialect::getFlatWorkGroupSizeAttrName(),
                     flatSizeAttr);
       }
+      if (auto minWavesPerEu = op->removeAttr("min_wave_per_eu")
+                                   .dyn_cast_or_null<IntegerAttr>()) {
+        op->setAttr(ROCDL::ROCDLDialect::getMinWavesPerEu(), minWavesPerEu);
+      }
     });
 
     OpPassManager pm("gpu.module");

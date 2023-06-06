@@ -135,6 +135,21 @@ public:
       llvmAttrValue.append(value.getValue());
       llvmFunc->addFnAttr("amdgpu-flat-work-group-size", llvmAttrValue);
     }
+    if ("rocdl.amdgpu_waves_per_eu" == attribute.getName()) {
+      auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
+      if (!func)
+        return failure();
+      auto value = attribute.getValue().dyn_cast<IntegerAttr>();
+      if (!value)
+        return failure();
+
+      llvm::Function *llvmFunc =
+          moduleTranslation.lookupFunction(func.getName());
+      llvm::SmallString<8> llvmAttrValue;
+      llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
+      attrValueStream << value.getInt();
+      llvmFunc->addFnAttr("amdgpu-waves-per-eu", llvmAttrValue);
+    }
 
     // Set reqd_work_group_size metadata
     if (ROCDL::ROCDLDialect::getReqdWorkGroupSizeAttrName() ==
