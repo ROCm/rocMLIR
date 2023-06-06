@@ -77,15 +77,3 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   }
   return theseFeatures;
 }
-
-GemmFeatures
-mlir::rock::AmdArchInfo::getDefaultFeatures(StringRef strDataType) {
-  GemmFeatures theseFeatures = defaultFeatures;
-  bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
-  if (isWmma) {
-    if (strDataType != "f16" && strDataType != "bf16" && strDataType != "i8") {
-      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
-    }
-  }
-  return theseFeatures;
-}

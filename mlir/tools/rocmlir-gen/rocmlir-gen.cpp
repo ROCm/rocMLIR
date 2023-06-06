@@ -1589,8 +1589,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
   // reduce precision if !xdlops
-  bool hasAccel = rock::bitEnumContainsAny(
-      genConfig.features, rock::GemmFeatures::mfma | rock::GemmFeatures::wmma);
+  bool hasAccel = rock::isAccel(genConfig.features);
   auto accelConstantOp = b.create<arith::ConstantIntOp>(loc, hasAccel, intType);
 
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
@@ -2322,8 +2321,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
-  bool hasAccel = rock::bitEnumContainsAny(
-      genParams.features, rock::GemmFeatures::mfma | rock::GemmFeatures::wmma);
+  bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
@@ -2490,8 +2488,7 @@ static LogicalResult populateHostHarnessLogic(
   bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   bool hasCloneValidation = hasValidation && (validationType == "clone");
-  bool hasAccel = rock::bitEnumContainsAny(
-      genParams.features, rock::GemmFeatures::mfma | rock::GemmFeatures::wmma);
+  bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
@@ -2745,7 +2742,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
   // Scenario 1: We use conv config to initialize everything
   if (!convConfig.empty()) {
-    if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
+    if (failed(conv2dGenerator.parseConvConfig(builder, convConfig.c_str()))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }

@@ -257,7 +257,8 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
 
   constexpr size_t NUM_SUPPORTED_CHIPS = 12;
   static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906, 0x908, 0x90a, 0x940, 0x941, 0x942, 0x1030, 0x1100, 0x1101, 0x1102, 0x1103};
+      0x900, 0x906,  0x908,  0x90a,  0x940,  0x941,
+      0x942, 0x1030, 0x1100, 0x1101, 0x1102, 0x1103};
   const unsigned int *ptr;
   ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
                   chipHexNumber);
@@ -302,9 +303,7 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  bool isAccel = bitEnumContainsAny(config.features,
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
-  if (isAccel) {
+  if (isAccel(config.features)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -395,9 +394,7 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCu=*/static_cast<uint32_t>(config.num_cu)};
 
-  bool isAccel = bitEnumContainsAny(config.features,
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
-  if (isAccel) {
+  if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
     uint32_t blockSize;
@@ -436,13 +433,11 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
 
-  bool isAccel = bitEnumContainsAny(config.features,
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
   needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) && isAccel &&
+    if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -477,7 +472,8 @@ LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
   return success();
 }
 
-LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
+LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
+                                               const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
@@ -583,7 +579,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   // Get the default features associated with the chip (and with the data type)
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.getDefaultFeatures(config.dataTypeStr);
+  config.features = archInfo.getDefaultFeatures(getDataType(builder));
 
   // Force acceleration if that's what the client wants
   int hasAccel = 0;

@@ -105,9 +105,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     perfConfig = perfConfigAttr.getValue().str();
   }
   GemmFeatures features = op.getGemmFeatures();
-  bool isAccel =
-      bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
-  if (isAccel) {
+  if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
     uint32_t blockSize = 0;

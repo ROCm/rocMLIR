@@ -151,8 +151,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  bool isAccel = bitEnumContainsAny(op.getFeatures(),
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  bool isAccel = rock::isAccel(op.getFeatures());
+
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
   IntegerAttr gridSize = op.getGridSizeAttr();

@@ -502,7 +502,7 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
       return op->emitOpError(
-          "Wmma gridwise supports only F16 and Int8 data types");
+          "Wmma gridwise supports only F16/BF16/int8 data types");
     }
   }
   if (elemTypeA != elemTypeB &&

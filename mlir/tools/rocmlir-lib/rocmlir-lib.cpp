@@ -110,8 +110,12 @@ static std::mutex mutex;
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
 
+  MiirHandle_s *handle = new MiirHandle_s;
+  ModuleOp module = handle->getModule();
+  OpBuilder builder(module.getContext());
+
   mlir::rock::Conv2dGenerator conv2dGenerator;
-  if (failed(conv2dGenerator.parseConvConfig(arguments))) {
+  if (failed(conv2dGenerator.parseConvConfig(builder, arguments))) {
     return nullptr;
   }
 
@@ -124,14 +128,9 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  MiirHandle_s *handle = new MiirHandle_s;
-
   handle->triple = config.triple;
   handle->chip = config.chip;
   handle->features = config.chipFeatures;
-
-  ModuleOp module = handle->getModule();
-  OpBuilder builder(module.getContext());
 
   if (failed(conv2dGenerator.getKernelCount(builder, handle->kernelCount))) {
     return nullptr;

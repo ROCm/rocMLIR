@@ -452,8 +452,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto filterShape = filterType.getShape();
 
   GemmFeatures features = op.getFeatures();
-  bool isAccel =
-      bitEnumContainsAny(features, GemmFeatures::mfma | GemmFeatures::wmma);
+  bool isAccel = rock::isAccel(features);
 
   // Determine whether to use workspace.
   bool hasWorkspace =
