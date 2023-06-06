@@ -38,7 +38,7 @@ def ROCDL_Dialect : Dialect {
       return ::llvm::StringLiteral("rocdl.reqd_work_group_size");
     }
     static constexpr ::llvm::StringLiteral getMinWavesPerEu() {
-      return ::llvm::StringLiteral("rocdl.amdgpu_waves_per_eu");
+      return ::llvm::StringLiteral("rocdl.waves_per_eu");
     }
 
     /// The address space value that represents global memory.
