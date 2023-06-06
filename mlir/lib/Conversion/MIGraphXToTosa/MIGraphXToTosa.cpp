@@ -29,7 +29,7 @@ namespace {
 
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
-                               Type elemType, Args &&...args) {
+                               Type elemType, Args &&... args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =

@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -140,10 +141,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
 
     op.setGemmParamsAttr(gemmParams);
+    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
+
   } else {
     InitParamsNonAccel validParams;
     uint32_t gridSize;
@@ -172,10 +176,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
         validParams.gemmNPerThread,
         /*kpack=*/1);
     op.setGemmParamsAttr(gemmParams);
+    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }
