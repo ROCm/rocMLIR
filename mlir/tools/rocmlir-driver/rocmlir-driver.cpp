@@ -265,8 +265,15 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   bool isHighLevel = hostPipelineSet.contains("highlevel");
 
-  // Find kernel module, defaults to top module
+  StringRef onlyArch;
+  if (targetList.size())
+    onlyArch = targetList.front();
+  else
+    onlyArch = arch;
+
+  StringRef targetArch = onlyArch;
   bool hasKernels = false;
+  // Find kernel module, defaults to top module
   if (kernelPipelineSet.size() || isHighLevel) {
     LogicalResult kernelResult = success();
     // If sub-modules exists with kernel.chip specified and in set
@@ -277,21 +284,18 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
                                          isHighLevel, kernelPipelineSet);
+        targetArch = archAttr.getValue();
       }
     });
     if (!hasKernels) {
       // If no sub-modules, run KernelPipeline on top-level module
-      StringRef onlyArch;
-      if (targetList.size())
-        onlyArch = targetList.front();
-      else
-        onlyArch = arch;
       if (onlyArch.empty()) {
         if (module->hasAttrOfType<StringAttr>("xmodel.arch")) {
           onlyArch =
               module->getAttrOfType<StringAttr>("xmodel.arch").getValue();
         }
       }
+      targetArch = onlyArch;
       kernelResult =
           runKernelPipeline(onlyArch, module, isHighLevel, kernelPipelineSet);
     }
@@ -352,10 +356,19 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     xmodel::RunnerOptions runnerOptions;
     runnerOptions.barePtrMemrefs = barePointers.getValue();
     runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
+    SmallVector<std::string, 4> targetTypes{"GPU"};
+    SmallVector<std::string, 4> targetArchs;
+    targetArchs.push_back(targetArch.str());
+    runnerOptions.targetTypes = targetTypes;
+    runnerOptions.targetArchs = targetArchs;
     xmodel::buildRunnerPipeline(pm, runnerOptions);
     if (failed(pm.run(module)))
       return failure();
   }
+
+  // Clean up
+  module->walk(
+      [&](LLVM::LLVMFuncOp func) { func->removeAttr("xmodel.targets"); });
   return success();
 }
 
