@@ -840,7 +840,7 @@ pipeline {
                             buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
                                          ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                            -DMLIR_USE_ROCBLAS=ON''')
+                                            -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
                         }
                     }
                     stage("Copy earlier performance results") {
@@ -908,7 +908,7 @@ pipeline {
                                              '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                -DMLIR_USE_CK=ON''')
+                                                -DROCMLIR_ENABLE_BENCHMARKS=ck''')
 
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
