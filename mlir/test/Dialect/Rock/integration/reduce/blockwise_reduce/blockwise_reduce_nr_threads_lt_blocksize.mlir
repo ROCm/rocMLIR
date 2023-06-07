@@ -8,7 +8,7 @@
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1) -> (0, d1, d0)> by [<Merge{1, 32} ["nr"] at [0] -> ["x", "z"] at [0, 2]>, <PassThrough ["r"] at [1] -> ["y"] at [1]>] bounds = [32, 1] -> [1, 1, 32]>
 #transform_map4 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0 * 4 + d2, d1)> by [<Unmerge{8, 4} ["bid", "iter"] at [0, 2] -> ["nr"] at [0]>, <PassThrough ["tid"] at [1] -> ["r"] at [1]>] bounds = [8, 1, 4] -> [32, 1]>
 
-func.func @rock_blockwise_reduce_simple(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_blockwise_reduce_nr_threads_lt_blocksize(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<4x20xf32, #gpu.address_space<workgroup>>
