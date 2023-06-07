@@ -37,7 +37,6 @@ set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
 if( ROCMLIR_ENABLE_BENCHMARKS STREQUAL "all" )
-  message(STATUS "set benchmarsk")
   set(ROCMLIR_ENABLE_BENCHMARKS "ck;rocblas")
 endif()
 
