@@ -34,6 +34,7 @@ struct WmmaInsn {
   VectorType retType;
 
 public:
+  bool isCoherentWithK(int64_t kpack, int64_t kPerBlock);
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
                                     int64_t waveSize, int64_t mPerWave,
                                     int64_t nPerWave);

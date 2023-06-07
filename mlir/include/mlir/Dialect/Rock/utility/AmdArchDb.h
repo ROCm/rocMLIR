@@ -21,6 +21,9 @@ struct AmdArchInfo {
 
   constexpr AmdArchInfo(GemmFeatures defaultFeatures, int64_t waveSize)
       : defaultFeatures(defaultFeatures), waveSize(waveSize) {}
+
+  /// Get the default features for the pari <arch, datatype>
+  GemmFeatures getDefaultFeatures(Type dataType);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
