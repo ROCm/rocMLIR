@@ -1174,8 +1174,8 @@ def Rock_BlockwiseReduceOp:
     to some memory (LDS/Global) to bar threads (or iteration within threads)
     to not to create a broadcasted tensor.
 
-    $workspace_buffer resides in LDS. This should have the shape of tensor per
-    block.
+    $workspace_buffer resides in LDS. This should be a flat tensor with at least
+    with number of items per block.
   }];
   let assemblyFormat = [{
     $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)

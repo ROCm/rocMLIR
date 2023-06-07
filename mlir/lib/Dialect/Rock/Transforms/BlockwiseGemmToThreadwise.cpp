@@ -849,6 +849,57 @@ struct BlockwiseReduceRewritePattern
     return dimProduct;
   }
 
+  // This function will append views to target a flat LDS buffer
+  // where non-reduction dims are laid contigously as they are expected
+  // function on parallel.
+  ArrayAttr createLDSWorkspaceView(Location loc, PatternRewriter &rewriter,
+                                   ArrayAttr regTensorView, int64_t reduceAxis,
+                                   bool makeRDimZero = false) const {
+
+    TransformMapAttr lowestTr =
+        regTensorView[regTensorView.size() - 1].cast<TransformMapAttr>();
+    ArrayRef<int64_t> lowestShape = lowestTr.getLowerBounds().asArrayRef();
+    TopDownTMBuilder tensorToLDSViewBuilder(rewriter, lowestShape, loc);
+    SmallVector<StringRef, 4> upperNameRefs;
+    tensorToLDSViewBuilder.getStartNames(upperNameRefs);
+
+    int64_t nonReduceMergeDimSize = 1;
+    SmallVector<StringRef, 4> nonReduceNameRefs;
+    SmallVector<unsigned, 4> nonReduceDims;
+    SmallVector<int64_t, 4> nonReduceDimSizes;
+    for (auto [dim, dimSize] : llvm::enumerate(lowestShape)) {
+      if (dim != (size_t)reduceAxis) {
+        nonReduceMergeDimSize *= dimSize;
+        nonReduceNameRefs.push_back(upperNameRefs[dim]);
+        nonReduceDims.push_back(dim);
+        nonReduceDimSizes.push_back(dimSize);
+      }
+    }
+    tensorToLDSViewBuilder.unmerge("nrDim", 1, nonReduceNameRefs,
+                                   nonReduceDimSizes);
+    if (makeRDimZero) {
+      tensorToLDSViewBuilder.constDim("rDim", 0, 0, lowestShape[reduceAxis]);
+    } else {
+      tensorToLDSViewBuilder.passThrough({"rDim"}, {0},
+                                         {upperNameRefs[reduceAxis]});
+    }
+    TransformMapAttr twoDimLDSView = tensorToLDSViewBuilder.get();
+
+    TopDownTMBuilder flatLDSViewBuilder =
+        TopDownTMBuilder::below(tensorToLDSViewBuilder, twoDimLDSView);
+    flatLDSViewBuilder.unmerge(
+        "flatDim", 0, {"nrDim", "rDim"},
+        {nonReduceMergeDimSize, lowestShape[reduceAxis]});
+    TransformMapAttr flatLDSView = flatLDSViewBuilder.get();
+    SmallVector<Attribute> threadsToLDSViewAttrs;
+    for (Attribute trMap : regTensorView) {
+      threadsToLDSViewAttrs.push_back(trMap);
+    }
+    threadsToLDSViewAttrs.push_back(twoDimLDSView);
+    threadsToLDSViewAttrs.push_back(flatLDSView);
+    return rewriter.getArrayAttr(threadsToLDSViewAttrs);
+  }
+
   // This should only be used if product non-reduction dims is
   // equal or larger than number threads in a block.
   //
@@ -858,9 +909,6 @@ struct BlockwiseReduceRewritePattern
   // tid is threads within the block, nrIter is non-reducing
   // iterations within a thread and rIter is reducing iterations
   // within a thread.
-  //
-  // NOTE : at this stage reducing iterations are calculated as if
-  //
   ArrayAttr createThreadViewForNRLargerThanThreads(
       Location loc, ArrayRef<int64_t> toReduceShape, int64_t blockSize,
       int64_t reduceAxis, PatternRewriter &rewriter) const {
@@ -945,32 +993,6 @@ struct BlockwiseReduceRewritePattern
     TransformMapAttr unmergeTrMap = threadsToTensor.get();
 
     return rewriter.getArrayAttr({unmergeTrMap, padTrMap, mergeTrMap});
-  }
-
-  // This function appends a coordinate mapping to point to zero'th index where
-  // it was reduced in the LDS.
-  ArrayAttr appendReducedDimView(Location loc, ArrayAttr regToInputTensorViews,
-                                 size_t axis, PatternRewriter &rewriter) const {
-    TransformMapAttr regToInputTensorView =
-        regToInputTensorViews[regToInputTensorViews.size() - 1]
-            .cast<TransformMapAttr>();
-    ArrayRef<int64_t> toReduceShape =
-        regToInputTensorView.getLowerBounds().asArrayRef();
-    TopDownTMBuilder pointToZeroInRedDimBuilder(rewriter, toReduceShape, loc);
-    for (auto [idx, dimSize] : llvm::enumerate(toReduceShape)) {
-      if (idx == axis) {
-        pointToZeroInRedDimBuilder.constDim("redDim", idx, 0, dimSize);
-      } else {
-        pointToZeroInRedDimBuilder.passThrough({(unsigned)idx},
-                                               {(unsigned)idx});
-      }
-    }
-    SmallVector<Attribute> regToInputTensorViewTrs;
-    for (Attribute trMap : regToInputTensorViews) {
-      regToInputTensorViewTrs.push_back(trMap);
-    }
-    regToInputTensorViewTrs.push_back(pointToZeroInRedDimBuilder.get());
-    return rewriter.getArrayAttr(regToInputTensorViewTrs);
   }
 
   ArrayAttr dropDim(Location loc, ArrayAttr view, size_t dropDimIdx,
@@ -1106,9 +1128,6 @@ struct BlockwiseReduceRewritePattern
     // inputView should be register {bid, tid, iter} to virtual tensor {bid, d0,
     // ... , Dr , ... , dn} coords transforms where Dr is the reduction axis.
     ArrayAttr inputViewArrayAttr = op.getInputRegViewAttr();
-    // As the LDS buffer is agnostic to bid, we need a {bid, tid, iter} -> {bid,
-    // d0, ... , Dr , ... , dn} -> {d0, ... , Dr , ... , dn} view
-    ArrayAttr ldsViewArrayAttr = dropDim(loc, inputViewArrayAttr, 0, rewriter);
     TypedValue<MemRefType> inputReg = op.getInput();
     TypedValue<MemRefType> outputReg = op.getOutput();
     Type elemType = inputReg.getType().getElementType();
@@ -1132,8 +1151,15 @@ struct BlockwiseReduceRewritePattern
     SmallVector<int64_t, 4> regTensorShape =
         llvm::to_vector<4>(lowerTrLowerBounds.slice(1));
 
+    // As the LDS buffer is agnostic to bid, we need a {bid, tid, iter} -> {bid,
+    // d0, ... , Dr , ... , dn} -> {d0, ... , Dr , ... , dn} view
+    ArrayAttr blockwiseInputViewArrayAttr =
+        dropDim(loc, inputViewArrayAttr, 0, rewriter);
+
     rewriter.create<ThreadwiseWriteAllOp>(
-        loc, inputReg, workspaceLDSBuffer, ldsViewArrayAttr,
+        loc, inputReg, workspaceLDSBuffer,
+        createLDSWorkspaceView(loc, rewriter, blockwiseInputViewArrayAttr,
+                               axis),
         rock::GemmFeatures::none, StoreMethod::Set, true, true);
 
     // Following RAII scope will create reduction loops.
@@ -1143,16 +1169,24 @@ struct BlockwiseReduceRewritePattern
       if (blockSize <= nonReductionDimSizeProduct) {
         // This means there aren't enough threads to do a parallel reduction
         // each individual thread could do its own reduction.
-        ArrayAttr threadViewTrs = createThreadViewForNRLargerThanThreads(
+        ArrayAttr threadsToTensorTrs = createThreadViewForNRLargerThanThreads(
             loc, regTensorShape, blockSize, axis, rewriter);
+        ArrayAttr threadToLDSViewTrs =
+            createLDSWorkspaceView(loc, rewriter, threadsToTensorTrs, axis);
+        ArrayAttr threadsToLDSViewReducedTrs = createLDSWorkspaceView(
+            loc, rewriter, threadsToTensorTrs, axis, /*makeRDimZero-*/ true);
         ArrayRef<int64_t> threadViewShape =
-            threadViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+            threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+        ArrayRef<int64_t> ldsBufferShape =
+            threadToLDSViewTrs[threadToLDSViewTrs.size() - 1]
+                .cast<TransformMapAttr>()
+                .getLowerBounds();
         constexpr size_t nrIterDim = 1;
         constexpr size_t rIterDim = 2;
 
         int64_t nrIterVectorLen = getMaxVectorizationForDatatype(
-            threadViewTrs, nrIterDim, threadViewShape[nrIterDim],
-            regTensorShape, elemType);
+            threadToLDSViewTrs, nrIterDim, threadViewShape[nrIterDim],
+            ldsBufferShape, elemType);
         // Create the accumulation register
         // This will be accumulated over non-reduction iterations.
         auto accRegType = MemRefType::get(
@@ -1173,15 +1207,16 @@ struct BlockwiseReduceRewritePattern
           }
           rewriter.create<FillOp>(loc, accReg, initVal.getResult());
           int64_t rIterVectorLen = getMaxVectorizationForDatatype(
-              threadViewTrs, rIterDim, threadViewShape[rIterDim],
-              regTensorShape, elemType);
+              threadToLDSViewTrs, rIterDim, threadViewShape[rIterDim],
+              ldsBufferShape, elemType);
           SmallVector<Value, 4> inits{tid, nrIter, zeroConstantOp};
           SmallVector<int64_t> bounds{1, 1, threadViewShape[rIterDim]};
           SmallVector<int64_t> strides{1, 1, rIterVectorLen};
 
           TransformingForOp reductionLoop = rewriter.create<TransformingForOp>(
-              loc, ArrayRef<ValueRange>{inits, inits},
-              ArrayRef<Attribute>{threadViewTrs, rewriter.getArrayAttr({})},
+              loc, ArrayRef<ValueRange>{inits, inits, inits},
+              ArrayRef<Attribute>{threadToLDSViewTrs, rewriter.getArrayAttr({}),
+                                  threadsToLDSViewReducedTrs},
               ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
               /*forceUnroll=*/true,
               /*useIndexDiffs=*/true);
@@ -1205,45 +1240,47 @@ struct BlockwiseReduceRewritePattern
                 reductionLoop.getLowerCoords(/*domain=*/1)[rIterDim];
             Value boundVal = rewriter.create<arith::ConstantIndexOp>(
                 loc, threadViewShape[rIterDim]);
-            Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+            Value strideVal =
+                rewriter.create<arith::ConstantIndexOp>(loc, rIterVectorLen);
             Value lastIterVal =
-                rewriter.create<arith::SubIOp>(loc, boundVal, one);
+                rewriter.create<arith::SubIOp>(loc, boundVal, strideVal);
             Value isLastIter = rewriter.create<arith::CmpIOp>(
                 loc, arith::CmpIPredicate::eq, rIterArg, lastIterVal);
             scf::IfOp ifb = rewriter.create<scf::IfOp>(
                 loc, isLastIter, /*withElseRegion=*/false);
             {
               OpBuilder thenb = ifb.getThenBodyBuilder(rewriter.getListener());
-              SmallVector<Value, 4> coords;
-              for (size_t i = 0; i < LDSLoadCoords.size(); i++) {
-                if (i == axis) {
-                  coords.push_back(zeroConstantOp);
-                } else {
-                  coords.push_back(LDSLoadCoords[i]);
-                }
-              }
-              rewriter.create<InBoundsStoreOp>(loc, reduced, workspaceLDSBuffer,
-                                               coords);
+              thenb.create<InBoundsStoreOp>(
+                  loc, reduced, workspaceLDSBuffer,
+                  reductionLoop.getLowerCoords(/*domain=*/2));
             }
           }
         }
         ArrayAttr reducedldsViewArrayAttr =
-            appendReducedDimView(loc, ldsViewArrayAttr, axis, rewriter);
+            createLDSWorkspaceView(loc, rewriter, blockwiseInputViewArrayAttr,
+                                   axis, /*makeRDimZero-*/ true);
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr, true,
             true);
       } else {
         // This means there are more threads than elements to be reduced.
-        ArrayAttr threadViewTrs = createThreadViewforNRSmallerThanThreads(
-            loc, regTensorShape, blockSize, axis, rewriter);
+        ArrayAttr threadToTensorViewTrs =
+            createThreadViewforNRSmallerThanThreads(loc, regTensorShape,
+                                                    blockSize, axis, rewriter);
+        ArrayAttr threadToLDSViewTrs =
+            createLDSWorkspaceView(loc, rewriter, threadToTensorViewTrs, axis);
         ArrayRef<int64_t> threadViewShape =
-            threadViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+            threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+        ArrayRef<int64_t> ldsBufferShape =
+            threadToLDSViewTrs[threadToLDSViewTrs.size() - 1]
+                .cast<TransformMapAttr>()
+                .getLowerBounds();
         constexpr size_t rTidDim = 1;
         constexpr size_t rIterDim = 2;
 
         int64_t rIterVectorLen = getMaxVectorizationForDatatype(
-            threadViewTrs, rIterDim, threadViewShape[rIterDim], regTensorShape,
-            elemType);
+            threadToLDSViewTrs, rIterDim, threadViewShape[rIterDim],
+            ldsBufferShape, elemType);
         Value nrDimSizeProductConst = rewriter.create<arith::ConstantIndexOp>(
             loc, nonReductionDimSizeProduct);
         Value rtid =
@@ -1276,7 +1313,7 @@ struct BlockwiseReduceRewritePattern
             TransformingForOp reductionLoop =
                 rewriter.create<TransformingForOp>(
                     loc, ArrayRef<ValueRange>(inits),
-                    ArrayRef<Attribute>{threadViewTrs},
+                    ArrayRef<Attribute>{threadToLDSViewTrs},
                     ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
                     /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
@@ -1304,7 +1341,7 @@ struct BlockwiseReduceRewritePattern
             TransformingForOp reductionLoop =
                 rewriter.create<TransformingForOp>(
                     loc, ArrayRef<ValueRange>(inits),
-                    ArrayRef<Attribute>{threadViewTrs},
+                    ArrayRef<Attribute>{threadToLDSViewTrs},
                     ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
                     /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
@@ -1354,7 +1391,7 @@ struct BlockwiseReduceRewritePattern
 
               TransformingForOp reductionLoop = thenb.create<TransformingForOp>(
                   loc, ArrayRef<ValueRange>{firstInits, secondInits},
-                  ArrayRef<Attribute>{threadViewTrs, threadViewTrs},
+                  ArrayRef<Attribute>{threadToLDSViewTrs, threadToLDSViewTrs},
                   ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
                   /*forceUnroll=*/true, /*useIndexDiffs=*/true);
               {
@@ -1377,7 +1414,8 @@ struct BlockwiseReduceRewritePattern
             rewriter.create<LDSBarrierOp>(loc);
           }
           ArrayAttr reducedldsViewArrayAttr =
-              appendReducedDimView(loc, ldsViewArrayAttr, axis, rewriter);
+              createLDSWorkspaceView(loc, rewriter, blockwiseInputViewArrayAttr,
+                                     axis, /*makeRDimZero-*/ true);
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr, true,
               true);

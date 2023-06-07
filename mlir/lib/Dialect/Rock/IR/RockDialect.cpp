@@ -1722,14 +1722,17 @@ LogicalResult BlockwiseReduceOp::verify() {
   if (inputThreadView[1] != blockSize) {
     return emitError("second dim of the input thread should tid");
   }
-  if (inputTensorShape.slice(1).size() != wsShape.size()) {
-    return emitError("The input and workspace should be of same rank!");
+  if (wsShape.size() != 1) {
+    return emitError("workspace LDS buffer should be flat");
   }
-  for (auto [inDimSize, wsDimSize] :
-       llvm::zip(inputTensorShape.slice(1), wsShape)) {
-    if (inDimSize != wsDimSize) {
-      return emitError("The workspace and input dims are not matching...");
-    }
+
+  int64_t blockwiseInputTensorElements = 1;
+  for (int64_t dimSize : inputTensorShape.slice(1)) {
+    blockwiseInputTensorElements *= dimSize;
+  }
+  if (blockwiseInputTensorElements > wsShape[0]) {
+    return emitError(
+        "workspace should be at least the size of elements per block");
   }
 
   return success();
