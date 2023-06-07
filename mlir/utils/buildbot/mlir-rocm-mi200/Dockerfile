@@ -14,6 +14,19 @@
 # Use the rocm/mlir image as base
 FROM rocm/mlir:rocm5.4-latest
 
+# +++pf: temporary patch for ROCclr #42;  overwrite libamdhip64.so.
+#COPY libhip.tar.gz .
+#RUN tar -C /opt/rocm/lib -x -f ./libhip.tar.gz
+
+## +++pf: second temporary patch for ROCclr #42;  install pre-release rocm 5.6.0.
+RUN rm /etc/apt/sources.list.d/rocm.list; \
+    wget https://repo.radeon.com/amdgpu-install/.5.6/ubuntu/focal/amdgpu-install_5.6.50600-1_all.deb; \
+    apt-get install -y ./amdgpu-install_5.6.50600-1_all.deb; \
+    sed -i "s/\/5.6/\/.5.6/" /etc/apt/sources.list.d/amdgpu*.list; \
+    sed -i "s/\/5.6/\/.apt_5.6/" /etc/apt/sources.list.d/rocm.list; \
+    apt-get update; \
+    yes | amdgpu-install --usecase=rocm --no-dkms
+
 RUN apt-get update; \
     apt-get install -y dumb-init; \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-10 100 ;\
