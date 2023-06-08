@@ -724,26 +724,22 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           loadLoop.getLowerCoords(/*domain=*/1)[iterDim[srcAddrSpace]]);
     } else {
       TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
-      Value zeroInt = createZeroConstantOp(b, loc, valid.getType());
-      Value isValid = b.createOrFold<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::ne, valid, zeroInt);
       scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, isValid, /*withElseRegion=*/true);
+          b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
         Value loaded = thenb.create<InBoundsLoadOp>(
             loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
-        thenb.create<InBoundsStoreOp>(
-            loc, loaded, dest,
-            loadLoop.getLowerCoords(/*domain=*/1)[iterDim[srcAddrSpace]]);
+        thenb.create<scf::YieldOp>(loc, loaded);
       }
       {
         OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        elseb.create<InBoundsStoreOp>(
-            loc, zeroVal, dest,
-            loadLoop.getLowerCoords(/*domain=*/1)[iterDim[srcAddrSpace]]);
+        elseb.create<scf::YieldOp>(loc, zeroVal);
       }
+      b.create<InBoundsStoreOp>(
+          loc, ifb.getResult(0), dest,
+          loadLoop.getLowerCoords(/*domain=*/1)[iterDim[srcAddrSpace]]);
     }
   }
   b.eraseOp(op);
@@ -819,11 +815,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     } else {
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
-      Value zeroInt = createZeroConstantOp(b, loc, valid.getType());
-      Value isValid = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
-                                              valid, zeroInt);
-      scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, isValid, /*withElseRegion=*/false);
+      scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
         Value loaded = thenb.create<InBoundsLoadOp>(

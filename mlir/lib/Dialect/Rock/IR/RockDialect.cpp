@@ -1444,11 +1444,12 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
     inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
   MemRefType srcType = getSource().getType().cast<MemRefType>();
-  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  gpu::AddressSpaceAttr srcMemSpaceAttr =
+      srcType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
   // Unless specified it is assumed to be global
   gpu::AddressSpace srcGpuMemSpace = gpu::AddressSpace::Global;
   if (srcMemSpaceAttr) {
-    srcGpuMemSpace = srcMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
+    srcGpuMemSpace = srcMemSpaceAttr.getValue();
   }
 
   if (srcGpuMemSpace == gpu::AddressSpace::Global) {
