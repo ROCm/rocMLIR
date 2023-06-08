@@ -1691,26 +1691,46 @@ LogicalResult BlockwiseReduceOp::verify() {
   int64_t blockSize = getBlockSize();
   int64_t gridSize = getGridSize();
 
-  if (getInput()
+  gpu::AddressSpaceAttr inMemSpaceAttr =
+      getInput()
           .getType()
           .getMemorySpace()
-          .cast<gpu::AddressSpaceAttr>()
-          .getValue() != gpu::AddressSpace::Private) {
-    return emitError("input should be in regs.");
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!inMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in input memref; the input "
+                     "memref should be in regs");
+  } else {
+    if (inMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitError("input should be in regs.");
+    }
   }
-  if (getOutput()
+
+  gpu::AddressSpaceAttr outMemSpaceAttr =
+      getOutput()
           .getType()
           .getMemorySpace()
-          .cast<gpu::AddressSpaceAttr>()
-          .getValue() != gpu::AddressSpace::Private) {
-    return emitError("output should be in regs.");
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!outMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in output memref; the output "
+                     "memref should be in regs");
+  } else {
+    if (outMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitError("output should be in regs.");
+    }
   }
-  if (getWorkspaceBuffer()
+
+  gpu::AddressSpaceAttr wsMemSpaceAttr =
+      getWorkspaceBuffer()
           .getType()
           .getMemorySpace()
-          .cast<gpu::AddressSpaceAttr>()
-          .getValue() != gpu::AddressSpace::Workgroup) {
-    return emitError("workspace should be in LDS.");
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!wsMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in workspace memref; the "
+                     "workspace memref should be in LDS");
+  } else {
+    if (wsMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup) {
+      return emitError("workspace should be in LDS.");
+    }
   }
 
   if (inputTensorShape[0] != gridSize) {
