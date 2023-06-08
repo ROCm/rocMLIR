@@ -255,9 +255,10 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
     return failure();
 
-  constexpr size_t NUM_SUPPORTED_CHIPS = 5;
+  constexpr size_t NUM_SUPPORTED_CHIPS = 12;
   static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906, 0x908, 0x90a, 0x1030};
+      0x900, 0x906,  0x908,  0x90a,  0x940,  0x941,
+      0x942, 0x1030, 0x1100, 0x1101, 0x1102, 0x1103};
   const unsigned int *ptr;
   ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
                   chipHexNumber);
@@ -267,6 +268,11 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
   if (bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
       (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
+    return failure();
+
+  // WMMA is only supported on gfx11xx
+  if (bitEnumContainsAll(config.features, GemmFeatures::wmma) &&
+      (chipHexNumber > 0x1103))
     return failure();
   return success();
 }
@@ -297,13 +303,13 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  if (bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
-    Type dataType = getDataType(builder);
+  if (isAccel(config.features)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
     }
     if (!needExtraPad) {
+      Type dataType = getDataType(builder);
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -388,9 +394,23 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCu=*/static_cast<uint32_t>(config.num_cu)};
 
-  if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
+  if (isAccel(config.features)) {
+    auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
+    InitParamsAccel validParams;
+    uint32_t blockSize;
+    uint32_t gridSize;
+    int64_t gemmKBlocks;
+    auto res = populateParamsAccelPtr->obtainTuningParameters(
+        info, 0, config.perfConfig, validParams, blockSize, gridSize,
+        gemmKBlocks);
+    if (succeeded(res)) {
+      needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
+                          validParams, gemmSize) != 0);
+      return success();
+    }
+  } else {
     PopulateParams populateParams;
-    InitParamsNonXDL validParams;
+    InitParamsNonAccel validParams;
     uint32_t gridSize;
     auto res = populateParams.obtainTuningParameters(info, 0, config.perfConfig,
                                                      validParams, gridSize);
@@ -398,21 +418,6 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
     if (succeeded(res)) {
       needExtraPad =
           (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
-      return success();
-    }
-
-  } else {
-    PopulateParamsXDL populateParamsXDL;
-    InitParamsXDL validParams;
-    uint32_t blockSize;
-    uint32_t gridSize;
-    int64_t gemmKBlocks;
-    auto res = populateParamsXDL.obtainTuningParameters(
-        info, 0, config.perfConfig, validParams, blockSize, gridSize,
-        gemmKBlocks);
-    if (succeeded(res)) {
-      needExtraPad = (populateParamsXDL.calculatePaddingAmount(validParams,
-                                                               gemmSize) != 0);
       return success();
     }
   }
@@ -427,12 +432,12 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
   // - operation: backward weight conv2d.
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
+
   needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) &&
-        bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
+    if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -467,7 +472,8 @@ LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
   return success();
 }
 
-LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
+LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
+                                               const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
@@ -538,14 +544,9 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   config.chip = splitter.getChip().str();
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
-  AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.defaultFeatures;
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  int hasXdlops = 0;
-  strToInt("x2", hasXdlops);
-  config.features = bitEnumSet(config.features, GemmFeatures::mfma, hasXdlops);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -575,6 +576,18 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_w", config.paddingWidthRight);
 
   strToStr("kernel_name", config.kernelBaseName);
+
+  // Get the default features associated with the chip (and with the data type)
+  AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
+  config.features = archInfo.getDefaultFeatures(getDataType(builder));
+
+  // Force acceleration if that's what the client wants
+  int hasAccel = 0;
+  strToInt("x2", hasAccel);
+  config.features =
+      bitEnumSet(config.features, GemmFeatures::mfma, hasAccel == 1);
+  config.features =
+      bitEnumSet(config.features, GemmFeatures::wmma, hasAccel == 2);
 
   // Allow only fwd direction for int8. Reject other directions.
   if (config.operation.value() != ConvOpType::Fwd &&
@@ -677,8 +690,9 @@ void Conv2dGenerator::setDataType(std::string newType) {
   config.dataTypeStr = newType;
 }
 
-void Conv2dGenerator::flipXdlops() {
-  config.features = config.features ^ GemmFeatures::mfma;
+void Conv2dGenerator::flipAccel() {
+  config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+  config.features = bitEnumClear(config.features, GemmFeatures::wmma);
 }
 
 void Conv2dGenerator::setPerfConfig(StringRef perfConfig) {

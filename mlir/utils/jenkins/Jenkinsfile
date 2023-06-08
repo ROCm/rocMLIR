@@ -56,7 +56,7 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     // TODO: https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/889
     // git branch: params.MIGraphXBranch, poll: false,\
     //     url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
-    checkout([$class: 'GitSCM', branches: [[name: '0e6ee3f7ff7880e9e65b84fbceed8686e426bc8a' ]],
+    checkout([$class: 'GitSCM', branches: [[name: 'mlir-fix-dot-format' ]],
               userRemoteConfigs: [[url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git']]])
     buildMIGraphX(cmakeOpts)
 }
@@ -239,10 +239,10 @@ void tuneMLIRKernels() {
     dir('MIOpen/build/') {
         sh """
             bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/important-conv-configs"""
         sh """
             bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/important-conv-configs"""
         sh 'ls -l MIOpenUserDB'
     }
 }
@@ -595,16 +595,13 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("rocMLIR Tuning") {
+                    stage("Tune Gemm") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
-                                // Tune convs and gemms, fail if the DB is not created
+                                // Tune gemms, fail if the DB is not created
                                 sh """python3 ./bin/tuningRunner.py --operation gemm \
                                         --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv
-                                      python3 ./bin/tuningRunner.py --operation conv \
-                                        --configs_file=../mlir/utils/performance/conv-configs \
                                         --output=mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                             }
@@ -842,7 +839,8 @@ pipeline {
                             sh 'rm build/CMakeCache.txt'
                             buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
                                          ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang''')
+                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                            -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
                         }
                     }
                     stage("Copy earlier performance results") {
@@ -855,18 +853,22 @@ pipeline {
                                 target: 'build/oldData'
                         }
                     }
-                    stage("Test MLIR vs MIOpen") {
+                    stage("Test MLIR vs MIOpen/rocBLAS") {
                         steps {
                             dir('build') {
                                 sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                // Run MLIR perf benchmarks
+                                // Run MLIR perf benchmarks.  This run's output is combined with
+                                // that of the "Tuned vs Untuned" stage above by the script
+                                // createPerformanceReports.py in the "Create performance reports"
+                                // stage below.  It uses the important conv configs, from resnet50
+                                // and unet.
                                 sh 'python3 ./bin/perfRunner.py'
+
+                                // This run's output is used in the "Create performance reports"
+                                // stage below by the createGemmPerformanceReports.py script.
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
                                        --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
-                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-					--configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
-					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
                     }
@@ -905,7 +907,8 @@ pipeline {
                                 buildProject("ck-benchmark-driver",
                                              '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang''')
+                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                -DROCMLIR_ENABLE_BENCHMARKS=ck''')
 
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \

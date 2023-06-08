@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
+#include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
@@ -174,10 +175,13 @@ void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
   // lowering ROCDL (LLVM) to binary
   /* rocmlir-opt --strip-debuginfo
+   *   "--amdgpu-emulate-atomics=chipset=$chip"
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
   pm.addPass(createStripDebugInfoPass());
+  pm.addNestedPass<gpu::GPUFuncOp>(
+      amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,

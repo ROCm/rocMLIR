@@ -39,6 +39,7 @@ except KeyError:
 config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
+config.arch_support_wmma = False
 if config.rocm_path:
     try:
         p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
@@ -54,6 +55,8 @@ if config.rocm_path:
         for x in agents:
             if "gfx908" in x or "gfx90a" in x:
                 config.arch_support_mfma = True
+            elif "gfx11" in x:
+                config.arch_support_wmma = True
             # Check other features here
         if not config.arch:
             config.no_AMD_GPU = True

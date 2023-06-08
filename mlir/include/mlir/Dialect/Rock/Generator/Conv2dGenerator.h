@@ -87,7 +87,7 @@ public:
 
   Type getOutputDataType(OpBuilder &builder) const;
 
-  void flipXdlops();
+  void flipAccel();
 
   void setPerfConfig(StringRef perfConfig);
 
@@ -102,7 +102,7 @@ public:
            1;
   }
 
-  LogicalResult parseConvConfig(const char *arguments);
+  LogicalResult parseConvConfig(OpBuilder &builder, const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
                               int64_t inputChannel, int64_t inputHeight,

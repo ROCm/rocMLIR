@@ -22,7 +22,7 @@ static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
-                  GemmFeatures::atomic_fmax_f32,
+                  GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
@@ -39,7 +39,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("08", "0a", "40", cdnaInfo)
+        .Cases("08", "0a", "40", "41", "42", cdnaInfo)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64))
         .Default(gcnInfo);
@@ -59,4 +59,21 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
                << arch << "\n";
   return gcnInfo;
+}
+
+GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
+  GemmFeatures theseFeatures = defaultFeatures;
+  bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
+  if (isWmma) {
+    Type elementType = dataType;
+    if (auto vectorType = dataType.dyn_cast<VectorType>())
+      elementType = vectorType.getElementType();
+    else if (auto memrefType = dataType.dyn_cast<MemRefType>())
+      elementType = memrefType.getElementType();
+    if (!elementType.isF16() && !elementType.isBF16() &&
+        !elementType.isInteger(8)) {
+      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
+    }
+  }
+  return theseFeatures;
 }

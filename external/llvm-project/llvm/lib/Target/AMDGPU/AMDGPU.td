@@ -18,10 +18,6 @@ def p4 : PtrValueType<i64, 4>;
 def p5 : PtrValueType<i32, 5>;
 def p6 : PtrValueType<i32, 6>;
 
-class BoolToList<bit Value> {
-  list<int> ret = !if(Value, [1]<int>, []<int>);
-}
-
 //===------------------------------------------------------------===//
 // Subtarget Features (device properties)
 //===------------------------------------------------------------===//
@@ -536,8 +532,8 @@ def FeatureDLInsts : SubtargetFeature<"dl-insts",
   "Has v_fmac_f32 and v_xnor_b32 instructions"
 >;
 
-def FeatureVFmacF64Inst : SubtargetFeature<"vfmacf64-inst",
-  "HasVFmacF64Inst",
+def FeatureFmacF64Inst : SubtargetFeature<"fmacf64-inst",
+  "HasFmacF64Inst",
   "true",
   "Has v_fmac_f64 instruction"
 >;
@@ -581,14 +577,25 @@ def FeatureDot6Insts : SubtargetFeature<"dot6-insts",
 def FeatureDot7Insts : SubtargetFeature<"dot7-insts",
   "HasDot7Insts",
   "true",
-  "Has v_dot2_f32_f16, v_dot4_u32_u8, v_dot8_u32_u4 instructions"
+  "Has v_dot4_u32_u8, v_dot8_u32_u4 instructions"
 >;
 
 def FeatureDot8Insts : SubtargetFeature<"dot8-insts",
   "HasDot8Insts",
   "true",
-  "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16, "
-  "v_dot4_i32_iu8, v_dot8_i32_iu4 instructions"
+  "Has v_dot4_i32_iu8, v_dot8_i32_iu4 instructions"
+>;
+
+def FeatureDot9Insts : SubtargetFeature<"dot9-insts",
+  "HasDot9Insts",
+  "true",
+  "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16 instructions"
+>;
+
+def FeatureDot10Insts : SubtargetFeature<"dot10-insts",
+  "HasDot10Insts",
+  "true",
+  "Has v_dot2_f32_f16 instruction"
 >;
 
 def FeatureMAIInsts : SubtargetFeature<"mai-insts",
@@ -609,6 +616,19 @@ def FeaturePkFmacF16Inst : SubtargetFeature<"pk-fmac-f16-inst",
   "Has v_pk_fmac_f16 instruction"
 >;
 
+def FeatureAtomicDsPkAdd16Insts : SubtargetFeature<"atomic-ds-pk-add-16-insts",
+  "HasAtomicDsPkAdd16Insts",
+  "true",
+  "Has ds_pk_add_bf16, ds_pk_add_f16, ds_pk_add_rtn_bf16, "
+  "ds_pk_add_rtn_f16 instructions"
+>;
+
+def FeatureAtomicFlatPkAdd16Insts : SubtargetFeature<"atomic-flat-pk-add-16-insts",
+  "HasAtomicFlatPkAdd16Insts",
+  "true",
+  "Has flat_atomic_pk_add_f16 and flat_atomic_pk_add_bf16 instructions"
+>;
+
 def FeatureAtomicFaddRtnInsts : SubtargetFeature<"atomic-fadd-rtn-insts",
   "HasAtomicFaddRtnInsts",
   "true",
@@ -625,13 +645,28 @@ def FeatureAtomicFaddNoRtnInsts : SubtargetFeature<"atomic-fadd-no-rtn-insts",
   [FeatureFlatGlobalInsts]
 >;
 
-def FeatureAtomicPkFaddNoRtnInsts
-  : SubtargetFeature<"atomic-pk-fadd-no-rtn-insts",
-  "HasAtomicPkFaddNoRtnInsts",
+def FeatureAtomicBufferGlobalPkAddF16NoRtnInsts
+  : SubtargetFeature<"atomic-buffer-global-pk-add-f16-no-rtn-insts",
+  "HasAtomicBufferGlobalPkAddF16NoRtnInsts",
   "true",
   "Has buffer_atomic_pk_add_f16 and global_atomic_pk_add_f16 instructions that "
   "don't return original value",
   [FeatureFlatGlobalInsts]
+>;
+
+def FeatureAtomicBufferGlobalPkAddF16Insts : SubtargetFeature<"atomic-buffer-global-pk-add-f16-insts",
+ "HasAtomicBufferGlobalPkAddF16Insts",
+ "true",
+ "Has buffer_atomic_pk_add_f16 and global_atomic_pk_add_f16 instructions that "
+ "can return original value",
+ [FeatureFlatGlobalInsts]
+>;
+
+def FeatureAtomicGlobalPkAddBF16Inst : SubtargetFeature<"atomic-global-pk-add-bf16-inst",
+ "HasAtomicGlobalPkAddBF16Inst",
+ "true",
+ "Has global_atomic_pk_add_bf16 instruction",
+ [FeatureFlatGlobalInsts]
 >;
 
 def FeatureFlatAtomicFaddF32Inst
@@ -733,6 +768,12 @@ def FeatureVALUTransUseHazard : SubtargetFeature<"valu-trans-use-hazard",
   "HasVALUTransUseHazard",
   "true",
   "Hazard when TRANS instructions are closely followed by a use of the result"
+>;
+
+def FeatureForceStoreSC0SC1 : SubtargetFeature<"force-store-sc0-sc1",
+  "HasForceStoreSC0SC1",
+  "true",
+  "Has SC0 and SC1 on stores"
 >;
 
 //===------------------------------------------------------------===//
@@ -1076,6 +1117,7 @@ def FeatureISAVersion9_0_6 : FeatureSet<
    FeatureDot1Insts,
    FeatureDot2Insts,
    FeatureDot7Insts,
+   FeatureDot10Insts,
    FeatureSupportsSRAMECC,
    FeatureImageGather4D16Bug]>;
 
@@ -1096,10 +1138,11 @@ def FeatureISAVersion9_0_8 : FeatureSet<
    FeatureDot5Insts,
    FeatureDot6Insts,
    FeatureDot7Insts,
+   FeatureDot10Insts,
    FeatureMAIInsts,
    FeaturePkFmacF16Inst,
    FeatureAtomicFaddNoRtnInsts,
-   FeatureAtomicPkFaddNoRtnInsts,
+   FeatureAtomicBufferGlobalPkAddF16NoRtnInsts,
    FeatureSupportsSRAMECC,
    FeatureMFMAInlineLiteralBug,
    FeatureImageGather4D16Bug]>;
@@ -1120,7 +1163,7 @@ def FeatureISAVersion9_0_A : FeatureSet<
    FeatureFmaMixInsts,
    FeatureLDSBankCount32,
    FeatureDLInsts,
-   FeatureVFmacF64Inst,
+   FeatureFmacF64Inst,
    FeatureDot1Insts,
    FeatureDot2Insts,
    FeatureDot3Insts,
@@ -1128,13 +1171,14 @@ def FeatureISAVersion9_0_A : FeatureSet<
    FeatureDot5Insts,
    FeatureDot6Insts,
    FeatureDot7Insts,
+   FeatureDot10Insts,
    Feature64BitDPP,
    FeaturePackedFP32Ops,
    FeatureMAIInsts,
    FeaturePkFmacF16Inst,
    FeatureAtomicFaddRtnInsts,
    FeatureAtomicFaddNoRtnInsts,
-   FeatureAtomicPkFaddNoRtnInsts,
+   FeatureAtomicBufferGlobalPkAddF16Insts,
    FeatureImageInsts,
    FeatureMadMacF32Insts,
    FeatureSupportsSRAMECC,
@@ -1152,14 +1196,14 @@ def FeatureISAVersion9_0_C : FeatureSet<
    FeatureMadMacF32Insts,
    FeatureImageGather4D16Bug]>;
 
-def FeatureISAVersion9_4_0 : FeatureSet<
+def FeatureISAVersion9_4_Common : FeatureSet<
   [FeatureGFX9,
    FeatureGFX90AInsts,
    FeatureGFX940Insts,
    FeatureFmaMixInsts,
    FeatureLDSBankCount32,
    FeatureDLInsts,
-   FeatureVFmacF64Inst,
+   FeatureFmacF64Inst,
    FeatureDot1Insts,
    FeatureDot2Insts,
    FeatureDot3Insts,
@@ -1167,6 +1211,9 @@ def FeatureISAVersion9_4_0 : FeatureSet<
    FeatureDot5Insts,
    FeatureDot6Insts,
    FeatureDot7Insts,
+   FeatureDot10Insts,
+   FeatureAtomicDsPkAdd16Insts,
+   FeatureAtomicFlatPkAdd16Insts,
    Feature64BitDPP,
    FeaturePackedFP32Ops,
    FeatureMAIInsts,
@@ -1174,13 +1221,26 @@ def FeatureISAVersion9_4_0 : FeatureSet<
    FeaturePkFmacF16Inst,
    FeatureAtomicFaddRtnInsts,
    FeatureAtomicFaddNoRtnInsts,
-   FeatureAtomicPkFaddNoRtnInsts,
+   FeatureAtomicBufferGlobalPkAddF16Insts,
+   FeatureAtomicGlobalPkAddBF16Inst,
    FeatureFlatAtomicFaddF32Inst,
    FeatureSupportsSRAMECC,
    FeaturePackedTID,
    FeatureArchitectedFlatScratch,
    FullRate64Ops,
    FeatureBackOffBarrier]>;
+
+def FeatureISAVersion9_4_0 : FeatureSet<
+  !listconcat(FeatureISAVersion9_4_Common.Features,
+    [FeatureForceStoreSC0SC1])>;
+
+def FeatureISAVersion9_4_1 : FeatureSet<
+  !listconcat(FeatureISAVersion9_4_Common.Features,
+    [FeatureForceStoreSC0SC1])>;
+
+def FeatureISAVersion9_4_2 : FeatureSet<
+  !listconcat(FeatureISAVersion9_4_Common.Features,
+    [])>;
 
 // TODO: Organize more features into groups.
 def FeatureGroup {
@@ -1228,6 +1288,7 @@ def FeatureISAVersion10_1_1 : FeatureSet<
      FeatureDot5Insts,
      FeatureDot6Insts,
      FeatureDot7Insts,
+     FeatureDot10Insts,
      FeatureNSAEncoding,
      FeatureNSAMaxSize5,
      FeatureWavefrontSize32,
@@ -1251,6 +1312,7 @@ def FeatureISAVersion10_1_2 : FeatureSet<
      FeatureDot5Insts,
      FeatureDot6Insts,
      FeatureDot7Insts,
+     FeatureDot10Insts,
      FeatureNSAEncoding,
      FeatureNSAMaxSize5,
      FeatureWavefrontSize32,
@@ -1295,6 +1357,7 @@ def FeatureISAVersion10_3_0 : FeatureSet<
    FeatureDot5Insts,
    FeatureDot6Insts,
    FeatureDot7Insts,
+   FeatureDot10Insts,
    FeatureNSAEncoding,
    FeatureNSAMaxSize13,
    FeatureWavefrontSize32,
@@ -1308,6 +1371,8 @@ def FeatureISAVersion11_Common : FeatureSet<
    FeatureDot5Insts,
    FeatureDot7Insts,
    FeatureDot8Insts,
+   FeatureDot9Insts,
+   FeatureDot10Insts,
    FeatureNSAEncoding,
    FeatureNSAMaxSize5,
    FeatureWavefrontSize32,
@@ -1730,8 +1795,8 @@ def HasFmaMixInsts : Predicate<"Subtarget->hasFmaMixInsts()">,
 def HasDLInsts : Predicate<"Subtarget->hasDLInsts()">,
   AssemblerPredicate<(all_of FeatureDLInsts)>;
 
-def HasVFmacF64Inst : Predicate<"Subtarget->hasVFmacF64Inst()">,
-  AssemblerPredicate<(all_of FeatureVFmacF64Inst)>;
+def HasFmacF64Inst : Predicate<"Subtarget->hasFmacF64Inst()">,
+  AssemblerPredicate<(all_of FeatureFmacF64Inst)>;
 
 def HasDot1Insts : Predicate<"Subtarget->hasDot1Insts()">,
   AssemblerPredicate<(all_of FeatureDot1Insts)>;
@@ -1756,6 +1821,12 @@ def HasDot7Insts : Predicate<"Subtarget->hasDot7Insts()">,
 
 def HasDot8Insts : Predicate<"Subtarget->hasDot8Insts()">,
   AssemblerPredicate<(all_of FeatureDot8Insts)>;
+
+def HasDot9Insts : Predicate<"Subtarget->hasDot9Insts()">,
+  AssemblerPredicate<(all_of FeatureDot9Insts)>;
+
+def HasDot10Insts : Predicate<"Subtarget->hasDot10Insts()">,
+  AssemblerPredicate<(all_of FeatureDot10Insts)>;
 
 def HasGetWaveIdInst : Predicate<"Subtarget->hasGetWaveIdInst()">,
   AssemblerPredicate<(all_of FeatureGetWaveIdInst)>;
@@ -1784,13 +1855,25 @@ def HasMadMacF32Insts : Predicate<"Subtarget->hasMadMacF32Insts()">,
 def HasFmaLegacy32 : Predicate<"Subtarget->hasGFX10_3Insts()">,
   AssemblerPredicate<(any_of FeatureGFX10_3Insts)>;
 
+def HasAtomicDsPkAdd16Insts : Predicate<"Subtarget->hasAtomicDsPkAdd16Insts()">,
+  AssemblerPredicate<(any_of FeatureAtomicDsPkAdd16Insts)>;
+
+def HasAtomicFlatPkAdd16Insts : Predicate<"Subtarget->hasAtomicFlatPkAdd16Insts()">,
+  AssemblerPredicate<(any_of FeatureAtomicFlatPkAdd16Insts)>;
+
 def HasAtomicFaddRtnInsts : Predicate<"Subtarget->hasAtomicFaddRtnInsts()">,
   AssemblerPredicate<(all_of FeatureAtomicFaddRtnInsts)>;
 def HasAtomicFaddNoRtnInsts : Predicate<"Subtarget->hasAtomicFaddNoRtnInsts()">,
   AssemblerPredicate<(all_of FeatureAtomicFaddNoRtnInsts)>;
-def HasAtomicPkFaddNoRtnInsts
-  : Predicate<"Subtarget->hasAtomicPkFaddNoRtnInsts()">,
-  AssemblerPredicate<(all_of FeatureAtomicPkFaddNoRtnInsts)>;
+def HasAtomicBufferGlobalPkAddF16NoRtnInsts
+  : Predicate<"Subtarget->hasAtomicBufferGlobalPkAddF16NoRtnInsts() || Subtarget->hasAtomicBufferGlobalPkAddF16Insts()">,
+  AssemblerPredicate<(any_of FeatureAtomicBufferGlobalPkAddF16NoRtnInsts, FeatureAtomicBufferGlobalPkAddF16Insts)>;
+def HasAtomicBufferGlobalPkAddF16Insts
+  : Predicate<"Subtarget->hasAtomicBufferGlobalPkAddF16Insts()">,
+  AssemblerPredicate<(all_of FeatureAtomicBufferGlobalPkAddF16Insts)>;
+def HasAtomicGlobalPkAddBF16Inst
+  : Predicate<"Subtarget->hasAtomicGlobalPkAddBF16Inst()">,
+  AssemblerPredicate<(all_of FeatureAtomicGlobalPkAddBF16Inst)>;
 def HasFlatAtomicFaddF32Inst
   : Predicate<"Subtarget->hasFlatAtomicFaddF32Inst()">,
   AssemblerPredicate<(all_of FeatureFlatAtomicFaddF32Inst)>;

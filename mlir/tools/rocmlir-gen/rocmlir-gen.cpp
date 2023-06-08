@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
@@ -1588,10 +1589,8 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
   // reduce precision if !xdlops
-  bool hasXdlops =
-      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::mfma);
-  auto xdlopsConstantOp =
-      b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
+  bool hasAccel = rock::isAccel(genConfig.features);
+  auto accelConstantOp = b.create<arith::ConstantIntOp>(loc, hasAccel, intType);
 
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
@@ -1681,7 +1680,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
                  strideWidthConstantOp, paddingHeightLeftConstantOp,
                  paddingHeightRightConstantOp, paddingWidthLeftConstantOp,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
-                 dilationWidthConstantOp, xdlopsConstantOp});
+                 dilationWidthConstantOp, accelConstantOp});
 
   // Emit return op
   b.create<func::ReturnOp>(loc, ValueRange{});
@@ -2322,27 +2321,25 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
-  bool hasXdlops =
-      rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
+  bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
-      ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
+      ((hasAccel || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
        heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
       const auto &genConfig = **genParams.convConfig;
       rock::Conv2dGenerator conv2dGenerator(genConfig);
-      if (heuristicValidation || hasXdlops)
+      if (heuristicValidation || hasAccel)
         conv2dGenerator.setPerfConfig("");
-      // use non-xdlops kernels to verify xdlops kernels except when
+      // use non-accel kernels to verify accel kernels except when
       // verifying a tuning case
-      if (hasXdlops)
-        conv2dGenerator.flipXdlops();
-      if (!((hasXdlops || heuristicValidation) &&
-            genConfig.dataTypeStr == "i8"))
+      if (hasAccel)
+        conv2dGenerator.flipAccel();
+      if (!((hasAccel || heuristicValidation) && genConfig.dataTypeStr == "i8"))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdlops or tuned is verified with i8 non-xdlops.
         conv2dGenerator.setDataType("f32");
@@ -2395,13 +2392,14 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     } else { // gemm GPU validation
       GenParams newParams = genParams;
 
-      if (heuristicValidation || hasXdlops)
+      if (heuristicValidation || hasAccel)
         newParams.perfConfig = "";
-      if (hasXdlops)
-        newParams.features =
-            genParams.features ^ mlir::rock::GemmFeatures::mfma;
+      if (hasAccel)
+        newParams.features = bitEnumClear(genParams.features,
+                                          mlir::rock::GemmFeatures::mfma |
+                                              mlir::rock::GemmFeatures::wmma);
 
-      if (!((heuristicValidation || hasXdlops) && genParams.dtype.isInteger(8)))
+      if (!((heuristicValidation || hasAccel) && genParams.dtype.isInteger(8)))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdops is verified with i8 non-xdolps and tuned i8 is
         // verified with itself in heuristic mode.
@@ -2490,13 +2488,12 @@ static LogicalResult populateHostHarnessLogic(
   bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   bool hasCloneValidation = hasValidation && (validationType == "clone");
-  bool hasXdlops =
-      rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
+  bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool gpuValidation =
       validationType == "gpu" &&
-      ((hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
+      ((hasAccel || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
        heuristicValidation);
 
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
@@ -2562,7 +2559,7 @@ static LogicalResult populateHostHarnessLogic(
       if (genParams.operation.has_value() && genParams.dtype.isInteger(8)) {
         valElemType = elemType;
         if (!gpuValidation && idx == 2)
-          //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-xdlops
+          //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-accel
           // validate in int64_t to detect overflow
           valElemType = b.getIntegerType(64);
       } else if ((genValidation == "clone") || elemType.isInteger(8) ||
@@ -2745,7 +2742,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
   // Scenario 1: We use conv config to initialize everything
   if (!convConfig.empty()) {
-    if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
+    if (failed(conv2dGenerator.parseConvConfig(builder, convConfig.c_str()))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
@@ -2778,8 +2775,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
     LogicalResult status = success();
 
+    Type elemType = typeFromString(tensorDataType, context);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+    rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
     if (mfmaFeature != FeatureToggle::infer)
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
@@ -2795,6 +2793,11 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       enabledFeatures =
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
+
+    if (wmmaFeature != FeatureToggle::infer)
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
+                                   wmmaFeature == FeatureToggle::on);
+
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;

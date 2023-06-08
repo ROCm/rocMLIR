@@ -9,39 +9,33 @@ import sys
 
 #Create html reports from .csv files
 def printAllPerformance(chip):
-    perfReportFound = False
-    tunedReportFound = False
-    untunedReportFound = False
+    def readReport(file, kind):
+        try:
+            return pd.read_csv(chip + '_' + file)
+        except FileNotFoundError:
+            print(f'${kind} report not found.')
+            return None
 
-    try:
-        df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_FILE)
-        perfReportFound = True
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen']
-    except FileNotFoundError:
-        print('Perf report not found.')
+    COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen']
+
+    df = readReport(reportUtils.PERF_REPORT_FILE, 'Perf')
+    if df.empty:
         return
-
-    try:
-        tuned_df = pd.read_csv(chip + '_' + reportUtils.MIOPEN_TUNED_REPORT_FILE)
-        tunedReportFound = True
-    except FileNotFoundError:
-        print('MIOpen with turned MLIR report not found.')
-
-    try:
-        untuned_df = pd.read_csv(chip + '_' + reportUtils.MIOPEN_UNTUNED_REPORT_FILE)
-        untunedReportFound = True
-    except FileNotFoundError:
-        print('MIOpen with untuned MLIR report not found.')
+    tuned_df = readReport(reportUtils.MIOPEN_TUNED_REPORT_FILE,
+                          'MIOpen with tuned MLIR')
+    untuned_df = readReport(reportUtils.MIOPEN_UNTUNED_REPORT_FILE,
+                            'MIOpen with untuned MLIR')
 
     # Add tuned and untuned performance to the existing performance table
-    if tunedReportFound == True and untunedReportFound == True :
+    if not tuned_df.empty and not untuned_df.empty:
         df['MIOpen TFlops (Tuned MLIR Kernels)'] = tuned_df['TFlops']
         df['MIOpen TFlops (Untuned MLIR Kernels)'] = untuned_df['TFlops']
         df['Tuned/Untuned'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (Untuned MLIR Kernels)']
         df['Tuned/MIOpen'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (no MLIR Kernels)']
         df.to_csv(chip + '_' + reportUtils.PERF_REPORT_FILE, index=False)
         COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen',
-                              'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
+                              'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)',
+                              'Tuned/Untuned', 'Tuned/MIOpen']
 
     plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
