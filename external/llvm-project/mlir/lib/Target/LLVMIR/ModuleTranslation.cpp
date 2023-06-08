@@ -315,6 +315,12 @@ llvm::Constant *mlir::LLVM::detail::getLLVMConstant(
         llvmType,
         intAttr.getValue().sextOrTrunc(llvmType->getIntegerBitWidth()));
   if (auto floatAttr = attr.dyn_cast<FloatAttr>()) {
+    const llvm::fltSemantics &sem = floatAttr.getValue().getSemantics();
+    // Special case for 8-bit floats, which are represented by integers due to
+    // the lack of native fp8 types in LLVM at the moment.
+    if (APFloat::getSizeInBits(sem) == 8 && llvmType->isIntegerTy(8))
+      return llvm::ConstantInt::get(llvmType,
+                                    floatAttr.getValue().bitcastToAPInt());
     if (llvmType !=
         llvm::Type::getFloatingPointTy(llvmType->getContext(),
                                        floatAttr.getValue().getSemantics())) {
