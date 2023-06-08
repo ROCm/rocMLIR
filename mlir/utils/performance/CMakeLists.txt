@@ -1,6 +1,10 @@
 add_subdirectory(common)
-add_subdirectory(rocblas-benchmark-driver)
-add_subdirectory(ck-benchmark-driver)
+if("rocblas" IN_LIST ROCMLIR_ENABLE_BENCHMARKS)
+  add_subdirectory(rocblas-benchmark-driver)
+endif()
+if("ck" IN_LIST ROCMLIR_ENABLE_BENCHMARKS)
+  add_subdirectory(ck-benchmark-driver)
+endif()
 
 set(PERFORMANCE_SCRIPTS
   convertRocBlasToPerfRunner.py

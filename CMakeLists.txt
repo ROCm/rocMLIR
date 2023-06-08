@@ -30,10 +30,15 @@ set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using 
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
 set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
+set(ROCMLIR_ENABLE_BENCHMARKS "" CACHE STRING "List of enabled benchmarks")
 
 set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
+
+if( ROCMLIR_ENABLE_BENCHMARKS STREQUAL "all" )
+  set(ROCMLIR_ENABLE_BENCHMARKS "ck;rocblas")
+endif()
 
 # BUILD_MIXR_TARGET is deprecated but still available
 if(BUILD_MIXR_TARGET)

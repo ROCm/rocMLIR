@@ -4,7 +4,6 @@ if(NOT rocblas_FOUND)
 endif()
 
 if (rocblas_FOUND)
-
   set(LIBS ${rocblas_LIBRARY} benchmark-driver-utils)
 
   set(EXCLUDE_FROM_ALL TRUE)
@@ -17,5 +16,4 @@ if (rocblas_FOUND)
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
-
 endif()
