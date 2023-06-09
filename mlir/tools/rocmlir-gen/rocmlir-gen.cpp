@@ -50,6 +50,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -335,18 +336,74 @@ static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
                                 "remove atomic_add from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
-// data type
 static llvm::cl::opt<std::string>
-    tensorDataType("t", llvm::cl::desc("Data type for convolution"),
-                   llvm::cl::value_desc("Data type for convolution"),
+    filterDataType("fil_dtype",
+                   llvm::cl::desc("Data type for filter tensor or matrix A"),
                    llvm::cl::init("f32"));
+static llvm::cl::alias filTypeAliasA("a_dtype",
+                                     llvm::cl::aliasopt(filterDataType));
+static llvm::cl::alias filTypeAliasShortF("tf",
+                                          llvm::cl::aliasopt(filterDataType));
+static llvm::cl::alias filTypeAliasShortA("ta",
+                                          llvm::cl::aliasopt(filterDataType));
 
-// output data type
 static llvm::cl::opt<std::string>
-    outputDataType("out_datatype",
-                   llvm::cl::desc("Output data type for convolution"),
-                   llvm::cl::value_desc("Output data type for convolution"),
+    inputDataType("in_dtype",
+                  llvm::cl::desc("Data type for input tensor or matrix B"),
+                  llvm::cl::init("f32"));
+static llvm::cl::alias inTypeAliasB("b_dtype",
+                                    llvm::cl::aliasopt(inputDataType));
+static llvm::cl::alias inTypeAliasShortI("ti",
+                                         llvm::cl::aliasopt(inputDataType));
+static llvm::cl::alias inTypeAliasShortB("tb",
+                                         llvm::cl::aliasopt(inputDataType));
+
+// Note that this is defaulted to blank so we can implement `-t` easily
+// and know if we should use default i8 input -> i32 output behavior.
+static llvm::cl::opt<std::string>
+    outputDataType("out_dtype",
+                   llvm::cl::desc("Data type for output tensor or matrix C"),
                    llvm::cl::init(""));
+static llvm::cl::alias outTypeAliasC("c_dtype",
+                                     llvm::cl::aliasopt(outputDataType));
+static llvm::cl::alias outTypeAliasLongOut("out_datatype",
+                                           llvm::cl::aliasopt(outputDataType));
+static llvm::cl::alias outTypeAliasShortO("to",
+                                          llvm::cl::aliasopt(outputDataType));
+static llvm::cl::alias outTypeAliasShortC("tc",
+                                          llvm::cl::aliasopt(outputDataType));
+
+// Convenience setter for when you need all the data types the same or when you
+// want the default (32-bit output) behavior for i8 or 8-bit floats. Also allows
+// [a]_[b] syntax for mixed-type operations.
+static llvm::cl::opt<std::string> dataTypeAlias(
+    "t",
+    llvm::cl::desc("Data type selector. Extends i8 to i32 output and 8-bit "
+                   "floats to f32 output"),
+    llvm::cl::value_desc("Type or Type_Type for mixed-type kernels."),
+    llvm::cl::cb<void, std::string>([](std::string v) {
+      StringRef val(v);
+      if (val.contains("_")) {
+        StringRef filter, input;
+        std::tie(filter, input) = val.split("_");
+        filterDataType = filter.str();
+        inputDataType = input.str();
+      } else {
+        filterDataType = v;
+        inputDataType = v;
+      }
+
+      if (outputDataType.getNumOccurrences() == 0 || outputDataType.empty()) {
+        if (val == "i8")
+          outputDataType = "i32";
+        else if (val.starts_with("f8") || val.starts_with("fp8") ||
+                 val.starts_with("bf8"))
+          outputDataType = "f32";
+        else
+          outputDataType = v;
+      }
+    }));
+llvm::cl::alias dataTypeAliasLong("dtype", llvm::cl::aliasopt(dataTypeAlias));
 
 // conv-config
 static llvm::cl::opt<std::string> populateConvConfig(
@@ -604,8 +661,7 @@ struct KernelIF {
 
 struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
-  Type dtype = nullptr;
-  Type outDType = nullptr;
+  SmallVector<Type, 3> types;
   rock::GemmFeatures features = rock::GemmFeatures::none;
   std::optional<const rock::Conv2dGenerator::Config *> convConfig =
       std::nullopt;
@@ -737,6 +793,9 @@ static void verifyConvLayout() {
 
 static void populateDefaults() {
   bool isGemm = operation == rock::KernelType::Gemm;
+  // Default f32 if we passed no `-t` arguments at all.
+  if (outputDataType.empty())
+    outputDataType = "f32";
   if (populateDefaultValues) {
     if (isGemm) {
       gemmM = 1024;
@@ -965,12 +1024,16 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
-  std::optional<Type> result = llvm::StringSwitch<std::optional<Type>>(name)
-                                   .Case("f32", Float32Type::get(ctx))
-                                   .Case("f16", Float16Type::get(ctx))
-                                   .Case("bf16", BFloat16Type::get(ctx))
-                                   .Case("i8", IntegerType::get(ctx, 8))
-                                   .Default(std::nullopt);
+  std::optional<Type> result =
+      llvm::StringSwitch<std::optional<Type>>(name)
+          .Case("f32", Float32Type::get(ctx))
+          .Case("f16", Float16Type::get(ctx))
+          .Case("bf16", BFloat16Type::get(ctx))
+          .Case("i8", IntegerType::get(ctx, 8))
+          .Case("i32", IntegerType::get(ctx, 32))
+          .Cases("bf8", "f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
+          .Cases("fp8", "f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
+          .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
     exit(1);
@@ -1504,7 +1567,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   auto loc = b.getUnknownLoc();
 
   Type elemType = b.getF32Type();
-  if (genConfig.dataTypeStr == "i8") {
+  if (genConfig.inputDataTypeStr == "i8") {
     elemType = b.getI8Type();
   }
 
@@ -1704,7 +1767,7 @@ createCPUConvFunc(ModuleOp module,
 
   Type elemType = b.getF32Type();
   Type outputElemType = b.getF32Type();
-  if (genConfig.dataTypeStr == "i8") {
+  if (genConfig.inputDataTypeStr == "i8") {
     elemType = b.getI8Type();
     // Compute the output in int64_t to detect overflow
     outputElemType = b.getIntegerType(64);
@@ -1752,16 +1815,13 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-static void getGemmTypes(Type inType, Type outputType,
+static void getGemmTypes(ArrayRef<Type> elemTypes,
                          SmallVectorImpl<Type> &result, bool isCpuVerifier) {
-  Type outType = inType;
-  if (inType.isInteger(8)) {
-    outType = IntegerType::get(inType.getContext(), 32);
-    if (outputType)
-      outType = outputType;
+  Type cElemType = elemTypes[2];
+  if (elemTypes[0].isInteger(8)) {
     // Verify in int64_t to detect overflow
     if (isCpuVerifier)
-      outType = IntegerType::get(inType.getContext(), 64);
+      cElemType = IntegerType::get(cElemType.getContext(), 64);
   }
 
   SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
@@ -1771,9 +1831,9 @@ static void getGemmTypes(Type inType, Type outputType,
                        cDims = {groupSize, transposeC ? gemmN : gemmM,
                                 transposeC ? gemmM : gemmN};
 
-  MemRefType aType = MemRefType::get(aDims, inType),
-             bType = MemRefType::get(bDims, inType),
-             cType = MemRefType::get(cDims, outType);
+  MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
+             bType = MemRefType::get(bDims, elemTypes[1]),
+             cType = MemRefType::get(cDims, cElemType);
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
@@ -1792,7 +1852,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     module->setAttr("xmodel.arch", archAttr);
 
   SmallVector<Type, 3> argTypes;
-  getGemmTypes(params.dtype, params.outDType, argTypes,
+  getGemmTypes(params.types, argTypes,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
@@ -1830,13 +1890,15 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   OpBuilder b(ctx);
   Location loc = module->getLoc();
 
-  Type cpuInType = params.dtype;
+  SmallVector<Type, 3> cpuTypes = params.types;
   // Raise floats to f32
-  if (cpuInType.isa<FloatType>())
-    cpuInType = b.getF32Type();
+  for (Type &type : cpuTypes) {
+    if (type.isa<FloatType>())
+      type = b.getF32Type();
+  }
 
   SmallVector<Type, 3> argTypes;
-  getGemmTypes(cpuInType, params.outDType, argTypes, /*isCpuVerifier=*/true);
+  getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
   auto func =
@@ -2324,10 +2386,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool gpuValidation =
-      validationType == "gpu" &&
-      ((hasAccel || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
-       heuristicValidation);
+  bool isSmallFloatIn = false;
+  if (!genParams.types.empty())
+    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
+      isSmallFloatIn = ftype.getWidth() < 32;
+  bool gpuValidation = validationType == "gpu" &&
+                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
@@ -2339,10 +2403,11 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       // verifying a tuning case
       if (hasAccel)
         conv2dGenerator.flipAccel();
-      if (!((hasAccel || heuristicValidation) && genConfig.dataTypeStr == "i8"))
+      if (!((hasAccel || heuristicValidation) &&
+            genConfig.inputDataTypeStr == "i8"))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdlops or tuned is verified with i8 non-xdlops.
-        conv2dGenerator.setDataType("f32");
+        conv2dGenerator.setDataTypes("f32");
 
       int kernelStart = genConfig.kernelId;
       int kernelCount = 0;
@@ -2399,11 +2464,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                           mlir::rock::GemmFeatures::mfma |
                                               mlir::rock::GemmFeatures::wmma);
 
-      if (!((heuristicValidation || hasAccel) && genParams.dtype.isInteger(8)))
+      if (!((heuristicValidation || hasAccel) &&
+            genParams.types[0].isInteger(8)))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdops is verified with i8 non-xdolps and tuned i8 is
         // verified with itself in heuristic mode.
-        newParams.dtype = b.getF32Type();
+        newParams.types = SmallVector<Type>(3, b.getF32Type());
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*is_verifier=*/true));
@@ -2468,7 +2534,7 @@ static LogicalResult populateHostHarnessLogic(
     const SmallVector<KernelIF, 8> &roots, const GenParams &genParams) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
-  auto loc = b.getUnknownLoc();
+  Location loc = b.getUnknownLoc();
 
   // Construct main function.
   auto func = func::FuncOp::create(loc, "main", b.getFunctionType({}, {}));
@@ -2491,10 +2557,12 @@ static LogicalResult populateHostHarnessLogic(
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool gpuValidation =
-      validationType == "gpu" &&
-      ((hasAccel || genParams.dtype.isF16() || genParams.dtype.isBF16()) ||
-       heuristicValidation);
+  bool isSmallFloatIn = false;
+  if (!genParams.types.empty())
+    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
+      isSmallFloatIn = ftype.getWidth() < 32;
+  bool gpuValidation = validationType == "gpu" &&
+                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
 
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
 
@@ -2525,17 +2593,17 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
-  int32_t idx = 0;
-  for (auto &paramType : root0.params) {
+  for (auto &[idx, paramType] : llvm::enumerate(root0.params)) {
     auto paramMRType = paramType.template dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
-    auto elemType = paramMRType.getElementType();
+    Type elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
       assert(elemType.isF32() || elemType.isInteger(8) ||
              elemType.isInteger(32) || elemType.isInteger(64));
       if (genParams.operation.has_value()) {
-        elemType = genParams.dtype;
-        if (elemType.isInteger(8) && idx == 2)
+        if (idx < genParams.types.size())
+          elemType = genParams.types[idx];
+        if (elemType.isa<IntegerType>() && llvm::is_contained(outIndices, idx))
           elemType = b.getIntegerType(64);
         paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
       }
@@ -2552,11 +2620,10 @@ static LogicalResult populateHostHarnessLogic(
         return failure();
     }
 
-    if (hasValidation ||
-        (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
+    if (hasValidation || (isCPUKernel && (isSmallFloatIn))) {
       // Emit validation var
       Type valElemType = floatType;
-      if (genParams.operation.has_value() && genParams.dtype.isInteger(8)) {
+      if (genParams.operation.has_value() && elemType.isa<IntegerType>()) {
         valElemType = elemType;
         if (!gpuValidation && idx == 2)
           //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-accel
@@ -2572,7 +2639,6 @@ static LogicalResult populateHostHarnessLogic(
 
       emitMemcpy(b, lvar, vvar);
     }
-    idx++;
   }
 
   // capture result index
@@ -2746,8 +2812,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
-    genParams.dtype = conv2dGenerator.getDataType(builder);
-    genParams.outDType = conv2dGenerator.getOutputDataType(builder);
+    genParams.types.push_back(conv2dGenerator.getFilterDataType(builder));
+    genParams.types.push_back(conv2dGenerator.getInputDataType(builder));
+    genParams.types.push_back(conv2dGenerator.getOutputDataType(builder));
     const auto *convConfig = &conv2dGenerator.getConfig();
     genParams.convConfig = convConfig;
     genParams.features = convConfig->features;
@@ -2775,7 +2842,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
     LogicalResult status = success();
 
-    Type elemType = typeFromString(tensorDataType, context);
+    Type elemType = typeFromString(inputDataType.getValue(), context);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
@@ -2803,24 +2870,24 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
     genParams.arch = arch;
     genParams.perfConfig = perfConfig;
     if (isGemm) {
-      Type elemType = typeFromString(tensorDataType, context);
-      genParams.dtype = elemType;
+      for (const auto &arg :
+           {filterDataType.getValue(), inputDataType.getValue(),
+            outputDataType.getValue()})
+        genParams.types.push_back(typeFromString(arg, context));
       genParams.convConfig = std::nullopt;
-      if (!outputDataType.getValue().empty())
-        genParams.outDType = typeFromString(outputDataType, context);
       (void)createGpuGemmKernel(module, genParams);
     } else {
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getValue(), enabledFeatures,
           rock::convOpTypeFromKernelType(operation.getValue()),
-          tensorDataType.getValue(), dilationHeight.getValue(),
+          filterDataType.getValue(), inputDataType.getValue(),
+          outputDataType.getValue(), dilationHeight.getValue(),
           dilationWidth.getValue(), strideHeight.getValue(),
           strideWidth.getValue(), paddingHeightLeft.getValue(),
           paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
           paddingWidthRight.getValue(), filterLayout.getValue(),
-          inputLayout.getValue(), outputLayout.getValue(),
-          outputDataType.getValue());
+          inputLayout.getValue(), outputLayout.getValue());
 
       status = conv2dGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,
@@ -2830,8 +2897,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
         exit(1);
       }
 
-      genParams.dtype = conv2dGenerator.getDataType(builder);
-      genParams.outDType = conv2dGenerator.getOutputDataType(builder);
+      genParams.types.push_back(conv2dGenerator.getFilterDataType(builder));
+      genParams.types.push_back(conv2dGenerator.getInputDataType(builder));
+      genParams.types.push_back(conv2dGenerator.getOutputDataType(builder));
       genParams.convConfig = &conv2dGenerator.getConfig();
     }
   }
