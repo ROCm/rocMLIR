@@ -98,7 +98,7 @@ LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
   bool layoutSupported =
       supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
       0;
-  bool noBF16 = conf.dataTypeStr != "bf16";
+  bool noBF16 = conf.inputDataTypeStr != "bf16";
   return LogicalResult::success(layoutSupported && noBF16);
 }
 
