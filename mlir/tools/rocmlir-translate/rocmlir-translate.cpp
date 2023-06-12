@@ -11,11 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/RocMLIRPasses.h"
-#include "mlir/Conversion/RockToGPU/RockToGPU.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/InitAllTranslations.h"
-#include "mlir/InitRocMLIRPasses.h"
 #include "mlir/InitRocMLIRTranslations.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
@@ -26,8 +22,5 @@ using namespace mlir;
 int main(int argc, char **argv) {
   registerAllTranslations();
   rock::registerRocMLIRTranslations();
-  registerRocMLIRPasses();
-  mlir::registerRocMLIRConversionPasses();
-  rock::registerPasses();
   return failed(mlirTranslateMain(argc, argv, "MLIR Translation Testing Tool"));
 }

@@ -9,6 +9,7 @@
 #ifndef MLIR_CONVERSION_ROCMLIRPASSES_H
 #define MLIR_CONVERSION_ROCMLIRPASSES_H
 
+#include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
 #include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/Passes.h"
