@@ -15,15 +15,19 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
+static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64,
+                                     /*hasFp8ConversionInstrs=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
-             /*waveSize=*/64),
-    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32),
+             /*waveSize=*/64, /*hasFp8ConversionInstrs=*/false),
+    cdna3Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
+              /*waveSize=*/64, /*hasFp8ConversionInstrs=*/true),
+    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
+                  /*hasFp8ConversionInstrs=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
-             /*waveSize=*/32),
+             /*waveSize=*/32, /*hasFp8ConversionInstrs=*/false),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
-              /*waveSize=*/32);
+              /*waveSize=*/32, /*hasFp8ConversionInstrs=*/false);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
@@ -39,9 +43,11 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("08", "0a", "40", "41", "42", cdnaInfo)
+        .Cases("08", "0a", cdnaInfo)
+        .Cases("40", "41", "42", cdna3Info)
         // gfx906 has the dot product instructions, uniquely
-        .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64))
+        .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64,
+                                /*hasFp8ConversionInstrs=*/false))
         .Default(gcnInfo);
   }
   if (major == "gfx10") {

@@ -309,14 +309,13 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
   kernelCount = 1;
   if (isAccel(config.features)) {
-    Type dataType = getInputDataType(builder);
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
     }
     if (!needExtraPad) {
       Type dataType = getInputDataType(builder);
-      if (dataType == builder.getF32Type()) {
+      if (dataType.isF32()) {
         // For the following case, use 2 kernels:
         // - backward weight
         // - XDLOPS
@@ -326,7 +325,7 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
         // The second kernel will conduct the actual backward weight
         // convolution, using atomic add instructions.
         kernelCount = 2;
-      } else if (dataType == builder.getF16Type()) {
+      } else if (dataType.isF16()) {
         // For the following case, use 3 kernels:
         // - backward weight
         // - XDLOPS

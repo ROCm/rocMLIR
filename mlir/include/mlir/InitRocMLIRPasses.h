@@ -44,6 +44,7 @@ inline void registerUpstreamPasses() {
 
   // Conversion passes
   registerConvertAffineToStandard();
+  registerArithToAMDGPUConversionPass();
   registerConvertAMDGPUToROCDL();
   registerArithToLLVMConversionPass();
   registerConvertFuncToLLVM();

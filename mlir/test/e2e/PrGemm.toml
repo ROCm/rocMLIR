@@ -18,9 +18,10 @@ prefix = "--transA="
 #values = ["true", "false"]
 #prefix = "--transC="
 
+# Note: only one fp8 variant is tested as that's enough for a sanity check
 [[axis]]
 name = "data type"
-values = ["f32", "f16", "i8"]
+values = ["f32", "f16", "i8", "fp8_bf8"]
 prefix = "-t "
 
 ## Gemm variants
@@ -32,7 +33,7 @@ config = "-g 3 -m 1024 -k 769 -n 1024"
 # Don't re-test f16 and i8 with transposes: it won't give us much new
 [[suite.test.exclude]]
 name = "data type"
-values = ["f16", "i8"]
+values = ["f16", "i8", "fp8"]
 [[suite.test.exclude]]
 name = "transA"
 values = ["true"]

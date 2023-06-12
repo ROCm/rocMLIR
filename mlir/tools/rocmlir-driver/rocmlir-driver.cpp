@@ -11,9 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/RocMLIRPasses.h"
+#include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
@@ -167,10 +169,18 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     rock::buildKernelPipeline(pm);
   }
   if (kernelPipelineSet.contains("rocdl")) {
-    pm.addPass(createLowerGpuOpsToROCDLOpsPass(
-        /*chipset=*/devName.getChip().str(),
-        /*indexBitWidth=*/32,
-        /*useBarePtrCallConv*/ barePointers));
+    std::string chipset = devName.getChip().str();
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(chipset);
+    if (archInfo.hasFp8ConversionInstrs) {
+      pm.addNestedPass<gpu::GPUModuleOp>(createArithToAMDGPUConversionPass());
+    }
+    pm.addPass(createFp8ExtToTablesPass());
+    pm.addNestedPass<gpu::GPUModuleOp>(
+        amdgpu::createAmdgpuEmulateAtomicsPass({chipset}));
+    pm.addPass(
+        createLowerGpuOpsToROCDLOpsPass(chipset,
+                                        /*indexBitWidth=*/32,
+                                        /*useBarePtrCallConv=*/barePointers));
   }
   if (kernelPipelineSet.contains("binary")) {
     // Set up the lowering pipeline which goes down to ELF Binary
