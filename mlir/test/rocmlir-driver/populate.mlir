@@ -1,7 +1,7 @@
-// RUN: rocmlir-gen --arch %arch -p -mfma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=F32
-// RUN: rocmlir-gen --arch %arch -p -t f16 -mfma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=F16
-// RUN: rocmlir-gen --arch %arch -p -t bf16 -mfma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=BF16
-// RUN: rocmlir-gen --arch %arch -p -t i8 -mfma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=INT8
+// RUN: rocmlir-gen --arch %arch -p -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch %arch -p -t f16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=F16
+// RUN: rocmlir-gen --arch %arch -p -t bf16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=BF16
+// RUN: rocmlir-gen --arch %arch -p -t i8 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on | FileCheck %s --check-prefix=INT8
 
 // F32-LABEL: module
 // F32-NEXT: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}: memref<1x128x8x3x3xf32>, {{.*}}: memref<128x1x8x32x32xf32>, {{.*}}: memref<128x1x128x30x30xf32>) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"}

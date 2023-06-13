@@ -7,7 +7,7 @@ module {
     %0 = "tosa.const"() {value = dense<1.250000e-01> : tensor<1xf32>} : () -> tensor<1xf32>
     %1 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
     %2 = migraphx.transpose(%arg2) {permutation = [0, 1, 3, 2]} : (tensor<1x12x384x64xf32>) -> tensor<1x12x64x384xf32>
-    %3 = migraphx.dot(%arg1, %2) : tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32> -> tensor<1x12x384x384xf32>
+    %3 = migraphx.dot(%arg1, %2) : (tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32>) -> tensor<1x12x384x384xf32>
     %4 = migraphx.multibroadcast(%0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1xf32>) -> tensor<1x12x384x384xf32>
     %5 = migraphx.mul(%3, %4) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
     %6 = migraphx.add(%5, %1) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>

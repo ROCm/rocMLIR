@@ -36,7 +36,9 @@ public:
     int num_cu;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
-    std::string dataTypeStr;
+    std::string filterDataTypeStr;
+    std::string inputDataTypeStr;
+    std::string outputDataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
     int paddingHeightLeft, paddingHeightRight;
@@ -63,7 +65,9 @@ public:
       const std::string &perfConfig = "", int num_cu = 0,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
-      const std::string &dataTypeStr = "f32", int dilationHeight = 1,
+      const std::string &filterDataTypeStr = "f32",
+      const std::string &inputDataTypeStr = "f32",
+      const std::string &outputDataTypeStr = "", int dilationHeight = 1,
       int dilationWidth = 1, int strideHeight = 1, int strideWidth = 1,
       int paddingHeightLeft = 0, int paddingHeightRight = 0,
       int paddingWidthLeft = 0, int paddingWidthRight = 0,
@@ -79,11 +83,13 @@ public:
 
   LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
 
-  Type getDataType(OpBuilder &builder) const;
+  Type getFilterDataType(OpBuilder &builder) const;
+  Type getInputDataType(OpBuilder &builder) const;
+  Type getOutputDataType(OpBuilder &builder) const;
 
-  void setDataType(std::string dataTypeStr);
+  void setDataTypes(const std::string &dataTypeStr);
 
-  void flipXdlops();
+  void flipAccel();
 
   void setPerfConfig(StringRef perfConfig);
 
@@ -98,7 +104,7 @@ public:
            1;
   }
 
-  LogicalResult parseConvConfig(const char *arguments);
+  LogicalResult parseConvConfig(OpBuilder &builder, const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
                               int64_t inputChannel, int64_t inputHeight,

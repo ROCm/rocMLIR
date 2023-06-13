@@ -7,7 +7,7 @@ module {
     %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [1, 768, 768]} : (tensor<1x768x768xf32>) -> tensor<1x768x768xf32>
     %1 = migraphx.transpose(%arg1) {permutation = [0, 2, 1, 3]} : (tensor<1x12x384x64xf32>) -> tensor<1x384x12x64xf32>
     %2 = migraphx.reshape(%1) {dims = [1, 384, 768]} : (tensor<1x384x12x64xf32>) -> tensor<1x384x768xf32>
-    %3 = migraphx.dot(%2, %0) : tensor<1x384x768xf32>, tensor<1x768x768xf32> -> tensor<1x384x768xf32>
+    %3 = migraphx.dot(%2, %0) : (tensor<1x384x768xf32>, tensor<1x768x768xf32>) -> tensor<1x384x768xf32>
     %4 = migraphx.add(%3, %arg0) : (tensor<1x384x768xf32>, tensor<1x384x768xf32>) -> tensor<1x384x768xf32>
     return %4 : tensor<1x384x768xf32>
   }

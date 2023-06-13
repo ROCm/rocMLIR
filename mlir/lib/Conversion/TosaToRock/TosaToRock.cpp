@@ -79,7 +79,7 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
 }
 
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
-getArchAttributes(Operation *op) {
+getArchAttributes(Operation *op, Type inputType) {
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
@@ -108,7 +108,7 @@ getArchAttributes(Operation *op) {
     xdlopsV2 = attr.getValue();
 
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  rock::GemmFeatures features = archInfo.defaultFeatures;
+  rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
   if (xdlopsV2.has_value())
     features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
 
@@ -131,7 +131,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   StringAttr arch;
   std::optional<uint32_t> num_cu;
   rock::GemmFeatures features;
-  std::tie(arch, num_cu, features) = getArchAttributes(op);
+  std::tie(arch, num_cu, features) = getArchAttributes(op, input.getType());
 
   ArrayRef<int64_t> pad64 = pad;
   ArrayRef<int64_t> stride64 = stride;
@@ -321,7 +321,8 @@ public:
     StringAttr arch;
     std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) = getArchAttributes(op);
+    std::tie(arch, num_cu, features) =
+        getArchAttributes(op, op.getA().getType());
 
     auto [mDim, nDim] = getLastDims(transposeC, outputType);
 
@@ -570,7 +571,7 @@ typename std::enable_if_t<
   StringAttr arch;
   Optional<uint32_t> num_cu;
   rock::GemmFeatures features;
-  std::tie(arch, num_cu, features) = getArchAttributes(op);
+  std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
 
   int32_t blockSize = 256;
   auto elementCount =
@@ -621,7 +622,8 @@ public:
     StringAttr arch;
     Optional<uint32_t> num_cu;
     rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) = getArchAttributes(op);
+    std::tie(arch, num_cu, features) =
+        getArchAttributes(op, op.getInput().getType());
     if (!rock::bitEnumContainsAll(features, rock::GemmFeatures::atomic_add)) {
       op.emitError("Currently, we only support ReduceSum operators on GPUs "
                    "with atomic add support.!.");

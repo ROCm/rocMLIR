@@ -496,8 +496,15 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, Type elemTypeA,
-                                     Type elemTypeB, Type elemTypeC) {
+static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
+                                     Type elemTypeA, Type elemTypeB,
+                                     Type elemTypeC) {
+  if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
+      return op->emitOpError(
+          "Wmma gridwise supports only F16/BF16/int8 data types");
+    }
+  }
   if (elemTypeA != elemTypeB &&
       !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
       !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
@@ -527,7 +534,8 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
                        .cast<ShapedType>()
                        .getElementType();
 
-  return verifyGemmTypes(gemmOp, elemTypeA, elemTypeB, elemTypeC);
+  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), elemTypeA, elemTypeB,
+                         elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -549,11 +557,14 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
       isDisjointed("input_layout", "hi", "wi"))
     return op->emitError("Disjointed yx or hw!");
 
-  bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
-  if (gemmOp.getDerivedBlockSize().has_value() && !isXdlops) {
+
+  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
+                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
   }
@@ -697,8 +708,8 @@ LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
-  if (inElems.isa<IntegerType>() && !outElems.isInteger(32))
-    return emitOpError("integer-valued multiply must have i32 as its result");
+  // The integer gemm will produce i32 and then truncate/extend to the requested
+  // iN e.g. i8.
   if (inElems.isa<FloatType>() && !outElems.isa<FloatType>())
     return emitOpError(
         "float-valued inputs must have a floating-point output type");
@@ -795,10 +806,11 @@ template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
-  if (failed(verifyGemmTypes(op, aElem, bElem, cElem)))
+
+  if (failed(verifyGemmTypes(op, op.getFeatures(), aElem, bElem, cElem)))
     return failure();
-  if (aElem.isInteger(8) && !cElem.isInteger(32))
-    return op.emitOpError("i8 input requires i32 output");
+  if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
+    return op.emitOpError("i8 input requires i32 or i8 output");
   if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
     return op.emitOpError("8-bit float input requires f32 output");
 
@@ -1435,7 +1447,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
   if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
                                                gpu::AddressSpace::Private))
-    return emitOpError("source must be private registers");
+    return emitOpError("dest must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1443,8 +1455,28 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   else
     inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (inputShape.size() != 3)
-    return emitOpError("source view must accept (bid, tid, iter) coordinates");
+  MemRefType srcType = getSource().getType().cast<MemRefType>();
+  gpu::AddressSpaceAttr srcMemSpaceAttr =
+      srcType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace srcGpuMemSpace = gpu::AddressSpace::Global;
+  if (srcMemSpaceAttr) {
+    srcGpuMemSpace = srcMemSpaceAttr.getValue();
+  }
+
+  if (srcGpuMemSpace == gpu::AddressSpace::Global) {
+    if (inputShape.size() != 3) {
+      return emitOpError(
+          "source view must accept (bid, tid, iter) coordinates");
+    }
+  } else if (srcGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (inputShape.size() != 2) {
+      return emitOpError("source view must accept (tid, iter) coordinates");
+    }
+  } else {
+    return emitError("source has to be either workgroup or global memory.");
+  }
+
   return success();
 }
 
@@ -1459,15 +1491,33 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
                                                gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
   ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> viewInputShape;
+  ArrayRef<int64_t> outputShape;
   if (extraViews.empty())
-    viewInputShape = getDest().getType().getShape();
+    outputShape = getDest().getType().getShape();
   else
-    viewInputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  if (viewInputShape.size() != 3)
-    return emitOpError(
-        "destination view must accept (bid, tid, iter) coordinates");
+  MemRefType dstType = getDest().getType().cast<MemRefType>();
+  Attribute dstMemSpaceAttr = dstType.getMemorySpace();
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace dstGpuMemSpace = gpu::AddressSpace::Global;
+  if (dstMemSpaceAttr) {
+    dstGpuMemSpace = dstMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
+  }
+
+  if (dstGpuMemSpace == gpu::AddressSpace::Global) {
+    if (outputShape.size() != 3) {
+      return emitOpError(
+          "source view must accept (bid, tid, iter) coordinates");
+    }
+  } else if (dstGpuMemSpace == gpu::AddressSpace::Workgroup) {
+    if (outputShape.size() != 2) {
+      return emitOpError("source view must accept (tid, iter) coordinates");
+    }
+  } else {
+    return emitError("source has to be either workgroup or global memory.");
+  }
+
   return success();
 }
 

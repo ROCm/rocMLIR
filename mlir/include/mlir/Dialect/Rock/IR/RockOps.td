@@ -77,7 +77,7 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
 
 defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 // This can be extended for quantization.
-defvar GemmOutputTypes = [F32, F16, BF16, I32];
+defvar GemmOutputTypes = [F32, F16, BF16, I32, I8];
 
 def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);

@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -105,15 +106,14 @@ void AffixTuningParameters::affixTuningParametersImpl(
     perfConfig = perfConfigAttr.getValue().str();
   }
   GemmFeatures features = op.getGemmFeatures();
-  if (bitEnumContainsAll(features, GemmFeatures::mfma) ||
-      bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    PopulateParamsXDL populateParamsXDL;
-    InitParamsXDL validParams;
+  if (isAccel(features)) {
+    auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+    InitParamsAccel validParams;
     uint32_t blockSize = 0;
     uint32_t gridSize = 0;
     int64_t gemmKBlocks = 1;
 
-    LogicalResult status = populateParamsXDL.obtainTuningParameters(
+    LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
         gemmKBlocks);
 
@@ -121,7 +121,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
-        status = populateParamsXDL.obtainTuningParameters(
+        status = populateParamsAccelPtr->obtainTuningParameters(
             op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
             gemmKBlocks);
       }
@@ -137,18 +137,19 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
-        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-        validParams.gemmNPerBlock, validParams.gemmKPack,
-        validParams.gemmMPerWave, validParams.gemmNPerWave,
-        validParams.gemmAThreadCopyMoreGemmK);
+    Attribute gemmParams =
+        populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
+
     op.setGemmParamsAttr(gemmParams);
+    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
+
   } else {
-    InitParamsNonXDL validParams;
+    InitParamsNonAccel validParams;
     uint32_t gridSize;
 
     PopulateParams populateParams;
@@ -175,10 +176,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
         validParams.gemmNPerThread,
         /*kpack=*/1);
     op.setGemmParamsAttr(gemmParams);
+    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }

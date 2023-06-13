@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
@@ -149,29 +150,22 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
-  bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(op.getFeatures(), GemmFeatures::wmma);
-
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  if (isXdlops && !blockSize)
+  bool isAccel = rock::isAccel(op.getFeatures());
+
+  if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
   IntegerAttr gridSize = op.getGridSizeAttr();
   if (!gridSize)
     return op.emitOpError("grid size must be set at lowering");
-  if (isXdlops) {
-    // Onne the attribute copies are gone, make this a replaceOp
-    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
-                                   op.getFeaturesAttr(),
-                                   op.getStoreMethodAttr(), blockSize, gridSize,
-                                   params.cast<XdlopsGemmParamsAttr>());
+
+  if (isAccel) {
+    rw.create<GridwiseGemmAccelOp>(
+        loc, a, b, c, op.getArchAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), blockSize, gridSize,
+        params.cast<RockAccelTuningParamAttrInterface>());
     rw.eraseOp(op);
-  } else if (isWmma) {
-    // Onne the attribute copies are gone, make this a replaceOp
-    rw.create<GridwiseGemmAccelOp>(loc, a, b, c, op.getArchAttr(),
-                                   op.getFeaturesAttr(),
-                                   op.getStoreMethodAttr(), blockSize, gridSize,
-                                   params.cast<WmmaGemmParamsAttr>());
-    rw.eraseOp(op);
+
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
                               params.cast<GeneralGemmParamsAttr>());

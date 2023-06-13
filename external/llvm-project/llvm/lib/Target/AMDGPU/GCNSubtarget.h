@@ -136,7 +136,7 @@ protected:
   bool GFX10_AEncoding = false;
   bool GFX10_BEncoding = false;
   bool HasDLInsts = false;
-  bool HasVFmacF64Inst = false;
+  bool HasFmacF64Inst = false;
   bool HasDot1Insts = false;
   bool HasDot2Insts = false;
   bool HasDot3Insts = false;
@@ -145,12 +145,18 @@ protected:
   bool HasDot6Insts = false;
   bool HasDot7Insts = false;
   bool HasDot8Insts = false;
+  bool HasDot9Insts = false;
+  bool HasDot10Insts = false;
   bool HasMAIInsts = false;
   bool HasFP8Insts = false;
   bool HasPkFmacF16Inst = false;
+  bool HasAtomicDsPkAdd16Insts = false;
+  bool HasAtomicFlatPkAdd16Insts = false;
   bool HasAtomicFaddRtnInsts = false;
   bool HasAtomicFaddNoRtnInsts = false;
-  bool HasAtomicPkFaddNoRtnInsts = false;
+  bool HasAtomicBufferGlobalPkAddF16NoRtnInsts = false;
+  bool HasAtomicBufferGlobalPkAddF16Insts = false;
+  bool HasAtomicGlobalPkAddBF16Inst = false;
   bool HasFlatAtomicFaddF32Inst = false;
   bool SupportsSRAMECC = false;
 
@@ -197,6 +203,7 @@ protected:
   bool HasMADIntraFwdBug = false;
   bool HasVOPDInsts = false;
   bool HasVALUTransUseHazard = false;
+  bool HasForceStoreSC0SC1 = false;
 
   // Dummy feature to use for assembler in tablegen.
   bool FeatureDisable = false;
@@ -699,7 +706,7 @@ public:
     return HasDLInsts;
   }
 
-  bool hasVFmacF64Inst() const { return HasVFmacF64Inst; }
+  bool hasFmacF64Inst() const { return HasFmacF64Inst; }
 
   bool hasDot1Insts() const {
     return HasDot1Insts;
@@ -733,6 +740,14 @@ public:
     return HasDot8Insts;
   }
 
+  bool hasDot9Insts() const {
+    return HasDot9Insts;
+  }
+
+  bool hasDot10Insts() const {
+    return HasDot10Insts;
+  }
+
   bool hasMAIInsts() const {
     return HasMAIInsts;
   }
@@ -745,6 +760,10 @@ public:
     return HasPkFmacF16Inst;
   }
 
+  bool hasAtomicDsPkAdd16Insts() const { return HasAtomicDsPkAdd16Insts; }
+
+  bool hasAtomicFlatPkAdd16Insts() const { return HasAtomicFlatPkAdd16Insts; }
+
   bool hasAtomicFaddInsts() const {
     return HasAtomicFaddRtnInsts || HasAtomicFaddNoRtnInsts;
   }
@@ -753,7 +772,17 @@ public:
 
   bool hasAtomicFaddNoRtnInsts() const { return HasAtomicFaddNoRtnInsts; }
 
-  bool hasAtomicPkFaddNoRtnInsts() const { return HasAtomicPkFaddNoRtnInsts; }
+  bool hasAtomicBufferGlobalPkAddF16NoRtnInsts() const {
+    return HasAtomicBufferGlobalPkAddF16NoRtnInsts;
+  }
+
+  bool hasAtomicBufferGlobalPkAddF16Insts() const {
+    return HasAtomicBufferGlobalPkAddF16Insts;
+  }
+
+  bool hasAtomicGlobalPkAddBF16Inst() const {
+    return HasAtomicGlobalPkAddBF16Inst;
+  }
 
   bool hasFlatAtomicFaddF32Inst() const { return HasFlatAtomicFaddF32Inst; }
 
@@ -1064,6 +1093,8 @@ public:
   }
 
   bool hasVALUTransUseHazard() const { return HasVALUTransUseHazard; }
+
+  bool hasForceStoreSC0SC1() const { return HasForceStoreSC0SC1; }
 
   bool hasVALUMaskWriteHazard() const { return getGeneration() >= GFX11; }
 

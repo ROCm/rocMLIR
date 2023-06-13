@@ -43,6 +43,21 @@ void AMDGPUDialect::initialize() {
 }
 
 //===----------------------------------------------------------------------===//
+// 8-bit float ops
+//===----------------------------------------------------------------------===//
+LogicalResult PackedTruncFp8x2Op::verify() {
+  if (getExisting() && getExisting().getType() != getResult().getType())
+    return emitOpError("existing values must have same type as result");
+  return success();
+}
+
+LogicalResult PackedStochRoundFp8Op::verify() {
+  if (getExisting() && getExisting().getType() != getResult().getType())
+    return emitOpError("existing values must have same type as result");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RawBuffer*Op
 //===----------------------------------------------------------------------===//
 template <typename T>

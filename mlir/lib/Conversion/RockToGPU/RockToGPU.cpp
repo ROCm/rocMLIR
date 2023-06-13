@@ -169,6 +169,13 @@ void LowerRockOpsToGPUPass::runOnOperation() {
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
 
+    if (auto attr = theFunc->getAttr("wave_size")) {
+      int32_t waveSize = attr.template cast<IntegerAttr>().getInt();
+      if (blockSize / waveSize >= 2) {
+        gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
+      }
+    }
+
     // associate arguments for newly created GPUFuncOp.
     IRMapping map;
     for (auto pair : llvm::zip(theFunc.getArguments(), gpuFunc.getArguments()))

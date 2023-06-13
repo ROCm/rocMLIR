@@ -8,7 +8,7 @@ func.func @mlir_dot(%arg0: tensor<1x1x1x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg
     %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
     %1 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
     %2 = migraphx.transpose(%arg3) {permutation = [0, 1, 3, 2]} : (tensor<1x12x384x64xf32>) -> tensor<1x12x64x384xf32>
-    %3 = migraphx.dot(%arg2, %2) : tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32> -> tensor<1x12x384x384xf32>
+    %3 = migraphx.dot(%arg2, %2) : (tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32>) -> tensor<1x12x384x384xf32>
     %4 = migraphx.mul(%3, %1) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
     %5 = migraphx.add(%4, %0) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
     return %5 : tensor<1x12x384x384xf32>
