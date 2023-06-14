@@ -53,12 +53,12 @@ struct MHALSelectTargetsPass
   bool testArch(mhal::TargetType type, StringRef arch) const {
     if (!testType(type))
       return false;
-    SystemDevice testDev{SystemDevice::Type::EGPU};
+    mhal::SystemDevice testDev{mhal::SystemDevice::Type::EGPU};
     if (failed(testDev.parse(arch)))
       return false;
 
     for (auto targetArch : targetArchs) {
-      SystemDevice targetDev{SystemDevice::Type::EGPU};
+      mhal::SystemDevice targetDev{mhal::SystemDevice::Type::EGPU};
       if (succeeded(targetDev.parse(targetArch))) {
         if (targetDev.isCompatible(testDev))
           return true;

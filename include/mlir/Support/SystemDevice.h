@@ -20,6 +20,7 @@
 #include <string>
 
 namespace mlir {
+namespace mhal {
 
 /// SystemDevice captures device specifics.
 ///
@@ -43,6 +44,7 @@ private:
   llvm::StringMap<llvm::SmallString<8>> properties = {};
 };
 
+} // namespace mhal
 } // namespace mlir
 
 #endif // MLIR_SUPPORT_SYSTEMDEVICE_H_

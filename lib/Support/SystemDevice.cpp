@@ -20,6 +20,7 @@
 #define DEBUG_TYPE "support-system-device"
 
 using namespace mlir;
+using namespace mlir::mhal;
 
 SystemDevice::SystemDevice(Type _type)
   : type(_type) {
