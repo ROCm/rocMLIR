@@ -623,24 +623,17 @@ public:
     TypedValue<TensorType> inATensor = op.getInA();
     TypedValue<TensorType> inBTensor = op.getInB();
     Type elementType = inATensor.getType().getElementType();
+    if (isa<IntegerType>(elementType)) {
+      Value div = createOpAndInfer<tosa::DivOp>(rewriter, loc, elementType,
+                                                inATensor, inBTensor);
+      rewriter.replaceOp(op, div);
+      return success();
+    }
     Value recip = createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc,
                                                        elementType, inBTensor);
     Value mul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
                                               inATensor, recip, /*shift=*/0);
     rewriter.replaceOp(op, {mul});
-    return success();
-  }
-};
-
-class ErfConverter final : public OpConversionPattern<migraphx::ErfOp> {
-public:
-  using OpConversionPattern<migraphx::ErfOp>::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(migraphx::ErfOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Value output =
-        rewriter.create<tosa::ErfOp>(op.getLoc(), op.getType(), op.getInA());
-    rewriter.replaceOp(op, {output});
     return success();
   }
 };
@@ -652,6 +645,6 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                BroadcastConverter, MultiBroadcastConverter, ReshapeConverter,
                SoftmaxConverter, DotConverter<DotOp>, DotConverter<QuantDotOp>,
                ReduceMeanConverter, QuantizeLinearConverter,
-               DeQuantizeLinearConverter, SliceConverter, DivConverter,
-               ErfConverter>(context);
+               DeQuantizeLinearConverter, SliceConverter, DivConverter>(
+      context);
 }
