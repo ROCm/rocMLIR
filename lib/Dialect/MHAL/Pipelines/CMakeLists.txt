@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRMHALPipeline
   MLIRFuncDialect
   MLIRTensorToLinalg
   MLIRAsyncTransforms
+  MLIRGPUTransforms
   MLIRTosaToLinalg
   MLIRTosaToSCF
   MLIRTosaToArith
