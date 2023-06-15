@@ -56,15 +56,17 @@ gitCheckoutMIOpen() {
 }
 
 buildlibrockCompiler() {
-    echo ">>> build librockCompiler"
+    echo ">>> build librockCompiler / MIXR target"
     cd ${WORKSPACE}
     cmake . -G Ninja -B build-static \
-          -DBUILD_FAT_LIBROCKCOMPILER=ON \
+          -DBUILD_MIXR_TARGET=ON \
+          -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+          -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
           -DCMAKE_BUILD_TYPE=Release # or RelWithDebInfo
     cd build-static
-    ninja librockCompiler
+    ninja
     rm -rf ${WORKSPACE}/MIOpenDeps
-    cmake --install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps
+    cmake --install . --prefix ${WORKSPACE}/MIOpenDeps
 }
 
 buildMIOpenWithlibrockCompiler() {

@@ -43,7 +43,7 @@ build_rocm_image() {
   rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/$docker_file | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
   rocm_major_version=$(echo ${rocm_full_version} | cut -d. -f1)
   rocm_minor_version=$(echo ${rocm_full_version} | cut -d. -f2)
-  rocm_short_version="${rocm_major_version}.${rocm_minor_version}"
+  rocm_short_version="rocm${rocm_major_version}.${rocm_minor_version}"
   git_commit_hash=$(git rev-parse --short HEAD)
 
   # Example: rocm/mlir:rocm3.7-38337614c80
