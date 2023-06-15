@@ -27,14 +27,14 @@
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
+#include "mlir/Conversion/MHALToCPU/MHALToCPU.h"
+#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MathToLibm/MathToLibm.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
-#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
-#include "mlir/Conversion/MHALToCPU/MHALToCPU.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
@@ -43,10 +43,10 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
-#include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
@@ -58,7 +58,7 @@ using namespace mlir;
 //===- Consolidate the MHAL Pipelines here ---------------------===//
 
 void mhal::buildGraphPipeline(OpPassManager &pm,
-                                const mhal::GraphOptions &options) {
+                              const mhal::GraphOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
   /* mlir-opt --tosa-make-broadcastable
@@ -88,7 +88,7 @@ void mhal::buildGraphPipeline(OpPassManager &pm,
 
 /// Collect target objects and package with host partitioned kernels
 void mhal::buildPackagePipeline(OpPassManager &pm,
-                                  const mhal::PackageOptions &options) {
+                                const mhal::PackageOptions &options) {
   /* mlir-opt --mhal-package-targets
    */
   pm.addPass(mhal::createMHALPackageTargetsPass());
@@ -98,7 +98,7 @@ void mhal::buildPackagePipeline(OpPassManager &pm,
 // and lowers to host LLVM runtime program. JitRunner then calls ORC
 // to generate X86 binary and runs it.
 void mhal::buildRunnerPipeline(OpPassManager &pm,
-                                 const mhal::RunnerOptions &options) {
+                               const mhal::RunnerOptions &options) {
   // Select targets
   MHALSelectTargetsPassOptions targetOpts;
   targetOpts.targetTypes = options.targetTypes;

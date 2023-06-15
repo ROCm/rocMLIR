@@ -13,12 +13,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Transforms/Passes.h"
-#include "mlir/Support/SystemDevice.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/SystemDevice.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -34,8 +34,7 @@ namespace mhal {
 using namespace mlir;
 namespace {
 struct MHALSelectTargetsPass
-    : public mhal::impl::MHALSelectTargetsPassBase<
-          MHALSelectTargetsPass> {
+    : public mhal::impl::MHALSelectTargetsPassBase<MHALSelectTargetsPass> {
   using mhal::impl::MHALSelectTargetsPassBase<
       MHALSelectTargetsPass>::MHALSelectTargetsPassBase;
 

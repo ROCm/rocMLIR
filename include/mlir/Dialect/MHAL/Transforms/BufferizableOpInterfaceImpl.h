@@ -14,7 +14,7 @@ class DialectRegistry;
 
 namespace mhal {
 void registerBufferizableOpInterfaceExternalModels(DialectRegistry &registry);
-} // namespace shape
+} // namespace mhal
 } // namespace mlir
 
 #endif // MLIR_DIALECT_MHAL_BUFFERIZABLEOPINTERFACEIMPL_H

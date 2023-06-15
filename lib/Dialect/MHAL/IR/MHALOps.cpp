@@ -190,4 +190,3 @@ LogicalResult AwaitOp::verify() {
 
 #define GET_TYPEDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALOpsTypes.cpp.inc"
-

@@ -9,8 +9,8 @@
 #ifndef MHAL_CONVERSION_PASSES_H
 #define MHAL_CONVERSION_PASSES_H
 
-#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 #include "mlir/Conversion/MHALToCPU/MHALToCPU.h"
+#include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 
 namespace mlir {
 

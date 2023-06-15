@@ -22,9 +22,7 @@
 using namespace mlir;
 using namespace mlir::mhal;
 
-SystemDevice::SystemDevice(Type _type)
-  : type(_type) {
-}
+SystemDevice::SystemDevice(Type _type) : type(_type) {}
 
 static const char *getDeviceTypeStr(SystemDevice::Type type) {
   switch (type) {

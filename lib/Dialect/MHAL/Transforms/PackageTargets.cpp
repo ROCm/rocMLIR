@@ -43,8 +43,7 @@ using namespace mlir;
 namespace {
 
 struct MHALPackageTargetsPass
-    : public mhal::impl::MHALPackageTargetsPassBase<
-          MHALPackageTargetsPass> {
+    : public mhal::impl::MHALPackageTargetsPassBase<MHALPackageTargetsPass> {
 
   void runOnOperation() override {
     ModuleOp mod = getOperation();
@@ -112,9 +111,8 @@ struct MHALPackageTargetsPass
     });
 
     for (auto pair : kernelImpls) {
-      pair.first->setAttr(
-          "mhal.targets",
-          b.getArrayAttr({pair.second.begin(), pair.second.end()}));
+      pair.first->setAttr("mhal.targets", b.getArrayAttr({pair.second.begin(),
+                                                          pair.second.end()}));
     }
 
     // cleanup

@@ -16,8 +16,8 @@
 
 // MHAL includes
 #include "mlir/Conversion/MHALPasses.h"
-#include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
+#include "mlir/Dialect/MHAL/Transforms/Passes.h"
 
 namespace mlir {
 

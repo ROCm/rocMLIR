@@ -11,8 +11,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
@@ -90,8 +90,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     return b.create<gpu::WaitOp>(loc, tokenType, deps).getAsyncToken();
   }
 
-  template <typename T>
-  bool isOnDevice(const T &oprUsers) const {
+  template <typename T> bool isOnDevice(const T &oprUsers) const {
     for (auto opUse : oprUsers) {
       auto gpuLaunch = dyn_cast<gpu::LaunchFuncOp>(opUse);
       auto launch = dyn_cast<mhal::LaunchOp>(opUse);
@@ -373,4 +372,3 @@ void ConvertMHALToGPUPass::runOnOperation() {
       signalPassFailure();
   }
 }
-

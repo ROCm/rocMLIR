@@ -12,9 +12,9 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -29,7 +29,7 @@ using namespace bufferization;
 
 namespace {
 struct MHALBufferizePass
-  : public mhal::impl::MHALBufferizePassBase<MHALBufferizePass> {
+    : public mhal::impl::MHALBufferizePassBase<MHALBufferizePass> {
   void runOnOperation() override {
     BufferizationOptions options = getPartialBufferizationOptions();
     options.opFilter.allowDialect<mhal::MHALDialect>();
@@ -45,4 +45,3 @@ struct MHALBufferizePass
   }
 };
 } // namespace
-

@@ -8,12 +8,12 @@
 
 #include "mlir/Dialect/MHAL/Transforms/BufferizableOpInterfaceImpl.h"
 
-#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
@@ -56,7 +56,7 @@ static unsigned getCallOperandIdx(CallOpInterface callOp, unsigned funcIdx) {
     for (const auto &it : llvm::enumerate(callOp->getOperands())) {
       if (it.value() == operands[funcIdx])
         return it.index();
-    }   
+    }
     assert(0 && "not found!?");
   }
   return funcIdx;
@@ -99,7 +99,8 @@ static FuncOpAnalysisState getFuncOpAnalysisState(const AnalysisState &state,
 
 /// Bufferization of mhal.launch.
 struct LaunchOpInterface
-  : public BufferizableOpInterface::ExternalModel<LaunchOpInterface, mhal::LaunchOp> {
+    : public BufferizableOpInterface::ExternalModel<LaunchOpInterface,
+                                                    mhal::LaunchOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
     mlir::CallOpInterface callOp(op);
@@ -130,7 +131,7 @@ struct LaunchOpInterface
         opOperand.getOperandNumber());
   }
 
- SmallVector<OpResult> getAliasingOpResult(Operation *op, OpOperand &opOperand,
+  SmallVector<OpResult> getAliasingOpResult(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
@@ -330,5 +331,5 @@ void mlir::mhal::registerBufferizableOpInterfaceExternalModels(
     DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, mhal::MHALDialect *dialect) {
     mhal::LaunchOp::attachInterface<LaunchOpInterface>(*ctx);
-  }); 
+  });
 }

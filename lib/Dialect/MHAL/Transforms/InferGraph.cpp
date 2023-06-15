@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -112,7 +112,7 @@ class MHALInferGraphPass
 
     // Clone the op to return a token in addition to the other results.
     auto alaunch = builder.create<mhal::LaunchOp>(op.getLoc(), func, tokens,
-                                                   op->getOperands());
+                                                  op->getOperands());
 
     // Replace the op with the async clone.
     auto results = alaunch->getResults();

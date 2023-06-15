@@ -28,7 +28,7 @@ void mhal::MHALDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"
-    >();
+      >();
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "mlir/Dialect/MHAL/IR/MHALOpsTypes.cpp.inc"
@@ -262,4 +262,3 @@ void KernelPackageAttr::print(mlir::AsmPrinter &printer) const {
 
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
-

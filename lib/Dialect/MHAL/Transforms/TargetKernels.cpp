@@ -43,8 +43,7 @@ using namespace mlir;
 namespace {
 
 struct MHALTargetKernelsPass
-    : public mhal::impl::MHALTargetKernelsPassBase<
-          MHALTargetKernelsPass> {
+    : public mhal::impl::MHALTargetKernelsPassBase<MHALTargetKernelsPass> {
   using mhal::impl::MHALTargetKernelsPassBase<
       MHALTargetKernelsPass>::MHALTargetKernelsPassBase;
 

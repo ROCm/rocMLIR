@@ -10,8 +10,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -49,7 +49,6 @@ static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
 
 struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
   using OpRewritePattern<mhal::LaunchOp>::OpRewritePattern;
-
 
   LogicalResult matchAndRewrite(mhal::LaunchOp op,
                                 PatternRewriter &rw) const override {
@@ -157,4 +156,3 @@ void ConvertMHALToCPUPass::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
 }
-
