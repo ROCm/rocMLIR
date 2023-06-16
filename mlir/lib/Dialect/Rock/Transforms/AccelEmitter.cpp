@@ -132,8 +132,8 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   params.mRepeats = mfmaGroup.getMRepeats(mPerWave);
   params.nRepeats = mfmaGroup.getNRepeats(nPerWave);
   params.nResultVectors = mfmaGroup.getImms().size();
-  params.mPerAccel = mfmaAttr.mfmaNonKDim * mfmaGroup.getImms().size();
-  params.nPerAccel = mfmaAttr.mfmaNonKDim * mfmaAttr.blocksMfma;
+  params.mPerAccel = mPerWave / params.mRepeats;
+  params.nPerAccel = nPerWave / params.nRepeats;
   params.kpackPerThread =
       (mfmaAttr.isKReduction ? kpackPerBlock / mfmaAttr.inputSpansPerMfmaIn
                              : kpackPerBlock);
@@ -262,6 +262,9 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
   toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
 
+  // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel, i.e.,
+  // all the waves will compute next to each other and then they will move to
+  // the next subtile in the workgroup
   toMatrixC.embed(
       "gemmM", 1, matrixM,
       {"m", "wave_m", "m_tid", "m_i", "blk_row", "vec_group", "vec_item"},
@@ -465,6 +468,10 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   // tile. For workitems 0 to 15 m_tid is 0 and they write to 0,2,4,...,14.  For
   // workitems 16 to 31 m_tid is 1 and they write at positions 1,3,5,..,15 .
   // This is outlined in https://gpuopen.com/learn/wmma_on_rdna3/
+  //
+  // Note that `wave_m` and `wave_n` are strided by the inputLen, i.e., all the
+  // waves will compute next to each other and then they will move to the next
+  // subtile in the workgroup
   toMatrixC.embed("gemmM", 1, matrixM,
                   {"m", "wave_m", "m_tid", "rep_i", "item_i"},
                   {mPerBlock, wmmaInsn.inputLen, 1, mWaves * wmmaInsn.inputLen,
