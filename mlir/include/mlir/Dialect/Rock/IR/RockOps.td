@@ -406,6 +406,21 @@ def Rock_FillOp:
   }];
 }
 
+def Rock_BlockwiseFillOp:
+    Rock_Op<"blockwise_fill", [AllElementTypesMatch<["memref", "value"]>]>,
+    Arguments<(ins AnyMemRef:$memref,
+                   AnyTypeOf<[AnyInteger, AnyFloat, AnyVector]>:$value,
+                   I32Attr:$blockSize)> {
+  let summary = "Fill memory with constant value on GPU";
+  let description = [{
+    The `rock.blockwise_fill` op fills a LDS memref on GPU with a constant value.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
+  let hasVerifier = 1;
+}
+
 def Rock_WorkgroupBarrierOp:
     Rock_Op<"workgroup_barrier"> {
   let summary = "Setup an workgroup barrier";

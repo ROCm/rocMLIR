@@ -1673,6 +1673,33 @@ LogicalResult ReduceOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// BlockwiseFillOp
+//===-----------------------------------------------------===//
+
+LogicalResult BlockwiseFillOp::verify() {
+  MemRefType memrefType = getMemref().getType();
+  if (memrefType.getRank() != 1) {
+    return emitError("Blockwise fill expects a flat memref");
+  }
+  if (gpu::AddressSpaceAttr memSpace =
+          memrefType.getMemorySpace()
+              .dyn_cast_or_null<gpu::AddressSpaceAttr>()) {
+    if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
+      return emitError("Memory space is expected to be workgroup");
+    }
+  } else {
+    return emitError("Memory space is expected to be workgroup");
+  }
+  int64_t numElements = getMemref().getType().getNumElements();
+  if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
+    if (numElements % vecType.getNumElements() != 0) {
+      return emitError("The vector length is not a factor in memref size.");
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
