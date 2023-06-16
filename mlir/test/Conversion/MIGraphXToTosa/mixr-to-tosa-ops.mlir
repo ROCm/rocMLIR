@@ -136,17 +136,19 @@ module  {
   }
 
   // CHECK-LABEL: func.func @where
-  func.func @where_f32(%arg0: tensor<64x64xi1>, %arg1: tensor<64x64xf32>, %arg2: tensor<64x64xf32>) -> tensor<64x64xf32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @where_f32(%arg0: tensor<64x64xi8>, %arg1: tensor<64x64xf32>, %arg2: tensor<64x64xf32>) -> tensor<64x64xf32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: tosa.cast
     // CHECK: tosa.select
-    %0 = migraphx.where(%arg0, %arg1, %arg2) : (tensor<64x64xi1>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
+    %0 = migraphx.where(%arg0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
     return %0 : tensor<64x64xf32>
   }
 
   // CHECK-LABEL: func.func @where_broadcast
-  func.func @where_broadcast(%arg0: tensor<64x1xi1>, %arg1: tensor<64x64xf16>, %arg2: tensor<64x64xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK: "tosa.select"(%arg0, %arg1, %arg2)
-    %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<64x1xi1>) -> tensor<64x64xi1>
-    %1 = migraphx.where(%0, %arg1, %arg2) : (tensor<64x64xi1>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
+  func.func @where_broadcast(%arg0: tensor<64x1xi8>, %arg1: tensor<64x64xf16>, %arg2: tensor<64x64xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: %[[CAST:.*]] = "tosa.cast"(%arg0)
+    // CHECK: "tosa.select"(%[[CAST]], %arg1, %arg2)
+    %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<64x1xi8>) -> tensor<64x64xi8>
+    %1 = migraphx.where(%0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
     return %1 : tensor<64x64xf16>
   }
 

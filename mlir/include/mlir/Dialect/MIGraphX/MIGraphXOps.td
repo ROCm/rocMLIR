@@ -117,9 +117,11 @@ def MIGraphX_PowOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+// Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
+// Keep that logic here.
 def MIGraphX_WhereOp :
     MIGraphX_Op<"where">,
-    Arguments<(ins TensorOf<[I1]>:$cond,
+    Arguments<(ins TensorOf<[I8]>:$cond,
       AnyRankedTensor:$inA,
       AnyRankedTensor:$inB)>,
     Results<(outs AnyRankedTensor:$output)> {

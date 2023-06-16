@@ -23,7 +23,10 @@ def : Pat<(MIGraphX_PowOp $input1, $input2), (Tosa_PowOp $input1, $input2)>;
 def : Pat<(MIGraphX_ClipOp $x, $mins, $maxs),
   (Tosa_MinimumOp (Tosa_MaximumOp $x, $mins, (returnType $x)), $maxs)>;
 def : Pat<(MIGraphX_WhereOp $cond, $input1, $input2),
-  (Tosa_SelectOp $cond, $input1, $input2)>;
+  (Tosa_SelectOp
+    (Tosa_CastOp $cond,
+      (returnType (NativeCodeCall<"cast<TensorType>($0.getType()).clone($_builder.getIntegerType(1))"> $cond))),
+    $input1, $input2)>;
 
 // Unary operators.
 def : Pat<(MIGraphX_AbsOp $input1), (Tosa_AbsOp $input1)>;
