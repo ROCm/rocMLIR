@@ -45,6 +45,16 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
                                                  {1, 4, 8, 16},
                                                  {0, 1}};
 
+  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  const std::vector<std::vector<uint32_t>> ValidRangeWmmaGemmParams = {
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {16, 32},
+      {4, 8, 16, 32, 64, 128},
+      {4, 8, 16, 32, 64, 128},
+      {16},
+      {0, 1}};
+
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
@@ -75,6 +85,29 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
         }
       }
     }
+  } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    // Wmma
+    const std::vector<std::vector<uint32_t>> &wmmaParams =
+        ValidRangeWmmaGemmParams;
+    for (uint32_t gemmMPerBlock : wmmaParams[0]) {
+      for (uint32_t gemmNPerBlock : wmmaParams[1]) {
+        for (uint32_t gemmKPerBlock : wmmaParams[2]) {
+          for (uint32_t gemmMPerWave : wmmaParams[3]) {
+            for (uint32_t gemmNPerWave : wmmaParams[4]) {
+              for (uint32_t gemmKPack : wmmaParams[5]) {
+                for (uint32_t forceUnroll : wmmaParams[6]) {
+                  WmmaGemmParamsAttr gemmParams = b.getAttr<WmmaGemmParamsAttr>(
+                      gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
+                      gemmMPerWave, gemmNPerWave, forceUnroll);
+                  newSpace->tuningRange.push_back(
+                      gemmParams.cast<RockTuningParamAttrInterface>());
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   } else {
     // Non-XDLOPS
     for (uint32_t blockSize : ValidRangeGeneralGemmParams[0]) {
@@ -83,7 +116,6 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmKPerBlock : ValidRangeGeneralGemmParams[3]) {
             for (uint32_t gemmMPerThread : ValidRangeGeneralGemmParams[4]) {
               for (uint32_t gemmNPerThread : ValidRangeGeneralGemmParams[5]) {
-
                 GeneralGemmParamsAttr gemmParams =
                     b.getAttr<GeneralGemmParamsAttr>(
                         blockSize, gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
