@@ -165,7 +165,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         op.getStoreMethodAttr(), blockSize, gridSize,
         params.cast<RockAccelTuningParamAttrInterface>());
     rw.eraseOp(op);
-
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
                               params.cast<GeneralGemmParamsAttr>());

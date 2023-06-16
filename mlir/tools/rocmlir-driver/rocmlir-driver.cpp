@@ -167,10 +167,10 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     rock::buildKernelPipeline(pm);
   }
   if (kernelPipelineSet.contains("rocdl")) {
-    pm.addPass(
-        createLowerGpuOpsToROCDLOpsPass(/*chipset=*/devName.getChip().str(),
-                                        /*indexBitWidth=*/32,
-                                        /*useBarePtrCallConv*/ barePointers));
+    pm.addPass(createLowerGpuOpsToROCDLOpsPass(
+        /*chipset=*/devName.getChip().str(),
+        /*indexBitWidth=*/32,
+        /*useBarePtrCallConv*/ barePointers));
   }
   if (kernelPipelineSet.contains("binary")) {
     // Set up the lowering pipeline which goes down to ELF Binary
