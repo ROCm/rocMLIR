@@ -114,6 +114,44 @@ module  {
     return %3 : tensor<1x64x112x112xf32>
   }
 
+  // CHECK-LABEL: func.func @clip_i32
+  func.func @clip_i32(%arg0: tensor<64x64xi32>, %arg1: tensor<64x64xi32>, %arg2: tensor<64x64xi32>) -> tensor<64x64xi32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %arg1)
+    // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %arg2)
+    // CHECK: return %[[MIN]]
+    %0 = migraphx.clip(%arg0, %arg1, %arg2) : (tensor<64x64xi32>, tensor<64x64xi32>, tensor<64x64xi32>) -> tensor<64x64xi32>
+    return %0 : tensor<64x64xi32>
+  }
+
+  // CHECK-LABEL: func.func @clip_broadcast
+  func.func @clip_broadcast(%arg0: tensor<64x64xf16>, %arg1: tensor<1x64xf16>, %arg2: tensor<1xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: %[[BCAST2:.*]] = "tosa.reshape"(%arg2) {new_shape = array<i64: 1, 1>}
+    // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %arg1)
+    // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %[[BCAST2]])
+    // CHECK: return %[[MIN]]
+    %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1x64xf16>) -> tensor<64x64xf16>
+    %1 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1xf16>) -> tensor<64x64xf16>
+    %2 = migraphx.clip(%arg0, %0, %1) : (tensor<64x64xf16>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
+    return %2 : tensor<64x64xf16>
+  }
+
+  // CHECK-LABEL: func.func @where
+  func.func @where_f32(%arg0: tensor<64x64xi8>, %arg1: tensor<64x64xf32>, %arg2: tensor<64x64xf32>) -> tensor<64x64xf32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: tosa.cast
+    // CHECK: tosa.select
+    %0 = migraphx.where(%arg0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
+    return %0 : tensor<64x64xf32>
+  }
+
+  // CHECK-LABEL: func.func @where_broadcast
+  func.func @where_broadcast(%arg0: tensor<64x1xi8>, %arg1: tensor<64x64xf16>, %arg2: tensor<64x64xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK: %[[CAST:.*]] = "tosa.cast"(%arg0)
+    // CHECK: "tosa.select"(%[[CAST]], %arg1, %arg2)
+    %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<64x1xi8>) -> tensor<64x64xi8>
+    %1 = migraphx.where(%0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
+    return %1 : tensor<64x64xf16>
+  }
+
   // CHECK-LABEL: func.func @func_reduce_mean_f32
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() {value = dense<1.120000e+02> : tensor<1xf32>} : () -> tensor<1xf32>
@@ -214,6 +252,13 @@ module {
   // CHECK: tosa.ceil
   func.func @func_ceil(%arg0: tensor<16xf32>) -> tensor<16xf32> {
     %0 = "migraphx.ceil"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
+     return %0 : tensor<16xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_convert
+  // CHECK: tosa.cast
+  func.func @func_convert(%arg0: tensor<16xf16>) -> tensor<16xf32> {
+    %0 = "migraphx.convert"(%arg0) : (tensor<16xf16>) -> tensor<16xf32>
      return %0 : tensor<16xf32>
   }
 

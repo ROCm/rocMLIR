@@ -20,10 +20,18 @@ def : Pat<(MIGraphX_AddOp $input1, $input2), (Tosa_AddOp $input1, $input2)>;
 def : Pat<(MIGraphX_SubOp $input1, $input2), (Tosa_SubOp $input1, $input2)>;
 def : Pat<(MIGraphX_MulOp $input1, $input2), (Tosa_MulOp $input1, $input2, ConstantAttr<I32Attr, "0">)>;
 def : Pat<(MIGraphX_PowOp $input1, $input2), (Tosa_PowOp $input1, $input2)>;
+def : Pat<(MIGraphX_ClipOp $x, $mins, $maxs),
+  (Tosa_MinimumOp (Tosa_MaximumOp $x, $mins, (returnType $x)), $maxs)>;
+def : Pat<(MIGraphX_WhereOp $cond, $input1, $input2),
+  (Tosa_SelectOp
+    (Tosa_CastOp $cond,
+      (returnType (NativeCodeCall<"cast<TensorType>($0.getType()).clone($_builder.getIntegerType(1))"> $cond))),
+    $input1, $input2)>;
 
 // Unary operators.
 def : Pat<(MIGraphX_AbsOp $input1), (Tosa_AbsOp $input1)>;
 def : Pat<(MIGraphX_CeilOp $input1), (Tosa_CeilOp $input1)>;
+def : Pat<(MIGraphX_ConvertOp $input1), (Tosa_CastOp $input1)>;
 def : Pat<(MIGraphX_ExpOp $input1), (Tosa_ExpOp $input1)>;
 def : Pat<(MIGraphX_ErfOp $input1), (Tosa_ErfOp $input1)>;
 def : Pat<(MIGraphX_FloorOp $input1), (Tosa_FloorOp $input1)>;
