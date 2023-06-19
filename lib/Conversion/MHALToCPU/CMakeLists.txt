@@ -11,7 +11,6 @@ add_mlir_conversion_library(MLIRMHALToCPU
   Core
 
   LINK_LIBS PUBLIC
-  MLIRAsyncDialect
   MLIRMHAL
   MLIRLLVMDialect
   MLIRTransforms

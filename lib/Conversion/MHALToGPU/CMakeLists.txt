@@ -11,7 +11,6 @@ add_mlir_conversion_library(MLIRMHALToGPU
   Core
 
   LINK_LIBS PUBLIC
-  MLIRAsyncDialect
   MLIRMHAL
   MLIRGPUOps
   MLIRLLVMDialect

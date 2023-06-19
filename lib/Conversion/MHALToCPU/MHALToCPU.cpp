@@ -98,6 +98,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
       } else {
 #endif
+      (*func)->removeAttr("mhal.targets");
 
       // Replace the original `async.execute` with a call to outlined
       // function.

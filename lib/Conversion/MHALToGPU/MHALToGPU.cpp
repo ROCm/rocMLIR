@@ -184,6 +184,8 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     auto func = *getCalledFunc(op);
     Location floc = func.getLoc();
 
+    func->removeAttr("mhal.targets");
+
     // 2. create dummy gpu.module for reference from gpu.launch_func
     //    - with gpu.binary, arch attributes
     //    - and gpu.func (referenced by gpu.launch_func
