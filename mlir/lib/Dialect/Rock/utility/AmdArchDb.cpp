@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/StringSwitch.h"
 
@@ -70,16 +71,17 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   GemmFeatures theseFeatures = defaultFeatures;
   bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
+  Type elementType = getElementTypeOrSelf(dataType);
   if (isWmma) {
-    Type elementType = dataType;
-    if (auto vectorType = dataType.dyn_cast<VectorType>())
-      elementType = vectorType.getElementType();
-    else if (auto memrefType = dataType.dyn_cast<MemRefType>())
-      elementType = memrefType.getElementType();
     if (!elementType.isF16() && !elementType.isBF16() &&
         !elementType.isInteger(8)) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
     }
+  }
+  bool isMfma = bitEnumContainsAll(theseFeatures, GemmFeatures::mfma);
+  if (isMfma && !hasFp8ConversionInstrs) {
+    if (dataType.isFloat8E4M3FNUZ() || dataType.isFloat8E5M2FNUZ())
+      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
   }
   return theseFeatures;
 }
