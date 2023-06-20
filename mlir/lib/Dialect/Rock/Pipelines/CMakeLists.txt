@@ -4,6 +4,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   LINK_LIBS PUBLIC
   MLIRAMDGPUTransforms
   MLIRGPUToROCDLTransforms
+  MLIRArithToAMDGPU
   MLIRTensorToLinalg
   MLIRTosaToArith
   MLIRTosaToRock
@@ -14,4 +15,6 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockToGPU
   MLIRRockOps
   MLIRRockTransforms
+  MLIRRockUtility
+  RocmlirFp8ExtToTables
 )
