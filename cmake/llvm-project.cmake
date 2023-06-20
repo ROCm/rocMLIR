@@ -61,6 +61,7 @@ list(APPEND LLVM_INCLUDE_DIRS
 
 # Linker flags
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${LLVM_BINARY_DIR}/llvm/lib")
+list(APPEND CMAKE_BUILD_RPATH "${LLVM_BINARY_DIR}/llvm/lib")
 
 add_subdirectory("${LLVM_PROJECT_DIR}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
 

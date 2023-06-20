@@ -158,9 +158,9 @@ static FailureOr<double> benchmarkKernel(const char *binary,
 }
 
 static FailureOr<rock::RockGemmWrapperInterface> extractKernel(ModuleOp op) {
-  if (!op->hasAttr("xmodel.arch")) {
+  if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
-        "no architecture set, set xmodel.arch on the input module");
+        "no architecture set, set mhal.arch on the input module");
   }
   rock::RockGemmWrapperInterface kernel;
   uint32_t nKernels = 0;
@@ -223,7 +223,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   RocmDeviceName deviceName;
   StringRef archName =
-      source->getAttrOfType<StringAttr>("xmodel.arch").getValue();
+      source->getAttrOfType<StringAttr>("mhal.arch").getValue();
   if (failed(deviceName.parse(archName)))
     return source->emitOpError("could not parse arch name: " + archName);
   rock::BackendOptions backendOpts;

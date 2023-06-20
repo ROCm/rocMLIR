@@ -16,7 +16,7 @@
 // NOTRC-DAG: #[[$mapC:.*]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
 // TRC-DAG:   #[[$mapC:.*]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1)>
 
-// CHECK: module attributes {xmodel.arch = "[[$ARCH:.*]]"}
+// CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 // CHECK-LABEL: func.func @rock_gemm
 // NOTRA-SAME: (%[[a:.*]]: memref<3x1024x769xf32>,
 // TRA-SAME:   (%[[a:.*]]: memref<3x769x1024xf32>,
@@ -24,7 +24,7 @@
 // TRB-SAME:   %[[b:.*]]: memref<3x512x769xf32>,
 // NOTRC-SAME: %[[c:.*]]: memref<3x1024x512xf32>)
 // TRC-SAME:   %[[c:.*]]: memref<3x512x1024xf32>)
-// CHECK-SAME: attributes {kernel, xmodel.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK-NEXT: rock.gemm
 // NOTRC-SAME: %[[c]] =
 // TRC-SAME:   tr %[[c]] =

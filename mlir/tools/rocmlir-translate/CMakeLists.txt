@@ -12,6 +12,9 @@ target_link_libraries(rocmlir-translate
   PRIVATE
   ${translation_libs}
   ${test_libs}
+  MLIRMHAL
+  MLIRMHALTransforms
+  MLIRMHALPipeline
   MLIRROCDLToLLVMIRTranslation
   GpuModuleToRocdlirTranslation
   )

@@ -7,7 +7,6 @@ add_rocmlir_public_c_api_library(MLIRCAPIMIGraphX
   MLIRMIGraphX
   MLIRMIGraphXPipeline
   MLIRRockPipeline
-  MLIRGPUTransforms
 )
 
 add_rocmlir_public_c_api_library(MLIRCAPIRock

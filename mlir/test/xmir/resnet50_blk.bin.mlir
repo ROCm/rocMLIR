@@ -1,8 +1,8 @@
-// RUN: rocmlir-driver -host-pipeline partition,highlevel,xmodel -kernel-pipeline full -targets gfx908 %s | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition,highlevel,mhal -kernel-pipeline full -targets gfx908 %s | FileCheck %s
 
 module {
-// CHECK: func.func private @resnet50__part_0(%arg0: memref<1x32x32x64xf32> {func.read_access}, %arg1: memref<64x3x3x64xf32> {func.read_access}, %arg2: memref<1x32x32x64xf32> {func.read_access}, %arg3: memref<1x32x32x64xf32> {func.write_access}) attributes {xmodel.targets = [{{.*}}]}
-// CHECK: func.func private @resnet50__part_1(%arg0: memref<1x32x32x64xf32> {func.read_access}, %arg1: memref<64x3x3x64xf32> {func.read_access}, %arg2: memref<1x32x32x64xf32> {func.write_access}) attributes {xmodel.targets = [{{.*}}]}
+// CHECK: func.func private @resnet50__part_0(%arg0: memref<1x32x32x64xf32> {func.read_access}, %arg1: memref<64x3x3x64xf32> {func.read_access}, %arg2: memref<1x32x32x64xf32> {func.read_access}, %arg3: memref<1x32x32x64xf32> {func.write_access}) attributes {mhal.targets = [{{.*}}]}
+// CHECK: func.func private @resnet50__part_1(%arg0: memref<1x32x32x64xf32> {func.read_access}, %arg1: memref<64x3x3x64xf32> {func.read_access}, %arg2: memref<1x32x32x64xf32> {func.write_access}) attributes {mhal.targets = [{{.*}}]}
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 
