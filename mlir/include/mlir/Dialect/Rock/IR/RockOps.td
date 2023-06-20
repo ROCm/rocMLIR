@@ -202,6 +202,43 @@ def Rock_ReduceOp :
   }];
 }
 
+def Rock_AttentionOp :
+  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale"]>]>,
+  Arguments<(ins
+    Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
+    Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
+    Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
+    Arg<TensorOrMemRefOf<[F32, F16]>, "scale", [MemRead]>:$scale,
+    Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
+    Rock_GemmFeaturesAttr:$features,
+    OptionalAttr<I32Attr>:$blockSize,
+    OptionalAttr<I32Attr>:$gridSize
+  )>,
+  Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
+  let summary = "Attention operation of transformer models";
+  let description = [{
+    Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
+
+    This operation performs attention mechanism of transformer models.
+
+    Those creating a `rock.attention` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `gridSize`, and `blockSize` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `attention` is
+    lowered into the `gridwise_attention` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict
+    `:` type(operands) (`->` type($result)^)?
+  }];
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+  }];
+}
+
 def Rock_ZeroInitKernelOp :
     Rock_Op<"zero_init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,

@@ -555,6 +555,99 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   }
 };
 
+struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
+  using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
+
+  FailureOr<Value> maybeSoftmaxNumerator(Value val) const {
+    tosa::ExpOp exp = val.getDefiningOp<tosa::ExpOp>();
+    if (!exp) {
+      return failure();
+    }
+    tosa::SubOp sub = exp.getInput1().getDefiningOp<tosa::SubOp>();
+    if (!sub) {
+      return failure();
+    }
+    tosa::ReduceMaxOp rmax = sub.getInput2().getDefiningOp<tosa::ReduceMaxOp>();
+    if (!rmax) {
+      return failure();
+    }
+    if (rmax.getInput() != sub.getInput1()) {
+      return failure();
+    }
+    return rmax.getInput();
+  }
+
+  FailureOr<Value> maybeSoftmaxDenominator(Value val) const {
+    tosa::ReduceSumOp rsum = val.getDefiningOp<tosa::ReduceSumOp>();
+    if (!rsum) {
+      return failure();
+    }
+    return maybeSoftmaxNumerator(rsum.getInput());
+  }
+
+  FailureOr<Value> maybeSoftmax(Value val) const {
+    tosa::MulOp mul = val.getDefiningOp<tosa::MulOp>();
+    if (!mul) {
+      return failure();
+    }
+    if (tosa::ReciprocalOp rec =
+            mul.getInput1().getDefiningOp<tosa::ReciprocalOp>()) {
+      return maybeSoftmaxDenominator(rec.getInput1());
+    } else if (tosa::ReciprocalOp rec =
+                   mul.getInput2().getDefiningOp<tosa::ReciprocalOp>()) {
+      return maybeSoftmaxDenominator(rec.getInput1());
+    } else {
+      return failure();
+    }
+  }
+
+  FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
+  getMatMulAndScaleInputs(tosa::MulOp scale) const {
+    if (tosa::MatMulOp mm = scale.getInput1().getDefiningOp<tosa::MatMulOp>()) {
+      return std::make_tuple(mm, scale.getInput2());
+    }
+    if (tosa::MatMulOp mm = scale.getInput2().getDefiningOp<tosa::MatMulOp>()) {
+      return std::make_tuple(mm, scale.getInput1());
+    }
+    return failure();
+  }
+
+  LogicalResult match(tosa::MatMulOp op) const override {
+    FailureOr<Value> softmaxInput = maybeSoftmax(op.getA());
+    if (failed(softmaxInput)) {
+      return failure();
+    }
+    if (tosa::MulOp scale = softmaxInput.value().getDefiningOp<tosa::MulOp>()) {
+      FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
+          scaledMatMul = getMatMulAndScaleInputs(scale);
+      if (succeeded(scaledMatMul)) {
+        return success();
+      }
+    }
+    return failure();
+  }
+
+  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value softmaxInput = maybeSoftmax(op.getA()).value();
+    tosa::MulOp scale = softmaxInput.getDefiningOp<tosa::MulOp>();
+    auto [firstMatMulOp, scaleInput] = getMatMulAndScaleInputs(scale).value();
+    auto outputType = op.getType().template cast<RankedTensorType>();
+    Value output = rewriter.create<bufferization::AllocTensorOp>(
+        loc, outputType, ValueRange{});
+    StringAttr arch;
+    Optional<uint32_t> num_cu;
+    rock::GemmFeatures features;
+    std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
+    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
+        loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
+        scaleInput, output, rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        /*blockSize=*/nullptr,
+        /*gridSize=*/nullptr);
+    rewriter.replaceOp(op, attnOp.getResult());
+  }
+};
+
 template <typename TosaReduceOp>
 typename std::enable_if_t<
     std::is_same<TosaReduceOp, tosa::ReduceSumOp>::value ||
@@ -670,5 +763,5 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
 
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<TransposeRewritePattern>(context);
+  patterns.add<AttentionRewritePattern, TransposeRewritePattern>(context);
 }
