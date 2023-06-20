@@ -57,57 +57,9 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     assert(op->getNumResults() == 1); // only 1 mhal.token
 
     if (auto func = getCalledFunc(op)) {
-#if 0
-      if (toCoroutine) {
-        // Collect all outlined function inputs.
-        SmallVector<mlir::Value> operands(launch->getOperands());
-
-        // Collect types for the outlined function inputs and outputs.
-        auto typesRange = llvm::map_range(
-                                          operands, [](Value value) { return value.getType(); });
-        SmallVector<Type, 4> inputTypes(typesRange.begin(), typesRange.end());
-        auto outputTypes = launch.getResultTypes();
-
-        auto funcType = FunctionType::get(ctx, inputTypes, outputTypes);
-        func.setType(funcType);
-
-        // insert tokens and awaits
-        auto *block = &func.front();
-        auto builder = ImplicitLocOpBuilder::atBlockBegin(loc, block);
-        for (auto pair : llvm::enumerate(launch.getDependencies())) {
-          auto dep = pair.value();
-          auto barg =
-            block->insertArgument(pair.index(), dep.getType(), dep.getLoc());
-          builder.create<AwaitOp>(barg);
-        }
-
-        // replace return with async.yield
-        for (Block &block : func.getBlocks()) {
-          Operation *terminator = block.getTerminator();
-          if (auto returnOp = dyn_cast<func::ReturnOp>(*terminator)) {
-            ImplicitLocOpBuilder builder(loc, returnOp);
-            builder.create<YieldOp>(returnOp.getOperands());
-            returnOp.erase();
-          }
-        }
-
-
-        // Adding entry/cleanup/suspend blocks.
-        CoroMachinery coro = buildCoroutineLogic(launch, func, operands);
-        return {func, coro};
-
-      } else {
-#endif
-      (*func)->removeAttr("mhal.targets");
-
       // Replace the original `async.execute` with a call to outlined
       // function.
       rw.create<func::CallOp>(loc, *func, op.getArgOperands());
-
-      // make dummy token
-      // auto retToken =
-      //   rw.create<RuntimeCreateOp>(TokenType::get(ctx)).getResult();
-      // cb.create<RuntimeSetAvailableOp>(retToken);
 
       Value empty;
       op->replaceAllUsesWith(ValueRange(empty));
@@ -156,4 +108,6 @@ void ConvertMHALToCPUPass::runOnOperation() {
 
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
+
+  op.walk([](func::FuncOp f) { f->removeAttr("mhal.targets"); });
 }
