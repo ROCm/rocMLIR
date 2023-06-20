@@ -189,7 +189,7 @@ def main(args=None):
     python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs --output=tuning_db.tsv
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
     python3 tuningRunner.py --op conv --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
-    python3 tuningRunner.py --op fusion -test_dir=../mlir/test/fusion/e2e/resnet50 --output=tuning_db.tsv
+    python3 tuningRunner.py --op fusion -test_dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
 
     """
     if args is None:
@@ -256,7 +256,7 @@ def main(args=None):
         help="How to verify the winning tuned kernel")
 
     parser.add_argument("--test_dir",
-        default="../mlir/test/fusion/e2e/resnet50",
+        default="../mlir/test/fusion/resnet50-e2e",
         type=str,
         help="fusion E2E tests directory")
 
