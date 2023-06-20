@@ -9,11 +9,13 @@
 #ifndef MLIR_DIALECT_MHAL_BUFFERIZABLEOPINTERFACEIMPL_H
 #define MLIR_DIALECT_MHAL_BUFFERIZABLEOPINTERFACEIMPL_H
 
-namespace mlir {
-class DialectRegistry;
+#include "mlir/IR/DialectRegistry.h"
 
+namespace mlir {
 namespace mhal {
+
 void registerBufferizableOpInterfaceExternalModels(DialectRegistry &registry);
+
 } // namespace mhal
 } // namespace mlir
 
