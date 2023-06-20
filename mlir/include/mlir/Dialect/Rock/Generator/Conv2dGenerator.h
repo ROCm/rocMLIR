@@ -33,7 +33,7 @@ public:
     std::string triple;
     std::string chipFeatures;
     std::string perfConfig;
-    int num_cu;
+    std::optional<int> num_cu;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
     std::string filterDataTypeStr;
@@ -62,7 +62,8 @@ public:
   Conv2dGenerator(
       const std::string &arch = "", const std::string &chip = "",
       const std::string &triple = "", const std::string &chipFeatures = "",
-      const std::string &perfConfig = "", int num_cu = 0,
+      const std::string &perfConfig = "",
+      std::optional<int> num_cu = std::nullopt,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
       const std::string &filterDataTypeStr = "f32",
@@ -136,6 +137,9 @@ public:
 
   // Utility function to fetch the size of workspace.
   LogicalResult getWorkspaceSize(ModuleOp &module, int &workspaceSize) const;
+
+  // Utility function to get the number of CU for the specific GPU
+  uint32_t getNumCU() const;
 
 private:
   template <typename Vector>

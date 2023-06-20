@@ -11,6 +11,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   Regularize.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
+  LayoutEmitter.cpp
   LoopsToCf.cpp
   ThreadwiseGemmLowering.cpp
   TransformToMemref.cpp

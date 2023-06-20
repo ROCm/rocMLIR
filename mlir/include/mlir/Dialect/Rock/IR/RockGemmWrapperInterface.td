@@ -102,6 +102,16 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           return $_op.getFeatures();
         }]
       >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the features attribute of this op.
+        }],
+        /*retType=*/"std::optional<uint32_t>",
+        /*methodName=*/"getNumCU",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/ ""
+      >,
 
     /// Setters for tuning-related data
     InterfaceMethod<

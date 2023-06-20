@@ -146,14 +146,15 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   for (auto i : dilation64)
     dilationArray.push_back(i);
 
+  IntegerAttr numCUAttr =
+      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
       rw.getI32ArrayAttr(paddingArray), rw.getI32ArrayAttr(strideArray),
       rw.getI32ArrayAttr(dilationArray),
-      /*params=*/nullptr,
-      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr);
+      /*params=*/nullptr, numCUAttr);
 
   // specify layout attributes
   SmallVector<StringAttr, 5> filterLayoutSpec;
@@ -344,13 +345,14 @@ public:
     setLastDims(transposeB, bShape, {kDim, nDim});
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
+    IntegerAttr numCUAttr =
+        num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
-        arch,
-        num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
-        rw.getAttr<rock::GemmFeaturesAttr>(features),
+        arch, numCUAttr, rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
-        /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+        /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+        /*params=*/nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       rockGemm->setAttr("perf_config", attr);

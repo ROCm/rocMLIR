@@ -83,9 +83,9 @@ func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : me
 func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
+    numCU = 64 : i32,
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
@@ -99,9 +99,9 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memr
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
+    numCU = 64 : i32,
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
@@ -180,6 +180,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
   rock.gridwise_gemm %C = %A * %B features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
+    numCU = 64 : i32,
     params = #rock.general_gemm_params<
       blockSize = 128,
       kPerBlock = 8,
@@ -201,6 +202,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
     arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
+    numCU = 64 : i32,
     params = #rock.xdlops_gemm_params<
       kpackPerBlock = 4,
       kpack = 4,

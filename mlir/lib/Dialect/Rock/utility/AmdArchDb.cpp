@@ -16,19 +16,21 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64,
+static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64, 80,
                                      /*hasFp8ConversionInstrs=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
-             /*waveSize=*/64, /*hasFp8ConversionInstrs=*/false),
+             /*waveSize=*/64, /*minNumCU=*/110,
+             /*hasFp8ConversionInstrs=*/false),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
-              /*waveSize=*/64, /*hasFp8ConversionInstrs=*/true),
-    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
+              /*waveSize=*/64, /*minNumCU=*/228,
+              /*hasFp8ConversionInstrs=*/true),
+    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32, 80,
                   /*hasFp8ConversionInstrs=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
-             /*waveSize=*/32, /*hasFp8ConversionInstrs=*/false),
+             /*waveSize=*/32, 80, /*hasFp8ConversionInstrs=*/false),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
-              /*waveSize=*/32, /*hasFp8ConversionInstrs=*/false);
+              /*waveSize=*/32, 96, /*hasFp8ConversionInstrs=*/false);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
@@ -47,7 +49,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         .Cases("08", "0a", cdnaInfo)
         .Cases("40", "41", "42", cdna3Info)
         // gfx906 has the dot product instructions, uniquely
-        .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64,
+        .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64, 10,
                                 /*hasFp8ConversionInstrs=*/false))
         .Default(gcnInfo);
   }

@@ -108,7 +108,7 @@ static llvm::cl::opt<int> num_cu(
     llvm::cl::desc("Number of compute units, valid combinations include: "
                    "gfx803(36/64), gfx900(56/64), "
                    "gfx906(60/64), gfx908(120)"),
-    llvm::cl::value_desc("compute unit value"), llvm::cl::init(64));
+    llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
@@ -837,7 +837,6 @@ static void populateDefaults() {
       paddingHeightRight = 0;
       paddingWidthLeft = 0;
       paddingWidthRight = 0;
-      num_cu = 120;
     }
   }
 
@@ -1870,12 +1869,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   b.setInsertionPointToStart(block);
   Value aVal = block->getArgument(0), bVal = block->getArgument(1),
         cVal = block->getArgument(2);
-  IntegerAttr numCuAttr = nullptr;
-  if (num_cu.getNumOccurrences() > 0)
-    numCuAttr = b.getI32IntegerAttr(num_cu);
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC, archAttr.getValue(), numCuAttr, params.features,
+      transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   if (!params.perfConfig.empty())
@@ -2891,10 +2889,12 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
     } else {
+
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
-          num_cu.getValue(), enabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
+          num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
+                                     : std::nullopt,
+          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilationHeight.getValue(),
           dilationWidth.getValue(), strideHeight.getValue(),

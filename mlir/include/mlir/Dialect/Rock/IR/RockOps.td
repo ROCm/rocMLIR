@@ -80,7 +80,7 @@ defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8];
 
 def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
-  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);
+  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution forward";
   let description = [{
@@ -95,8 +95,7 @@ def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes>
 
 def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 {
-  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu,
-                            IndexAttr:$kernelId);
+  dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward data";
   let description = [{
@@ -116,8 +115,7 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
-                            OptionalAttr<IndexAttr>:$kBlocks,
-                            I32Attr:$numCu);
+                            OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward weight";
   let description = [{
@@ -377,6 +375,7 @@ def Rock_GridwiseGemmOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
+                   I32Attr:$numCU,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
@@ -396,6 +395,7 @@ def Rock_GridwiseGemmAccelOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    StrAttr:$arch,
+                   I32Attr:$numCU,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
@@ -1229,12 +1229,12 @@ def Rock_BlockwiseBroadcastReduceOp:
     to fill all elements of the input tensor with reduced values. Note that both input/output
     tensors live in registers.
 
-    $input tensor resides in registers, where each thread holds a subset of the elements 
+    $input tensor resides in registers, where each thread holds a subset of the elements
     of the tensor as defined by $inputView.
 
-    $inputRegView should be a coordinate transform taking {tid, iter} (where iter is 
-    the register number in $input and tid is the ID of the lane within the workgroup 
-    and producing indices into a virtual tensor `{d0, ..., dR, ... dN} 
+    $inputRegView should be a coordinate transform taking {tid, iter} (where iter is
+    the register number in $input and tid is the ID of the lane within the workgroup
+    and producing indices into a virtual tensor `{d0, ..., dR, ... dN}
     which is spread across the lanes of the workgroup. Note that the reduction
     axis (Dr) is not sliced because it is not supported.
 
@@ -1243,7 +1243,7 @@ def Rock_BlockwiseBroadcastReduceOp:
     the input tensor.
 
     $workspace_buffer resides in LDS. This should be a flat tensor with at least
-    number of elements in the input tensor. 
+    number of elements in the input tensor.
   }];
   let assemblyFormat = [{
     $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)
