@@ -909,7 +909,7 @@ CallInterfaceCallable InvokeOp::getCallableForCallee() {
   return getOperand(0);
 }
 
-Operation::operand_range InvokeOp::getCallOperands() {
+Operation::operand_range InvokeOp::getArgOperands() {
   return getOperands().drop_front(getCallee().has_value() ? 0 : 1);
 }
 
@@ -1174,7 +1174,7 @@ CallInterfaceCallable CallOp::getCallableForCallee() {
   return getOperand(0);
 }
 
-Operation::operand_range CallOp::getCallOperands() {
+Operation::operand_range CallOp::getArgOperands() {
   return getOperands().drop_front(getCallee().has_value() ? 0 : 1);
 }
 

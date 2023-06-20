@@ -270,7 +270,7 @@ static void equivalenceAnalysis(func::FuncOp funcOp,
       if (!state.isInPlace(callOp->getOpOperand(bbargIdx)))
         continue;
       Value returnVal = callOp.getCallResults()[returnIdx];
-      Value argVal = callOp.getCallOperands()[bbargIdx];
+      Value argVal = callOp.getArgOperands()[bbargIdx];
       aliasInfo.unionEquivalenceClasses(returnVal, argVal);
     }
 

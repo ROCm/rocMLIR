@@ -41,15 +41,9 @@ def AsyncParallelFor : Pass<"async-parallel-for", "ModuleOp"> {
 }
 
 def AsyncToAsyncRuntime : Pass<"async-to-async-runtime", "ModuleOp"> {
-  let summary = "Lower high level async operations (e.g. async.execute) to the"
-                "explicit async.runtime and async.coro operations";
-  let options = [
-    Option<"enableCoroutines", "enable-coroutines",
-      "bool", /*default=*/"true",
-      "Dispatch async compute tasks using coroutines. If `false` "
-      "async compute tasks will be launched using simple call ops in the "
-      "caller thread.">,
-  ];
+  let summary = "Lower all high level async operations (e.g. async.execute) to"
+                "the explicit async.runtime and async.coro operations";
+  let constructor = "mlir::createAsyncToAsyncRuntimePass()";
   let dependentDialects = ["async::AsyncDialect", "func::FuncDialect"];
 }
 

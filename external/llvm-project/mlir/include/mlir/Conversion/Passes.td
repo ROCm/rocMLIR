@@ -155,16 +155,6 @@ def ConvertArmNeon2dToIntr : Pass<"arm-neon-2d-to-intr"> {
 }
 
 //===----------------------------------------------------------------------===//
-// XModelToGPU
-//===----------------------------------------------------------------------===//
-
-def ConvertXModelToGPU : Pass<"convert-xmodel-to-gpu", "ModuleOp"> {
-  let summary = "Convert the async.launch operations to the GPU dialect";
-  let constructor = "mlir::createConvertXModelToGPUPass()";
-  let dependentDialects = ["gpu::GPUDialect"];
-}
-
-//===----------------------------------------------------------------------===//
 // AsyncToLLVM
 //===----------------------------------------------------------------------===//
 

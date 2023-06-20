@@ -1,4 +1,4 @@
-//===- RocmSystemDetect.cpp - Detect ROCm devices -------------------------===//
+//===- SystemDevices.cpp - Manage system devices --------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the system detection of ROCm devices on the current
-// system.
+// This file implements the system device management.
 //
 //===----------------------------------------------------------------------===//
 
 #include "mlir/ExecutionEngine/SystemDevices.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -26,16 +23,18 @@
 using namespace mlir;
 
 static const char *getDeviceTypeStr(SystemDevice::Type type) {
-  return type == SystemDevice::Type::ECPU
-             ? "CPU"
-             : type == SystemDevice::Type::EGPU
-                   ? "GPU"
-                   : type == SystemDevice::Type::ENPU ? "NPU" : "ALT";
+  switch (type) {
+  case SystemDevice::Type::ECPU:
+    return "CPU";
+  case SystemDevice::Type::EGPU:
+    return "GPU";
+  case SystemDevice::Type::ENPU:
+    return "NPU";
+  default:
+    break;
+  }
+  return "ALT";
 }
-
-// SystemDevice::SystemDevice(Type _type, StringRef _triple, StringRef _chip,
-// llvm::StringMap<bool> _features)
-//     : type(_type), llvmTriple(_triple), chip(_chip), features(_features) {}
 
 LogicalResult SystemDevice::parse(StringRef arch) {
   StringRef maybeTriple, remainder;
