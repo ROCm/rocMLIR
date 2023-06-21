@@ -2558,13 +2558,23 @@ static LogicalResult populateHostHarnessLogic(
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
+  bool isFp8 = false;
+
+  if (!genParams.types.empty()) {
+    if (auto ftype = genParams.types[0].dyn_cast<FloatType>()) {
       isSmallFloatIn = ftype.getWidth() < 32;
+      isFp8 = ftype.isFloat8E4M3FNUZ() || ftype.isFloat8E5M2FNUZ();
+    }
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
 
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
+  if (isRandom && isFp8) {
+    llvm::errs() << "WARNING: Random values not supported for fp8, defaulting to -rand fixed\n";
+    randomSeed = "fixed";
+    isRandom = false;
+  }
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
