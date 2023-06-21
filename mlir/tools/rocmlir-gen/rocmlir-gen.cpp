@@ -2571,7 +2571,8 @@ static LogicalResult populateHostHarnessLogic(
 
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   if (isRandom && isFp8) {
-    llvm::errs() << "WARNING: Random values not supported for fp8, defaulting to -rand fixed\n";
+    llvm::errs() << "WARNING: Random values not supported for fp8, defaulting "
+                    "to -rand fixed\n";
     randomSeed = "fixed";
     isRandom = false;
   }
