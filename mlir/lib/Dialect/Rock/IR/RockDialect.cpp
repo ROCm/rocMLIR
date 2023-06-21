@@ -1677,7 +1677,7 @@ LogicalResult ReduceOp::verify() {
 // Blockwise_ReduceOp
 //===-----------------------------------------------------===//
 
-LogicalResult BlockwiseReduceOp::verify() {
+LogicalResult BlockwiseBroadcastReduceOp::verify() {
   ArrayAttr inputViewArrayAttr = getInputRegViewAttr();
   // This view should be {bid, tid, iter} to {bid, d0, ... , Dr , ... , dn};
   // Moreover, {bid, d0, ... , Dr , ... , dn} --> {D0, ... , Dr , ... , Dn}
@@ -1689,7 +1689,6 @@ LogicalResult BlockwiseReduceOp::verify() {
   ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
-  int64_t gridSize = getGridSize();
 
   gpu::AddressSpaceAttr inMemSpaceAttr =
       getInput()
@@ -1733,13 +1732,7 @@ LogicalResult BlockwiseReduceOp::verify() {
     }
   }
 
-  if (inputTensorShape[0] != gridSize) {
-    return emitError("first dim of the input tensor should bid");
-  }
-  if (inputThreadView[0] != gridSize) {
-    return emitError("first dim of the input thread should bid");
-  }
-  if (inputThreadView[1] != blockSize) {
+  if (inputThreadView[0] != blockSize) {
     return emitError("second dim of the input thread should tid");
   }
   if (wsShape.size() != 1) {
@@ -1747,7 +1740,7 @@ LogicalResult BlockwiseReduceOp::verify() {
   }
 
   int64_t blockwiseInputTensorElements = 1;
-  for (int64_t dimSize : inputTensorShape.slice(1)) {
+  for (int64_t dimSize : inputTensorShape) {
     blockwiseInputTensorElements *= dimSize;
   }
   if (blockwiseInputTensorElements > wsShape[0]) {

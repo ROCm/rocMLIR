@@ -1145,26 +1145,27 @@ def Rock_AccelGemmOp:
   let hasVerifier = 1;
 }
 
-// blockwise_reduction
-def Rock_BlockwiseReduceOp:
-    Rock_Op<"blockwise_reduce">,
+// blockwise_broadcasting_reduction
+def Rock_BlockwiseBroadcastReduceOp:
+    Rock_Op<"blockwise_broadcast_reduce">,
     Arguments<(ins MemRefOf<GemmOutputTypes>:$input,
                    MemRefOf<LdsBufferTypes>:$workspace_buffer,
                    MemRefOf<GemmOutputTypes>:$output,
                    IndexAttr:$axis,
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize
+                   I32Attr:$blockSize
                    )> {
-  let summary = "Blockwise reduce operation";
+  let summary = "Blockwise reduce operation with output broadcasting";
   let description = [{
-    The `rock.blockwise_reduce` op does reduce at a blockwise level.
+    The `rock.blockwise_broadcast_reduce` op does reduce at a blockwise level and
+    broadcast the reduce values to a size of input tensor. Note that both input/output
+    tensors live in registers.
 
     $input tensor resides in registers in threads.
 
-    $inputRegView should be register {bid, tid, iter}
-    to virtual tensor {bid, d0, ... , Dr , ... , dn} which is a slice of
+    $inputRegView should be register {tid, iter}
+    to virtual tensor {d0, ... , Dr , ... , dn} which is a slice of
     a larger tensor {D0, ... , Dr , ... , Dn}. Note that the reduction
     axis (Dr) is not sliced because it is not supported.
 
