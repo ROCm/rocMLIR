@@ -155,7 +155,7 @@ void AbstractSparseDataFlowAnalysis::visitBlock(Block *block) {
         return setAllToEntryStates(argLattices);
       for (Operation *callsite : callsites->getKnownPredecessors()) {
         auto call = cast<CallOpInterface>(callsite);
-        for (auto it : llvm::zip(call.getCallOperands(), argLattices))
+        for (auto it : llvm::zip(call.getArgOperands(), argLattices))
           join(std::get<1>(it), *getLatticeElementFor(block, std::get<0>(it)));
       }
       return;

@@ -14,6 +14,9 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${rocmlir_conversion_libs}
     ${rocmlir_test_libs}
     LLVMX86AsmParser
+    MLIRMHAL
+    MLIRMHALTransforms
+    MLIRMHALPipeline
     MLIRParser
     MLIRRocmExecutionEngineUtils
     MLIRJitRunner

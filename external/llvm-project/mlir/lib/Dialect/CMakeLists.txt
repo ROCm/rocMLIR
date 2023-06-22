@@ -34,7 +34,6 @@ add_subdirectory(Transform)
 add_subdirectory(Utils)
 add_subdirectory(Vector)
 add_subdirectory(X86Vector)
-add_subdirectory(XModel)
 
 set(LLVM_OPTIONAL_SOURCES
   Traits.cpp

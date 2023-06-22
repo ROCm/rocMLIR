@@ -66,7 +66,7 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
         Returns the operands within this call that are used as arguments to the
         callee.
       }],
-      "::mlir::Operation::operand_range", "getCallOperands"
+      "::mlir::Operation::operand_range", "getArgOperands"
     >,
     InterfaceMethod<
       /*desc=*/[{

@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -15,7 +14,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include <optional>
 
 namespace mlir {
@@ -92,20 +90,6 @@ getBufferizedFunctionArgType(FuncOp funcOp, int64_t index,
       layoutAttr.getValue(), rankedMemrefType.getMemorySpace());
 }
 
-/// Return the actual call operand index corresponding to the func operand.
-static unsigned getCallOperandIdx(CallOpInterface callOp, unsigned funcIdx) {
-  auto operands = callOp.getCallOperands();
-  if (operands.size() != callOp->getOperands().size()) {
-    // Search for the value
-    for (const auto &it : llvm::enumerate(callOp->getOperands())) {
-      if (it.value() == operands[funcIdx])
-        return it.index();
-    }
-    assert(0 && "not found!?");
-  }
-  return funcIdx;
-}
-
 /// Return the FuncOp called by `callOp`.
 static FuncOp getCalledFunction(CallOpInterface callOp) {
   SymbolRefAttr sym = callOp.getCallableForCallee().dyn_cast<SymbolRefAttr>();
@@ -159,12 +143,12 @@ getEquivalentFuncArgIdx(FuncOp funcOp, const FuncAnalysisState &state,
   return retValIt->getSecond();
 }
 
-template <typename T>
 struct CallOpInterface
-    : public BufferizableOpInterface::ExternalModel<CallOpInterface<T>, T> {
+    : public BufferizableOpInterface::ExternalModel<CallOpInterface,
+                                                    func::CallOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
+    func::CallOp callOp = cast<func::CallOp>(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
 
@@ -179,7 +163,7 @@ struct CallOpInterface
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
+    func::CallOp callOp = cast<func::CallOp>(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
 
@@ -194,7 +178,7 @@ struct CallOpInterface
 
   SmallVector<OpResult> getAliasingOpResult(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
+    func::CallOp callOp = cast<func::CallOp>(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     if (getFuncOpAnalysisState(state, funcOp) !=
@@ -214,15 +198,14 @@ struct CallOpInterface
             opOperand.getOperandNumber());
     SmallVector<OpResult> result;
     for (int64_t resultIdx : aliasingReturnVals)
-      result.push_back(
-          callOp->getOpResult(getCallOperandIdx(callOp, resultIdx)));
+      result.push_back(callOp->getOpResult(resultIdx));
     return result;
   }
 
   SmallVector<OpOperand *>
   getAliasingOpOperand(Operation *op, OpResult opResult,
                        const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
+    func::CallOp callOp = cast<func::CallOp>(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     if (getFuncOpAnalysisState(state, funcOp) !=
@@ -241,8 +224,7 @@ struct CallOpInterface
         opResult.getResultNumber());
     SmallVector<OpOperand *> result;
     for (int64_t bbArgIdx : aliasingFuncArgs)
-      result.push_back(
-          &callOp->getOpOperand(getCallOperandIdx(callOp, bbArgIdx)));
+      result.push_back(&callOp->getOpOperand(bbArgIdx));
     return result;
   }
 
@@ -278,11 +260,9 @@ struct CallOpInterface
   /// CallOp to insert buffer copies where necessary.
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
-    mlir::CallOpInterface callOp(op);
-    auto callOperands = callOp.getCallOperands();
-    auto callResultTypes = callOp.getCallResultTypes();
+    func::CallOp callOp = cast<func::CallOp>(op);
+    unsigned numResults = callOp.getNumResults();
     unsigned numOperands = callOp->getNumOperands();
-    unsigned numResults = callOp->getNumResults();
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     FunctionType funcType = funcOp.getFunctionType();
@@ -300,39 +280,29 @@ struct CallOpInterface
     SmallVector<Value> newOperands(numOperands, Value());
 
     // 1. Compute the result types of the new CallOp.
-    unsigned funcResultIdx = 0;
-    for (const auto &it : llvm::enumerate(callOp->getResultTypes())) {
+    for (const auto &it : llvm::enumerate(callOp.getResultTypes())) {
       unsigned returnValIdx = it.index();
       Type returnType = it.value();
       if (!returnType.isa<TensorType>()) {
         // Non-tensor values are returned.
         retValMapping[returnValIdx] = resultTypes.size();
         resultTypes.push_back(returnType);
-        if (returnType == callResultTypes[funcResultIdx])
-          funcResultIdx++;
         continue;
       }
-      assert(returnType == callResultTypes[funcResultIdx]);
 
+      // Returning a memref.
       retValMapping[returnValIdx] = resultTypes.size();
-      resultTypes.push_back(funcType.getResult(funcResultIdx));
-      funcResultIdx++;
+      resultTypes.push_back(funcType.getResult(resultTypes.size()));
     }
 
     // 2. Rewrite tensor operands as memrefs based on `bufferizedFuncType`.
-    unsigned funcOperandIdx = 0;
     for (OpOperand &opOperand : callOp->getOpOperands()) {
       unsigned idx = opOperand.getOperandNumber();
       Value tensorOperand = opOperand.get();
+
       // Non-tensor operands are just copied.
-      if (tensorOperand.getType().isa<async::TokenType>()) {
-        newOperands[idx] = tensorOperand;
-        continue;
-      }
       if (!tensorOperand.getType().isa<TensorType>()) {
         newOperands[idx] = tensorOperand;
-        if (tensorOperand == callOperands[funcOperandIdx])
-          funcOperandIdx++;
         continue;
       }
 
@@ -347,8 +317,7 @@ struct CallOpInterface
       }
 
       // Caller / callee type mismatch is handled with a CastOp.
-      // auto memRefType = funcType.getInput(idx);
-      auto memRefType = funcType.getInput(funcOperandIdx);
+      auto memRefType = funcType.getInput(idx);
       // Since we don't yet have a clear layout story, to_memref may
       // conservatively turn tensors into more dynamic memref than necessary.
       // If the memref type of the callee fails, introduce an extra memref.cast
@@ -363,13 +332,12 @@ struct CallOpInterface
         buffer = castBuffer;
       }
       newOperands[idx] = buffer;
-      funcOperandIdx++;
     }
 
     // 3. Create the new CallOp.
-    Operation *newCallOp =
-        callOp.clone(rewriter, callOp.getLoc(), resultTypes, newOperands);
-
+    Operation *newCallOp = rewriter.create<func::CallOp>(
+        callOp.getLoc(), funcOp.getSymName(), resultTypes, newOperands);
+    newCallOp->setAttrs(callOp->getAttrs());
     // Get replacement values.
     for (unsigned i = 0; i < replacementValues.size(); ++i) {
       if (replacementValues[i])
@@ -552,13 +520,8 @@ struct FuncOpInterface
 void mlir::bufferization::func_ext::
     registerBufferizableOpInterfaceExternalModels(DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, func::FuncDialect *dialect) {
-    func::CallOp::attachInterface<func_ext::CallOpInterface<func::CallOp>>(
-        *ctx);
+    func::CallOp::attachInterface<func_ext::CallOpInterface>(*ctx);
     func::FuncOp::attachInterface<func_ext::FuncOpInterface>(*ctx);
     func::ReturnOp::attachInterface<func_ext::ReturnOpInterface>(*ctx);
-  });
-  registry.addExtension(+[](MLIRContext *ctx, async::AsyncDialect *dialect) {
-    async::LaunchOp::attachInterface<
-        func_ext::CallOpInterface<async::LaunchOp>>(*ctx);
   });
 }

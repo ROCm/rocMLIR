@@ -53,7 +53,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
 
-  // TOSA conversion to rock and/or linalg with async.launch's
+  // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform

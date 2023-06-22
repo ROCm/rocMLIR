@@ -12,12 +12,12 @@
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
-#include "mlir/Dialect/XModel/IR/XModel.h"
-#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
@@ -144,7 +144,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   if (arch.empty() && needArch) {
     llvm::errs()
         << "Architecture not specified for this pipeline, but one is required\n"
-        << "Use --arch or set xmodel.arch\n";
+        << "Use --arch or set mhal.arch\n";
     return failure();
   }
   if (failed(devName.parse(arch)) && needArch) {
@@ -252,7 +252,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
-                                                     "xmodel", "runner"};
+                                                     "mhal", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
@@ -264,9 +264,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
     applyPassManagerCLOptions(pm);
 
-    xmodel::GraphOptions opts;
+    mhal::GraphOptions opts;
     opts.targets = targetList;
-    xmodel::buildGraphPipeline(pm, opts);
+    mhal::buildGraphPipeline(pm, opts);
 
     if (failed(pm.run(module))) {
       return failure();
@@ -289,7 +289,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
     module->walk([&](ModuleOp kernelModule) {
-      auto archAttr = kernelModule->getAttrOfType<StringAttr>("xmodel.arch");
+      auto archAttr = kernelModule->getAttrOfType<StringAttr>("mhal.arch");
       hasKernels |= (bool)archAttr;
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
@@ -300,9 +300,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (!hasKernels) {
       // If no sub-modules, run KernelPipeline on top-level module
       if (onlyArch.empty()) {
-        if (module->hasAttrOfType<StringAttr>("xmodel.arch")) {
-          onlyArch =
-              module->getAttrOfType<StringAttr>("xmodel.arch").getValue();
+        if (module->hasAttrOfType<StringAttr>("mhal.arch")) {
+          onlyArch = module->getAttrOfType<StringAttr>("mhal.arch").getValue();
         }
       }
       targetArch = onlyArch;
@@ -342,28 +341,28 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  // Run XModel generation on the top module
-  if (hostPipelineSet.contains("xmodel")) {
+  // Run MHAL generation on the top module
+  if (hostPipelineSet.contains("mhal")) {
     PassManager pm(module.getContext());
     applyPassManagerCLOptions(pm);
-    xmodel::buildPackagePipeline(pm);
+    mhal::buildPackagePipeline(pm);
     if (failed(pm.run(module))) {
       return failure();
     }
   }
 
   // Run host code lowering that makes the result of this operation accetable
-  // to mlir-cpu-runner. Explicitly aborts in the case of multiple xmodel
+  // to mlir-cpu-runner. Explicitly aborts in the case of multiple mhal
   // targets to prevent confusing behavior.
   if (hostPipelineSet.contains("runner")) {
     if (targetList.size() > 1) {
-      llvm::errs() << "Expected at most one xmodel target when compling from "
+      llvm::errs() << "Expected at most one mhal target when compling from "
                       "within rocmlir-driver\n";
       return failure();
     }
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
     applyPassManagerCLOptions(pm);
-    xmodel::RunnerOptions runnerOptions;
+    mhal::RunnerOptions runnerOptions;
     runnerOptions.barePtrMemrefs = barePointers.getValue();
     runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
     SmallVector<std::string, 4> targetTypes{"GPU"};
@@ -371,7 +370,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     targetArchs.push_back(targetArch.str());
     runnerOptions.targetTypes = targetTypes;
     runnerOptions.targetArchs = targetArchs;
-    xmodel::buildRunnerPipeline(pm, runnerOptions);
+    mhal::buildRunnerPipeline(pm, runnerOptions);
     if (failed(pm.run(module)))
       return failure();
   }
@@ -386,11 +385,10 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
   MLIRContext context(registry);
-  context
-      .loadDialect<xmodel::XModelDialect, rock::RockDialect, func::FuncDialect,
-                   scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-                   math::MathDialect, arith::ArithDialect, gpu::GPUDialect,
-                   bufferization::BufferizationDialect, async::AsyncDialect>();
+  context.loadDialect<mhal::MHALDialect, rock::RockDialect, func::FuncDialect,
+                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+                      math::MathDialect, arith::ArithDialect, gpu::GPUDialect,
+                      bufferization::BufferizationDialect, mhal::MHALDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 

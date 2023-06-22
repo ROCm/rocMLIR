@@ -81,7 +81,7 @@ def CallOp : Func_Op<"call",
     FunctionType getCalleeType();
 
     /// Get the argument operands to the called function.
-    operand_range getCallOperands() {
+    operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
 
@@ -145,7 +145,7 @@ def CallIndirectOp : Func_Op<"call_indirect", [
     ValueRange operands() { return getCalleeOperands(); }
 
     /// Get the argument operands to the called function.
-    operand_range getCallOperands() {
+    operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
 

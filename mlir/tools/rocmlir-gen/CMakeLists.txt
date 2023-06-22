@@ -8,6 +8,9 @@ get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
+  MLIRMHAL
+  MLIRMHALTransforms
+  MLIRMHALPipeline
   )
 
 add_llvm_executable(rocmlir-gen

@@ -47,8 +47,8 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/InitMHALDialects.h"
 
 namespace mlir {
 
@@ -70,8 +70,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   vector::VectorDialect,
                   ROCDL::ROCDLDialect,
                   tensor::TensorDialect,
-                  tosa::TosaDialect,
-                  xmodel::XModelDialect>();
+                  tosa::TosaDialect>();
   // clang-format on
 
   // Register bufferization hooks for rock interfaces
@@ -97,6 +96,9 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
 inline void registerRocMLIRDialects(DialectRegistry &registry) {
   // Register rocMLIR specific dialects
   registry.insert<rock::RockDialect, migraphx::MIGraphXDialect>();
+
+  // Register MHAL dialect
+  registerMHALDialects(registry);
 
   // Register auxiliary Upstream dialects
   registerUpstreamDialects(registry);

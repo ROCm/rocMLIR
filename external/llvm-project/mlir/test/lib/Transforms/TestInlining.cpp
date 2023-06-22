@@ -53,7 +53,7 @@ struct Inliner : public PassWrapper<Inliner, OperationPass<func::FuncOp>> {
       // Inline the functional region operation, but only clone the internal
       // region if there is more than one use.
       if (failed(inlineRegion(
-              interface, &callee.getBody(), caller, caller.getCallOperands(),
+              interface, &callee.getBody(), caller, caller.getArgOperands(),
               caller.getResults(), caller.getLoc(),
               /*shouldCloneInlinedRegion=*/!callee.getResult().hasOneUse())))
         continue;

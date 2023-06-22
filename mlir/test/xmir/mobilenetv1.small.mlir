@@ -5,13 +5,13 @@ module {
 // CHECK:  func.func private @mobilenetv1__part_0(%arg0: tensor<1x112x112x32xf32> {func.read_access}, %arg1: tensor<64x1x1x32xf32> {func.read_access}) -> (tensor<1x112x112x64xf32> {func.write_access}) {
 // CHECK:  func.func private @mobilenetv1__part_1(%arg0: tensor<1x112x112x32xf32> {func.read_access}, %arg1: tensor<3x3x32x1xf32> {func.read_access}) -> (tensor<1x112x112x32xf32> {func.write_access}) {
 // CHECK:  func.func @mobilenetv1(%arg0: tensor<1x112x112x32xf32>, %arg1: tensor<32x3x3x3xf32>, %arg2: tensor<3x3x32x1xf32>, %arg3: tensor<64x1x1x32xf32>) -> tensor<1x112x112x64xf32> {
-// CHECK:    %[[T0:.*]], %[[RES0:.*]] = async.launch @mobilenetv1__part_1 (%arg0, %arg2) : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>) -> tensor<1x112x112x32xf32>
-// CHECK:    %[[T1:.*]], %[[RES1:.*]] = async.launch @mobilenetv1__part_0
+// CHECK:    %[[T0:.*]], %[[RES0:.*]] = mhal.launch @mobilenetv1__part_1 (%arg0, %arg2) : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>) -> tensor<1x112x112x32xf32>
+// CHECK:    %[[T1:.*]], %[[RES1:.*]] = mhal.launch @mobilenetv1__part_0
 // CHECK-SAME:[%[[T0]]]
 // CHECK-SAME:(%[[RES0]]
 // CHECK-SAME: %arg3) : (tensor<1x112x112x32xf32>, tensor<64x1x1x32xf32>) -> tensor<1x112x112x64xf32>
 
-// CHECK:    async.await %[[T1]] : !async.token
+// CHECK:    mhal.await %[[T1]] : !mhal.token
 
   // TOSA Model Func
   func.func @mobilenetv1(%input_image: tensor<1x112x112x32xf32>, %f0: tensor<32x3x3x3xf32>, %f1: tensor<3x3x32x1xf32>, %f2: tensor<64x1x1x32xf32>) -> tensor<1x112x112x64xf32> {
