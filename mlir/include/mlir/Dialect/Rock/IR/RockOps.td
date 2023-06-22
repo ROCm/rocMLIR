@@ -1159,24 +1159,24 @@ def Rock_BlockwiseBroadcastReduceOp:
   let summary = "Blockwise reduce operation with output broadcasting";
   let description = [{
     The `rock.blockwise_broadcast_reduce` op does reduce at a blockwise level and
-    broadcast the reduce values to a size of input tensor. Note that both input/output
+    to fill all elements of the input tensor with reduced values. Note that both input/output
     tensors live in registers.
 
-    $input tensor resides in registers in threads.
+    $input tensor resides in registers, where each thread holds a subset of the elements 
+    of the tensor as defined by $inputView.
 
-    $inputRegView should be register {tid, iter}
-    to virtual tensor {d0, ... , Dr , ... , dn} which is a slice of
-    a larger tensor {D0, ... , Dr , ... , Dn}. Note that the reduction
+    $inputRegView should be a coordinate transform taking {tid, iter} (where iter is 
+    the register number in $input and tid is the ID of the lane within the workgroup 
+    and producing indices into a virtual tensor `{d0, ..., dR, ... dN} 
+    which is spread across the lanes of the workgroup. Note that the reduction
     axis (Dr) is not sliced because it is not supported.
 
-    $output tensor resides in registers in threads. It would have
-    the same dimensionality of the input tensor but broadcasted.
-    So the users of the op, has to add a extraView if they are writing back
-    to some memory (LDS/Global) to bar threads (or iteration within threads)
-    to not to create a broadcasted tensor.
+    $output tensor resides in registers. It would be of same shape as the input
+    tensor because the reduced value will be broadcasted to create the same shape as
+    the input tensor.
 
     $workspace_buffer resides in LDS. This should be a flat tensor with at least
-    with number of items per block.
+    number of elements in the input tensor. 
   }];
   let assemblyFormat = [{
     $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)

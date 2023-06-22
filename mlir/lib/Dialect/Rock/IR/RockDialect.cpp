@@ -1679,11 +1679,9 @@ LogicalResult ReduceOp::verify() {
 
 LogicalResult BlockwiseBroadcastReduceOp::verify() {
   ArrayAttr inputViewArrayAttr = getInputRegViewAttr();
-  // This view should be {bid, tid, iter} to {bid, d0, ... , Dr , ... , dn};
-  // Moreover, {bid, d0, ... , Dr , ... , dn} --> {D0, ... , Dr , ... , Dn}
-  // should not be a part of this view where the latter is the larger
-  // input tensors that being reduced accross blocks.
-
+  // This view should be {tid, iter} to {d0, ... , Dr , ... , dn};
+  // where {d0, ... , Dr , ... , dn} represent a blockwise tile
+  // of a larger tensor that is being reduced.
   TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
   ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
   ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
@@ -1733,7 +1731,8 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
 
   if (inputThreadView[0] != blockSize) {
-    return emitError("second dim of the input thread should tid");
+    return emitError(
+        "first dimension of the input view should be equal to the block size");
   }
   if (wsShape.size() != 1) {
     return emitError("workspace LDS buffer should be flat");

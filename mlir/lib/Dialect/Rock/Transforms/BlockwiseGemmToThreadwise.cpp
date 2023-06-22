@@ -954,8 +954,8 @@ struct BlockwiseReduceRewritePattern
   // [D0, ... , Dr , ... , DN] --> [nrtid, rtid, rIter] where
   // nrtid = tid / product(non-reduction dims) is a reduction subgroup leader.
   // rtid = tid % product(non-reduction dims) is thread idx within a reduction
-  // subgroup. | rtid | is the number of threads that'd participate in a
-  // reduction
+  // subgroup. Size of the dimension 'rtid' is the number of threads
+  // that'd participate in the reduction
   ArrayAttr createThreadViewforNRSmallerThanThreads(
       Location loc, ArrayRef<int64_t> toReduceShape, int64_t blockSize,
       size_t reduceAxis, PatternRewriter &rewriter) const {
@@ -975,9 +975,9 @@ struct BlockwiseReduceRewritePattern
     TransformMapAttr mergeTrMap = threadsToTensor.get();
 
     threadsToTensor = BottomUpTMBuilder::above(threadsToTensor, mergeTrMap);
-    // Distribute threads that is extra than nonReduceMergeDimSize and use them
-    // for reductions. This is a floor because max threads per non-reduction
-    // axes and we use remaining for reductions.
+    // If this function is being called, then the number of threads is larger
+    // than the product of non reduction dimensions. Therefore, we create thread
+    // groups (rthreads) per a point in merge(non reduction dimensions).
     int64_t rthreads = blockSize / nonReduceMergeDimSize;
     int64_t rDimPerRThread =
         (toReduceShape[reduceAxis] + (rthreads - 1)) / rthreads;
