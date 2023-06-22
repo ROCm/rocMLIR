@@ -54,25 +54,28 @@ int main(int argc, char **argv) {
   rocblas_operation blasTransA, blasTransB;
   size_t lda, ldb;
 
-  // Please note: rocMLIR is using a row-major format
-  // to store matrices, while rocBLAS is using a
-  // column-major format. This means that transposition concepts are
-  // inverted
-  if (!args.transposeA) {
+  // Please note: MIGraphx and MLIR are using row-major format
+  // to store matrices, while rocBLAS is using a colum-major format.
+  // To be compliant to rocBLAS format, MIGraphx swaps the inputs
+  // and tells rocBLAS that B is nxk and A is kxm. So the result
+  // will be a nxm matrix stored in colum-major order. We can simply
+  // recover the original matrix C by reading the matrix in a row-major
+  // way.
+  if (args.transposeA) {
     blasTransA = rocblas_operation_transpose;
-    lda = args.gemmK;
+    lda = args.gemmM;
   } else {
     blasTransA = rocblas_operation_none;
-    lda = args.gemmM;
+    lda = args.gemmK;
   }
-  if (!args.transposeB) {
+  if (args.transposeB) {
     blasTransB = rocblas_operation_transpose;
-    ldb = args.gemmN;
+    ldb = args.gemmK;
   } else {
     blasTransB = rocblas_operation_none;
-    ldb = args.gemmK;
+    ldb = args.gemmN;
   }
-  size_t ldc = args.gemmM;
+  size_t ldc = args.gemmN;
 
   size_t strideA = args.gemmM * args.gemmK, strideB = args.gemmK * args.gemmN,
          strideC = args.gemmM * args.gemmN;
@@ -106,16 +109,16 @@ int main(int argc, char **argv) {
   for (int i = 0, e = args.kernelRepeats; i < e; ++i)
     if (args.gemmG == 1) {
       ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_ex(
-          handle, blasTransA, blasTransB, args.gemmM, args.gemmN, args.gemmK,
-          alpha, aDevice, inType, lda, bDevice, inType, ldb, beta, cDevice,
-          outType, ldc, cDevice, outType, ldc,
+          handle, rocblas_operation_none, rocblas_operation_none, args.gemmN,
+          args.gemmM, args.gemmK, alpha, bDevice, inType, ldb, aDevice, inType,
+          lda, beta, cDevice, outType, ldc, cDevice, outType, ldc,
           /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
           rocblas_gemm_flags_none));
 
     } else {
       ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_strided_batched_ex(
-          handle, blasTransA, blasTransB, args.gemmM, args.gemmN, args.gemmK,
-          alpha, aDevice, inType, lda, strideA, bDevice, inType, ldb, strideB,
+          handle, blasTransB, blasTransA, args.gemmN, args.gemmM, args.gemmK,
+          alpha, bDevice, inType, ldb, strideB, aDevice, inType, lda, strideA,
           beta, cDevice, outType, ldc, strideC, cDevice, outType, ldc, strideC,
           args.gemmG,
           /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
