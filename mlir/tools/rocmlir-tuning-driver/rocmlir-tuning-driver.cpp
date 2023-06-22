@@ -288,13 +288,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
 
-    // Extract binary anb benchmark
+    // Extract binary and benchmark
     std::string hipModule;
-    tuneCopy.walk([&hipModule](gpu::GPUModuleOp op) {
-      hipModule = op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
-      return WalkResult::interrupt();
+    tuneCopy.walk([&hipModule, &kernelFuncName](gpu::GPUModuleOp op) {
+      std::string moduleName = op.getName().str();
+      if (moduleName == kernelFuncName + "_module") {
+        hipModule =
+            op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
     });
-
     FailureOr<double> timing = benchmarkKernel(
         hipModule.c_str(), kernelFuncName.c_str(), blockSize, gridSize,
         dataType, hostBuffers, gpuBuffers, bufferLengths);
