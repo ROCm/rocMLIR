@@ -297,6 +297,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
         return WalkResult::interrupt();
       }
+      llvm::errs() << "Ignoring utility kernels, benchmark times will not "
+                      "match performance tests\n";
       return WalkResult::advance();
     });
     FailureOr<double> timing = benchmarkKernel(
