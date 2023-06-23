@@ -371,6 +371,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     runnerOptions.targetTypes = targetTypes;
     runnerOptions.targetArchs = targetArchs;
     mhal::buildRunnerPipeline(pm, runnerOptions);
+    pm.addPass(LLVM::createSoftwareBF16Pass());
     if (failed(pm.run(module)))
       return failure();
   }

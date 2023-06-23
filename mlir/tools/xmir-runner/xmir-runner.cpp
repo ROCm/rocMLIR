@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -88,6 +89,7 @@ static LogicalResult runMLIRPasses(Operation *m, JitRunnerOptions &options) {
   opts.targetArchs = targetArchs;
 
   mhal::buildRunnerPipeline(pm, opts);
+  pm.addPass(LLVM::createSoftwareBF16Pass());
 
   return pm.run(m);
 }
