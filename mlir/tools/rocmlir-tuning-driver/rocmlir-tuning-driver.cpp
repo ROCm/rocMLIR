@@ -343,7 +343,7 @@ int main(int argc, char **argv) {
 
   ModuleOp module;
   WalkResult findModule = source->walk([&](ModuleOp op) -> WalkResult {
-    if (op->hasAttr("xmodel.arch")) {
+    if (op->hasAttr("mhal.arch")) {
       module = op;
       return WalkResult::interrupt();
     }
@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
   });
   if (!findModule.wasInterrupted()) {
     source->emitOpError(
-        "no architecture set, set xmodel.arch on the input module");
+        "no architecture set, set mhal.arch on the input module");
     llvm::errs() << "Tuning loop failed\n";
     return EXIT_FAILURE;
   }
