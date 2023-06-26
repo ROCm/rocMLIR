@@ -30,7 +30,7 @@
 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -transA false -transB false -g 1 -m 384 -n 2 -k 768
 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--transA false -transB false -g 1 -m 384 -n 768 -k 3072 
+-transA false -transB false -g 1 -m 384 -n 768 -k 3072
 -transA false -transB false -g 1 -m 384 -n 768 -k 768
 -transA false -transB true -g 12 -m 384 -n 384 -k 64
 -transA false -transB false -g 1 -m 1 -n 768 -k 768

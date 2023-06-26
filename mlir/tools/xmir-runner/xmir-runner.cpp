@@ -12,8 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
+#include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -83,11 +84,12 @@ static LogicalResult runMLIRPasses(Operation *m, JitRunnerOptions &options) {
   PassManager pm(m->getContext());
   applyPassManagerCLOptions(pm);
 
-  xmodel::RunnerOptions opts;
+  mhal::RunnerOptions opts;
   opts.targetTypes = targetTypes;
   opts.targetArchs = targetArchs;
 
-  xmodel::buildRunnerPipeline(pm, opts);
+  mhal::buildRunnerPipeline(pm, opts);
+  pm.addPass(LLVM::createSoftwareBF16Pass());
 
   return pm.run(m);
 }

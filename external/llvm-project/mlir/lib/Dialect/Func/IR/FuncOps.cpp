@@ -12,7 +12,6 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
@@ -174,8 +173,8 @@ LogicalResult CallIndirectOp::canonicalize(CallIndirectOp indirectCall,
 
   // Replace with a direct call.
   rewriter.replaceOpWithNewOp<CallOp>(indirectCall, calledFn,
-                                      indirectCall.getCallResultTypes(),
-                                      indirectCall.getCallOperands());
+                                      indirectCall.getResultTypes(),
+                                      indirectCall.getArgOperands());
   return success();
 }
 

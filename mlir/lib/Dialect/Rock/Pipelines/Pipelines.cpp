@@ -21,11 +21,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
+#include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -35,6 +38,7 @@
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
@@ -49,7 +53,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
 
-  // TOSA conversion to rock and/or linalg with async.launch's
+  // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
@@ -173,14 +177,21 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-  // lowering ROCDL (LLVM) to binary
+  // lowering ROCDL (LLVM) to binary.
+  // Leave off --convert-arith-to-amdgpu if not targetting gfx94x+.
   /* rocmlir-opt --strip-debuginfo
+   *   --convert-arith-to-amdgpu
+   *   --fp8-ext-to-tables
    *   "--amdgpu-emulate-atomics=chipset=$chip"
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
   pm.addPass(createStripDebugInfoPass());
-  pm.addNestedPass<gpu::GPUFuncOp>(
+  AmdArchInfo archInfo = lookupArchInfo(options.chip);
+  if (archInfo.hasFp8ConversionInstrs)
+    pm.addNestedPass<gpu::GPUModuleOp>(createArithToAMDGPUConversionPass());
+  pm.addPass(createFp8ExtToTablesPass());
+  pm.addNestedPass<gpu::GPUModuleOp>(
       amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));

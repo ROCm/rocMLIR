@@ -43,7 +43,6 @@ class MLIRPaths:
     rocmlir_driver_path : str
     rocmlir_opt_path : str
     cpu_runner_path : str
-    xmir_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
@@ -138,7 +137,6 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
             rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
             rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
             cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
-            xmir_runner_path = mlir_bin_dir + '/xmir-runner',
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
@@ -491,7 +489,7 @@ class ConvConfiguration(PerfConfiguration):
             outs, errs = p1.communicate()
         return config.tableEntry(nanoSeconds)
 
-def getGemmConfigurations(fileName):
+def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
     configs = []
     if fileName:
         with open(fileName, 'r') as configFile:
@@ -503,6 +501,8 @@ def getGemmConfigurations(fileName):
                 line = line.strip()
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
+                    continue
+                if datatype not in dataTypes:
                     continue
 
                 # We need trailing spaces here to account for the concat below
@@ -838,7 +838,7 @@ def getFusionTestInfo(filename, paths: Paths):
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
-        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
+        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -864,7 +864,7 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
     if "-migraphx-to-tosa" in firstCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
-        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/e2e/resnet50/mixr-resnet-fusion-case-1.mlir
+        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -875,9 +875,9 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
         p2 = subprocess.Popen(rocmlirDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
-    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel', '-kernel-pipeline','full']
-    xmir_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.xmir_runner_path] + xmir_runner_args
+    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'xmodel,runner', '-kernel-pipeline','full']
+    mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     # pipe to rocmlir-gen -ph --perf_config
     p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p2.stdout.close()
@@ -1141,7 +1141,7 @@ def main(args=None):
     parser.add_argument(
         "--test_dir",
         type=str,
-        default="../mlir/test/fusion/e2e/resnet50",
+        default="../mlir/test/fusion/resnet50-e2e",
         help="The directory of tests"
     )
     parser.add_argument(
@@ -1177,6 +1177,13 @@ def main(args=None):
         help="(rocBLAS | CK) external library to run GEMM routines"
     )
 
+    parser.add_argument(
+        '--data-type',
+         nargs='+',
+         choices=["f32", "f16", "i8"],
+         default=["f32", "f16", "i8"],
+         help='Force a set of datatypes'
+    )
 
     parsed_args = parser.parse_args(args)
 
@@ -1213,7 +1220,7 @@ def main(args=None):
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        configs = getGemmConfigurations(paths.configuration_file_path)
+        configs = getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not foundExternalTool(paths, opType, externalLib):

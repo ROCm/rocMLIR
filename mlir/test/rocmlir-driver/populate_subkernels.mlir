@@ -4,18 +4,18 @@
 // RUN: rocmlir-gen -conv-config "--operation conv2d --arch amdgcn-amd-amdhsa:gfx906 --num_cu 64 --fil_layout GNCHW --in_type fp32 --fil_type fp32 --out_type fp32 --in_layout NGCHW --out_layout NGCHW --batchsize 64 --in_channels 1024 --out_channels 1024 --in_h 14 --in_w 14 --out_h 14 --out_w 14 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0 --kernel_name conv2d_fwd --groupsize 1 --kernel_id 3" | FileCheck %s --check-prefix=KERNEL3
 
 // KERNEL0-LABEL: module
-// KERNEL0-NEXT:  func.func @conv2d_fwd_0(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"} {
+// KERNEL0-NEXT:  func.func @conv2d_fwd_0(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {
 // KERNEL0-NEXT: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 // KERNEL1-LABEL: module
-// KERNEL1-NEXT:  func.func @conv2d_fwd_1(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 1 : i32, xmodel.arch = "{{.*}}"} {
+// KERNEL1-NEXT:  func.func @conv2d_fwd_1(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 1 : i32, mhal.arch = "{{.*}}"} {
 // KERNEL1-NEXT: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 // KERNEL2-LABEL: module
-// KERNEL2-NEXT:  func.func @conv2d_fwd_2(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 2 : i32, xmodel.arch = "{{.*}}"} {
+// KERNEL2-NEXT:  func.func @conv2d_fwd_2(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 2 : i32, mhal.arch = "{{.*}}"} {
 // KERNEL2-NEXT: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 // KERNEL3-LABEL: module
-// KERNEL3-NEXT:  func.func @conv2d_fwd_3(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 3 : i32, xmodel.arch = "{{.*}}"} {
+// KERNEL3-NEXT:  func.func @conv2d_fwd_3(%arg0: memref<1x1024x1024x1x1xf32>, %arg1: memref<64x1x1024x14x14xf32>, %arg2: memref<64x1x1024x14x14xf32>) attributes {kernel = 3 : i32, mhal.arch = "{{.*}}"} {
 // KERNEL3-NEXT: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 

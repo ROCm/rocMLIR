@@ -158,9 +158,9 @@ static FailureOr<double> benchmarkKernel(const char *binary,
 }
 
 static FailureOr<rock::RockGemmWrapperInterface> extractKernel(ModuleOp op) {
-  if (!op->hasAttr("xmodel.arch")) {
+  if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
-        "no architecture set, set xmodel.arch on the input module");
+        "no architecture set, set mhal.arch on the input module");
   }
   rock::RockGemmWrapperInterface kernel;
   uint32_t nKernels = 0;
@@ -223,7 +223,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   RocmDeviceName deviceName;
   StringRef archName =
-      source->getAttrOfType<StringAttr>("xmodel.arch").getValue();
+      source->getAttrOfType<StringAttr>("mhal.arch").getValue();
   if (failed(deviceName.parse(archName)))
     return source->emitOpError("could not parse arch name: " + archName);
   rock::BackendOptions backendOpts;
@@ -288,13 +288,19 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
 
-    // Extract binary anb benchmark
+    // Extract binary and benchmark
     std::string hipModule;
-    tuneCopy.walk([&hipModule](gpu::GPUModuleOp op) {
-      hipModule = op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
-      return WalkResult::interrupt();
+    tuneCopy.walk([&hipModule, &kernelFuncName](gpu::GPUModuleOp op) {
+      std::string moduleName = op.getName().str();
+      if (moduleName == kernelFuncName + "_module") {
+        hipModule =
+            op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
+        return WalkResult::interrupt();
+      }
+      llvm::errs() << "Ignoring utility kernels, benchmark times will not "
+                      "match performance tests\n";
+      return WalkResult::advance();
     });
-
     FailureOr<double> timing = benchmarkKernel(
         hipModule.c_str(), kernelFuncName.c_str(), blockSize, gridSize,
         dataType, hostBuffers, gpuBuffers, bufferLengths);

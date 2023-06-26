@@ -66,6 +66,7 @@ bool isElementwiseOp(Operation *op) {
          // clang-format off
     isa<tosa::CastOp,
         tosa::ClampOp,
+        tosa::ErfOp,
         tosa::SigmoidOp,
         tosa::TanhOp,
 // ResultsBroadcastableShape

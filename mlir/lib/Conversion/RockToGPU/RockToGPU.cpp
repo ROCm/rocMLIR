@@ -241,7 +241,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
             b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
                                         dynamicSharedMemSize,
-                                        call.getCallOperands());
+                                        call.getArgOperands());
             calls.push_back(call);
           }
         }

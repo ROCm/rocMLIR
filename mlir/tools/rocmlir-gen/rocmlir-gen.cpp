@@ -1846,10 +1846,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   Location loc = module->getLoc();
   OpBuilder b(ctx);
 
-  // Set xmodel.arch on module to make compilation pipeline work
+  // Set mhal.arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(params.arch);
-  if (!module->hasAttr("xmodel.arch"))
-    module->setAttr("xmodel.arch", archAttr);
+  if (!module->hasAttr("mhal.arch"))
+    module->setAttr("mhal.arch", archAttr);
 
   SmallVector<Type, 3> argTypes;
   getGemmTypes(params.types, argTypes,
@@ -1859,7 +1859,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("xmodel.arch", archAttr)};
+      b.getNamedAttr("mhal.arch", archAttr)};
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
@@ -2318,7 +2318,7 @@ void insertPrefills(func::FuncOp fut) {
   fut->getParentOfType<ModuleOp>().walk(
       [&](ModuleOp module) { innerModules.push_back(module); });
   innerModules.push_back(fut->getParentOfType<ModuleOp>());
-  fut.walk([&](async::LaunchOp launchOp) {
+  fut.walk([&](mhal::LaunchOp launchOp) {
     Location loc = launchOp->getLoc();
     DenseMap<int, Attribute> argInitValues;
     StringRef callee = launchOp.getCallee();
@@ -2340,7 +2340,7 @@ void insertPrefills(func::FuncOp fut) {
         int argIdx = argIdxAndValueAttr.first;
         Attribute valueAttr = argIdxAndValueAttr.second;
         auto fillValue = builder.create<arith::ConstantOp>(loc, valueAttr);
-        Value originalArg = launchOp.getCallOperands()[argIdx];
+        Value originalArg = launchOp.getArgOperands()[argIdx];
         builder.create<linalg::FillOp>(loc, ValueRange{fillValue},
                                        ValueRange{originalArg});
       }
@@ -2348,16 +2348,16 @@ void insertPrefills(func::FuncOp fut) {
   });
 }
 
-// Convert the async.launch/async.await pattern back to func.call.
+// Convert the mhal.launch/mhal.await pattern back to func.call.
 void undoAsyncLaunchPass(Operation *cloneFunc) {
   SymbolTableCollection symbolTable;
   auto walker = [&](Operation *op) {
     OpBuilder builder(op);
-    if (auto launch = dyn_cast<async::LaunchOp>(op)) {
+    if (auto launch = dyn_cast<mhal::LaunchOp>(op)) {
       SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
       CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
       assert(callInt);
-      auto operands = callInt.getCallOperands();
+      auto operands = callInt.getArgOperands();
       auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
                                                TypeRange{}, operands);
       call->moveBefore(op);
@@ -2365,7 +2365,7 @@ void undoAsyncLaunchPass(Operation *cloneFunc) {
       op->erase();
       return WalkResult::interrupt();
     }
-    if (auto launch = dyn_cast<async::AwaitOp>(op)) {
+    if (auto launch = dyn_cast<mhal::AwaitOp>(op)) {
       op->erase();
       return WalkResult::interrupt();
     }
@@ -2497,7 +2497,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     }
   } else { // clone
     // Clone the kernel-calling function.  xmir-runner will call the appropriate
-    // binary kernel from the async.launch ops;  here, we'll replace those with
+    // binary kernel from the mhal.launch ops;  here, we'll replace those with
     // func.call which will get the MLIR kernel.  No redirection of callees
     // needed.
     auto *cloneFunc = func->clone();
@@ -2558,13 +2558,24 @@ static LogicalResult populateHostHarnessLogic(
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
+  bool isFp8 = false;
+
+  if (!genParams.types.empty()) {
+    if (auto ftype = genParams.types[0].dyn_cast<FloatType>()) {
       isSmallFloatIn = ftype.getWidth() < 32;
+      isFp8 = ftype.isFloat8E4M3FNUZ() || ftype.isFloat8E5M2FNUZ();
+    }
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
 
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
+  if (isRandom && isFp8) {
+    llvm::errs() << "WARNING: Random values not supported for fp8, defaulting "
+                    "to -rand fixed\n";
+    randomSeed = "fixed";
+    isRandom = false;
+  }
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});

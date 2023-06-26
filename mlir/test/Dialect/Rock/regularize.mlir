@@ -41,4 +41,3 @@ func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {func.read
 // CHECK: linalg.generic {indexing_maps = [[[MAP0]], [[MAP0]], [[MAP0]], [[MAP0]]], iterator_types = ["parallel", "parallel", "parallel"]} ins([[ALLOC0]], [[ARG2_TR2]], [[ARG3_TR2]] : memref<12x12x12xf32>, memref<12x12x12xf32>, memref<12x12x12xf32>) outs([[ARG4_TR:.*]] : memref<12x12x12xf32>)
 
 // CHECK: memref.copy [[ALLOC1]], [[ARG4]] : memref<1x12x12x12xf32> to memref<1x12x12x12xf32>
-

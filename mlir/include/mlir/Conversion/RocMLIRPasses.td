@@ -87,4 +87,28 @@ def GPUToMIGraphXPass : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// Fp8ExtToTables
+//===----------------------------------------------------------------------===//
+
+def Fp8ExtToTablesPass : Pass<"fp8-ext-to-tables"> {
+  let summary = "Lower arith.extf on fp8 types to table lookup";
+  let description = [{
+    Pass that converts arith.extf on 8-bit float types to a lookup in a
+    constant table.
+
+    This is a quick implementation that provides the mimimal functionality to
+    test 8-bit float kernels.
+
+    This pass must be run at the `builtin.module`/`gpu.module` level
+    (the root operation needs to have a symbol table)
+  }];
+
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "memref::MemRefDialect",
+    "vector::VectorDialect",
+  ];
+}
+
 #endif // ROCMLIR_CONVERSION_PASSES

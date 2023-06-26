@@ -77,6 +77,22 @@ def MIGraphX_MulOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+def MIGraphX_ClipOp :
+    MIGraphX_Op<"clip">,
+    Arguments<(ins AnyRankedTensor:$x,
+      AnyRankedTensor:$minVals,
+      AnyRankedTensor:$maxVals)>,
+    Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise clip";
+  let description = [{
+    Elementwise clip: output = min(max(x, minVals), maxVals)
+  }];
+  let assemblyFormat = [{
+    `(`$x `,` $minVals `,` $maxVals`)` attr-dict
+    `:` `(`type($x) `,` type($minVals) `,` type($maxVals)`)` `->` type($output)
+  }];
+}
+
 def MIGraphX_DivOp :
     MIGraphX_Op<"div">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -101,15 +117,68 @@ def MIGraphX_PowOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+// Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
+// Keep that logic here.
+def MIGraphX_WhereOp :
+    MIGraphX_Op<"where">,
+    Arguments<(ins TensorOf<[I8]>:$cond,
+      AnyRankedTensor:$inA,
+      AnyRankedTensor:$inB)>,
+    Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise select";
+  let description = [{
+    output[x] = cond[x] ? inA[x] : inB[x]
+  }];
+  let assemblyFormat = [{
+    `(`$cond `,` $inA `,` $inB`)` attr-dict
+    `:` `(`type($cond) `,` type($inA) `,` type($inB)`)` `->` type($output)
+  }];
+}
+
+
 // Elementwise unary operations
 
-def MIGraphX_TanhOp :
-    MIGraphX_Op<"tanh">,
+def MIGraphX_AbsOp :
+    MIGraphX_Op<"abs">,
     Arguments<(ins AnyRankedTensor:$inA)>,
 	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Hyperbolic Tan";
+  let summary = "Elementwise absolute value";
   let description = [{
-    get tanh
+    Take absolute value elementwise
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_CeilOp :
+    MIGraphX_Op<"ceil">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise ceil";
+  let description = [{
+    Ceil tensor elementwise
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_ConvertOp :
+    MIGraphX_Op<"convert">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise type conversion";
+  let description = [{
+    Type conversion. Due to impedance mismatches between MIGraphX and Tosa,
+    currently only supports float to float conversions
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_ErfOp :
+    MIGraphX_Op<"erf">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Gauss error function";
+  let description = [{
+    compute gauss error function
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
@@ -125,6 +194,28 @@ def MIGraphX_ExpOp :
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
+def MIGraphX_FloorOp :
+    MIGraphX_Op<"floor">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise floor";
+  let description = [{
+    Floor tensor elementwise
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_LogOp :
+    MIGraphX_Op<"log">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Logarithm";
+  let description = [{
+    get log
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
 def MIGraphX_NegOp :
     MIGraphX_Op<"neg">,
     Arguments<(ins AnyRankedTensor:$inA)>,
@@ -132,17 +223,6 @@ def MIGraphX_NegOp :
   let summary = "Negation";
   let description = [{
     get neg
-      }];
-  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
-}
-
-def MIGraphX_ErfOp :
-    MIGraphX_Op<"erf">,
-    Arguments<(ins AnyRankedTensor:$inA)>,
-	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Gauss error function";
-  let description = [{
-    compute gauss error function
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
@@ -159,17 +239,6 @@ def MIGraphX_RecipOp :
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
-def MIGraphX_SqrtOp :
-    MIGraphX_Op<"sqrt">,
-    Arguments<(ins AnyRankedTensor:$inA)>,
-	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Elementwise sqrt";
-  let description = [{
-    square root elementwise
-  }];
-  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
-}
-
 def MIGraphX_RsqrtOp :
     MIGraphX_Op<"rsqrt">,
     Arguments<(ins AnyRankedTensor:$inA)>,
@@ -181,27 +250,40 @@ def MIGraphX_RsqrtOp :
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
-def MIGraphX_CeilOp :
-    MIGraphX_Op<"ceil">,
+def MIGraphX_SigmoidOp :
+    MIGraphX_Op<"sigmoid">,
     Arguments<(ins AnyRankedTensor:$inA)>,
 	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Elementwise ceil";
+  let summary = "Sigmoid activation function";
   let description = [{
-    Ceil tensor elementwise
+    Sigmoid function, aka 1 / (1 + exp(-x)).
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
 
-def MIGraphX_FloorOp :
-    MIGraphX_Op<"floor">,
+def MIGraphX_SqrtOp :
+    MIGraphX_Op<"sqrt">,
     Arguments<(ins AnyRankedTensor:$inA)>,
 	  Results<(outs AnyRankedTensor:$output)> {
-  let summary = "Elementwise floor";
+  let summary = "Elementwise sqrt";
   let description = [{
-    Floor tensor elementwise
+    square root elementwise
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
 }
+
+def MIGraphX_TanhOp :
+    MIGraphX_Op<"tanh">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Hyperbolic Tan";
+  let description = [{
+    get tanh
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+// Quantization operations.
 
 def MIGraphX_QuantizeLinearOp :
     MIGraphX_Op<"quantizelinear">,

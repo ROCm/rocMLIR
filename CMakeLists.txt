@@ -70,6 +70,7 @@ endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
+include(cmake/mlir-hal.cmake)
 
 # Update the build-tree RPATH
 set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")

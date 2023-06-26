@@ -30,8 +30,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
   MLIRDialect
-  MLIRXModel
-  MLIRXModelTransforms
   MLIRFuncDialect
   MLIRIR
   MLIRPass
@@ -44,8 +42,8 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRRockOps
   MLIRRockTuning
   MLIRRockUtility
+  MLIRExecutionEngineUtils
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
 )
-

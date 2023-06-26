@@ -475,9 +475,6 @@ def ConversionCallOp : TEST_Op<"conversion_call_op",
     ::mlir::CallInterfaceCallable $cppClass::getCallableForCallee() {
       return (*this)->getAttrOfType<::mlir::SymbolRefAttr>("callee");
     }
-    ::mlir::Operation::operand_range $cppClass::getCallOperands() {
-      return getOperands();
-    }
   }];
 }
 
