@@ -108,17 +108,22 @@ int main(int argc, char **argv) {
 
   for (int i = 0, e = args.kernelRepeats; i < e; ++i)
     if (args.gemmG == 1) {
-      ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_ex(
-          handle, rocblas_operation_none, rocblas_operation_none, args.gemmN,
-          args.gemmM, args.gemmK, alpha, bDevice, inType, ldb, aDevice, inType,
-          lda, beta, cDevice, outType, ldc, cDevice, outType, ldc,
-          /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
-          rocblas_gemm_flags_none));
+      ROCBLAS_ABORT_IF_FAIL(
+          rocblas_gemm_ex(handle, /*trans_a=*/blasTransB,
+                          /*trans_b=*/blasTransA, /*m=*/args.gemmN,
+                          /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+                          /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb,
+                          /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, beta,
+                          cDevice, outType, ldc, cDevice, outType, ldc,
+                          /*computeType=*/outType, rocblas_gemm_algo_standard,
+                          0, rocblas_gemm_flags_none));
 
     } else {
       ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_strided_batched_ex(
-          handle, blasTransB, blasTransA, args.gemmN, args.gemmM, args.gemmK,
-          alpha, bDevice, inType, ldb, strideB, aDevice, inType, lda, strideA,
+          handle, /*trans_a=*/blasTransB, /*trans_b=*/blasTransA,
+          /*m=*/args.gemmN, /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+          /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb, /*stride_a=*/strideB,
+          /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, /*stride_b=*/strideA,
           beta, cDevice, outType, ldc, strideC, cDevice, outType, ldc, strideC,
           args.gemmG,
           /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
