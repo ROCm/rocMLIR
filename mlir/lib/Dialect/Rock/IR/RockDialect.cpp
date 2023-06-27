@@ -1776,6 +1776,32 @@ LogicalResult BlockwiseFillOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// AttentionOp
+//===-----------------------------------------------------===//
+
+LogicalResult AttentionOp::verify() {
+  ShapedType qType = getQueries().getType();
+  ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
+  ShapedType kType = getKeys().getType();
+  ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
+  ShapedType vType = getValues().getType();
+  ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
+
+  ShapedType scaleType = getScale().getType();
+
+  if (qLastDims[1] != kLastDims[0]) {
+    return emitError("Q.K requires second dim sizes to match");
+  }
+  if (kLastDims[1] != vLastDims[0]) {
+    return emitError("(Q.K).V requires second dim sizes to match");
+  }
+  if (vType.getRank() != scaleType.getRank()) {
+    return emitError("scale needs to be of same rank to other inputs");
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
