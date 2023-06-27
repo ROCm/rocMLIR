@@ -499,10 +499,6 @@ pipeline {
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
                         }
-                        //environment {
-                            // Make libMIOpen.so accessible to the test driver
-                        //    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                        //}
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
