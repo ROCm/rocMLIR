@@ -1464,14 +1464,16 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
     srcGpuMemSpace = srcMemSpaceAttr.getValue();
   }
 
+  size_t extraIdxCount = getExtraIndices().size();
   if (srcGpuMemSpace == gpu::AddressSpace::Global) {
-    if (inputShape.size() != 3) {
-      return emitOpError(
-          "source view must accept (bid, tid, iter) coordinates");
+    if (inputShape.size() != 3 + extraIdxCount) {
+      return emitOpError("source view must accept extraIndices + (bid, tid, "
+                         "iter) coordinates");
     }
   } else if (srcGpuMemSpace == gpu::AddressSpace::Workgroup) {
-    if (inputShape.size() != 2) {
-      return emitOpError("source view must accept (tid, iter) coordinates");
+    if (inputShape.size() != 2 + extraIdxCount) {
+      return emitOpError(
+          "source view must accept extraIndices + (tid, iter) coordinates");
     }
   } else {
     return emitError("source has to be either workgroup or global memory.");
@@ -1505,14 +1507,16 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
     dstGpuMemSpace = dstMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
   }
 
+  size_t extraIdxCount = getExtraIndices().size();
   if (dstGpuMemSpace == gpu::AddressSpace::Global) {
-    if (outputShape.size() != 3) {
-      return emitOpError(
-          "source view must accept (bid, tid, iter) coordinates");
+    if (outputShape.size() != 3 + extraIdxCount) {
+      return emitOpError("source view must accept extraIndices + (bid, tid, "
+                         "iter) coordinates");
     }
   } else if (dstGpuMemSpace == gpu::AddressSpace::Workgroup) {
-    if (outputShape.size() != 2) {
-      return emitOpError("source view must accept (tid, iter) coordinates");
+    if (outputShape.size() != 2 + extraIdxCount) {
+      return emitOpError(
+          "source view must accept extraIndices + (tid, iter) coordinates");
     }
   } else {
     return emitError("source has to be either workgroup or global memory.");
