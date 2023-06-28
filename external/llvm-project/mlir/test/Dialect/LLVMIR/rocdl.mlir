@@ -270,6 +270,7 @@ llvm.func @rocdl.raw.buffer.i32(%rsrc : vector<4xi32>,
   llvm.return
 }
 
+<<<<<<< HEAD
 llvm.func @rocdl_8bit_floats(%source: i32, %stoch: i32) -> i32 {
 // CHECK-LABEL: @rocdl_8bit_floats
 // CHECK: rocdl.cvt.f32.bf8
@@ -291,6 +292,8 @@ llvm.func @rocdl_8bit_floats(%source: i32, %stoch: i32) -> i32 {
   llvm.return %source5 : i32
 }
 
+=======
+>>>>>>> 80b1c11ddac1f8e597dcd916ad766bbecf68b089
 // -----
 
 // expected-error@below {{attribute attached to unexpected op}}

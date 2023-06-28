@@ -71,12 +71,6 @@ INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_END(MemorySSAWrapperPass, "memoryssa", "Memory SSA", false,
                     true)
 
-INITIALIZE_PASS_BEGIN(MemorySSAPrinterLegacyPass, "print-memoryssa",
-                      "Memory SSA Printer", false, false)
-INITIALIZE_PASS_DEPENDENCY(MemorySSAWrapperPass)
-INITIALIZE_PASS_END(MemorySSAPrinterLegacyPass, "print-memoryssa",
-                    "Memory SSA Printer", false, false)
-
 static cl::opt<unsigned> MaxCheckLimit(
     "memssa-check-limit", cl::Hidden, cl::init(100),
     cl::desc("The maximum number of stores/phis MemorySSA"
@@ -304,7 +298,6 @@ instructionClobbersQuery(const MemoryDef *MD, const MemoryLocation &UseLoc,
     case Intrinsic::experimental_noalias_scope_decl:
     case Intrinsic::pseudoprobe:
       return false;
-    case Intrinsic::dbg_addr:
     case Intrinsic::dbg_declare:
     case Intrinsic::dbg_label:
     case Intrinsic::dbg_value:
@@ -2220,17 +2213,6 @@ void MemoryAccess::dump() const {
 #endif
 }
 
-char MemorySSAPrinterLegacyPass::ID = 0;
-
-MemorySSAPrinterLegacyPass::MemorySSAPrinterLegacyPass() : FunctionPass(ID) {
-  initializeMemorySSAPrinterLegacyPassPass(*PassRegistry::getPassRegistry());
-}
-
-void MemorySSAPrinterLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.setPreservesAll();
-  AU.addRequired<MemorySSAWrapperPass>();
-}
-
 class DOTFuncMSSAInfo {
 private:
   const Function &F;
@@ -2314,20 +2296,6 @@ struct DOTGraphTraits<DOTFuncMSSAInfo *> : public DefaultDOTGraphTraits {
 };
 
 } // namespace llvm
-
-bool MemorySSAPrinterLegacyPass::runOnFunction(Function &F) {
-  auto &MSSA = getAnalysis<MemorySSAWrapperPass>().getMSSA();
-  MSSA.ensureOptimizedUses();
-  if (DotCFGMSSA != "") {
-    DOTFuncMSSAInfo CFGInfo(F, MSSA);
-    WriteGraph(&CFGInfo, "", false, "MSSA", DotCFGMSSA);
-  } else
-    MSSA.print(dbgs());
-
-  if (VerifyMemorySSA)
-    MSSA.verifyMemorySSA();
-  return false;
-}
 
 AnalysisKey MemorySSAAnalysis::Key;
 

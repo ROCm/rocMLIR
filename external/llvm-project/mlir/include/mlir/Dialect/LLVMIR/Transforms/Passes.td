@@ -35,18 +35,19 @@ def NVVMOptimizeForTarget : Pass<"llvm-optimize-for-nvvm-target"> {
   let constructor = "::mlir::NVVM::createOptimizeForTargetPass()";
 }
 
-def SoftwareBF16 : Pass<"llvm-software-bf16"> {
-  let summary = "Convert BF16 to I16 in LLVM IR";
+def DIScopeForLLVMFuncOp : Pass<"ensure-debug-info-scope-on-llvm-func", "LLVM::LLVMFuncOp"> {
+  let summary = "Materialize LLVM debug info subprogram attribute on every LLVMFuncOp";
   let description = [{
-    This pass erases the BF16 type from LLVM IR.
+    Having a debug info subprogram attribute on a function is required for
+    emitting line tables from MLIR FileLocCol locations.
 
-    Some LLVM targets do not support LLVM's `bfloat` type, or only support it
-    incompletely. To allow using the `bf16` type on such targets, this pass
-    replaces all of its uses by `i16` and then replaces operations on `bf16` by
-    extending the 16-bit values into `f32`, then computes the floating-point
-    operation on the extended value, and then truncates the results.
+    This is not intended to be a proper replacement for frontends to emit
+    complete debug informations, however it is a convenient way to get line
+    tables for debugging purposes. This allow to step trough in a debugger
+    line-by-line or get a backtrace with line numbers.
   }];
-  let constructor = "mlir::LLVM::createSoftwareBF16Pass()";
+
+  let constructor = "mlir::LLVM::createDIScopeForLLVMFuncOpPass()";
 }
 
 #endif // MLIR_DIALECT_LLVMIR_TRANSFORMS_PASSES

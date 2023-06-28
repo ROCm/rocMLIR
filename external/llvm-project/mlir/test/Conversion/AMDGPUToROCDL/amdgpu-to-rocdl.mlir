@@ -1,5 +1,26 @@
 // RUN: mlir-opt %s -convert-amdgpu-to-rocdl=chipset=gfx908 | FileCheck %s
 // RUN: mlir-opt %s -convert-amdgpu-to-rocdl=chipset=gfx1030 | FileCheck %s --check-prefix=RDNA
+// RUN: mlir-opt %s -convert-amdgpu-to-rocdl=chipset=gfx1100 | FileCheck %s --check-prefix=RDNA
+
+// CHECK-LABEL: func @gpu_gcn_raw_buffer_load_scalar_i32
+func.func @gpu_gcn_raw_buffer_load_scalar_i32(%buf: memref<i32>) -> i32 {
+  // CHECK: %[[ptr:.*]] = llvm.ptrtoint
+  // CHECK: %[[lowHalf:.*]] = llvm.trunc %[[ptr]] : i64 to i32
+  // CHECK: %[[resource_1:.*]] = llvm.insertelement %[[lowHalf]]
+  // CHECK: %[[highHalfI64:.*]] = llvm.lshr %[[ptr]]
+  // CHECK: %[[highHalfI32:.*]] = llvm.trunc %[[highHalfI64]] : i64 to i32
+  // CHECK: %[[highHalf:.*]] = llvm.and %[[highHalfI32]], %{{.*}} : i32
+  // CHECK: %[[resource_2:.*]] = llvm.insertelement %[[highHalf]], %[[resource_1]]
+  // CHECK: %[[numRecords:.*]] = llvm.mlir.constant(4 : i32)
+  // CHECK: %[[resource_3:.*]] = llvm.insertelement %[[numRecords]], %[[resource_2]]
+  // CHECK: %[[word3:.*]] = llvm.mlir.constant(159744 : i32)
+  // RDNA: %[[word3:.*]] = llvm.mlir.constant(822243328 : i32)
+  // CHECK: %[[resource:.*]] = llvm.insertelement %[[word3]], %[[resource_3]]
+  // CHECK: %[[ret:.*]] = rocdl.raw.buffer.load %[[resource]], %{{.*}}, %{{.*}}, %{{.*}} : i32
+  // CHECK: return %[[ret]]
+  %0 = amdgpu.raw_buffer_load {boundsCheck = true} %buf[] : memref<i32> -> i32
+  func.return %0 : i32
+}
 
 // CHECK-LABEL: func @gpu_gcn_raw_buffer_load_scalar_i32
 func.func @gpu_gcn_raw_buffer_load_scalar_i32(%buf: memref<i32>) -> i32 {

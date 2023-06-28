@@ -37,7 +37,7 @@ static bool is_aligned_to(void* ptr, size_t align) {
 }
 #endif
 
-class _LIBCPP_TYPE_VIS __new_delete_memory_resource_imp : public memory_resource {
+class _LIBCPP_EXPORTED_FROM_ABI __new_delete_memory_resource_imp : public memory_resource {
   void* do_allocate(size_t bytes, size_t align) override {
 #ifndef _LIBCPP_HAS_NO_ALIGNED_ALLOCATION
     return std::__libcpp_allocate(bytes, align);
@@ -60,7 +60,7 @@ class _LIBCPP_TYPE_VIS __new_delete_memory_resource_imp : public memory_resource
 
 // null_memory_resource()
 
-class _LIBCPP_TYPE_VIS __null_memory_resource_imp : public memory_resource {
+class _LIBCPP_EXPORTED_FROM_ABI __null_memory_resource_imp : public memory_resource {
   void* do_allocate(size_t, size_t) override { __throw_bad_alloc(); }
   void do_deallocate(void*, size_t, size_t) override {}
   bool do_is_equal(const memory_resource& other) const noexcept override { return &other == this; }
@@ -107,7 +107,7 @@ static memory_resource* __default_memory_resource(bool set = false, memory_resou
     new_res = new_res ? new_res : new_delete_resource();
     lock_guard<mutex> guard(res_lock);
     memory_resource* old_res = res;
-    res = new_res;
+    res                      = new_res;
     return old_res;
   } else {
     lock_guard<mutex> guard(res_lock);

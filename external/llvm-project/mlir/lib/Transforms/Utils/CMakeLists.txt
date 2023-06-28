@@ -7,6 +7,7 @@ add_mlir_library(MLIRTransformUtils
   InliningUtils.cpp
   LoopInvariantCodeMotionUtils.cpp
   OutlinerUtils.cpp
+  OneToNTypeConversion.cpp
   RegionUtils.cpp
   TopologicalSortUtils.cpp
 

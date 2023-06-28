@@ -15,7 +15,6 @@
 
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/BinaryFormat/COFF.h"
-#include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/CVDebugRecord.h"
 #include "llvm/Object/Error.h"
@@ -24,6 +23,7 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -969,6 +969,8 @@ public:
   section_iterator section_begin() const override;
   section_iterator section_end() const override;
 
+  bool is64Bit() const override { return false; }
+
   const coff_section *getCOFFSection(const SectionRef &Section) const;
   COFFSymbolRef getCOFFSymbol(const DataRefImpl &Ref) const;
   COFFSymbolRef getCOFFSymbol(const SymbolRef &Symbol) const;
@@ -1257,7 +1259,7 @@ private:
   BinaryByteStream BBS;
 
   SectionRef Section;
-  const COFFObjectFile *Obj;
+  const COFFObjectFile *Obj = nullptr;
 
   std::vector<const coff_relocation *> Relocs;
 

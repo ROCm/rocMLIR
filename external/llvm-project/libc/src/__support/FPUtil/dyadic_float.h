@@ -14,6 +14,7 @@
 #include "multiply_add.h"
 #include "src/__support/CPP/type_traits.h"
 #include "src/__support/UInt.h"
+#include "src/__support/macros/optimization.h" // LIBC_UNLIKELY
 
 #include <stddef.h>
 
@@ -51,14 +52,14 @@ template <size_t Bits> struct DyadicFloat {
     normalize();
   }
 
-  DyadicFloat(bool s, int e, MantissaType m)
+  constexpr DyadicFloat(bool s, int e, MantissaType m)
       : sign(s), exponent(e), mantissa(m) {
     normalize();
   }
 
   // Normalizing the mantissa, bringing the leading 1 bit to the most
   // significant bit.
-  DyadicFloat &normalize() {
+  constexpr DyadicFloat &normalize() {
     if (!mantissa.is_zero()) {
       int shift_length = static_cast<int>(mantissa.clz());
       exponent -= shift_length;
@@ -103,11 +104,11 @@ template <size_t Bits> struct DyadicFloat {
         sign, exponent + (Bits - 1) + FloatProperties<T>::EXPONENT_BIAS,
         output_bits_t(m_hi) & FloatProperties<T>::MANTISSA_MASK);
 
-    const MantissaType ROUND_MASK = MantissaType(1) << (Bits - PRECISION - 1);
-    const MantissaType STICKY_MASK = ROUND_MASK - MantissaType(1);
+    const MantissaType round_mask = MantissaType(1) << (Bits - PRECISION - 1);
+    const MantissaType sticky_mask = round_mask - MantissaType(1);
 
-    bool round_bit = !(mantissa & ROUND_MASK).is_zero();
-    bool sticky_bit = !(mantissa & STICKY_MASK).is_zero();
+    bool round_bit = !(mantissa & round_mask).is_zero();
+    bool sticky_bit = !(mantissa & sticky_mask).is_zero();
     int round_and_sticky = int(round_bit) * 2 + int(sticky_bit);
     auto d_lo = FPBits<T>::create_value(sign,
                                         exponent + (Bits - PRECISION - 2) +
@@ -116,6 +117,24 @@ template <size_t Bits> struct DyadicFloat {
 
     // Still correct without FMA instructions if `d_lo` is not underflow.
     return multiply_add(d_lo.get_val(), T(round_and_sticky), d_hi.get_val());
+  }
+
+  explicit operator MantissaType() const {
+    if (mantissa.is_zero())
+      return 0;
+
+    MantissaType new_mant = mantissa;
+    if (exponent > 0) {
+      new_mant <<= exponent;
+    } else {
+      new_mant >>= (-exponent);
+    }
+
+    if (sign) {
+      new_mant = (~new_mant) + 1;
+    }
+
+    return new_mant;
   }
 };
 
@@ -134,9 +153,9 @@ template <size_t Bits> struct DyadicFloat {
 template <size_t Bits>
 constexpr DyadicFloat<Bits> quick_add(DyadicFloat<Bits> a,
                                       DyadicFloat<Bits> b) {
-  if (unlikely(a.mantissa.is_zero()))
+  if (LIBC_UNLIKELY(a.mantissa.is_zero()))
     return b;
-  if (unlikely(b.mantissa.is_zero()))
+  if (LIBC_UNLIKELY(b.mantissa.is_zero()))
     return a;
 
   // Align exponents
@@ -155,7 +174,7 @@ constexpr DyadicFloat<Bits> quick_add(DyadicFloat<Bits> a,
     if (result.mantissa.add(b.mantissa)) {
       // Mantissa addition overflow.
       result.shift_right(1);
-      result.mantissa.val[DyadicFloat<Bits>::MantissaType::WordCount - 1] |=
+      result.mantissa.val[DyadicFloat<Bits>::MantissaType::WORDCOUNT - 1] |=
           (uint64_t(1) << 63);
     }
     // Result is already normalized.
@@ -182,7 +201,7 @@ constexpr DyadicFloat<Bits> quick_add(DyadicFloat<Bits> a,
 //   result.mantissa = quick_mul_hi(a.mantissa + b.mantissa)
 //                   ~ (full product a.mantissa * b.mantissa) >> Bits.
 // The errors compared to the mathematical product is bounded by:
-//   2 * errors of quick_mul_hi = 2 * (UInt<Bits>::WordCount - 1) in ULPs.
+//   2 * errors of quick_mul_hi = 2 * (UInt<Bits>::WORDCOUNT - 1) in ULPs.
 // Assume inputs are normalized (by constructors or other functions) so that we
 // don't need to normalize the inputs again in this function.  If the inputs are
 // not normalized, the results might lose precision significantly.
@@ -197,13 +216,37 @@ constexpr DyadicFloat<Bits> quick_mul(DyadicFloat<Bits> a,
     result.mantissa = a.mantissa.quick_mul_hi(b.mantissa);
     // Check the leading bit directly, should be faster than using clz in
     // normalize().
-    if (result.mantissa.val[DyadicFloat<Bits>::MantissaType::WordCount - 1] >>
+    if (result.mantissa.val[DyadicFloat<Bits>::MantissaType::WORDCOUNT - 1] >>
             63 ==
         0)
       result.shift_left(1);
   } else {
     result.mantissa = (typename DyadicFloat<Bits>::MantissaType)(0);
   }
+  return result;
+}
+
+// Simple exponentiation implementation for printf. Only handles positive
+// exponents, since division isn't implemented.
+template <size_t Bits>
+constexpr DyadicFloat<Bits> pow_n(DyadicFloat<Bits> a, uint32_t power) {
+  DyadicFloat<Bits> result = 1.0;
+  DyadicFloat<Bits> cur_power = a;
+
+  while (power > 0) {
+    if ((power % 2) > 0) {
+      result = quick_mul(result, cur_power);
+    }
+    power = power >> 1;
+    cur_power = quick_mul(cur_power, cur_power);
+  }
+  return result;
+}
+
+template <size_t Bits>
+constexpr DyadicFloat<Bits> mul_pow_2(DyadicFloat<Bits> a, int32_t pow_2) {
+  DyadicFloat<Bits> result = a;
+  result.exponent += pow_2;
   return result;
 }
 

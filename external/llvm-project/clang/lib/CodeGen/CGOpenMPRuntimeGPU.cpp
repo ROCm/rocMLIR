@@ -15,6 +15,7 @@
 #include "CodeGenFunction.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclOpenMP.h"
+#include "clang/AST/OpenMPClause.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Cuda.h"
@@ -189,7 +190,7 @@ static RecordDecl *buildRecordForGlobalizedVars(
           IntegerLiteral::Create(C, Align,
                                  C.getIntTypeForBitwidth(32, /*Signed=*/0),
                                  SourceLocation()),
-          {}, AttributeCommonInfo::AS_GNU, AlignedAttr::GNU_aligned));
+          {}, AlignedAttr::GNU_aligned));
     }
     GlobalizedRD->addDecl(Field);
     MappedDeclsFields.try_emplace(VD, Field);
@@ -484,10 +485,7 @@ public:
   const FieldDecl *getFieldForGlobalizedVar(const ValueDecl *VD) const {
     assert(GlobalizedRD &&
            "Record for globalized variables must be generated already.");
-    auto I = MappedDeclsFields.find(VD);
-    if (I == MappedDeclsFields.end())
-      return nullptr;
-    return I->getSecond();
+    return MappedDeclsFields.lookup(VD);
   }
 
   /// Returns the list of the escaped local variables/parameters.
@@ -527,6 +525,7 @@ static llvm::Value *getNVPTXLaneID(CodeGenFunction &CGF) {
   CGBuilderTy &Bld = CGF.Builder;
   unsigned LaneIDBits =
       llvm::Log2_32(CGF.getTarget().getGridValue().GV_Warp_Size);
+  assert(LaneIDBits < 32 && "Invalid LaneIDBits size in NVPTX device.");
   unsigned LaneIDMask = ~0u >> (32u - LaneIDBits);
   auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGF.CGM.getOpenMPRuntime());
   return Bld.CreateAnd(RT.getGPUThreadID(CGF), Bld.getInt32(LaneIDMask),
@@ -862,7 +861,6 @@ CGOpenMPRuntimeGPU::CGOpenMPRuntimeGPU(CodeGenModule &CGM)
                                      hasRequiresUnifiedSharedMemory(),
                                      CGM.getLangOpts().OpenMPOffloadMandatory);
   OMPBuilder.setConfig(Config);
-  OffloadEntriesInfoManager.setConfig(Config);
 
   if (!CGM.getLangOpts().OpenMPIsDevice)
     llvm_unreachable("OpenMP can only handle device code.");
@@ -905,14 +903,15 @@ void CGOpenMPRuntimeGPU::emitNumTeamsClause(CodeGenFunction &CGF,
                                               SourceLocation Loc) {}
 
 llvm::Function *CGOpenMPRuntimeGPU::emitParallelOutlinedFunction(
-    const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    CodeGenFunction &CGF, const OMPExecutableDirective &D,
+    const VarDecl *ThreadIDVar, OpenMPDirectiveKind InnermostKind,
+    const RegionCodeGenTy &CodeGen) {
   // Emit target region as a standalone region.
   bool PrevIsInTTDRegion = IsInTTDRegion;
   IsInTTDRegion = false;
   auto *OutlinedFun =
       cast<llvm::Function>(CGOpenMPRuntime::emitParallelOutlinedFunction(
-          D, ThreadIDVar, InnermostKind, CodeGen));
+          CGF, D, ThreadIDVar, InnermostKind, CodeGen));
   IsInTTDRegion = PrevIsInTTDRegion;
   if (getExecutionMode() != CGOpenMPRuntimeGPU::EM_SPMD) {
     llvm::Function *WrapperFun =
@@ -962,8 +961,9 @@ getTeamsReductionVars(ASTContext &Ctx, const OMPExecutableDirective &D,
 }
 
 llvm::Function *CGOpenMPRuntimeGPU::emitTeamsOutlinedFunction(
-    const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    CodeGenFunction &CGF, const OMPExecutableDirective &D,
+    const VarDecl *ThreadIDVar, OpenMPDirectiveKind InnermostKind,
+    const RegionCodeGenTy &CodeGen) {
   SourceLocation Loc = D.getBeginLoc();
 
   const RecordDecl *GlobalizedRD = nullptr;
@@ -1024,7 +1024,7 @@ llvm::Function *CGOpenMPRuntimeGPU::emitTeamsOutlinedFunction(
   } Action(Loc, GlobalizedRD, MappedDeclsFields);
   CodeGen.setAction(Action);
   llvm::Function *OutlinedFun = CGOpenMPRuntime::emitTeamsOutlinedFunction(
-      D, ThreadIDVar, InnermostKind, CodeGen);
+      CGF, D, ThreadIDVar, InnermostKind, CodeGen);
 
   return OutlinedFun;
 }
@@ -1126,7 +1126,7 @@ void CGOpenMPRuntimeGPU::emitGenericVarsEpilog(CodeGenFunction &CGF,
   const auto I = FunctionGlobalizedDecls.find(CGF.CurFn);
   if (I != FunctionGlobalizedDecls.end()) {
     // Deallocate the memory for each globalized VLA object
-    for (auto AddrSizePair :
+    for (const auto &AddrSizePair :
          llvm::reverse(I->getSecond().EscapedVariableLengthDeclsAddrs)) {
       CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
                               CGM.getModule(), OMPRTL___kmpc_free_shared),
@@ -2922,9 +2922,9 @@ void CGOpenMPRuntimeGPU::emitReduction(
 
   llvm::Value *RL = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
       ReductionList.getPointer(), CGF.VoidPtrTy);
-  llvm::Function *ReductionFn =
-      emitReductionFunction(Loc, CGF.ConvertTypeForMem(ReductionArrayTy),
-                            Privates, LHSExprs, RHSExprs, ReductionOps);
+  llvm::Function *ReductionFn = emitReductionFunction(
+      CGF.CurFn->getName(), Loc, CGF.ConvertTypeForMem(ReductionArrayTy),
+      Privates, LHSExprs, RHSExprs, ReductionOps);
   llvm::Value *ReductionArrayTySize = CGF.getTypeSize(ReductionArrayTy);
   llvm::Function *ShuffleAndReduceFn = emitShuffleAndReduceFunction(
       CGM, Privates, ReductionArrayTy, ReductionFn, Loc);
@@ -3084,17 +3084,16 @@ CGOpenMPRuntimeGPU::getParameterAddress(CodeGenFunction &CGF,
   unsigned NativePointeeAddrSpace =
       CGF.getTypes().getTargetAddressSpace(NativePointeeTy);
   QualType TargetTy = TargetParam->getType();
-  llvm::Value *TargetAddr = CGF.EmitLoadOfScalar(
-      LocalAddr, /*Volatile=*/false, TargetTy, SourceLocation());
+  llvm::Value *TargetAddr = CGF.EmitLoadOfScalar(LocalAddr, /*Volatile=*/false,
+                                                 TargetTy, SourceLocation());
   // First cast to generic.
   TargetAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-      TargetAddr, llvm::PointerType::getWithSamePointeeType(
-          cast<llvm::PointerType>(TargetAddr->getType()), /*AddrSpace=*/0));
+      TargetAddr,
+      llvm::PointerType::get(CGF.getLLVMContext(), /*AddrSpace=*/0));
   // Cast from generic to native address space.
   TargetAddr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-      TargetAddr, llvm::PointerType::getWithSamePointeeType(
-          cast<llvm::PointerType>(TargetAddr->getType()),
-                                  NativePointeeAddrSpace));
+      TargetAddr,
+      llvm::PointerType::get(CGF.getLLVMContext(), NativePointeeAddrSpace));
   Address NativeParamAddr = CGF.CreateMemTemp(NativeParamType);
   CGF.EmitStoreOfScalar(TargetAddr, NativeParamAddr, /*Volatile=*/false,
                         NativeParamType);
@@ -3119,8 +3118,8 @@ void CGOpenMPRuntimeGPU::emitOutlinedFunctionCall(
       continue;
     }
     llvm::Value *TargetArg = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-        NativeArg, llvm::PointerType::getWithSamePointeeType(
-            cast<llvm::PointerType>(NativeArg->getType()), /*AddrSpace*/ 0));
+        NativeArg,
+        llvm::PointerType::get(CGF.getLLVMContext(), /*AddrSpace*/ 0));
     TargetArgs.emplace_back(
         CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(TargetArg, TargetType));
   }
@@ -3351,7 +3350,7 @@ Address CGOpenMPRuntimeGPU::getAddressOfLocalVariable(CodeGenFunction &CGF,
     llvm::Type *VarTy = CGF.ConvertTypeForMem(VD->getType());
     auto *GV = new llvm::GlobalVariable(
         CGM.getModule(), VarTy, /*isConstant=*/false,
-        llvm::GlobalValue::InternalLinkage, llvm::Constant::getNullValue(VarTy),
+        llvm::GlobalValue::InternalLinkage, llvm::PoisonValue::get(VarTy),
         VD->getName(),
         /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
         CGM.getContext().getTargetAddressSpace(AS));

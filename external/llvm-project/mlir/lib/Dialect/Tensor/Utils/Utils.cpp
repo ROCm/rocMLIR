@@ -14,6 +14,9 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 using namespace mlir;
 using namespace mlir::tensor;
@@ -31,9 +34,10 @@ PadOp mlir::tensor::createPadHighOp(RankedTensorType type, Value source,
     // Compute the padding width.
     AffineExpr d0;
     bindDims(b.getContext(), d0);
-    auto dimOp = b.createOrFold<tensor::DimOp>(loc, source, en.index());
+    OpFoldResult sz = tensor::getMixedSize(b, loc, source, en.index());
     high[en.index()] =
-        makeComposedAffineApply(b, loc, en.value() - d0, {dimOp}).getResult();
+        affine::makeComposedAffineApply(b, loc, en.value() - d0, {sz})
+            .getResult();
   }
   return b.create<PadOp>(loc, type, source, low, high, pad, nofold);
 }
@@ -41,7 +45,7 @@ PadOp mlir::tensor::createPadHighOp(RankedTensorType type, Value source,
 SmallVector<Value> mlir::tensor::createDynamicDimValues(OpBuilder &b,
                                                         Location loc,
                                                         Value rankedTensor) {
-  auto tensorTy = rankedTensor.getType().cast<RankedTensorType>();
+  auto tensorTy = cast<RankedTensorType>(rankedTensor.getType());
   SmallVector<Value> dynamicDims;
   for (const auto &en : llvm::enumerate(tensorTy.getShape())) {
     if (en.value() == ShapedType::kDynamic)
@@ -51,17 +55,61 @@ SmallVector<Value> mlir::tensor::createDynamicDimValues(OpBuilder &b,
   return dynamicDims;
 }
 
-SmallVector<OpFoldResult>
-mlir::tensor::createDimValues(OpBuilder &b, Location loc, Value rankedTensor) {
-  auto tensorTy = rankedTensor.getType().cast<RankedTensorType>();
-  SmallVector<OpFoldResult> dims;
-  for (const auto &en : llvm::enumerate(tensorTy.getShape())) {
-    if (ShapedType::isDynamic(en.value())) {
-      dims.push_back(
-          b.createOrFold<tensor::DimOp>(loc, rankedTensor, en.index()));
-    } else {
-      dims.push_back(b.getIndexAttr(en.value()));
+FailureOr<RankedTensorType>
+mlir::tensor::computeTransposedType(RankedTensorType rankedTensorType,
+                                    ArrayRef<int64_t> transposeVector) {
+  if (transposeVector.empty())
+    return rankedTensorType;
+
+  if (!isPermutationVector(transposeVector) ||
+      transposeVector.size() != static_cast<size_t>(rankedTensorType.getRank()))
+    return failure();
+
+  SmallVector<int64_t> transposedShape(rankedTensorType.getShape().begin(),
+                                       rankedTensorType.getShape().end());
+  applyPermutationToVector(transposedShape, transposeVector);
+
+  using RTTBuilder = RankedTensorType::Builder;
+  RankedTensorType transposedTensorType =
+      RTTBuilder(rankedTensorType).setShape(transposedShape);
+  return transposedTensorType;
+}
+
+bool mlir::tensor::isCastLikeInsertSliceOp(InsertSliceOp op) {
+  llvm::SmallBitVector droppedDims = op.getDroppedDims();
+  int64_t srcDim = 0;
+  // Source dims and destination dims (apart from dropped dims) must have the
+  // same size.
+  for (int64_t resultDim = 0; resultDim < op.getDestType().getRank();
+       ++resultDim) {
+    if (droppedDims.test(resultDim)) {
+      continue;
     }
+    FailureOr<bool> equalDimSize = ValueBoundsConstraintSet::areEqual(
+        op.getSource(), op.getResult(), srcDim, resultDim);
+    if (failed(equalDimSize) || !*equalDimSize)
+      return false;
+    ++srcDim;
   }
-  return dims;
+
+  return true;
+}
+
+bool mlir::tensor::isCastLikeExtractSliceOp(ExtractSliceOp op) {
+  llvm::SmallBitVector droppedDims = op.getDroppedDims();
+  int64_t resultDim = 0;
+  // Source dims and result dims (apart from dropped dims) must have the same
+  // size.
+  for (int64_t dim = 0; dim < op.getSourceType().getRank(); ++dim) {
+    if (droppedDims.test(dim)) {
+      continue;
+    }
+    FailureOr<bool> equalDimSize = ValueBoundsConstraintSet::areEqual(
+        op.getSource(), op.getResult(), dim, resultDim);
+    if (failed(equalDimSize) || !*equalDimSize)
+      return false;
+    ++resultDim;
+  }
+
+  return true;
 }

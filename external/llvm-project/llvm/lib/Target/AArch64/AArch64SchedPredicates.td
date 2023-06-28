@@ -65,6 +65,12 @@ def CheckFpOrNEON : CheckFunctionPredicateWithTII<
   "AArch64InstrInfo::isFpOrNEON"
 >;
 
+// Identify whether an instruction is the 16-bit NEON form based on its result.
+def CheckHForm : CheckFunctionPredicateWithTII<
+  "AArch64_MC::isHForm",
+  "AArch64InstrInfo::isHForm"
+>;
+
 // Identify whether an instruction is the 128-bit NEON form based on its result.
 def CheckQForm : CheckFunctionPredicateWithTII<
   "AArch64_MC::isQForm",
@@ -310,3 +316,8 @@ def IsZeroIdiomFn     : TIIPredicate<"isZeroIdiom",
                                               CheckZeroOperand<2>]>>>],
                                       MCReturnStatement<FalsePred>>>;
 def IsZeroIdiomPred   : MCSchedPredicate<IsZeroIdiomFn>;
+
+// Identify EXTR as the alias for ROR (immediate).
+def IsRORImmIdiomPred : MCSchedPredicate<
+                          CheckAll<[CheckOpcode<[EXTRWrri, EXTRXrri]>,
+                                    CheckSameRegOperand<1, 2>]>>;

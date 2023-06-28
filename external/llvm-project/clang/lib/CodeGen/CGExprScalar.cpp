@@ -814,13 +814,21 @@ public:
                             Value *(ScalarExprEmitter::*F)(const BinOpInfo &));
 
   QualType getPromotionType(QualType Ty) {
+    const auto &Ctx = CGF.getContext();
     if (auto *CT = Ty->getAs<ComplexType>()) {
       QualType ElementType = CT->getElementType();
-      if (ElementType.UseExcessPrecision(CGF.getContext()))
-        return CGF.getContext().getComplexType(CGF.getContext().FloatTy);
+      if (ElementType.UseExcessPrecision(Ctx))
+        return Ctx.getComplexType(Ctx.FloatTy);
     }
-    if (Ty.UseExcessPrecision(CGF.getContext()))
-      return CGF.getContext().FloatTy;
+
+    if (Ty.UseExcessPrecision(Ctx)) {
+      if (auto *VT = Ty->getAs<VectorType>()) {
+        unsigned NumElements = VT->getNumElements();
+        return Ctx.getVectorType(Ctx.FloatTy, NumElements, VT->getVectorKind());
+      }
+      return Ctx.FloatTy;
+    }
+
     return QualType();
   }
 
@@ -2021,6 +2029,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   Expr *E = CE->getSubExpr();
   QualType DestTy = CE->getType();
   CastKind Kind = CE->getCastKind();
+  CodeGenFunction::CGFPOptionsRAII FPOptions(CGF, CE);
 
   // These cases are generally not written to ignore the result of
   // evaluating their sub-expressions, so we clear this now.
@@ -2037,15 +2046,15 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_LValueBitCast:
   case CK_ObjCObjectLValueCast: {
     Address Addr = EmitLValue(E).getAddress(CGF);
-    Addr = Builder.CreateElementBitCast(Addr, CGF.ConvertTypeForMem(DestTy));
+    Addr = Addr.withElementType(CGF.ConvertTypeForMem(DestTy));
     LValue LV = CGF.MakeAddrLValue(Addr, DestTy);
     return EmitLoadOfLValue(LV, CE->getExprLoc());
   }
 
   case CK_LValueToRValueBitCast: {
     LValue SourceLVal = CGF.EmitLValue(E);
-    Address Addr = Builder.CreateElementBitCast(SourceLVal.getAddress(CGF),
-                                                CGF.ConvertTypeForMem(DestTy));
+    Address Addr = SourceLVal.getAddress(CGF).withElementType(
+        CGF.ConvertTypeForMem(DestTy));
     LValue DestLV = CGF.MakeAddrLValue(Addr, DestTy);
     DestLV.setTBAAInfo(TBAAAccessInfo::getMayAliasInfo());
     return EmitLoadOfLValue(DestLV, CE->getExprLoc());
@@ -2097,7 +2106,8 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
 
     // Update heapallocsite metadata when there is an explicit pointer cast.
     if (auto *CI = dyn_cast<llvm::CallBase>(Src)) {
-      if (CI->getMetadata("heapallocsite") && isa<ExplicitCastExpr>(CE)) {
+      if (CI->getMetadata("heapallocsite") && isa<ExplicitCastExpr>(CE) &&
+          !isa<CastExpr>(E)) {
         QualType PointeeType = DestTy->getPointeeType();
         if (!PointeeType.isNull())
           CGF.getDebugInfo()->addHeapAllocSiteMetadata(CI, PointeeType,
@@ -2167,8 +2177,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
       Address Addr = CGF.CreateDefaultAlignTempAlloca(SrcTy, "saved-value");
       LValue LV = CGF.MakeAddrLValue(Addr, E->getType());
       CGF.EmitStoreOfScalar(Src, LV);
-      Addr = Builder.CreateElementBitCast(Addr, CGF.ConvertTypeForMem(DestTy),
-                                          "castFixedSve");
+      Addr = Addr.withElementType(CGF.ConvertTypeForMem(DestTy));
       LValue DestLV = CGF.MakeAddrLValue(Addr, DestTy);
       DestLV.setTBAAInfo(TBAAAccessInfo::getMayAliasInfo());
       return EmitLoadOfLValue(DestLV, CE->getExprLoc());
@@ -3733,8 +3742,6 @@ static Value *emitPointerArithmetic(CodeGenFunction &CGF,
 static Value* buildFMulAdd(llvm::Instruction *MulOp, Value *Addend,
                            const CodeGenFunction &CGF, CGBuilderTy &Builder,
                            bool negMul, bool negAdd) {
-  assert(!(negMul && negAdd) && "Only one of negMul and negAdd should be set.");
-
   Value *MulOp0 = MulOp->getOperand(0);
   Value *MulOp1 = MulOp->getOperand(1);
   if (negMul)
@@ -3779,31 +3786,70 @@ static Value* tryEmitFMulAdd(const BinOpInfo &op,
   if (!op.FPFeatures.allowFPContractWithinStatement())
     return nullptr;
 
+  Value *LHS = op.LHS;
+  Value *RHS = op.RHS;
+
+  // Peek through fneg to look for fmul. Make sure fneg has no users, and that
+  // it is the only use of its operand.
+  bool NegLHS = false;
+  if (auto *LHSUnOp = dyn_cast<llvm::UnaryOperator>(LHS)) {
+    if (LHSUnOp->getOpcode() == llvm::Instruction::FNeg &&
+        LHSUnOp->use_empty() && LHSUnOp->getOperand(0)->hasOneUse()) {
+      LHS = LHSUnOp->getOperand(0);
+      NegLHS = true;
+    }
+  }
+
+  bool NegRHS = false;
+  if (auto *RHSUnOp = dyn_cast<llvm::UnaryOperator>(RHS)) {
+    if (RHSUnOp->getOpcode() == llvm::Instruction::FNeg &&
+        RHSUnOp->use_empty() && RHSUnOp->getOperand(0)->hasOneUse()) {
+      RHS = RHSUnOp->getOperand(0);
+      NegRHS = true;
+    }
+  }
+
   // We have a potentially fusable op. Look for a mul on one of the operands.
   // Also, make sure that the mul result isn't used directly. In that case,
   // there's no point creating a muladd operation.
-  if (auto *LHSBinOp = dyn_cast<llvm::BinaryOperator>(op.LHS)) {
+  if (auto *LHSBinOp = dyn_cast<llvm::BinaryOperator>(LHS)) {
     if (LHSBinOp->getOpcode() == llvm::Instruction::FMul &&
-        LHSBinOp->use_empty())
-      return buildFMulAdd(LHSBinOp, op.RHS, CGF, Builder, false, isSub);
+        (LHSBinOp->use_empty() || NegLHS)) {
+      // If we looked through fneg, erase it.
+      if (NegLHS)
+        cast<llvm::Instruction>(op.LHS)->eraseFromParent();
+      return buildFMulAdd(LHSBinOp, op.RHS, CGF, Builder, NegLHS, isSub);
+    }
   }
-  if (auto *RHSBinOp = dyn_cast<llvm::BinaryOperator>(op.RHS)) {
+  if (auto *RHSBinOp = dyn_cast<llvm::BinaryOperator>(RHS)) {
     if (RHSBinOp->getOpcode() == llvm::Instruction::FMul &&
-        RHSBinOp->use_empty())
-      return buildFMulAdd(RHSBinOp, op.LHS, CGF, Builder, isSub, false);
+        (RHSBinOp->use_empty() || NegRHS)) {
+      // If we looked through fneg, erase it.
+      if (NegRHS)
+        cast<llvm::Instruction>(op.RHS)->eraseFromParent();
+      return buildFMulAdd(RHSBinOp, op.LHS, CGF, Builder, isSub ^ NegRHS, false);
+    }
   }
 
-  if (auto *LHSBinOp = dyn_cast<llvm::CallBase>(op.LHS)) {
+  if (auto *LHSBinOp = dyn_cast<llvm::CallBase>(LHS)) {
     if (LHSBinOp->getIntrinsicID() ==
             llvm::Intrinsic::experimental_constrained_fmul &&
-        LHSBinOp->use_empty())
-      return buildFMulAdd(LHSBinOp, op.RHS, CGF, Builder, false, isSub);
+        (LHSBinOp->use_empty() || NegLHS)) {
+      // If we looked through fneg, erase it.
+      if (NegLHS)
+        cast<llvm::Instruction>(op.LHS)->eraseFromParent();
+      return buildFMulAdd(LHSBinOp, op.RHS, CGF, Builder, NegLHS, isSub);
+    }
   }
-  if (auto *RHSBinOp = dyn_cast<llvm::CallBase>(op.RHS)) {
+  if (auto *RHSBinOp = dyn_cast<llvm::CallBase>(RHS)) {
     if (RHSBinOp->getIntrinsicID() ==
             llvm::Intrinsic::experimental_constrained_fmul &&
-        RHSBinOp->use_empty())
-      return buildFMulAdd(RHSBinOp, op.LHS, CGF, Builder, isSub, false);
+        (RHSBinOp->use_empty() || NegRHS)) {
+      // If we looked through fneg, erase it.
+      if (NegRHS)
+        cast<llvm::Instruction>(op.RHS)->eraseFromParent();
+      return buildFMulAdd(RHSBinOp, op.LHS, CGF, Builder, isSub ^ NegRHS, false);
+    }
   }
 
   return nullptr;
@@ -5097,7 +5143,7 @@ LValue CodeGenFunction::EmitObjCIsaExpr(const ObjCIsaExpr *E) {
   }
 
   // Cast the address to Class*.
-  Addr = Builder.CreateElementBitCast(Addr, ConvertType(E->getType()));
+  Addr = Addr.withElementType(ConvertType(E->getType()));
   return MakeAddrLValue(Addr, E->getType());
 }
 
