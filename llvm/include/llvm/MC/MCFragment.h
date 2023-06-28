@@ -311,7 +311,7 @@ class MCAlignFragment : public MCFragment {
   unsigned MaxBytesToEmit;
 
   /// When emitting Nops some subtargets have specific nop encodings.
-  const MCSubtargetInfo *STI;
+  const MCSubtargetInfo *STI = nullptr;
 
 public:
   MCAlignFragment(Align Alignment, int64_t Value, unsigned ValueSize,
@@ -488,6 +488,7 @@ public:
         AddrDelta(&AddrDelta) {}
 
   const MCExpr &getAddrDelta() const { return *AddrDelta; }
+  void setAddrDelta(const MCExpr *E) { AddrDelta = E; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_DwarfFrame;

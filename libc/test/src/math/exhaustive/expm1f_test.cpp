@@ -9,8 +9,8 @@
 #include "exhaustive_test.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/math/expm1f.h"
+#include "test/UnitTest/FPMatcher.h"
 #include "utils/MPFRWrapper/MPFRUtils.h"
-#include "utils/UnitTest/FPMatcher.h"
 
 #include <thread>
 
@@ -22,13 +22,15 @@ struct LlvmLibcExpm1fExhaustiveTest : public LlvmLibcExhaustiveTest<uint32_t> {
   bool check(uint32_t start, uint32_t stop,
              mpfr::RoundingMode rounding) override {
     mpfr::ForceRoundingMode r(rounding);
+    if (!r.success)
+      return true;
     uint32_t bits = stop;
     bool result = true;
     do {
       FPBits xbits(bits);
       float x = float(xbits);
-      result &= EXPECT_MPFR_MATCH(mpfr::Operation::Expm1, x,
-                                  __llvm_libc::expm1f(x), 0.5, rounding);
+      result &= TEST_MPFR_MATCH(mpfr::Operation::Expm1, x,
+                                __llvm_libc::expm1f(x), 0.5, rounding);
     } while (bits-- > start);
     return result;
   }

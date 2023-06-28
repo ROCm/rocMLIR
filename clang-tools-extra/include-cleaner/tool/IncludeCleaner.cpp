@@ -108,10 +108,18 @@ class Action : public clang::ASTFrontendAction {
   }
 
   void EndSourceFile() override {
+    const auto &SM = getCompilerInstance().getSourceManager();
+    if (SM.getDiagnostics().hasUncompilableErrorOccurred()) {
+      llvm::errs()
+          << "Skipping file " << getCurrentFile()
+          << " due to compiler errors. clang-include-cleaner expects to "
+             "work on compilable source code.\n";
+      return;
+    }
+
     if (!HTMLReportPath.empty())
       writeHTML();
 
-    const auto &SM = getCompilerInstance().getSourceManager();
     auto &HS = getCompilerInstance().getPreprocessor().getHeaderSearchInfo();
     llvm::StringRef Path =
         SM.getFileEntryForID(SM.getMainFileID())->tryGetRealPathName();
@@ -140,7 +148,7 @@ class Action : public clang::ASTFrontendAction {
       }
     }
 
-    if (Edit) {
+    if (Edit && (!Results.Missing.empty() || !Results.Unused.empty())) {
       if (auto Err = llvm::writeToOutput(
               Path, [&](llvm::raw_ostream &OS) -> llvm::Error {
                 OS << Final;
@@ -187,9 +195,10 @@ int main(int argc, const char **argv) {
   if (OptionsParser->getSourcePathList().size() != 1) {
     std::vector<cl::Option *> IncompatibleFlags = {&HTMLReportPath, &Print};
     for (const auto *Flag : IncompatibleFlags) {
-      if (Flag->getNumOccurrences())
+      if (Flag->getNumOccurrences()) {
         llvm::errs() << "-" << Flag->ArgStr << " requires a single input file";
-      return 1;
+        return 1;
+      }
     }
   }
   auto Factory = clang::tooling::newFrontendActionFactory<Action>();

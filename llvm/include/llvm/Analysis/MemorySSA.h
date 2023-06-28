@@ -798,7 +798,6 @@ public:
 
 protected:
   // Used by Memory SSA dumpers and wrapper pass
-  friend class MemorySSAPrinterLegacyPass;
   friend class MemorySSAUpdater;
 
   void verifyOrderingDominationAndDefUses(
@@ -917,18 +916,6 @@ protected:
   // This function should not be used by new passes.
   static bool defClobbersUseOrDef(MemoryDef *MD, const MemoryUseOrDef *MU,
                                   AliasAnalysis &AA);
-};
-
-// This pass does eager building and then printing of MemorySSA. It is used by
-// the tests to be able to build, dump, and verify Memory SSA.
-class MemorySSAPrinterLegacyPass : public FunctionPass {
-public:
-  MemorySSAPrinterLegacyPass();
-
-  bool runOnFunction(Function &) override;
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-
-  static char ID;
 };
 
 /// An analysis that produces \c MemorySSA for a function.
@@ -1272,11 +1259,11 @@ private:
           const_cast<Value *>(Location.Ptr),
           OriginalAccess->getBlock()->getModule()->getDataLayout(), nullptr);
 
-      if (!Translator.PHITranslateValue(OriginalAccess->getBlock(),
+      if (Value *Addr =
+              Translator.translateValue(OriginalAccess->getBlock(),
                                         DefIterator.getPhiArgBlock(), DT, true))
-        if (Translator.getAddr() != CurrentPair.second.Ptr)
-          CurrentPair.second =
-              CurrentPair.second.getWithNewPtr(Translator.getAddr());
+        if (Addr != CurrentPair.second.Ptr)
+          CurrentPair.second = CurrentPair.second.getWithNewPtr(Addr);
 
       // Mark size as unknown, if the location is not guaranteed to be
       // loop-invariant for any possible loop in the function. Setting the size

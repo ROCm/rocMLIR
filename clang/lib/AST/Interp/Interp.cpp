@@ -26,51 +26,6 @@
 using namespace clang;
 using namespace clang::interp;
 
-//===----------------------------------------------------------------------===//
-// Ret
-//===----------------------------------------------------------------------===//
-
-template <PrimType Name, class T = typename PrimConv<Name>::T>
-static bool Ret(InterpState &S, CodePtr &PC, APValue &Result) {
-  S.CallStackDepth--;
-  const T &Ret = S.Stk.pop<T>();
-
-  assert(S.Current->getFrameOffset() == S.Stk.size() && "Invalid frame");
-  if (!S.checkingPotentialConstantExpression())
-    S.Current->popArgs();
-
-  if (InterpFrame *Caller = S.Current->Caller) {
-    PC = S.Current->getRetPC();
-    delete S.Current;
-    S.Current = Caller;
-    S.Stk.push<T>(Ret);
-  } else {
-    delete S.Current;
-    S.Current = nullptr;
-    if (!ReturnValue<T>(Ret, Result))
-      return false;
-  }
-  return true;
-}
-
-static bool RetVoid(InterpState &S, CodePtr &PC, APValue &Result) {
-  S.CallStackDepth--;
-
-  assert(S.Current->getFrameOffset() == S.Stk.size() && "Invalid frame");
-  if (!S.checkingPotentialConstantExpression())
-    S.Current->popArgs();
-
-  if (InterpFrame *Caller = S.Current->Caller) {
-    PC = S.Current->getRetPC();
-    delete S.Current;
-    S.Current = Caller;
-  } else {
-    delete S.Current;
-    S.Current = nullptr;
-  }
-  return true;
-}
-
 static bool RetValue(InterpState &S, CodePtr &Pt, APValue &Result) {
   llvm::report_fatal_error("Interpreter cannot return values");
 }
@@ -96,17 +51,6 @@ static bool Jf(InterpState &S, CodePtr &PC, int32_t Offset) {
     PC += Offset;
   }
   return true;
-}
-
-static bool CheckInitialized(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
-                             AccessKinds AK) {
-  if (Ptr.isInitialized())
-    return true;
-  if (!S.checkingPotentialConstantExpression()) {
-    const SourceInfo &Loc = S.Current->getSource(OpPC);
-    S.FFDiag(Loc, diag::note_constexpr_access_uninit) << AK << false;
-  }
-  return false;
 }
 
 static bool CheckActive(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
@@ -258,7 +202,14 @@ bool CheckRange(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
 
 bool CheckConst(InterpState &S, CodePtr OpPC, const Pointer &Ptr) {
   assert(Ptr.isLive() && "Pointer is not live");
-  if (!Ptr.isConst()) {
+  if (!Ptr.isConst())
+    return true;
+
+  // The This pointer is writable in constructors and destructors,
+  // even if isConst() returns true.
+  if (const Function *Func = S.Current->getFunction();
+      Func && (Func->isConstructor() || Func->isDestructor()) &&
+      Ptr.block() == S.Current->getThis().block()) {
     return true;
   }
 
@@ -278,6 +229,18 @@ bool CheckMutable(InterpState &S, CodePtr OpPC, const Pointer &Ptr) {
   const FieldDecl *Field = Ptr.getField();
   S.FFDiag(Loc, diag::note_constexpr_access_mutable, 1) << AK_Read << Field;
   S.Note(Field->getLocation(), diag::note_declared_at);
+  return false;
+}
+
+bool CheckInitialized(InterpState &S, CodePtr OpPC, const Pointer &Ptr,
+                      AccessKinds AK) {
+  if (Ptr.isInitialized())
+    return true;
+
+  if (!S.checkingPotentialConstantExpression()) {
+    const SourceInfo &Loc = S.Current->getSource(OpPC);
+    S.FFDiag(Loc, diag::note_constexpr_access_uninit) << AK << false;
+  }
   return false;
 }
 
@@ -342,6 +305,11 @@ bool CheckCallable(InterpState &S, CodePtr OpPC, const Function *F) {
   }
 
   if (!F->isConstexpr()) {
+    // Don't emit anything if we're checking for a potential constant
+    // expression. That will happen later when actually executing.
+    if (S.checkingPotentialConstantExpression())
+      return false;
+
     const SourceLocation &Loc = S.Current->getLocation(OpPC);
     if (S.getLangOpts().CPlusPlus11) {
       const FunctionDecl *DiagDecl = F->getDecl();
@@ -374,6 +342,17 @@ bool CheckCallable(InterpState &S, CodePtr OpPC, const Function *F) {
   return true;
 }
 
+bool CheckCallDepth(InterpState &S, CodePtr OpPC) {
+  if ((S.Current->getDepth() + 1) > S.getLangOpts().ConstexprCallDepth) {
+    S.FFDiag(S.Current->getSource(OpPC),
+             diag::note_constexpr_depth_limit_exceeded)
+        << S.getLangOpts().ConstexprCallDepth;
+    return false;
+  }
+
+  return true;
+}
+
 bool CheckThis(InterpState &S, CodePtr OpPC, const Pointer &This) {
   if (!This.isZero())
     return true;
@@ -381,7 +360,7 @@ bool CheckThis(InterpState &S, CodePtr OpPC, const Pointer &This) {
   const SourceInfo &Loc = S.Current->getSource(OpPC);
 
   bool IsImplicit = false;
-  if (auto *E = dyn_cast_or_null<CXXThisExpr>(Loc.asExpr()))
+  if (auto *E = dyn_cast_if_present<CXXThisExpr>(Loc.asExpr()))
     IsImplicit = E->isImplicit();
 
   if (S.getLangOpts().CPlusPlus11)
@@ -402,11 +381,11 @@ bool CheckPure(InterpState &S, CodePtr OpPC, const CXXMethodDecl *MD) {
 }
 
 static void DiagnoseUninitializedSubobject(InterpState &S, const SourceInfo &SI,
-                                           QualType SubObjType,
-                                           SourceLocation SubObjLoc) {
-  S.FFDiag(SI, diag::note_constexpr_uninitialized) << true << SubObjType;
-  if (SubObjLoc.isValid())
-    S.Note(SubObjLoc, diag::note_constexpr_subobject_declared_here);
+                                           const FieldDecl *SubObjDecl) {
+  assert(SubObjDecl && "Subobject declaration does not exist");
+  S.FFDiag(SI, diag::note_constexpr_uninitialized) << SubObjDecl;
+  S.Note(SubObjDecl->getLocation(),
+         diag::note_constexpr_subobject_declared_here);
 }
 
 static bool CheckFieldsInitialized(InterpState &S, CodePtr OpPC,
@@ -419,7 +398,7 @@ static bool CheckArrayInitialized(InterpState &S, CodePtr OpPC,
   size_t NumElems = CAT->getSize().getZExtValue();
   QualType ElemType = CAT->getElementType();
 
-  if (isa<RecordType>(ElemType.getTypePtr())) {
+  if (ElemType->isRecordType()) {
     const Record *R = BasePtr.getElemRecord();
     for (size_t I = 0; I != NumElems; ++I) {
       Pointer ElemPtr = BasePtr.atIndex(I).narrow();
@@ -433,8 +412,8 @@ static bool CheckArrayInitialized(InterpState &S, CodePtr OpPC,
   } else {
     for (size_t I = 0; I != NumElems; ++I) {
       if (!BasePtr.atIndex(I).isInitialized()) {
-        DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC), ElemType,
-                                       BasePtr.getFieldDesc()->getLocation());
+        DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC),
+                                       BasePtr.getField());
         Result = false;
       }
     }
@@ -459,18 +438,72 @@ static bool CheckFieldsInitialized(InterpState &S, CodePtr OpPC,
           cast<ConstantArrayType>(FieldType->getAsArrayTypeUnsafe());
       Result &= CheckArrayInitialized(S, OpPC, FieldPtr, CAT);
     } else if (!FieldPtr.isInitialized()) {
-      DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC),
-                                     F.Decl->getType(), F.Decl->getLocation());
+      DiagnoseUninitializedSubobject(S, S.Current->getSource(OpPC), F.Decl);
       Result = false;
     }
   }
+
+  // Check Fields in all bases
+  for (const Record::Base &B : R->bases()) {
+    Pointer P = BasePtr.atField(B.Offset);
+    Result &= CheckFieldsInitialized(S, OpPC, P, B.R);
+  }
+
+  // TODO: Virtual bases
+
   return Result;
 }
 
 bool CheckCtorCall(InterpState &S, CodePtr OpPC, const Pointer &This) {
   assert(!This.isZero());
-  const Record *R = This.getRecord();
-  return CheckFieldsInitialized(S, OpPC, This, R);
+  if (const Record *R = This.getRecord())
+    return CheckFieldsInitialized(S, OpPC, This, R);
+  const auto *CAT =
+      cast<ConstantArrayType>(This.getType()->getAsArrayTypeUnsafe());
+  return CheckArrayInitialized(S, OpPC, This, CAT);
+}
+
+bool CheckFloatResult(InterpState &S, CodePtr OpPC, APFloat::opStatus Status) {
+  // In a constant context, assume that any dynamic rounding mode or FP
+  // exception state matches the default floating-point environment.
+  if (S.inConstantContext())
+    return true;
+
+  const SourceInfo &E = S.Current->getSource(OpPC);
+  FPOptions FPO = E.asExpr()->getFPFeaturesInEffect(S.Ctx.getLangOpts());
+
+  if ((Status & APFloat::opInexact) &&
+      FPO.getRoundingMode() == llvm::RoundingMode::Dynamic) {
+    // Inexact result means that it depends on rounding mode. If the requested
+    // mode is dynamic, the evaluation cannot be made in compile time.
+    S.FFDiag(E, diag::note_constexpr_dynamic_rounding);
+    return false;
+  }
+
+  if ((Status != APFloat::opOK) &&
+      (FPO.getRoundingMode() == llvm::RoundingMode::Dynamic ||
+       FPO.getExceptionMode() != LangOptions::FPE_Ignore ||
+       FPO.getAllowFEnvAccess())) {
+    S.FFDiag(E, diag::note_constexpr_float_arithmetic_strict);
+    return false;
+  }
+
+  if ((Status & APFloat::opStatus::opInvalidOp) &&
+      FPO.getExceptionMode() != LangOptions::FPE_Ignore) {
+    // There is no usefully definable result.
+    S.FFDiag(E);
+    return false;
+  }
+
+  return true;
+}
+
+bool CastFP(InterpState &S, CodePtr OpPC, const llvm::fltSemantics *Sem,
+            llvm::RoundingMode RM) {
+  Floating F = S.Stk.pop<Floating>();
+  Floating Result = F.toSemantics(Sem, RM);
+  S.Stk.push<Floating>(Result);
+  return true;
 }
 
 bool Interpret(InterpState &S, APValue &Result) {

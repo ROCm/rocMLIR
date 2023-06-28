@@ -565,7 +565,7 @@ Register SIFrameLowering::getEntryFunctionReservedScratchRsrcReg(
     // reserved input we needed. Also for PAL, make sure we don't clobber
     // the GIT pointer passed in SGPR0 or SGPR8.
     if (!MRI.isPhysRegUsed(Reg) && MRI.isAllocatable(Reg) &&
-        !TRI->isSubRegisterEq(Reg, GITPtrLoReg)) {
+        (!GITPtrLoReg || !TRI->isSubRegisterEq(Reg, GITPtrLoReg))) {
       MRI.replaceRegWith(ScratchRsrcReg, Reg);
       MFI->setScratchRSrcReg(Reg);
       return Reg;
@@ -1350,6 +1350,7 @@ void SIFrameLowering::processFunctionBeforeFrameFinalized(
             TII->getNamedOperand(MI, AMDGPU::OpName::vdata)->getReg();
           if (FuncInfo->allocateVGPRSpillToAGPR(MF, FI,
                                                 TRI->isAGPR(MRI, VReg))) {
+            assert(RS != nullptr);
             // FIXME: change to enterBasicBlockEnd()
             RS->enterBasicBlock(MBB);
             TRI->eliminateFrameIndex(MI, 0, FIOp, RS);
@@ -1500,6 +1501,7 @@ void SIFrameLowering::determineCalleeSaves(MachineFunction &MF,
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
 
+  MachineInstr *ReturnMI = nullptr;
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : MBB) {
       // WRITELANE instructions used for SGPR spills can overwrite the inactive
@@ -1516,6 +1518,23 @@ void SIFrameLowering::determineCalleeSaves(MachineFunction &MF,
         MFI->allocateWWMSpill(MF, MI.getOperand(0).getReg());
       else if (MI.getOpcode() == AMDGPU::V_READLANE_B32)
         MFI->allocateWWMSpill(MF, MI.getOperand(1).getReg());
+      else if (MI.getOpcode() == AMDGPU::SI_RETURN ||
+               MI.getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG) {
+        // We expect all return to be the same size.
+        assert(!ReturnMI ||
+               (count_if(MI.operands(), [](auto Op) { return Op.isReg(); }) ==
+                count_if(ReturnMI->operands(), [](auto Op) { return Op.isReg(); })));
+        ReturnMI = &MI;
+      }
+    }
+  }
+
+  // Remove any VGPRs used in the return value because these do not need to be saved.
+  // This prevents CSR restore from clobbering return VGPRs.
+  if (ReturnMI) {
+    for (auto &Op : ReturnMI->operands()) {
+      if (Op.isReg())
+        SavedVGPRs.reset(Op.getReg());
     }
   }
 

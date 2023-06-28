@@ -13,6 +13,7 @@
 #include "TargetInfo/SystemZTargetInfo.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -379,7 +380,6 @@ public:
   bool isU2Imm() const { return isImm(0, 3); }
   bool isU3Imm() const { return isImm(0, 7); }
   bool isU4Imm() const { return isImm(0, 15); }
-  bool isU6Imm() const { return isImm(0, 63); }
   bool isU8Imm() const { return isImm(0, 255); }
   bool isS8Imm() const { return isImm(-128, 127); }
   bool isU12Imm() const { return isImm(0, 4095); }

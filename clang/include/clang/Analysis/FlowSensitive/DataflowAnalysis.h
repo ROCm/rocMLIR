@@ -41,7 +41,7 @@ namespace dataflow {
 ///  must provide the following public members:
 ///   * `LatticeT initialElement()` - returns a lattice element that models the
 ///     initial state of a basic block;
-///   * `void transfer(const CFGElement *, LatticeT &, Environment &)` - applies
+///   * `void transfer(const CFGElement &, LatticeT &, Environment &)` - applies
 ///     the analysis transfer function for a given CFG element and lattice
 ///     element.
 ///
@@ -119,7 +119,7 @@ public:
     return L1 == L2;
   }
 
-  void transferTypeErased(const CFGElement *Element, TypeErasedLattice &E,
+  void transferTypeErased(const CFGElement &Element, TypeErasedLattice &E,
                           Environment &Env) final {
     Lattice &L = llvm::any_cast<Lattice &>(E.Value);
     static_cast<Derived *>(this)->transfer(Element, L, Env);
@@ -205,8 +205,10 @@ runDataflowAnalysis(
                               const TypeErasedDataflowAnalysisState &State) {
       auto *Lattice =
           llvm::any_cast<typename AnalysisT::Lattice>(&State.Lattice.Value);
+      // FIXME: we should not be copying the environment here!
+      // Ultimately the PostVisitCFG only gets a const reference anyway.
       PostVisitCFG(Element, DataflowAnalysisState<typename AnalysisT::Lattice>{
-                                *Lattice, State.Env});
+                                *Lattice, State.Env.fork()});
     };
   }
 
@@ -222,12 +224,13 @@ runDataflowAnalysis(
   llvm::transform(
       std::move(*TypeErasedBlockStates), std::back_inserter(BlockStates),
       [](auto &OptState) {
-        return llvm::transformOptional(std::move(OptState), [](auto &&State) {
-          return DataflowAnalysisState<typename AnalysisT::Lattice>{
-              llvm::any_cast<typename AnalysisT::Lattice>(
-                  std::move(State.Lattice.Value)),
-              std::move(State.Env)};
-        });
+        return llvm::transformOptional(
+            std::move(OptState), [](TypeErasedDataflowAnalysisState &&State) {
+              return DataflowAnalysisState<typename AnalysisT::Lattice>{
+                  llvm::any_cast<typename AnalysisT::Lattice>(
+                      std::move(State.Lattice.Value)),
+                  std::move(State.Env)};
+            });
       });
   return BlockStates;
 }
@@ -238,7 +241,7 @@ runDataflowAnalysis(
 class DataflowModel : public Environment::ValueModel {
 public:
   /// Return value indicates whether the model processed the `Element`.
-  virtual bool transfer(const CFGElement *Element, Environment &Env) = 0;
+  virtual bool transfer(const CFGElement &Element, Environment &Env) = 0;
 };
 
 } // namespace dataflow

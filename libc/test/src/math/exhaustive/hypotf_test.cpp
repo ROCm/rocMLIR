@@ -10,8 +10,8 @@
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/FPUtil/Hypot.h"
 #include "src/math/hypotf.h"
+#include "test/UnitTest/FPMatcher.h"
 #include "utils/MPFRWrapper/MPFRUtils.h"
-#include "utils/UnitTest/FPMatcher.h"
 
 using FPBits = __llvm_libc::fputil::FPBits<float>;
 
@@ -25,6 +25,8 @@ struct LlvmLibcHypotfExhaustiveTest : public LlvmLibcExhaustiveTest<uint32_t> {
     constexpr uint32_t Y_STOP = (48U + 127U) << 23;
 
     mpfr::ForceRoundingMode r(rounding);
+    if (!r.success)
+      return true;
     uint32_t xbits = start;
     bool result = true;
     do {
@@ -32,8 +34,8 @@ struct LlvmLibcHypotfExhaustiveTest : public LlvmLibcExhaustiveTest<uint32_t> {
       uint32_t ybits = Y_START;
       do {
         float y = float(FPBits(ybits));
-        result &= EXPECT_FP_EQ(__llvm_libc::fputil::hypot(x, y),
-                               __llvm_libc::hypotf(x, y));
+        result &= TEST_FP_EQ(__llvm_libc::fputil::hypot(x, y),
+                             __llvm_libc::hypotf(x, y));
         // Using MPFR will be much slower.
         // mpfr::BinaryInput<float> input{x, y};
         // EXPECT_MPFR_MATCH(mpfr::Operation::Hypot, input,

@@ -19,7 +19,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template<class _Tp, class _Compare>
 _LIBCPP_NODISCARD_EXT inline
 _LIBCPP_INLINE_VISIBILITY constexpr
@@ -37,7 +37,7 @@ _LIBCPP_INLINE_VISIBILITY constexpr
 const _Tp&
 clamp(const _Tp& __v, const _Tp& __lo, const _Tp& __hi)
 {
-    return _VSTD::clamp(__v, __lo, __hi, __less<_Tp>());
+    return _VSTD::clamp(__v, __lo, __hi, __less<>());
 }
 #endif
 

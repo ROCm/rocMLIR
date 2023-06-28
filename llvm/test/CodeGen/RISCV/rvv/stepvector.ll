@@ -501,8 +501,8 @@ define <vscale x 8 x i64> @mul_bigimm_stepvector_nxv8i64() {
 ; RV32-NEXT:    lui a0, 797989
 ; RV32-NEXT:    addi a0, a0, -683
 ; RV32-NEXT:    sw a0, 8(sp)
+; RV32-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV32-NEXT:    addi a0, sp, 8
-; RV32-NEXT:    vsetvli a1, zero, e64, m8, ta, ma
 ; RV32-NEXT:    vlse64.v v8, (a0), zero
 ; RV32-NEXT:    vid.v v16
 ; RV32-NEXT:    vmul.vv v8, v16, v8
@@ -552,8 +552,8 @@ define <vscale x 16 x i64> @stepvector_nxv16i64() {
 ; RV32-NEXT:    sw zero, 12(sp)
 ; RV32-NEXT:    csrr a0, vlenb
 ; RV32-NEXT:    sw a0, 8(sp)
+; RV32-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV32-NEXT:    addi a0, sp, 8
-; RV32-NEXT:    vsetvli a1, zero, e64, m8, ta, ma
 ; RV32-NEXT:    vlse64.v v16, (a0), zero
 ; RV32-NEXT:    vid.v v8
 ; RV32-NEXT:    vadd.vv v16, v8, v16
@@ -562,9 +562,9 @@ define <vscale x 16 x i64> @stepvector_nxv16i64() {
 ;
 ; RV64-LABEL: stepvector_nxv16i64:
 ; RV64:       # %bb.0:
-; RV64-NEXT:    csrr a0, vlenb
-; RV64-NEXT:    vsetvli a1, zero, e64, m8, ta, ma
+; RV64-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV64-NEXT:    vid.v v8
+; RV64-NEXT:    csrr a0, vlenb
 ; RV64-NEXT:    vadd.vx v16, v8, a0
 ; RV64-NEXT:    ret
   %v = call <vscale x 16 x i64> @llvm.experimental.stepvector.nxv16i64()
@@ -667,8 +667,8 @@ define <vscale x 16 x i64> @mul_bigimm_stepvector_nxv16i64() {
 ; RV32-NEXT:    mulhu a0, a0, a2
 ; RV32-NEXT:    add a0, a0, a1
 ; RV32-NEXT:    sw a0, 12(sp)
+; RV32-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV32-NEXT:    addi a0, sp, 8
-; RV32-NEXT:    vsetvli a1, zero, e64, m8, ta, ma
 ; RV32-NEXT:    vlse64.v v8, (a0), zero
 ; RV32-NEXT:    vlse64.v v16, (a0), zero
 ; RV32-NEXT:    vid.v v24
@@ -679,15 +679,15 @@ define <vscale x 16 x i64> @mul_bigimm_stepvector_nxv16i64() {
 ;
 ; RV64-LABEL: mul_bigimm_stepvector_nxv16i64:
 ; RV64:       # %bb.0: # %entry
-; RV64-NEXT:    csrr a0, vlenb
-; RV64-NEXT:    lui a1, 1987
-; RV64-NEXT:    addiw a1, a1, -731
-; RV64-NEXT:    slli a1, a1, 12
-; RV64-NEXT:    addi a1, a1, -683
-; RV64-NEXT:    mul a0, a0, a1
-; RV64-NEXT:    vsetvli a2, zero, e64, m8, ta, ma
+; RV64-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV64-NEXT:    vid.v v8
-; RV64-NEXT:    vmul.vx v8, v8, a1
+; RV64-NEXT:    lui a0, 1987
+; RV64-NEXT:    addiw a0, a0, -731
+; RV64-NEXT:    slli a0, a0, 12
+; RV64-NEXT:    addi a0, a0, -683
+; RV64-NEXT:    vmul.vx v8, v8, a0
+; RV64-NEXT:    csrr a1, vlenb
+; RV64-NEXT:    mul a0, a1, a0
 ; RV64-NEXT:    vadd.vx v16, v8, a0
 ; RV64-NEXT:    ret
 entry:
@@ -718,11 +718,11 @@ define <vscale x 16 x i64> @shl_stepvector_nxv16i64() {
 ;
 ; RV64-LABEL: shl_stepvector_nxv16i64:
 ; RV64:       # %bb.0: # %entry
-; RV64-NEXT:    csrr a0, vlenb
-; RV64-NEXT:    slli a0, a0, 2
-; RV64-NEXT:    vsetvli a1, zero, e64, m8, ta, ma
+; RV64-NEXT:    vsetvli a0, zero, e64, m8, ta, ma
 ; RV64-NEXT:    vid.v v8
 ; RV64-NEXT:    vsll.vi v8, v8, 2
+; RV64-NEXT:    csrr a0, vlenb
+; RV64-NEXT:    slli a0, a0, 2
 ; RV64-NEXT:    vadd.vx v16, v8, a0
 ; RV64-NEXT:    ret
 entry:
