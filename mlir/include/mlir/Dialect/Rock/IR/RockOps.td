@@ -1197,6 +1197,46 @@ def Rock_AccelGemmOp:
   let hasVerifier = 1;
 }
 
+// blockwise_broadcasting_reduction
+def Rock_BlockwiseBroadcastReduceOp:
+    Rock_Op<"blockwise_broadcast_reduce">,
+    Arguments<(ins MemRefOf<GemmOutputTypes>:$input,
+                   MemRefOf<LdsBufferTypes>:$workspace_buffer,
+                   MemRefOf<GemmOutputTypes>:$output,
+                   IndexAttr:$axis,
+                   ReduceMethodAttr:$reduceMethod,
+                   TransformMapArrayAttr:$inputRegView,
+                   I32Attr:$blockSize
+                   )> {
+  let summary = "Blockwise reduce operation with output broadcasting";
+  let description = [{
+    The `rock.blockwise_broadcast_reduce` op does reduce at a blockwise level and
+    to fill all elements of the input tensor with reduced values. Note that both input/output
+    tensors live in registers.
+
+    $input tensor resides in registers, where each thread holds a subset of the elements 
+    of the tensor as defined by $inputView.
+
+    $inputRegView should be a coordinate transform taking {tid, iter} (where iter is 
+    the register number in $input and tid is the ID of the lane within the workgroup 
+    and producing indices into a virtual tensor `{d0, ..., dR, ... dN} 
+    which is spread across the lanes of the workgroup. Note that the reduction
+    axis (Dr) is not sliced because it is not supported.
+
+    $output tensor resides in registers. It would be of same shape as the input
+    tensor because the reduced value will be broadcasted to create the same shape as
+    the input tensor.
+
+    $workspace_buffer resides in LDS. This should be a flat tensor with at least
+    number of elements in the input tensor. 
+  }];
+  let assemblyFormat = [{
+    $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)
+  }];
+
+  let hasVerifier = 1;
+}
+
 /// ONLY NEEDEF FOR in_warp_transpose BELOW. DEAD BUT LEFT IN FOR FUTURE
 /// USE, JUST LIKE in_warp_transpose ITSELF.
 

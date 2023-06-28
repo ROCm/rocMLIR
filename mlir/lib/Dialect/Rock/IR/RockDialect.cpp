@@ -1674,6 +1674,82 @@ LogicalResult ReduceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// Blockwise_ReduceOp
+//===-----------------------------------------------------===//
+
+LogicalResult BlockwiseBroadcastReduceOp::verify() {
+  ArrayAttr inputViewArrayAttr = getInputRegViewAttr();
+  // This view should be {tid, iter} to {d0, ... , Dr , ... , dn};
+  // where {d0, ... , Dr , ... , dn} represent a blockwise tile
+  // of a larger tensor that is being reduced.
+  TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
+  ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
+  ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
+  int64_t blockSize = getBlockSize();
+
+  gpu::AddressSpaceAttr inMemSpaceAttr =
+      getInput()
+          .getType()
+          .getMemorySpace()
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!inMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in input memref; the input "
+                     "memref should be in regs");
+  } else {
+    if (inMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitError("input should be in regs.");
+    }
+  }
+
+  gpu::AddressSpaceAttr outMemSpaceAttr =
+      getOutput()
+          .getType()
+          .getMemorySpace()
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!outMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in output memref; the output "
+                     "memref should be in regs");
+  } else {
+    if (outMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitError("output should be in regs.");
+    }
+  }
+
+  gpu::AddressSpaceAttr wsMemSpaceAttr =
+      getWorkspaceBuffer()
+          .getType()
+          .getMemorySpace()
+          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (!wsMemSpaceAttr) {
+    return emitError("No gpu memspace attr found in workspace memref; the "
+                     "workspace memref should be in LDS");
+  } else {
+    if (wsMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup) {
+      return emitError("workspace should be in LDS.");
+    }
+  }
+
+  if (inputThreadView[0] != blockSize) {
+    return emitError(
+        "first dimension of the input view should be equal to the block size");
+  }
+  if (wsShape.size() != 1) {
+    return emitError("workspace LDS buffer should be flat");
+  }
+
+  int64_t blockwiseInputTensorElements = 1;
+  for (int64_t dimSize : inputTensorShape) {
+    blockwiseInputTensorElements *= dimSize;
+  }
+  if (blockwiseInputTensorElements > wsShape[0]) {
+    return emitError(
+        "workspace should be at least the size of elements per block");
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // BlockwiseFillOp
 //===-----------------------------------------------------===//
 
