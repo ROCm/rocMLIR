@@ -964,6 +964,7 @@ def Rock_ThreadwiseReadIntoOp :
       Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
         "destination registers", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
+      Variadic<Index>:$extraIndices,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
     )> {
@@ -999,14 +1000,18 @@ def Rock_ThreadwiseReadIntoOp :
     for MAPS.
 
     The input to extraViews ; (the transforms on %source) must have the form
-    (workgroup_id, workitem_id, iteration_number)
+    (extraIdx0, ... , extraIdxN, workgroup_id, workitem_id, iteration_number)
+
+    The extraIndices could be used to integrate loop induction vars that is outside
+    of the op. If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, workgroup_id, workitem_id, iteration_number).
 
     This is used during fusion to represent loads from addition arguments like
     bias tensors.
   }];
 
   let assemblyFormat = [{
-    attr-dict $extraViews `(` $source `)` `->` $dest
+    attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
@@ -1020,6 +1025,7 @@ def Rock_ThreadwiseWriteAllOp :
       "source registers", [MemRead]>:$source,
       Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
+      Variadic<Index>:$extraIndices,
       Rock_GemmFeaturesAttr:$features,
       StoreMethodAttr:$storeMethod,
       UnitAttr:$forceUnroll,
@@ -1055,7 +1061,12 @@ def Rock_ThreadwiseWriteAllOp :
     for MAPS, and the oob dimensions are those combputed on MAPS.
 
     The input to extraViews ; (the transforms on %dest) must have the form
-    (workgroup_id, workitem_id, iteration_number)
+    (extraIdx0?, ... , extraIdxN?, workgroup_id?, workitem_id, iteration_number)
+    NOTE: extraIndices are optional and workgroups_id is only required if the dest is in global.
+
+    The extraIndices could be used to integrate loop induction vars that is outside
+    of the op. If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, workgroup_id?, workitem_id, iteration_number).
 
     This is used during fusion to allow rewriting
     ```mlir
@@ -1073,7 +1084,7 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    `features` `=` $features attr-dict $source  `->` $extraViews `(` $dest `)` `by` $storeMethod
+    `features` `=` $features attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
