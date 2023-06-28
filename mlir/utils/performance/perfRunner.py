@@ -31,6 +31,7 @@ DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
+OUTPUT_DATA_TYPES_MAP = {'f32':'f32', 'f16':'f16', 'i8':'i32'}
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
@@ -489,8 +490,7 @@ class ConvConfiguration(PerfConfiguration):
             outs, errs = p1.communicate()
         return config.tableEntry(nanoSeconds)
 
-OUT_DATATYPE = re.compile(r"-out_datatype[=\s*](.*)")
-def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
+def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
     configs = []
     outDataType = None
 
@@ -527,9 +527,7 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM):
                 # Skip out_datatype if already in
                 outDataTypeString = ""
                 if "-out_datatype" not in line:
-                    outDataTypeString = f"-out_datatype {datatype} "
-                    if datatype == 'i8':
-                        outDataTypeString = f"-out_datatype i32 "
+                     outDataTypeString = "-out_datatype " + outDataTypeMap.get(datatype, datatype) + " "
 
                 # Strip to avoid spurious spaces
                 oneConfig = f"{dataTypeString}{outDataTypeString}{transAString}{transBString}{line}".strip()
@@ -1036,6 +1034,21 @@ def getArch():
         agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
     return agents
 
+def parseDataTypes(data_types):
+    if not data_types:
+        return DATA_TYPES_GEMM, OUTPUT_DATA_TYPE_MAP
+
+    datatypes = []
+    outMap = {}
+    for dpair in data_types:
+        dt = dpair.split('_')
+        datatypes.append(dt[0])
+        outMap[dt[0]] = 'i32' if dt[0] == 'i8' else dt[0]
+        if len(dt) == 2:
+            outMap[dt[0]] = dt[1]
+
+    return datatypes, outMap
+
 def getChip():
     archNames = getArch()
     arch = ','.join(archNames)
@@ -1193,7 +1206,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )
@@ -1230,10 +1243,8 @@ def main(args=None):
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        configs = getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
-        # Make MLIR to be compatible with CK by forcing int8xint8->int8
-        if confClass == CKGemmConfig:
-          configs = [c.replace("-out_datatype i32", "-out_datatype i8") for c in configs]
+        datatypes, outputTypeMap = parseDataTypes(parsed_args.data_type)
+        configs = getGemmConfigurations(paths.configuration_file_path, datatypes, outputTypeMap)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not foundExternalTool(paths, opType, externalLib):

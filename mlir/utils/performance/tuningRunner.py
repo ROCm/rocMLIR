@@ -181,18 +181,6 @@ def extractFusionConfigs(test_dir, paths: Paths, options: Options):
 
     return opType
 
-def getExtendedGemmConfigurations(filename):
-    # generate configurations using default datatypes
-    configs = perfRunner.getGemmConfigurations(filename, '')
-
-    # generate int8xint8->int8 configurations
-    int8_configs = []
-    for config in configs:
-        if '-t i8' in config and '-out_datatype i32' in config:
-            int8_configs.append(config.replace('i32', 'i8'))
-    configs.extend(int8_configs)
-    return configs
-
 # Main function.
 def main(args=None):
     """
@@ -275,7 +263,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )
@@ -316,7 +304,8 @@ def main(args=None):
     elif opType == Operation.CONV:
         configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
+        datatypes, outputMap = perfRunner.parseDataTypes(parsed_args.data_type)
+        configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, datatypes, outputMap)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 

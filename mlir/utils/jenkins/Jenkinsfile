@@ -616,11 +616,16 @@ pipeline {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
-                                // Tune gemms, fail if the DB is not created
+                                // Tune gemms with default datatypes, fail if the DB is not created
                                 sh """python3 ./bin/tuningRunner.py --operation gemm \
                                         --configs_file=../mlir/utils/performance/gemm-configs \
                                         --output=mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
+                                // Tune gemms int8xint8->int8 for performance comparisons against CK.
+                                // Ideally, this'll be removed in the future.
+                                sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                        --configs_file=../mlir/utils/performance/gemm-configs \
+                                        --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
                             }
                         }
                     }
@@ -930,7 +935,7 @@ pipeline {
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                 --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
-                                --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --external-gemm-library CK"""
+                                --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                     sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP} CK'
                                 }
                             }
