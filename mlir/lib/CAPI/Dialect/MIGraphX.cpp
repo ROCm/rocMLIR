@@ -118,13 +118,7 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch) {
-  static std::mutex target_mutex;
-  target_mutex.lock();
-  // Some calls included in regiserGpuSerializeToHsacoPass() are not thread safe
-  // and user may call this pipeline from different threads.
-  mlir::registerGpuSerializeToHsacoPass();
-  target_mutex.unlock();
-  auto passMan = unwrap(pm);
+  auto *passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = true;
