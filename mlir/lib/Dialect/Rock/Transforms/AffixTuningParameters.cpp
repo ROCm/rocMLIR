@@ -169,13 +169,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
 
-    Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
-        validParams.blockSize, validParams.gemmKPerBlock,
-        validParams.gemmMPerBlock, validParams.gemmNPerBlock,
-        /*kPerThread=*/1, validParams.gemmMPerThread,
-        validParams.gemmNPerThread,
-        /*kpack=*/1);
+    Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
+
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.

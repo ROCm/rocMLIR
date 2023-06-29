@@ -32,16 +32,16 @@ mlirRockTuningSpaceCreate(MlirModule module) {
   return wrap(newParams);
 }
 
-MLIR_CAPI_EXPORTED int
+MLIR_CAPI_EXPORTED unsigned
 mlirRockTuningGetNumParamsQuick(MlirRockTuningSpace params) {
-  auto tuningSpace = unwrap(params);
-  return tuningSpace->numHeuristicQuick;
+  auto *tuningSpace = unwrap(params);
+  return tuningSpace->tuningRangeQuick.size();
 }
 
 MLIR_CAPI_EXPORTED
-int mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params) {
-  auto tuningSpace = unwrap(params);
-  return tuningSpace->tuningRange.size();
+unsigned mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params) {
+  auto *tuningSpace = unwrap(params);
+  return tuningSpace->tuningRangeFull.size();
 }
 
 MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate() {
@@ -60,11 +60,19 @@ void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
-                            MlirRockTuningParam param) {
-  auto tuningSpace = unwrap(params);
-  auto paramEntry = unwrap(param);
-  return rock::tuningGetParam(tuningSpace, pos, paramEntry);
+bool mlirRockTuningParamGetFull(MlirRockTuningSpace params, unsigned pos,
+                                MlirRockTuningParam param) {
+  auto *tuningSpace = unwrap(params);
+  auto *paramEntry = unwrap(param);
+  return rock::tuningGetParamFull(tuningSpace, pos, paramEntry);
+}
+
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
+                                 MlirRockTuningParam param) {
+  auto *tuningSpace = unwrap(params);
+  auto *paramEntry = unwrap(param);
+  return rock::tuningGetParamQuick(tuningSpace, pos, paramEntry);
 }
 
 MLIR_CAPI_EXPORTED
@@ -77,7 +85,7 @@ const char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
   auto mod = unwrap(module);
-  auto paramEntry = unwrap(param);
+  auto *paramEntry = unwrap(param);
   return rock::tuningSetParam(mod, paramEntry);
 }
 
@@ -108,14 +116,14 @@ bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
   std::string problem = unwrap(probStringRef).str();
   std::string perfConfig = unwrap(perfStringRef).str();
-  auto pTable = unwrap(perfTable);
+  auto *pTable = unwrap(perfTable);
   return rock::tuningTableUpdate(pTable, problem, perfConfig, time);
 }
 
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module) {
-  auto pTable = unwrap(perfTable);
+  auto *pTable = unwrap(perfTable);
   auto mod = unwrap(module);
   std::string perfConfig = rock::tuningTableLookup(pTable, mod);
   if (perfConfig.empty())
@@ -125,7 +133,7 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 
 MLIR_CAPI_EXPORTED const char *
 mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module) {
-  auto pTable = unwrap(perfTable);
+  auto *pTable = unwrap(perfTable);
   auto mod = unwrap(module);
   // Hold output string in the tuning table which has a buffer to store the
   // string formatted problem so the data is not lost in the border between C++

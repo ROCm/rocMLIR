@@ -14,8 +14,10 @@
 #include "mlir-c/Dialect/MIGraphX.h"
 #include "mlir-c/Dialect/Rock.h"
 #include "mlir-c/IR.h"
+#include "mlir-c/Pass.h"
 #include "mlir-c/RegisterEverything.h"
 #include "mlir-c/RegisterRocMLIR.h"
+#include "mlir-c/Support.h"
 
 #include <assert.h>
 #include <math.h>
@@ -23,8 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
-  MlirModule module = mlirModuleCreateEmpty(location);
+MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
+  MlirModule module = mlirModuleCreateEmpty(loc);
   MlirBlock moduleBody = mlirModuleGetBody(module);
 
   // Set func arguments
@@ -39,7 +41,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType bias0Type = mlirRankedTensorTypeGet(
       1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
-  MlirLocation funcBodyArglocs[] = {location, location, location};
+  MlirLocation funcBodyArglocs[] = {loc, loc, loc};
   MlirRegion funcBodyRegion = mlirRegionCreate();
   MlirBlock funcBody =
       mlirBlockCreate(sizeof(funcBodyArgTypes) / sizeof(MlirType),
@@ -65,8 +67,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
           funcNameAttr)};
 
   // Set func op
-  MlirOperationState funcState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("func.func"), location);
+  MlirOperationState funcState =
+      mlirOperationStateGet(mlirStringRefCreateFromCString("func.func"), loc);
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
@@ -122,7 +124,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set convolution op
   MlirOperationState conv0OpState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.convolution"), location);
+      mlirStringRefCreateFromCString("migraphx.convolution"), loc);
   mlirOperationStateAddResults(&conv0OpState, 1, &conv0Type);
   mlirOperationStateAddOperands(&conv0OpState, 2, conv0Operands);
   mlirOperationStateAddAttributes(&conv0OpState, 5, conv0Attrs);
@@ -140,7 +142,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType relu0Type = mlirRankedTensorTypeGet(
       4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirOperationState relu0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.relu"), location);
+      mlirStringRefCreateFromCString("migraphx.relu"), loc);
   mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
   mlirOperationStateAddOperands(&relu0State, 1, relu0Operands);
 
@@ -151,8 +153,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   //-------------- std.return op
 
   MlirValue retOperands[] = {relu0Value};
-  MlirOperationState retState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("func.return"), location);
+  MlirOperationState retState =
+      mlirOperationStateGet(mlirStringRefCreateFromCString("func.return"), loc);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
@@ -160,41 +162,71 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   return module;
 }
 
-static bool constructAndTraverseIr(MlirContext ctx) {
-  MlirLocation location1 = mlirLocationUnknownGet(ctx);
-  MlirModule module = makeAndDumpMIXR(ctx, location1);
+static MlirModule cloneModule(MlirModule module) {
+  return mlirModuleFromOperation(
+      mlirOperationClone(mlirModuleGetOperation(module)));
+}
 
-  MlirPassManager pm = mlirPassManagerCreate(ctx);
-  MlirPassManager pm1 = mlirPassManagerCreate(ctx);
-  // 1st pipeline to call
-  mlirMIGraphXAddHighLevelPipeline(pm);
+static bool constructAndTraverseIr(MlirContext ctx) {
+  MlirLocation loc = mlirLocationUnknownGet(ctx);
+  MlirModule module = makeAndDumpMIXR(ctx, loc);
   MlirOperation moduleOp = mlirModuleGetOperation(module);
-  mlirPassManagerRunOnOp(pm, moduleOp);
+
+  MlirPassManager highLevelPm = mlirPassManagerCreate(ctx);
+  MlirPassManager applicabilityPm = mlirPassManagerCreate(ctx);
+  MlirPassManager backendPm = mlirPassManagerCreate(ctx);
+  // Call high level pipeline on root module.
+  mlirMIGraphXAddHighLevelPipeline(highLevelPm);
+  if (mlirLogicalResultIsFailure(
+          mlirPassManagerRunOnOp(highLevelPm, moduleOp))) {
+    printf("Running high-level pipeline failed\n");
+    return false;
+  }
 
   MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
   printf("Got tuning space,\n");
-  int qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
-  int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
-  printf("quick set = %d, full set = %d\n", qNum, fNum);
+  unsigned qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
+  unsigned fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
+  // CHECK: quick set = 5, full set = 594
+  printf("quick set = %u, full set = %u\n", qNum, fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
 
-  for (int i = 0; i < 2; i++) {
-    if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
+  mlirMIGraphXAddApplicabilityPipeline(applicabilityPm);
+  unsigned numSuccesses = 0;
+  for (unsigned i = 0; i < fNum && numSuccesses < 2; ++i) {
+    if (!mlirRockTuningParamGetFull(tuningSpace, i, tuningParam)) {
       printf("fails to obtain param\n");
       return false;
     }
+
     float fakeTime = (float)(i + 1);
     char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
     char *problemKey = strdup(mlirRockTuningGetKey(tuningTable, module));
+
+    MlirModule tuningClone = cloneModule(module);
+    MlirOperation tuningCloneOp = mlirModuleGetOperation(module);
+    mlirRockTuningSetParam(tuningClone, tuningParam);
+    if (mlirLogicalResultIsFailure(
+            mlirPassManagerRunOnOp(applicabilityPm, tuningCloneOp))) {
+      // CHECK: Perfconfig "4,64,1,4,64,1,1,1" is not applicable
+      printf("Perfconfig \"%s\" is not applicable to the problem string(%s)\n",
+             paramStr, problemKey);
+      mlirModuleDestroy(tuningClone);
+      continue;
+    }
+    // CHECK-2: Update perfconfig for the problem
     printf(
         "Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
         problemKey, paramStr, fakeTime);
+    // CHECK: fails to update table, existing config is faster
     if (!mlirRockTuningUpdateTable(tuningTable,
                                    mlirRockTuningGetKey(tuningTable, module),
                                    paramStr, fakeTime)) {
-      printf("fails to update table, maybe existing config is faster\n");
+      printf("fails to update table, existing config is faster\n");
     }
+    ++numSuccesses;
+    mlirModuleDestroy(tuningClone);
     free(paramStr);
     free(problemKey);
   }
@@ -207,9 +239,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirRockTuningTableDestroy(tuningTable);
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
-
-  mlirOperationDump(moduleOp);
-  // CHECK-LABEL: func @main
 
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
@@ -234,15 +263,19 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // The last part of the retrieved data contains the kernel name.
   char *nameData = (char *)(argData + idx);
   ((char *)argInfo)[argSize] = '\0';
+  // CHECK: kernel name : main
   printf("kernel name : %s\n", nameData);
 
-  // 2nd pipeline to call
+  // Run compilation pipeline on tuned config.
   const char *deviceName = "gfx908:sramecc+:xnack-";
-  if (!mlirMIGraphXAddBackendPipeline(pm1, deviceName)) {
+  if (!mlirMIGraphXAddBackendPipeline(backendPm, deviceName)) {
     printf("Errors in building backend pipeline\n");
     return false;
   }
-  mlirPassManagerRunOnOp(pm1, moduleOp);
+  if (mlirLogicalResultIsFailure(mlirPassManagerRunOnOp(backendPm, moduleOp))) {
+    printf("Errors in running backend pipeline on known-good config\n");
+    return false;
+  }
 
   uint32_t attrs[2];
   // returns block and grid sizes
@@ -250,14 +283,15 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   printf("block size : %d, grid size : %d\n", attrs[0], attrs[1]);
 
   // returns binary size
-  int binSize = 0;
-  mlirGetBinary(module, &binSize, NULL);
-  printf("bin size : %d\n", binSize);
+  size_t binSize = 0;
+  if (!mlirGetBinary(module, &binSize, NULL)) {
+    return false;
+  }
+  printf("bin size : %lu\n", binSize);
 
   char *compiledBin = malloc(binSize);
   // Initialize the memory to hold binary, just for verification, not necessary.
-  for (int i = 0; i < binSize; i++)
-    compiledBin[i] = '0';
+  memset(compiledBin, '\0', binSize);
 
   // get binary
   if (mlirGetBinary(module, NULL, compiledBin)) {
@@ -266,8 +300,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     printf("PASSED!\n");
   }
 
-  mlirPassManagerDestroy(pm);
-  mlirPassManagerDestroy(pm1);
+  mlirPassManagerDestroy(highLevelPm);
+  mlirPassManagerDestroy(applicabilityPm);
+  mlirPassManagerDestroy(backendPm);
   mlirModuleDestroy(module);
   return true;
 }
@@ -276,6 +311,7 @@ int main(void) {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);
+  mlirRegisterRocMLIRPasses();
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the
   // dialects we use

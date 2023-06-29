@@ -85,17 +85,24 @@ struct PopulateParamsInfo {
 };
 
 struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
+  int64_t gemmMPerThread;
+  int64_t gemmNPerThread;
+  uint32_t blockSize;
+
   constexpr InitParamsNonAccel(uint32_t bSize, int64_t mPerBlock,
                                int64_t nPerBlock, int64_t kPerBlock,
                                int64_t mPerThread, int64_t nPerThread)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
         gemmNPerThread(nPerThread), blockSize(bSize) {}
-  int64_t gemmMPerThread;
-  int64_t gemmNPerThread;
-  uint32_t blockSize;
 
   constexpr InitParamsNonAccel()
       : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+
+  InitParamsNonAccel(GeneralGemmParamsAttr attr)
+      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
+                   attr.getKPerBlock()},
+        gemmMPerThread(attr.getMPerThread()),
+        gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()){};
 
   int64_t getKPack() { return 1; }
 
@@ -122,6 +129,22 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
 
   constexpr InitParamsAccel()
       : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
+
+  InitParamsAccel(XdlopsGemmParamsAttr attr)
+      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
+                   attr.getKpackPerBlock()},
+        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
+        gemmKPack(attr.getKpack()),
+        gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
+        gemmBThreadCopyMoreGemmKPack(false){};
+
+  InitParamsAccel(WmmaGemmParamsAttr attr)
+      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
+                   attr.getKpackPerBlock()},
+        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
+        gemmKPack(attr.getKpack()),
+        gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
+        gemmBThreadCopyMoreGemmKPack(false){};
 
   int64_t getKPack() { return gemmKPack; }
 
@@ -191,7 +214,7 @@ private:
   virtual int64_t calculatePaddingAmount(const InitParamType &params,
                                          const GemmSize &gemmSize) const = 0;
 
-protected:
+public:
   // This function will order the initParams used in a non-tuning flow to
   // prioritize params that does not require padding to come first while
   // otherwise maintaining the provided order.
@@ -212,7 +235,15 @@ protected:
     return orderedParams;
   }
 
-public:
+  // Succeed if the given `params` could be a valid set of tuning parameters for
+  // `info`. This is not a guarantee that a given set of parameters will pass
+  // applicability, but it should filter out inapplicable configs.
+  virtual LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
+                                             const InitParamType &params) = 0;
+
+  // Convert the provided InitParamType into an MLIR `Attribute`.
+  virtual Attribute getGemmParamsAttr(OpBuilder &b,
+                                      const InitParamType &params) const = 0;
   virtual ~BasePopulateParams() {}
 };
 
@@ -246,8 +277,16 @@ public:
                                        InitParamsNonAccel &validParams,
                                        uint32_t &gridSize);
 
+  // Return the vector of heuristic parameters for a given kernel type and dat
+  // type.
   std::vector<InitParamsNonAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB) const;
+
+  Attribute getGemmParamsAttr(OpBuilder &b,
+                              const InitParamsNonAccel &params) const override;
+
+  LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
+                                     const InitParamsNonAccel &params) override;
 
   int64_t calculatePaddingAmount(const InitParamsNonAccel &params,
                                  const GemmSize &gemmSize) const override;
@@ -275,11 +314,19 @@ public:
   int64_t calculatePaddingAmount(const InitParamsAccel &params,
                                  const GemmSize &gemmSize) const override;
 
+  // Return the set of heuristic tuning parameters for the given opType, data
+  // types, and architecture.
   virtual std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
                       StringRef arch) const = 0;
-  virtual Attribute getGemmParamsAttr(OpBuilder builder,
-                                      InitParamsAccel validParams) const = 0;
+  Attribute
+  getGemmParamsAttr(OpBuilder &builder,
+                    const InitParamsAccel &validParams) const override = 0;
+
+  // Note that this is a method on the general class because the distinguishing
+  // of MFMA and WMMA paths is handled under the hood in populateDerived().
+  LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
+                                     const InitParamsAccel &params) override;
 
 protected:
   virtual LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
@@ -327,8 +374,9 @@ public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
                       StringRef arch) const override;
-  Attribute getGemmParamsAttr(OpBuilder builder,
-                              InitParamsAccel validParams) const override;
+  Attribute
+  getGemmParamsAttr(OpBuilder &builder,
+                    const InitParamsAccel &validParams) const override;
 
 protected:
   LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
@@ -351,12 +399,14 @@ private:
   static const InitParamsAccel
       initParametersForward8Bit[nInitParametersForward8Bit];
 
+public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
                       StringRef arch) const override;
 
-  Attribute getGemmParamsAttr(OpBuilder builder,
-                              InitParamsAccel validParams) const override;
+  Attribute
+  getGemmParamsAttr(OpBuilder &builder,
+                    const InitParamsAccel &validParams) const override;
 
 protected:
   LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,

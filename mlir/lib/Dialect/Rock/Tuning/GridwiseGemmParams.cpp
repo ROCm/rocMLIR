@@ -4,6 +4,7 @@
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
@@ -174,6 +175,24 @@ LogicalResult PopulateParams::populateDerived(const InitParamsNonAccel &params,
   return success();
 }
 
+Attribute
+PopulateParams::getGemmParamsAttr(OpBuilder &b,
+                                  const InitParamsNonAccel &params) const {
+  return b.getAttr<GeneralGemmParamsAttr>(
+      params.blockSize, params.gemmKPerBlock, params.gemmMPerBlock,
+      params.gemmNPerBlock,
+      /*kPerThread=*/1, params.gemmMPerThread, params.gemmNPerThread,
+      /*kpack=*/1);
+}
+
+LogicalResult
+PopulateParams::isParamAttrPlausible(const PopulateParamsInfo &info,
+                                     const InitParamsNonAccel &params) {
+  uint32_t gridSize;
+  GemmSize newGemmSize = info.gemmSize;
+  return populateDerived(params, newGemmSize, gridSize);
+}
+
 LogicalResult PopulateParams::obtainTuningParameters(
     const PopulateParamsInfo &info, uint32_t blockSizeOverride,
     const std::string &perfConfig, InitParamsNonAccel &validParams,
@@ -337,6 +356,16 @@ PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
     gridSize *= gemmKBlocks;
   }
   return success();
+}
+
+LogicalResult
+PopulateParamsAccel::isParamAttrPlausible(const PopulateParamsInfo &info,
+                                          const InitParamsAccel &params) {
+  uint32_t blockSize, gridSize;
+  int64_t gemmKBlocks;
+  GemmSize newGemmSize = info.gemmSize;
+  return populateDerived(params, info, newGemmSize, blockSize, gridSize,
+                         gemmKBlocks);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
@@ -545,8 +574,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
 }
 
 Attribute
-PopulateParamsXDL::getGemmParamsAttr(OpBuilder builder,
-                                     InitParamsAccel validParams) const {
+PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
+                                     const InitParamsAccel &validParams) const {
   return builder.getAttr<XdlopsGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
@@ -665,9 +694,8 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   return res;
 }
 
-Attribute
-PopulateParamsWmma::getGemmParamsAttr(OpBuilder builder,
-                                      InitParamsAccel validParams) const {
+Attribute PopulateParamsWmma::getGemmParamsAttr(
+    OpBuilder &builder, const InitParamsAccel &validParams) const {
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,

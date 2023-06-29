@@ -38,12 +38,27 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs);
 
 // Returns the size of compiled binary if called with null ptr
 // and return the compiled binary when buffer is provided
-MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin);
+MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
+                                      char *bin);
 
 // pipelines
 
+/// Add the high-level pipeline that creates something that can be tuned.
+/// Architecture and num_cu information should be set on the kernel function
+/// being compiled.
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
+/// Adds the pipeline that checks if the kernel with a given tuning
+/// configuration will actually compile to the pass manager. If this pipeline
+/// fails, it's not a meaningful error. The input to this should have been run
+/// through the high-level pipeline. This pipeline is only needed when tuning,
+/// and should, ideally, be called on a clone of the results of teh highlevel
+/// pipeline.
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm);
+
+/// Adds a full compile pipeline to the pass manager. This pipeline may either
+/// receive the results of the high-level or applicability pipelines.
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch);
 #ifdef __cplusplus

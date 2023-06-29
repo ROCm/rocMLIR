@@ -17,7 +17,8 @@ extern "C" {
 #endif
 
 // Version 1: Add tuning API
-#define MLIR_ROCK_C_API_VERSION 1
+// Version 2: expose quick tuning list separately, move to unsigned ints.
+#define MLIR_ROCK_C_API_VERSION 2
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Rock, rock);
 
@@ -39,11 +40,11 @@ mlirRockTuningSpaceCreate(MlirModule module);
 
 // Returns the estimated number of tuning params that user can quickly find the
 // optimal solution in the sorted array
-MLIR_CAPI_EXPORTED int
+MLIR_CAPI_EXPORTED unsigned
 mlirRockTuningGetNumParamsQuick(MlirRockTuningSpace params);
 
 // Returns total number of the tuning params in the array
-MLIR_CAPI_EXPORTED int
+MLIR_CAPI_EXPORTED unsigned
 mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params);
 
 // Allocate memory for a single instance of the tuning params
@@ -57,10 +58,17 @@ void mlirRockTuningParamDestroy(MlirRockTuningParam param);
 MLIR_CAPI_EXPORTED
 void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params);
 
-// Get tuning params at the given position and update the dest param
+// Get tuning params at the given position in the full tuning table and return
+// it into `dest`. Returns false on failure.
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
-                            MlirRockTuningParam param);
+bool mlirRockTuningParamGetFull(MlirRockTuningSpace params, unsigned pos,
+                                MlirRockTuningParam param);
+
+// Get tuning params at the given position in the quick tuning table and return
+// it into `dest`. Returns false on failure.
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
+                                 MlirRockTuningParam param);
 
 // Returns cstring of the serialized perfconfig
 MLIR_CAPI_EXPORTED
@@ -86,7 +94,8 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table);
 // Update the table entry. This API tries to register/update the tuning result
 // of a single problem into the tuning table. Current policy is only storing
 // the best performing tuning parameter to simplify the underlying
-// implementation, which can be revisited in the future.
+// implementation, which can be revisited in the future. Returns true if the
+// table was actually updated, and false if a better-performing entry exists.
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
                                const char *probCStr, const char *perfCStr,
@@ -100,6 +109,7 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module);
 
 // Returns the tuning problem in the C-string format for the inspection.
+// The memory behind this pointer is owned by the tuning table.
 MLIR_CAPI_EXPORTED const char *
 mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module);
 

@@ -3004,7 +3004,7 @@ int main(int argc, char **argv) {
   if (emitTuningSpace) {
     auto tunableParams = rock::createTunableParamSpace(module);
     std::string perfConfig;
-    for (auto param : tunableParams->tuningRange) {
+    for (auto param : tunableParams->tuningRangeFull) {
       param.getPerfConfigStr(perfConfig);
       llvm::outs() << perfConfig << "\n";
     }

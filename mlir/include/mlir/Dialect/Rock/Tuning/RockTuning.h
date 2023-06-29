@@ -29,14 +29,16 @@ struct ParamEntry {
 
 // Total tuning space
 struct TunableParams {
-  std::vector<RockTuningParamAttrInterface> tuningRange;
+  std::vector<RockTuningParamAttrInterface> tuningRangeFull;
+  std::vector<RockTuningParamAttrInterface> tuningRangeQuick;
   KernelType primaryOpType;
-  int numHeuristicQuick;
 };
 
 TunableParams *createTunableParamSpace(ModuleOp &mod);
-bool tuningGetParam(TunableParams *tuningSpace, int pos,
-                    ParamEntry *paramEntry);
+bool tuningGetParamFull(TunableParams *tuningSpace, unsigned pos,
+                        ParamEntry *paramEntry);
+bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
+                         ParamEntry *paramEntry);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
