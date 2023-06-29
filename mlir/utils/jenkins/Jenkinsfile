@@ -153,13 +153,6 @@ void testMIOpenDriver(boolean testInt8, boolean tuning, String configFilename) {
     }
 }
 
-//viod buildAndTestMIopenDriver() {
-//                            sh 'rm build/CMakeCache.txt'
-//                            buildMIOpenWithMLIR()
-//                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
-//                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
-//}
-
 void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
@@ -481,15 +474,17 @@ pipeline {
                         steps {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
-                                // Tune gemms, fail if the DB is not created
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                        --output=tuning_gemm.tsv
-                                      [ -f tuning_gemm.tsv ]"""
-                                sh """python3 ./bin/tuningRunner.py --operation conv \
-                                        --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                        --output=tuning_conv.tsv
-                                      [ -f tuning_conv.tsv ]"""
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    // Tune gemms, fail if the DB is not created
+                                    sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            --output=tuning_gemm.tsv
+                                          [ -f tuning_gemm.tsv ]"""
+                                    sh """python3 ./bin/tuningRunner.py --operation conv \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            --output=tuning_conv.tsv
+                                          [ -f tuning_conv.tsv ]"""
+                                }
                             }
                         }
                     }
