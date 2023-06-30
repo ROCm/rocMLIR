@@ -50,15 +50,19 @@ config.arch_support_mfma = False
 config.arch_support_wmma = False
 if config.rocm_path:
     try:
-        p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                           check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in p.stdout.split())
-        if not agents:
-            # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-            # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-            q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
-                                check=True, stdout=subprocess.PIPE)
-            agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+        if os.name != 'nt':
+            p = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+                               check=True, stdout=subprocess.PIPE, shell=True)
+            agents = set(x.decode("utf-8") for x in p.stdout.split())
+            if not agents:
+                # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+                # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+                q = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator"],
+                                   check=True, stdout=subprocess.PIPE, shell=True)
+                agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+        else:
+            # Hard coding for now. Windows has no rocm_agent_enumerator, so we must figure out the proper detection.
+            agents = {"gfx1030"}
         config.arch = ','.join(agents)
         for x in agents:
             if "gfx908" in x or "gfx90a" in x:
