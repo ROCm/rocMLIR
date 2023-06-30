@@ -106,6 +106,24 @@ pipeline {
                                 """)
                              }
                         }
+                        stage("Tune selected rocmlir configs") {
+                            steps {
+                                buildProject('ci-performance-scripts', '')
+                                dir('build') {
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        // Tune gemms, fail if the DB is not created
+                                        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                                --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                --output=tuning_gemm.tsv
+                                              [ -f tuning_gemm.tsv ]"""
+                                        sh """python3 ./bin/tuningRunner.py --operation conv \
+                                                --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                --output=tuning_conv.tsv
+                                              [ -f tuning_conv.tsv ]"""
+                                    }
+                                }
+                            }
+                        }
                     }
                     post {
                         unsuccessful {
@@ -141,47 +159,7 @@ pipeline {
                         stage("Igemm build") {
                             steps {
                                 checkout scm
-                                buildProject('package',
-                                             "-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_INSTALL_PREFIX=/MIOpenDeps")
-                                dir('build'){
-                                    sh "cat install_manifest_devel.txt"
-                                    // Cannot use 'dpkg -i' because it requires superuser privilege
-                                    sh "dpkg -x rocmlir-dev_1.1.0_amd64.deb ${WORKSPACE}"
-                                }
-                            }
-                        }
-                        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
-                        stage("Build MIOpen with librockCompiler") {
-                            steps {
-                                dir('MIOpen') {
-                                git branch: params.MIOpenBranch, poll: false,\
-                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                buildMIOpen("""-DMIOPEN_USE_MLIR=On
-                                        -DMIOPEN_USE_COMPOSABLEKERNEL=Off
-                                        -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
-                                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
-                                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
-                                        -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
-                                        """)
-                                }
-                            }
-                        }
-                        stage("Test selected MIOpen configs") {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                                HOME="${WORKSPACE}"
-                            }
-                            steps {
-                                dir('MIOpen/build/') {
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                }
+                                buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
                             }
                         }
                     }
