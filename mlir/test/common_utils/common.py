@@ -1,10 +1,12 @@
+import os
 import subprocess
+
 
 # Helper function to decode arch to its features
 # Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
 def get_arch_features(arch: str):
     chip_name = arch.split(':')[0]
-    if(len(chip_name) < 5):
+    if len(chip_name) < 5:
         return
 
     arch_features = None
@@ -36,14 +38,21 @@ def get_arch_features(arch: str):
         pass
     return arch_features, support_mfma, support_wmma
 
+
 def get_agents(rocm_path):
-    p = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                       check=True, stdout=subprocess.PIPE)
-    agents = set(x.decode("utf-8") for x in p.stdout.split())
-    if not agents:
-        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-        q = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator"],
-                            check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in q.stdout.split())
-    return set(a for a in agents if a != b"gfx000")
+    if os.name != 'nt':
+        p = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+                           check=True, stdout=subprocess.PIPE)
+        agents = set(x.decode("utf-8") for x in p.stdout.split())
+        if not agents:
+            # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+            # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+            q = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator"],
+                               check=True, stdout=subprocess.PIPE)
+            agents = set(x.decode("utf-8") for x in q.stdout.split())
+        return set(a for a in agents if a != b"gfx000")
+    else:
+        p = subprocess.run([rocm_path + "/bin/amdgpu_arch.exe"],
+                           check=True, stdout=subprocess.PIPE, shell=True)
+        return set(p.stdout.decode("utf-8").split())
+

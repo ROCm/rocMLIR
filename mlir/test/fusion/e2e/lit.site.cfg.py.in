@@ -50,15 +50,7 @@ config.arch_support_mfma = False
 config.arch_support_wmma = False
 if config.rocm_path:
     try:
-        p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                           check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in p.stdout.split())
-        if not agents:
-            # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-            # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-            q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
-                                check=True, stdout=subprocess.PIPE)
-            agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+        agents = get_agents(config.rocm_path)
         config.arch = ','.join(agents)
         for x in agents:
             if any([arch in x for arch in ["gfx908", "gfx90a", "gfx940", "gfx941", "gfx942"]]):
