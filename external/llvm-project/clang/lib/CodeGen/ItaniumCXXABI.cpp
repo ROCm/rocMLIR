@@ -185,14 +185,13 @@ public:
   bool shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
                                           QualType SrcRecordTy) override;
 
-  llvm::Value *EmitDynamicCastCall(CodeGenFunction &CGF, Address Value,
+  llvm::Value *emitDynamicCastCall(CodeGenFunction &CGF, Address Value,
                                    QualType SrcRecordTy, QualType DestTy,
                                    QualType DestRecordTy,
                                    llvm::BasicBlock *CastEnd) override;
 
-  llvm::Value *EmitDynamicCastToVoid(CodeGenFunction &CGF, Address Value,
-                                     QualType SrcRecordTy,
-                                     QualType DestTy) override;
+  llvm::Value *emitDynamicCastToVoid(CodeGenFunction &CGF, Address Value,
+                                     QualType SrcRecordTy) override;
 
   bool EmitBadCastCall(CodeGenFunction &CGF) override;
 
@@ -810,12 +809,9 @@ llvm::Value *ItaniumCXXABI::EmitMemberDataPointerAddress(
 
   CGBuilderTy &Builder = CGF.Builder;
 
-  // Cast to char*.
-  Base = Builder.CreateElementBitCast(Base, CGF.Int8Ty);
-
   // Apply the offset, which we assume is non-null.
-  return Builder.CreateInBoundsGEP(Base.getElementType(), Base.getPointer(),
-                                   MemPtr, "memptr.offset");
+  return Builder.CreateInBoundsGEP(CGF.Int8Ty, Base.getPointer(), MemPtr,
+                                   "memptr.offset");
 }
 
 /// Perform a bitcast, derived-to-base, or base-to-derived member pointer
@@ -1428,12 +1424,11 @@ bool ItaniumCXXABI::shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
   return SrcIsPtr;
 }
 
-llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
+llvm::Value *ItaniumCXXABI::emitDynamicCastCall(
     CodeGenFunction &CGF, Address ThisAddr, QualType SrcRecordTy,
     QualType DestTy, QualType DestRecordTy, llvm::BasicBlock *CastEnd) {
   llvm::Type *PtrDiffLTy =
       CGF.ConvertType(CGF.getContext().getPointerDiffType());
-  llvm::Type *DestLTy = CGF.ConvertType(DestTy);
 
   llvm::Value *SrcRTTI =
       CGF.CGM.GetAddrOfRTTIDescriptor(SrcRecordTy.getUnqualifiedType());
@@ -1448,12 +1443,9 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
       computeOffsetHint(CGF.getContext(), SrcDecl, DestDecl).getQuantity());
 
   // Emit the call to __dynamic_cast.
-  llvm::Value *Value = ThisAddr.getPointer();
-  Value = CGF.EmitCastToVoidPtr(Value);
-
-  llvm::Value *args[] = {Value, SrcRTTI, DestRTTI, OffsetHint};
-  Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
-  Value = CGF.Builder.CreateBitCast(Value, DestLTy);
+  llvm::Value *Args[] = {ThisAddr.getPointer(), SrcRTTI, DestRTTI, OffsetHint};
+  llvm::Value *Value =
+      CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), Args);
 
   /// C++ [expr.dynamic.cast]p9:
   ///   A failed cast to reference type throws std::bad_cast
@@ -1471,11 +1463,9 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   return Value;
 }
 
-llvm::Value *ItaniumCXXABI::EmitDynamicCastToVoid(CodeGenFunction &CGF,
+llvm::Value *ItaniumCXXABI::emitDynamicCastToVoid(CodeGenFunction &CGF,
                                                   Address ThisAddr,
-                                                  QualType SrcRecordTy,
-                                                  QualType DestTy) {
-  llvm::Type *DestLTy = CGF.ConvertType(DestTy);
+                                                  QualType SrcRecordTy) {
   auto *ClassDecl =
       cast<CXXRecordDecl>(SrcRecordTy->castAs<RecordType>()->getDecl());
   llvm::Value *OffsetToTop;
@@ -1506,10 +1496,8 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastToVoid(CodeGenFunction &CGF,
         PtrDiffLTy, OffsetToTop, CGF.getPointerAlign(), "offset.to.top");
   }
   // Finally, add the offset to the pointer.
-  llvm::Value *Value = ThisAddr.getPointer();
-  Value = CGF.EmitCastToVoidPtr(Value);
-  Value = CGF.Builder.CreateInBoundsGEP(CGF.Int8Ty, Value, OffsetToTop);
-  return CGF.Builder.CreateBitCast(Value, DestLTy);
+  return CGF.Builder.CreateInBoundsGEP(CGF.Int8Ty, ThisAddr.getPointer(),
+                                       OffsetToTop);
 }
 
 bool ItaniumCXXABI::EmitBadCastCall(CodeGenFunction &CGF) {
@@ -2052,7 +2040,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
   if (!NonVirtualAdjustment && !VirtualAdjustment)
     return InitialPtr.getPointer();
 
-  Address V = CGF.Builder.CreateElementBitCast(InitialPtr, CGF.Int8Ty);
+  Address V = InitialPtr.withElementType(CGF.Int8Ty);
 
   // In a base-to-derived cast, the non-virtual adjustment is applied first.
   if (NonVirtualAdjustment && !IsReturnAdjustment) {
@@ -2063,7 +2051,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
   // Perform the virtual adjustment if we have one.
   llvm::Value *ResultPtr;
   if (VirtualAdjustment) {
-    Address VTablePtrPtr = CGF.Builder.CreateElementBitCast(V, CGF.Int8PtrTy);
+    Address VTablePtrPtr = V.withElementType(CGF.Int8PtrTy);
     llvm::Value *VTablePtr = CGF.Builder.CreateLoad(VTablePtrPtr);
 
     llvm::Value *Offset;
@@ -2160,8 +2148,7 @@ Address ItaniumCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
     CookiePtr = CGF.Builder.CreateConstInBoundsByteGEP(CookiePtr, CookieOffset);
 
   // Write the number of elements into the appropriate slot.
-  Address NumElementsPtr =
-      CGF.Builder.CreateElementBitCast(CookiePtr, CGF.SizeTy);
+  Address NumElementsPtr = CookiePtr.withElementType(CGF.SizeTy);
   llvm::Instruction *SI = CGF.Builder.CreateStore(NumElements, NumElementsPtr);
 
   // Handle the array cookie specially in ASan.
@@ -2193,7 +2180,7 @@ llvm::Value *ItaniumCXXABI::readArrayCookieImpl(CodeGenFunction &CGF,
       CGF.Builder.CreateConstInBoundsByteGEP(numElementsPtr, numElementsOffset);
 
   unsigned AS = allocPtr.getAddressSpace();
-  numElementsPtr = CGF.Builder.CreateElementBitCast(numElementsPtr, CGF.SizeTy);
+  numElementsPtr = numElementsPtr.withElementType(CGF.SizeTy);
   if (!CGM.getLangOpts().Sanitize.has(SanitizerKind::Address) || AS != 0)
     return CGF.Builder.CreateLoad(numElementsPtr);
   // In asan mode emit a function call instead of a regular load and let the
@@ -2232,7 +2219,7 @@ Address ARMCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
   Address cookie = newPtr;
 
   // The first element is the element size.
-  cookie = CGF.Builder.CreateElementBitCast(cookie, CGF.SizeTy);
+  cookie = cookie.withElementType(CGF.SizeTy);
   llvm::Value *elementSize = llvm::ConstantInt::get(CGF.SizeTy,
                  getContext().getTypeSizeInChars(elementType).getQuantity());
   CGF.Builder.CreateStore(elementSize, cookie);
@@ -2255,7 +2242,7 @@ llvm::Value *ARMCXXABI::readArrayCookieImpl(CodeGenFunction &CGF,
   Address numElementsPtr
     = CGF.Builder.CreateConstInBoundsByteGEP(allocPtr, CGF.getSizeSize());
 
-  numElementsPtr = CGF.Builder.CreateElementBitCast(numElementsPtr, CGF.SizeTy);
+  numElementsPtr = numElementsPtr.withElementType(CGF.SizeTy);
   return CGF.Builder.CreateLoad(numElementsPtr);
 }
 
@@ -2424,7 +2411,7 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
   if (!threadsafe || MaxInlineWidthInBits) {
     // Load the first byte of the guard variable.
     llvm::LoadInst *LI =
-        Builder.CreateLoad(Builder.CreateElementBitCast(guardAddr, CGM.Int8Ty));
+        Builder.CreateLoad(guardAddr.withElementType(CGM.Int8Ty));
 
     // Itanium ABI:
     //   An implementation supporting thread-safety on multiprocessor
@@ -2505,7 +2492,7 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
     // variable before the object initialization begins so that references
     // to the variable during initialization don't restart initialization.
     Builder.CreateStore(llvm::ConstantInt::get(CGM.Int8Ty, 1),
-                        Builder.CreateElementBitCast(guardAddr, CGM.Int8Ty));
+                        guardAddr.withElementType(CGM.Int8Ty));
   }
 
   // Emit the initializer and add a global destructor if appropriate.
@@ -2523,7 +2510,7 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
     // after the object initialization completes so that initialization is
     // retried if initialization is interrupted by an exception.
     Builder.CreateStore(llvm::ConstantInt::get(CGM.Int8Ty, 1),
-                        Builder.CreateElementBitCast(guardAddr, CGM.Int8Ty));
+                        guardAddr.withElementType(CGM.Int8Ty));
   }
 
   CGF.EmitBlock(EndBlock);
