@@ -143,9 +143,11 @@ public:
                 EntriesCount, atomic_load_relaxed(&MaxEntriesCount),
                 atomic_load_relaxed(&MaxEntrySize));
     for (CachedBlock Entry : Entries) {
+      if (!Entry.CommitBase)
+        continue;
       Str->append("StartBlockAddress: 0x%zx, EndBlockAddress: 0x%zx, "
                   "BlockSize: %zu\n",
-                  Entry.CommitBase, (Entry.CommitBase + Entry.CommitSize),
+                  Entry.CommitBase, Entry.CommitBase + Entry.CommitSize,
                   Entry.CommitSize);
     }
   }
@@ -171,7 +173,7 @@ public:
     bool EntryCached = false;
     bool EmptyCache = false;
     const s32 Interval = atomic_load_relaxed(&ReleaseToOsIntervalMs);
-    const u64 Time = getMonotonicTime();
+    const u64 Time = getMonotonicTimeFast();
     const u32 MaxCount = atomic_load_relaxed(&MaxEntriesCount);
     CachedBlock Entry;
     Entry.CommitBase = H->CommitBase;

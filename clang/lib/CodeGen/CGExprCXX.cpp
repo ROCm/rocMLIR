@@ -502,7 +502,7 @@ static void EmitNullBaseClassInitialization(CodeGenFunction &CGF,
   if (Base->isEmpty())
     return;
 
-  DestPtr = CGF.Builder.CreateElementBitCast(DestPtr, CGF.Int8Ty);
+  DestPtr = DestPtr.withElementType(CGF.Int8Ty);
 
   const ASTRecordLayout &Layout = CGF.getContext().getASTRecordLayout(Base);
   CharUnits NVSize = Layout.getNonVirtualSize();
@@ -555,8 +555,7 @@ static void EmitNullBaseClassInitialization(CodeGenFunction &CGF,
         std::max(Layout.getNonVirtualAlignment(), DestPtr.getAlignment());
     NullVariable->setAlignment(Align.getAsAlign());
 
-    Address SrcPtr =
-        Address(CGF.EmitCastToVoidPtr(NullVariable), CGF.Int8Ty, Align);
+    Address SrcPtr(NullVariable, CGF.Int8Ty, Align);
 
     // Get and call the appropriate llvm.memcpy overload.
     for (std::pair<CharUnits, CharUnits> Store : Stores) {
@@ -1077,7 +1076,7 @@ void CodeGenFunction::EmitNewArrayInitializer(
     if (const ConstantArrayType *CAT = dyn_cast_or_null<ConstantArrayType>(
             AllocType->getAsArrayTypeUnsafe())) {
       ElementTy = ConvertTypeForMem(AllocType);
-      CurPtr = Builder.CreateElementBitCast(CurPtr, ElementTy);
+      CurPtr = CurPtr.withElementType(ElementTy);
       InitListElements *= getContext().getConstantArrayElementCount(CAT);
     }
 
@@ -1134,7 +1133,7 @@ void CodeGenFunction::EmitNewArrayInitializer(
     }
 
     // Switch back to initializing one base element at a time.
-    CurPtr = Builder.CreateElementBitCast(CurPtr, BeginPtr.getElementType());
+    CurPtr = CurPtr.withElementType(BeginPtr.getElementType());
   }
 
   // If all elements have already been initialized, skip any further
@@ -1716,7 +1715,7 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
   }
 
   llvm::Type *elementTy = ConvertTypeForMem(allocType);
-  Address result = Builder.CreateElementBitCast(allocation, elementTy);
+  Address result = allocation.withElementType(elementTy);
 
   // Passing pointer through launder.invariant.group to avoid propagation of
   // vptrs information which may be included in previous type.
@@ -2292,12 +2291,11 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(Address ThisAddr,
 
   llvm::Value *Value;
   if (isDynamicCastToVoid) {
-    Value = CGM.getCXXABI().EmitDynamicCastToVoid(*this, ThisAddr, SrcRecordTy,
-                                                  DestTy);
+    Value = CGM.getCXXABI().emitDynamicCastToVoid(*this, ThisAddr, SrcRecordTy);
   } else {
     assert(DestRecordTy->isRecordType() &&
            "destination type must be a record type!");
-    Value = CGM.getCXXABI().EmitDynamicCastCall(*this, ThisAddr, SrcRecordTy,
+    Value = CGM.getCXXABI().emitDynamicCastCall(*this, ThisAddr, SrcRecordTy,
                                                 DestTy, DestRecordTy, CastEnd);
     CastNotNull = Builder.GetInsertBlock();
   }

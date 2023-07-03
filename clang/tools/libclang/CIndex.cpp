@@ -2717,6 +2717,9 @@ void OMPClauseEnqueue::VisitOMPXDynCGroupMemClause(
   VisitOMPClauseWithPreInit(C);
   Visitor->AddStmt(C->getSize());
 }
+void OMPClauseEnqueue::VisitOMPDoacrossClause(const OMPDoacrossClause *C) {
+  VisitOMPClauseList(C);
+}
 
 } // namespace
 
@@ -3959,7 +3962,7 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
       *CXXIdx, LibclangInvocationReporter::OperationKind::ParseOperation,
       options, llvm::ArrayRef(*Args), /*InvocationArgs=*/std::nullopt,
       unsaved_files);
-  std::unique_ptr<ASTUnit> Unit(ASTUnit::LoadFromCommandLine(
+  std::unique_ptr<ASTUnit> Unit = ASTUnit::LoadFromCommandLine(
       Args->data(), Args->data() + Args->size(),
       CXXIdx->getPCHContainerOperations(), Diags,
       CXXIdx->getClangResourcesPath(), CXXIdx->getStorePreamblesInMemory(),
@@ -3970,7 +3973,7 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
       /*AllowPCHWithCompilerErrors=*/true, SkipFunctionBodies, SingleFileParse,
       /*UserFilesAreVolatile=*/true, ForSerialization, RetainExcludedCB,
       CXXIdx->getPCHContainerOperations()->getRawReader().getFormats().front(),
-      &ErrUnit));
+      &ErrUnit);
 
   // Early failures in LoadFromCommandLine may return with ErrUnit unset.
   if (!Unit && !ErrUnit)

@@ -583,7 +583,11 @@ struct CallContext {
 
   fir::FirOpBuilder &getBuilder() { return converter.getFirOpBuilder(); }
 
-  std::string getProcedureName() const { return procRef.proc().GetName(); }
+  std::string getProcedureName() const {
+    if (const Fortran::semantics::Symbol *sym = procRef.proc().GetSymbol())
+      return sym->GetUltimate().name().ToString();
+    return procRef.proc().GetName();
+  }
 
   /// Is this a call to an elemental procedure with at least one array argument?
   bool isElementalProcWithArrayArgs() const {
@@ -1593,13 +1597,12 @@ public:
     }
     assert(shape &&
            "elemental array calls must have at least one array arguments");
-    if (mustBeOrdered)
-      TODO(loc, "ordered elemental calls in HLFIR");
     // Push a new local scope so that any temps made inside the elemental
     // iterations are cleaned up inside the iterations.
     if (!callContext.resultType) {
       // Subroutine case. Generate call inside loop nest.
-      hlfir::LoopNest loopNest = hlfir::genLoopNest(loc, builder, shape);
+      hlfir::LoopNest loopNest =
+          hlfir::genLoopNest(loc, builder, shape, !mustBeOrdered);
       mlir::ValueRange oneBasedIndices = loopNest.oneBasedIndices;
       auto insPt = builder.saveInsertionPoint();
       builder.setInsertionPointToStart(loopNest.innerLoop.getBody());
@@ -1644,8 +1647,9 @@ public:
       // use.
       return res;
     };
-    mlir::Value elemental = hlfir::genElementalOp(loc, builder, elementType,
-                                                  shape, typeParams, genKernel);
+    mlir::Value elemental =
+        hlfir::genElementalOp(loc, builder, elementType, shape, typeParams,
+                              genKernel, !mustBeOrdered);
     fir::FirOpBuilder *bldr = &builder;
     callContext.stmtCtx.attachCleanup(
         [=]() { bldr->create<hlfir::DestroyOp>(loc, elemental); });

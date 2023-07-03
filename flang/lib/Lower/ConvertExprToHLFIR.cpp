@@ -719,6 +719,7 @@ private:
     if (recordType.isDependentType())
       TODO(getLoc(), "Designate derived type with length parameters in HLFIR");
     mlir::Type fieldType = recordType.getType(partInfo.componentName);
+    assert(fieldType && "component name is not known");
     mlir::Type fieldBaseType =
         hlfir::getFortranElementOrSequenceType(fieldType);
     partInfo.componentShape = genComponentShape(componentSym, fieldBaseType);
@@ -783,7 +784,9 @@ private:
     // of the whole designator (not the ones of the vector subscripted part).
     // These are not yet known and will be added when finalizing the designator
     // lowering.
-    auto elementalAddrOp = builder.create<hlfir::ElementalAddrOp>(loc, shape);
+    auto elementalAddrOp =
+        builder.create<hlfir::ElementalAddrOp>(loc, shape,
+                                               /*isUnordered=*/true);
     setVectorSubscriptElementAddrOp(elementalAddrOp);
     builder.setInsertionPointToEnd(&elementalAddrOp.getBody().front());
     mlir::Region::BlockArgListType indices = elementalAddrOp.getIndices();
@@ -1512,7 +1515,8 @@ private:
       return unaryOp.gen(l, b, op.derived(), leftVal);
     };
     mlir::Value elemental = hlfir::genElementalOp(loc, builder, elementType,
-                                                  shape, typeParams, genKernel);
+                                                  shape, typeParams, genKernel,
+                                                  /*isUnordered=*/true);
     fir::FirOpBuilder *bldr = &builder;
     getStmtCtx().attachCleanup(
         [=]() { bldr->create<hlfir::DestroyOp>(loc, elemental); });
@@ -1557,7 +1561,8 @@ private:
       return binaryOp.gen(l, b, op.derived(), leftVal, rightVal);
     };
     mlir::Value elemental = hlfir::genElementalOp(loc, builder, elementType,
-                                                  shape, typeParams, genKernel);
+                                                  shape, typeParams, genKernel,
+                                                  /*isUnordered=*/true);
     fir::FirOpBuilder *bldr = &builder;
     getStmtCtx().attachCleanup(
         [=]() { bldr->create<hlfir::DestroyOp>(loc, elemental); });

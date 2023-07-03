@@ -256,7 +256,10 @@ libc_support_library(
 libc_support_library(
     name = "__support_cpp_type_traits",
     hdrs = ["src/__support/CPP/type_traits.h"],
-    deps = [":libc_root"],
+    deps = [
+        ":__support_macros_attributes",
+        ":libc_root",
+    ],
 )
 
 libc_support_library(
@@ -1151,6 +1154,15 @@ libc_support_library(
 )
 
 libc_math_function(
+    name = "erff",
+    additional_deps = [
+        ":__support_fputil_multiply_add",
+        ":__support_fputil_polyeval",
+        ":__support_macros_optimization",
+    ],
+)
+
+libc_math_function(
     name = "expm1f",
     additional_deps = [
         ":__support_fputil_fma",
@@ -1986,6 +1998,7 @@ libc_support_library(
         "src/string/memory_utils/op_aarch64.h",
         "src/string/memory_utils/op_builtin.h",
         "src/string/memory_utils/op_generic.h",
+        "src/string/memory_utils/op_riscv.h",
         "src/string/memory_utils/op_x86.h",
         "src/string/memory_utils/utils.h",
     ],

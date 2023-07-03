@@ -716,7 +716,7 @@ public:
               loc = cooked->GetSourcePositionRange(block)) {
         // loc is a pair (begin, end); use the beginning position
         Fortran::parser::SourcePosition &filePos = loc->first;
-        llvm::SmallString<256> filePath(filePos.file.path());
+        llvm::SmallString<256> filePath(*filePos.path);
         llvm::sys::fs::make_absolute(filePath);
         llvm::sys::path::remove_dots(filePath);
         return mlir::FileLineColLoc::get(&getMLIRContext(), filePath.str(),
@@ -2172,6 +2172,8 @@ private:
 
     const Fortran::parser::OpenMPLoopConstruct *ompLoop =
         std::get_if<Fortran::parser::OpenMPLoopConstruct>(&omp.u);
+    const Fortran::parser::OpenMPBlockConstruct *ompBlock =
+        std::get_if<Fortran::parser::OpenMPBlockConstruct>(&omp.u);
 
     // If loop is part of an OpenMP Construct then the OpenMP dialect
     // workshare loop operation has already been created. Only the
@@ -2196,8 +2198,15 @@ private:
     for (Fortran::lower::pft::Evaluation &e : curEval->getNestedEvaluations())
       genFIR(e);
 
-    if (ompLoop)
+    if (ompLoop) {
       genOpenMPReduction(*this, *loopOpClauseList);
+    } else if (ompBlock) {
+      const auto &blockStart =
+          std::get<Fortran::parser::OmpBeginBlockDirective>(ompBlock->t);
+      const auto &blockClauses =
+          std::get<Fortran::parser::OmpClauseList>(blockStart.t);
+      genOpenMPReduction(*this, blockClauses);
+    }
 
     localSymbols.popScope();
     builder->restoreInsertionPoint(insertPt);
@@ -3165,7 +3174,8 @@ private:
       return hlfir::EntityWithAttributes{builder.createConvert(loc, toTy, val)};
     };
     mlir::Value convertedRhs = hlfir::genElementalOp(
-        loc, builder, toTy, shape, /*typeParams=*/{}, genKernel);
+        loc, builder, toTy, shape, /*typeParams=*/{}, genKernel,
+        /*isUnordered=*/true);
     fir::FirOpBuilder *bldr = &builder;
     stmtCtx.attachCleanup([loc, bldr, convertedRhs]() {
       bldr->create<hlfir::DestroyOp>(loc, convertedRhs);
@@ -3956,6 +3966,19 @@ private:
     func.setVisibility(mlir::SymbolTable::Visibility::Public);
     assert(blockId == 0 && "invalid blockId");
     assert(activeConstructStack.empty() && "invalid construct stack state");
+
+    // Get the rounding mode at function entry, and arrange for it to be
+    // restored at all function exits.
+    if (!funit.isMainProgram() && funit.mayModifyRoundingMode) {
+      mlir::func::FuncOp getRound = fir::factory::getLlvmGetRounding(*builder);
+      mlir::func::FuncOp setRound = fir::factory::getLlvmSetRounding(*builder);
+      mlir::Value roundMode =
+          builder->create<fir::CallOp>(toLocation(), getRound).getResult(0);
+      mlir::Location endLoc =
+          toLocation(Fortran::lower::pft::stmtSourceLoc(funit.endStmt));
+      bridge.fctCtx().attachCleanup(
+          [=]() { builder->create<fir::CallOp>(endLoc, setRound, roundMode); });
+    }
 
     mapDummiesAndResults(funit, callee);
 
