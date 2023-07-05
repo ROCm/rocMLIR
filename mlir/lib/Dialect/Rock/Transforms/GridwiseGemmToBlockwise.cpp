@@ -398,105 +398,117 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
   return outerLoop;
 }
 
-/// This function pack the load buffer into a store buffer ready to be copied
-/// into LDS:
-///  - The load buffer is a KPerThread x DPerThread or DPerThread x KPerThread
-///  depending
-///    on the direction of the (global vectorization)
-///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
-///  kpackPerThread]
-///    buffer
-TransformingForOp
-packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc, Type elementType,
-                            GemmDimension vectorDim, int64_t kpack,
-                            Value loadBuffer, Value storeBuffer,
-                            int64_t copyDPerThread, int64_t copyKPerThread) {
-
-  bool transpose =
-      ((vectorDim == GemmDimension::K && kpack == 1 && copyDPerThread > 1) ||
-       (vectorDim == GemmDimension::MorN && kpack > 1 && copyKPerThread > 1));
-
+// This function will create a DPerThread x KPerThread view of loaded register
+// buffer that may be laid out KPerThread x DPerThread or DPerThread x
+// KPerThread depending on the direction of the global vectorization.
+Value viewLoadBufferDK(PatternRewriter &b, Location loc, Value loadBuffer,
+                       GemmDimension vectorDim, int64_t copyDPerThread,
+                       int64_t copyKPerThread) {
   SmallVector<StringRef, 2> loadBufferNames;
   SmallVector<int64_t, 2> loadBufferShape;
   if (vectorDim == GemmDimension::MorN) {
     // If we are vectorizing along the M/N dimension, we have a
     // KxD buffer that we want to transpose into a DxK buffer
-    loadBufferShape.push_back(copyKPerThread);
-    loadBufferShape.push_back(copyDPerThread);
-    loadBufferNames.push_back("k");
-    loadBufferNames.push_back("d");
+    loadBufferShape = {copyKPerThread, copyDPerThread};
+    loadBufferNames = {"k_physical", "d_physical"};
   } else {
     // If we are vectorizing along the K dimension, we have a
     // DxK buffer that we want to transpose into a KxD buffer
-    loadBufferShape.push_back(copyDPerThread);
-    loadBufferShape.push_back(copyKPerThread);
-    loadBufferNames.push_back("d");
-    loadBufferNames.push_back("k");
+    loadBufferShape = {copyDPerThread, copyKPerThread};
+    loadBufferNames = {"d_physical", "k_physical"};
   }
+  assert(loadBuffer.getType().cast<MemRefType>().getNumElements() ==
+         copyKPerThread * copyDPerThread);
 
-  auto storeNames = loadBufferNames;
-  auto storeShape = loadBufferShape;
+  Value ret;
+  BottomUpTMBuilder rawViewBuilder(b, {"rawLoad"},
+                                   {copyKPerThread * copyDPerThread});
+  rawViewBuilder.unmerge(loadBufferNames, {0, 1}, "rawLoad", loadBufferShape);
+  TransformMapAttr rawView = rawViewBuilder.get();
+  ret = b.create<TransformOp>(loc, loadBuffer, rawView);
 
-  if (transpose) {
-    std::reverse(storeNames.begin(), storeNames.end());
-    std::reverse(storeShape.begin(), storeShape.end());
-  }
+  BottomUpTMBuilder kdViewBuilder =
+      BottomUpTMBuilder::above(rawViewBuilder, rawView);
+  kdViewBuilder.passThrough({"d", "k"}, {0, 1}, {"d_physical", "k_physical"});
+  TransformMapAttr kdView = kdViewBuilder.get();
+  ret = b.create<TransformOp>(loc, ret, kdView);
 
+  return ret;
+}
+
+/// This function pack the load buffer into a store buffer ready to be copied
+/// into LDS:
+///  - The load buffer is (viewed as) a DPerThread x KPerThread
+///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
+///  kpackPerThread]
+///    buffer
+TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
+                                              Type elementType, int64_t kpack,
+                                              Value loadBuffer,
+                                              Value storeBuffer) {
+  ArrayRef<int64_t> loadShape =
+      loadBuffer.getType().cast<ShapedType>().getShape();
+  Type elemType = loadBuffer.getType().cast<MemRefType>().getElementType();
+  int64_t copyDPerThread = loadShape[0];
+  int64_t copyKPerThread = loadShape[1];
   // We use kpackPerThread instead of kpack to cover edge cases where
   // copyKPerThread is smaller than kpack
   int64_t kpackPerThread = std::min(copyKPerThread, kpack);
   int64_t kOuterPerThread = copyKPerThread / kpackPerThread;
 
-  TopDownTMBuilder transformLoad(b, storeNames, storeShape);
-  transformLoad.unmerge("rawLoad", 0, loadBufferNames, loadBufferShape);
-  auto loadIdx = b.getArrayAttr({transformLoad.get()});
-
-  TopDownTMBuilder packStore(b, storeNames, storeShape);
-  // Depnending on the (global) vectorization we have the k dimension
-  // in different positions in the load buffer
-  if (vectorDim == GemmDimension::MorN) {
-    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[0],
-                    {kOuterPerThread, kpackPerThread});
-  } else {
-    packStore.merge({"kouter", "kpack"}, {0, 2}, loadBufferNames[1],
-                    {kOuterPerThread, kpackPerThread});
-  }
+  TopDownTMBuilder packStore(b, {"d", "k"}, {copyDPerThread, copyKPerThread});
+  packStore.merge({"kouter", "kpack"}, {0, 2}, "k",
+                  {kOuterPerThread, kpackPerThread});
   packStore.passThrough({"dPerThread"}, 1, {"d"});
-
   TransformMapAttr packStoreAttr = packStore.get();
   auto transformPacked = TopDownTMBuilder::below(packStore, packStoreAttr);
   transformPacked.unmerge("rawStore", 0, {"kouter", "dPerThread", "kpack"},
                           {kOuterPerThread, copyDPerThread, kpackPerThread});
   TransformMapAttr transformPackedAttr = transformPacked.get();
-
   auto storeIdx = b.getArrayAttr({packStoreAttr, transformPackedAttr});
+
+  Value rawLoadBuffer;
+  ArrayAttr loadBufferView;
+  std::tie(rawLoadBuffer, loadBufferView) = untransform(b, loadBuffer);
+  ArrayRef<int64_t> rawLoadBufferShape =
+      rawLoadBuffer.getType().cast<ShapedType>().getShape();
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> start(2, zero);
-  SmallVector<int64_t, 2> strides{1};
-
-  // When transposing the stride needs to be one, otherwise it depends
-  // on the load buffer
-  if (transpose) {
-    strides.push_back(1);
-  } else if (kpack > 1) {
-    strides.push_back(math_util::gcd(copyKPerThread, kpackPerThread));
+  SmallVector<int64_t, 2> strides(2, 1);
+  int64_t vecLen = 1;
+  // The store buffer is a flattened < kouter x dPerThread x kpack >.
+  if (kpackPerThread == 1) {
+    // if kpack == 1, then we can do vectorized loads across d dimension from/to
+    // load/store buffer
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
+                                            copyDPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(copyDPerThread, vecLen);
+    strides[0] = vecLen;
   } else {
-    strides.push_back(copyDPerThread);
+    // if kpack > 1, then we are limited by vectorization in k dimension and it
+    // could be at most kpack.
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
+                                            copyKPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(vecLen, kpackPerThread);
+    strides[1] = vecLen;
   }
+  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
 
   // Run the packing loop
   auto packLoop =
       b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
-                                  ArrayRef<Attribute>{loadIdx, storeIdx},
-                                  /*bounds=*/storeShape,
+                                  ArrayRef<Attribute>{loadBufferView, storeIdx},
+                                  /*bounds=*/loadShape,
                                   /*strides=*/strides, false,
                                   /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(packLoop.getBody());
-    Type loadType = vectorTypeOrSelf(elementType, strides.back());
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, loadBuffer,
+    Type loadType = vectorTypeOrSelf(elementType, vecLen);
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
                                         packLoop.getLowerCoords(0));
 
     b.create<InBoundsStoreOp>(loc, val, storeBuffer,
@@ -824,13 +836,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, aVectorDim, kpack, loadBufferA, storeBufferA,
-        copyMPerThread, aCopyKPerThread);
-
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, bVectorDim, kpack, loadBufferB, storeBufferB,
-        copyNPerThread, bCopyKPerThread);
+    Value viewLoadBufferA = viewLoadBufferDK(b, loc, loadBufferA, aVectorDim,
+                                             copyMPerThread, aCopyKPerThread);
+    auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
+                                                 viewLoadBufferA, storeBufferA);
+    Value viewLoadBufferB = viewLoadBufferDK(b, loc, loadBufferB, bVectorDim,
+                                             copyNPerThread, bCopyKPerThread);
+    auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
+                                                 viewLoadBufferB, storeBufferB);
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
@@ -1144,13 +1157,15 @@ struct GridwiseGemmAccelRewritePattern
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, aVectorDim, kpack, loadBufferA, storeBufferA,
-        copyMPerThread, aCopyKPerThread);
+    Value viewLoadBufferA = viewLoadBufferDK(b, loc, loadBufferA, aVectorDim,
+                                             copyMPerThread, aCopyKPerThread);
+    auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
+                                                 viewLoadBufferA, storeBufferA);
 
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, bVectorDim, kpack, loadBufferB, storeBufferB,
-        copyNPerThread, bCopyKPerThread);
+    Value viewLoadBufferB = viewLoadBufferDK(b, loc, loadBufferB, bVectorDim,
+                                             copyNPerThread, bCopyKPerThread);
+    auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
+                                                 viewLoadBufferB, storeBufferB);
 
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
