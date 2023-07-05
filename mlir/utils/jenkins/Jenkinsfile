@@ -465,21 +465,38 @@ pipeline {
                             check_randomE2ETests("${CODEPATH}")
                         }
                     }
-                    stage("Static Library: test librockCompiler with MIOpen") {
+                    stage("Tune selected rocmlir configs") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.sharedLib;
+                            equals expected: false, actual: params.nightly;
+                        }
+                        steps {
+                            buildProject('ci-performance-scripts', '')
+                            dir('build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    // Tune gemms, fail if the DB is not created
+                                    sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            --output=tuning_gemm.tsv
+                                          [ -f tuning_gemm.tsv ]"""
+                                    sh """python3 ./bin/tuningRunner.py --operation conv \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            --output=tuning_conv.tsv
+                                          [ -f tuning_conv.tsv ]"""
+                                }
+                            }
+                        }
+                    }
+                    stage("Static Library: build rockMLIR packages") {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
                         }
-                        environment {
-                            // Make libMIOpen.so accessible to the test driver
-                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                        }
                         steps {
                             sh 'rm build/CMakeCache.txt'
-                            buildMIOpenWithMLIR()
-                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
-                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
+                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
                         }
                     }
                 }
