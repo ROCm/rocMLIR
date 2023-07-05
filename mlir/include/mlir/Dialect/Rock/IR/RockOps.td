@@ -411,6 +411,29 @@ def Rock_GridwiseGemmAccelOp :
   let hasVerifier = 1;
 }
 
+// gridwise_attention_accel
+def Rock_GridwiseAttentionAccelOp :
+    Rock_Op<"gridwise_attention_accel">,
+    Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
+                   MemRefRankOf<[F32, F16], [3]>:$keys,
+                   MemRefRankOf<[F32, F16], [3]>:$values,
+                   MemRefRankOf<[F32, F16], [3]>:$scale,
+                   MemRefRankOf<[F32, F16], [3]>:$out,
+                   StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   RockAccelTuningParamAttrInterface:$params)> {
+  let summary = "Gridwise attention accelerated version";
+  let description = [{
+    The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
+  let hasVerifier = 1;
+}
+
 // Memory allocation on GPU memory hierachy.
 def Rock_GpuAllocOp:
     Rock_Op<"alloc">,

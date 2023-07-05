@@ -1574,6 +1574,15 @@ LogicalResult AccelGemmOp::verify() {
     return emitOpError("K dimensions don't match");
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// GridwiseAttentionAccelOp
+//===----------------------------------------------------------------------===//
+LogicalResult GridwiseAttentionAccelOp::verify() {
+  return success();
+}
+
+
 //===----------------------------------------------------------------------===//
 // InWarpTransposeOp
 //===----------------------------------------------------------------------===//
