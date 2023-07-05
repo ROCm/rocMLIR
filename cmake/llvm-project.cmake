@@ -102,3 +102,15 @@ function(add_rocmlir_public_c_api_library name)
     -DMLIR_CAPI_BUILDING_LIBRARY=1
   )
 endfunction()
+
+function(add_rocmlir_tool name)
+  set(exclude_from_all "")
+  if (BUILD_FAT_LIBROCKCOMPILER)
+    set(exclude_from_all "EXCLUDE_FROM_ALL")
+    # Temporarily disable "Building tools" to avoid generating install targets for
+    # unbuilt files
+    set(LLVM_BUILD_TOOLS OFF)
+    set(EXCLUDE_FROM_ALL ON) # LLVM functions read this variable, set it paranoidly
+  endif()
+  add_mlir_tool(${name} ${exclude_from_all} ${ARGN})
+endfunction()

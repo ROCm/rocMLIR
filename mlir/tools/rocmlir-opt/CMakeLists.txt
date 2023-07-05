@@ -24,16 +24,17 @@ set(LIBS
 
 # Exclude from libMLIR.so because this has static options intended for
 # opt-like tools only.
+set(EXCLUDE_FROM_ALL ${BUILD_FAT_LIBROCKCOMPILER})
 add_mlir_library(RocMLIROptMain
   rocmlir-opt.cpp
 
   EXCLUDE_FROM_LIBMLIR
 
-  LINK_LIBS PUBLIC
+  LINK_LIBS PRIVATE
   ${LIBS}
   )
 
-add_llvm_tool(rocmlir-opt
+add_rocmlir_tool(rocmlir-opt
   rocmlir-opt.cpp
 
   DEPENDS

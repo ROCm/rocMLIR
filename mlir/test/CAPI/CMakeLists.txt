@@ -10,6 +10,7 @@ set(LLVM_LINK_COMPONENTS
 )
 
 add_llvm_executable(mlir-mixr-capi-test
+  EXCLUDE_FROM_ALL
   mixrir.c
 )
 llvm_update_compile_flags(mlir-mixr-capi-test)
@@ -22,6 +23,7 @@ target_link_libraries(mlir-mixr-capi-test
 )
 
 add_llvm_executable(mlir-tosa-miir-test
+  EXCLUDE_FROM_ALL
   tosa_miir.cpp
 )
 llvm_update_compile_flags(mlir-tosa-miir-test)
@@ -36,6 +38,7 @@ target_link_libraries(mlir-tosa-miir-test
 )
 
 add_llvm_executable(mlir-mixr-full-test
+  EXCLUDE_FROM_ALL
   mixr_cobj.cpp
   )
 llvm_update_compile_flags(mlir-mixr-full-test)
@@ -53,6 +56,7 @@ target_link_libraries(mlir-mixr-full-test
 )
 
 add_llvm_executable(mlir-mixr-fullc-test
+  EXCLUDE_FROM_ALL
   mixr_full.c
   )
 llvm_update_compile_flags(mlir-mixr-fullc-test)

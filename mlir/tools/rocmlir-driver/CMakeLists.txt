@@ -16,7 +16,7 @@ set(LIBS
   MLIRMHALPipeline
   )
 
-add_llvm_executable(rocmlir-driver
+add_rocmlir_tool(rocmlir-driver
   PARTIAL_SOURCES_INTENDED
 
   rocmlir-driver.cpp
@@ -26,6 +26,6 @@ add_llvm_executable(rocmlir-driver
 )
 
 
-llvm_update_compile_flags(rocmlir-driver)
 target_link_libraries(rocmlir-driver PRIVATE ${LIBS})
+llvm_update_compile_flags(rocmlir-driver)
 mlir_check_link_libraries(rocmlir-driver)
