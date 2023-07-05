@@ -28,8 +28,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include "llvm/ADT/STLExtras.h"
-
 namespace mlir {
 namespace gpu {
 

@@ -125,10 +125,22 @@ updateCalls(ModuleOp module,
   bool didFail = false;
   SymbolTable symtab(module);
   module.walk([&](CallOpInterface op) {
+    // TODO CallOpInterface does not have a getCallee() method.
+    // We should enable this back once we add this method.
+    //
+    // auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
+    // if (!callee) {
+    //   op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
+    //                  << "symbol table";
+    //   didFail = true;
+    //   return;
+    // }
+    // if (!options.filterFn(&callee))
+    //   return;
     // FIXME validate callee in the symbol table.
     SmallVector<Value, 6> replaceWithNewCallResults;
     SmallVector<Value, 6> replaceWithOutParams;
-    for (OpResult result : op.getResults()) {
+    for (OpResult result : op->getResults()) {
       if (isa<MemRefType>(result.getType()))
         replaceWithOutParams.push_back(result);
       else

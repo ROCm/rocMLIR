@@ -3072,7 +3072,7 @@ std::optional<Attribute> TypeConverter::convertTypeAttribute(Type type,
 static LogicalResult convertFuncOpTypes(FunctionOpInterface funcOp,
                                         TypeConverter &typeConverter,
                                         ConversionPatternRewriter &rewriter) {
-  FunctionType type = dyn_cast<FunctionType>(funcOp.getFunctionType());
+  FunctionType type = dyn_cast_or_null<FunctionType>(funcOp.getFunctionType());
   if (!type)
     return failure();
 

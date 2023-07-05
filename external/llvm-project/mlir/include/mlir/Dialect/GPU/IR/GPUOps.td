@@ -1554,6 +1554,8 @@ def GPU_WarpSwizzleOp :
   }];
   let assemblyFormat = "attr-dict $in `:` type($in)";
   let hasVerifier = 1;
+}
+
 //
 // Operation on sparse matrices, called from the host
 // (currently lowers to cuSparse for CUDA only, no ROCM lowering).

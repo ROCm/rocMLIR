@@ -63,29 +63,6 @@ static mlir::Value applyPad(Location loc, Value input, ArrayRef<int64_t> pad,
       highIndices, padValue);
 }
 
-static mlir::Value makeIntBiasAdd(PatternRewriter &rewriter, Location loc,
-                                  ShapedType resultTy, Value bias, Value conv,
-                                  Value result,
-                                  ArrayRef<AffineMap> indexingMaps) {
-  result = rewriter
-               .create<linalg::GenericOp>(
-                   loc, resultTy, ValueRange({bias, conv}), result,
-                   indexingMaps, getNParallelLoopsAttrs(resultTy.getRank()),
-                   [](OpBuilder &builder, Location loc, ValueRange args) {
-                     Value biasVal = args[0];
-                     Type resType = args[1].getType();
-                     if (resType != biasVal.getType()) {
-                       biasVal = builder.create<arith::ExtSIOp>(loc, resType,
-                                                                biasVal);
-                     }
-                     Value added =
-                         builder.create<arith::AddIOp>(loc, biasVal, args[1]);
-                     builder.create<linalg::YieldOp>(loc, added);
-                   })
-               .getResult(0);
-  return result;
-}
-
 static mlir::Value
 linalgIntBroadcastExtSIAdd(PatternRewriter &rewriter, Location loc, Value bias,
                            Value conv, Value result,
@@ -333,8 +310,8 @@ public:
                   loc, resultTy, ValueRange{input, weight, iZpVal, kZpVal},
                   ValueRange{zeroTensor}, strideAttr, dilationAttr)
               ->getResult(0);
-      Value result = makeIntBiasAdd(rewriter, loc, resultTy, bias, conv,
-                                    biasEmptyTensor, indexingMaps);
+      Value result = linalgIntBroadcastExtSIAdd(rewriter, loc, bias, conv,
+                                                biasEmptyTensor, indexingMaps);
       rewriter.replaceOp(op, result);
       return success();
     }
@@ -511,8 +488,8 @@ public:
       createDepthwiseConvCollapseMap(resultRank, reassociationMap, rewriter);
       Value convReshape = rewriter.create<tensor::CollapseShapeOp>(
           loc, resultTy, conv, reassociationMap);
-      Value result = makeIntBiasAdd(rewriter, loc, resultTy, bias, convReshape,
-                                    biasEmptyTensor, indexingMaps);
+      Value result = linalgIntBroadcastExtSIAdd(
+          rewriter, loc, bias, convReshape, biasEmptyTensor, indexingMaps);
       rewriter.replaceOp(op, result);
     }
     return success();
@@ -683,8 +660,8 @@ public:
                 ValueRange{input, transposedWeight, inputZp, outputZp},
                 zeroTensor)
             ->getResult(0);
-    Value result = makeIntBiasAdd(rewriter, loc, outputTy, bias, matmul,
-                                  biasEmptyTensor, indexingMaps);
+    Value result = linalgIntBroadcastExtSIAdd(rewriter, loc, bias, matmul,
+                                              biasEmptyTensor, indexingMaps);
     rewriter.replaceOp(op, result);
     return success();
   }

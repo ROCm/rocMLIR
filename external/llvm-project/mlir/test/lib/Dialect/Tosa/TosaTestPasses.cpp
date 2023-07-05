@@ -230,7 +230,7 @@ public:
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    PassManager pm(module.getContext(), mlir::PassManager::Nesting::Implicit);
+    PassManager pm(module->getName(), mlir::PassManager::Nesting::Implicit);
     if (defaultCase) {
       pm.addPass(createTosaPartition());
     } else if (depthwiseOnly) {

@@ -237,7 +237,7 @@ static void removeBufferizationAttributes(BlockArgument bbArg) {
 }
 
 /// Return the func::FuncOp called by `callOp`.
-static func::FuncOp getCalledFunction(func::CallOp callOp) {
+static func::FuncOp getCalledFunction(CallOpInterface callOp) {
   SymbolRefAttr sym = llvm::dyn_cast_if_present<SymbolRefAttr>(callOp.getCallableForCallee());
   if (!sym)
     return nullptr;
@@ -265,8 +265,9 @@ static void equivalenceAnalysis(func::FuncOp funcOp,
       int64_t bbargIdx = it.second;
       if (!state.isInPlace(callOp->getOpOperand(bbargIdx)))
         continue;
-      Value returnVal = callOp.getResult(returnIdx);
-      Value argVal = callOp->getOperand(bbargIdx);
+      Value returnVal = callOp.getCallResults()[returnIdx];
+      Value argVal = callOp.getArgOperands()[bbargIdx];
+
       state.unionEquivalenceClasses(returnVal, argVal);
     }
 
@@ -298,7 +299,7 @@ getFuncOpsOrderedByCalls(ModuleOp moduleOp,
     }
 
     numberCallOpsContainedInFuncOp[funcOp] = 0;
-    return funcOp.walk([&](func::CallOp callOp) -> WalkResult {
+    return funcOp.walk([&](CallOpInterface callOp) -> WalkResult {
       func::FuncOp calledFunction = getCalledFunction(callOp);
       assert(calledFunction && "could not retrieved called func::FuncOp");
       callerMap[calledFunction].insert(callOp);

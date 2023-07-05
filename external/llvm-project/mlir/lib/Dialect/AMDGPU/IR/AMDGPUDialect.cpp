@@ -273,11 +273,7 @@ LogicalResult MFMAOp::verify() {
   if (sourceElem.isFloat8E5M2FNUZ() || sourceElem.isFloat8E4M3FNUZ()) {
     int64_t sourceBLen = 1;
     Type sourceBElem = sourceBType;
-<<<<<<< HEAD
-    if (auto sourceBVector = sourceBType.dyn_cast<VectorType>()) {
-=======
     if (auto sourceBVector = llvm::dyn_cast<VectorType>(sourceBType)) {
->>>>>>> 80b1c11ddac1f8e597dcd916ad766bbecf68b089
       sourceBLen = sourceBVector.getNumElements();
       sourceBElem = sourceBVector.getElementType();
     }

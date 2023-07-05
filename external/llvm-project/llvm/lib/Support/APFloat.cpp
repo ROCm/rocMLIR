@@ -3590,33 +3590,6 @@ APInt IEEEFloat::convertFloat8E5M2FNUZAPFloatToAPInt() const {
   return convertIEEEFloatToAPInt<semFloat8E5M2FNUZ>();
 }
 
-APInt IEEEFloat::convertFloat8E5M2FNUZAPFloatToAPInt() const {
-  assert(semantics == (const llvm::fltSemantics *)&semFloat8E5M2FNUZ);
-  assert(partCount() == 1);
-
-  uint32_t myexponent, mysignificand;
-
-  if (isFiniteNonZero()) {
-    myexponent = exponent + 16; // bias
-    mysignificand = (uint32_t)*significandParts();
-    if (myexponent == 1 && !(mysignificand & 0x4))
-      myexponent = 0; // denormal
-  } else if (category == fcZero) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else if (category == fcInfinity) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else {
-    assert(category == fcNaN && "Unknown category!");
-    myexponent = 0;
-    mysignificand = (uint32_t)*significandParts();
-  }
-
-  return APInt(8, (((sign & 1) << 7) | ((myexponent & 0x1f) << 2) |
-                   (mysignificand & 0x3)));
-}
-
 APInt IEEEFloat::convertFloat8E4M3FNAPFloatToAPInt() const {
   assert(partCount() == 1);
   return convertIEEEFloatToAPInt<semFloat8E4M3FN>();
@@ -3635,33 +3608,6 @@ APInt IEEEFloat::convertFloat8E4M3B11FNUZAPFloatToAPInt() const {
 APInt IEEEFloat::convertFloatTF32APFloatToAPInt() const {
   assert(partCount() == 1);
   return convertIEEEFloatToAPInt<semFloatTF32>();
-}
-
-APInt IEEEFloat::convertFloat8E4M3FNUZAPFloatToAPInt() const {
-  assert(semantics == (const llvm::fltSemantics *)&semFloat8E4M3FNUZ);
-  assert(partCount() == 1);
-
-  uint32_t myexponent, mysignificand;
-
-  if (isFiniteNonZero()) {
-    myexponent = exponent + 8; // bias
-    mysignificand = (uint32_t)*significandParts();
-    if (myexponent == 1 && !(mysignificand & 0x8))
-      myexponent = 0; // denormal
-  } else if (category == fcZero) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else if (category == fcInfinity) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else {
-    assert(category == fcNaN && "Unknown category!");
-    myexponent = 0;
-    mysignificand = (uint32_t)*significandParts();
-  }
-
-  return APInt(8, (((sign & 1) << 7) | ((myexponent & 0xf) << 3) |
-                   (mysignificand & 0x7)));
 }
 
 // This function creates an APInt that is just a bit map of the floating
@@ -3896,32 +3842,6 @@ void IEEEFloat::initFromFloat8E5M2FNUZAPInt(const APInt &api) {
   initFromIEEEAPInt<semFloat8E5M2FNUZ>(api);
 }
 
-void IEEEFloat::initFromFloat8E5M2FNUZAPInt(const APInt &api) {
-  uint32_t i = (uint32_t)*api.getRawData();
-  uint32_t myexponent = (i >> 2) & 0x1f;
-  uint32_t mysignificand = i & 0x3;
-
-  initialize(&semFloat8E5M2FNUZ);
-  assert(partCount() == 1);
-
-  sign = i >> 7;
-  if (myexponent == 0 && mysignificand == 0 && sign == 0) {
-    makeZero(sign);
-  } else if (myexponent == 0 && mysignificand == 0 && sign == 1) {
-    category = fcNaN;
-    exponent = exponentNaN();
-    *significandParts() = mysignificand;
-  } else {
-    category = fcNormal;
-    exponent = myexponent - 16; // bias
-    *significandParts() = mysignificand;
-    if (myexponent == 0) // denormal
-      exponent = -15;
-    else
-      *significandParts() |= 0x4; // integer bit
-  }
-}
-
 void IEEEFloat::initFromFloat8E4M3FNAPInt(const APInt &api) {
   initFromIEEEAPInt<semFloat8E4M3FN>(api);
 }
@@ -3936,32 +3856,6 @@ void IEEEFloat::initFromFloat8E4M3B11FNUZAPInt(const APInt &api) {
 
 void IEEEFloat::initFromFloatTF32APInt(const APInt &api) {
   initFromIEEEAPInt<semFloatTF32>(api);
-}
-
-void IEEEFloat::initFromFloat8E4M3FNUZAPInt(const APInt &api) {
-  uint32_t i = (uint32_t)*api.getRawData();
-  uint32_t myexponent = (i >> 3) & 0xf;
-  uint32_t mysignificand = i & 0x7;
-
-  initialize(&semFloat8E4M3FNUZ);
-  assert(partCount() == 1);
-
-  sign = i >> 7;
-  if (myexponent == 0 && mysignificand == 0 && sign == 0) {
-    makeZero(sign);
-  } else if (myexponent == 0 && mysignificand == 0 && sign == 1) {
-    category = fcNaN;
-    exponent = exponentNaN();
-    *significandParts() = mysignificand;
-  } else {
-    category = fcNormal;
-    exponent = myexponent - 8; // bias
-    *significandParts() = mysignificand;
-    if (myexponent == 0) // denormal
-      exponent = -7;
-    else
-      *significandParts() |= 0x8; // integer bit
-  }
 }
 
 /// Treat api as containing the bits of a floating point number.

@@ -695,14 +695,9 @@ void CodeGenAction::generateLLVMIR() {
 
   // Create the pass pipeline
   fir::createMLIRToLLVMPassPipeline(pm, level, opts.StackArrays,
-<<<<<<< HEAD
-                                    opts.Underscoring);
-  mlir::applyPassManagerCLOptions(pm);
-=======
                                     opts.Underscoring, opts.LoopVersioning,
                                     opts.getDebugInfo());
   (void)mlir::applyPassManagerCLOptions(pm);
->>>>>>> 80b1c11ddac1f8e597dcd916ad766bbecf68b089
 
   // run the pass manager
   if (!mlir::succeeded(pm.run(*mlirModule))) {
@@ -740,7 +735,6 @@ void CodeGenAction::generateLLVMIR() {
       llvmModule->setPIELevel(
           static_cast<llvm::PIELevel::Level>(opts.PICLevel));
   }
-
 }
 
 bool CodeGenAction::setUpTargetMachine() {

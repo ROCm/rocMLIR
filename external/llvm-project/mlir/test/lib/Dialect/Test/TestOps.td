@@ -488,7 +488,7 @@ def TestCallOp : TEST_Op<"call", [DeclareOpInterfaceMethods<SymbolUserOpInterfac
 }
 
 def ConversionCallOp : TEST_Op<"conversion_call_op",
-    [DeclareOpInterfaceMethods<CallOpInterface>]> {
+    [CallOpInterface]> {
   let arguments = (ins Variadic<AnyType>:$arg_operands, SymbolRefAttr:$callee);
   let results = (outs Variadic<AnyType>);
 

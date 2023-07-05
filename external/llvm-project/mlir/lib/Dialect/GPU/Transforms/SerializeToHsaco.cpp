@@ -60,6 +60,8 @@
 #include <mutex>
 #include <optional>
 
+LLD_HAS_DRIVER(elf)
+
 using namespace mlir;
 
 namespace {

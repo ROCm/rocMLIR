@@ -326,43 +326,44 @@ if(LLVM_ENABLE_PIC)
     set_property(TARGET mlir_rocm_runtime
       PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
-  target_link_libraries(mlir_rocm_runtime
-    PUBLIC
-    hip::host hip::amdhip64
-  )
+    target_link_libraries(mlir_rocm_runtime
+      PUBLIC
+      hip::host hip::amdhip64
+    )
 
-  add_mlir_library(MLIRRocmExecutionEngineUtils
-    SHARED
-    RocmSystemDetect.cpp
+    add_mlir_library(MLIRRocmExecutionEngineUtils
+      SHARED
+      RocmSystemDetect.cpp
 
-    ADDITIONAL_HEADER_DIRS
-    ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+      ADDITIONAL_HEADER_DIRS
+      ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
 
-    DEPENDS
-    intrinsics_gen
-  )
+      DEPENDS
+      intrinsics_gen
+    )
 
-  if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
-    "-Wno-c++98-compat-extra-semi")
+    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-c++98-compat-extra-semi")
+    endif()
+    if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-return-type-c-linkage")
+    endif()
+    if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-nested-anon-types")
+    endif()
+    if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+       "-Wno-gnu-anonymous-struct")
+    endif()
+
+    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+      MLIRExecutionEngineUtils
+    )
+    target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
+      hip::host hip::amdhip64
+    )
   endif()
-  if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-    target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-return-type-c-linkage")
-  endif()
-  if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-    target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-nested-anon-types")
-  endif()
-  if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-    target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
-     "-Wno-gnu-anonymous-struct")
-  endif()
-
-  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    MLIRExecutionEngineUtils
-  )
-  target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
 endif()

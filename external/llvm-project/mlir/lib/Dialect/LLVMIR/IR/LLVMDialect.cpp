@@ -3352,13 +3352,21 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
     uniqueName = (nameU + Twine(++i)).str();
     global = module.lookupSymbol<LLVM::GlobalOp>(uniqueName);
   }
+  auto type = LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
   if (!global) {
+    // Create the global at the entry of the module.
     OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
-    auto type =
-        LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
     global = moduleBuilder.create<LLVM::GlobalOp>(
-        loc, type, /*isConstant=*/true, linkage, uniqueName,
+        loc, type, /*isConstant=*/true, linkage, name,
         builder.getStringAttr(value), /*alignment=*/0);
+  }
+  LLVMPointerType resultType;
+  LLVMPointerType charPtr;
+  if (!useOpaquePointers) {
+    resultType = LLVMPointerType::get(type);
+    charPtr = LLVMPointerType::get(IntegerType::get(ctx, 8));
+  } else {
+    resultType = charPtr = LLVMPointerType::get(ctx);
   }
   // Get the pointer to the first character in the global string.
   Value globalPtr = builder.create<LLVM::AddressOfOp>(loc, resultType,
