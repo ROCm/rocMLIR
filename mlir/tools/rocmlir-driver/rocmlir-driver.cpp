@@ -135,9 +135,9 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
 static LogicalResult
 runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
-  PassManager pm(kmod.getContext(), PassManager::Nesting::Implicit);
-  applyPassManagerCLOptions(pm);
-
+  PassManager pm(kmod->getName(), PassManager::Nesting::Implicit);
+  if (failed(applyPassManagerCLOptions(pm)))
+    return failure();
   bool needArch = kernelPipelineSet.contains("rocdl") ||
                   kernelPipelineSet.contains("binary");
   RocmDeviceName devName;
@@ -261,9 +261,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   // Run partitioning pipeline.
   if (hostPipelineSet.contains("partition")) {
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
-
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    if (failed(applyPassManagerCLOptions(pm)))
+      return failure();
     mhal::GraphOptions opts;
     opts.targets = targetList;
     mhal::buildGraphPipeline(pm, opts);
@@ -311,9 +311,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (failed(kernelResult))
       return kernelResult;
   } else {
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
-
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    if (failed(applyPassManagerCLOptions(pm)))
+      return failure();
     auto errorHandler = [&](const Twine &msg) {
       emitError(UnknownLoc::get(module.getContext())) << msg;
       return failure();
@@ -330,8 +330,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   // Run Bufferization on the top module
   if (isHighLevel && hasKernels) {
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    if (failed(applyPassManagerCLOptions(pm)))
+      return failure();
     rock::BufferizeOptions opts;
     opts.disableRock = true;
     rock::buildBufferizePipeline(pm, opts);
@@ -344,7 +345,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   // Run MHAL generation on the top module
   if (hostPipelineSet.contains("mhal")) {
     PassManager pm(module.getContext());
-    applyPassManagerCLOptions(pm);
+    if (failed(applyPassManagerCLOptions(pm)))
+      return failure();
     mhal::buildPackagePipeline(pm);
     if (failed(pm.run(module))) {
       return failure();
@@ -360,8 +362,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
                       "within rocmlir-driver\n";
       return failure();
     }
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    if (failed(applyPassManagerCLOptions(pm)))
+      return failure();
     mhal::RunnerOptions runnerOptions;
     runnerOptions.barePtrMemrefs = barePointers.getValue();
     runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
@@ -387,8 +390,9 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   MLIRContext context(registry);
   context.loadDialect<mhal::MHALDialect, rock::RockDialect, func::FuncDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-                      math::MathDialect, arith::ArithDialect, gpu::GPUDialect,
+                      scf::SCFDialect, affine::AffineDialect,
+                      memref::MemRefDialect, math::MathDialect,
+                      arith::ArithDialect, gpu::GPUDialect,
                       bufferization::BufferizationDialect, mhal::MHALDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);

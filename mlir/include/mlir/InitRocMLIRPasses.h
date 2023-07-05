@@ -47,10 +47,10 @@ inline void registerUpstreamPasses() {
   registerArithToAMDGPUConversionPass();
   registerConvertAMDGPUToROCDL();
   registerArithToLLVMConversionPass();
-  registerConvertFuncToLLVM();
+  registerConvertFuncToLLVMPass();
   registerConvertGpuOpsToROCDLOps();
-  registerConvertMathToLLVM();
-  registerMemRefToLLVMConversionPass();
+  registerConvertMathToLLVMPass();
+  registerFinalizeMemRefToLLVMConversionPass();
   registerReconcileUnrealizedCasts();
   registerSCFToControlFlow();
   registerTosaToArith();
@@ -60,7 +60,7 @@ inline void registerUpstreamPasses() {
 
   // MLIR passes
   registerTransformsPasses();
-  registerAffinePasses();
+  affine::registerAffinePasses();
   arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();

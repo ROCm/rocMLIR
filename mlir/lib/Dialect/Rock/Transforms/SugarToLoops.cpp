@@ -120,10 +120,10 @@ struct TransformingForRewritePattern
           AffineMap map = t.getMap().getAffineMap();
           std::optional<AffineResults> init;
           if (lowerInit.empty())
-            init = expandAffineMap(b, loc, map, op.getUpperInits(i));
+            init = affine::expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
-            init =
-                expandAffineMap(b, loc, map, lowerInit[lowerInit.size() - 1]);
+            init = affine::expandAffineMap(b, loc, map,
+                                           lowerInit[lowerInit.size() - 1]);
           if (!init)
             return failure();
           lowerInit.push_back(*init);
@@ -152,7 +152,7 @@ struct TransformingForRewritePattern
 
     // Having done pre-computation, create an affine loop nest over the upper
     // rectangle. This'll be unrolled as needed.
-    llvm::SmallVector<AffineForOp, 5> loops;
+    llvm::SmallVector<affine::AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
 
     // We're about to setInsertionPointTo{Start,End} a bunch to jum around
@@ -168,7 +168,8 @@ struct TransformingForRewritePattern
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
-      auto loop = b.create<AffineForOp>(loc, 0, bound, stride, iterInits);
+      auto loop =
+          b.create<affine::AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
       // remove default affine.yield for cleaner code later
       if (iterInits.empty())
@@ -196,7 +197,7 @@ struct TransformingForRewritePattern
           if (!composedMap) // empty transformations
             continue;
           std::optional<AffineResults> transformed =
-              expandAffineMap(b, loc, composedMap, computed);
+              affine::expandAffineMap(b, loc, composedMap, computed);
           if (!transformed)
             return failure();
           computed.assign(*transformed);
@@ -237,7 +238,7 @@ struct TransformingForRewritePattern
     }
 
     // Map loop arguments, clone operations in body
-    AffineForOp il = loops[loops.size() - 1];
+    affine::AffineForOp il = loops[loops.size() - 1];
     for (auto p : llvm::zip(op.getIterArgs(), il.getRegionIterArgs())) {
       cloneMap.map(std::get<0>(p), std::get<1>(p));
     }
@@ -247,7 +248,7 @@ struct TransformingForRewritePattern
         for (Value v : op.getBody()->getTerminator()->getOperands()) {
           terminatorArgs.push_back(cloneMap.lookupOrDefault(v));
         }
-        b.create<AffineYieldOp>(loc, terminatorArgs);
+        b.create<affine::AffineYieldOp>(loc, terminatorArgs);
       } else {
         b.clone(bodyOp, cloneMap);
       }
@@ -255,9 +256,9 @@ struct TransformingForRewritePattern
 
     if (loops.size() > 1) {
       for (size_t i = 0, e = loops.size() - 1; i < e; ++i) {
-        AffineForOp inner = loops[i + 1];
+        affine::AffineForOp inner = loops[i + 1];
         b.setInsertionPointToEnd(loops[i].getBody());
-        b.create<AffineYieldOp>(loc, inner.getResults());
+        b.create<affine::AffineYieldOp>(loc, inner.getResults());
       }
     }
 
@@ -266,7 +267,7 @@ struct TransformingForRewritePattern
     // Therefore, we just mark loops for unrolling and deal with it in a
     // separate pass
     if (unroll)
-      for (AffineForOp loop : loops)
+      for (affine::AffineForOp loop : loops)
         loop->setAttr("forceUnroll", b.getUnitAttr());
 
     return success();
@@ -564,7 +565,8 @@ struct IndexDiffUpdateRewritePattern
           }
           assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
         } else {
-          // In case upper level diff is not constant, use expandAffineMap.
+          // In case upper level diff is not constant, use
+          // affine::expandAffineMap.
 
           Value upperDiff = upperIndicesDiff[upperDim];
 
@@ -578,9 +580,10 @@ struct IndexDiffUpdateRewritePattern
           assert(upperDiffModified.size() == upperIndicesDiff.size());
 
           // Apply map to compute index lower diff, from index upper diff using
-          // expandAffineMap.
+          // affine::expandAffineMap.
           lowerDiffModified =
-              expandAffineMap(b, loc, affineMap, upperDiffModified).value();
+              affine::expandAffineMap(b, loc, affineMap, upperDiffModified)
+                  .value();
           assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
         }
 
@@ -1467,13 +1470,13 @@ void RockSugarToLoopsPass::runOnOperation() {
   // 2) If we make it a seperate pass, canonicizers might remove the
   // forceUnroll attribute we've used
   WalkResult unrollResult =
-      op.walk<WalkOrder::PostOrder>([](AffineForOp loop) -> WalkResult {
+      op.walk<WalkOrder::PostOrder>([](affine::AffineForOp loop) -> WalkResult {
         Attribute forceUnrollAttr = loop->getAttr("forceUnroll");
         if (!forceUnrollAttr)
           return WalkResult::advance();
         // Since this is a post-order walk through a perfect loop nest, the
         // first loop we see is innermost and therefore unrollable
-        if (failed(mlir::loopUnrollFull(loop)))
+        if (failed(mlir::affine::loopUnrollFull(loop)))
           return WalkResult::interrupt();
         return WalkResult::advance();
       });
