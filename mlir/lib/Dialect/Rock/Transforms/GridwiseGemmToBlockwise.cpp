@@ -1378,7 +1378,7 @@ struct GridwiseGemmAccelRewritePattern
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
     ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
-        b, loc, M, N, blockSize, gridSize, regCAllocOp);
+        b, loc, M, N, blockSize, gridSize);
 
     Value registerC = accelEmitterPtr->computeOutputConversion(
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
