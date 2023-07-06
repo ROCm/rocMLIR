@@ -81,7 +81,7 @@ size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
   auto *paramEntry = unwrap(param);
   SmallString<ROCMLIR_TUNING_PARAM_STRING_BUFSZ> perfConfig;
   paramEntry->param.getPerfConfigStr(perfConfig);
-  strncpy(buf, perfConfig.data(), bufLen);
+  strncpy(buf, perfConfig.c_str(), bufLen);
   return perfConfig.size();
 }
 
@@ -137,6 +137,6 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
   SmallString<ROCMLIR_TUNING_KEY_BUFSZ> perfStr;
   if (failed(rock::getTuningProblemStr(mod, perfStr)))
     return (size_t)(-1);
-  strncpy(buf, perfStr.data(), bufLen);
+  strncpy(buf, perfStr.c_str(), bufLen);
   return perfStr.size();
 }
