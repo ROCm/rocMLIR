@@ -10,11 +10,14 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
-  MLIRExecutionEngine
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
   )
+
+if (MLIR_ENABLE_EXECUTION_ENGINE)
+  list(APPEND LIBS MLIRExecutionEngine)
+endif()
 
 add_rocmlir_tool(rocmlir-driver
   PARTIAL_SOURCES_INTENDED
