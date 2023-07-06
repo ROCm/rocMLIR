@@ -25,6 +25,7 @@
 #include "AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -171,15 +172,22 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   }
 }
 
-static TopDownTMBuilder createTopSplitTMBuilder(PatternRewriter &b,
-                                                Location loc,
-                                                int64_t numElements,
-                                                Optional<int64_t> gridSize,
-                                                Optional<int64_t> blockSize) {
-  if (gridSize.has_value()) {
+static int64_t calculateGridSize(ArrayRef<int64_t> bidGridLengths) {
+  int64_t gridSizeVal = 1;
+  for (int64_t gLen : bidGridLengths) {
+    gridSizeVal *= gLen;
+  }
+  return gridSizeVal;
+}
+
+static TopDownTMBuilder
+createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
+                        Optional<ArrayRef<int64_t>> bidGridLengths,
+                        Optional<int64_t> blockSize) {
+  if (bidGridLengths.has_value()) {
+    int64_t gridSizeVal = calculateGridSize(bidGridLengths.value());
     return TopDownTMBuilder(b, {"bid", "tid", "item"},
-                            {gridSize.value(), blockSize.value(), numElements},
-                            loc);
+                            {gridSizeVal, blockSize.value(), numElements}, loc);
   }
   if (blockSize.has_value()) {
     return TopDownTMBuilder(b, {"tid", "item"},
@@ -188,10 +196,9 @@ static TopDownTMBuilder createTopSplitTMBuilder(PatternRewriter &b,
   return TopDownTMBuilder(b, {"item"}, {numElements}, loc);
 }
 
-ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
-                                               int64_t matrixM, int64_t matrixN,
-                                               Optional<int64_t> blockSize,
-                                               Optional<int64_t> gridSize) {
+ArrayAttr MfmaEmitter::computeOutputTransforms(
+    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    Optional<int64_t> blockSize, Optional<ArrayRef<int64_t>> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -210,9 +217,6 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   auto mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t mPerRepeat = mPerWave / mRepeats;
   int64_t nPerRepeat = nPerWave / nRepeats;
-  int64_t nBlocks = matrixN / nPerBlock;
-  int64_t mBlocks = matrixM / mPerBlock;
-  int64_t gStride = mBlocks * nBlocks;
   int64_t nWaves = nPerBlock / nPerWave;
   int64_t mWaves = mPerBlock / mPerWave;
   int64_t rowGroupSize = mfmaAttr.rowGroupSize;
@@ -230,22 +234,27 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   int64_t retNumElements = accVectorType.getNumElements();
   int64_t numElements = retNumElements * mRepeats * nRepeats * nResultVectors;
   TopDownTMBuilder splitMemoryCoords =
-      createTopSplitTMBuilder(b, loc, numElements, gridSize, blockSize);
-  if (gridSize.has_value()) {
+      createTopSplitTMBuilder(b, loc, numElements, bidGridLengths, blockSize);
+  {
+    unsigned lowIdx = 0;
+    if (bidGridLengths.has_value()) {
+      splitMemoryCoords.merge({"g", "m", "n"}, {lowIdx, lowIdx + 1, lowIdx + 2},
+                              {"bid"}, bidGridLengths.value());
+      lowIdx += 3;
+    }
+    if (blockSize.has_value()) {
+      int64_t wavesInKernelBlock = blockSize.value() / waveSize;
+      splitMemoryCoords.merge(
+          {"wave", "m_tid", "n_tid"}, {lowIdx, lowIdx + 1, lowIdx + 2}, "tid",
+          {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+      lowIdx += 3;
+    }
     splitMemoryCoords.merge(
-        {"g", "m", "n"}, {0, 1, 2}, {"bid"},
-        {gridSize.value() / gStride, gStride / nBlocks, nBlocks});
+        {"i", "j", "vec_group", "vec_item"},
+        {lowIdx, lowIdx + 1, lowIdx + 2, lowIdx + 3}, "item",
+        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
   }
-  if (blockSize.has_value()) {
-    int64_t wavesInKernelBlock = blockSize.value() / waveSize;
-    splitMemoryCoords.merge(
-        {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
-        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
-  }
-  splitMemoryCoords.merge(
-      {"i", "j", "vec_group", "vec_item"}, {6, 7, 8, 9}, "item",
-      {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
-       blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
   TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
   // "blkMajor" and "blkMinor" are placeholder names because we don't know
@@ -264,7 +273,7 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
         {{"i", {"m_i", "n_i"}}, {"j", {"blkMajor", "blkMinor"}}});
   }
   TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-  if (gridSize.has_value()) {
+  if (bidGridLengths.has_value()) {
     rowsAndColsWrap.passThrough({"g", "m", "n"});
   }
   if (blockSize.has_value()) {
@@ -292,7 +301,7 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
 
   auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-  if (gridSize.has_value()) {
+  if (bidGridLengths.has_value()) {
     toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
   }
 
@@ -300,41 +309,38 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   // all the waves will compute next to each other and then they will move to
   // the next subtile in the workgroup
   {
-    SmallVector<StringRef, 5> embedDimNamesM;
-    SmallVector<int64_t, 5> embedDimCoeffsM;
-    if (gridSize.has_value()) {
-      embedDimNamesM.push_back("m");
-      embedDimCoeffsM.push_back(mPerBlock);
+    SmallVector<StringRef, 7> embedDimNamesM{
+        /*0=*/"m",       /*1=*/"wave_m",    /*2=*/"m_tid",   /*3=*/"m_i",
+        /*4=*/"blk_row", /*5=*/"vec_group", /*6=*/"vec_item"};
+    SmallVector<int64_t, 7> embedDimCoeffsM{mPerBlock,
+                                            mPerAccel,
+                                            rowGroupSize,
+                                            mPerAccel * mWaves,
+                                            m,
+                                            inputSpansPerMfmaIn * rowGroupSize,
+                                            1};
+    if (bidGridLengths.has_value()) {
+      // Nothing to remove
+    } else if (blockSize.has_value()) {
+      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0});
+    } else {
+      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0, 1, 2});
     }
-    if (blockSize.has_value()) {
-      embedDimNamesM.insert(embedDimNamesM.end(), {"wave_m", "m_tid"});
-      embedDimCoeffsM.insert(embedDimCoeffsM.end(), {mPerAccel, rowGroupSize});
-    }
-    embedDimNamesM.insert(embedDimNamesM.end(),
-                          {"m_i", "blk_row", "vec_group", "vec_item"});
-    embedDimCoeffsM.insert(
-        embedDimCoeffsM.end(),
-        {mPerAccel * mWaves, m, inputSpansPerMfmaIn * rowGroupSize, 1});
-    toMatrixC.embed("gemmM", 1, matrixM, embedDimNamesM, embedDimCoeffsM);
+    toMatrixC.embed("gemmM", 1, mLen, embedDimNamesM, embedDimCoeffsM);
   }
   {
-    SmallVector<StringRef, 5> embedDimNamesN;
-    SmallVector<int64_t, 5> embedDimCoeffsN;
-    if (gridSize.has_value()) {
-      embedDimNamesN.push_back("n");
-      embedDimCoeffsN.push_back(nPerBlock);
+    SmallVector<StringRef, 5> embedDimNamesN{
+        /*0=*/"n", /*1=*/"wave_n", /*2=*/"n_i", /*3=*/"blk_col", /*4=*/"n_tid"};
+    SmallVector<int64_t, 5> embedDimCoeffsN{nPerBlock, nPerAccel,
+                                            nPerAccel * nWaves, n, 1};
+    if (bidGridLengths.has_value()) {
+      // Nothing do remove
+    } else if (blockSize.has_value()) {
+      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0});
+    } else {
+      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0, 1, 4});
     }
-    if (blockSize.has_value()) {
-      embedDimNamesN.insert(embedDimNamesN.end(), {"wave_n"});
-      embedDimCoeffsN.insert(embedDimCoeffsN.end(), {nPerAccel});
-    }
-    embedDimNamesN.insert(embedDimNamesN.end(), {"n_i", "blk_col"});
-    embedDimCoeffsN.insert(embedDimCoeffsN.end(), {nPerAccel * nWaves, n});
-    if (blockSize.has_value()) {
-      embedDimNamesN.insert(embedDimNamesN.end(), {"n_tid"});
-      embedDimCoeffsN.insert(embedDimCoeffsN.end(), {1});
-    }
-    toMatrixC.embed("gemmN", 2, matrixN, embedDimNamesN, embedDimCoeffsN);
+    toMatrixC.embed("gemmN", 2, nLen, embedDimNamesN, embedDimCoeffsN);
   }
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   ArrayAttr idToMatrixCMaps =
@@ -466,10 +472,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
 }
 
-ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
-                                               int64_t matrixM, int64_t matrixN,
-                                               Optional<int64_t> blockSize,
-                                               Optional<int64_t> gridSize) {
+ArrayAttr WmmaEmitter::computeOutputTransforms(
+    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    Optional<int64_t> blockSize, Optional<ArrayRef<int64_t>> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -482,9 +487,6 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   int64_t nRepeats = accelEmitterParams.nRepeats;
   VectorType accVectorType = accelEmitterParams.accVectorType;
 
-  int64_t nBlocks = matrixN / nPerBlock;
-  int64_t mBlocks = matrixM / mPerBlock;
-  int64_t gStride = mBlocks * nBlocks;
   int64_t nWaves = nPerBlock / nPerWave;
   int64_t mWaves = mPerBlock / mPerWave;
 
@@ -503,27 +505,33 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
 
   int64_t retNumElements = accVectorType.getNumElements();
   TopDownTMBuilder splitMemoryCoords = createTopSplitTMBuilder(
-      b, loc, mRepeats * nRepeats * retNumElements, gridSize, blockSize);
-  if (gridSize.has_value()) {
-    splitMemoryCoords.merge(
-        {"g", "m", "n"}, {0, 1, 2}, {"bid"},
-        {gridSize.value() / gStride, gStride / nBlocks, nBlocks});
+      b, loc, mRepeats * nRepeats * retNumElements, bidGridLengths, blockSize);
+  {
+    unsigned lowIdx = 0;
+    if (bidGridLengths.has_value()) {
+      splitMemoryCoords.merge({"g", "m", "n"}, {lowIdx, lowIdx + 1, lowIdx + 2},
+                              {"bid"}, bidGridLengths.value());
+      lowIdx += 3;
+    }
+    if (blockSize.has_value()) {
+      int64_t wavesInKernelBlock = blockSize.value() / waveSize;
+      splitMemoryCoords.merge(
+          {"wave_m", "wave_n", "m_tid", "n_tid"},
+          {lowIdx, lowIdx + 1, lowIdx + 2, lowIdx + 3}, "tid",
+          {wavesInKernelBlock / nWaves, nWaves, waveSize / wmmaInsn.inputLen,
+           wmmaInsn.inputLen});
+      lowIdx += 4;
+    }
+    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"},
+                            {lowIdx, lowIdx + 1, lowIdx + 2}, "item",
+                            {mRepeats, nRepeats, retNumElements});
   }
-  if (blockSize.has_value()) {
-    int64_t wavesInKernelBlock = blockSize.value() / waveSize;
-    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
-                            {3, 4, 5, 6}, "tid",
-                            {wavesInKernelBlock / nWaves, nWaves,
-                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
-  }
-  splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
-                          {mRepeats, nRepeats, retNumElements});
   TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
   auto toMatrixC =
       TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
 
-  if (gridSize.has_value()) {
+  if (bidGridLengths.has_value()) {
     toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
   }
 
@@ -537,35 +545,34 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
   // waves will compute next to each other and then they will move to the next
   // subtile in the workgroup
   {
-    SmallVector<StringRef, 5> embedDimNamesM;
-    SmallVector<int64_t, 5> embedDimCoeffsM;
-    if (gridSize.has_value()) {
-      embedDimNamesM.push_back("m");
-      embedDimCoeffsM.push_back(mPerBlock);
+    SmallVector<StringRef, 5> embedDimNamesM{/*0=*/"m", /*1=*/"wave_m",
+                                             /*2=*/"m_tid", /*3=*/"rep_i",
+                                             /*4=*/"item_i"};
+    SmallVector<int64_t, 5> embedDimCoeffsM{mPerBlock, wmmaInsn.inputLen, 1,
+                                            mWaves * wmmaInsn.inputLen,
+                                            wmmaInsn.outputStride};
+    if (bidGridLengths.has_value()) {
+      // Nothing to remove here
+    } else if (blockSize.has_value()) {
+      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0});
+    } else {
+      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0, 1, 2});
     }
-    if (blockSize.has_value()) {
-      embedDimNamesM.insert(embedDimNamesM.end(), {"wave_m", "m_tid"});
-      embedDimCoeffsM.insert(embedDimCoeffsM.end(), {wmmaInsn.inputLen, 1});
-    }
-    embedDimNamesM.insert(embedDimNamesM.end(), {"rep_i", "item_i"});
-    embedDimCoeffsM.insert(embedDimCoeffsM.end(),
-                           {mWaves * wmmaInsn.inputLen, wmmaInsn.outputStride});
-    toMatrixC.embed("gemmM", 1, matrixM, embedDimNamesM, embedDimCoeffsM);
+    toMatrixC.embed("gemmM", 1, mLen, embedDimNamesM, embedDimCoeffsM);
   }
   {
-    SmallVector<StringRef, 5> embedDimNamesN;
-    SmallVector<int64_t, 5> embedDimCoeffsN;
-    if (gridSize.has_value()) {
-      embedDimNamesN.push_back("n");
-      embedDimCoeffsN.push_back(nPerBlock);
+    SmallVector<StringRef, 5> embedDimNamesN{/*0=*/"n", /*1=*/"wave_n",
+                                             /*2=*/"n_tid", /*3=*/"rep_j"};
+    SmallVector<int64_t, 5> embedDimCoeffsN{nPerBlock, wmmaInsn.inputLen, 1,
+                                            nWaves * wmmaInsn.inputLen};
+    if (bidGridLengths.has_value()) {
+      // Nothing to remove here
+    } else if (blockSize.has_value()) {
+      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0});
+    } else {
+      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0, 1, 2});
     }
-    if (blockSize.has_value()) {
-      embedDimNamesN.insert(embedDimNamesN.end(), {"wave_n", "n_tid"});
-      embedDimCoeffsN.insert(embedDimCoeffsN.end(), {wmmaInsn.inputLen, 1});
-    }
-    embedDimNamesN.insert(embedDimNamesN.end(), {"rep_j"});
-    embedDimCoeffsN.insert(embedDimCoeffsN.end(), {nWaves * wmmaInsn.inputLen});
-    toMatrixC.embed("gemmN", 2, matrixN, embedDimNamesN, embedDimCoeffsN);
+    toMatrixC.embed("gemmN", 2, nLen, embedDimNamesN, embedDimCoeffsN);
   }
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   ArrayAttr idToMatrixCMaps =

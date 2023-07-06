@@ -121,6 +121,11 @@ TransformMapAttr transformExtractSlice(OpBuilder &b, Location loc,
                                        ArrayRef<int64_t> offsets,
                                        ArrayRef<int64_t> sizes);
 
+// This function will remove embedDims from a given list
+void removeEmbedDims(SmallVectorImpl<StringRef> &embedDimNames,
+                     SmallVectorImpl<int64_t> &embedDimCoeffs,
+                     ArrayRef<int64_t> removeDims);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

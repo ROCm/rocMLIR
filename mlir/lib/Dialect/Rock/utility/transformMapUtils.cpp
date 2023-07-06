@@ -1270,3 +1270,18 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   transform.slice(upperNameRefs, lowerNameRefs, offsets, ends);
   return transform.get();
 }
+
+void mlir::rock::removeEmbedDims(SmallVectorImpl<StringRef> &embedDimNames,
+                                 SmallVectorImpl<int64_t> &embedDimCoeffs,
+                                 ArrayRef<int64_t> removeDims) {
+  for (int64_t removeDim : removeDims) {
+    int64_t removeDimCoeff = embedDimCoeffs[removeDim];
+    embedDimCoeffs.erase(embedDimCoeffs.begin() + removeDim);
+    embedDimNames.erase(embedDimNames.begin() + removeDim);
+    for (auto [dimIdx, dimCoeff] : llvm::enumerate(embedDimCoeffs)) {
+      if (dimCoeff > removeDimCoeff) {
+        embedDimCoeffs[dimIdx] = dimCoeff / removeDimCoeff;
+      }
+    }
+  }
+}
