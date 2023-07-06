@@ -497,6 +497,8 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            echo "Running tests on the newly-built static library"
+                            buildProject('check-rocmlir')
                         }
                     }
                 }

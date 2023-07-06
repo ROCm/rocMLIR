@@ -86,7 +86,7 @@ pipeline {
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Environment") {
@@ -148,7 +148,7 @@ pipeline {
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Environment") {
@@ -156,10 +156,12 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Igemm build") {
+                        stage("Build static library package") {
                             steps {
                                 checkout scm
                                 buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
+                                echo "Running tests on the newly-built static library"
+                                buildProject('check-rocmlir')
                             }
                         }
                     }
