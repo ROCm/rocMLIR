@@ -24,7 +24,6 @@ endif()
 cmake_policy(SET CMP0057 NEW)
 
 # Rock dialect.
-set(ROCMLIR_DRIVER_ENABLED 1 CACHE BOOL "Enable build Rock driver")
 set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")

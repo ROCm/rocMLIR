@@ -7,11 +7,16 @@ llvm_canonicalize_cmake_booleans(
   MLIR_ENABLE_ROCM_CONVERSIONS
   MLIR_ENABLE_ROCM_RUNNER
 
-  ROCMLIR_DRIVER_ENABLED
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
   ROCK_E2E_TEST_ENABLED
   )
+
+if ((ROCMLIR_DRIVER_E2E_TEST_ENABLED OR
+     ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED OR
+     ROCK_E2E_TEST_ENABLED) AND NOT MLIR_ENABLE_ROCM_RUNNER)
+  message(FATAL_ERROR "Cannot enable E2E tests without the JIT runner being enabled")
+endif()
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
 # can find MLIR's CMake configuration
@@ -70,6 +75,12 @@ set(ROCMLIR_TEST_DEPENDS
   rocmlir-opt
   rocmlir-translate
   rocmlir-lsp-server
+  rocmlir-driver
+  rocmlir-gen
+  rocmlir-lib-test
+
+  opt
+  llc
 
   mlir-mixr-capi-test
   mlir-mixr-full-test
@@ -100,18 +111,6 @@ if(MLIR_BINDINGS_PYTHON_ENABLED)
     MLIRBindingsPythonTestOps
     MLIRTransformsBindingsPythonExtension
   )
-endif()
-
-# Rock dialect tools.
-if(ROCMLIR_DRIVER_ENABLED)
-  list(APPEND ROCMLIR_TEST_DEPENDS
-    rocmlir-driver
-    rocmlir-gen
-    rocmlir-lib-test
-    mlir-translate
-    opt
-    llc
-    )
 endif()
 
 # Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1

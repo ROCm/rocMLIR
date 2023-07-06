@@ -6,7 +6,7 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DROCMLIR_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "$cmakeOpts"
     }
 }
 

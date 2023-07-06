@@ -42,11 +42,13 @@ config.build_examples = @LLVM_BUILD_EXAMPLES@
 config.run_rocm_tests = @MLIR_ENABLE_ROCM_CONVERSIONS@
 config.conv_validation_wrapper_library_dir = "@MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ENABLE_ROCM_RUNNER@
-config.enable_rock_driver = @ROCMLIR_DRIVER_ENABLED@
-if config.enable_rock_driver:
-    config.available_features.add('rock-driver')
+if config.enable_rocm_runner:
+    config.available_features.add('rocm-runner')
 config.enable_rock_driver_e2e_test = @ROCMLIR_DRIVER_E2E_TEST_ENABLED@
 config.enable_rock_driver_pr_e2e_test = @ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED@
+config.enable_rock_driver_any_e2e_test = config.enable_rock_driver_pr_e2e_test or config.enable_rock_driver_e2e_test
+if config.enable_rock_driver_any_e2e_test:
+    config.available_features.add('rock-any-e2e')
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"

@@ -13,7 +13,6 @@ add_llvm_executable(mlir-mixr-capi-test
 )
 llvm_update_compile_flags(mlir-mixr-capi-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
@@ -26,7 +25,6 @@ add_llvm_executable(mlir-tosa-miir-test
 )
 llvm_update_compile_flags(mlir-tosa-miir-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
@@ -40,7 +38,6 @@ add_llvm_executable(mlir-mixr-full-test
   )
 llvm_update_compile_flags(mlir-mixr-full-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-full-test
   PRIVATE
   MLIRCAPIIR
@@ -57,7 +54,6 @@ add_llvm_executable(mlir-mixr-fullc-test
   )
 llvm_update_compile_flags(mlir-mixr-fullc-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-fullc-test
   PRIVATE
   MLIRCAPIIR
