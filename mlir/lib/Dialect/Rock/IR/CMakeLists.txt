@@ -24,10 +24,9 @@ add_rocmlir_dialect_library(MLIRRockOps
 target_link_libraries(MLIRRockOps
   PUBLIC
   MLIRAffineDialect
-  MLIRBufferizationDialect
-  MLIRBufferizationTransformOps
-  MLIRGPUDialect
   MLIRAMDGPUDialect
+  MLIRFuncDialect
+  MLIRGPUDialect
   MLIRIR
   MLIRInferIntRangeInterface
   MLIRDialect
@@ -35,11 +34,5 @@ target_link_libraries(MLIRRockOps
   MLIRParser
   MLIRROCDLDialect
   MLIRSupport
-  MLIRTargetLLVMIRExport
-  MLIRTensorDialect
-  MLIRTensorInferTypeOpInterfaceImpl
-  MLIRToLLVMIRTranslationRegistration
-  MLIRTransforms
-  LLVMSupport
   )
 
