@@ -125,9 +125,7 @@ struct AccelEmitter {
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
-  Value computeOutputConversion(PatternRewriter &b, Location loc,
-                                int64_t matrixM, int64_t matrixN,
-                                int64_t blockSize, int64_t gridSize,
+  void computeOutputConversion(PatternRewriter &b, Location loc,
                                 Value regDest, Value convertedC,
                                 bool forceUnroll);
 

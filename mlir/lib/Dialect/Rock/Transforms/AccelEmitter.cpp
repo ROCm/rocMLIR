@@ -57,9 +57,7 @@ AccelEmitter::AccelEmitter(StringRef arch,
   validateAcceleratorProperties();
 }
 
-Value AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
-                                            int64_t matrixM, int64_t matrixN,
-                                            int64_t blockSize, int64_t gridSize,
+void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
                                             Value regVectorOrig, Value regDest,
                                             bool forceUnroll) {
 
@@ -99,7 +97,6 @@ Value AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
     b.create<InBoundsStoreOp>(loc, cast, regDest,
                               convertLoop.getLowerCoords(/*domain*/ 1));
   }
-  return regDest;
 }
 
 // **************************

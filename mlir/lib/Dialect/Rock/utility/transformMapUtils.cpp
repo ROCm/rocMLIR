@@ -55,6 +55,18 @@ mlir::rock::untransform(OpBuilder &b, Value transformed,
   return untransform(b, transformed, b.getArrayAttr(existing));
 }
 
+Value
+mlir::rock::transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms){
+  SmallVector<TransformMapAttr, 4> transformsVec = llvm::to_vector<4>(transforms.getAsRange<TransformMapAttr>());
+  auto reverseTransformVec = llvm::reverse(transformsVec);
+  Location loc = toBeTransformed.getLoc();
+  Value ret = toBeTransformed;
+  for(TransformMapAttr trMap : reverseTransformVec){
+    ret = b.create<TransformOp>(loc, ret, trMap);
+  }
+  return ret;
+}
+
 TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
                                       ArrayRef<StringRef> names,
                                       ArrayRef<int64_t> shape) {
