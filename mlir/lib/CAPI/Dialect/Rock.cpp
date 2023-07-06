@@ -76,10 +76,13 @@ bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
 }
 
 MLIR_CAPI_EXPORTED
-const char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
-  auto paramEntry = unwrap(param);
-  paramEntry->param.getPerfConfigStr(paramEntry->configStr);
-  return paramEntry->configStr.c_str();
+size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
+                                   size_t bufLen) {
+  auto *paramEntry = unwrap(param);
+  SmallString<ROCMLIR_TUNING_PARAM_STRING_BUFSZ> perfConfig;
+  paramEntry->param.getPerfConfigStr(perfConfig);
+  strncpy(buf, perfConfig.data(), bufLen);
+  return perfConfig.size();
 }
 
 MLIR_CAPI_EXPORTED
@@ -90,10 +93,9 @@ bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr) {
+bool mlirRockTuningSetFromStr(MlirModule module, const char *perfCStr) {
   auto mod = unwrap(module);
-  MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
-  std::string perfConfig = unwrap(perfStringRef).str();
+  StringRef perfConfig(perfCStr);
   return rock::tuningSetStr(mod, perfConfig);
 }
 
@@ -112,10 +114,8 @@ MLIR_CAPI_EXPORTED
 bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
                                const char *probCStr, const char *perfCStr,
                                float time) {
-  MlirStringRef probStringRef = mlirStringRefCreateFromCString(probCStr);
-  MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
-  std::string problem = unwrap(probStringRef).str();
-  std::string perfConfig = unwrap(perfStringRef).str();
+  StringRef problem = unwrap(mlirStringRefCreateFromCString(probCStr));
+  StringRef perfConfig = unwrap(mlirStringRefCreateFromCString(perfCStr));
   auto *pTable = unwrap(perfTable);
   return rock::tuningTableUpdate(pTable, problem, perfConfig, time);
 }
@@ -125,19 +125,18 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module) {
   auto *pTable = unwrap(perfTable);
   auto mod = unwrap(module);
-  std::string perfConfig = rock::tuningTableLookup(pTable, mod);
-  if (perfConfig.empty())
+  SmallString<ROCMLIR_TUNING_PARAM_STRING_BUFSZ> perfConfig;
+  if (failed(rock::tuningTableLookup(pTable, mod, perfConfig)))
     return false;
   return rock::tuningSetStr(mod, perfConfig);
 }
 
-MLIR_CAPI_EXPORTED const char *
-mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module) {
-  auto *pTable = unwrap(perfTable);
+MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
+                                               size_t bufLen) {
   auto mod = unwrap(module);
-  // Hold output string in the tuning table which has a buffer to store the
-  // string formatted problem so the data is not lost in the border between C++
-  // and C.
-  pTable->problemBuf = rock::getTuningProblemStr(mod);
-  return pTable->problemBuf.c_str();
+  SmallString<ROCMLIR_TUNING_KEY_BUFSZ> perfStr;
+  if (failed(rock::getTuningProblemStr(mod, perfStr)))
+    return (size_t)(-1);
+  strncpy(buf, perfStr.data(), bufLen);
+  return perfStr.size();
 }

@@ -194,6 +194,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   mlirMIGraphXAddApplicabilityPipeline(applicabilityPm);
   unsigned numSuccesses = 0;
+  char problemKey[ROCMLIR_TUNING_KEY_BUFSZ];
+  size_t problemBytes =
+      mlirRockTuningGetKey(module, problemKey, ROCMLIR_TUNING_KEY_BUFSZ);
+  if (problemBytes >= ROCMLIR_TUNING_KEY_BUFSZ) {
+    printf("Tuning key string too long - %lu bytes", problemBytes);
+    return false;
+  }
+
   for (unsigned i = 0; i < fNum && numSuccesses < 2; ++i) {
     if (!mlirRockTuningParamGetFull(tuningSpace, i, tuningParam)) {
       printf("fails to obtain param\n");
@@ -201,8 +209,13 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     }
 
     float fakeTime = (float)(i + 1);
-    char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
-    char *problemKey = strdup(mlirRockTuningGetKey(tuningTable, module));
+    char paramStr[ROCMLIR_TUNING_PARAM_STRING_BUFSZ];
+    size_t paramBytes = mlirRockTuningParamToString(
+        tuningParam, paramStr, ROCMLIR_TUNING_PARAM_STRING_BUFSZ);
+    if (paramBytes >= ROCMLIR_TUNING_PARAM_STRING_BUFSZ) {
+      printf("Parameter string too long - %lu bytes", paramBytes);
+      return false;
+    }
 
     MlirModule tuningClone = cloneModule(module);
     MlirOperation tuningCloneOp = mlirModuleGetOperation(module);
@@ -220,15 +233,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
         "Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
         problemKey, paramStr, fakeTime);
     // CHECK: fails to update table, existing config is faster
-    if (!mlirRockTuningUpdateTable(tuningTable,
-                                   mlirRockTuningGetKey(tuningTable, module),
-                                   paramStr, fakeTime)) {
+    if (!mlirRockTuningUpdateTable(tuningTable, problemKey, paramStr,
+                                   fakeTime)) {
       printf("fails to update table, existing config is faster\n");
     }
     ++numSuccesses;
     mlirModuleDestroy(tuningClone);
-    free(paramStr);
-    free(problemKey);
   }
 
   if (!mlirRockTuningSetFromTable(tuningTable, module)) {

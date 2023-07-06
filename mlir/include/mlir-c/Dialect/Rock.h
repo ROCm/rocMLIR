@@ -59,20 +59,31 @@ MLIR_CAPI_EXPORTED
 void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params);
 
 // Get tuning params at the given position in the full tuning table and return
-// it into `dest`. Returns false on failure.
+// it into `dest`. Returns false on failure. This will not modify `params`
+// and will copy into `param`, overwriting it.
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningParamGetFull(MlirRockTuningSpace params, unsigned pos,
                                 MlirRockTuningParam param);
 
 // Get tuning params at the given position in the quick tuning table and return
-// it into `dest`. Returns false on failure.
+// it into `dest`. Returns false on failure.This will not modify `params`
+// and will copy into `param`, overwriting it.
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
                                  MlirRockTuningParam param);
 
-// Returns cstring of the serialized perfconfig
+// The recommended buffer size for a parameter string.
+#define ROCMLIR_TUNING_PARAM_STRING_BUFSZ 64
+
+// Generate the string representation of `param`. This representation will be
+// copied into `buf`, which should point to `bufLen` bytes of memory. This
+// function returns the true length of the parameter string - it is the caller's
+// responsibility to ensure that the returned size is less than the size of the
+// provided buffer and to handle the case where the buffer was too small (in
+// which case, per strncpy(), no null terminator will be added to the buffer.)
 MLIR_CAPI_EXPORTED
-const char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
+size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
+                                   size_t bufLen);
 
 // Set the tuning params of the given module using provided param
 MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
@@ -80,7 +91,7 @@ MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
 
 // Set the tuning params of the given module using provided perf string
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr);
+bool mlirRockTuningSetFromStr(MlirModule module, const char *perfCStr);
 
 // Opaque pointer to tuning table storage. This could be used as an abstraction
 // to access the database. Initially, it's pointing to a memory map for now.
@@ -108,10 +119,21 @@ MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module);
 
-// Returns the tuning problem in the C-string format for the inspection.
-// The memory behind this pointer is owned by the tuning table.
-MLIR_CAPI_EXPORTED const char *
-mlirRockTuningGetKey(MlirRockTuningTable perfTable, MlirModule module);
+// The recommended buffer size for a .tuning key
+#define ROCMLIR_TUNING_KEY_BUFSZ 2048
+
+// Produces a string representation of the tuning table key for the problem
+// found within `module`. The representation will be copied into `buf`, which
+// should point to `bufLen` bytes of memory. This function returns the true
+// length of the problem string - it is the caller's responsibility to ensure
+// that the returned size is less than the size of the provided buffer and to
+// handle the case where the buffer was too small (in which case, per strncpy(),
+// no null terminator will be added to the buffer.).
+//
+// If the problem cannot be converted into a key for some reason (this shouldn't
+// happen), returns (size_t)(-1).
+MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
+                                               size_t bufLen);
 
 #ifdef __cplusplus
 }

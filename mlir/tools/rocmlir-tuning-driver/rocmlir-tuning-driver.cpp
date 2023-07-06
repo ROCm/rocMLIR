@@ -261,7 +261,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
        tuningSpace->tuningRangeFull) {
     ModuleOp tuneCopy = cast<ModuleOp>(source->clone());
     // TODO: remove this once perf_config gets parsed earlier
-    std::string perfConfig;
+    SmallString<64> perfConfig;
     tuningAttr.getPerfConfigStr(perfConfig);
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
     tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {

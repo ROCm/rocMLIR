@@ -3003,7 +3003,7 @@ int main(int argc, char **argv) {
 
   if (emitTuningSpace) {
     auto tunableParams = rock::createTunableParamSpace(module);
-    std::string perfConfig;
+    SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRangeFull) {
       param.getPerfConfigStr(perfConfig);
       llvm::outs() << perfConfig << "\n";
@@ -3013,7 +3013,12 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningKey) {
-    llvm::outs() << rock::getTuningProblemStr(module) << "\n";
+    SmallString<2048> tuningKey;
+    if (failed(rock::getTuningProblemStr(module, tuningKey))) {
+      llvm::errs() << "Failed to get tuning key for module: " << module << "\n";
+      return EXIT_FAILURE;
+    }
+    llvm::outs() << tuningKey << "\n";
     return 0;
   }
 

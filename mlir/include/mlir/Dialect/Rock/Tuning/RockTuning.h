@@ -24,7 +24,6 @@ namespace rock {
 struct ParamEntry {
   RockTuningParamAttrInterface param;
   KernelType primaryOpType;
-  std::string configStr;
 };
 
 // Total tuning space
@@ -40,19 +39,21 @@ bool tuningGetParamFull(TunableParams *tuningSpace, unsigned pos,
 bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
                          ParamEntry *paramEntry);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
-bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
+bool tuningSetStr(ModuleOp &mod, StringRef perfConfig);
 
 struct TuningTable {
-  std::map<std::string, std::pair<std::string, float>> tuningMap;
-  std::string problemBuf;
+  llvm::StringMap<std::pair<SmallString<64>, float>> tuningMap;
 };
 
 TuningTable *tuningTableCreate();
 size_t getTuningHash(ModuleOp &mod);
-std::string getTuningProblemStr(ModuleOp &mod);
-bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
-                       std::string perfConfig, float time);
-std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod);
+LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out);
+bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
+                       StringRef perfConfig, float time);
+LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
+                                SmallVectorImpl<char> &out);
+LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
+                                     SmallVectorImpl<char> &out);
 
 } // namespace rock
 } // namespace mlir

@@ -209,8 +209,8 @@ bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        auto ctx = op.getContext();
-        std::string perfConfig;
+        auto *ctx = op.getContext();
+        SmallString<64> perfConfig;
         paramEntry->param.getPerfConfigStr(perfConfig);
         StringAttr attr = StringAttr::get(ctx, perfConfig);
         op->setAttr("perf_config", attr);
@@ -219,10 +219,10 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   return setPrimary.wasInterrupted();
 }
 
-bool tuningSetStr(ModuleOp &mod, std::string perfConfig) {
+bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        auto ctx = op.getContext();
+        auto *ctx = op.getContext();
         StringAttr attr = StringAttr::get(ctx, perfConfig);
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
@@ -240,7 +240,7 @@ TuningTable *tuningTableCreate() {
 // operation. String format of the problem will not be required by the DB,
 // since it can store each field separately.
 // Currently serialize the problem in MIOpenDriver command friendly format
-std::string getTuningProblemStr(ModuleOp &mod) {
+LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
   rock::RockGemmWrapperInterface gemmIF;
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
@@ -248,11 +248,10 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         return WalkResult::interrupt();
       });
   if (!findPrimary.wasInterrupted())
-    return std::string();
-  std::string problemStr;
-  char sep = ' ';
-  char tab = '\t';
-  llvm::raw_string_ostream problemOS(problemStr);
+    return failure();
+  constexpr char sep = ' ';
+  constexpr char tab = '\t';
+  llvm::raw_svector_ostream problemOS(out);
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
@@ -277,9 +276,9 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
 
     unsigned size = filterLayoutAttr.size();
-    std::map<StringRef, unsigned> fLayoutMap;
-    std::map<StringRef, unsigned> iLayoutMap;
-    std::map<StringRef, unsigned> oLayoutMap;
+    llvm::StringMap<unsigned> fLayoutMap;
+    llvm::StringMap<unsigned> iLayoutMap;
+    llvm::StringMap<unsigned> oLayoutMap;
 
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
@@ -330,7 +329,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     } else if (inType.getElementType().isInteger(8)) {
       problemOS << "convint8 ";
     } else {
-      llvm_unreachable("Unknown data type.\n");
+      return failure();
     }
 
     // OP direction
@@ -345,7 +344,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       problemOS << "-F 4" << sep;
       break;
     default:
-      llvm_unreachable("Unknown conv kernel type.\n");
+      return failure();
     }
 
     // filter layout
@@ -405,7 +404,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-k " << gemmIF.getGemmSize().k << sep;
   } else {
     // Unknown op type, unreachable.
-    return std::string();
+    return failure();
   }
 
   // Data type
@@ -429,14 +428,14 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "bf8_bf8";
   } else {
     // Unknown data type
-    return std::string();
+    return failure();
   }
 
-  return problemStr;
+  return success();
 }
 
-bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
-                       std::string perfConfig, float time) {
+bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
+                       StringRef perfConfig, float time) {
   if (problem.empty())
     return false;
   auto search = perfTable->tuningMap.find(problem);
@@ -450,16 +449,18 @@ bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
   return true;
 }
 
-std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
-  std::string problem = getTuningProblemStr(mod);
-  if (problem.empty())
-    return std::string();
+LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
+                                SmallVectorImpl<char> &out) {
+  SmallString<2048> problem;
+  if (failed(getTuningProblemStr(mod, problem)))
+    return failure();
   auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[problem];
-    return entry.first;
+    out.assign(entry.first);
+    return success();
   }
-  return std::string();
+  return failure();
 }
 
 } // namespace rock
