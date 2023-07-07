@@ -273,14 +273,16 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
   converter.addConversion(
       [llvmI16](BFloat16Type type) -> Type { return llvmI16; });
 
-  converter.addConversion([&](VectorType type) -> Optional<Type> {
+  converter.addConversion([&](VectorType type) -> std::optional<Type> {
     if (auto element = converter.convertType(type.getElementType()))
       return type.clone(element);
     return std::nullopt;
   });
 
   converter.addConversion(
-      [&](LLVM::LLVMPointerType type) -> llvm::Optional<Type> {
+      [&](LLVM::LLVMPointerType type) -> std::optional<Type> {
+        if (type.isOpaque())
+          return type;
         if (auto pointee = converter.convertType(type.getElementType()))
           return LLVM::LLVMPointerType::get(pointee, type.getAddressSpace());
         return std::nullopt;
@@ -288,14 +290,15 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
 
   converter.addConversion(
       [&](LLVM::LLVMStructType type, SmallVectorImpl<Type> &results,
-          ArrayRef<Type> callStack) -> Optional<LogicalResult> {
+          ArrayRef<Type> callStack) -> std::optional<LogicalResult> {
         bool converted = false;
         SmallVector<Type> convertedElemTypes;
         convertedElemTypes.reserve(type.getBody().size());
         for (auto t : type.getBody()) {
           SmallVector<Type, 1> element;
-          if (failed(converter.convertType(t, element)))
+          if (failed(converter.convertType(t, element))) {
             return std::nullopt;
+          }
           assert(element.size() == 1);
           convertedElemTypes.push_back(element[0]);
           if (t != element[0])
@@ -334,15 +337,14 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
         return success();
       });
 
-  converter.addConversion(
-      [&](LLVM::LLVMArrayType type) -> llvm::Optional<Type> {
-        if (auto element = converter.convertType(type.getElementType()))
-          return LLVM::LLVMArrayType::get(element, type.getNumElements());
-        return std::nullopt;
-      });
+  converter.addConversion([&](LLVM::LLVMArrayType type) -> std::optional<Type> {
+    if (auto element = converter.convertType(type.getElementType()))
+      return LLVM::LLVMArrayType::get(element, type.getNumElements());
+    return std::nullopt;
+  });
 
   converter.addConversion(
-      [&](LLVM::LLVMFunctionType type) -> llvm::Optional<Type> {
+      [&](LLVM::LLVMFunctionType type) -> std::optional<Type> {
         Type convertedResType = converter.convertType(type.getReturnType());
         if (!convertedResType)
           return std::nullopt;

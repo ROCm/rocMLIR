@@ -62,6 +62,7 @@ private:
   ArrayRef<Info> OptionInfos;
   bool IgnoreCase;
   bool GroupedShortOptions = false;
+  bool DashDashParsing = false;
   const char *EnvVar = nullptr;
 
   unsigned InputOptionID = 0;
@@ -139,6 +140,10 @@ public:
   /// Support grouped short options. e.g. -ab represents -a -b.
   void setGroupedShortOptions(bool Value) { GroupedShortOptions = Value; }
 
+  /// Set whether "--" stops option parsing and treats all subsequent arguments
+  /// as positional. E.g. -- -a -b gives two positional inputs.
+  void setDashDashParsing(bool Value) { DashDashParsing = Value; }
+
   /// Find possible value for given flags. This is used for shell
   /// autocompletion.
   ///
@@ -175,11 +180,21 @@ public:
   /// \param [in] MinimumLength - Don't find options shorter than this length.
   /// For example, a minimum length of 3 prevents "-x" from being considered
   /// near to "-S".
+  /// \param [in] MaximumDistance - Don't find options whose distance is greater
+  /// than this value.
   ///
   /// \return The edit distance of the nearest string found.
   unsigned findNearest(StringRef Option, std::string &NearestString,
                        unsigned FlagsToInclude = 0, unsigned FlagsToExclude = 0,
-                       unsigned MinimumLength = 4) const;
+                       unsigned MinimumLength = 4,
+                       unsigned MaximumDistance = UINT_MAX) const;
+
+  bool findExact(StringRef Option, std::string &ExactString,
+                 unsigned FlagsToInclude = 0,
+                 unsigned FlagsToExclude = 0) const {
+    return findNearest(Option, ExactString, FlagsToInclude, FlagsToExclude, 4,
+                       0) == 0;
+  }
 
   /// Parse a single argument; returning the new argument and
   /// updating Index.

@@ -61,21 +61,39 @@ namespace {
 struct UpdateIndexCallbacks : public ParsingCallbacks {
   UpdateIndexCallbacks(FileIndex *FIndex,
                        ClangdServer::Callbacks *ServerCallbacks,
-                       const ThreadsafeFS &TFS, AsyncTaskRunner *Tasks)
-      : FIndex(FIndex), ServerCallbacks(ServerCallbacks), TFS(TFS),
-        Stdlib{std::make_shared<StdLibSet>()}, Tasks(Tasks) {}
+                       const ThreadsafeFS &TFS, AsyncTaskRunner *Tasks,
+                       bool CollectInactiveRegions,
+                       const ClangdServer::Options &Opts)
+      : FIndex(FIndex), ServerCallbacks(ServerCallbacks),
+        TFS(TFS), Stdlib{std::make_shared<StdLibSet>()}, Tasks(Tasks),
+        CollectInactiveRegions(CollectInactiveRegions), Opts(Opts) {}
 
-  void onPreambleAST(PathRef Path, llvm::StringRef Version,
-                     const CompilerInvocation &CI, ASTContext &Ctx,
-                     Preprocessor &PP,
-                     const CanonicalIncludes &CanonIncludes) override {
-    // If this preamble uses a standard library we haven't seen yet, index it.
-    if (FIndex)
-      if (auto Loc = Stdlib->add(*CI.getLangOpts(), PP.getHeaderSearchInfo()))
-        indexStdlib(CI, std::move(*Loc));
+  void onPreambleAST(
+      PathRef Path, llvm::StringRef Version, CapturedASTCtx ASTCtx,
+      const std::shared_ptr<const CanonicalIncludes> CanonIncludes) override {
 
-    if (FIndex)
-      FIndex->updatePreamble(Path, Version, Ctx, PP, CanonIncludes);
+    if (!FIndex)
+      return;
+
+    auto &PP = ASTCtx.getPreprocessor();
+    auto &CI = ASTCtx.getCompilerInvocation();
+    if (auto Loc = Stdlib->add(*CI.getLangOpts(), PP.getHeaderSearchInfo()))
+      indexStdlib(CI, std::move(*Loc));
+
+    // FIndex outlives the UpdateIndexCallbacks.
+    auto Task = [FIndex(FIndex), Path(Path.str()), Version(Version.str()),
+                 ASTCtx(std::move(ASTCtx)),
+                 CanonIncludes(CanonIncludes)]() mutable {
+      trace::Span Tracer("PreambleIndexing");
+      FIndex->updatePreamble(Path, Version, ASTCtx.getASTContext(),
+                             ASTCtx.getPreprocessor(), *CanonIncludes);
+    };
+
+    if (Opts.AsyncPreambleIndexing && Tasks) {
+      Tasks->runAsync("Preamble indexing for:" + Path + Version,
+                      std::move(Task));
+    } else
+      Task();
   }
 
   void indexStdlib(const CompilerInvocation &CI, StdLibLocation Loc) {
@@ -106,13 +124,14 @@ struct UpdateIndexCallbacks : public ParsingCallbacks {
     if (FIndex)
       FIndex->updateMain(Path, AST);
 
-    assert(AST.getDiagnostics() &&
-           "We issue callback only with fresh preambles");
-    std::vector<Diag> Diagnostics = *AST.getDiagnostics();
     if (ServerCallbacks)
       Publish([&]() {
         ServerCallbacks->onDiagnosticsReady(Path, AST.version(),
-                                            std::move(Diagnostics));
+                                            AST.getDiagnostics());
+        if (CollectInactiveRegions) {
+          ServerCallbacks->onInactiveRegionsReady(Path,
+                                                  getInactiveRegions(AST));
+        }
       });
   }
 
@@ -139,6 +158,8 @@ private:
   const ThreadsafeFS &TFS;
   std::shared_ptr<StdLibSet> Stdlib;
   AsyncTaskRunner *Tasks;
+  bool CollectInactiveRegions;
+  const ClangdServer::Options &Opts;
 };
 
 class DraftStoreFS : public ThreadsafeFS {
@@ -189,6 +210,7 @@ ClangdServer::ClangdServer(const GlobalCompilationDatabase &CDB,
       LineFoldingOnly(Opts.LineFoldingOnly),
       PreambleParseForwardingFunctions(Opts.PreambleParseForwardingFunctions),
       ImportInsertions(Opts.ImportInsertions),
+      PublishInactiveRegions(Opts.PublishInactiveRegions),
       WorkspaceRoot(Opts.WorkspaceRoot),
       Transient(Opts.ImplicitCancellation ? TUScheduler::InvalidateOnUpdate
                                           : TUScheduler::NoInvalidation),
@@ -201,7 +223,8 @@ ClangdServer::ClangdServer(const GlobalCompilationDatabase &CDB,
   WorkScheduler.emplace(CDB, TUScheduler::Options(Opts),
                         std::make_unique<UpdateIndexCallbacks>(
                             DynamicIdx.get(), Callbacks, TFS,
-                            IndexTasks ? &*IndexTasks : nullptr));
+                            IndexTasks ? &*IndexTasks : nullptr,
+                            PublishInactiveRegions, Opts));
   // Adds an index to the stack, at higher priority than existing indexes.
   auto AddIndex = [&](SymbolIndex *Idx) {
     if (this->Index != nullptr) {
@@ -340,7 +363,7 @@ ClangdServer::createConfiguredContextProvider(const config::Provider *Provider,
         std::lock_guard<std::mutex> Lock(PublishMu);
         for (auto &Entry : ReportableDiagnostics)
           Publish->onDiagnosticsReady(Entry.first(), /*Version=*/"",
-                                      std::move(Entry.second));
+                                      Entry.second);
       }
       return Context::current().derive(Config::Key, std::move(C));
     }
@@ -956,12 +979,17 @@ void ClangdServer::documentLinks(PathRef File,
 
 void ClangdServer::semanticHighlights(
     PathRef File, Callback<std::vector<HighlightingToken>> CB) {
-  auto Action =
-      [CB = std::move(CB)](llvm::Expected<InputsAndAST> InpAST) mutable {
-        if (!InpAST)
-          return CB(InpAST.takeError());
-        CB(clangd::getSemanticHighlightings(InpAST->AST));
-      };
+
+  auto Action = [CB = std::move(CB),
+                 PublishInactiveRegions = PublishInactiveRegions](
+                    llvm::Expected<InputsAndAST> InpAST) mutable {
+    if (!InpAST)
+      return CB(InpAST.takeError());
+    // Include inactive regions in semantic highlighting tokens only if the
+    // client doesn't support a dedicated protocol for being informed about
+    // them.
+    CB(clangd::getSemanticHighlightings(InpAST->AST, !PublishInactiveRegions));
+  };
   WorkScheduler->runWithAST("SemanticHighlights", File, std::move(Action),
                             Transient);
 }
@@ -1015,11 +1043,7 @@ void ClangdServer::diagnostics(PathRef File, Callback<std::vector<Diag>> CB) {
       [CB = std::move(CB)](llvm::Expected<InputsAndAST> InpAST) mutable {
         if (!InpAST)
           return CB(InpAST.takeError());
-        if (auto Diags = InpAST->AST.getDiagnostics())
-          return CB(*Diags);
-        // FIXME: Use ServerCancelled error once it is settled in LSP-3.17.
-        return CB(llvm::make_error<LSPError>("server is busy parsing includes",
-                                             ErrorCode::InternalError));
+        return CB(InpAST->AST.getDiagnostics());
       };
 
   WorkScheduler->runWithAST("Diagnostics", File, std::move(Action));

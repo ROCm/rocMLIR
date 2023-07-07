@@ -51,7 +51,9 @@ class LoongArchAsmParser : public MCTargetAsmParser {
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc, OperandVector &Operands) override;
 
-  bool ParseDirective(AsmToken DirectiveID) override { return true; }
+  ParseStatus parseDirective(AsmToken DirectiveID) override {
+    return ParseStatus::NoMatch;
+  }
 
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                OperandVector &Operands, MCStreamer &Out,
@@ -64,7 +66,8 @@ class LoongArchAsmParser : public MCTargetAsmParser {
                                       unsigned Kind) override;
 
   bool generateImmOutOfRangeError(OperandVector &Operands, uint64_t ErrorInfo,
-                                  int64_t Lower, int64_t Upper, Twine Msg);
+                                  int64_t Lower, int64_t Upper,
+                                  const Twine &Msg);
 
   /// Helper for processing MC instructions that have been successfully matched
   /// by MatchAndEmitInstruction.
@@ -318,7 +321,8 @@ public:
     LoongArchMCExpr::VariantKind VK = LoongArchMCExpr::VK_LoongArch_None;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
     bool IsValidKind = VK == LoongArchMCExpr::VK_LoongArch_None ||
-                       VK == LoongArchMCExpr::VK_LoongArch_B16;
+                       VK == LoongArchMCExpr::VK_LoongArch_B16 ||
+                       VK == LoongArchMCExpr::VK_LoongArch_PCALA_LO12;
     return IsConstantImm
                ? isShiftedInt<16, 2>(Imm) && IsValidKind
                : LoongArchAsmParser::classifySymbolRef(getImm(), VK) &&
@@ -564,11 +568,8 @@ bool LoongArchAsmParser::classifySymbolRef(const MCExpr *Expr,
 
 OperandMatchResultTy
 LoongArchAsmParser::parseRegister(OperandVector &Operands) {
-  if (getLexer().getTok().isNot(AsmToken::Dollar))
+  if (!parseOptionalToken(AsmToken::Dollar))
     return MatchOperand_NoMatch;
-
-  // Eat the $ prefix.
-  getLexer().Lex();
   if (getLexer().getKind() != AsmToken::Identifier)
     return MatchOperand_NoMatch;
 
@@ -689,8 +690,7 @@ LoongArchAsmParser::parseAtomicMemOp(OperandVector &Operands) {
 
   // If there is a next operand and it is 0, ignore it. Otherwise print a
   // diagnostic message.
-  if (getLexer().is(AsmToken::Comma)) {
-    getLexer().Lex(); // Consume comma token.
+  if (parseOptionalToken(AsmToken::Comma)) {
     int64_t ImmVal;
     SMLoc ImmStart = getLoc();
     if (getParser().parseIntToken(ImmVal, "expected optional integer offset"))
@@ -1241,7 +1241,7 @@ LoongArchAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
 
 bool LoongArchAsmParser::generateImmOutOfRangeError(
     OperandVector &Operands, uint64_t ErrorInfo, int64_t Lower, int64_t Upper,
-    Twine Msg = "immediate must be an integer in the range") {
+    const Twine &Msg = "immediate must be an integer in the range") {
   SMLoc ErrorLoc = ((LoongArchOperand &)*Operands[ErrorInfo]).getStartLoc();
   return Error(ErrorLoc, Msg + " [" + Twine(Lower) + ", " + Twine(Upper) + "]");
 }
@@ -1333,6 +1333,9 @@ bool LoongArchAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidUImm6:
     return generateImmOutOfRangeError(Operands, ErrorInfo, /*Lower=*/0,
                                       /*Upper=*/(1 << 6) - 1);
+  case Match_InvalidUImm8:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, /*Lower=*/0,
+                                      /*Upper=*/(1 << 8) - 1);
   case Match_InvalidUImm12:
     return generateImmOutOfRangeError(Operands, ErrorInfo, /*Lower=*/0,
                                       /*Upper=*/(1 << 12) - 1);

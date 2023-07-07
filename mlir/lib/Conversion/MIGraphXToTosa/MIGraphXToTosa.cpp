@@ -37,7 +37,7 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
   SmallVector<ShapedTypeComponents> returnShape;
   LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
       op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
-      op->getRegions(), returnShape);
+      op->getPropertiesStorage(), op->getRegions(), returnShape);
   assert(shapeInferenceStatus.succeeded());
   Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
   auto result = op->getResult(0);
@@ -130,8 +130,10 @@ public:
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
     // insert transpose to input and filter tensors
-    input_t = getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC);
-    filter_t = getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC);
+    input_t = cast<TypedValue<TensorType>>(
+        getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC).getResult());
+    filter_t = cast<TypedValue<TensorType>>(
+        getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC).getResult());
     auto outShape = outputTy.getShape();
 
     // original output shape was NCHW, change it into NHWC
@@ -198,7 +200,7 @@ public:
     // transpose the output back to NCHW so that it can match following
     // operators.
     auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW);
-    rewriter.replaceOp(op, {top});
+    rewriter.replaceOp(op, top);
     return success();
   }
 };
@@ -298,7 +300,7 @@ public:
     TypedValue<TensorType> in_B = op.getInB();
     auto results = op->getResults();
     auto elementTy = in_A.getType().getElementType();
-    ShapedType outputTy = results[0].getType();
+    ShapedType outputTy = cast<ShapedType>(results[0].getType());
 
     // check batch dimension. Tosa matmul only allow a single dimension for it,
     // add reshape ops to flatten and restore the original dimension.
@@ -355,8 +357,8 @@ public:
           loc, newBType, in_B, rewriter.getDenseI64ArrayAttr(newDimsB));
 
       // reassign inputs.
-      in_A = reshapeAOp;
-      in_B = reshapeBOp;
+      in_A = cast<TypedValue<TensorType>>(reshapeAOp.getResult());
+      in_B = cast<TypedValue<TensorType>>(reshapeBOp.getResult());
     }
     // Construct tosa.matmul.
     auto mop = rewriter.create<tosa::MatMulOp>(loc, newOutType, in_A, in_B);
@@ -385,10 +387,10 @@ public:
         (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
       auto rop = rewriter.create<tosa::ReshapeOp>(
           loc, outputTy, mop, rewriter.getDenseI64ArrayAttr(orgOutDims));
-      rewriter.replaceOp(op, {rop});
+      rewriter.replaceOp(op, rop);
       return success();
     }
-    rewriter.replaceOp(op, {mop});
+    rewriter.replaceOp(op, mop);
     return success();
   }
 };
@@ -420,7 +422,7 @@ public:
     auto tosaMul = createOpAndInfer<tosa::MulOp>(
         rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/0);
 
-    rewriter.replaceOp(op, {tosaMul});
+    rewriter.replaceOp(op, tosaMul);
     return success();
   }
 };
@@ -445,7 +447,7 @@ public:
     auto rop = rewriter.create<tosa::ReshapeOp>(
         loc, outputTy, input, rewriter.getDenseI64ArrayAttr(newShape));
 
-    rewriter.replaceOp(op, {rop});
+    rewriter.replaceOp(op, rop);
     return success();
   }
 };
@@ -482,7 +484,7 @@ public:
         rewriter, loc, op.getInput().getType().getElementType(), op.getInput(),
         rewriter.getDenseI64ArrayAttr(start),
         rewriter.getDenseI64ArrayAttr(size));
-    rewriter.replaceOp(op, {sliceOp});
+    rewriter.replaceOp(op, sliceOp);
     return success();
   }
 };
@@ -523,15 +525,15 @@ public:
     IntegerAttr axis = axes[0].cast<IntegerAttr>();
     Type elementType = op.getInput().getType().getElementType();
 
-    tosa::ConstOp tosaConstantNumElements =
-        createNumElementsTosaConst(loc, op.getInput(), axis, rewriter);
+    tosa::ConstOp tosaConstantNumElements = createNumElementsTosaConst(
+        loc, cast<TypedValue<TensorType>>(op.getInput()), axis, rewriter);
     auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
         rewriter, loc, elementType, tosaConstantNumElements);
     auto tosaMul = createOpAndInfer<tosa::MulOp>(
         rewriter, loc, elementType, op.getInput(), tosaReciprocal, /*shift=*/0);
     auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
         rewriter, loc, elementType, tosaMul, axis);
-    rewriter.replaceOp(op, {tosaReduceSum});
+    rewriter.replaceOp(op, tosaReduceSum);
     return success();
   }
 };
@@ -571,7 +573,7 @@ public:
 
     Type outputType = getShapedElementTy(output);
     Value downCast = createCastOp(rewriter, loc, outputType, shifted);
-    rewriter.replaceOp(op, {downCast});
+    rewriter.replaceOp(op, downCast);
 
     return success();
   }
@@ -608,7 +610,7 @@ public:
     Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
                                                  upCast, scale, /*shift=*/0);
 
-    rewriter.replaceOp(op, {scaled});
+    rewriter.replaceOp(op, scaled);
     return success();
   }
 };
@@ -620,8 +622,8 @@ public:
   matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op.getLoc();
-    TypedValue<TensorType> inATensor = op.getInA();
-    TypedValue<TensorType> inBTensor = op.getInB();
+    auto inATensor = cast<TypedValue<TensorType>>(op.getInA());
+    auto inBTensor = cast<TypedValue<TensorType>>(op.getInB());
     Type elementType = inATensor.getType().getElementType();
     if (isa<IntegerType>(elementType)) {
       Value div = createOpAndInfer<tosa::DivOp>(rewriter, loc, elementType,
@@ -633,7 +635,7 @@ public:
                                                        elementType, inBTensor);
     Value mul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
                                               inATensor, recip, /*shift=*/0);
-    rewriter.replaceOp(op, {mul});
+    rewriter.replaceOp(op, mul);
     return success();
   }
 };

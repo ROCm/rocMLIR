@@ -25,7 +25,6 @@ def ROCDL_Dialect : Dialect {
   let cppNamespace = "::mlir::ROCDL";
   let dependentDialects = ["LLVM::LLVMDialect"];
   let hasOperationAttrVerify = 1;
-  let useFoldAPI = kEmitFoldAdaptorFolder;
 
   let extraClassDeclaration = [{
     /// Get the name of the attribute used to annotate external kernel
@@ -333,6 +332,9 @@ def ROCDL_RawBufferAtomicFAddOp :
   let hasCustomAssemblyFormat = 1;
 }
 
+//===---------------------------------------------------------------------===//
+// Buffer atomic floating point max intrinsic. GFX9 does not support fp32.
+
 def ROCDL_RawBufferAtomicFMaxOp :
   ROCDL_Op<"raw.buffer.atomic.fmax">,
   Arguments<(ins LLVM_Type:$vdata,
@@ -349,6 +351,9 @@ def ROCDL_RawBufferAtomicFMaxOp :
   let hasCustomAssemblyFormat = 1;
 }
 
+//===---------------------------------------------------------------------===//
+// Buffer atomic signed integer max intrinsic.
+
 def ROCDL_RawBufferAtomicSMaxOp :
   ROCDL_Op<"raw.buffer.atomic.smax">,
   Arguments<(ins LLVM_Type:$vdata,
@@ -364,6 +369,9 @@ def ROCDL_RawBufferAtomicSMaxOp :
   }];
   let hasCustomAssemblyFormat = 1;
 }
+
+//===---------------------------------------------------------------------===//
+// Buffer atomic unsigned integer min intrinsic.
 
 def ROCDL_RawBufferAtomicUMinOp :
   ROCDL_Op<"raw.buffer.atomic.umin">,

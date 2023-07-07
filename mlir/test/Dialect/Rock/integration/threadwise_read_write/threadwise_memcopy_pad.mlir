@@ -1,4 +1,4 @@
-// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -gO 2 -arch %arch -c  | rocmlir-opt --canonicalize| mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-493: 2
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1 - 2, d2 - 1)> by [<Pad{2, 1, 1, 2} ["y", "z"] at [1, 2] -> ["y", "z"] at [1, 2]>, <PassThrough ["x"] at [0] -> ["x"] at [0]>] bounds = [1, 20, 32] -> [1, 17, 29]>
@@ -21,7 +21,7 @@ func.func @rock_threadwise_memcopy_pad(%input : memref<1x17x29xf32>,  %output : 
   %load = rock.in_bounds_load %input_reg[%c0] : memref<4xf32, #gpu.address_space<private>>, index -> vector<4xf32>
   %add = arith.addf %load, %load : vector<4xf32>
   rock.in_bounds_store %add -> %input_reg[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
-   
+
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %input_reg -> [#transform_map5, #transform_map4](%ws_lds) by set : memref<4xf32, #gpu.address_space<private>> -> memref<4x17xf32, #gpu.address_space<workgroup>>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map5, #transform_map4](%ws_lds) -> %output_reg : memref<4x17xf32, #gpu.address_space<workgroup>> ->  memref<4xf32, #gpu.address_space<private>>

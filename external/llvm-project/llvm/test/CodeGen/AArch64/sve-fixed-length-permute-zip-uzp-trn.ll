@@ -132,14 +132,14 @@ define void @zip_v4f64(ptr %a, ptr %b) #0 {
 ; VBITS_EQ_512-LABEL: zip_v4f64:
 ; VBITS_EQ_512:       // %bb.0:
 ; VBITS_EQ_512-NEXT:    stp x29, x30, [sp, #-16]! // 16-byte Folded Spill
-; VBITS_EQ_512-NEXT:    .cfi_def_cfa_offset 16
+; VBITS_EQ_512-NEXT:    sub x9, sp, #48
 ; VBITS_EQ_512-NEXT:    mov x29, sp
+; VBITS_EQ_512-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; VBITS_EQ_512-NEXT:    .cfi_def_cfa w29, 16
 ; VBITS_EQ_512-NEXT:    .cfi_offset w30, -8
 ; VBITS_EQ_512-NEXT:    .cfi_offset w29, -16
-; VBITS_EQ_512-NEXT:    sub x9, sp, #48
-; VBITS_EQ_512-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; VBITS_EQ_512-NEXT:    ptrue p0.d, vl4
+; VBITS_EQ_512-NEXT:    mov x8, sp
 ; VBITS_EQ_512-NEXT:    ld1d { z0.d }, p0/z, [x0]
 ; VBITS_EQ_512-NEXT:    ld1d { z1.d }, p0/z, [x1]
 ; VBITS_EQ_512-NEXT:    mov z2.d, z1.d[3]
@@ -149,7 +149,7 @@ define void @zip_v4f64(ptr %a, ptr %b) #0 {
 ; VBITS_EQ_512-NEXT:    mov z3.d, z0.d[2]
 ; VBITS_EQ_512-NEXT:    zip1 z0.d, z0.d, z1.d
 ; VBITS_EQ_512-NEXT:    stp d3, d2, [sp]
-; VBITS_EQ_512-NEXT:    ld1d { z2.d }, p0/z, [sp]
+; VBITS_EQ_512-NEXT:    ld1d { z2.d }, p0/z, [x8]
 ; VBITS_EQ_512-NEXT:    fadd z0.d, p0/m, z0.d, z2.d
 ; VBITS_EQ_512-NEXT:    st1d { z0.d }, p0, [x0]
 ; VBITS_EQ_512-NEXT:    mov sp, x29
@@ -649,14 +649,14 @@ define void @zip_vscale2_4(ptr %a, ptr %b) #2 {
 ; CHECK-LABEL: zip_vscale2_4:
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    stp x29, x30, [sp, #-16]! // 16-byte Folded Spill
-; CHECK-NEXT:    .cfi_def_cfa_offset 16
+; CHECK-NEXT:    sub x9, sp, #48
 ; CHECK-NEXT:    mov x29, sp
+; CHECK-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; CHECK-NEXT:    .cfi_def_cfa w29, 16
 ; CHECK-NEXT:    .cfi_offset w30, -8
 ; CHECK-NEXT:    .cfi_offset w29, -16
-; CHECK-NEXT:    sub x9, sp, #48
-; CHECK-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; CHECK-NEXT:    ptrue p0.d, vl4
+; CHECK-NEXT:    mov x8, sp
 ; CHECK-NEXT:    ld1d { z0.d }, p0/z, [x0]
 ; CHECK-NEXT:    ld1d { z1.d }, p0/z, [x1]
 ; CHECK-NEXT:    mov z2.d, z1.d[3]
@@ -666,7 +666,7 @@ define void @zip_vscale2_4(ptr %a, ptr %b) #2 {
 ; CHECK-NEXT:    mov z3.d, z0.d[2]
 ; CHECK-NEXT:    zip1 z0.d, z0.d, z1.d
 ; CHECK-NEXT:    stp d3, d2, [sp]
-; CHECK-NEXT:    ld1d { z2.d }, p0/z, [sp]
+; CHECK-NEXT:    ld1d { z2.d }, p0/z, [x8]
 ; CHECK-NEXT:    fadd z0.d, p0/m, z0.d, z2.d
 ; CHECK-NEXT:    st1d { z0.d }, p0, [x0]
 ; CHECK-NEXT:    mov sp, x29

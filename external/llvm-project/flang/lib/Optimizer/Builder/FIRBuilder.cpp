@@ -12,6 +12,7 @@
 #include "flang/Optimizer/Builder/Complex.h"
 #include "flang/Optimizer/Builder/MutableBox.h"
 #include "flang/Optimizer/Builder/Runtime/Assign.h"
+#include "flang/Optimizer/Builder/Runtime/Derived.h"
 #include "flang/Optimizer/Builder/Todo.h"
 #include "flang/Optimizer/Dialect/FIRAttr.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
@@ -69,6 +70,8 @@ mlir::Type fir::FirOpBuilder::getRealType(int kind) {
   switch (kindMap.getRealTypeID(kind)) {
   case llvm::Type::TypeID::HalfTyID:
     return mlir::FloatType::getF16(getContext());
+  case llvm::Type::TypeID::BFloatTyID:
+    return mlir::FloatType::getBF16(getContext());
   case llvm::Type::TypeID::FloatTyID:
     return mlir::FloatType::getF32(getContext());
   case llvm::Type::TypeID::DoubleTyID:
@@ -351,11 +354,19 @@ fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
             "element types expected to match"));
     return create<fir::BoxAddrOp>(loc, toTy, val);
   }
+  if (fir::isa_ref_type(fromTy) && toTy.isa<fir::BoxProcType>()) {
+    // Call is expecting a boxed procedure, not a reference to other data type.
+    // Convert the reference to a procedure and embox it.
+    mlir::Type procTy = toTy.cast<fir::BoxProcType>().getEleTy();
+    mlir::Value proc = createConvert(loc, procTy, val);
+    return create<fir::EmboxProcOp>(loc, toTy, proc);
+  }
 
-  if ((fir::isPolymorphicType(fromTy) &&
-       (fir::isAllocatableType(fromTy) || fir::isPointerType(fromTy)) &&
-       fir::isPolymorphicType(toTy)) ||
-      (fir::isPolymorphicType(fromTy) && toTy.isa<fir::BoxType>()))
+  if (((fir::isPolymorphicType(fromTy) &&
+        (fir::isAllocatableType(fromTy) || fir::isPointerType(fromTy)) &&
+        fir::isPolymorphicType(toTy)) ||
+       (fir::isPolymorphicType(fromTy) && toTy.isa<fir::BoxType>())) &&
+      !(fir::isUnlimitedPolymorphicType(fromTy) && fir::isAssumedType(toTy)))
     return create<fir::ReboxOp>(loc, toTy, val, mlir::Value{},
                                 /*slice=*/mlir::Value{});
 
@@ -498,7 +509,8 @@ mlir::Value fir::FirOpBuilder::createSlice(mlir::Location loc,
 
 mlir::Value fir::FirOpBuilder::createBox(mlir::Location loc,
                                          const fir::ExtendedValue &exv,
-                                         bool isPolymorphic) {
+                                         bool isPolymorphic,
+                                         bool isAssumedType) {
   mlir::Value itemAddr = fir::getBase(exv);
   if (itemAddr.getType().isa<fir::BaseBoxType>())
     return itemAddr;
@@ -508,10 +520,22 @@ mlir::Value fir::FirOpBuilder::createBox(mlir::Location loc,
         << itemAddr.getType();
     llvm_unreachable("not a memory reference type");
   }
-  mlir::Type boxTy = fir::BoxType::get(elementType);
+  mlir::Type boxTy;
   mlir::Value tdesc;
-  if (isPolymorphic)
-    boxTy = fir::ClassType::get(elementType);
+  // Avoid to wrap a box/class with box/class.
+  if (elementType.isa<fir::BaseBoxType>()) {
+    boxTy = elementType;
+  } else {
+    boxTy = fir::BoxType::get(elementType);
+    if (isPolymorphic) {
+      elementType = fir::updateTypeForUnlimitedPolymorphic(elementType);
+      if (isAssumedType)
+        boxTy = fir::BoxType::get(elementType);
+      else
+        boxTy = fir::ClassType::get(elementType);
+    }
+  }
+
   return exv.match(
       [&](const fir::ArrayBoxValue &box) -> mlir::Value {
         mlir::Value empty;
@@ -558,6 +582,17 @@ mlir::Value fir::FirOpBuilder::createBox(mlir::Location loc,
       });
 }
 
+mlir::Value fir::FirOpBuilder::createBox(mlir::Location loc, mlir::Type boxType,
+                                         mlir::Value addr, mlir::Value shape,
+                                         mlir::Value slice,
+                                         llvm::ArrayRef<mlir::Value> lengths,
+                                         mlir::Value tdesc) {
+  mlir::Type valueOrSequenceType = fir::unwrapPassByRefType(boxType);
+  return create<fir::EmboxOp>(
+      loc, boxType, addr, shape, slice,
+      elideLengthsAlreadyInType(valueOrSequenceType, lengths), tdesc);
+}
+
 void fir::FirOpBuilder::dumpFunc() { getFunction().dump(); }
 
 static mlir::Value
@@ -597,6 +632,18 @@ mlir::Value fir::FirOpBuilder::genExtentFromTriplet(mlir::Location loc,
   auto cmp = create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::sgt,
                                          div, zero);
   return create<mlir::arith::SelectOp>(loc, cmp, div, zero);
+}
+
+mlir::Value fir::FirOpBuilder::genAbsentOp(mlir::Location loc,
+                                           mlir::Type argTy) {
+  if (!fir::isCharacterProcedureTuple(argTy))
+    return create<fir::AbsentOp>(loc, argTy);
+
+  auto boxProc =
+      create<fir::AbsentOp>(loc, argTy.cast<mlir::TupleType>().getType(0));
+  mlir::Value charLen = create<fir::UndefOp>(loc, getCharacterLengthType());
+  return fir::factory::createCharacterProcedureTuple(*this, loc, argTy, boxProc,
+                                                     charLen);
 }
 
 void fir::FirOpBuilder::setCommonAttributes(mlir::Operation *op) const {
@@ -771,7 +818,7 @@ fir::factory::getExtents(mlir::Location loc, fir::FirOpBuilder &builder,
 fir::ExtendedValue fir::factory::readBoxValue(fir::FirOpBuilder &builder,
                                               mlir::Location loc,
                                               const fir::BoxValue &box) {
-  assert(!box.isUnlimitedPolymorphic() && !box.hasAssumedRank() &&
+  assert(!box.hasAssumedRank() &&
          "cannot read unlimited polymorphic or assumed rank fir.box");
   auto addr =
       builder.create<fir::BoxAddrOp>(loc, box.getMemTy(), box.getAddr());
@@ -785,10 +832,15 @@ fir::ExtendedValue fir::factory::readBoxValue(fir::FirOpBuilder &builder,
   }
   if (box.isDerivedWithLenParameters())
     TODO(loc, "read fir.box with length parameters");
+  mlir::Value sourceBox;
+  if (box.isPolymorphic())
+    sourceBox = box.getAddr();
+  if (box.isPolymorphic() && box.rank() == 0)
+    return fir::PolymorphicValue(addr, sourceBox);
   if (box.rank() == 0)
     return addr;
   return fir::ArrayBoxValue(addr, fir::factory::readExtents(builder, loc, box),
-                            box.getLBounds());
+                            box.getLBounds(), sourceBox);
 }
 
 llvm::SmallVector<mlir::Value>
@@ -1084,7 +1136,8 @@ fir::ExtendedValue fir::factory::arraySectionElementToExtendedValue(
 void fir::factory::genScalarAssignment(fir::FirOpBuilder &builder,
                                        mlir::Location loc,
                                        const fir::ExtendedValue &lhs,
-                                       const fir::ExtendedValue &rhs) {
+                                       const fir::ExtendedValue &rhs,
+                                       bool isTemporaryLHS) {
   assert(lhs.rank() == 0 && rhs.rank() == 0 && "must be scalars");
   auto type = fir::unwrapSequenceType(
       fir::unwrapPassByRefType(fir::getBase(lhs).getType()));
@@ -1096,7 +1149,8 @@ void fir::factory::genScalarAssignment(fir::FirOpBuilder &builder,
     helper.createAssign(fir::ExtendedValue{*toChar},
                         fir::ExtendedValue{*fromChar});
   } else if (type.isa<fir::RecordType>()) {
-    fir::factory::genRecordAssignment(builder, loc, lhs, rhs);
+    fir::factory::genRecordAssignment(
+        builder, loc, lhs, rhs, /*needFinalization=*/false, isTemporaryLHS);
   } else {
     assert(!fir::hasDynamicSize(type));
     auto rhsVal = fir::getBase(rhs);
@@ -1112,7 +1166,8 @@ void fir::factory::genScalarAssignment(fir::FirOpBuilder &builder,
 static void genComponentByComponentAssignment(fir::FirOpBuilder &builder,
                                               mlir::Location loc,
                                               const fir::ExtendedValue &lhs,
-                                              const fir::ExtendedValue &rhs) {
+                                              const fir::ExtendedValue &rhs,
+                                              bool isTemporaryLHS) {
   auto lbaseType = fir::unwrapPassByRefType(fir::getBase(lhs).getType());
   auto lhsType = lbaseType.dyn_cast<fir::RecordType>();
   assert(lhsType && "lhs must be a scalar record type");
@@ -1175,7 +1230,7 @@ static void genComponentByComponentAssignment(fir::FirOpBuilder &builder,
       auto from =
           fir::factory::componentToExtendedValue(builder, loc, fromCoor);
       auto to = fir::factory::componentToExtendedValue(builder, loc, toCoor);
-      fir::factory::genScalarAssignment(builder, loc, to, from);
+      fir::factory::genScalarAssignment(builder, loc, to, from, isTemporaryLHS);
     }
     if (outerLoop)
       builder.setInsertionPointAfter(*outerLoop);
@@ -1193,7 +1248,7 @@ static bool recordTypeCanBeMemCopied(fir::RecordType recordType) {
     if (fir::unwrapSequenceType(fieldType).isa<fir::RecordType>())
       return false;
     // Allocatable components need deep copy.
-    if (auto boxType = fieldType.dyn_cast<fir::BoxType>())
+    if (auto boxType = fieldType.dyn_cast<fir::BaseBoxType>())
       if (boxType.getEleTy().isa<fir::HeapType>())
         return false;
   }
@@ -1205,7 +1260,9 @@ static bool recordTypeCanBeMemCopied(fir::RecordType recordType) {
 void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
                                        mlir::Location loc,
                                        const fir::ExtendedValue &lhs,
-                                       const fir::ExtendedValue &rhs) {
+                                       const fir::ExtendedValue &rhs,
+                                       bool needFinalization,
+                                       bool isTemporaryLHS) {
   assert(lhs.rank() == 0 && rhs.rank() == 0 && "assume scalar assignment");
   auto baseTy = fir::dyn_cast_ptrOrBoxEleTy(fir::getBase(lhs).getType());
   assert(baseTy && "must be a memory type");
@@ -1226,9 +1283,19 @@ void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
     // TODO: does this holds true with polymorphic entities ?
     auto toMutableBox = builder.createTemporary(loc, to.getType());
     builder.create<fir::StoreOp>(loc, to, toMutableBox);
-    fir::runtime::genAssign(builder, loc, toMutableBox, from);
+    if (isTemporaryLHS)
+      fir::runtime::genAssignTemporary(builder, loc, toMutableBox, from);
+    else
+      fir::runtime::genAssign(builder, loc, toMutableBox, from);
     return;
   }
+
+  // Finalize LHS on intrinsic assignment.
+  if (needFinalization) {
+    mlir::Value box = builder.createBox(loc, lhs);
+    fir::runtime::genDerivedTypeDestroy(builder, loc, box);
+  }
+
   // Otherwise, the derived type has compile time constant size and for which
   // the component by component assignment can be replaced by a memory copy.
   // Since we do not know the size of the derived type in lowering, do a
@@ -1237,7 +1304,7 @@ void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
   // leads to issues in LLVM (long compile times, long IR files, and even
   // asserts at some point). Since there is no good size boundary, just always
   // use component by component assignment here.
-  genComponentByComponentAssignment(builder, loc, lhs, rhs);
+  genComponentByComponentAssignment(builder, loc, lhs, rhs, isTemporaryLHS);
 }
 
 mlir::TupleType
@@ -1406,6 +1473,17 @@ fir::BoxValue fir::factory::createBoxValue(fir::FirOpBuilder &builder,
         explicitTypeParams.emplace_back(box.getLen());
       },
       [&](const fir::MutableBoxValue &x) {
+        if (x.rank() > 0) {
+          // The resulting box lbounds must be coming from the mutable box.
+          fir::ExtendedValue boxVal =
+              fir::factory::genMutableBoxRead(builder, loc, x);
+          // Make sure we do not recurse infinitely.
+          if (boxVal.getBoxOf<fir::MutableBoxValue>())
+            fir::emitFatalError(loc, "mutable box read cannot be mutable box");
+          fir::BoxValue box =
+              fir::factory::createBoxValue(builder, loc, boxVal);
+          lbounds.append(box.getLBounds().begin(), box.getLBounds().end());
+        }
         explicitTypeParams.append(x.nonDeferredLenParams().begin(),
                                   x.nonDeferredLenParams().end());
       },

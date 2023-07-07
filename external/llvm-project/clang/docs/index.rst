@@ -87,9 +87,7 @@ Using Clang Tools
    ClangFormatStyleOptions
    ClangFormattedStatus
    ClangLinkerWrapper
-   ClangNvlinkWrapper
    ClangOffloadBundler
-   ClangOffloadWrapper
    ClangOffloadPackager
    ClangRepl
 
@@ -102,6 +100,7 @@ Design Documents
    CodeOwners
    InternalsManual
    DriverInternals
+   Multilib
    OffloadingDesign
    PCHInternals
    ItaniumMangleAbiTags

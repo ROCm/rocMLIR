@@ -20,6 +20,8 @@ namespace LLVM {
 
 /// Create a pass to remove BF16 types from LLVM IR.
 std::unique_ptr<Pass> createSoftwareBF16Pass();
+/// Create a pass to add DIScope to LLVMFuncOp that are missing it.
+std::unique_ptr<Pass> createDIScopeForLLVMFuncOpPass();
 
 /// Generate the code for registering conversion passes.
 #define GEN_PASS_REGISTRATION

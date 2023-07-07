@@ -38,7 +38,6 @@ public:
 private:
   void printU4ImmOperand(const MCInst *MI, unsigned OpNo,
                          const MCSubtargetInfo &STI, raw_ostream &O);
-  void printU8ImmOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printU16ImmOperand(const MCInst *MI, unsigned OpNo,
                           const MCSubtargetInfo &STI, raw_ostream &O);
   void printU4ImmDecOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
@@ -132,14 +131,14 @@ private:
                  raw_ostream &O);
   void printDPPCtrl(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                     raw_ostream &O);
-  void printRowMask(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
-                    raw_ostream &O);
-  void printBankMask(const MCInst *MI, unsigned OpNo,
-                     const MCSubtargetInfo &STI, raw_ostream &O);
+  void printDppRowMask(const MCInst *MI, unsigned OpNo,
+                       const MCSubtargetInfo &STI, raw_ostream &O);
+  void printDppBankMask(const MCInst *MI, unsigned OpNo,
+                        const MCSubtargetInfo &STI, raw_ostream &O);
   void printDppBoundCtrl(const MCInst *MI, unsigned OpNo,
                          const MCSubtargetInfo &STI, raw_ostream &O);
-  void printFI(const MCInst *MI, unsigned OpNo,
-               const MCSubtargetInfo &STI, raw_ostream &O);
+  void printDppFI(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
+                  raw_ostream &O);
   void printSDWASel(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printSDWADstSel(const MCInst *MI, unsigned OpNo,
                        const MCSubtargetInfo &STI, raw_ostream &O);
@@ -166,8 +165,8 @@ private:
   void printInterpAttrChan(const MCInst *MI, unsigned OpNo,
                            const MCSubtargetInfo &STI, raw_ostream &O);
 
-  void printVGPRIndexMode(const MCInst *MI, unsigned OpNo,
-                          const MCSubtargetInfo &STI, raw_ostream &O);
+  void printGPRIdxMode(const MCInst *MI, unsigned OpNo,
+                       const MCSubtargetInfo &STI, raw_ostream &O);
   void printMemOperand(const MCInst *MI, unsigned OpNo,
                        const MCSubtargetInfo &STI, raw_ostream &O);
   void printBLGP(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
@@ -241,11 +240,11 @@ protected:
                     raw_ostream &O);
   void printSwizzle(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                     raw_ostream &O);
-  void printWaitFlag(const MCInst *MI, unsigned OpNo,
+  void printSWaitCnt(const MCInst *MI, unsigned OpNo,
                      const MCSubtargetInfo &STI, raw_ostream &O);
   void printDepCtr(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                    raw_ostream &O);
-  void printDelayFlag(const MCInst *MI, unsigned OpNo,
+  void printSDelayALU(const MCInst *MI, unsigned OpNo,
                       const MCSubtargetInfo &STI, raw_ostream &O);
   void printHwreg(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                   raw_ostream &O);

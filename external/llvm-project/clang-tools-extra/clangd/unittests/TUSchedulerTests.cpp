@@ -8,6 +8,8 @@
 
 #include "Annotations.h"
 #include "ClangdServer.h"
+#include "Compiler.h"
+#include "Config.h"
 #include "Diagnostics.h"
 #include "GlobalCompilationDatabase.h"
 #include "Matchers.h"
@@ -21,7 +23,6 @@
 #include "support/Path.h"
 #include "support/TestTracer.h"
 #include "support/Threading.h"
-#include "support/ThreadsafeFS.h"
 #include "clang/Basic/DiagnosticDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FunctionExtras.h"
@@ -31,19 +32,23 @@
 #include "llvm/ADT/StringRef.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace clang {
 namespace clangd {
 namespace {
 
+using ::testing::_;
 using ::testing::AllOf;
 using ::testing::AnyOf;
 using ::testing::Contains;
@@ -121,7 +126,7 @@ protected:
     class CaptureDiags : public ParsingCallbacks {
     public:
       void onMainAST(PathRef File, ParsedAST &AST, PublishFn Publish) override {
-        reportDiagnostics(File, *AST.getDiagnostics(), Publish);
+        reportDiagnostics(File, AST.getDiagnostics(), Publish);
       }
 
       void onFailedAST(PathRef File, llvm::StringRef Version,
@@ -136,9 +141,8 @@ protected:
         if (!D)
           return;
         Publish([&]() {
-          const_cast<
-              llvm::unique_function<void(PathRef, std::vector<Diag>)> &> (*D)(
-              File, std::move(Diags));
+          const_cast<llvm::unique_function<void(PathRef, std::vector<Diag>)> &>(
+              *D)(File, Diags);
         });
       }
     };
@@ -225,20 +229,24 @@ TEST_F(TUSchedulerTests, WantDiagnostics) {
     Notification Ready;
     TUScheduler S(CDB, optsForTest(), captureDiags());
     auto Path = testPath("foo.cpp");
-    updateWithDiags(S, Path, "", WantDiagnostics::Yes,
+    // Semicolons here and in the following inputs are significant. They ensure
+    // preamble stays the same across runs. Otherwise we might get multiple
+    // diagnostics callbacks, once with the stale preamble and another with the
+    // fresh preamble.
+    updateWithDiags(S, Path, ";", WantDiagnostics::Yes,
                     [&](std::vector<Diag>) { Ready.wait(); });
-    updateWithDiags(S, Path, "request diags", WantDiagnostics::Yes,
+    updateWithDiags(S, Path, ";request diags", WantDiagnostics::Yes,
                     [&](std::vector<Diag>) { ++CallbackCount; });
-    updateWithDiags(S, Path, "auto (clobbered)", WantDiagnostics::Auto,
+    updateWithDiags(S, Path, ";auto (clobbered)", WantDiagnostics::Auto,
                     [&](std::vector<Diag>) {
                       ADD_FAILURE()
                           << "auto should have been cancelled by auto";
                     });
-    updateWithDiags(S, Path, "request no diags", WantDiagnostics::No,
+    updateWithDiags(S, Path, ";request no diags", WantDiagnostics::No,
                     [&](std::vector<Diag>) {
                       ADD_FAILURE() << "no diags should not be called back";
                     });
-    updateWithDiags(S, Path, "auto (produces)", WantDiagnostics::Auto,
+    updateWithDiags(S, Path, ";auto (produces)", WantDiagnostics::Auto,
                     [&](std::vector<Diag>) { ++CallbackCount; });
     Ready.notify();
 
@@ -828,7 +836,9 @@ TEST_F(TUSchedulerTests, NoopOnEmptyChanges) {
   CDB.ExtraClangFlags.push_back("-DSOMETHING");
   ASSERT_TRUE(DoUpdate(SourceContents));
   ASSERT_FALSE(DoUpdate(SourceContents));
-  ASSERT_EQ(S.fileStats().lookup(Source).ASTBuilds, 4u);
+  // This causes 2 AST builds always. We first build an AST with the stale
+  // preamble, and build a second AST once the fresh preamble is ready.
+  ASSERT_EQ(S.fileStats().lookup(Source).ASTBuilds, 5u);
   ASSERT_EQ(S.fileStats().lookup(Source).PreambleBuilds, 3u);
 }
 
@@ -1124,9 +1134,9 @@ TEST_F(TUSchedulerTests, AsyncPreambleThread) {
   public:
     BlockPreambleThread(llvm::StringRef BlockVersion, Notification &N)
         : BlockVersion(BlockVersion), N(N) {}
-    void onPreambleAST(PathRef Path, llvm::StringRef Version,
-                       const CompilerInvocation &, ASTContext &Ctx,
-                       Preprocessor &, const CanonicalIncludes &) override {
+    void
+    onPreambleAST(PathRef Path, llvm::StringRef Version, CapturedASTCtx,
+                  const std::shared_ptr<const CanonicalIncludes>) override {
       if (Version == BlockVersion)
         N.wait();
     }
@@ -1192,6 +1202,121 @@ TEST_F(TUSchedulerTests, OnlyPublishWhenPreambleIsBuilt) {
   S.update(File, getInputs(File, "#define FOO"), WantDiagnostics::Auto);
   S.blockUntilIdle(timeoutSeconds(10));
   EXPECT_EQ(PreamblePublishCount, 2);
+}
+
+TEST_F(TUSchedulerTests, PublishWithStalePreamble) {
+  // Callbacks that blocks the preamble thread after the first preamble is
+  // built and stores preamble/main-file versions for diagnostics released.
+  class BlockPreambleThread : public ParsingCallbacks {
+  public:
+    using DiagsCB = std::function<void(ParsedAST &)>;
+    BlockPreambleThread(Notification &UnblockPreamble, DiagsCB CB)
+        : UnblockPreamble(UnblockPreamble), CB(std::move(CB)) {}
+
+    void
+    onPreambleAST(PathRef Path, llvm::StringRef Version, CapturedASTCtx,
+                  const std::shared_ptr<const CanonicalIncludes>) override {
+      if (BuildBefore)
+        ASSERT_TRUE(UnblockPreamble.wait(timeoutSeconds(5)))
+            << "Expected notification";
+      BuildBefore = true;
+    }
+
+    void onMainAST(PathRef File, ParsedAST &AST, PublishFn Publish) override {
+      CB(AST);
+    }
+
+    void onFailedAST(PathRef File, llvm::StringRef Version,
+                     std::vector<Diag> Diags, PublishFn Publish) override {
+      ADD_FAILURE() << "Received failed ast for: " << File << " with version "
+                    << Version << '\n';
+    }
+
+  private:
+    bool BuildBefore = false;
+    Notification &UnblockPreamble;
+    std::function<void(ParsedAST &)> CB;
+  };
+
+  // Helpers for issuing blocking update requests on a TUScheduler, whose
+  // onMainAST callback would call onDiagnostics.
+  class DiagCollector {
+  public:
+    void onDiagnostics(ParsedAST &AST) {
+      std::scoped_lock<std::mutex> Lock(DiagMu);
+      DiagVersions.emplace_back(
+          std::make_pair(AST.preambleVersion()->str(), AST.version().str()));
+      DiagsReceived.notify_all();
+    }
+
+    std::pair<std::string, std::string>
+    waitForNewDiags(TUScheduler &S, PathRef File, ParseInputs PI) {
+      std::unique_lock<std::mutex> Lock(DiagMu);
+      // Perform the update under the lock to make sure it isn't handled until
+      // we're waiting for it.
+      S.update(File, std::move(PI), WantDiagnostics::Auto);
+      size_t OldSize = DiagVersions.size();
+      bool ReceivedDiags = DiagsReceived.wait_for(
+          Lock, std::chrono::seconds(5),
+          [this, OldSize] { return OldSize + 1 == DiagVersions.size(); });
+      if (!ReceivedDiags) {
+        ADD_FAILURE() << "Timed out waiting for diags";
+        return {"invalid", "version"};
+      }
+      return DiagVersions.back();
+    }
+
+    std::vector<std::pair<std::string, std::string>> diagVersions() {
+      std::scoped_lock<std::mutex> Lock(DiagMu);
+      return DiagVersions;
+    }
+
+  private:
+    std::condition_variable DiagsReceived;
+    std::mutex DiagMu;
+    std::vector<std::pair</*PreambleVersion*/ std::string,
+                          /*MainFileVersion*/ std::string>>
+        DiagVersions;
+  };
+
+  DiagCollector Collector;
+  Notification UnblockPreamble;
+  auto DiagCallbacks = std::make_unique<BlockPreambleThread>(
+      UnblockPreamble,
+      [&Collector](ParsedAST &AST) { Collector.onDiagnostics(AST); });
+  TUScheduler S(CDB, optsForTest(), std::move(DiagCallbacks));
+  Path File = testPath("foo.cpp");
+  auto BlockForDiags = [&](ParseInputs PI) {
+    return Collector.waitForNewDiags(S, File, std::move(PI));
+  };
+
+  // Build first preamble.
+  auto PI = getInputs(File, "");
+  PI.Version = PI.Contents = "1";
+  ASSERT_THAT(BlockForDiags(PI), testing::Pair("1", "1"));
+
+  // Now preamble thread is blocked, so rest of the requests sees only the
+  // stale preamble.
+  PI.Version = "2";
+  PI.Contents = "#define BAR\n" + PI.Version;
+  ASSERT_THAT(BlockForDiags(PI), testing::Pair("1", "2"));
+
+  PI.Version = "3";
+  PI.Contents = "#define FOO\n" + PI.Version;
+  ASSERT_THAT(BlockForDiags(PI), testing::Pair("1", "3"));
+
+  UnblockPreamble.notify();
+  S.blockUntilIdle(timeoutSeconds(5));
+
+  // Make sure that we have eventual consistency.
+  EXPECT_THAT(Collector.diagVersions().back(), Pair(PI.Version, PI.Version));
+
+  // Check that WantDiagnostics::No doesn't emit any diags.
+  PI.Version = "4";
+  PI.Contents = "#define FOO\n" + PI.Version;
+  S.update(File, PI, WantDiagnostics::No);
+  S.blockUntilIdle(timeoutSeconds(5));
+  EXPECT_THAT(Collector.diagVersions().back(), Pair("3", "3"));
 }
 
 // If a header file is missing from the CDB (or inferred using heuristics), and
@@ -1438,9 +1563,9 @@ TEST_F(TUSchedulerTests, PreambleThrottle) {
     std::vector<std::string> &Filenames;
     CaptureBuiltFilenames(std::vector<std::string> &Filenames)
         : Filenames(Filenames) {}
-    void onPreambleAST(PathRef Path, llvm::StringRef Version,
-                       const CompilerInvocation &CI, ASTContext &Ctx,
-                       Preprocessor &PP, const CanonicalIncludes &) override {
+    void
+    onPreambleAST(PathRef Path, llvm::StringRef Version, CapturedASTCtx,
+                  const std::shared_ptr<const CanonicalIncludes>) override {
       // Deliberately no synchronization.
       // The PreambleThrottler should serialize these calls, if not then tsan
       // will find a bug here.
@@ -1504,7 +1629,7 @@ TEST_F(TUSchedulerTests, PreambleThrottle) {
     // We haven't released anything yet, we're still waiting.
     EXPECT_THAT(Throttler.Releases, testing::IsEmpty());
 
-    // FIXME: This is flaky, becaues the request can be destroyed after shutdown
+    // FIXME: This is flaky, because the request can be destroyed after shutdown
     // if it hasn't been dequeued yet (stop() resets NextRequest).
 #if 0
     // Now close file A, which will shut down its AST worker.

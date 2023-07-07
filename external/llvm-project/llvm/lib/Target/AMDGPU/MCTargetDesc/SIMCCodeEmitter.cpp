@@ -24,8 +24,9 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/EndianStream.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
 #include <optional>
 
 using namespace llvm;
@@ -47,7 +48,7 @@ public:
   SIMCCodeEmitter &operator=(const SIMCCodeEmitter &) = delete;
 
   /// Encode the instruction and write it to the OS.
-  void encodeInstruction(const MCInst &MI, raw_ostream &OS,
+  void encodeInstruction(const MCInst &MI, SmallVectorImpl<char> &CB,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
 
@@ -140,7 +141,7 @@ static uint32_t getLit16Encoding(uint16_t Val, const MCSubtargetInfo &STI) {
     return 247;
 
   if (Val == 0x3118 && // 1.0 / (2.0 * pi)
-      STI.getFeatureBits()[AMDGPU::FeatureInv2PiInlineImm])
+      STI.hasFeature(AMDGPU::FeatureInv2PiInlineImm))
     return 248;
 
   return 255;
@@ -151,32 +152,32 @@ static uint32_t getLit32Encoding(uint32_t Val, const MCSubtargetInfo &STI) {
   if (IntImm != 0)
     return IntImm;
 
-  if (Val == FloatToBits(0.5f))
+  if (Val == llvm::bit_cast<uint32_t>(0.5f))
     return 240;
 
-  if (Val == FloatToBits(-0.5f))
+  if (Val == llvm::bit_cast<uint32_t>(-0.5f))
     return 241;
 
-  if (Val == FloatToBits(1.0f))
+  if (Val == llvm::bit_cast<uint32_t>(1.0f))
     return 242;
 
-  if (Val == FloatToBits(-1.0f))
+  if (Val == llvm::bit_cast<uint32_t>(-1.0f))
     return 243;
 
-  if (Val == FloatToBits(2.0f))
+  if (Val == llvm::bit_cast<uint32_t>(2.0f))
     return 244;
 
-  if (Val == FloatToBits(-2.0f))
+  if (Val == llvm::bit_cast<uint32_t>(-2.0f))
     return 245;
 
-  if (Val == FloatToBits(4.0f))
+  if (Val == llvm::bit_cast<uint32_t>(4.0f))
     return 246;
 
-  if (Val == FloatToBits(-4.0f))
+  if (Val == llvm::bit_cast<uint32_t>(-4.0f))
     return 247;
 
   if (Val == 0x3e22f983 && // 1.0 / (2.0 * pi)
-      STI.getFeatureBits()[AMDGPU::FeatureInv2PiInlineImm])
+      STI.hasFeature(AMDGPU::FeatureInv2PiInlineImm))
     return 248;
 
   return 255;
@@ -187,32 +188,32 @@ static uint32_t getLit64Encoding(uint64_t Val, const MCSubtargetInfo &STI) {
   if (IntImm != 0)
     return IntImm;
 
-  if (Val == DoubleToBits(0.5))
+  if (Val == llvm::bit_cast<uint64_t>(0.5))
     return 240;
 
-  if (Val == DoubleToBits(-0.5))
+  if (Val == llvm::bit_cast<uint64_t>(-0.5))
     return 241;
 
-  if (Val == DoubleToBits(1.0))
+  if (Val == llvm::bit_cast<uint64_t>(1.0))
     return 242;
 
-  if (Val == DoubleToBits(-1.0))
+  if (Val == llvm::bit_cast<uint64_t>(-1.0))
     return 243;
 
-  if (Val == DoubleToBits(2.0))
+  if (Val == llvm::bit_cast<uint64_t>(2.0))
     return 244;
 
-  if (Val == DoubleToBits(-2.0))
+  if (Val == llvm::bit_cast<uint64_t>(-2.0))
     return 245;
 
-  if (Val == DoubleToBits(4.0))
+  if (Val == llvm::bit_cast<uint64_t>(4.0))
     return 246;
 
-  if (Val == DoubleToBits(-4.0))
+  if (Val == llvm::bit_cast<uint64_t>(-4.0))
     return 247;
 
   if (Val == 0x3fc45f306dc9c882 && // 1.0 / (2.0 * pi)
-      STI.getFeatureBits()[AMDGPU::FeatureInv2PiInlineImm])
+      STI.hasFeature(AMDGPU::FeatureInv2PiInlineImm))
     return 248;
 
   return 255;
@@ -273,7 +274,7 @@ SIMCCodeEmitter::getLitEncoding(const MCOperand &MO,
     return getLit16Encoding(static_cast<uint16_t>(Imm), STI);
   case AMDGPU::OPERAND_REG_IMM_V2INT16:
   case AMDGPU::OPERAND_REG_IMM_V2FP16: {
-    if (!isUInt<16>(Imm) && STI.getFeatureBits()[AMDGPU::FeatureVOP3Literal])
+    if (!isUInt<16>(Imm) && STI.hasFeature(AMDGPU::FeatureVOP3Literal))
       return getLit32Encoding(static_cast<uint32_t>(Imm), STI);
     if (OpInfo.OperandType == AMDGPU::OPERAND_REG_IMM_V2FP16)
       return getLit16Encoding(static_cast<uint16_t>(Imm), STI);
@@ -316,7 +317,8 @@ static bool isVCMPX64(const MCInstrDesc &Desc) {
          Desc.hasImplicitDefOfPhysReg(AMDGPU::EXEC);
 }
 
-void SIMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
+void SIMCCodeEmitter::encodeInstruction(const MCInst &MI,
+                                        SmallVectorImpl<char> &CB,
                                         SmallVectorImpl<MCFixup> &Fixups,
                                         const MCSubtargetInfo &STI) const {
   int Opcode = MI.getOpcode();
@@ -345,7 +347,7 @@ void SIMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
   }
 
   for (unsigned i = 0; i < bytes; i++) {
-    OS.write((uint8_t)Encoding.extractBitsAsZExtValue(8, 8 * i));
+    CB.push_back((uint8_t)Encoding.extractBitsAsZExtValue(8, 8 * i));
   }
 
   // NSA encoding.
@@ -361,14 +363,13 @@ void SIMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
     for (unsigned i = 0; i < NumExtraAddrs; ++i) {
       getMachineOpValue(MI, MI.getOperand(vaddr0 + 1 + i), Encoding, Fixups,
                         STI);
-      OS.write((uint8_t)Encoding.getLimitedValue());
+      CB.push_back((uint8_t)Encoding.getLimitedValue());
     }
-    for (unsigned i = 0; i < NumPadding; ++i)
-      OS.write(0);
+    CB.append(NumPadding, 0);
   }
 
-  if ((bytes > 8 && STI.getFeatureBits()[AMDGPU::FeatureVOP3Literal]) ||
-      (bytes > 4 && !STI.getFeatureBits()[AMDGPU::FeatureVOP3Literal]))
+  if ((bytes > 8 && STI.hasFeature(AMDGPU::FeatureVOP3Literal)) ||
+      (bytes > 4 && !STI.hasFeature(AMDGPU::FeatureVOP3Literal)))
     return;
 
   // Do not print literals from SISrc Operands for insts with mandatory literals
@@ -384,7 +385,7 @@ void SIMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
 
     // Is this operand a literal immediate?
     const MCOperand &Op = MI.getOperand(i);
-    auto Enc = getLitEncoding(Op, Desc.OpInfo[i], STI);
+    auto Enc = getLitEncoding(Op, Desc.operands()[i], STI);
     if (!Enc || *Enc != 255)
       continue;
 
@@ -400,9 +401,7 @@ void SIMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
     } else if (!Op.isExpr()) // Exprs will be replaced with a fixup value.
       llvm_unreachable("Must be immediate or expr");
 
-    for (unsigned j = 0; j < 4; j++) {
-      OS.write((uint8_t) ((Imm >> (8 * j)) & 0xff));
-    }
+    support::endian::write<uint32_t>(CB, Imm, support::endianness::little);
 
     // Only one literal value allowed
     break;
@@ -419,7 +418,7 @@ void SIMCCodeEmitter::getSOPPBrEncoding(const MCInst &MI, unsigned OpNo,
     const MCExpr *Expr = MO.getExpr();
     MCFixupKind Kind = (MCFixupKind)AMDGPU::fixup_si_sopp_br;
     Fixups.push_back(MCFixup::create(0, Expr, Kind, MI.getLoc()));
-    Op = APInt::getNullValue(96);
+    Op = APInt::getZero(96);
   } else {
     getMachineOpValue(MI, MO, Op, Fixups, STI);
   }
@@ -456,7 +455,7 @@ void SIMCCodeEmitter::getSDWASrcEncoding(const MCInst &MI, unsigned OpNo,
     return;
   } else {
     const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
-    auto Enc = getLitEncoding(MO, Desc.OpInfo[OpNo], STI);
+    auto Enc = getLitEncoding(MO, Desc.operands()[OpNo], STI);
     if (Enc && *Enc != 255) {
       Op = *Enc | SDWA9EncValues::SRC_SGPR_MASK;
       return;
@@ -579,7 +578,7 @@ void SIMCCodeEmitter::getMachineOpValueCommon(
 
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   if (AMDGPU::isSISrcOperand(Desc, OpNo)) {
-    if (auto Enc = getLitEncoding(MO, Desc.OpInfo[OpNo], STI)) {
+    if (auto Enc = getLitEncoding(MO, Desc.operands()[OpNo], STI)) {
       Op = *Enc;
       return;
     }

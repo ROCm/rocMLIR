@@ -35,7 +35,6 @@ void mlirLlvmThreadPoolDestroy(MlirLlvmThreadPool threadPool) {
 //===----------------------------------------------------------------------===//
 // TypeID API.
 //===----------------------------------------------------------------------===//
-
 MlirTypeID mlirTypeIDCreate(const void *ptr) {
   assert(reinterpret_cast<uintptr_t>(ptr) % 8 == 0 &&
          "ptr must be 8 byte aligned");
