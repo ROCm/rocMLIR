@@ -6,13 +6,13 @@ module attributes {llvm.data_layout = ""} {
 
     %0 = llvm.mlir.constant(0 : i32) : i32
     %1 = llvm.mlir.constant(1 : i32) : i32
-//CHECK-DAG:    %[[V0:.*]] = llvm.mlir.constant(32767 : i32) : i32
+//CHECK-DAG:    %[[V4:.*]] = llvm.mlir.constant(1041891328 : i32) : i32
 //CHECK-DAG:    %[[V1:.*]] = llvm.mlir.constant(16 : i32) : i32
 //CHECK-DAG:    %[[V2:.*]] = llvm.mlir.constant(1 : i32) : i32
+//CHECK-DAG:    %[[V0:.*]] = llvm.mlir.constant(32767 : i32) : i32
 //CHECK-DAG:    %[[V3:.*]] = llvm.mlir.constant(0 : i32) : i32
 
     %2 = llvm.mlir.constant(1.503910e-01 : bf16) : bf16
-//CHECK-DAG:    %[[V4:.*]] = llvm.mlir.constant(15898 : i16) : i16
 
     %3 = llvm.fptrunc %arg1 : f32 to bf16
 //CHECK:    %[[V5:.*]] = llvm.bitcast %arg1 : f32 to i32
@@ -43,9 +43,7 @@ module attributes {llvm.data_layout = ""} {
 //CHECK:    %[[V28:.*]] = llvm.zext %[[V27]] : i16 to i32
 //CHECK-NEXT:    %[[V29:.*]] = llvm.shl %[[V28]], %[[V1]]  : i32
 //CHECK-NEXT:    %[[V30:.*]] = llvm.bitcast %[[V29]] : i32 to f32
-//CHECK:    %[[V31:.*]] = llvm.zext %[[V4]] : i16 to i32
-//CHECK-NEXT:    %[[V32:.*]] = llvm.shl %[[V31]], %[[V1]]  : i32
-//CHECK-NEXT:    %[[V33:.*]] = llvm.bitcast %[[V32]] : i32 to f32
+//CHECK-NEXT:    %[[V33:.*]] = llvm.bitcast %[[V4]] : i32 to f32
 //CHECK:    %{{.*}} = llvm.fcmp "ugt" %[[V30]], %[[V33]] : f32
 
     llvm.cond_br %5, ^bb1, ^bb2

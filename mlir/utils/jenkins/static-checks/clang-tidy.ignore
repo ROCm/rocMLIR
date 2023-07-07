@@ -2,4 +2,5 @@
 # Files to be ignored by clang-tidy. Will not appear in short report and inline comments.
 mlir/examples/standalone
 mlir/test
+build/
 

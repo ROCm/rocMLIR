@@ -716,7 +716,7 @@ def Rock_TransformingForOp :
     }
 
     TypedValue<IntegerType> getValidity(uint32_t domain) {
-      return getValidities()[domain];
+      return cast<TypedValue<IntegerType>>(getValidities()[domain]);
     }
 
     Block::BlockArgListType getIterArgs() {

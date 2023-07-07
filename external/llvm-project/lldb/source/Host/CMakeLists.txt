@@ -42,6 +42,7 @@ add_host_subdirectory(common
   common/ThreadLauncher.cpp
   common/UDPSocket.cpp
   common/XML.cpp
+  common/ZipFileResolver.cpp
   )
 
 if (LLDB_ENABLE_LIBEDIT)
@@ -159,7 +160,7 @@ if (LLDB_ENABLE_LIBEDIT)
   endif()
 endif()
 
-add_lldb_library(lldbHost
+add_lldb_library(lldbHost NO_PLUGIN_DEPENDENCIES
   ${HOST_SOURCES}
 
   LINK_LIBS

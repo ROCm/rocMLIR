@@ -44,7 +44,10 @@ struct MiirHandle_s {
     module = ModuleOp::create(UnknownLoc::get(context));
   }
 
-  ~MiirHandle_s() { delete context; }
+  ~MiirHandle_s() {
+    module.release();
+    delete context;
+  }
 
   mlir::MLIRContext &getContext() { return *context; }
 
@@ -243,7 +246,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
   ModuleOp module = handle->getModule();
 
-  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+  PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
   rock::KernelOptions opts;
   opts.enableApplicability = true;
@@ -263,7 +266,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   ModuleOp module = handle->getModule();
 
-  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+  PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
   rock::buildKernelPipeline(pm);
 

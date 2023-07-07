@@ -228,8 +228,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   const char *chip = "gfx908";
   const char *features = "";
 
-  mlir::PassManager pm(module.getContext(),
-                       mlir::PassManager::Nesting::Implicit);
+  mlir::PassManager pm(module->getName(), mlir::PassManager::Nesting::Implicit);
 
   mlir::rock::buildBufferizePipeline(pm);
 

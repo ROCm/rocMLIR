@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/MemoryLocation.h"
+#include "llvm/CodeGen/LowLevelType.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -28,6 +29,7 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
+#include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/StackMaps.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
@@ -49,7 +51,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Support/LowLevelTypeImpl.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include <algorithm>
@@ -84,14 +85,10 @@ static void tryToGetTargetInfo(const MachineInstr &MI,
 }
 
 void MachineInstr::addImplicitDefUseOperands(MachineFunction &MF) {
-  if (MCID->getImplicitDefs())
-    for (const MCPhysReg *ImpDefs = MCID->getImplicitDefs(); *ImpDefs;
-           ++ImpDefs)
-      addOperand(MF, MachineOperand::CreateReg(*ImpDefs, true, true));
-  if (MCID->getImplicitUses())
-    for (const MCPhysReg *ImpUses = MCID->getImplicitUses(); *ImpUses;
-           ++ImpUses)
-      addOperand(MF, MachineOperand::CreateReg(*ImpUses, false, true));
+  for (MCPhysReg ImpDef : MCID->implicit_defs())
+    addOperand(MF, MachineOperand::CreateReg(ImpDef, true, true));
+  for (MCPhysReg ImpUse : MCID->implicit_uses())
+    addOperand(MF, MachineOperand::CreateReg(ImpUse, false, true));
 }
 
 /// MachineInstr ctor - This constructor creates a MachineInstr and adds the
@@ -99,12 +96,13 @@ void MachineInstr::addImplicitDefUseOperands(MachineFunction &MF) {
 /// the MCInstrDesc.
 MachineInstr::MachineInstr(MachineFunction &MF, const MCInstrDesc &TID,
                            DebugLoc DL, bool NoImp)
-    : MCID(&TID), DbgLoc(std::move(DL)), DebugInstrNum(0) {
+    : MCID(&TID), NumOperands(0), Flags(0), AsmPrinterFlags(0),
+      DbgLoc(std::move(DL)), DebugInstrNum(0) {
   assert(DbgLoc.hasTrivialDestructor() && "Expected trivial destructor");
 
   // Reserve space for the expected number of operands.
-  if (unsigned NumOps = MCID->getNumOperands() +
-    MCID->getNumImplicitDefs() + MCID->getNumImplicitUses()) {
+  if (unsigned NumOps = MCID->getNumOperands() + MCID->implicit_defs().size() +
+                        MCID->implicit_uses().size()) {
     CapOperands = OperandCapacity::get(NumOps);
     Operands = MF.allocateOperandArray(CapOperands);
   }
@@ -117,8 +115,8 @@ MachineInstr::MachineInstr(MachineFunction &MF, const MCInstrDesc &TID,
 /// Does not copy the number from debug instruction numbering, to preserve
 /// uniqueness.
 MachineInstr::MachineInstr(MachineFunction &MF, const MachineInstr &MI)
-    : MCID(&MI.getDesc()), Info(MI.Info), DbgLoc(MI.getDebugLoc()),
-      DebugInstrNum(0) {
+    : MCID(&MI.getDesc()), NumOperands(0), Flags(0), AsmPrinterFlags(0),
+      Info(MI.Info), DbgLoc(MI.getDebugLoc()), DebugInstrNum(0) {
   assert(DbgLoc.hasTrivialDestructor() && "Expected trivial destructor");
 
   CapOperands = OperandCapacity::get(MI.getNumOperands());
@@ -149,6 +147,12 @@ void MachineInstr::moveBefore(MachineInstr *MovePos) {
 /// return null.
 MachineRegisterInfo *MachineInstr::getRegInfo() {
   if (MachineBasicBlock *MBB = getParent())
+    return &MBB->getParent()->getRegInfo();
+  return nullptr;
+}
+
+const MachineRegisterInfo *MachineInstr::getRegInfo() const {
+  if (const MachineBasicBlock *MBB = getParent())
     return &MBB->getParent()->getRegInfo();
   return nullptr;
 }
@@ -189,6 +193,8 @@ static void moveOperands(MachineOperand *Dst, MachineOperand *Src,
 /// an explicit operand it is added at the end of the explicit operand list
 /// (before the first implicit operand).
 void MachineInstr::addOperand(MachineFunction &MF, const MachineOperand &Op) {
+  assert(isUInt<LLVM_MI_NUMOPERANDS_BITS>(NumOperands + 1) &&
+         "Cannot add more operands.");
   assert(MCID && "Cannot add operands before providing an instr descriptor");
 
   // Check if we're adding one of our existing operands.
@@ -530,14 +536,14 @@ void MachineInstr::cloneInstrSymbols(MachineFunction &MF,
   setPCSections(MF, MI.getPCSections());
 }
 
-uint16_t MachineInstr::mergeFlagsWith(const MachineInstr &Other) const {
+uint32_t MachineInstr::mergeFlagsWith(const MachineInstr &Other) const {
   // For now, the just return the union of the flags. If the flags get more
   // complicated over time, we might need more logic here.
   return getFlags() | Other.getFlags();
 }
 
-uint16_t MachineInstr::copyFlagsFromInstruction(const Instruction &I) {
-  uint16_t MIFlags = 0;
+uint32_t MachineInstr::copyFlagsFromInstruction(const Instruction &I) {
+  uint32_t MIFlags = 0;
   // Copy the wrapping flags.
   if (const OverflowingBinaryOperator *OB =
           dyn_cast<OverflowingBinaryOperator>(&I)) {
@@ -570,6 +576,9 @@ uint16_t MachineInstr::copyFlagsFromInstruction(const Instruction &I) {
     if (Flags.allowReassoc())
       MIFlags |= MachineInstr::MIFlag::FmReassoc;
   }
+
+  if (I.getMetadata(LLVMContext::MD_unpredictable))
+    MIFlags |= MachineInstr::MIFlag::Unpredictable;
 
   return MIFlags;
 }
@@ -1086,7 +1095,7 @@ int MachineInstr::findFirstPredOperandIdx() const {
   const MCInstrDesc &MCID = getDesc();
   if (MCID.isPredicable()) {
     for (unsigned i = 0, e = getNumOperands(); i != e; ++i)
-      if (MCID.OpInfo[i].isPredicate())
+      if (MCID.operands()[i].isPredicate())
         return i;
   }
 
@@ -1524,7 +1533,7 @@ LLT MachineInstr::getTypeToPrint(unsigned OpIdx, SmallBitVector &PrintedTypes,
   if (isVariadic() || OpIdx >= getNumExplicitOperands())
     return MRI.getType(Op.getReg());
 
-  auto &OpInfo = getDesc().OpInfo[OpIdx];
+  auto &OpInfo = getDesc().operands()[OpIdx];
   if (!OpInfo.isGenericType())
     return MRI.getType(Op.getReg());
 
@@ -1719,7 +1728,7 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
     if (FirstOp) FirstOp = false; else OS << ",";
     OS << " ";
 
-    if (isDebugValue() && MO.isMetadata()) {
+    if (isDebugValueLike() && MO.isMetadata()) {
       // Pretty print DBG_VALUE* instructions.
       auto *DIV = dyn_cast<DILocalVariable>(MO.getMetadata());
       if (DIV && !DIV->getName().empty())
@@ -1875,7 +1884,7 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
   }
 
   // Print extra comments for DEBUG_VALUE.
-  if (isDebugValue() && getDebugVariableOp().isMetadata()) {
+  if (isDebugValueLike() && getDebugVariableOp().isMetadata()) {
     if (!HaveSemi) {
       OS << ";";
       HaveSemi = true;
@@ -2381,4 +2390,73 @@ unsigned MachineInstr::getDebugInstrNum(MachineFunction &MF) {
   if (DebugInstrNum == 0)
     DebugInstrNum = MF.getNewDebugInstrNum();
   return DebugInstrNum;
+}
+
+std::tuple<LLT, LLT> MachineInstr::getFirst2LLTs() const {
+  return std::tuple(getRegInfo()->getType(getOperand(0).getReg()),
+                    getRegInfo()->getType(getOperand(1).getReg()));
+}
+
+std::tuple<LLT, LLT, LLT> MachineInstr::getFirst3LLTs() const {
+  return std::tuple(getRegInfo()->getType(getOperand(0).getReg()),
+                    getRegInfo()->getType(getOperand(1).getReg()),
+                    getRegInfo()->getType(getOperand(2).getReg()));
+}
+
+std::tuple<LLT, LLT, LLT, LLT> MachineInstr::getFirst4LLTs() const {
+  return std::tuple(getRegInfo()->getType(getOperand(0).getReg()),
+                    getRegInfo()->getType(getOperand(1).getReg()),
+                    getRegInfo()->getType(getOperand(2).getReg()),
+                    getRegInfo()->getType(getOperand(3).getReg()));
+}
+
+std::tuple<LLT, LLT, LLT, LLT, LLT> MachineInstr::getFirst5LLTs() const {
+  return std::tuple(getRegInfo()->getType(getOperand(0).getReg()),
+                    getRegInfo()->getType(getOperand(1).getReg()),
+                    getRegInfo()->getType(getOperand(2).getReg()),
+                    getRegInfo()->getType(getOperand(3).getReg()),
+                    getRegInfo()->getType(getOperand(4).getReg()));
+}
+
+std::tuple<Register, LLT, Register, LLT>
+MachineInstr::getFirst2RegLLTs() const {
+  Register Reg0 = getOperand(0).getReg();
+  Register Reg1 = getOperand(1).getReg();
+  return std::tuple(Reg0, getRegInfo()->getType(Reg0), Reg1,
+                    getRegInfo()->getType(Reg1));
+}
+
+std::tuple<Register, LLT, Register, LLT, Register, LLT>
+MachineInstr::getFirst3RegLLTs() const {
+  Register Reg0 = getOperand(0).getReg();
+  Register Reg1 = getOperand(1).getReg();
+  Register Reg2 = getOperand(2).getReg();
+  return std::tuple(Reg0, getRegInfo()->getType(Reg0), Reg1,
+                    getRegInfo()->getType(Reg1), Reg2,
+                    getRegInfo()->getType(Reg2));
+}
+
+std::tuple<Register, LLT, Register, LLT, Register, LLT, Register, LLT>
+MachineInstr::getFirst4RegLLTs() const {
+  Register Reg0 = getOperand(0).getReg();
+  Register Reg1 = getOperand(1).getReg();
+  Register Reg2 = getOperand(2).getReg();
+  Register Reg3 = getOperand(3).getReg();
+  return std::tuple(
+      Reg0, getRegInfo()->getType(Reg0), Reg1, getRegInfo()->getType(Reg1),
+      Reg2, getRegInfo()->getType(Reg2), Reg3, getRegInfo()->getType(Reg3));
+}
+
+std::tuple<Register, LLT, Register, LLT, Register, LLT, Register, LLT, Register,
+           LLT>
+MachineInstr::getFirst5RegLLTs() const {
+  Register Reg0 = getOperand(0).getReg();
+  Register Reg1 = getOperand(1).getReg();
+  Register Reg2 = getOperand(2).getReg();
+  Register Reg3 = getOperand(3).getReg();
+  Register Reg4 = getOperand(4).getReg();
+  return std::tuple(
+      Reg0, getRegInfo()->getType(Reg0), Reg1, getRegInfo()->getType(Reg1),
+      Reg2, getRegInfo()->getType(Reg2), Reg3, getRegInfo()->getType(Reg3),
+      Reg4, getRegInfo()->getType(Reg4));
 }

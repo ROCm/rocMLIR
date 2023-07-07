@@ -12,7 +12,7 @@ add_mlir_conversion_library(MLIRMHALToGPU
 
   LINK_LIBS PUBLIC
   MLIRMHAL
-  MLIRGPUOps
+  MLIRGPUDialect
   MLIRLLVMDialect
   MLIRTransforms
   )

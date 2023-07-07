@@ -356,7 +356,7 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %350 = "tosa.add"(%349, %326) : (tensor<1x512x7x7xf32>, tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %351 = "tosa.clamp"(%350) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %352 = "tosa.transpose"(%351, %25) : (tensor<1x512x7x7xf32>, tensor<4xi32>) -> tensor<1x7x7x512xf32>
-    %353 = "tosa.avg_pool2d"(%352) {kernel = array<i64: 7, 7>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x7x7x512xf32>) -> tensor<1x1x1x512xf32>
+    %353 = "tosa.avg_pool2d"(%352) {acc_type = f32, kernel = array<i64: 7, 7>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x7x7x512xf32>) -> tensor<1x1x1x512xf32>
     %354 = "tosa.transpose"(%353, %26) : (tensor<1x1x1x512xf32>, tensor<4xi32>) -> tensor<1x512x1x1xf32>
     %355 = "tosa.transpose"(%3, %30) : (tensor<1000x512xf32>, tensor<2xi32>) -> tensor<512x1000xf32>
     %356 = "tosa.reshape"(%354) {new_shape = array<i64: 1, 1, 512>} : (tensor<1x512x1x1xf32>) -> tensor<1x1x512xf32>

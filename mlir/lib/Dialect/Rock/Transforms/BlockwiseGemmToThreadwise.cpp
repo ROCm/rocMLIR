@@ -54,6 +54,7 @@ namespace rock {
 using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
+using namespace mlir::affine;
 
 namespace {
 struct RockLowerBlockwiseGemmToThreadwisePass
@@ -77,14 +78,14 @@ struct FillRewritePattern : public OpConversionPattern<FillOp> {
     llvm::SmallVector<int64_t> lbs(inputShape.size(), 0);
     llvm::SmallVector<int64_t> strides(inputShape.size(), 1);
 
-    buildAffineLoopNest(b, loc, lbs, inputShape, strides,
-                        [value = adaptor.getValue(),
-                         input = adaptor.getInput()](OpBuilder &b, Location loc,
-                                                     ValueRange ivs) {
-                          b.create<memref::StoreOp>(loc, value, input, ivs);
-                        });
+    affine::buildAffineLoopNest(
+        b, loc, lbs, inputShape, strides,
+        [value = adaptor.getValue(), input = adaptor.getInput()](
+            OpBuilder &b, Location loc, ValueRange ivs) {
+          b.create<memref::StoreOp>(loc, value, input, ivs);
+        });
 
-    b.replaceOp(op, {});
+    b.eraseOp(op);
     return success();
   }
 };
@@ -307,7 +308,8 @@ struct BlockwiseGemmRewritePattern
     LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
                             << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
-    auto loopOp = b.replaceOpWithNewOp<AffineForOp>(op, 0, k, kPerThread);
+    auto loopOp =
+        b.replaceOpWithNewOp<affine::AffineForOp>(op, 0, k, kPerThread);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loopOp.getBody());
     Value kOffset = loopOp.getInductionVar();
@@ -501,14 +503,14 @@ struct BlockwiseGemmAccelRewritePattern
     };
 
     auto ldsToRegisterCopyKdim = [&](OpBuilder outerLoopB,
-                                     AffineForOp outerLoopBodyOp,
+                                     affine::AffineForOp outerLoopBodyOp,
                                      Value sourceBase, Value MN,
                                      Value mnPerMfmaGroup, Value mnWaves,
                                      Type ldsBufferElemType, Type dataType,
                                      Value ldsOrig, Value regDest) {
-      auto innerLoopK = outerLoopB.create<AffineForOp>(loc, 0, kpackPerThread);
-      auto ilkb = ConversionPatternRewriter::atBlockBegin(
-          innerLoopK.getBody(), outerLoopB.getListener());
+      auto innerLoopK =
+          outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
+      auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPoint(outerLoopBodyOp);
@@ -526,9 +528,8 @@ struct BlockwiseGemmAccelRewritePattern
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[m_i, k_i]
-    auto outerLoopM = b.create<AffineForOp>(loc, 0, mRepeats);
-    auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
-                                                        b.getListener());
+    auto outerLoopM = b.create<affine::AffineForOp>(loc, 0, mRepeats);
+    auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
                           mPerAccelConstantOp, mWavesConstantOp,
                           bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA);
@@ -537,9 +538,8 @@ struct BlockwiseGemmAccelRewritePattern
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
     //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
     //       ldsToRegisterCopy[n_i, k_i]
-    auto outerLoopN = olmb.create<AffineForOp>(loc, 0, nRepeats);
-    auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
-                                                        olmb.getListener());
+    auto outerLoopN = olmb.create<affine::AffineForOp>(loc, 0, nRepeats);
+    auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
                           nPerAccelConstantOp, nWavesConstantOp,
                           bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB);
@@ -581,7 +581,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
           b.create<BufferLoadOp>(loc, typeToLoad, op.getSource(), op.getValid(),
                                  op.getSourceCoord(), IntegerAttr(),
                                  /*oobIsOverload=*/nullptr);
-      b.replaceOp(op, {load});
+      b.replaceOp(op, load);
       return success();
     }
     int64_t remainingLength = totalLength;
@@ -623,7 +623,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       remainingLength -= copyLength;
       offset += copyLength;
     }
-    b.replaceOp(op, {result});
+    b.replaceOp(op, result);
     return success();
   }
 };
@@ -722,8 +722,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-  TypedValue<MemRefType> sourceView = adaptor.getSource();
-  TypedValue<MemRefType> dest = adaptor.getDest();
+  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
   auto [buffer, transforms] = untransform(b, sourceView, op.getExtraViews());
 
@@ -790,13 +790,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       scf::IfOp ifb =
           b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
       {
-        OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
+        OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded = thenb.create<InBoundsLoadOp>(
             loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
         thenb.create<scf::YieldOp>(loc, loaded);
       }
       {
-        OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
+        OpBuilder elseb = ifb.getElseBodyBuilder();
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
         elseb.create<scf::YieldOp>(loc, zeroVal);
       }
@@ -813,8 +813,9 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-  TypedValue<MemRefType> source = adaptor.getSource();
-  TypedValue<MemRefType> destView = adaptor.getDest();
+
+  auto source = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
   auto elementType = destView.getType().getElementType();
 
@@ -886,7 +887,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
       {
-        OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
+        OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded = thenb.create<InBoundsLoadOp>(
             loc, loadType, source,
             outLoop.getLowerCoords(/*domain=*/0)[iterDim.lookup(dstAddrSpace)]);
@@ -1068,7 +1069,7 @@ struct BlockwiseReduceRewritePattern
   getReductionInitValue(BlockwiseBroadcastReduceOp op,
                         ConversionPatternRewriter &rewriter) const {
     ReduceMethod rMethod = op.getReduceMethod();
-    Attribute initValAttr;
+    TypedAttr initValAttr;
     Type elementType = op.getInput().getType().getElementType();
     if (elementType.isIntOrIndex()) {
       int64_t initVal;
@@ -1261,7 +1262,7 @@ struct BlockwiseReduceRewritePattern
             scf::IfOp ifb = rewriter.create<scf::IfOp>(
                 loc, isLastIter, /*withElseRegion=*/false);
             {
-              OpBuilder thenb = ifb.getThenBodyBuilder(rewriter.getListener());
+              OpBuilder thenb = ifb.getThenBodyBuilder();
               thenb.create<InBoundsStoreOp>(
                   loc, reduced, workspaceLDSBuffer,
                   reductionLoop.getLowerCoords(/*domain=*/2));
@@ -1393,7 +1394,7 @@ struct BlockwiseReduceRewritePattern
             scf::IfOp ifb = rewriter.create<scf::IfOp>(
                 loc, isValid, /*withElseRegion=*/false);
             {
-              OpBuilder thenb = ifb.getThenBodyBuilder(rewriter.getListener());
+              OpBuilder thenb = ifb.getThenBodyBuilder();
               SmallVector<Value, 4> firstInits{nrtid, rtid, zeroConstantOp};
               SmallVector<Value, 4> secondInits{nrtid, rtidPlusOffsetVal,
                                                 zeroConstantOp};
@@ -1459,8 +1460,9 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp,
                       GlobalLoadOp, GlobalStoreOp>();
-  target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
-                         vector::VectorDialect, memref::MemRefDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
+                         affine::AffineDialect, vector::VectorDialect,
+                         memref::MemRefDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);

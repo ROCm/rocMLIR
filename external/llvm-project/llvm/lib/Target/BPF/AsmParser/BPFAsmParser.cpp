@@ -47,7 +47,7 @@ class BPFAsmParser : public MCTargetAsmParser {
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc, OperandVector &Operands) override;
 
-  bool ParseDirective(AsmToken DirectiveID) override;
+  ParseStatus parseDirective(AsmToken DirectiveID) override;
 
   // "=" is used as assignment operator for assembly statment, so can't be used
   // for symbol assignment.
@@ -253,6 +253,14 @@ public:
         .Case("ll", true)
         .Case("skb", true)
         .Case("s", true)
+        .Case("atomic_fetch_add", true)
+        .Case("atomic_fetch_and", true)
+        .Case("atomic_fetch_or", true)
+        .Case("atomic_fetch_xor", true)
+        .Case("xchg_64", true)
+        .Case("xchg32_32", true)
+        .Case("cmpxchg_64", true)
+        .Case("cmpxchg32_32", true)
         .Default(false);
   }
 };
@@ -483,6 +491,11 @@ bool BPFAsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     if (parseRegister(Operands) == MatchOperand_Success)
       continue;
 
+    if (getLexer().is(AsmToken::Comma)) {
+      getLexer().Lex();
+      continue;
+    }
+
     // Attempt to parse token as an immediate
     if (parseImmediate(Operands) != MatchOperand_Success) {
       SMLoc Loc = getLexer().getLoc();
@@ -503,7 +516,9 @@ bool BPFAsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   return false;
 }
 
-bool BPFAsmParser::ParseDirective(AsmToken DirectiveID) { return true; }
+ParseStatus BPFAsmParser::parseDirective(AsmToken DirectiveID) {
+  return ParseStatus::NoMatch;
+}
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeBPFAsmParser() {
   RegisterMCAsmParser<BPFAsmParser> X(getTheBPFTarget());

@@ -1138,15 +1138,16 @@ bool DWARFExpression::Evaluate(
 
         if (load_addr == LLDB_INVALID_ADDRESS && so_addr.IsSectionOffset()) {
           uint8_t addr_bytes[8];
+          size_t buf_size = sizeof(addr_bytes);
           Status error;
 
-          if (exe_ctx->GetTargetRef().ReadMemory(
-                  so_addr, &addr_bytes, size, error,
-                  /*force_live_memory=*/false) == size) {
+          if (target &&
+              target->ReadMemory(so_addr, &addr_bytes, buf_size, error,
+                                 /*force_live_memory=*/false) == buf_size) {
             ObjectFile *objfile = module_sp->GetObjectFile();
 
             stack.back().GetScalar() = DerefSizeExtractDataHelper(
-                addr_bytes, size, objfile->GetByteOrder(), size);
+                addr_bytes, size, objfile->GetByteOrder(), buf_size);
             stack.back().ClearContext();
             break;
           } else {
@@ -1170,13 +1171,13 @@ bool DWARFExpression::Evaluate(
             lldb::addr_t pointer_addr =
                 stack.back().GetScalar().ULongLong(LLDB_INVALID_ADDRESS);
             uint8_t addr_bytes[sizeof(lldb::addr_t)];
+            size_t buf_size = sizeof(addr_bytes);
             Status error;
-            if (process->ReadMemory(pointer_addr, &addr_bytes, size, error) ==
-                size) {
-
+            if (process->ReadMemory(pointer_addr, &addr_bytes, buf_size, error)
+                == buf_size) {
               stack.back().GetScalar() =
                   DerefSizeExtractDataHelper(addr_bytes, sizeof(addr_bytes),
-                                             process->GetByteOrder(), size);
+                                             process->GetByteOrder(), buf_size);
               stack.back().ClearContext();
             } else {
               if (error_ptr)
@@ -1436,8 +1437,12 @@ bool DWARFExpression::Evaluate(
           return false;
         } else {
           stack.pop_back();
-          stack.back() =
-              stack.back().ResolveValue(exe_ctx) / tmp.ResolveValue(exe_ctx);
+          Scalar divisor, dividend;
+          divisor = tmp.ResolveValue(exe_ctx);
+          dividend = stack.back().ResolveValue(exe_ctx);
+          divisor.MakeSigned();
+          dividend.MakeSigned();
+          stack.back() = dividend / divisor;
           if (!stack.back().ResolveValue(exe_ctx).IsValid()) {
             if (error_ptr)
               error_ptr->SetErrorString("Divide failed.");

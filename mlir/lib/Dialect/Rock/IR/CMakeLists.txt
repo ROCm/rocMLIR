@@ -26,7 +26,7 @@ target_link_libraries(MLIRRockOps
   MLIRAffineDialect
   MLIRBufferizationDialect
   MLIRBufferizationTransformOps
-  MLIRGPUOps
+  MLIRGPUDialect
   MLIRAMDGPUDialect
   MLIRIR
   MLIRInferIntRangeInterface

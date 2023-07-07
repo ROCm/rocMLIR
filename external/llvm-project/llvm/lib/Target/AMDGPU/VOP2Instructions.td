@@ -660,7 +660,7 @@ def VOP2e_I16_I16_I16_I1 : VOP2e_SGPR<[i16, i16, i16, i1]>;
 def VOP_READLANE : VOPProfile<[i32, i32, i32, untyped]> {
   let Outs32 = (outs SReg_32:$vdst);
   let Outs64 = Outs32;
-  let Ins32 = (ins VRegOrLds_32:$src0, SCSrc_b32:$src1);
+  let Ins32 = (ins VRegOrLdsSrc_32:$src0, SCSrc_b32:$src1);
   let Ins64 = Ins32;
   let Asm32 = " $vdst, $src0, $src1";
   let Asm64 = Asm32;
@@ -764,19 +764,20 @@ defm V_SUBREV_U32 : VOP2Inst <"v_subrev_u32", VOP_I32_I32_I32_ARITH, null_frag, 
 let isConvergent = 1, Uses = []<Register> in {
 def V_READLANE_B32 : VOP2_Pseudo<"v_readlane_b32", VOP_READLANE,
   [(set i32:$vdst, (int_amdgcn_readlane i32:$src0, i32:$src1))]>;
-
-let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in" in {
+let IsNeverUniform = 1, Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in" in {
 def V_WRITELANE_B32 : VOP2_Pseudo<"v_writelane_b32", VOP_WRITELANE,
   [(set i32:$vdst, (int_amdgcn_writelane i32:$src0, i32:$src1, i32:$vdst_in))]>;
-} // End $vdst = $vdst_in, DisableEncoding $vdst_in
+} // End IsNeverUniform, $vdst = $vdst_in, DisableEncoding $vdst_in
 } // End isConvergent = 1
 
 let isReMaterializable = 1 in {
 defm V_BFM_B32 : VOP2Inst <"v_bfm_b32", VOP_I32_I32_I32>;
 defm V_BCNT_U32_B32 : VOP2Inst <"v_bcnt_u32_b32", VOP_I32_I32_I32, add_ctpop>;
+let IsNeverUniform = 1 in {
 defm V_MBCNT_LO_U32_B32 : VOP2Inst <"v_mbcnt_lo_u32_b32", VOP_I32_I32_I32, int_amdgcn_mbcnt_lo>;
 defm V_MBCNT_HI_U32_B32 : VOP2Inst <"v_mbcnt_hi_u32_b32", VOP_I32_I32_I32, int_amdgcn_mbcnt_hi>;
-defm V_LDEXP_F32 : VOP2Inst <"v_ldexp_f32", VOP_F32_F32_I32, AMDGPUldexp>;
+} // End IsNeverUniform = 1
+defm V_LDEXP_F32 : VOP2Inst <"v_ldexp_f32", VOP_F32_F32_I32, any_fldexp>;
 
 let ReadsModeReg = 0, mayRaiseFPException = 0 in {
 defm V_CVT_PKNORM_I16_F32 : VOP2Inst <"v_cvt_pknorm_i16_f32", VOP_V2I16_F32_F32, AMDGPUpknorm_i16_f32>;
@@ -862,9 +863,18 @@ def :  divergent_i64_BinOp <xor, V_XOR_B32_e64>;
 // 16-Bit Operand Instructions
 //===----------------------------------------------------------------------===//
 
-def LDEXP_F16_VOPProfile_True16 : VOPProfile_True16<VOP_F16_F16_I32> {
-  // The ldexp.f16 intrinsic expects a i32 src1 operand, though the hardware
-  // encoding treats src1 as an f16
+// The ldexp.f16 intrinsic expects a integer src1 operand, though the hardware
+// encoding treats src1 as an f16
+def LDEXP_F16_VOPProfile : VOPProfile <[f16, f16, f16, untyped]> {
+  let Src1Mod = Int32InputMods;
+  let Src1ModDPP = IntVRegInputMods;
+  let Src1ModVOP3DPP = IntVRegInputMods;
+  // SDWA sext is the only modifier allowed.
+  let HasSrc1IntMods = 1;
+  let HasSrc1FloatMods = 0;
+  let Src1ModSDWA = Int16SDWAInputMods;
+}
+def LDEXP_F16_VOPProfile_True16 : VOPProfile_True16<VOP_F16_F16_F16> {
   let Src1RC32 = RegisterOperand<VGPR_32_Lo128>;
   let Src1DPP = VGPR_32_Lo128;
   let Src1ModDPP = IntT16VRegInputMods;
@@ -873,9 +883,9 @@ def LDEXP_F16_VOPProfile_True16 : VOPProfile_True16<VOP_F16_F16_I32> {
 let isReMaterializable = 1 in {
 let FPDPRounding = 1 in {
   let SubtargetPredicate = NotHasTrue16BitInsts, OtherPredicates = [Has16BitInsts]  in
-    defm V_LDEXP_F16 : VOP2Inst <"v_ldexp_f16", VOP_F16_F16_I32, AMDGPUldexp>;
+    defm V_LDEXP_F16 : VOP2Inst <"v_ldexp_f16", LDEXP_F16_VOPProfile>;
   let SubtargetPredicate = HasTrue16BitInsts in
-    defm V_LDEXP_F16_t16 : VOP2Inst <"v_ldexp_f16_t16", LDEXP_F16_VOPProfile_True16, AMDGPUldexp>;
+    defm V_LDEXP_F16_t16 : VOP2Inst <"v_ldexp_f16_t16", LDEXP_F16_VOPProfile_True16>;
 } // End FPDPRounding = 1
 // FIXME VOP3 Only instructions. NFC using VOPProfile_True16 for these until a planned change to use a new register class for VOP3 encoded True16 instuctions
 defm V_LSHLREV_B16 : VOP2Inst_e64_t16 <"v_lshlrev_b16", VOP_I16_I16_I16, clshl_rev_16>;
@@ -897,6 +907,21 @@ defm V_MIN_U16 : VOP2Inst_e64_t16 <"v_min_u16", VOP_I16_I16_I16, umin>;
 defm V_MIN_I16 : VOP2Inst_e64_t16 <"v_min_i16", VOP_I16_I16_I16, smin>;
 } // End isCommutable = 1
 } // End isReMaterializable = 1
+
+class LDEXP_F16_Pat <SDPatternOperator op, VOP_Pseudo inst, VOPProfile P = inst.Pfl> : GCNPat <
+  (P.DstVT (op (P.Src0VT (VOP3Mods0 P.Src0VT:$src0, i32:$src0_modifiers, i1:$clamp, i32:$omod)),
+               (i16 (VOP3Mods0 P.Src1VT:$src1, i32:$src1_modifiers)))),
+  (inst $src0_modifiers, $src0,
+        $src1_modifiers, $src1,
+        $clamp, /* clamp */
+        $omod /* omod */)
+>;
+
+let OtherPredicates = [NotHasTrue16BitInsts] in
+def : LDEXP_F16_Pat<any_fldexp, V_LDEXP_F16_e64>;
+
+let OtherPredicates = [HasTrue16BitInsts] in
+def : LDEXP_F16_Pat<any_fldexp, V_LDEXP_F16_t16_e64>;
 
 let SubtargetPredicate = isGFX11Plus in {
   let isCommutable = 1 in {
@@ -1477,19 +1502,19 @@ defm V_FMAMK_F16_t16       : VOP2Only_Real_MADK_gfx11_with_name<0x037, "v_fmamk_
 defm V_FMAAK_F16_t16       : VOP2Only_Real_MADK_gfx11_with_name<0x038, "v_fmaak_f16">;
 
 // VOP3 only.
-defm V_CNDMASK_B16        : VOP3Only_Realtriple_gfx11<0x25d>;
-defm V_LDEXP_F32          : VOP3Only_Realtriple_gfx11<0x31c>;
-defm V_BFM_B32            : VOP3Only_Realtriple_gfx11<0x31d>;
-defm V_BCNT_U32_B32       : VOP3Only_Realtriple_gfx11<0x31e>;
-defm V_MBCNT_LO_U32_B32   : VOP3Only_Realtriple_gfx11<0x31f>;
-defm V_MBCNT_HI_U32_B32   : VOP3Only_Realtriple_gfx11<0x320>;
-defm V_CVT_PKNORM_I16_F32 : VOP3Only_Realtriple_gfx11<0x321>;
-defm V_CVT_PKNORM_U16_F32 : VOP3Only_Realtriple_gfx11<0x322>;
-defm V_CVT_PK_U16_U32     : VOP3Only_Realtriple_gfx11<0x323>;
-defm V_CVT_PK_I16_I32     : VOP3Only_Realtriple_gfx11<0x324>;
-defm V_ADD_CO_U32         : VOP3beOnly_Realtriple_gfx11<0x300>;
-defm V_SUB_CO_U32         : VOP3beOnly_Realtriple_gfx11<0x301>;
-defm V_SUBREV_CO_U32      : VOP3beOnly_Realtriple_gfx11<0x302>;
+defm V_CNDMASK_B16         : VOP3Only_Realtriple_gfx11<0x25d>;
+defm V_LDEXP_F32           : VOP3Only_Realtriple_gfx11<0x31c>;
+defm V_BFM_B32             : VOP3Only_Realtriple_gfx11<0x31d>;
+defm V_BCNT_U32_B32        : VOP3Only_Realtriple_gfx11<0x31e>;
+defm V_MBCNT_LO_U32_B32    : VOP3Only_Realtriple_gfx11<0x31f>;
+defm V_MBCNT_HI_U32_B32    : VOP3Only_Realtriple_gfx11<0x320>;
+defm V_CVT_PK_NORM_I16_F32 : VOP3Only_Realtriple_with_name_gfx11<0x321, "V_CVT_PKNORM_I16_F32", "v_cvt_pk_norm_i16_f32">;
+defm V_CVT_PK_NORM_U16_F32 : VOP3Only_Realtriple_with_name_gfx11<0x322, "V_CVT_PKNORM_U16_F32", "v_cvt_pk_norm_u16_f32">;
+defm V_CVT_PK_U16_U32      : VOP3Only_Realtriple_gfx11<0x323>;
+defm V_CVT_PK_I16_I32      : VOP3Only_Realtriple_gfx11<0x324>;
+defm V_ADD_CO_U32          : VOP3beOnly_Realtriple_gfx11<0x300>;
+defm V_SUB_CO_U32          : VOP3beOnly_Realtriple_gfx11<0x301>;
+defm V_SUBREV_CO_U32       : VOP3beOnly_Realtriple_gfx11<0x302>;
 
 let SubtargetPredicate = isGFX11Plus in {
   defm : VOP2eInstAliases<V_CNDMASK_B32_e32, V_CNDMASK_B32_e32_gfx11>;

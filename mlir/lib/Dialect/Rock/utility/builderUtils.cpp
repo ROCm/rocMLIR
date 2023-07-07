@@ -24,14 +24,14 @@ namespace rock {
 Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
                           Type elementType, int64_t value) {
   APInt apValue(elementType.getIntOrFloatBitWidth(), value, true);
-  Attribute constValue = b.getIntegerAttr(elementType, apValue);
+  auto constValue = b.getIntegerAttr(elementType, apValue);
 
   Value retValue;
   if (auto shapedType = type.dyn_cast<ShapedType>()) {
     retValue = b.create<ConstantOp>(
         loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
-    retValue = b.create<ConstantOp>(loc, constValue, type);
+    retValue = b.create<ConstantOp>(loc, type, constValue);
   }
 
   return retValue;
@@ -66,7 +66,7 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
         loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue =
-        b.create<ConstantOp>(loc, b.getFloatAttr(elementType, value), type);
+        b.create<ConstantOp>(loc, type, b.getFloatAttr(elementType, value));
   }
 
   return retValue;

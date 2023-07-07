@@ -187,10 +187,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   MlirOperation moduleMO = mlirModuleGetOperation(moduleOp1);
 
-  mlir::PassManager pm0(module.getContext(),
+  mlir::PassManager pm0(module->getName(),
                         mlir::PassManager::Nesting::Implicit);
-  mlir::PassManager pm(module.getContext(),
-                       mlir::PassManager::Nesting::Implicit);
+  mlir::PassManager pm(module->getName(), mlir::PassManager::Nesting::Implicit);
 
   mlir::migraphx::addHighLevelPipeline(pm0);
   (void)pm0.run(module);

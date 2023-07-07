@@ -16,10 +16,6 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
-#include <cstdint>
-// FIXME: vector is used because that's what clang uses for subtarget feature
-// lists, but SmallVector would probably be better
-#include <vector>
 
 namespace llvm {
 
@@ -141,6 +137,9 @@ enum ArchFeatureKind : uint32_t {
 
   // Sram-ecc is available.
   FEATURE_SRAMECC = 1 << 8,
+
+  // WGP mode is supported.
+  FEATURE_WGP = 1 << 9,
 };
 
 StringRef getArchNameAMDGCN(GPUKind AK);

@@ -5745,7 +5745,7 @@ class OMPMapClause final : public OMPMappableExprListClause<OMPMapClause>,
   size_t numTrailingObjects(OverloadToken<Expr *>) const {
     // There are varlist_size() of expressions, and varlist_size() of
     // user-defined mappers.
-    return 2 * varlist_size();
+    return 2 * varlist_size() + 1;
   }
   size_t numTrailingObjects(OverloadToken<ValueDecl *>) const {
     return getUniqueDeclarationsNum();
@@ -5759,7 +5759,7 @@ private:
   OpenMPMapModifierKind MapTypeModifiers[NumberOfOMPMapClauseModifiers] = {
       OMPC_MAP_MODIFIER_unknown, OMPC_MAP_MODIFIER_unknown,
       OMPC_MAP_MODIFIER_unknown, OMPC_MAP_MODIFIER_unknown,
-      OMPC_MAP_MODIFIER_unknown};
+      OMPC_MAP_MODIFIER_unknown, OMPC_MAP_MODIFIER_unknown};
 
   /// Location of map-type-modifiers for the 'map' clause.
   SourceLocation MapTypeModifiersLoc[NumberOfOMPMapClauseModifiers];
@@ -5860,6 +5860,11 @@ private:
   /// Set colon location.
   void setColonLoc(SourceLocation Loc) { ColonLoc = Loc; }
 
+  /// Set iterator modifier.
+  void setIteratorModifier(Expr *IteratorModifier) {
+    getTrailingObjects<Expr *>()[2 * varlist_size()] = IteratorModifier;
+  }
+
 public:
   /// Creates clause with a list of variables \a VL.
   ///
@@ -5872,6 +5877,7 @@ public:
   /// \param ComponentLists Component lists used in the clause.
   /// \param UDMapperRefs References to user-defined mappers associated with
   /// expressions used in the clause.
+  /// \param IteratorModifier Iterator modifier.
   /// \param MapModifiers Map-type-modifiers.
   /// \param MapModifiersLoc Location of map-type-modifiers.
   /// \param UDMQualifierLoc C++ nested name specifier for the associated
@@ -5884,7 +5890,7 @@ public:
   Create(const ASTContext &C, const OMPVarListLocTy &Locs,
          ArrayRef<Expr *> Vars, ArrayRef<ValueDecl *> Declarations,
          MappableExprComponentListsRef ComponentLists,
-         ArrayRef<Expr *> UDMapperRefs,
+         ArrayRef<Expr *> UDMapperRefs, Expr *IteratorModifier,
          ArrayRef<OpenMPMapModifierKind> MapModifiers,
          ArrayRef<SourceLocation> MapModifiersLoc,
          NestedNameSpecifierLoc UDMQualifierLoc, DeclarationNameInfo MapperId,
@@ -5902,6 +5908,11 @@ public:
   /// NumComponents: total number of expression components in the clause.
   static OMPMapClause *CreateEmpty(const ASTContext &C,
                                    const OMPMappableExprListSizeTy &Sizes);
+
+  /// Fetches Expr * of iterator modifier.
+  Expr *getIteratorModifier() {
+    return getTrailingObjects<Expr *>()[2 * varlist_size()];
+  }
 
   /// Fetches mapping kind for the clause.
   OpenMPMapClauseKind getMapType() const LLVM_READONLY { return MapType; }
@@ -8990,6 +9001,174 @@ public:
       return Stmt::child_range(Stmt::child_iterator(), Stmt::child_iterator());
     return Stmt::child_range(&getTrailingObjects<Stmt *>()[NumChildren],
                              &getTrailingObjects<Stmt *>()[NumChildren + 1]);
+  }
+};
+
+/// This represents 'ompx_dyn_cgroup_mem' clause in the '#pragma omp target ...'
+/// directive.
+///
+/// \code
+/// #pragma omp target [...] ompx_dyn_cgroup_mem(N)
+/// \endcode
+class OMPXDynCGroupMemClause
+    : public OMPOneStmtClause<llvm::omp::OMPC_ompx_dyn_cgroup_mem, OMPClause>,
+      public OMPClauseWithPreInit {
+  friend class OMPClauseReader;
+
+  /// Set size.
+  void setSize(Expr *E) { setStmt(E); }
+
+public:
+  /// Build 'ompx_dyn_cgroup_mem' clause.
+  ///
+  /// \param Size Size expression.
+  /// \param HelperSize Helper Size expression
+  /// \param CaptureRegion Innermost OpenMP region where expressions in this
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  OMPXDynCGroupMemClause(Expr *Size, Stmt *HelperSize,
+                         OpenMPDirectiveKind CaptureRegion,
+                         SourceLocation StartLoc, SourceLocation LParenLoc,
+                         SourceLocation EndLoc)
+      : OMPOneStmtClause(Size, StartLoc, LParenLoc, EndLoc),
+        OMPClauseWithPreInit(this) {
+    setPreInitStmt(HelperSize, CaptureRegion);
+  }
+
+  /// Build an empty clause.
+  OMPXDynCGroupMemClause() : OMPOneStmtClause(), OMPClauseWithPreInit(this) {}
+
+  /// Return the size expression.
+  Expr *getSize() { return getStmtAs<Expr>(); }
+
+  /// Return the size expression.
+  Expr *getSize() const { return getStmtAs<Expr>(); }
+};
+
+/// This represents the 'doacross' clause for the '#pragma omp ordered'
+/// directive.
+///
+/// \code
+/// #pragma omp ordered doacross(sink: i-1, j-1)
+/// \endcode
+/// In this example directive '#pragma omp ordered' with clause 'doacross' with
+/// a dependence-type 'sink' and loop-iteration vector expressions i-1 and j-1.
+class OMPDoacrossClause final
+    : public OMPVarListClause<OMPDoacrossClause>,
+      private llvm::TrailingObjects<OMPDoacrossClause, Expr *> {
+  friend class OMPClauseReader;
+  friend OMPVarListClause;
+  friend TrailingObjects;
+
+  /// Dependence type (sink or source).
+  OpenMPDoacrossClauseModifier DepType = OMPC_DOACROSS_unknown;
+
+  /// Dependence type location.
+  SourceLocation DepLoc;
+
+  /// Colon location.
+  SourceLocation ColonLoc;
+
+  /// Number of loops, associated with the doacross clause.
+  unsigned NumLoops = 0;
+
+  /// Build clause with number of expressions \a N.
+  ///
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  /// \param N Number of expressions in the clause.
+  /// \param NumLoops Number of loops associated with the clause.
+  OMPDoacrossClause(SourceLocation StartLoc, SourceLocation LParenLoc,
+                    SourceLocation EndLoc, unsigned N, unsigned NumLoops)
+      : OMPVarListClause<OMPDoacrossClause>(llvm::omp::OMPC_doacross, StartLoc,
+                                            LParenLoc, EndLoc, N),
+        NumLoops(NumLoops) {}
+
+  /// Build an empty clause.
+  ///
+  /// \param N Number of expressions in the clause.
+  /// \param NumLoops Number of loops associated with the clause.
+  explicit OMPDoacrossClause(unsigned N, unsigned NumLoops)
+      : OMPVarListClause<OMPDoacrossClause>(llvm::omp::OMPC_doacross,
+                                            SourceLocation(), SourceLocation(),
+                                            SourceLocation(), N),
+        NumLoops(NumLoops) {}
+
+  /// Set dependence type.
+  void setDependenceType(OpenMPDoacrossClauseModifier M) { DepType = M; }
+
+  /// Set dependence type location.
+  void setDependenceLoc(SourceLocation Loc) { DepLoc = Loc; }
+
+  /// Set colon location.
+  void setColonLoc(SourceLocation Loc) { ColonLoc = Loc; }
+
+public:
+  /// Creates clause with a list of expressions \a VL.
+  ///
+  /// \param C AST context.
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  /// \param DepType The dependence type.
+  /// \param DepLoc Location of the dependence type.
+  /// \param ColonLoc Location of ':'.
+  /// \param VL List of references to the expressions.
+  /// \param NumLoops Number of loops that associated with the clause.
+  static OMPDoacrossClause *
+  Create(const ASTContext &C, SourceLocation StartLoc, SourceLocation LParenLoc,
+         SourceLocation EndLoc, OpenMPDoacrossClauseModifier DepType,
+         SourceLocation DepLoc, SourceLocation ColonLoc, ArrayRef<Expr *> VL,
+         unsigned NumLoops);
+
+  /// Creates an empty clause with \a N expressions.
+  ///
+  /// \param C AST context.
+  /// \param N The number of expressions.
+  /// \param NumLoops Number of loops that is associated with this clause.
+  static OMPDoacrossClause *CreateEmpty(const ASTContext &C, unsigned N,
+                                        unsigned NumLoops);
+
+  /// Get dependence type.
+  OpenMPDoacrossClauseModifier getDependenceType() const { return DepType; }
+
+  /// Get dependence type location.
+  SourceLocation getDependenceLoc() const { return DepLoc; }
+
+  /// Get colon location.
+  SourceLocation getColonLoc() const { return ColonLoc; }
+
+  /// Get number of loops associated with the clause.
+  unsigned getNumLoops() const { return NumLoops; }
+
+  /// Set the loop data.
+  void setLoopData(unsigned NumLoop, Expr *Cnt);
+
+  /// Get the loop data.
+  Expr *getLoopData(unsigned NumLoop);
+  const Expr *getLoopData(unsigned NumLoop) const;
+
+  child_range children() {
+    return child_range(reinterpret_cast<Stmt **>(varlist_begin()),
+                       reinterpret_cast<Stmt **>(varlist_end()));
+  }
+
+  const_child_range children() const {
+    auto Children = const_cast<OMPDoacrossClause *>(this)->children();
+    return const_child_range(Children.begin(), Children.end());
+  }
+
+  child_range used_children() {
+    return child_range(child_iterator(), child_iterator());
+  }
+  const_child_range used_children() const {
+    return const_child_range(const_child_iterator(), const_child_iterator());
+  }
+
+  static bool classof(const OMPClause *T) {
+    return T->getClauseKind() == llvm::omp::OMPC_doacross;
   }
 };
 

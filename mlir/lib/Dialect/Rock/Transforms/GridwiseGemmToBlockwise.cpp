@@ -865,7 +865,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t nIterations = K / kPerBlock;
     BlockwiseGemmOp blockwiseGemmOp;
     // Start at 1 to make it clearer we have performed software pipelining.
-    auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
+    auto loopOp = b.create<affine::AffineForOp>(loc, 1, nIterations, 1);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -906,14 +906,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
-      IRMapping storeAUpdates, storeBUpdates;
-
-      storeAUpdates.map(blockwiseLoadA.getResult(0),
-                        blockwiseLoadAClone.getResult(0));
-      storeBUpdates.map(blockwiseLoadB.getResult(0),
-                        blockwiseLoadBClone.getResult(0));
-      b.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
-      b.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
+      b.clone(*blockwiseStoreA.getOperation());
+      b.clone(*blockwiseStoreB.getOperation());
     }
     // outside the loop.
 
@@ -1317,7 +1311,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nIterations = K / kPerBlock;
     BlockwiseGemmAccelOp blockwiseGemmAccelOp;
     // Start at 1 to make it clearer we have performed software pipelining.
-    auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
+    auto loopOp = b.create<affine::AffineForOp>(loc, 1, nIterations, 1);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -1359,13 +1353,8 @@ struct GridwiseGemmAccelRewritePattern
       b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
-      IRMapping storeAUpdates, storeBUpdates;
-      storeAUpdates.map(blockwiseLoadA.getResult(0),
-                        blockwiseLoadAClone.getResult(0));
-      storeBUpdates.map(blockwiseLoadB.getResult(0),
-                        blockwiseLoadBClone.getResult(0));
-      b.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
-      b.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
+      b.clone(*blockwiseStoreA.getOperation());
+      b.clone(*blockwiseStoreB.getOperation());
     }
     // outside the loop.
 
@@ -1415,7 +1404,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
-                         memref::MemRefDialect, AffineDialect,
+                         memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
