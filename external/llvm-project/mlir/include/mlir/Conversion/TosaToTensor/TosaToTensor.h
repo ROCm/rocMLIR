@@ -13,7 +13,6 @@
 #ifndef MLIR_CONVERSION_TOSATOTENSOR_TOSATOTENSOR_H
 #define MLIR_CONVERSION_TOSATOTENSOR_TOSATOTENSOR_H
 
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {

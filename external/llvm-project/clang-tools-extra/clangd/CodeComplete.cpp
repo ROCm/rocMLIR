@@ -150,22 +150,24 @@ CompletionItemKind toCompletionItemKind(index::SymbolKind Kind) {
   llvm_unreachable("Unhandled clang::index::SymbolKind.");
 }
 
-CompletionItemKind
-toCompletionItemKind(CodeCompletionResult::ResultKind ResKind,
-                     const NamedDecl *Decl,
-                     CodeCompletionContext::Kind CtxKind) {
-  if (Decl)
-    return toCompletionItemKind(index::getSymbolInfo(Decl).Kind);
+CompletionItemKind toCompletionItemKind(const CodeCompletionResult &Res,
+                                        CodeCompletionContext::Kind CtxKind) {
+  if (Res.Declaration)
+    return toCompletionItemKind(index::getSymbolInfo(Res.Declaration).Kind);
   if (CtxKind == CodeCompletionContext::CCC_IncludedFile)
     return CompletionItemKind::File;
-  switch (ResKind) {
+  switch (Res.Kind) {
   case CodeCompletionResult::RK_Declaration:
     llvm_unreachable("RK_Declaration without Decl");
   case CodeCompletionResult::RK_Keyword:
     return CompletionItemKind::Keyword;
   case CodeCompletionResult::RK_Macro:
-    return CompletionItemKind::Text; // unfortunately, there's no 'Macro'
-                                     // completion items in LSP.
+    // There is no 'Macro' kind in LSP.
+    // Avoid using 'Text' to avoid confusion with client-side word-based
+    // completion proposals.
+    return Res.MacroDefInfo && Res.MacroDefInfo->isFunctionLike()
+               ? CompletionItemKind::Function
+               : CompletionItemKind::Constant;
   case CodeCompletionResult::RK_Pattern:
     return CompletionItemKind::Snippet;
   }
@@ -212,7 +214,8 @@ struct CompletionCandidate {
   // Returns a token identifying the overload set this is part of.
   // 0 indicates it's not part of any overload set.
   size_t overloadSet(const CodeCompleteOptions &Opts, llvm::StringRef FileName,
-                     IncludeInserter *Inserter) const {
+                     IncludeInserter *Inserter,
+                     CodeCompletionContext::Kind CCContextKind) const {
     if (!Opts.BundleOverloads.value_or(false))
       return 0;
 
@@ -221,7 +224,7 @@ struct CompletionCandidate {
     // bundle those, so we must resolve the header to be included here.
     std::string HeaderForHash;
     if (Inserter) {
-      if (auto Header = headerToInsertIfAllowed(Opts)) {
+      if (auto Header = headerToInsertIfAllowed(Opts, CCContextKind)) {
         if (auto HeaderFile = toHeaderFile(*Header, FileName)) {
           if (auto Spelled =
                   Inserter->calculateIncludePath(*HeaderFile, FileName))
@@ -269,11 +272,21 @@ struct CompletionCandidate {
     return 0;
   }
 
+  bool contextAllowsHeaderInsertion(CodeCompletionContext::Kind Kind) const {
+    // Explicitly disable insertions for forward declarations since they don't
+    // reference the declaration.
+    if (Kind == CodeCompletionContext::CCC_ObjCClassForwardDecl)
+      return false;
+    return true;
+  }
+
   // The best header to include if include insertion is allowed.
   std::optional<llvm::StringRef>
-  headerToInsertIfAllowed(const CodeCompleteOptions &Opts) const {
+  headerToInsertIfAllowed(const CodeCompleteOptions &Opts,
+                          CodeCompletionContext::Kind ContextKind) const {
     if (Opts.InsertIncludes == CodeCompleteOptions::NeverInsert ||
-        RankedIncludeHeaders.empty())
+        RankedIncludeHeaders.empty() ||
+        !contextAllowsHeaderInsertion(ContextKind))
       return std::nullopt;
     if (SemaResult && SemaResult->Declaration) {
       // Avoid inserting new #include if the declaration is found in the current
@@ -313,7 +326,7 @@ struct ScoredBundleGreater {
 struct CodeCompletionBuilder {
   CodeCompletionBuilder(ASTContext *ASTCtx, const CompletionCandidate &C,
                         CodeCompletionString *SemaCCS,
-                        llvm::ArrayRef<std::string> QueryScopes,
+                        llvm::ArrayRef<std::string> AccessibleScopes,
                         const IncludeInserter &Includes,
                         llvm::StringRef FileName,
                         CodeCompletionContext::Kind ContextKind,
@@ -337,8 +350,7 @@ struct CodeCompletionBuilder {
               Completion.Scope = std::string(
                   splitQualifiedName(printQualifiedName(*ND)).first);
       }
-      Completion.Kind = toCompletionItemKind(
-          C.SemaResult->Kind, C.SemaResult->Declaration, ContextKind);
+      Completion.Kind = toCompletionItemKind(*C.SemaResult, ContextKind);
       // Sema could provide more info on whether the completion was a file or
       // folder.
       if (Completion.Kind == CompletionItemKind::File &&
@@ -367,7 +379,7 @@ struct CodeCompletionBuilder {
       // avoids unneeded qualifiers in cases like with `using ns::X`.
       if (Completion.RequiredQualifier.empty() && !C.SemaResult) {
         llvm::StringRef ShortestQualifier = C.IndexResult->Scope;
-        for (llvm::StringRef Scope : QueryScopes) {
+        for (llvm::StringRef Scope : AccessibleScopes) {
           llvm::StringRef Qualifier = C.IndexResult->Scope;
           if (Qualifier.consume_front(Scope) &&
               Qualifier.size() < ShortestQualifier.size())
@@ -400,7 +412,8 @@ struct CodeCompletionBuilder {
           std::move(*Spelled),
           Includes.shouldInsertInclude(*ResolvedDeclaring, *ResolvedInserted));
     };
-    bool ShouldInsert = C.headerToInsertIfAllowed(Opts).has_value();
+    bool ShouldInsert =
+        C.headerToInsertIfAllowed(Opts, ContextKind).has_value();
     Symbol::IncludeDirective Directive = insertionDirective(Opts);
     // Calculate include paths and edits for all possible headers.
     for (const auto &Inc : C.RankedIncludeHeaders) {
@@ -435,9 +448,8 @@ struct CodeCompletionBuilder {
     Bundled.emplace_back();
     BundledEntry &S = Bundled.back();
     if (C.SemaResult) {
-      bool IsPattern = C.SemaResult->Kind == CodeCompletionResult::RK_Pattern;
-      getSignature(*SemaCCS, &S.Signature, &S.SnippetSuffix,
-                   &Completion.RequiredQualifier, IsPattern);
+      getSignature(*SemaCCS, &S.Signature, &S.SnippetSuffix, C.SemaResult->Kind,
+                   C.SemaResult->CursorKind, &Completion.RequiredQualifier);
       if (!C.SemaResult->FunctionCanBeCall)
         S.SnippetSuffix.clear();
       S.ReturnType = getReturnType(*SemaCCS);
@@ -646,40 +658,70 @@ struct SpecifiedScope {
   //
   // Examples of unqualified completion:
   //
-  //   "vec^"                                       => {""}
-  //   "using namespace std; vec^"                  => {"", "std::"}
-  //   "using namespace std; namespace ns { vec^ }" => {"ns::", "std::", ""}
+  //   "vec^"                                        => {""}
+  //   "using namespace std; vec^"                   => {"", "std::"}
+  //   "namespace ns {inline namespace ni { struct Foo {}}}
+  //    using namespace ns::ni; Fo^ "                => {"", "ns::ni::"}
+  //   "using namespace std; namespace ns { vec^ }"  => {"ns::", "std::", ""}
   //
   // "" for global namespace, "ns::" for normal namespace.
   std::vector<std::string> AccessibleScopes;
+  // This is an overestimate of AccessibleScopes, e.g. it ignores inline
+  // namespaces, to fetch more relevant symbols from index.
+  std::vector<std::string> QueryScopes;
   // The full scope qualifier as typed by the user (without the leading "::").
   // Set if the qualifier is not fully resolved by Sema.
   std::optional<std::string> UnresolvedQualifier;
 
-  // Construct scopes being queried in indexes. The results are deduplicated.
-  // This method format the scopes to match the index request representation.
-  std::vector<std::string> scopesForIndexQuery() {
+  std::optional<std::string> EnclosingNamespace;
+
+  bool AllowAllScopes = false;
+
+  // Scopes that are accessible from current context. Used for dropping
+  // unnecessary namespecifiers.
+  std::vector<std::string> scopesForQualification() {
     std::set<std::string> Results;
     for (llvm::StringRef AS : AccessibleScopes)
       Results.insert(
           (AS + (UnresolvedQualifier ? *UnresolvedQualifier : "")).str());
     return {Results.begin(), Results.end()};
   }
+
+  // Construct scopes being queried in indexes. The results are deduplicated.
+  // This method formats the scopes to match the index request representation.
+  std::vector<std::string> scopesForIndexQuery() {
+    // The enclosing namespace must be first, it gets a quality boost.
+    std::vector<std::string> EnclosingAtFront;
+    if (EnclosingNamespace.has_value())
+      EnclosingAtFront.push_back(*EnclosingNamespace);
+    std::set<std::string> Deduplicated;
+    for (llvm::StringRef S : QueryScopes)
+      if (S != EnclosingNamespace)
+        Deduplicated.insert((S + UnresolvedQualifier.value_or("")).str());
+
+    EnclosingAtFront.reserve(EnclosingAtFront.size() + Deduplicated.size());
+    llvm::copy(Deduplicated, std::back_inserter(EnclosingAtFront));
+
+    return EnclosingAtFront;
+  }
 };
 
 // Get all scopes that will be queried in indexes and whether symbols from
 // any scope is allowed. The first scope in the list is the preferred scope
 // (e.g. enclosing namespace).
-std::pair<std::vector<std::string>, bool>
-getQueryScopes(CodeCompletionContext &CCContext, const Sema &CCSema,
-               const CompletionPrefix &HeuristicPrefix,
-               const CodeCompleteOptions &Opts) {
+SpecifiedScope getQueryScopes(CodeCompletionContext &CCContext,
+                              const Sema &CCSema,
+                              const CompletionPrefix &HeuristicPrefix,
+                              const CodeCompleteOptions &Opts) {
   SpecifiedScope Scopes;
   for (auto *Context : CCContext.getVisitedContexts()) {
-    if (isa<TranslationUnitDecl>(Context))
-      Scopes.AccessibleScopes.push_back(""); // global namespace
-    else if (isa<NamespaceDecl>(Context))
-      Scopes.AccessibleScopes.push_back(printNamespaceScope(*Context));
+    if (isa<TranslationUnitDecl>(Context)) {
+      Scopes.QueryScopes.push_back("");
+      Scopes.AccessibleScopes.push_back("");
+    } else if (const auto *ND = dyn_cast<NamespaceDecl>(Context)) {
+      Scopes.QueryScopes.push_back(printNamespaceScope(*Context));
+      Scopes.AccessibleScopes.push_back(printQualifiedName(*ND) + "::");
+    }
   }
 
   const CXXScopeSpec *SemaSpecifier =
@@ -692,39 +734,40 @@ getQueryScopes(CodeCompletionContext &CCContext, const Sema &CCSema,
       vlog("Sema said no scope specifier, but we saw {0} in the source code",
            HeuristicPrefix.Qualifier);
       StringRef SpelledSpecifier = HeuristicPrefix.Qualifier;
-      if (SpelledSpecifier.consume_front("::"))
+      if (SpelledSpecifier.consume_front("::")) {
         Scopes.AccessibleScopes = {""};
+        Scopes.QueryScopes = {""};
+      }
       Scopes.UnresolvedQualifier = std::string(SpelledSpecifier);
-      return {Scopes.scopesForIndexQuery(), false};
+      return Scopes;
     }
-    // The enclosing namespace must be first, it gets a quality boost.
-    std::vector<std::string> EnclosingAtFront;
-    std::string EnclosingScope = printNamespaceScope(*CCSema.CurContext);
-    EnclosingAtFront.push_back(EnclosingScope);
-    for (auto &S : Scopes.scopesForIndexQuery()) {
-      if (EnclosingScope != S)
-        EnclosingAtFront.push_back(std::move(S));
-    }
+    /// FIXME: When the enclosing namespace contains an inline namespace,
+    /// it's dropped here. This leads to a behavior similar to
+    /// https://github.com/clangd/clangd/issues/1451
+    Scopes.EnclosingNamespace = printNamespaceScope(*CCSema.CurContext);
     // Allow AllScopes completion as there is no explicit scope qualifier.
-    return {EnclosingAtFront, Opts.AllScopes};
+    Scopes.AllowAllScopes = Opts.AllScopes;
+    return Scopes;
   }
   // Case 3: sema saw and resolved a scope qualifier.
   if (SemaSpecifier && SemaSpecifier->isValid())
-    return {Scopes.scopesForIndexQuery(), false};
+    return Scopes;
 
   // Case 4: There was a qualifier, and Sema didn't resolve it.
-  Scopes.AccessibleScopes.push_back(""); // Make sure global scope is included.
+  Scopes.QueryScopes.push_back(""); // Make sure global scope is included.
   llvm::StringRef SpelledSpecifier = Lexer::getSourceText(
       CharSourceRange::getCharRange(SemaSpecifier->getRange()),
       CCSema.SourceMgr, clang::LangOptions());
-  if (SpelledSpecifier.consume_front("::"))
-    Scopes.AccessibleScopes = {""};
+  if (SpelledSpecifier.consume_front("::")) 
+      Scopes.QueryScopes = {""};
   Scopes.UnresolvedQualifier = std::string(SpelledSpecifier);
   // Sema excludes the trailing "::".
   if (!Scopes.UnresolvedQualifier->empty())
     *Scopes.UnresolvedQualifier += "::";
 
-  return {Scopes.scopesForIndexQuery(), false};
+  Scopes.AccessibleScopes = Scopes.QueryScopes;
+
+  return Scopes;
 }
 
 // Should we perform index-based completion in a context of the specified kind?
@@ -749,6 +792,7 @@ bool contextAllowsIndex(enum CodeCompletionContext::Kind K) {
   case CodeCompletionContext::CCC_ObjCInterfaceName:
   case CodeCompletionContext::CCC_Symbol:
   case CodeCompletionContext::CCC_SymbolOrNewName:
+  case CodeCompletionContext::CCC_ObjCClassForwardDecl:
     return true;
   case CodeCompletionContext::CCC_OtherWithMacros:
   case CodeCompletionContext::CCC_DotMemberAccess:
@@ -1391,6 +1435,10 @@ bool includeSymbolFromIndex(CodeCompletionContext::Kind Kind,
   else if (Kind == CodeCompletionContext::CCC_ObjCProtocolName)
     // Don't show anything else in ObjC protocol completions.
     return false;
+
+  if (Kind == CodeCompletionContext::CCC_ObjCClassForwardDecl)
+    return Sym.SymInfo.Kind == index::SymbolKind::Class &&
+           Sym.SymInfo.Lang == index::SymbolLanguage::ObjC;
   return true;
 }
 
@@ -1464,6 +1512,7 @@ class CodeCompleteFlow {
   std::optional<FuzzyMatcher> Filter; // Initialized once Sema runs.
   Range ReplacedRange;
   std::vector<std::string> QueryScopes; // Initialized once Sema runs.
+  std::vector<std::string> AccessibleScopes; // Initialized once Sema runs.
   // Initialized once QueryScopes is initialized, if there are scopes.
   std::optional<ScopeDistance> ScopeProximity;
   std::optional<OpaqueType> PreferredType; // Initialized once Sema runs.
@@ -1623,21 +1672,22 @@ public:
     //  - accessible scopes are determined heuristically.
     //  - all-scopes query if no qualifier was typed (and it's allowed).
     SpecifiedScope Scopes;
-    Scopes.AccessibleScopes = visibleNamespaces(
+    Scopes.QueryScopes = visibleNamespaces(
         Content.take_front(Offset), format::getFormattingLangOpts(Style));
-    for (std::string &S : Scopes.AccessibleScopes)
+    for (std::string &S : Scopes.QueryScopes)
       if (!S.empty())
         S.append("::"); // visibleNamespaces doesn't include trailing ::.
     if (HeuristicPrefix.Qualifier.empty())
       AllScopes = Opts.AllScopes;
     else if (HeuristicPrefix.Qualifier.startswith("::")) {
-      Scopes.AccessibleScopes = {""};
+      Scopes.QueryScopes = {""};
       Scopes.UnresolvedQualifier =
           std::string(HeuristicPrefix.Qualifier.drop_front(2));
     } else
       Scopes.UnresolvedQualifier = std::string(HeuristicPrefix.Qualifier);
     // First scope is the (modified) enclosing scope.
     QueryScopes = Scopes.scopesForIndexQuery();
+    AccessibleScopes = QueryScopes;
     ScopeProximity.emplace(QueryScopes);
 
     SymbolSlab IndexResults = Opts.Index ? queryIndex() : SymbolSlab();
@@ -1689,8 +1739,12 @@ private:
     }
     Filter = FuzzyMatcher(
         Recorder->CCSema->getPreprocessor().getCodeCompletionFilter());
-    std::tie(QueryScopes, AllScopes) = getQueryScopes(
+    auto SpecifiedScopes = getQueryScopes(
         Recorder->CCContext, *Recorder->CCSema, HeuristicPrefix, Opts);
+
+    QueryScopes = SpecifiedScopes.scopesForIndexQuery();
+    AccessibleScopes = SpecifiedScopes.scopesForQualification();
+    AllScopes = SpecifiedScopes.AllowAllScopes;
     if (!QueryScopes.empty())
       ScopeProximity.emplace(QueryScopes);
     PreferredType =
@@ -1795,8 +1849,8 @@ private:
         assert(IdentifierResult);
         C.Name = IdentifierResult->Name;
       }
-      if (auto OverloadSet =
-              C.overloadSet(Opts, FileName, Inserter ? &*Inserter : nullptr)) {
+      if (auto OverloadSet = C.overloadSet(
+              Opts, FileName, Inserter ? &*Inserter : nullptr, CCContextKind)) {
         auto Ret = BundleLookup.try_emplace(OverloadSet, Bundles.size());
         if (Ret.second)
           Bundles.emplace_back();
@@ -1847,7 +1901,7 @@ private:
           C.SemaResult->Kind == CodeCompletionResult::RK_Macro) ||
          (C.IndexResult &&
           C.IndexResult->SymInfo.Kind == index::SymbolKind::Macro)) &&
-        !C.Name.startswith_insensitive(Filter->pattern()))
+        !C.Name.starts_with_insensitive(Filter->pattern()))
       return std::nullopt;
     return Filter->match(C.Name);
   }
@@ -1963,7 +2017,7 @@ private:
                           : nullptr;
       if (!Builder)
         Builder.emplace(Recorder ? &Recorder->CCSema->getASTContext() : nullptr,
-                        Item, SemaCCS, QueryScopes, *Inserter, FileName,
+                        Item, SemaCCS, AccessibleScopes, *Inserter, FileName,
                         CCContextKind, Opts, IsUsingDeclaration, NextTokenKind);
       else
         Builder->add(Item, SemaCCS);
@@ -2182,11 +2236,15 @@ bool isIndexedForCodeCompletion(const NamedDecl &ND, ASTContext &ASTCtx) {
 CompletionItem CodeCompletion::render(const CodeCompleteOptions &Opts) const {
   CompletionItem LSP;
   const auto *InsertInclude = Includes.empty() ? nullptr : &Includes[0];
+  // We could move our indicators from label into labelDetails->description.
+  // In VSCode there are rendering issues that prevent these being aligned.
   LSP.label = ((InsertInclude && InsertInclude->Insertion)
                    ? Opts.IncludeIndicator.Insert
                    : Opts.IncludeIndicator.NoInsert) +
               (Opts.ShowOrigins ? "[" + llvm::to_string(Origin) + "]" : "") +
-              RequiredQualifier + Name + Signature;
+              RequiredQualifier + Name;
+  LSP.labelDetails.emplace();
+  LSP.labelDetails->detail = Signature;
 
   LSP.kind = Kind;
   LSP.detail = BundleSize > 1
@@ -2205,7 +2263,7 @@ CompletionItem CodeCompletion::render(const CodeCompleteOptions &Opts) const {
   }
   LSP.sortText = sortText(Score.Total, FilterText);
   LSP.filterText = FilterText;
-  LSP.textEdit = {CompletionTokenRange, RequiredQualifier + Name};
+  LSP.textEdit = {CompletionTokenRange, RequiredQualifier + Name, ""};
   // Merge continuous additionalTextEdits into main edit. The main motivation
   // behind this is to help LSP clients, it seems most of them are confused when
   // they are provided with additionalTextEdits that are consecutive to main

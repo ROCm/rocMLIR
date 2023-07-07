@@ -60,6 +60,7 @@ protected:
   SDValue LowerFROUNDEVEN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFROUND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFFLOOR(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFLOG2(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFLOG(SDValue Op, SelectionDAG &DAG,
                     double Log2BaseInverted) const;
   SDValue lowerFEXP(SDValue Op, SelectionDAG &DAG) const;
@@ -97,9 +98,16 @@ protected:
   SDValue performMulhuCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performCtlz_CttzCombine(const SDLoc &SL, SDValue Cond, SDValue LHS,
                              SDValue RHS, DAGCombinerInfo &DCI) const;
+
+  SDValue foldFreeOpFromSelect(TargetLowering::DAGCombinerInfo &DCI,
+                               SDValue N) const;
   SDValue performSelectCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
+  TargetLowering::NegatibleCost
+  getConstantNegateCost(const ConstantFPSDNode *C) const;
+
   bool isConstantCostlierToNegate(SDValue N) const;
+  bool isConstantCheaperToNegate(SDValue N) const;
   SDValue performFNegCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performFAbsCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performRcpCombine(SDNode *N, DAGCombinerInfo &DCI) const;
@@ -156,6 +164,7 @@ public:
     return Val.getOpcode() == ISD::BITCAST ? Val.getOperand(0) : Val;
   }
 
+  static bool shouldFoldFNegIntoSrc(SDNode *FNeg, SDValue FNegSrc);
   static bool allUsesHaveSourceMods(const SDNode *N,
                                     unsigned CostThreshold = 4);
   bool isFAbsFree(EVT VT) const override;
@@ -165,14 +174,13 @@ public:
 
   bool isZExtFree(Type *Src, Type *Dest) const override;
   bool isZExtFree(EVT Src, EVT Dest) const override;
-  bool isZExtFree(SDValue Val, EVT VT2) const override;
 
   SDValue getNegatedExpression(SDValue Op, SelectionDAG &DAG,
                                bool LegalOperations, bool ForCodeSize,
                                NegatibleCost &Cost,
                                unsigned Depth) const override;
 
-  bool isNarrowingProfitable(EVT VT1, EVT VT2) const override;
+  bool isNarrowingProfitable(EVT SrcVT, EVT DestVT) const override;
 
   bool isDesirableToCommuteWithShift(const SDNode *N,
                                      CombineLevel Level) const override;
@@ -193,7 +201,7 @@ public:
   bool isLoadBitCastBeneficial(EVT, EVT, const SelectionDAG &DAG,
                                const MachineMemOperand &MMO) const final;
 
-  bool storeOfVectorConstantIsCheap(EVT MemVT,
+  bool storeOfVectorConstantIsCheap(bool IsZero, EVT MemVT,
                                     unsigned NumElem,
                                     unsigned AS) const override;
   bool aggressivelyPreferBuildVectorSources(EVT VecVT) const override;
@@ -228,6 +236,10 @@ public:
   void ReplaceNodeResults(SDNode * N,
                           SmallVectorImpl<SDValue> &Results,
                           SelectionDAG &DAG) const override;
+
+  SDValue combineFMinMaxLegacyImpl(const SDLoc &DL, EVT VT, SDValue LHS,
+                                   SDValue RHS, SDValue True, SDValue False,
+                                   SDValue CC, DAGCombinerInfo &DCI) const;
 
   SDValue combineFMinMaxLegacy(const SDLoc &DL, EVT VT, SDValue LHS,
                                SDValue RHS, SDValue True, SDValue False,
@@ -281,6 +293,9 @@ public:
                                     bool SNaN = false,
                                     unsigned Depth = 0) const override;
 
+  bool isReassocProfitable(MachineRegisterInfo &MRI, Register N0,
+                           Register N1) const override;
+
   /// Helper function that adds Reg to the LiveIn list of the DAG's
   /// MachineFunction.
   ///
@@ -333,6 +348,8 @@ public:
   /// type of implicit parameter.
   uint32_t getImplicitParameterOffset(const MachineFunction &MF,
                                       const ImplicitParameter Param) const;
+  uint32_t getImplicitParameterOffset(const uint64_t ExplicitKernArgSize,
+                                      const ImplicitParameter Param) const;
 
   MVT getFenceOperandTy(const DataLayout &DL) const override {
     return MVT::i32;
@@ -342,6 +359,9 @@ public:
 
   bool isConstantUnsignedBitfieldExtractLegal(unsigned Opc, LLT Ty1,
                                               LLT Ty2) const override;
+
+  bool shouldSinkOperands(Instruction *I,
+                          SmallVectorImpl<Use *> &Ops) const override;
 };
 
 namespace AMDGPUISD {
@@ -356,6 +376,7 @@ enum NodeType : unsigned {
   // Function call.
   CALL,
   TC_RETURN,
+  TC_RETURN_GFX,
   TRAP,
 
   // Masked control flow nodes.
@@ -366,11 +387,14 @@ enum NodeType : unsigned {
   // A uniform kernel return that terminates the wavefront.
   ENDPGM,
 
+  // s_endpgm, but we may want to insert it in the middle of the block.
+  ENDPGM_TRAP,
+
   // Return to a shader part's epilog code.
   RETURN_TO_EPILOG,
 
   // Return with values from a non-entry function.
-  RET_FLAG,
+  RET_GLUE,
 
   DWORDADDR,
   FRACT,
@@ -421,9 +445,15 @@ enum NodeType : unsigned {
   RSQ,
   RCP_LEGACY,
   RCP_IFLAG,
+
+  // log2, no denormal handling for f32.
+  LOG,
+
+  // exp2, no denormal handling for f32.
+  EXP,
+
   FMUL_LEGACY,
   RSQ_CLAMP,
-  LDEXP,
   FP_CLASS,
   DOT4,
   CARRY,
@@ -505,8 +535,6 @@ enum NodeType : unsigned {
   TBUFFER_LOAD_FORMAT_D16,
   DS_ORDERED_COUNT,
   ATOMIC_CMP_SWAP,
-  ATOMIC_INC,
-  ATOMIC_DEC,
   ATOMIC_LOAD_FMIN,
   ATOMIC_LOAD_FMAX,
   BUFFER_LOAD,

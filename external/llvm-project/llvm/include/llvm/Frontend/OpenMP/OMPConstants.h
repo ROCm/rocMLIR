@@ -72,6 +72,9 @@ enum class IdentFlag {
 #define OMP_IDENT_FLAG(Enum, ...) constexpr auto Enum = omp::IdentFlag::Enum;
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
 
+// Version of the kernel argument format used by the omp runtime.
+#define OMP_KERNEL_ARG_VERSION 2
+
 /// \note This needs to be kept in sync with kmp.h enum sched_type.
 /// Todo: Update kmp.h to include this file, and remove the enums in kmp.h
 enum class OMPScheduleType {
@@ -185,14 +188,6 @@ enum class OMPScheduleType {
   LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue */ ModifierMask)
 };
 
-enum OMPTgtExecModeFlags : int8_t {
-  OMP_TGT_EXEC_MODE_GENERIC = 1 << 0,
-  OMP_TGT_EXEC_MODE_SPMD = 1 << 1,
-  OMP_TGT_EXEC_MODE_GENERIC_SPMD =
-      OMP_TGT_EXEC_MODE_GENERIC | OMP_TGT_EXEC_MODE_SPMD,
-  LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue */ OMP_TGT_EXEC_MODE_GENERIC_SPMD)
-};
-
 /// Values for bit flags used to specify the mapping type for
 /// offloading.
 enum class OpenMPOffloadMappingFlags : uint64_t {
@@ -249,6 +244,12 @@ enum class OpenMPOffloadMappingFlags : uint64_t {
   LLVM_MARK_AS_BITMASK_ENUM(/* LargestFlag = */ OMP_MAP_MEMBER_OF)
 };
 
+enum OpenMPOffloadingReservedDeviceIDs {
+  /// Device ID if the device was not defined, runtime should get it
+  /// from environment variables in the spec.
+  OMP_DEVICEID_UNDEF = -1
+};
+
 enum class AddressSpace : unsigned {
   Generic = 0,
   Global = 1,
@@ -279,5 +280,7 @@ enum class RTLDependenceKindTy {
 } // end namespace omp
 
 } // end namespace llvm
+
+#include "OMPDeviceConstants.h"
 
 #endif // LLVM_FRONTEND_OPENMP_OMPCONSTANTS_H

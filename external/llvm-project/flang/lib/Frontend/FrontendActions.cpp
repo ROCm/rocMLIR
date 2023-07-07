@@ -276,14 +276,19 @@ bool CodeGenAction::beginSourceFileAction() {
   // Fetch module from lb, so we can set
   mlirModule = std::make_unique<mlir::ModuleOp>(lb.getModule());
 
-  if (ci.getInvocation().getFrontendOpts().features.IsEnabled(
-          Fortran::common::LanguageFeature::OpenMP)) {
-    setOffloadModuleInterfaceAttributes(
-        *mlirModule, ci.getInvocation().getLangOpts().OpenMPIsDevice);
-  }
-
   if (!setUpTargetMachine())
     return false;
+
+  if (ci.getInvocation().getFrontendOpts().features.IsEnabled(
+          Fortran::common::LanguageFeature::OpenMP)) {
+    setOffloadModuleInterfaceAttributes(*mlirModule,
+                                        ci.getInvocation().getLangOpts());
+    setOffloadModuleInterfaceTargetAttribute(*mlirModule, tm->getTargetCPU(),
+                                             tm->getTargetFeatureString());
+    setOpenMPVersionAttribute(*mlirModule,
+                              ci.getInvocation().getLangOpts().OpenMPVersion);
+  }
+
   const llvm::DataLayout &dl = tm->createDataLayout();
   setMLIRDataLayout(*mlirModule, dl);
 
@@ -601,10 +606,10 @@ void GetDefinitionAction::executeAction() {
   }
 
   llvm::outs() << "Found symbol name: " << symbol->name().ToString() << "\n";
-  llvm::outs() << symbol->name().ToString() << ": "
-               << sourceInfo->first.file.path() << ", "
-               << sourceInfo->first.line << ", " << sourceInfo->first.column
-               << "-" << sourceInfo->second.column << "\n";
+  llvm::outs() << symbol->name().ToString() << ": " << sourceInfo->first.path
+               << ", " << sourceInfo->first.line << ", "
+               << sourceInfo->first.column << "-" << sourceInfo->second.column
+               << "\n";
 }
 
 void GetSymbolsSourcesAction::executeAction() {
@@ -642,6 +647,34 @@ mapToLevel(const Fortran::frontend::CodeGenOptions &opts) {
   }
 }
 
+// Lower using HLFIR then run the FIR to HLFIR pipeline
+void CodeGenAction::lowerHLFIRToFIR() {
+  assert(mlirModule && "The MLIR module has not been generated yet.");
+
+  CompilerInstance &ci = this->getInstance();
+  auto opts = ci.getInvocation().getCodeGenOpts();
+  llvm::OptimizationLevel level = mapToLevel(opts);
+
+  fir::support::loadDialects(*mlirCtx);
+
+  // Set-up the MLIR pass manager
+  mlir::PassManager pm((*mlirModule)->getName(),
+                       mlir::OpPassManager::Nesting::Implicit);
+
+  pm.addPass(std::make_unique<Fortran::lower::VerifierPass>());
+  pm.enableVerifier(/*verifyPasses=*/true);
+
+  // Create the pass pipeline
+  fir::createHLFIRToFIRPassPipeline(pm, level);
+  (void)mlir::applyPassManagerCLOptions(pm);
+
+  if (!mlir::succeeded(pm.run(*mlirModule))) {
+    unsigned diagID = ci.getDiagnostics().getCustomDiagID(
+        clang::DiagnosticsEngine::Error, "Lowering to FIR failed");
+    ci.getDiagnostics().Report(diagID);
+  }
+}
+
 // Lower the previously generated MLIR module into an LLVM IR module
 void CodeGenAction::generateLLVMIR() {
   assert(mlirModule && "The MLIR module has not been generated yet.");
@@ -662,8 +695,9 @@ void CodeGenAction::generateLLVMIR() {
 
   // Create the pass pipeline
   fir::createMLIRToLLVMPassPipeline(pm, level, opts.StackArrays,
-                                    opts.Underscoring);
-  mlir::applyPassManagerCLOptions(pm);
+                                    opts.Underscoring, opts.LoopVersioning,
+                                    opts.getDebugInfo());
+  (void)mlir::applyPassManagerCLOptions(pm);
 
   // run the pass manager
   if (!mlir::succeeded(pm.run(*mlirModule))) {
@@ -701,7 +735,6 @@ void CodeGenAction::generateLLVMIR() {
       llvmModule->setPIELevel(
           static_cast<llvm::PIELevel::Level>(opts.PICLevel));
   }
-
 }
 
 bool CodeGenAction::setUpTargetMachine() {
@@ -746,7 +779,9 @@ getOutputStream(CompilerInstance &ci, llvm::StringRef inFile,
   case BackendActionTy::Backend_EmitLL:
     return ci.createDefaultOutputFile(
         /*Binary=*/false, inFile, /*extension=*/"ll");
-  case BackendActionTy::Backend_EmitMLIR:
+  case BackendActionTy::Backend_EmitFIR:
+    LLVM_FALLTHROUGH;
+  case BackendActionTy::Backend_EmitHLFIR:
     return ci.createDefaultOutputFile(
         /*Binary=*/false, inFile, /*extension=*/"mlir");
   case BackendActionTy::Backend_EmitBC:
@@ -909,7 +944,17 @@ void CodeGenAction::executeAction() {
     }
   }
 
-  if (action == BackendActionTy::Backend_EmitMLIR) {
+  if (action == BackendActionTy::Backend_EmitFIR) {
+    if (ci.getInvocation().getLoweringOpts().getLowerToHighLevelFIR()) {
+      lowerHLFIRToFIR();
+    }
+    mlirModule->print(ci.isOutputStreamNull() ? *os : ci.getOutputStream());
+    return;
+  }
+
+  if (action == BackendActionTy::Backend_EmitHLFIR) {
+    assert(ci.getInvocation().getLoweringOpts().getLowerToHighLevelFIR() &&
+           "Lowering must have been configured to emit HLFIR");
     mlirModule->print(ci.isOutputStreamNull() ? *os : ci.getOutputStream());
     return;
   }

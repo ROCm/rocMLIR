@@ -286,8 +286,8 @@ struct ConvertingCopyKernelRewritePattern final
                                 ConvertingCopyKernelOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
-    TypedValue<ShapedType> input = adaptor.getInput();
-    TypedValue<ShapedType> output = adaptor.getOutput();
+    auto input = cast<TypedValue<ShapedType>>(adaptor.getInput());
+    auto output = cast<TypedValue<ShapedType>>(adaptor.getOutput());
     Type inputDataType = input.getType().getElementType();
     Type outputDataType = output.getType().getElementType();
     if (!op.getElemsPerThread().has_value())
@@ -921,7 +921,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return failure();
     }
 
-    Attribute tuningParams = op.getParamsAttr();
+    auto tuningParams = op.getParamsAttr();
     GemmSize gemmSize = op.getGemmSize();
     std::optional<GemmSize> maybeGemmExtraPad;
 

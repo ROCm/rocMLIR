@@ -159,9 +159,11 @@ static void handleHVXTargetFeatures(const Driver &D, const ArgList &Args,
 }
 
 // Hexagon target features.
-void hexagon::getHexagonTargetFeatures(const Driver &D, const ArgList &Args,
+void hexagon::getHexagonTargetFeatures(const Driver &D,
+                                       const llvm::Triple &Triple,
+                                       const ArgList &Args,
                                        std::vector<StringRef> &Features) {
-  handleTargetFeaturesGroup(Args, Features,
+  handleTargetFeaturesGroup(D, Triple, Args, Features,
                             options::OPT_m_hexagon_Features_Group);
 
   bool UseLongCalls = false;
@@ -540,7 +542,9 @@ HexagonToolChain::getSmallDataThreshold(const ArgList &Args) {
 std::string HexagonToolChain::getCompilerRTPath() const {
   SmallString<128> Dir(getDriver().SysRoot);
   llvm::sys::path::append(Dir, "usr", "lib");
-  Dir += SelectedMultilib.gccSuffix();
+  if (!SelectedMultilibs.empty()) {
+    Dir += SelectedMultilibs.back().gccSuffix();
+  }
   return std::string(Dir.str());
 }
 

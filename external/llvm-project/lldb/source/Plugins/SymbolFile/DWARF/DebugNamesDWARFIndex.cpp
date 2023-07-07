@@ -23,8 +23,8 @@ llvm::Expected<std::unique_ptr<DebugNamesDWARFIndex>>
 DebugNamesDWARFIndex::Create(Module &module, DWARFDataExtractor debug_names,
                              DWARFDataExtractor debug_str,
                              SymbolFileDWARF &dwarf) {
-  auto index_up = std::make_unique<DebugNames>(debug_names.GetAsLLVM(),
-                                                debug_str.GetAsLLVM());
+  auto index_up = std::make_unique<DebugNames>(debug_names.GetAsLLVMDWARF(),
+                                               debug_str.GetAsLLVM());
   if (llvm::Error E = index_up->extract())
     return std::move(E);
 
@@ -54,7 +54,7 @@ DebugNamesDWARFIndex::ToDIERef(const DebugNames::Entry &entry) {
 
   cu = &cu->GetNonSkeletonUnit();
   if (std::optional<uint64_t> die_offset = entry.getDIEUnitOffset())
-    return DIERef(cu->GetSymbolFileDWARF().GetDwoNum(),
+    return DIERef(cu->GetSymbolFileDWARF().GetFileIndex(),
                   DIERef::Section::DebugInfo, cu->GetOffset() + *die_offset);
 
   return std::nullopt;
@@ -126,7 +126,6 @@ void DebugNamesDWARFIndex::GetGlobalVariables(
 
 void DebugNamesDWARFIndex::GetGlobalVariables(
     DWARFUnit &cu, llvm::function_ref<bool(DWARFDIE die)> callback) {
-  lldbassert(!cu.GetSymbolFileDWARF().GetDwoNum());
   uint64_t cu_offset = cu.GetOffset();
   bool found_entry_for_cu = false;
   for (const DebugNames::NameIndex &ni: *m_debug_names_up) {

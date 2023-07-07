@@ -83,7 +83,7 @@ enum OpenMPMapModifierKind {
   OMPC_MAP_MODIFIER_last
 };
 
-  /// Number of allowed map-type-modifiers.
+/// Number of allowed map-type-modifiers.
 static constexpr unsigned NumberOfOMPMapClauseModifiers =
     OMPC_MAP_MODIFIER_last - OMPC_MAP_MODIFIER_unknown - 1;
 
@@ -213,6 +213,13 @@ enum OpenMPNumTasksClauseModifier {
 #define OPENMP_NUMTASKS_MODIFIER(Name) OMPC_NUMTASKS_##Name,
 #include "clang/Basic/OpenMPKinds.def"
   OMPC_NUMTASKS_unknown
+};
+
+/// OpenMP dependence types for 'doacross' clause.
+enum OpenMPDoacrossClauseModifier {
+#define OPENMP_DOACROSS_MODIFIER(Name) OMPC_DOACROSS_##Name,
+#include "clang/Basic/OpenMPKinds.def"
+  OMPC_DOACROSS_unknown
 };
 
 /// Contains 'interop' data for 'append_args' and 'init' clauses.

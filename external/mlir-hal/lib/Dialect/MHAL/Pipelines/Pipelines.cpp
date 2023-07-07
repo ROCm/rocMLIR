@@ -126,7 +126,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   funcPm2.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addPass(createConvertVectorToLLVMPass());
-  pm.addPass(createMemRefToLLVMConversionPass());
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
 
   pm.addPass(createAsyncToAsyncRuntimePass());
 
@@ -136,8 +136,9 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   pm.addPass(createSymbolDCEPass());
   pm.addPass(createConvertAsyncToLLVMPass());
 
-  pm.addPass(createGpuToLLVMConversionPass(
-      /*kernelBarePtrCallConv=*/options.barePtrMemrefs));
+  GpuToLLVMConversionPassOptions opts;
+  opts.kernelBarePtrCallConv = options.barePtrMemrefs;
+  pm.addPass(createGpuToLLVMConversionPass(opts));
 
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createReconcileUnrealizedCastsPass());

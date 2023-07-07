@@ -168,8 +168,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirPassManager pm1 = mlirPassManagerCreate(ctx);
   // 1st pipeline to call
   mlirMIGraphXAddHighLevelPipeline(pm);
-  mlirPassManagerRun(pm, module);
   MlirOperation moduleOp = mlirModuleGetOperation(module);
+  mlirPassManagerRunOnOp(pm, moduleOp);
 
   MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
   printf("Got tuning space,\n");
@@ -242,7 +242,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     printf("Errors in building backend pipeline\n");
     return false;
   }
-  mlirPassManagerRun(pm1, module);
+  mlirPassManagerRunOnOp(pm1, moduleOp);
 
   uint32_t attrs[2];
   // returns block and grid sizes

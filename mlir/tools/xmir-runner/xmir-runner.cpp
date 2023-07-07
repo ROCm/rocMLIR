@@ -23,6 +23,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -82,8 +83,8 @@ static LogicalResult runMLIRPasses(Operation *m, JitRunnerOptions &options) {
 
   // Host Compiler/Scheduler Pipeline
   PassManager pm(m->getContext());
-  applyPassManagerCLOptions(pm);
-
+  if (failed(applyPassManagerCLOptions(pm)))
+    return failure();
   mhal::RunnerOptions opts;
   opts.targetTypes = targetTypes;
   opts.targetArchs = targetArchs;
@@ -110,6 +111,7 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   mlir::registerRocMLIRDialects(registry);
   mlir::registerLLVMDialectTranslation(registry);
+  mlir::registerBuiltinDialectTranslation(registry);
 
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;

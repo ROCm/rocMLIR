@@ -19,6 +19,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def LLVM_i8Ptr_global : LLVM_IntPtrBase<8, 1>;
 def LLVM_i8Ptr_shared : LLVM_IntPtrBase<8, 3>;
+def LLVM_i64ptr_any : LLVM_IntPtrBase<64>;
+def LLVM_i64ptr_shared : LLVM_IntPtrBase<64, 3>;
 
 //===----------------------------------------------------------------------===//
 // NVVM dialect definitions
@@ -29,7 +31,6 @@ def NVVM_Dialect : Dialect {
   let cppNamespace = "::mlir::NVVM";
   let dependentDialects = ["LLVM::LLVMDialect"];
   let hasOperationAttrVerify = 1;
-  let useFoldAPI = kEmitFoldAdaptorFolder;
 
   let extraClassDeclaration = [{
     /// Get the name of the attribute used to annotate external kernel
@@ -136,6 +137,136 @@ def NVVM_RcpApproxFtzF32Op : NVVM_IntrOp<"rcp.approx.ftz.f", [Pure], 1> {
 }
 
 //===----------------------------------------------------------------------===//
+// NVVM redux op definitions
+//===----------------------------------------------------------------------===//
+
+def ReduxKindNone : I32EnumAttrCase<"NONE", 0, "none">;
+def ReduxKindAdd  : I32EnumAttrCase<"ADD", 1, "add">;
+def ReduxKindAnd  : I32EnumAttrCase<"AND", 2, "and">;
+def ReduxKindMax  : I32EnumAttrCase<"MAX", 3, "max">;
+def ReduxKindMin  : I32EnumAttrCase<"MIN", 4, "min">;
+def ReduxKindOr   : I32EnumAttrCase<"OR", 5, "or">;
+def ReduxKindUmax : I32EnumAttrCase<"UMAX", 6, "umax">;
+def ReduxKindUmin : I32EnumAttrCase<"UMIN", 7, "umin">;
+def ReduxKindXor  : I32EnumAttrCase<"XOR", 8, "xor">; 
+
+/// Enum attribute of the different kinds.
+def ReduxKind : I32EnumAttr<"ReduxKind", "NVVM redux kind",
+  [ReduxKindAdd, ReduxKindAnd, ReduxKindMax, ReduxKindMin, ReduxKindOr, 
+    ReduxKindUmax, ReduxKindUmin, ReduxKindXor]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::NVVM";
+}
+
+def ReduxKindAttr : EnumAttr<NVVM_Dialect, ReduxKind, "redux_kind">;
+
+def NVVM_ReduxOp :
+  NVVM_Op<"redux.sync">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_Type:$val,
+                 ReduxKindAttr:$kind,
+                 I32:$mask_and_clamp)> {
+  string llvmBuilder = [{
+      auto intId = getReduxIntrinsicId($_resultType, $kind);
+      $res = createIntrinsicCall(builder, intId, {$val, $mask_and_clamp});
+  }];
+  let assemblyFormat = [{
+    $kind $val `,` $mask_and_clamp  attr-dict `:` type($val) `->` type($res)
+   }];   
+}
+
+//===----------------------------------------------------------------------===//
+// NVVM Split arrive/wait barrier
+//===----------------------------------------------------------------------===//
+
+/// mbarrier.init instruction with generic pointer type
+def NVVM_MBarrierInitOp : NVVM_Op<"mbarrier.init">,
+  Arguments<(ins LLVM_i64ptr_any:$addr, I32:$count)> {
+  string llvmBuilder = [{
+      createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_init, {$addr, $count});
+  }];
+  let assemblyFormat = "$addr `,` $count attr-dict `:` type(operands)";
+}
+
+/// mbarrier.init instruction with shared pointer type
+def NVVM_MBarrierInitSharedOp : NVVM_Op<"mbarrier.init.shared">,
+  Arguments<(ins LLVM_i64ptr_shared:$addr, I32:$count)> {
+  string llvmBuilder = [{
+      createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_init_shared, {$addr, $count});
+  }];
+  let assemblyFormat = "$addr `,` $count attr-dict `:` type(operands)";
+}
+
+def NVVM_MBarrierInvalOp : NVVM_Op<"mbarrier.inval">,
+  Arguments<(ins LLVM_i64ptr_any:$addr)> {
+  string llvmBuilder = [{
+      createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_inval, {$addr});
+  }];
+  let assemblyFormat = "$addr attr-dict `:` type(operands)";
+}
+
+def NVVM_MBarrierInvalSharedOp : NVVM_Op<"mbarrier.inval.shared">,
+  Arguments<(ins LLVM_i64ptr_shared:$addr)> {
+  string llvmBuilder = [{
+      createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_inval_shared, {$addr});
+  }];
+  let assemblyFormat = "$addr attr-dict `:` type(operands)";
+}
+
+def NVVM_MBarrierArriveOp : NVVM_Op<"mbarrier.arrive">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_any:$addr)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_arrive, {$addr});
+  }];
+  let assemblyFormat = "$addr attr-dict `:` type($addr) `->` type($res)";
+}
+
+def NVVM_MBarrierArriveSharedOp : NVVM_Op<"mbarrier.arrive.shared">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_shared:$addr)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_arrive_shared, {$addr});
+  }];
+  let assemblyFormat = "$addr attr-dict `:` type($addr) `->` type($res)";
+}
+
+def NVVM_MBarrierArriveNocompleteOp : NVVM_Op<"mbarrier.arrive.nocomplete">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_any:$addr, I32:$count)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_arrive_noComplete, {$addr, $count});
+  }];
+  let assemblyFormat = "$addr `,` $count attr-dict `:` type(operands) `->` type($res)";
+}
+
+def NVVM_MBarrierArriveNocompleteSharedOp : NVVM_Op<"mbarrier.arrive.nocomplete.shared">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_shared:$addr, I32:$count)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_arrive_noComplete_shared, {$addr, $count});
+  }];
+  let assemblyFormat = "$addr `,` $count attr-dict `:` type(operands) `->` type($res)";
+}
+
+def NVVM_MBarrierTestWaitOp : NVVM_Op<"mbarrier.test.wait">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_any:$addr, LLVM_Type:$token)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_test_wait, {$addr, $token});
+  }];
+  let assemblyFormat = "$addr `,` $token attr-dict `:` type(operands) `->` type($res)";
+}
+
+def NVVM_MBarrierTestWaitSharedOp : NVVM_Op<"mbarrier.test.wait.shared">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_i64ptr_shared:$addr, LLVM_Type:$token)> {
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder, llvm::Intrinsic::nvvm_mbarrier_test_wait_shared, {$addr, $token});
+  }];
+  let assemblyFormat = "$addr `,` $token attr-dict `:` type(operands) `->` type($res)";
+}
+//===----------------------------------------------------------------------===//
 // NVVM synchronization op definitions
 //===----------------------------------------------------------------------===//
 
@@ -227,7 +358,7 @@ def NVVM_CpAsyncOp : NVVM_Op<"cp.async.shared.global">,
       }
       createIntrinsicCall(builder, id, {$dst, $src});
   }];
-  let assemblyFormat = "$dst `,` $src `,` $size attr-dict";
+  let assemblyFormat = "$dst `,` $src `,` $size attr-dict `:` type(operands)";
   let hasVerifier = 1;
 }
 
@@ -347,16 +478,20 @@ class NVVM_MMA_OPS {
   list<list<WMMA_REGS>> fp_wmma_ops = MMA_OPS<
             [GEOM<16, 16, 16>, GEOM<32, 8, 16>, GEOM<8, 32, 16>],
             ["f16"], [], ["f16", "f32"], []>.ret;
+  list<list<WMMA_REGS>> i8_wmma_ops = MMA_OPS<
+            [GEOM<16, 16, 16>, GEOM<32, 8, 16>, GEOM<8, 32, 16>],
+            ["s8","u8"], [], ["s32"], []>.ret;
   list<list<WMMA_REGS>> all_wmma_ops = !listconcat(
             tf32_wmma_ops,
-            fp_wmma_ops);
+            fp_wmma_ops,
+            i8_wmma_ops);
 
   list<WMMA_REGS> ldst_ab_ops = MMA_LDST_OPS<
             [GEOM<16, 16, 16>, GEOM<32, 8, 16>, GEOM<8, 32, 16>],
-            ["a", "b"], ["f16"]>.ret;
+            ["a", "b"], ["f16","s8","u8"]>.ret;
   list<WMMA_REGS> ldst_cd_ops = MMA_LDST_OPS<
             [GEOM<16, 16, 16>, GEOM<32, 8, 16>, GEOM<8, 32, 16>],
-            ["c", "d"], ["f16", "f32"]>.ret;
+            ["c", "d"], ["f16", "f32","s32"]>.ret;
   list<WMMA_REGS> ldst_tf32_ab_ops = MMA_LDST_OPS<
             [GEOM<16, 16, 8>],
             ["a", "b"], ["tf32"]>.ret;

@@ -381,18 +381,12 @@ static void replaceIterArgsAndYieldResults(scf::ForOp forOp) {
 /// Promotes the loop body of a forOp to its containing block if the forOp
 /// it can be determined that the loop has a single iteration.
 LogicalResult mlir::promoteIfSingleIteration(scf::ForOp forOp) {
-  auto lbCstOp = forOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
-  auto ubCstOp = forOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
-  auto stepCstOp = forOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
-  if (!lbCstOp || !ubCstOp || !stepCstOp || lbCstOp.value() < 0 ||
-      ubCstOp.value() < 0 || stepCstOp.value() < 0)
-    return failure();
-  int64_t tripCount =
-      mlir::ceilDiv(ubCstOp.value() - lbCstOp.value(), stepCstOp.value());
-  if (tripCount != 1)
+  std::optional<int64_t> tripCount = constantTripCount(
+      forOp.getLowerBound(), forOp.getUpperBound(), forOp.getStep());
+  if (!tripCount.has_value() || tripCount != 1)
     return failure();
   auto iv = forOp.getInductionVar();
-  iv.replaceAllUsesWith(lbCstOp);
+  iv.replaceAllUsesWith(forOp.getLowerBound());
 
   replaceIterArgsAndYieldResults(forOp);
 
@@ -803,9 +797,11 @@ void mlir::collapseParallelLoops(
 // Return failure when any op fails to hoist.
 static LogicalResult hoistOpsBetween(scf::ForOp outer, scf::ForOp inner) {
   SetVector<Operation *> forwardSlice;
-  getForwardSlice(
-      outer.getInductionVar(), &forwardSlice,
-      [&inner](Operation *op) { return op != inner.getOperation(); });
+  ForwardSliceOptions options;
+  options.filter = [&inner](Operation *op) {
+    return op != inner.getOperation();
+  };
+  getForwardSlice(outer.getInductionVar(), &forwardSlice, options);
   LogicalResult status = success();
   SmallVector<Operation *, 8> toHoist;
   for (auto &op : outer.getBody()->without_terminator()) {

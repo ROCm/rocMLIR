@@ -20,6 +20,7 @@ namespace opts {
 
 extern cl::opt<unsigned> Verbosity;
 extern cl::OptionCategory BoltOptCategory;
+extern cl::opt<bool> InferStaleProfile;
 
 static llvm::cl::opt<bool>
     IgnoreHash("profile-ignore-hash",
@@ -82,6 +83,12 @@ bool YAMLProfileReader::parseFunctionProfile(
   uint64_t FunctionExecutionCount = 0;
 
   BF.setExecutionCount(YamlBF.ExecCount);
+
+  uint64_t FuncRawBranchCount = 0;
+  for (const yaml::bolt::BinaryBasicBlockProfile &YamlBB : YamlBF.Blocks)
+    for (const yaml::bolt::SuccessorInfo &YamlSI : YamlBB.Successors)
+      FuncRawBranchCount += YamlSI.Count;
+  BF.setRawBranchCount(FuncRawBranchCount);
 
   if (!opts::IgnoreHash && YamlBF.Hash != BF.computeHash(/*UseDFS=*/true)) {
     if (opts::Verbosity >= 1)
@@ -233,6 +240,16 @@ bool YAMLProfileReader::parseFunctionProfile(
            << MismatchedCalls << " calls, and " << MismatchedEdges
            << " edges in profile did not match function " << BF << '\n';
 
+  if (!ProfileMatched && opts::InferStaleProfile) {
+    if (opts::Verbosity >= 1)
+      outs() << "BOLT-INFO: applying profile inference for "
+             << "\"" << BF.getPrintName() << "\"\n";
+    if (inferStaleProfile(BF, YamlBF)) {
+      ProfileMatched = true;
+      BF.markProfiled(YamlBP.Header.Flags);
+    }
+  }
+
   return ProfileMatched;
 }
 
@@ -285,10 +302,10 @@ Error YAMLProfileReader::preprocessProfile(BinaryContext &BC) {
 
 bool YAMLProfileReader::mayHaveProfileData(const BinaryFunction &BF) {
   for (StringRef Name : BF.getNames()) {
-    if (ProfileNameToProfile.find(Name) != ProfileNameToProfile.end())
+    if (ProfileNameToProfile.contains(Name))
       return true;
     if (const std::optional<StringRef> CommonName = getLTOCommonName(Name)) {
-      if (LTOCommonNameMap.find(*CommonName) != LTOCommonNameMap.end())
+      if (LTOCommonNameMap.contains(*CommonName))
         return true;
     }
   }

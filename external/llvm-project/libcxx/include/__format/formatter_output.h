@@ -12,7 +12,11 @@
 
 #include <__algorithm/ranges_copy.h>
 #include <__algorithm/ranges_fill_n.h>
+#include <__algorithm/ranges_for_each.h>
 #include <__algorithm/ranges_transform.h>
+#include <__bit/countl.h>
+#include <__charconv/to_chars_integral.h>
+#include <__charconv/to_chars_result.h>
 #include <__chrono/statically_widen.h>
 #include <__concepts/same_as.h>
 #include <__config>
@@ -23,10 +27,12 @@
 #include <__format/parser_std_format_spec.h>
 #include <__format/unicode.h>
 #include <__iterator/back_insert_iterator.h>
+#include <__iterator/concepts.h>
+#include <__iterator/iterator_traits.h> // iter_value_t
+#include <__system_error/errc.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
-#include <charconv>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -37,7 +43,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace __formatter {
 
@@ -59,15 +65,15 @@ _LIBCPP_HIDE_FROM_ABI constexpr char __hex_to_upper(char __c) {
   return __c;
 }
 
-struct _LIBCPP_TYPE_VIS __padding_size_result {
+struct _LIBCPP_EXPORTED_FROM_ABI __padding_size_result {
   size_t __before_;
   size_t __after_;
 };
 
 _LIBCPP_HIDE_FROM_ABI constexpr __padding_size_result
 __padding_size(size_t __size, size_t __width, __format_spec::__alignment __align) {
-  _LIBCPP_ASSERT(__width > __size, "don't call this function when no padding is required");
-  _LIBCPP_ASSERT(
+  _LIBCPP_ASSERT_UNCATEGORIZED(__width > __size, "don't call this function when no padding is required");
+  _LIBCPP_ASSERT_UNCATEGORIZED(
       __align != __format_spec::__alignment::__zero_padding, "the caller should have handled the zero-padding");
 
   size_t __fill = __width - __size;
@@ -102,6 +108,10 @@ _LIBCPP_HIDE_FROM_ABI auto __copy(basic_string_view<_CharT> __str, output_iterat
   if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_OutCharT>>>) {
     __out_it.__get_container()->__copy(__str);
     return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it),
+                                      typename __format::__retarget_buffer<_OutCharT>::__iterator>) {
+    __out_it.__buffer_->__copy(__str);
+    return __out_it;
   } else {
     return std::ranges::copy(__str, _VSTD::move(__out_it)).out;
   }
@@ -132,6 +142,10 @@ __transform(const _CharT* __first,
   if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_OutCharT>>>) {
     __out_it.__get_container()->__transform(__first, __last, _VSTD::move(__operation));
     return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it),
+                                      typename __format::__retarget_buffer<_OutCharT>::__iterator>) {
+    __out_it.__buffer_->__transform(__first, __last, _VSTD::move(__operation));
+    return __out_it;
   } else {
     return std::ranges::transform(__first, __last, _VSTD::move(__out_it), __operation).out;
   }
@@ -145,10 +159,53 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, _CharT __value)
   if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_CharT>>>) {
     __out_it.__get_container()->__fill(__n, __value);
     return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it), typename __format::__retarget_buffer<_CharT>::__iterator>) {
+    __out_it.__buffer_->__fill(__n, __value);
+    return __out_it;
   } else {
     return std::ranges::fill_n(_VSTD::move(__out_it), __n, __value);
   }
 }
+
+#  ifndef _LIBCPP_HAS_NO_UNICODE
+template <__fmt_char_type _CharT, output_iterator<const _CharT&> _OutIt>
+  requires(same_as<_CharT, char>)
+_LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, __format_spec::__code_point<_CharT> __value) {
+  std::size_t __bytes = std::countl_one(static_cast<unsigned char>(__value.__data[0]));
+  if (__bytes == 0)
+    return __formatter::__fill(std::move(__out_it), __n, __value.__data[0]);
+
+  for (size_t __i = 0; __i < __n; ++__i)
+    __out_it = __formatter::__copy(
+        std::addressof(__value.__data[0]), std::addressof(__value.__data[0]) + __bytes, std::move(__out_it));
+  return __out_it;
+}
+
+#    ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+template <__fmt_char_type _CharT, output_iterator<const _CharT&> _OutIt>
+  requires(same_as<_CharT, wchar_t> && sizeof(wchar_t) == 2)
+_LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, __format_spec::__code_point<_CharT> __value) {
+  if (!__unicode::__is_high_surrogate(__value.__data[0]))
+    return __formatter::__fill(std::move(__out_it), __n, __value.__data[0]);
+
+  for (size_t __i = 0; __i < __n; ++__i)
+    __out_it = __formatter::__copy(
+        std::addressof(__value.__data[0]), std::addressof(__value.__data[0]) + 2, std::move(__out_it));
+  return __out_it;
+}
+
+template <__fmt_char_type _CharT, output_iterator<const _CharT&> _OutIt>
+  requires(same_as<_CharT, wchar_t> && sizeof(wchar_t) == 4)
+_LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, __format_spec::__code_point<_CharT> __value) {
+  return __formatter::__fill(std::move(__out_it), __n, __value.__data[0]);
+}
+#    endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  else    // _LIBCPP_HAS_NO_UNICODE
+template <__fmt_char_type _CharT, output_iterator<const _CharT&> _OutIt>
+_LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, __format_spec::__code_point<_CharT> __value) {
+  return __formatter::__fill(std::move(__out_it), __n, __value.__data[0]);
+}
+#  endif   // _LIBCPP_HAS_NO_UNICODE
 
 template <class _OutIt, class _CharT>
 _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, const char* __begin, const char* __first,
@@ -181,8 +238,8 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
 
   auto __r = __grouping.rbegin();
   auto __e = __grouping.rend() - 1;
-  _LIBCPP_ASSERT(__r != __e, "The slow grouping formatting is used while "
-                             "there will be no separators written.");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__r != __e, "The slow grouping formatting is used while "
+                                           "there will be no separators written.");
   // The output is divided in small groups of numbers to write:
   // - A group before the first separator.
   // - A separator and a group, repeated for the number of separators.
@@ -250,27 +307,27 @@ __write(basic_string_view<_CharT> __str,
   return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 
-template <class _CharT, class _ParserCharT>
+template <contiguous_iterator _Iterator, class _ParserCharT>
 _LIBCPP_HIDE_FROM_ABI auto
-__write(const _CharT* __first,
-        const _CharT* __last,
-        output_iterator<const _CharT&> auto __out_it,
+__write(_Iterator __first,
+        _Iterator __last,
+        output_iterator<const iter_value_t<_Iterator>&> auto __out_it,
         __format_spec::__parsed_specifications<_ParserCharT> __specs,
         ptrdiff_t __size) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__first <= __last, "Not a valid range");
   return __formatter::__write(basic_string_view{__first, __last}, _VSTD::move(__out_it), __specs, __size);
 }
 
 /// \overload
 ///
 /// Calls the function above where \a __size = \a __last - \a __first.
-template <class _CharT, class _ParserCharT>
+template <contiguous_iterator _Iterator, class _ParserCharT>
 _LIBCPP_HIDE_FROM_ABI auto
-__write(const _CharT* __first,
-        const _CharT* __last,
-        output_iterator<const _CharT&> auto __out_it,
+__write(_Iterator __first,
+        _Iterator __last,
+        output_iterator<const iter_value_t<_Iterator>&> auto __out_it,
         __format_spec::__parsed_specifications<_ParserCharT> __specs) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__first <= __last, "Not a valid range");
   return __formatter::__write(__first, __last, _VSTD::move(__out_it), __specs, __last - __first);
 }
 
@@ -279,7 +336,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_transformed(const _CharT* __first, const _Cha
                                                output_iterator<const _CharT&> auto __out_it,
                                                __format_spec::__parsed_specifications<_ParserCharT> __specs,
                                                _UnaryOperation __op) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__first <= __last, "Not a valid range");
 
   ptrdiff_t __size = __last - __first;
   if (__size >= __specs.__width_)
@@ -308,8 +365,9 @@ _LIBCPP_HIDE_FROM_ABI auto __write_using_trailing_zeros(
     size_t __size,
     const _CharT* __exponent,
     size_t __num_trailing_zeros) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
-  _LIBCPP_ASSERT(__num_trailing_zeros > 0, "The overload not writing trailing zeros should have been used");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__first <= __last, "Not a valid range");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__num_trailing_zeros > 0,
+                               "The overload not writing trailing zeros should have been used");
 
   __padding_size_result __padding =
       __formatter::__padding_size(__size + __num_trailing_zeros, __specs.__width_, __specs.__alignment_);
@@ -331,7 +389,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string_no_precision(
     basic_string_view<_CharT> __str,
     output_iterator<const _CharT&> auto __out_it,
     __format_spec::__parsed_specifications<_CharT> __specs) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(!__specs.__has_precision(), "use __write_string");
+  _LIBCPP_ASSERT_UNCATEGORIZED(!__specs.__has_precision(), "use __write_string");
 
   // No padding -> copy the string
   if (!__specs.__has_width())
@@ -348,7 +406,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string_no_precision(
 
 template <class _CharT>
 _LIBCPP_HIDE_FROM_ABI int __truncate(basic_string_view<_CharT>& __str, int __precision) {
-  __format_spec::__column_width_result<_CharT> __result =
+  __format_spec::__column_width_result __result =
       __format_spec::__estimate_column_width(__str, __precision, __format_spec::__column_width_rounding::__down);
   __str = basic_string_view<_CharT>{__str.begin(), __result.__last_};
   return __result.__width_;
@@ -371,7 +429,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string(
   return __formatter::__write(__str.begin(), __str.end(), _VSTD::move(__out_it), __specs, __size);
 }
 
-#  if _LIBCPP_STD_VER > 20
+#  if _LIBCPP_STD_VER >= 23
 
 struct __nul_terminator {};
 
@@ -388,7 +446,7 @@ __write_escaped_code_unit(basic_string<_CharT>& __str, char32_t __value, const _
 
   char __buffer[8];
   to_chars_result __r = std::to_chars(std::begin(__buffer), std::end(__buffer), __value, 16);
-  _LIBCPP_ASSERT(__r.ec == errc(0), "Internal buffer too small");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__r.ec == errc(0), "Internal buffer too small");
   std::ranges::copy(std::begin(__buffer), __r.ptr, __out_it);
 
   __str += _CharT('}');
@@ -490,36 +548,17 @@ __escape(basic_string<_CharT>& __str, basic_string_view<_CharT> __values, __esca
   __unicode::__code_point_view<_CharT> __view{__values.begin(), __values.end()};
 
   while (!__view.__at_end()) {
-    const _CharT* __first                               = __view.__position();
-    typename __unicode::__consume_p2286_result __result = __view.__consume_p2286();
-    if (__result.__ill_formed_size == 0) {
-      if (!__formatter::__is_escaped_sequence_written(__str, __result.__value, __mark))
+    auto __first                                  = __view.__position();
+    typename __unicode::__consume_result __result = __view.__consume();
+    if (__result.__status == __unicode::__consume_result::__ok) {
+      if (!__formatter::__is_escaped_sequence_written(__str, __result.__code_point, __mark))
         // 2.2.1.3 - Add the character
         ranges::copy(__first, __view.__position(), std::back_insert_iterator(__str));
-
     } else {
       // 2.2.3 sequence of ill-formed code units
-      // The number of code-units in __result.__value depends on the character type being used.
-      if constexpr (sizeof(_CharT) == 1) {
-        _LIBCPP_ASSERT(__result.__ill_formed_size == 1 || __result.__ill_formed_size == 4,
-                       "illegal number of invalid code units.");
-        if (__result.__ill_formed_size == 1) // ill-formed, one code unit
-          __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value & 0xff);
-        else { // out of valid range, four code units
-               // The code point was properly encoded, decode the value.
-          __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value >> 18 | 0xf0);
-          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value >> 12 & 0x3f) | 0x80);
-          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value >> 6 & 0x3f) | 0x80);
-          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value & 0x3f) | 0x80);
-        }
-      } else if constexpr (sizeof(_CharT) == 2) {
-        _LIBCPP_ASSERT(__result.__ill_formed_size == 1, "for UTF-16 at most one invalid code unit");
-        __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value & 0xffff);
-      } else {
-        static_assert(sizeof(_CharT) == 4, "unsupported character width");
-        _LIBCPP_ASSERT(__result.__ill_formed_size == 1, "for UTF-32 one code unit is one code point");
-        __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value);
-      }
+      ranges::for_each(__first, __view.__position(), [&](_CharT __value) {
+        __formatter::__write_escape_ill_formed_code_unit(__str, __formatter::__to_char32(__value));
+      });
     }
   }
 }
@@ -548,11 +587,11 @@ __format_escaped_string(basic_string_view<_CharT> __values,
   return __formatter::__write_string(basic_string_view{__str}, _VSTD::move(__out_it), __specs);
 }
 
-#  endif // _LIBCPP_STD_VER > 20
+#  endif // _LIBCPP_STD_VER >= 23
 
 } // namespace __formatter
 
-#endif //_LIBCPP_STD_VER > 17
+#endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

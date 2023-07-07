@@ -126,7 +126,7 @@ constexpr FeatureBitset FeaturesPentiumMMX =
 
 // Pentium 2 and 3.
 constexpr FeatureBitset FeaturesPentium2 =
-    FeatureX87 | FeatureCMPXCHG8B | FeatureMMX | FeatureFXSR;
+    FeatureX87 | FeatureCMPXCHG8B | FeatureMMX | FeatureFXSR | FeatureCMOV;
 constexpr FeatureBitset FeaturesPentium3 = FeaturesPentium2 | FeatureSSE;
 
 // Pentium 4 CPUs
@@ -208,7 +208,8 @@ constexpr FeatureBitset FeaturesSapphireRapids =
     FeatureSERIALIZE | FeatureSHSTK | FeatureTSXLDTRK | FeatureUINTR |
     FeatureWAITPKG;
 constexpr FeatureBitset FeaturesGraniteRapids =
-    FeaturesSapphireRapids | FeatureAMX_FP16 | FeaturePREFETCHI;
+    FeaturesSapphireRapids | FeatureAMX_FP16 | FeaturePREFETCHI |
+    FeatureAMX_COMPLEX;
 
 // Intel Atom processors.
 // Bonnell has feature parity with Core2 and adds MOVBE.
@@ -320,8 +321,8 @@ constexpr ProcInfo Processors[] = {
   { {"pentium"}, CK_Pentium, ~0U, FeatureX87 | FeatureCMPXCHG8B },
   { {"pentium-mmx"}, CK_PentiumMMX, ~0U, FeaturesPentiumMMX },
   // i686-generation processors, P6 / Pentium M microarchitecture based.
-  { {"pentiumpro"}, CK_PentiumPro, ~0U, FeatureX87 | FeatureCMPXCHG8B },
-  { {"i686"}, CK_i686, ~0U, FeatureX87 | FeatureCMPXCHG8B },
+  { {"pentiumpro"}, CK_PentiumPro, ~0U, FeatureCMOV | FeatureX87 | FeatureCMPXCHG8B },
+  { {"i686"}, CK_i686, ~0U, FeatureCMOV | FeatureX87 | FeatureCMPXCHG8B },
   { {"pentium2"}, CK_Pentium2, ~0U, FeaturesPentium2 },
   { {"pentium3"}, CK_Pentium3, ~0U, FeaturesPentium3 },
   { {"pentium3m"}, CK_Pentium3, ~0U, FeaturesPentium3 },
@@ -606,6 +607,7 @@ constexpr FeatureBitset ImpliedFeaturesAMX_TILE = {};
 constexpr FeatureBitset ImpliedFeaturesAMX_BF16 = FeatureAMX_TILE;
 constexpr FeatureBitset ImpliedFeaturesAMX_FP16 = FeatureAMX_TILE;
 constexpr FeatureBitset ImpliedFeaturesAMX_INT8 = FeatureAMX_TILE;
+constexpr FeatureBitset ImpliedFeaturesAMX_COMPLEX = FeatureAMX_TILE;
 constexpr FeatureBitset ImpliedFeaturesHRESET = {};
 
 constexpr FeatureBitset ImpliedFeaturesPREFETCHI = {};

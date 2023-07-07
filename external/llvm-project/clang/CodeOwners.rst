@@ -58,6 +58,12 @@ Analysis & CFG
 | sgatev\@google.com (email), sgatev (Phabricator), sgatev (GitHub)
 
 
+Experimental new constant interpreter
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+| Timm Bäder
+| tbaeder@redhat.com (email), tbaeder (Phabricator), tbaederr (GitHub)
+
+
 Modules & serialization
 ~~~~~~~~~~~~~~~~~~~~~~~
 | Chuanqi Xu
@@ -229,7 +235,7 @@ Objective-C/C++ conformance
 OpenMP conformance
 ~~~~~~~~~~~~~~~~~~
 | Alexey Bataev
-| a.bataev\@hotmail.com (email), ABataev (Phabricator), cilkplus (GitHub)
+| a.bataev\@hotmail.com (email), ABataev (Phabricator), alexey-bataev (GitHub)
 
 
 OpenCL conformance

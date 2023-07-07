@@ -101,8 +101,8 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = noRock;
   bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.setFunctionBoundaryTypeConversion(
+      bufferization::LayoutMapOption::IdentityLayoutMap);
   bufOpts.unknownTypeConverterFn =
       [](Value value, Attribute memorySpace,
          const bufferization::BufferizationOptions &options) {
@@ -122,7 +122,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    *   --rock-gemm-to-gridwise --rock-regularize
    *   --rock-gridwise-gemm-to-blockwise
    */
-  pm.addPass(rock::createRockAffixTuningParametersPass(
+  pm.addNestedPass<func::FuncOp>(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{0, 0,
                                                  options.tuningFallback}));
   pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
@@ -143,7 +143,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
-    pm.addPass(rock::createRockLowerReducePass());
+    pm.addNestedPass<func::FuncOp>(rock::createRockLowerReducePass());
 
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
@@ -168,7 +168,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine
      * --expand-stride-metadata --convert-scf-to-cf
      */
-    pm.addPass(createConvertLinalgToAffineLoopsPass());
+    pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
     pm.addPass(memref::createExpandStridedMetadataPass());
     pm.addPass(createLowerAffinePass());
     pm.addPass(createConvertSCFToCFPass());
@@ -193,10 +193,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   pm.addPass(createFp8ExtToTablesPass());
   pm.addNestedPass<gpu::GPUModuleOp>(
       amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass(
+  pm.addNestedPass<gpu::GPUModuleOp>(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
-  pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
-                                           options.features, options.optLevel));
+  pm.addNestedPass<gpu::GPUModuleOp>(createGpuSerializeToHsacoPass(
+      options.triple, options.chip, options.features, options.optLevel));
 }
 
 //===----------------------------------------------------------------------===//

@@ -142,8 +142,6 @@ public:
   std::string getAsString() const override;
 
   bool typeIsConvertibleTo(const RecTy *RHS) const override;
-
-  bool typeIsA(const RecTy *RHS) const override;
 };
 
 /// 'int' - Represent an integer value of no particular size
@@ -316,7 +314,6 @@ protected:
     IK_AnonymousNameInit,
     IK_StringInit,
     IK_VarInit,
-    IK_VarListElementInit,
     IK_VarBitInit,
     IK_VarDefInit,
     IK_LastTypedInit,
@@ -386,14 +383,6 @@ public:
     return nullptr;
   }
 
-  /// This function is used to implement the list slice
-  /// selection operator.  Given a value, it selects the specified list
-  /// elements, returning them as a new \p Init of type \p list. If it
-  /// is not legal to use the slice operator, null is returned.
-  virtual Init *convertInitListSlice(ArrayRef<unsigned> Elements) const {
-    return nullptr;
-  }
-
   /// This function is used to implement the FieldInit class.
   /// Implementors of this method should return the type of the named
   /// field if they are of type record.
@@ -445,7 +434,6 @@ public:
   Init *convertInitializerTo(RecTy *Ty) const override;
 
   Init *convertInitializerBitRange(ArrayRef<unsigned> Bits) const override;
-  Init *convertInitListSlice(ArrayRef<unsigned> Elements) const override;
 
   /// This method is used to implement the FieldInit class.
   /// Implementors of this method should return the type of the named field if
@@ -726,8 +714,6 @@ public:
 
   Record *getElementAsRecord(unsigned i) const;
 
-  Init *convertInitListSlice(ArrayRef<unsigned> Elements) const override;
-
   Init *convertInitializerTo(RecTy *Ty) const override;
 
   /// This method is used by classes that refer to other
@@ -785,7 +771,18 @@ public:
 ///
 class UnOpInit : public OpInit, public FoldingSetNode {
 public:
-  enum UnaryOp : uint8_t { CAST, NOT, HEAD, TAIL, SIZE, EMPTY, GETDAGOP, LOG2 };
+  enum UnaryOp : uint8_t {
+    TOLOWER,
+    TOUPPER,
+    CAST,
+    NOT,
+    HEAD,
+    TAIL,
+    SIZE,
+    EMPTY,
+    GETDAGOP,
+    LOG2
+  };
 
 private:
   Init *LHS;
@@ -848,6 +845,10 @@ public:
     LISTCONCAT,
     LISTSPLAT,
     LISTREMOVE,
+    LISTELEM,
+    LISTSLICE,
+    RANGE,
+    RANGEC,
     STRCONCAT,
     INTERLEAVE,
     CONCAT,
@@ -857,7 +858,9 @@ public:
     LT,
     GE,
     GT,
-    SETDAGOP
+    GETDAGARG,
+    GETDAGNAME,
+    SETDAGOP,
   };
 
 private:
@@ -915,7 +918,17 @@ public:
 /// !op (X, Y, Z) - Combine two inits.
 class TernOpInit : public OpInit, public FoldingSetNode {
 public:
-  enum TernaryOp : uint8_t { SUBST, FOREACH, FILTER, IF, DAG, SUBSTR, FIND };
+  enum TernaryOp : uint8_t {
+    SUBST,
+    FOREACH,
+    FILTER,
+    IF,
+    DAG,
+    SUBSTR,
+    FIND,
+    SETDAGARG,
+    SETDAGNAME,
+  };
 
 private:
   Init *LHS, *MHS, *RHS;
@@ -1229,39 +1242,6 @@ public:
   }
 };
 
-/// List[4] - Represent access to one element of a var or
-/// field.
-class VarListElementInit : public TypedInit {
-  TypedInit *TI;
-  unsigned Element;
-
-  VarListElementInit(TypedInit *T, unsigned E)
-      : TypedInit(IK_VarListElementInit,
-                  cast<ListRecTy>(T->getType())->getElementType()),
-        TI(T), Element(E) {
-    assert(T->getType() && isa<ListRecTy>(T->getType()) &&
-           "Illegal VarBitInit expression!");
-  }
-
-public:
-  VarListElementInit(const VarListElementInit &) = delete;
-  VarListElementInit &operator=(const VarListElementInit &) = delete;
-
-  static bool classof(const Init *I) {
-    return I->getKind() == IK_VarListElementInit;
-  }
-
-  static VarListElementInit *get(TypedInit *T, unsigned E);
-
-  TypedInit *getVariable() const { return TI; }
-  unsigned getElementNum() const { return Element; }
-
-  std::string getAsString() const override;
-  Init *resolveReferences(Resolver &R) const override;
-
-  Init *getBit(unsigned Bit) const override;
-};
-
 /// AL - Represent a reference to a 'def' in the description
 class DefInit : public TypedInit {
   friend class Record;
@@ -1436,6 +1416,10 @@ public:
     assert(Num < NumArgs && "Arg number out of range!");
     return getTrailingObjects<Init *>()[Num];
   }
+
+  /// This method looks up the specified argument name and returns its argument
+  /// number or std::nullopt if that argument name does not exist.
+  std::optional<unsigned> getArgNo(StringRef Name) const;
 
   StringInit *getArgName(unsigned Num) const {
     assert(Num < NumArgNames && "Arg number out of range!");
@@ -1828,7 +1812,7 @@ public:
 
   /// This method looks up the specified field and returns its value as a
   /// string, throwing an exception if the value is not a string and
-  /// llvm::Optional() if the field does not exist.
+  /// std::nullopt if the field does not exist.
   std::optional<StringRef> getValueAsOptionalString(StringRef FieldName) const;
 
   /// This method looks up the specified field and returns its value as a

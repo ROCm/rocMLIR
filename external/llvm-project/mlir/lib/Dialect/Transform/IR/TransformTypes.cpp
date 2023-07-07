@@ -59,7 +59,9 @@ transform::OperationType::checkPayload(Location loc,
   for (Operation *op : payload) {
     if (opName != op->getName()) {
       DiagnosedSilenceableFailure diag =
-          emitSilenceableError(loc) << "incompatible payload operation name";
+          emitSilenceableError(loc)
+          << "incompatible payload operation name expected " << opName << " vs "
+          << op->getName() << " -> " << *op;
       diag.attachNote(op->getLoc()) << "payload operation";
       return diag;
     }
@@ -75,7 +77,7 @@ transform::OperationType::checkPayload(Location loc,
 LogicalResult
 transform::ParamType::verify(function_ref<InFlightDiagnostic()> emitError,
                              Type type) {
-  IntegerType intType = type.dyn_cast<IntegerType>();
+  IntegerType intType = llvm::dyn_cast<IntegerType>(type);
   if (!intType || intType.getWidth() > 64)
     return emitError() << "only supports integer types with width <=64";
   return success();
@@ -85,7 +87,7 @@ DiagnosedSilenceableFailure
 transform::ParamType::checkPayload(Location loc,
                                    ArrayRef<Attribute> payload) const {
   for (Attribute attr : payload) {
-    auto integerAttr = attr.dyn_cast<IntegerAttr>();
+    auto integerAttr = llvm::dyn_cast<IntegerAttr>(attr);
     if (!integerAttr) {
       return emitSilenceableError(loc)
              << "expected parameter to be an integer attribute, got " << attr;
@@ -97,5 +99,15 @@ transform::ParamType::checkPayload(Location loc,
              << getType() << ")";
     }
   }
+  return DiagnosedSilenceableFailure::success();
+}
+
+//===----------------------------------------------------------------------===//
+// transform::AnyValueType
+//===----------------------------------------------------------------------===//
+
+DiagnosedSilenceableFailure
+transform::AnyValueType::checkPayload(Location loc,
+                                      ArrayRef<Value> payload) const {
   return DiagnosedSilenceableFailure::success();
 }
