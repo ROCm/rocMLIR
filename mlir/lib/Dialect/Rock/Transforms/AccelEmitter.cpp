@@ -182,8 +182,8 @@ static int64_t calculateGridSize(ArrayRef<int64_t> bidGridLengths) {
 
 static TopDownTMBuilder
 createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
-                        Optional<ArrayRef<int64_t>> bidGridLengths,
-                        Optional<int64_t> blockSize) {
+                        std::optional<ArrayRef<int64_t>> bidGridLengths,
+                        std::optional<int64_t> blockSize) {
   if (bidGridLengths.has_value()) {
     int64_t gridSizeVal = calculateGridSize(bidGridLengths.value());
     return TopDownTMBuilder(b, {"bid", "tid", "item"},
@@ -198,7 +198,8 @@ createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
 
 ArrayAttr MfmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    Optional<int64_t> blockSize, Optional<ArrayRef<int64_t>> bidGridLengths) {
+    std::optional<int64_t> blockSize,
+    std::optional<ArrayRef<int64_t>> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -474,7 +475,8 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
 ArrayAttr WmmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    Optional<int64_t> blockSize, Optional<ArrayRef<int64_t>> bidGridLengths) {
+    std::optional<int64_t> blockSize,
+    std::optional<ArrayRef<int64_t>> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();

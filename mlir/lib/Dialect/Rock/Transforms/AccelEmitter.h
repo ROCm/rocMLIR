@@ -119,8 +119,8 @@ struct AccelEmitter {
   /// be a thread-level view of the output.
   virtual ArrayAttr computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      Optional<int64_t> blockSize = std::nullopt,
-      Optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) = 0;
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
@@ -161,8 +161,8 @@ struct MfmaEmitter : public AccelEmitter {
 
   ArrayAttr computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      Optional<int64_t> blockSize = std::nullopt,
-      Optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -191,8 +191,8 @@ struct WmmaEmitter : public AccelEmitter {
 
   ArrayAttr computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      Optional<int64_t> blockSize = std::nullopt,
-      Optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
 
 private:
   /// Initialize the emitter parameters for wmma
