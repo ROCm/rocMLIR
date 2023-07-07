@@ -17,7 +17,6 @@
 #include "llvm-c/Disassembler.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/BinaryFormat/MachO.h"
 #include "llvm/Config/config.h"
 #include "llvm/DebugInfo/DIContext.h"
@@ -49,6 +48,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
 #include <algorithm>
 #include <cstring>
 #include <system_error>
@@ -7280,9 +7280,7 @@ static const char *SymbolizerSymbolLookUp(void *DisInfo,
     } else if (SymbolName != nullptr && strncmp(SymbolName, "__Z", 3) == 0) {
       if (info->demangled_name != nullptr)
         free(info->demangled_name);
-      int status;
-      info->demangled_name =
-          itaniumDemangle(SymbolName + 1, nullptr, nullptr, &status);
+      info->demangled_name = itaniumDemangle(SymbolName + 1);
       if (info->demangled_name != nullptr) {
         *ReferenceName = info->demangled_name;
         *ReferenceType = LLVMDisassembler_ReferenceType_DeMangled_Name;
@@ -7380,9 +7378,7 @@ static const char *SymbolizerSymbolLookUp(void *DisInfo,
   } else if (SymbolName != nullptr && strncmp(SymbolName, "__Z", 3) == 0) {
     if (info->demangled_name != nullptr)
       free(info->demangled_name);
-    int status;
-    info->demangled_name =
-        itaniumDemangle(SymbolName + 1, nullptr, nullptr, &status);
+    info->demangled_name = itaniumDemangle(SymbolName + 1);
     if (info->demangled_name != nullptr) {
       *ReferenceName = info->demangled_name;
       *ReferenceType = LLVMDisassembler_ReferenceType_DeMangled_Name;
@@ -10362,6 +10358,8 @@ static void PrintLinkEditDataCommand(MachO::linkedit_data_command ld,
     outs() << "      cmd LC_DYLD_EXPORTS_TRIE\n";
   else if (ld.cmd == MachO::LC_DYLD_CHAINED_FIXUPS)
     outs() << "      cmd LC_DYLD_CHAINED_FIXUPS\n";
+  else if (ld.cmd == MachO::LC_ATOM_INFO)
+    outs() << "      cmd LC_ATOM_INFO\n";
   else
     outs() << "      cmd " << ld.cmd << " (?)\n";
   outs() << "  cmdsize " << ld.cmdsize;
@@ -10507,7 +10505,8 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t filetype,
                Command.C.cmd == MachO::LC_DYLIB_CODE_SIGN_DRS ||
                Command.C.cmd == MachO::LC_LINKER_OPTIMIZATION_HINT ||
                Command.C.cmd == MachO::LC_DYLD_EXPORTS_TRIE ||
-               Command.C.cmd == MachO::LC_DYLD_CHAINED_FIXUPS) {
+               Command.C.cmd == MachO::LC_DYLD_CHAINED_FIXUPS ||
+               Command.C.cmd == MachO::LC_ATOM_INFO) {
       MachO::linkedit_data_command Ld =
           Obj->getLinkeditDataLoadCommand(Command);
       PrintLinkEditDataCommand(Ld, Buf.size());

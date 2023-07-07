@@ -105,7 +105,7 @@ static Value getFloatValueTableFor(Type elementType, Operation *op,
   }
   ElementsAttr tableElemsAttr = DenseElementsAttr::get<float>(
       RankedTensorType::get(256, rewriter.getF32Type()), tableElems);
-  OpBuilder nowhereBuilder(module->getContext(), rewriter.getListener());
+  OpBuilder nowhereBuilder(module->getContext(), &rewriter);
   table = nowhereBuilder.create<memref::GlobalOp>(
       op->getLoc(), extTableName,
       /*sym_visibility=*/rewriter.getStringAttr("private"),
@@ -162,7 +162,7 @@ void Fp8ExtToTableLookupPattern::rewrite(
       floatVecType);
   SmallVector<int64_t> strides = computeStrides(inVecType.getShape());
   for (int64_t i = 0, e = inVecType.getNumElements(); i < e; ++i) {
-    SmallVector<int64_t> idx = delinearize(strides, i);
+    SmallVector<int64_t> idx = delinearize(i, strides);
     Value scalar =
         rewriter.create<vector::ExtractOp>(loc, adaptor.getIn(), idx);
     Value extended = oneToFloat(scalar);

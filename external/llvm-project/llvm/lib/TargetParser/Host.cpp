@@ -309,6 +309,7 @@ StringRef sys::detail::getHostCPUNameForARM(StringRef ProcCpuinfoContent) {
   if (Implementer == "0xc0") { // Ampere Computing
     return StringSwitch<const char *>(Part)
         .Case("0xac3", "ampere1")
+        .Case("0xac4", "ampere1a")
         .Default("generic");
   }
 
@@ -1447,6 +1448,20 @@ StringRef sys::getHostCPUName() {
     return "generic";
   }
 }
+#elif defined(__loongarch__)
+StringRef sys::getHostCPUName() {
+  // Use processor id to detect cpu name.
+  uint32_t processor_id;
+  __asm__("cpucfg %[prid], $zero\n\t" : [prid] "=r"(processor_id));
+  switch (processor_id & 0xff00) {
+  case 0xc000: // Loongson 64bit, 4-issue
+    return "la464";
+  // TODO: Others.
+  default:
+    break;
+  }
+  return "generic";
+}
 #elif defined(__riscv)
 StringRef sys::getHostCPUName() {
 #if defined(__linux__)
@@ -1740,6 +1755,7 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
   Features["avxifma"]    = HasLeaf7Subleaf1 && ((EAX >> 23) & 1) && HasAVXSave;
   Features["avxvnniint8"] = HasLeaf7Subleaf1 && ((EDX >> 4) & 1) && HasAVXSave;
   Features["avxneconvert"] = HasLeaf7Subleaf1 && ((EDX >> 5) & 1) && HasAVXSave;
+  Features["amx-complex"] = HasLeaf7Subleaf1 && ((EDX >> 8) & 1) && HasAMXSave;
   Features["prefetchi"]  = HasLeaf7Subleaf1 && ((EDX >> 14) & 1);
 
   bool HasLeafD = MaxLevel >= 0xd &&
@@ -1838,6 +1854,23 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
     Features["crc"] = true;
   if (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE))
     Features["crypto"] = true;
+
+  return true;
+}
+#elif defined(__linux__) && defined(__loongarch__)
+#include <sys/auxv.h>
+bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
+  unsigned long hwcap = getauxval(AT_HWCAP);
+  bool HasFPU = hwcap & (1UL << 3); // HWCAP_LOONGARCH_FPU
+  uint32_t cpucfg2 = 0x2;
+  __asm__("cpucfg %[cpucfg2], %[cpucfg2]\n\t" : [cpucfg2] "+r"(cpucfg2));
+
+  Features["f"] = HasFPU && (cpucfg2 & (1U << 1)); // CPUCFG.2.FP_SP
+  Features["d"] = HasFPU && (cpucfg2 & (1U << 2)); // CPUCFG.2.FP_DP
+
+  Features["lsx"] = hwcap & (1UL << 4);  // HWCAP_LOONGARCH_LSX
+  Features["lasx"] = hwcap & (1UL << 5); // HWCAP_LOONGARCH_LASX
+  Features["lvz"] = hwcap & (1UL << 9);  // HWCAP_LOONGARCH_LVZ
 
   return true;
 }

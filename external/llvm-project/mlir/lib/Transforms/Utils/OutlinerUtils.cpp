@@ -40,7 +40,7 @@ using namespace mlir;
 
 static bool isZeroAttribute(Attribute value) {
   if (auto intValue = value.dyn_cast<IntegerAttr>())
-    return intValue.getValue().isNullValue();
+    return intValue.getValue().isZero();
   if (auto fpValue = value.dyn_cast<FloatAttr>())
     return fpValue.getValue().isZero();
   if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
@@ -150,8 +150,7 @@ static bool opsMatch(Operation *lhs, Operation *rhs, OutliningCandidate &one,
                      OutliningCandidate &two) {
   // Check that the operations are equivalent.
   if (!OperationEquivalence::isEquivalentTo(
-          lhs, rhs, OperationEquivalence::ignoreValueEquivalence,
-          OperationEquivalence::ignoreValueEquivalence,
+          lhs, rhs, OperationEquivalence::ignoreValueEquivalence, nullptr,
           OperationEquivalence::Flags::IgnoreLocations))
     return false;
 

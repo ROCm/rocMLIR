@@ -32,6 +32,15 @@ using namespace mlir;
 using namespace mlir::detail;
 
 //===----------------------------------------------------------------------===//
+// PassExecutionAction
+//===----------------------------------------------------------------------===//
+
+void PassExecutionAction::print(raw_ostream &os) const {
+  os << llvm::formatv("`{0}` running `{1}` on Operation `{2}`", tag,
+                      pass.getName(), getOp()->getName());
+}
+
+//===----------------------------------------------------------------------===//
 // Pass
 //===----------------------------------------------------------------------===//
 
@@ -429,6 +438,9 @@ LogicalResult OpToOpPassAdaptor::run(Pass *pass, Operation *op,
   if (!opInfo->hasTrait<OpTrait::IsIsolatedFromAbove>())
     return op->emitOpError() << "trying to schedule a pass on an operation not "
                                 "marked as 'IsolatedFromAbove'";
+  if (!pass->canScheduleOn(*op->getName().getRegisteredInfo()))
+    return op->emitOpError()
+           << "trying to schedule a pass on an unsupported operation";
 
   // Initialize the pass state with a callback for the pass to dynamically
   // execute a pipeline on the currently visited operation.
@@ -463,12 +475,17 @@ LogicalResult OpToOpPassAdaptor::run(Pass *pass, Operation *op,
   if (pi)
     pi->runBeforePass(pass, op);
 
-  // Invoke the virtual runOnOperation method.
-  if (auto *adaptor = dyn_cast<OpToOpPassAdaptor>(pass))
-    adaptor->runOnOperation(verifyPasses);
-  else
-    pass->runOnOperation();
-  bool passFailed = pass->passState->irAndPassFailed.getInt();
+  bool passFailed = false;
+  op->getContext()->executeAction<PassExecutionAction>(
+      [&]() {
+        // Invoke the virtual runOnOperation method.
+        if (auto *adaptor = dyn_cast<OpToOpPassAdaptor>(pass))
+          adaptor->runOnOperation(verifyPasses);
+        else
+          pass->runOnOperation();
+        passFailed = pass->passState->irAndPassFailed.getInt();
+      },
+      {op}, *pass);
 
   // Invalidate any non preserved analyses.
   am.invalidate(pass->passState->preservedAnalyses);
@@ -769,11 +786,15 @@ void OpToOpPassAdaptor::runOnOperationAsyncImpl(bool verifyPasses) {
 // PassManager
 //===----------------------------------------------------------------------===//
 
-PassManager::PassManager(MLIRContext *ctx, Nesting nesting,
-                         StringRef operationName)
-    : OpPassManager(OperationName(operationName, ctx), nesting), context(ctx),
-      initializationKey(DenseMapInfo<llvm::hash_code>::getTombstoneKey()),
-      passTiming(false), verifyPasses(true) {}
+PassManager::PassManager(MLIRContext *ctx, StringRef operationName,
+                         Nesting nesting)
+    : OpPassManager(operationName, nesting), context(ctx), passTiming(false),
+      verifyPasses(true) {}
+
+PassManager::PassManager(OperationName operationName, Nesting nesting)
+    : OpPassManager(operationName, nesting),
+      context(operationName.getContext()), passTiming(false),
+      verifyPasses(true) {}
 
 PassManager::~PassManager() = default;
 

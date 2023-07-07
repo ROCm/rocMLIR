@@ -613,7 +613,9 @@ llvm::json::Value CreateSource(llvm::StringRef source_path) {
 llvm::json::Value CreateSource(lldb::SBFrame &frame, int64_t &disasm_line) {
   disasm_line = 0;
   auto line_entry = frame.GetLineEntry();
-  if (line_entry.GetFileSpec().IsValid())
+  // A line entry of 0 indicates the line is compiler generated i.e. no source
+  // file so don't return early with the line entry.
+  if (line_entry.GetFileSpec().IsValid() && line_entry.GetLine() != 0)
     return CreateSource(line_entry);
 
   llvm::json::Object object;
@@ -650,7 +652,11 @@ llvm::json::Value CreateSource(lldb::SBFrame &frame, int64_t &disasm_line) {
   }
   const auto num_insts = insts.GetSize();
   if (low_pc != LLDB_INVALID_ADDRESS && num_insts > 0) {
-    EmplaceSafeString(object, "name", frame.GetFunctionName());
+    if (line_entry.GetLine() == 0) {
+      EmplaceSafeString(object, "name", "<compiler-generated>");
+    } else {
+      EmplaceSafeString(object, "name", frame.GetDisplayFunctionName());
+    }
     SourceReference source;
     llvm::raw_string_ostream src_strm(source.content);
     std::string line;
@@ -1102,11 +1108,8 @@ llvm::json::Value CreateCompileUnit(lldb::SBCompileUnit unit) {
 llvm::json::Object
 CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request,
                                   llvm::StringRef debug_adaptor_path,
-                                  llvm::StringRef comm_file) {
-  llvm::json::Object reverse_request;
-  reverse_request.try_emplace("type", "request");
-  reverse_request.try_emplace("command", "runInTerminal");
-
+                                  llvm::StringRef comm_file,
+                                  lldb::pid_t debugger_pid) {
   llvm::json::Object run_in_terminal_args;
   // This indicates the IDE to open an embedded terminal, instead of opening the
   // terminal in a new window.
@@ -1115,8 +1118,13 @@ CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request,
   auto launch_request_arguments = launch_request.getObject("arguments");
   // The program path must be the first entry in the "args" field
   std::vector<std::string> args = {
-      debug_adaptor_path.str(), "--comm-file", comm_file.str(),
-      "--launch-target", GetString(launch_request_arguments, "program").str()};
+      debug_adaptor_path.str(), "--comm-file", comm_file.str()};
+  if (debugger_pid != LLDB_INVALID_PROCESS_ID) {
+    args.push_back("--debugger-pid");
+    args.push_back(std::to_string(debugger_pid));
+  }
+  args.push_back("--launch-target");
+  args.push_back(GetString(launch_request_arguments, "program").str());
   std::vector<std::string> target_args =
       GetStrings(launch_request_arguments, "args");
   args.insert(args.end(), target_args.begin(), target_args.end());
@@ -1137,9 +1145,7 @@ CreateRunInTerminalReverseRequest(const llvm::json::Object &launch_request,
   run_in_terminal_args.try_emplace("env",
                                    llvm::json::Value(std::move(environment)));
 
-  reverse_request.try_emplace(
-      "arguments", llvm::json::Value(std::move(run_in_terminal_args)));
-  return reverse_request;
+  return run_in_terminal_args;
 }
 
 // Keep all the top level items from the statistics dump, except for the
@@ -1155,8 +1161,11 @@ void FilterAndGetValueForKey(const lldb::SBStructuredData data, const char *key,
   case lldb::eStructuredDataTypeFloat:
     out.try_emplace(key_utf8, value.GetFloatValue());
     break;
-  case lldb::eStructuredDataTypeInteger:
-    out.try_emplace(key_utf8, value.GetIntegerValue());
+  case lldb::eStructuredDataTypeUnsignedInteger:
+    out.try_emplace(key_utf8, value.GetIntegerValue((uint64_t)0));
+    break;
+  case lldb::eStructuredDataTypeSignedInteger:
+    out.try_emplace(key_utf8, value.GetIntegerValue((int64_t)0));
     break;
   case lldb::eStructuredDataTypeArray: {
     lldb::SBStream contents;

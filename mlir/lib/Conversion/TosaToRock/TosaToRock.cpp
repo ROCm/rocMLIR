@@ -34,7 +34,7 @@ namespace {
 
 static bool isZeroAttribute(Attribute value) {
   if (auto intValue = value.dyn_cast<IntegerAttr>())
-    return intValue.getValue().isNullValue();
+    return intValue.getValue().isZero();
   if (auto fpValue = value.dyn_cast<FloatAttr>())
     return fpValue.getValue().isZero();
   if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
@@ -636,7 +636,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
     StringAttr arch;
-    Optional<uint32_t> num_cu;
+    std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
@@ -662,7 +662,7 @@ typename std::enable_if_t<
   Value output =
       rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
   StringAttr arch;
-  Optional<uint32_t> num_cu;
+  std::optional<uint32_t> num_cu;
   rock::GemmFeatures features;
   std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
 
@@ -713,7 +713,7 @@ public:
                                 tosa::ReduceSumOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     StringAttr arch;
-    Optional<uint32_t> num_cu;
+    std::optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) =
         getArchAttributes(op, op.getInput().getType());

@@ -697,10 +697,13 @@ static LogicalResult checkGemmSize(Value matrix, Operation *op,
   while (auto transform = raw.getDefiningOp<rock::TransformOp>())
     raw = transform.getInput();
   ShapedType type = raw.getType().cast<ShapedType>();
-  if (!type.hasStaticShape() || type.getSizeInBits() >= fourGbits) {
+  if (!type.hasStaticShape())
+    return op->emitOpError() << "only static shapes are supported";
+
+  int64_t sizeInBits = type.getNumElements() * type.getElementTypeBitWidth();
+  if (sizeInBits >= fourGbits)
     return op->emitOpError() << "underlying storage for matrix " << name
                              << " cannot potentially be 4 GB or more";
-  }
   return success();
 }
 

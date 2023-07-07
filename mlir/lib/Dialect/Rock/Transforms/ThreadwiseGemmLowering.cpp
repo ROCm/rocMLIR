@@ -259,7 +259,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
-                         rock::RockDialect, AffineDialect,
+                         rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 

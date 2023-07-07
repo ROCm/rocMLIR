@@ -261,8 +261,8 @@ size_t getBytesPerElement(DataType dataType, bool isOut) {
 void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
   uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(byteSize));
   std::vector<uint8_t> pattern = getPattern(dataType, isOut);
-  size_t patternLen = pattern.size();
   size_t bytesPerElem = getBytesPerElement(dataType, isOut);
+  size_t patternLen = (pattern.size() / bytesPerElem);
   size_t elems = byteSize / bytesPerElem;
   for (size_t i = 0; i < elems; ++i) {
     for (size_t byte = 0; byte < bytesPerElem; ++byte) {

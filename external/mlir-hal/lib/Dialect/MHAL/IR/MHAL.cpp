@@ -73,7 +73,8 @@ mlir::Attribute TargetObjectAttr::parse(mlir::AsmParser &parser,
   }
 
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  Optional<TargetObjectType> targetType = getTargetObjectTypeForName(typeName);
+  std::optional<TargetObjectType> targetType =
+      getTargetObjectTypeForName(typeName);
   if (!targetType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known target object type");
     return {};
@@ -165,7 +166,7 @@ mlir::Attribute KernelPackageAttr::parse(mlir::AsmParser &parser,
   }
 
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  Optional<TargetType> targetType = getTargetTypeForName(typeName);
+  std::optional<TargetType> targetType = getTargetTypeForName(typeName);
   if (!targetType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known target type");
     return {};

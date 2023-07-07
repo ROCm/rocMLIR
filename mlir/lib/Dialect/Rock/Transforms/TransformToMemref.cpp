@@ -70,9 +70,9 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
   using OpRewritePattern<TransformOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(TransformOp op,
                                 PatternRewriter &b) const override {
-    TypedValue<ShapedType> src = op.getOperand();
+    auto src = cast<TypedValue<ShapedType>>(op.getOperand());
     auto srcShape = src.getType().getShape();
-    TypedValue<ShapedType> res = op.getResult();
+    auto res = cast<TypedValue<ShapedType>>(op.getResult());
     auto resShape = res.getType().getShape();
 
     bool expanded = resShape.size() > srcShape.size();
@@ -124,8 +124,8 @@ void RockTransformToMemrefPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<TransformOp>();
-  target.addLegalDialect<arith::ArithDialect, rock::RockDialect, AffineDialect,
-                         memref::MemRefDialect>();
+  target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
+                         affine::AffineDialect, memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<TransformRewritePattern>(ctx);

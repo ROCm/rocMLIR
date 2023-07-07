@@ -49,6 +49,7 @@
 #include "TUScheduler.h"
 #include "CompileCommands.h"
 #include "Compiler.h"
+#include "Config.h"
 #include "Diagnostics.h"
 #include "GlobalCompilationDatabase.h"
 #include "ParsedAST.h"
@@ -634,10 +635,6 @@ public:
                       std::shared_ptr<const PreambleData> Preamble,
                       std::vector<Diag> CIDiags, WantDiagnostics WantDiags);
 
-  /// Obtain a preamble reflecting all updates so far. Threadsafe.
-  /// It may be delivered immediately, or later on the worker thread.
-  void getCurrentPreamble(
-      llvm::unique_function<void(std::shared_ptr<const PreambleData>)>);
   /// Returns compile command from the current file inputs.
   tooling::CompileCommand getCurrentCompileCommand() const;
 
@@ -739,8 +736,8 @@ private:
   mutable std::condition_variable RequestsCV;
   std::shared_ptr<const ASTSignals> LatestASTSignals; /* GUARDED_BY(Mutex) */
   /// Latest build preamble for current TU.
-  /// None means no builds yet, null means there was an error while building.
-  /// Only written by ASTWorker's thread.
+  /// std::nullopt means no builds yet, null means there was an error while
+  /// building. Only written by ASTWorker's thread.
   std::optional<std::shared_ptr<const PreambleData>> LatestPreamble;
   std::deque<Request> PreambleRequests; /* GUARDED_BY(Mutex) */
   /// Signaled whenever LatestPreamble changes state or there's a new
@@ -938,8 +935,19 @@ void ASTWorker::update(ParseInputs Inputs, WantDiagnostics WantDiags,
       return;
     }
 
-    PreamblePeer.update(std::move(Invocation), std::move(Inputs),
-                        std::move(CompilerInvocationDiags), WantDiags);
+    // Inform preamble peer, before attempting to build diagnostics so that they
+    // can be built concurrently.
+    PreamblePeer.update(std::make_unique<CompilerInvocation>(*Invocation),
+                        Inputs, CompilerInvocationDiags, WantDiags);
+
+    // Emit diagnostics from (possibly) stale preamble while waiting for a
+    // rebuild. Newly built preamble cannot emit diagnostics before this call
+    // finishes (ast callbacks are called from astpeer thread), hence we
+    // guarantee eventual consistency.
+    if (LatestPreamble && WantDiags != WantDiagnostics::No)
+      generateDiagnostics(std::move(Invocation), std::move(Inputs),
+                          std::move(CompilerInvocationDiags));
+
     std::unique_lock<std::mutex> Lock(Mutex);
     PreambleCV.wait(Lock, [this] {
       // Block until we reiceve a preamble request, unless a preamble already
@@ -1071,9 +1079,9 @@ void PreambleThread::build(Request Req) {
   bool IsFirstPreamble = !LatestBuild;
   LatestBuild = clang::clangd::buildPreamble(
       FileName, *Req.CI, Inputs, StoreInMemory,
-      [&](ASTContext &Ctx, Preprocessor &PP,
-          const CanonicalIncludes &CanonIncludes) {
-        Callbacks.onPreambleAST(FileName, Inputs.Version, *Req.CI, Ctx, PP,
+      [&](CapturedASTCtx ASTCtx,
+          std::shared_ptr<const CanonicalIncludes> CanonIncludes) {
+        Callbacks.onPreambleAST(FileName, Inputs.Version, std::move(ASTCtx),
                                 CanonIncludes);
       },
       &Stats);
@@ -1092,7 +1100,7 @@ void ASTWorker::updatePreamble(std::unique_ptr<CompilerInvocation> CI,
   llvm::StringLiteral TaskName = "Build AST";
   // Store preamble and build diagnostics with new preamble if requested.
   auto Task = [this, Preamble = std::move(Preamble), CI = std::move(CI),
-               PI = std::move(PI), CIDiags = std::move(CIDiags),
+               CIDiags = std::move(CIDiags),
                WantDiags = std::move(WantDiags)]() mutable {
     // Update the preamble inside ASTWorker queue to ensure atomicity. As a task
     // running inside ASTWorker assumes internals won't change until it
@@ -1118,10 +1126,17 @@ void ASTWorker::updatePreamble(std::unique_ptr<CompilerInvocation> CI,
     // We only need to build the AST if diagnostics were requested.
     if (WantDiags == WantDiagnostics::No)
       return;
+    // Since the file may have been edited since we started building this
+    // preamble, we use the current contents of the file instead. This provides
+    // more up-to-date diagnostics, and avoids diagnostics going backwards (we
+    // may have already emitted staler-preamble diagnostics for the new
+    // version).
+    // We still have eventual consistency: at some point updatePreamble() will
+    // catch up to the current file.
     // Report diagnostics with the new preamble to ensure progress. Otherwise
     // diagnostics might get stale indefinitely if user keeps invalidating the
     // preamble.
-    generateDiagnostics(std::move(CI), std::move(PI), std::move(CIDiags));
+    generateDiagnostics(std::move(CI), FileInputs, std::move(CIDiags));
   };
   if (RunSync) {
     runTask(TaskName, Task);

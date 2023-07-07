@@ -18,12 +18,14 @@ function(add_header target_name)
     message(FATAL_ERROR "'add_header' rules requires the HDR argument specifying a headef file.")
   endif()
 
-  set(dest_file ${CMAKE_CURRENT_BINARY_DIR}/${ADD_HEADER_HDR})
+  set(absolute_path ${CMAKE_CURRENT_SOURCE_DIR}/${ADD_HEADER_HDR})
+  file(RELATIVE_PATH relative_path ${LIBC_INCLUDE_SOURCE_DIR} ${absolute_path})
+  set(dest_file ${LIBC_INCLUDE_DIR}/${relative_path})
   set(src_file ${CMAKE_CURRENT_SOURCE_DIR}/${ADD_HEADER_HDR})
 
   add_custom_command(
     OUTPUT ${dest_file}
-    COMMAND cp ${src_file} ${dest_file}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${src_file} ${dest_file}
     DEPENDS ${src_file}
   )
 
@@ -86,7 +88,9 @@ function(add_gen_header target_name)
     message(FATAL_ERROR "`add_gen_hdr` rule requires GEN_HDR to be specified.")
   endif()
 
-  set(out_file ${CMAKE_CURRENT_BINARY_DIR}/${ADD_GEN_HDR_GEN_HDR})
+  set(absolute_path ${CMAKE_CURRENT_SOURCE_DIR}/${ADD_GEN_HDR_GEN_HDR})
+  file(RELATIVE_PATH relative_path ${LIBC_INCLUDE_SOURCE_DIR} ${absolute_path})
+  set(out_file ${LIBC_INCLUDE_DIR}/${relative_path})
   set(in_file ${CMAKE_CURRENT_SOURCE_DIR}/${ADD_GEN_HDR_DEF_FILE})
 
   set(fq_data_files "")
@@ -108,9 +112,15 @@ function(add_gen_header target_name)
   set(ENTRYPOINT_NAME_LIST_ARG ${TARGET_ENTRYPOINT_NAME_LIST})
   list(TRANSFORM ENTRYPOINT_NAME_LIST_ARG PREPEND "--e=")
 
+  if(LIBC_HDRGEN_EXE)
+    set(hdrgen_exe ${LIBC_HDRGEN_EXE})
+  else()
+    set(hdrgen_exe ${LIBC_TABLEGEN_EXE})
+    set(hdrgen_deps "${LIBC_TABLEGEN_EXE};${LIBC_TABLEGEN_TARGET}")
+  endif()
   add_custom_command(
     OUTPUT ${out_file}
-    COMMAND ${LIBC_TABLEGEN_EXE} -o ${out_file} --header ${ADD_GEN_HDR_GEN_HDR}
+    COMMAND ${hdrgen_exe} -o ${out_file} --header ${ADD_GEN_HDR_GEN_HDR}
             --def ${in_file} ${replacement_params} -I ${LIBC_SOURCE_DIR}
            ${ENTRYPOINT_NAME_LIST_ARG}
            ${LIBC_SOURCE_DIR}/config/${LIBC_TARGET_OS}/api.td
@@ -118,7 +128,7 @@ function(add_gen_header target_name)
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DEPENDS ${in_file} ${fq_data_files} ${td_includes}
             ${LIBC_SOURCE_DIR}/config/${LIBC_TARGET_OS}/api.td
-            ${LIBC_TABLEGEN_EXE} ${LIBC_TABLEGEN_TARGET}
+            ${hdrgen_deps}
   )
 
   if(ADD_GEN_HDR_DEPENDS)

@@ -16,6 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -45,8 +46,7 @@ namespace {
 /// MachineFunction.
 ///
 struct StackFrameLayoutAnalysisPass : public MachineFunctionPass {
-  using SlotDbgMap =
-      SmallDenseMap<int, SmallPtrSet<const DILocalVariable *, 4>>;
+  using SlotDbgMap = SmallDenseMap<int, SetVector<const DILocalVariable *>>;
   static char ID;
 
   enum SlotType {
@@ -180,18 +180,15 @@ struct StackFrameLayoutAnalysisPass : public MachineFunctionPass {
                       << MFI.getStackProtectorIndex() << "\n");
 
     std::vector<SlotData> SlotInfo;
-    SmallDenseMap<int, int> SlotOffsetMap;
 
     const unsigned int NumObj = MFI.getNumObjects();
     SlotInfo.reserve(NumObj);
-    SlotOffsetMap.reserve(NumObj);
     // initialize slot info
     for (int Idx = MFI.getObjectIndexBegin(), EndIdx = MFI.getObjectIndexEnd();
          Idx != EndIdx; ++Idx) {
       if (MFI.isDeadObjectIndex(Idx))
         continue;
-      auto &Inserted = SlotInfo.emplace_back(MFI, ValOffset, Idx);
-      SlotOffsetMap[Inserted.Slot] = Inserted.Offset;
+      SlotInfo.emplace_back(MFI, ValOffset, Idx);
     }
 
     // sort the ordering, to match the actual layout in memory
@@ -213,8 +210,9 @@ struct StackFrameLayoutAnalysisPass : public MachineFunctionPass {
     SlotDbgMap SlotDebugMap;
 
     // add variables to the map
-    for (MachineFunction::VariableDbgInfo &DI : MF.getVariableDbgInfo())
-      SlotDebugMap[DI.Slot].insert(DI.Var);
+    for (MachineFunction::VariableDbgInfo &DI :
+         MF.getInStackSlotVariableDbgInfo())
+      SlotDebugMap[DI.getStackSlot()].insert(DI.Var);
 
     // Then add all the spills that have debug data
     for (MachineBasicBlock &MBB : MF) {

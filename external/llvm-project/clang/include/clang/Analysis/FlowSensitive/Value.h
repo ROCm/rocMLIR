@@ -19,6 +19,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cassert>
 #include <utility>
 
@@ -62,14 +63,18 @@ public:
   /// Returns the value of the synthetic property with the given `Name` or null
   /// if the property isn't assigned a value.
   Value *getProperty(llvm::StringRef Name) const {
-    auto It = Properties.find(Name);
-    return It == Properties.end() ? nullptr : It->second;
+    return Properties.lookup(Name);
   }
 
   /// Assigns `Val` as the value of the synthetic property with the given
   /// `Name`.
   void setProperty(llvm::StringRef Name, Value &Val) {
     Properties.insert_or_assign(Name, &Val);
+  }
+
+  llvm::iterator_range<llvm::StringMap<Value *>::const_iterator>
+  properties() const {
+    return {Properties.begin(), Properties.end()};
   }
 
 private:
@@ -296,19 +301,25 @@ public:
 
   /// Returns the child value that is assigned for `D` or null if the child is
   /// not initialized.
-  Value *getChild(const ValueDecl &D) const {
-    auto It = Children.find(&D);
-    if (It == Children.end())
-      return nullptr;
-    return It->second;
-  }
+  Value *getChild(const ValueDecl &D) const { return Children.lookup(&D); }
 
   /// Assigns `Val` as the child value for `D`.
   void setChild(const ValueDecl &D, Value &Val) { Children[&D] = &Val; }
 
+  /// Clears any value assigned as the child value for `D`.
+  void clearChild(const ValueDecl &D) { Children.erase(&D); }
+
+  llvm::iterator_range<
+      llvm::DenseMap<const ValueDecl *, Value *>::const_iterator>
+  children() const {
+    return {Children.begin(), Children.end()};
+  }
+
 private:
   llvm::DenseMap<const ValueDecl *, Value *> Children;
 };
+
+raw_ostream &operator<<(raw_ostream &OS, const Value &Val);
 
 } // namespace dataflow
 } // namespace clang

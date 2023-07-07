@@ -502,7 +502,8 @@ LogicalResult MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
       b.setInsertionPoint(twWriteAllOp);
 
       // 1. replace memref.copy with rock.threadwise_write_all
-      target = applyViewsOnDest(b, loc, target, views);
+      target = cast<TypedValue<BaseMemRefType>>(
+          applyViewsOnDest(b, loc, target, views));
       twWriteAllOp.getDestMutable().assign(target);
       // twWriteAllOp->moveAfter(target.getDefiningOp());
 
@@ -593,7 +594,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(threadwiseWriteOp);
     TypedValue<ShapedType> reduceOut = reduceOp.getOut();
-    reduceOut = applyViewsOnDest(rewriter, loc, reduceOut, views);
+    reduceOut = cast<TypedValue<ShapedType>>(
+        applyViewsOnDest(rewriter, loc, reduceOut, views));
     threadwiseWriteOp.getDestMutable().assign(reduceOut);
     threadwiseWriteOp.setStoreMethodAttr(stMethod);
   }
