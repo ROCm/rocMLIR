@@ -218,7 +218,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     }
 
     MlirModule tuningClone = cloneModule(module);
-    MlirOperation tuningCloneOp = mlirModuleGetOperation(module);
+    MlirOperation tuningCloneOp = mlirModuleGetOperation(tuningClone);
     mlirRockTuningSetParam(tuningClone, tuningParam);
     if (mlirLogicalResultIsFailure(
             mlirPassManagerRunOnOp(applicabilityPm, tuningCloneOp))) {
