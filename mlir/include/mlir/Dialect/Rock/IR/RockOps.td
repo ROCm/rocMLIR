@@ -1000,11 +1000,13 @@ def Rock_ThreadwiseReadIntoOp :
     for MAPS.
 
     The input to extraViews ; (the transforms on %source) must have the form
-    (extraIdx0, ... , extraIdxN, workgroup_id, workitem_id, iteration_number)
+    (extraIdx0, ... , extraIdxN, iteration_number)
 
-    The extraIndices could be used to integrate loop induction vars that is outside
-    of the op. If extraIndices are used, the [extraViews]source must have the form
-    (extraIdx0, ... , extraIdxN, workgroup_id, workitem_id, iteration_number).
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
 
     This is used during fusion to represent loads from addition arguments like
     bias tensors.
@@ -1061,12 +1063,14 @@ def Rock_ThreadwiseWriteAllOp :
     for MAPS, and the oob dimensions are those combputed on MAPS.
 
     The input to extraViews ; (the transforms on %dest) must have the form
-    (extraIdx0?, ... , extraIdxN?, workgroup_id?, workitem_id, iteration_number)
-    NOTE: extraIndices are optional and workgroups_id is only required if the dest is in global.
+    (extraIdx0, ... , extraIdxN, iteration_number).
 
-    The extraIndices could be used to integrate loop induction vars that is outside
-    of the op. If extraIndices are used, the [extraViews]source must have the form
-    (extraIdx0, ... , extraIdxN, workgroup_id?, workitem_id, iteration_number).
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]dest. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+
+    If extraIndices are used, the [extraViews]dest must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
 
     This is used during fusion to allow rewriting
     ```mlir

@@ -140,9 +140,11 @@ struct BlockwiseFillRewritePattern
     GpuAllocOp valueReg = rewriter.create<GpuAllocOp>(loc, valueRegType);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     rewriter.create<InBoundsStoreOp>(loc, val, valueReg, zero);
+    Value tid =
+        rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{}, GemmFeatures::none, StoreMethod::Set,
+        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
         true, true);
     rewriter.eraseOp(op);
     return success();
@@ -719,14 +721,6 @@ struct ThreadwiseWriteAllRewritePattern
 };
 } // end anonymous namespace
 
-static size_t getIterDim(gpu::AddressSpace addrSpace, size_t extraIdxCount) {
-  const llvm::SmallDenseMap<gpu::AddressSpace, size_t> iterDim{
-      {gpu::AddressSpace::Workgroup, 1},
-      {gpu::AddressSpace::Global, 2},
-  };
-  return iterDim.lookup(addrSpace) + extraIdxCount;
-}
-
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
@@ -751,8 +745,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   // We are vectorizing in the iter dimension, not block ID or thread ID
   auto elementType = sourceView.getType().getElementType();
   int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/getIterDim(srcAddrSpace, extraIdxCount), numValues,
-      bufferShape, elementType);
+      transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
                           << "\n");
 
@@ -768,23 +761,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
   Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
 
-  SmallVector<Value, 3> readStartCoords;
-  SmallVector<int64_t, 3> bounds;
-  SmallVector<int64_t, 3> strides;
-  ValueRange extraIndices = op.getExtraIndices();
-  for (Value extraIdx : extraIndices) {
-    readStartCoords.push_back(extraIdx);
-    bounds.push_back(1);
-    strides.push_back(1);
-  }
-  if (srcAddrSpace == gpu::AddressSpace::Global) {
-    readStartCoords.push_back(bid);
-    bounds.push_back(1);
-    strides.push_back(1);
-  }
-  readStartCoords.insert(readStartCoords.end(), {tid, zero});
-  bounds.insert(bounds.end(), {1, numValues});
-  strides.insert(strides.end(), {1, vectorLen});
+  SmallVector<Value, 3> readStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  readStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
+  strides.push_back(vectorLen);
 
   auto loadLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
@@ -797,10 +780,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       Value loaded = b.create<GlobalLoadOp>(
           loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
           loadLoop.getLowerCoords(/*domain=*/0));
-      b.create<InBoundsStoreOp>(
-          loc, loaded, dest,
-          loadLoop.getLowerCoords(
-              /*domain=*/1)[getIterDim(srcAddrSpace, extraIdxCount)]);
+      b.create<InBoundsStoreOp>(loc, loaded, dest,
+                                loadLoop.getLowerCoords(
+                                    /*domain=*/1)[extraIdxCount]);
     } else {
       TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb =
@@ -816,10 +798,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
         elseb.create<scf::YieldOp>(loc, zeroVal);
       }
-      b.create<InBoundsStoreOp>(
-          loc, ifb.getResult(0), dest,
-          loadLoop.getLowerCoords(
-              /*domain=*/1)[getIterDim(srcAddrSpace, extraIdxCount)]);
+      b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest,
+                                loadLoop.getLowerCoords(
+                                    /*domain=*/1)[extraIdxCount]);
     }
   }
   b.eraseOp(op);
@@ -854,12 +835,11 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     dstAddrSpace =
         dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
   }
-  int64_t iterLen = outputShape[getIterDim(dstAddrSpace, extraIdxCount)];
+  int64_t iterLen = outputShape[extraIdxCount];
 
   // We are vectorizing in the iter dimension, not block ID or thread ID
   int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/getIterDim(dstAddrSpace, extraIdxCount), iterLen,
-      bufferShape, elementType);
+      transforms, /*dim=*/extraIdxCount, iterLen, bufferShape, elementType);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
 
@@ -873,23 +853,13 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
   Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
 
-  SmallVector<Value, 3> writeStartCoords;
-  SmallVector<int64_t, 3> bounds;
-  SmallVector<int64_t, 3> strides;
-  ValueRange extraIndices = op.getExtraIndices();
-  for (Value extraIdx : extraIndices) {
-    writeStartCoords.push_back(extraIdx);
-    bounds.push_back(1);
-    strides.push_back(1);
-  }
-  if (dstAddrSpace == gpu::AddressSpace::Global) {
-    writeStartCoords.insert(writeStartCoords.end(), bid);
-    bounds.push_back(1);
-    strides.push_back(1);
-  }
-  writeStartCoords.insert(writeStartCoords.end(), {tid, zero});
-  bounds.insert(bounds.end(), {1, iterLen});
-  strides.insert(strides.end(), {1, vectorLen});
+  SmallVector<Value, 3> writeStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  writeStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(writeStartCoords.size() - 1, 1);
+  bounds.push_back(iterLen);
+  SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
+  strides.push_back(vectorLen);
 
   auto outLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
@@ -899,23 +869,22 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
-      b.create<GlobalStoreOp>(
-          loc, source, buffer, b.getIndexAttr(vectorLen), op.getFeaturesAttr(),
-          op.getStoreMethodAttr(),
-          outLoop.getLowerCoords(
-              /*domain=*/0)[getIterDim(dstAddrSpace, extraIdxCount)],
-          outLoop.getValidity(/*domain=*/1),
-          outLoop.getLowerCoords(/*domain=*/1));
+      b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
+                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              outLoop.getLowerCoords(
+                                  /*domain=*/0)[extraIdxCount],
+                              outLoop.getValidity(/*domain=*/1),
+                              outLoop.getLowerCoords(/*domain=*/1));
     } else {
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded = thenb.create<InBoundsLoadOp>(
-            loc, loadType, source,
-            outLoop.getLowerCoords(
-                /*domain=*/0)[getIterDim(dstAddrSpace, extraIdxCount)]);
+        Value loaded =
+            thenb.create<InBoundsLoadOp>(loc, loadType, source,
+                                         outLoop.getLowerCoords(
+                                             /*domain=*/0)[extraIdxCount]);
         thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
                                       outLoop.getLowerCoords(/*domain=*/1));
       }
@@ -1198,7 +1167,7 @@ struct BlockwiseReduceRewritePattern
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, inputReg, workspaceLDSBuffer,
         createLDSWorkspaceView(loc, rewriter, inputViewArrayAttr, axis),
-        /*extraIndices=*/ValueRange{}, rock::GemmFeatures::none,
+        /*extraIndices=*/ValueRange{tid}, rock::GemmFeatures::none,
         StoreMethod::Set, true, true);
 
     // Following RAII scope will create reduction loops.
@@ -1299,7 +1268,7 @@ struct BlockwiseReduceRewritePattern
             loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-            /*extraIndices=*/ValueRange{}, true, true);
+            /*extraIndices=*/ValueRange{tid}, true, true);
       } else {
         // This means there are more threads than elements to be reduced.
         ArrayAttr threadToTensorViewTrs =
@@ -1455,7 +1424,7 @@ struct BlockwiseReduceRewritePattern
               loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-              /*extraIndices=*/ValueRange{}, true, true);
+              /*extraIndices=*/ValueRange{tid}, true, true);
         }
       }
       rewriter.eraseOp(op);
