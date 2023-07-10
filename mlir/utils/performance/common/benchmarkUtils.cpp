@@ -19,6 +19,15 @@ using namespace benchmark;
 
 namespace {
 
+/// Get the identifier of the current device
+int get_device_id() {
+  int device;
+  auto status = hipGetDevice(&device);
+  if (status != hipSuccess)
+    assert(0 && "No device found");
+  return device;
+}
+
 // Conversion helpers for F16 and BF16
 
 // BF16 conversion
@@ -302,6 +311,14 @@ void *getGpuBuffer(const void *hostMem, size_t byteSize) {
   HIP_ABORT_IF_FAIL(
       hipMemcpy(gpuBuffer, hostMem, byteSize, hipMemcpyHostToDevice));
   return gpuBuffer;
+}
+
+std::string get_device_name() {
+  hipDeviceProp_t props{};
+  auto status = hipGetDeviceProperties(&props, get_device_id());
+  if (status != hipSuccess)
+    assert(0 && "Device unknown");
+  return std::string(props.gcnArchName);
 }
 
 } // namespace benchmark
