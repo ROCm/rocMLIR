@@ -30,6 +30,12 @@ include_directories(${PROJECT_BINARY_DIR}/mlir/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 
+set(LLVM_VERSION_MAJOR ${CMAKE_PROJECT_VERSION_MAJOR})
+set(LLVM_VERSION_MINOR ${CMAKE_PROJECT_VERSION_MINOR})
+set(LLVM_VERSION_PATCH ${CMAKE_PROJECT_VERSION_PATCH})
+set(ARG_PRODUCT_NAME ${CMAKE_PROJECT_NAME} CACHE STRING "")
+set(ARG_VERSION_STRING ${CMAKE_PROJECT_VERSION} CACHE STRING "")
+
 add_subdirectory(docs)
 add_subdirectory(include/mlir)
 add_subdirectory(lib)

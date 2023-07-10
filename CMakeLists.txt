@@ -9,6 +9,8 @@ if(POLICY CMP0116)
   cmake_policy(SET CMP0116 OLD)
 endif()
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
+
 # Adapted from https://blog.kitware.com/cmake-and-the-default-build-type/
 set(default_build_type "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -36,17 +38,17 @@ set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
 if( ROCMLIR_ENABLE_BENCHMARKS STREQUAL "all" )
-  set(ROCMLIR_ENABLE_BENCHMARKS "ck;rocblas")
+  set(ROCMLIR_ENABLE_BENCHMARKS CACHE STRING "ck;rocblas" FORCE)
 endif()
 
 # BUILD_MIXR_TARGET is deprecated but still available
 if(BUILD_MIXR_TARGET)
-  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
+  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static rockCompiler library")
 endif()
 
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
-  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat librockCompiler to link into Rock driver")
+  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat rockCompiler library to link into Rock driver")
 endif()
 if( BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
@@ -54,10 +56,12 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   # rocm-runner is not supported with static libraries
   set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
-  set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
-  # Note, this is a hack to ignore Pytorch added conda path
-  list(APPEND CMAKE_IGNORE_PATH /opt/conda)
+  if(NOT WIN32)
+    set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
+    # Note, this is a hack to ignore Pytorch added conda path
+    list(APPEND CMAKE_IGNORE_PATH /opt/conda)
+  endif()
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
@@ -71,9 +75,11 @@ endif()
 include(cmake/llvm-project.cmake)
 include(cmake/mlir-hal.cmake)
 
-# Update the build-tree RPATH
-set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
-message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+if(NOT WIN32)
+    # Update the build-tree RPATH
+    set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
+    message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+endif()
 
 # Set up the build for the rocMLIR dialects
 add_subdirectory(mlir)

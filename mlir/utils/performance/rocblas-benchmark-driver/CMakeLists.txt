@@ -1,13 +1,10 @@
 find_package(rocblas CONFIG HINTS /opt/rocm)
-if(NOT rocblas_FOUND)
-  message(WARNING "Could not find rocBLAS, not building a rocBLAS benchmark driver")
-endif()
 
 if (rocblas_FOUND)
   set(LIBS ${rocblas_LIBRARY} benchmark-driver-utils)
 
-  set(EXCLUDE_FROM_ALL TRUE)
   add_executable(rocblas-benchmark-driver
+    EXCLUDE_FROM_ALL
     rocblas-benchmark-driver.cpp
   )
 
@@ -16,4 +13,6 @@ if (rocblas_FOUND)
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
+else()
+  message(STATUS "Could not find rocBLAS, not building a rocBLAS benchmark driver")
 endif()

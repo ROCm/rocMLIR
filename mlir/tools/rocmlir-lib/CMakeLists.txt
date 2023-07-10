@@ -45,49 +45,103 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(PACKAGE_NAME ${CMAKE_PROJECT_NAME_LOWER})
 
   set(LIBRARY_NAME rockCompiler)
-  function(combine_archives output_archive)
-    set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
-    set(full_output_path ${ROCMLIR_LIB_DIR}/lib${output_archive}.a)
-    set(output_archive_dummy_file ./${output_archive}.dummy.cpp)
+
+  file(GLOB __llvm_libraries LIST_DIRECTORIES false
+          CONFIGURE_DEPENDS ${LLVM_EXTERNAL_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
+
+  file(GLOB __rocmlir_libraries LIST_DIRECTORIES false
+          CONFIGURE_DEPENDS ${ROCMLIR_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
+
+  # Remove the rockCompiler library from the list to not include it recursively.
+  list(REMOVE_ITEM __rocmlir_libraries
+          ${ROCMLIR_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+
+  # Static libraries on Windows have a 4GB size limit. The Debug version of the FAT library
+  # exceeds that limit significantly. Therefore, the change is to expose CMake's INTERFACE
+  # library instead as an interface to clients. Underneath, on Linux, the single monolithic
+  # library is delivered (as it was before). However, we deliver a series of smaller static
+  # libraries on Windows due to the size limit mentioned.
+  # The client interface has not changed and is OS agnostic. Both MIOpen and MIGraphX do not
+  # need to modify their CMake code to find the rocMLIR package and build with it.
+  add_library(${LIBRARY_NAME} INTERFACE)
+
+  if (WIN32)
+    add_dependencies(${LIBRARY_NAME} MLIRRockThin)
+
+    foreach(__library ${__llvm_libraries})
+      file(RELATIVE_PATH __library_file ${LLVM_EXTERNAL_LIB_DIR} ${__library})
+      target_link_libraries(${LIBRARY_NAME}
+          INTERFACE
+              $<BUILD_INTERFACE:${__library}>
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/llvm/${__library_file}>)
+    endforeach()
+
+    foreach(__library ${__rocmlir_libraries})
+      file(RELATIVE_PATH __library_file ${ROCMLIR_LIB_DIR} ${__library})
+      target_link_libraries(${LIBRARY_NAME}
+          INTERFACE
+              $<BUILD_INTERFACE:${__library}>
+              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_file}>)
+    endforeach()
+
+    rocm_install(FILES ${__llvm_libraries}
+            DESTINATION lib/llvm)
+
+    rocm_install(FILES ${ROCMLIR_LIB_DIR}/MLIRRockThin.lib
+            DESTINATION lib)
+
+  else()
+
+    set(__library_name ${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME})
+    set(full_output_path ${ROCMLIR_LIB_DIR}/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX})
+    set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.mri)
 
     # Step one: construct mri file.
-    add_custom_command(OUTPUT ${output_archive_dummy_file}
-                       COMMAND if [ -f ${output_archive}.mri ]\; then rm ${output_archive}.mri\; fi
-                       COMMAND touch ${output_archive}.mri
-                       COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                       COMMAND for archive in ${ROCMLIR_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
-                       do echo "addlib $$archive" >> ${output_archive}.mri \; done
-                       COMMAND echo "save" >> ${output_archive}.mri
-                       COMMAND echo "end" >> ${output_archive}.mri
-                       COMMAND touch ${output_archive_dummy_file}
+    add_custom_command(OUTPUT ${mri_file}
+                       COMMAND echo "create ${full_output_path}" > ${mri_file}
+                       COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
+                       COMMAND echo "save" >> ${mri_file}
+                       COMMAND echo "end" >> ${mri_file}
                        DEPENDS MLIRRockThin)
 
     # Step two: use mri file to generate the fat library.
-    llvm_add_library(${output_archive}
-      PARTIAL_SOURCES_INTENDED
-      STATIC ${output_archive_dummy_file})
-    add_custom_command(TARGET ${output_archive}
-                       POST_BUILD
+    add_custom_command(OUTPUT ${full_output_path}
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
-                       DEPENDS ${output_archive_dummy_file})
-  endfunction(combine_archives)
+                       DEPENDS ${mri_file})
 
-  combine_archives(${LIBRARY_NAME})
+    add_custom_target(__generate_fat_library DEPENDS ${full_output_path})
+    add_dependencies(${LIBRARY_NAME} __generate_fat_library)
 
-  add_custom_target(lib${LIBRARY_NAME} ALL
-    DEPENDS
-    ${LIBRARY_NAME}
-  )
+    target_link_libraries(${LIBRARY_NAME}
+        INTERFACE
+            $<BUILD_INTERFACE:${full_output_path}>
+            $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX}>)
+
+    rocm_install(FILES ${full_output_path}
+            DESTINATION lib)
+
+    # Backward compatibility to provide `librockCompiler` build target.
+    # INTERFACE libraries are not exposed as build targets.
+    add_custom_target(${__library_name} ALL DEPENDS ${LIBRARY_NAME})
+
+    unset(mri_file)
+    unset(full_output_path)
+    unset(__library_name)
+
+  endif()
+
+  unset(__llvm_libraries)
+  unset(__rocmlir_libraries)
 
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/${PACKAGE_NAME}/
-  # as part of component libroCompiler
+  # as part of component rockCompiler
   rocm_install(FILES Miir.h
     DESTINATION include/${PACKAGE_NAME})
 
-  # Install a target, i.e. ${package_name}::lib${lib_name}, as part of
+  # Install a target, i.e. ${package_name}::${component_name}, as part of
   # devel component and export it to be searchable by find_package().
   # The include directories are propagated to the downstream targets
-  # that links to ${package_name}::lib${lib_name}
+  # that links to ${package_name}::${component_name}
   # Be default, include/${package_name} is added. If extra include directories
   # are needed, add them using the keyword EXTRA_INCLUDES.
   #
@@ -95,7 +149,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   # CMAKE_BUILD_TYPE is set to CONFIG
   # The following files are generated and installed as a result of
   # cmake --install . --component ${component_name} --prefix /a/dummy
-  # /a/dummy/lib/${package_name}/lib${lib_name}.a
+  # /a/dummy/lib/${package_name}/${component_name}.a
   # /a/dummy/lib/cmake/${package_name}/${package_name}-targets.cmake
   #   This file is autogenerated by install(EXPORT).
   #   It creates the imported library as a target that can be used by
@@ -115,27 +169,20 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   # which is used to auto generate ${package_name}Config.cmake
   function(export_target package_name lib_name)
     cmake_parse_arguments(ARG "" "" "EXTRA_INCLUDES" ${ARGN})
-    set(export_set ${package_name}-targets)
-    set(INCLUDE_DIR include/${package_name}/)
-    set(LIB_CMAKE_DIR lib/cmake/${package_name}/)
-    set(development "devel")
 
-    # Install lib${lib_name}.a to ${CMAKE_INSTALL_PREFIX}/lib/${package_name}/
+    # Install ${component_name} to ${CMAKE_INSTALL_PREFIX}/lib/${package_name}/
     # and group it into the ${export-set}
     # The INTERFACE_INCLUDE_DIRECTORIES will be set as the property of the exported library
-    # so that when comsumer libraries (Rock) link in lib${LIBRARY_NAME}, ${INCLUDE_DIR} is
+    # so that when consumer libraries (Rock) link in ${COMPONENT_NAME}, ${INCLUDE_DIR} is
     # automatically propagated to the consumer library's include_dirs
-    set(EXTRA_INCLUDES "")
-    if(ARG_EXTRA_INCLUDES)
-      set(EXTRA_INCLUDES ${ARG_EXTRA_INCLUDES})
-    endif()
+
     # Call install() instead of rocm_install() here in order to install
-    # header files  in a subdirecotry.
+    # header files in a subdirectory.
     install(TARGETS ${lib_name}
-      EXPORT ${export_set}
+      EXPORT ${package_name}-targets
       ARCHIVE DESTINATION lib
-      COMPONENT ${development} 
-      INCLUDES DESTINATION ${INCLUDE_DIR} ${EXTRA_INCLUDES}
+      COMPONENT devel
+      INCLUDES DESTINATION include/${package_name} ${ARG_EXTRA_INCLUDES}
     )
 
     # Generate package config and version file
@@ -145,9 +192,8 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       TARGETS ${package_name}
       COMPATIBILITY AnyNewerVersion
       )
-  endfunction(export_target)
 
-  set(extra_include_dir "")
+  endfunction()
 
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     rocm_install(DIRECTORY
@@ -189,7 +235,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     set(extra_include_dir include/${PACKAGE_NAME}/external/include)
   endif()
 
-  # Install lib${LIBRARY_NAME}.a as part of component lib${LIBRARY_NAME}
+  # Install ${LIBRARY_NAME} as component of ${PACKAGE_NAME}
   # and export it to be searchable by find_package()
   export_target(${PACKAGE_NAME} # package name
     ${LIBRARY_NAME}             # library name

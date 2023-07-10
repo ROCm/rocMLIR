@@ -63,7 +63,7 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
   // not more than n
   gemmKBlock = std::min(batchSize, gemmKBlock);
   // not less than 1
-  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
+  gemmKBlock = std::max((int64_t)1, gemmKBlock);
 
   nKBlock = gemmKBlock;
   return success();
