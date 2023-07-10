@@ -10,13 +10,16 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
-  MLIRExecutionEngine
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
   )
 
-add_llvm_executable(rocmlir-driver
+if (MLIR_ENABLE_EXECUTION_ENGINE)
+  list(APPEND LIBS MLIRExecutionEngine)
+endif()
+
+add_rocmlir_tool(rocmlir-driver
   PARTIAL_SOURCES_INTENDED
 
   rocmlir-driver.cpp
@@ -26,6 +29,6 @@ add_llvm_executable(rocmlir-driver
 )
 
 
-llvm_update_compile_flags(rocmlir-driver)
 target_link_libraries(rocmlir-driver PRIVATE ${LIBS})
+llvm_update_compile_flags(rocmlir-driver)
 mlir_check_link_libraries(rocmlir-driver)

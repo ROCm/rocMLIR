@@ -6,7 +6,7 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DROCMLIR_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "$cmakeOpts"
     }
 }
 
@@ -498,6 +498,10 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            echo "Running tests on the newly-built static library"
+                            dir ('build') {
+                                sh 'ninja check-rocmlir'
+                            }
                         }
                     }
                 }

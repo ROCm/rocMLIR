@@ -22,11 +22,11 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRJitRunner
   )
 
-  add_llvm_tool(xmir-runner
+  add_rocmlir_tool(xmir-runner
     xmir-runner.cpp
     )
 
-  llvm_update_compile_flags(xmir-runner)
   target_link_libraries(xmir-runner PRIVATE ${LIBS})
+  llvm_update_compile_flags(xmir-runner)
 
 endif()

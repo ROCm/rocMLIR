@@ -5,7 +5,7 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DROCMLIR_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "$cmakeOpts"
     }
 }
 
@@ -86,7 +86,7 @@ pipeline {
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Environment") {
@@ -143,12 +143,12 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "gfx906"
+                            label "rocm"
                             alwaysPull true
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Environment") {
@@ -156,10 +156,14 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Igemm build") {
+                        stage("Build static library package") {
                             steps {
                                 checkout scm
                                 buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
+                                echo "Running tests on the newly-built static library"
+                                dir ('build') {
+                                    sh 'ninja check-rocmlir'
+                                }
                             }
                         }
                     }

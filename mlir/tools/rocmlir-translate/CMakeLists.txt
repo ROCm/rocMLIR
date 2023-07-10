@@ -4,10 +4,9 @@ set(LLVM_LINK_COMPONENTS
 
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 
-add_llvm_tool(rocmlir-translate
+add_rocmlir_tool(rocmlir-translate
   rocmlir-translate.cpp
   )
-llvm_update_compile_flags(rocmlir-translate)
 target_link_libraries(rocmlir-translate
   PRIVATE
   ${translation_libs}
@@ -19,4 +18,5 @@ target_link_libraries(rocmlir-translate
   GpuModuleToRocdlirTranslation
   )
 
+llvm_update_compile_flags(rocmlir-translate)
 mlir_check_link_libraries(rocmlir-translate)

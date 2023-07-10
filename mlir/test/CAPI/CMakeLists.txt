@@ -5,16 +5,14 @@ set(LLVM_OPTIONAL_SOURCES
   mixr_full.c
 )
 
-set(LLVM_LINK_COMPONENTS
-  X86
-)
+set(LLVM_LINK_COMPONENTS ${LLVM_TARGETS_TO_BUILD})
 
 add_llvm_executable(mlir-mixr-capi-test
+  EXCLUDE_FROM_ALL
   mixrir.c
 )
 llvm_update_compile_flags(mlir-mixr-capi-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
@@ -22,25 +20,24 @@ target_link_libraries(mlir-mixr-capi-test
 )
 
 add_llvm_executable(mlir-tosa-miir-test
+  EXCLUDE_FROM_ALL
   tosa_miir.cpp
 )
 llvm_update_compile_flags(mlir-tosa-miir-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegisterRocMLIR
   MLIRRockPipeline
-  LLVMAMDGPUAsmParser
 )
 
 add_llvm_executable(mlir-mixr-full-test
+  EXCLUDE_FROM_ALL
   mixr_cobj.cpp
   )
 llvm_update_compile_flags(mlir-mixr-full-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-full-test
   PRIVATE
   MLIRCAPIIR
@@ -49,15 +46,14 @@ target_link_libraries(mlir-mixr-full-test
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
   MLIRRockPipeline
-  LLVMAMDGPUAsmParser
 )
 
 add_llvm_executable(mlir-mixr-fullc-test
+  EXCLUDE_FROM_ALL
   mixr_full.c
   )
 llvm_update_compile_flags(mlir-mixr-fullc-test)
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-fullc-test
   PRIVATE
   MLIRCAPIIR

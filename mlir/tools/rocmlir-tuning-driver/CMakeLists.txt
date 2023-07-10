@@ -14,7 +14,7 @@ set(LIBS
   MLIRMHALPipeline
 )
 
-add_llvm_tool(rocmlir-tuning-driver
+add_rocmlir_tool(rocmlir-tuning-driver
   rocmlir-tuning-driver.cpp
 )
 
@@ -64,8 +64,8 @@ endif()
 set_property(TARGET rocmlir-tuning-driver
   PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
-  llvm_update_compile_flags(rocmlir-tuning-driver)
-  target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
-  target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
-  target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
+target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
+target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
+target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
+llvm_update_compile_flags(rocmlir-tuning-driver)
 endif()
