@@ -23,7 +23,7 @@ CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
                         'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                         'PaddingH', 'PaddingW', 'PerfConfig']
-GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
+GEMM_TEST_PARAMETERS = ['DataType', 'OutDataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
 ROUND_DIGITS = 2
 
 def geoMean(data):

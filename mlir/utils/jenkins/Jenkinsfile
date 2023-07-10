@@ -6,7 +6,7 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DROCMLIR_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "$cmakeOpts"
     }
 }
 
@@ -337,7 +337,8 @@ pipeline {
                      description: 'Run weekly-only jobs')
         string(name: 'MIOpenBranch', defaultValue: 'bump-mlir-release/rocm-5.6',
                description: 'The MIOpen branch to be used with the job')
-        string(name: 'MIGraphXBranch', defaultValue: 'develop',
+        // Temporary change to MIGraphX branch because of upstream merge.
+        string(name: 'MIGraphXBranch', defaultValue: 'upstream-merge-changes-rocmlir',
                description: 'The MIGraphX branch/commit to verify against.')
         string(name: 'CKBranch', defaultValue: 'develop',
             description: 'The Composable Kernel branch to be used with the job')
@@ -497,6 +498,10 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            echo "Running tests on the newly-built static library"
+                            dir ('build') {
+                                sh 'ninja check-rocmlir'
+                            }
                         }
                     }
                 }
@@ -616,11 +621,16 @@ pipeline {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
-                                // Tune gemms, fail if the DB is not created
+                                // Tune gemms with default datatypes, fail if the DB is not created
                                 sh """python3 ./bin/tuningRunner.py --operation gemm \
                                         --configs_file=../mlir/utils/performance/gemm-configs \
                                         --output=mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
+                                // Tune gemms int8xint8->int8 for performance comparisons against CK.
+                                // Ideally, this'll be removed in the future.
+                                sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                        --configs_file=../mlir/utils/performance/gemm-configs \
+                                        --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
                             }
                         }
                     }
@@ -629,11 +639,11 @@ pipeline {
                             dir('build') {
                                 // Tune resnet50
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_resnet50_${ARCH}.tsv"""
+--test_dir ../mlir/test/fusion/e2e/resnet50/ -o tuning_fusion_${ARCH}.tsv"""
 
                                 // Tune bert
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_bert_${ARCH}.tsv"""
+--test_dir ../mlir/test/xmir/e2e/bert-torch-tosa/ -o tuning_fusion_${ARCH}.tsv"""
                             }
                             sh 'rm build/CMakeCache.txt'
                         }
@@ -894,10 +904,10 @@ pipeline {
                             dir('build') {
                                 // Run fusion resnet50 perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=fusion \
-          --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/tuning_fusion_resnet50_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/tuning_fusion_${CHIP}.tsv"""
                                 // Run bert perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op fusion \
-          --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/tuning_fusion_bert_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/tuning_fusion_${CHIP}.tsv"""
                             }
                         }
                     }
@@ -930,7 +940,7 @@ pipeline {
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                 --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
-                                --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --external-gemm-library CK"""
+                                --tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                     sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP} CK'
                                 }
                             }

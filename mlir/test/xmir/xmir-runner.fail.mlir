@@ -1,3 +1,4 @@
+// REQUIRES: rocm-runner
 // RUN: not xmir-runner --target-arch gfx908 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void %s 2>&1 | FileCheck %s
 
 // CHECK: target object not found
