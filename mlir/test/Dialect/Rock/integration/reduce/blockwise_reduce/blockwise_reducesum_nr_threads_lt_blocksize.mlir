@@ -14,9 +14,11 @@ func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<80xf32, #gpu.address_space<workgroup>>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
-    [#transform_map2, #transform_map1, #transform_map0](%input) -> %input_reg : memref<1x20x32xf32> ->  memref<4xf32, #gpu.address_space<private>>
+    [#transform_map2, #transform_map1, #transform_map0](%input)[%bid, %tid] -> %input_reg : memref<1x20x32xf32> ->  memref<4xf32, #gpu.address_space<private>>
   rock.blockwise_broadcast_reduce sum [#transform_map5]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
-  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map3](%output) by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x1x32xf32>
+  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map3](%output)[%bid, %tid] by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x1x32xf32>
   return
 }

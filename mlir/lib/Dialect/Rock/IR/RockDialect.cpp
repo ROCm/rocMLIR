@@ -1468,20 +1468,9 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   }
 
   size_t extraIdxCount = getExtraIndices().size();
-  if (srcGpuMemSpace == gpu::AddressSpace::Global) {
-    if (inputShape.size() != 3 + extraIdxCount) {
-      return emitOpError("source view must accept extraIndices + (bid, tid, "
-                         "iter) coordinates");
-    }
-  } else if (srcGpuMemSpace == gpu::AddressSpace::Workgroup) {
-    if (inputShape.size() != 2 + extraIdxCount) {
-      return emitOpError(
-          "source view must accept extraIndices + (tid, iter) coordinates");
-    }
-  } else {
-    return emitError("source has to be either workgroup or global memory.");
+  if (inputShape.size() != extraIdxCount + 1) {
+    return emitOpError("source view must be extraIndices + 1");
   }
-
   return success();
 }
 
@@ -1511,20 +1500,9 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   }
 
   size_t extraIdxCount = getExtraIndices().size();
-  if (dstGpuMemSpace == gpu::AddressSpace::Global) {
-    if (outputShape.size() != 3 + extraIdxCount) {
-      return emitOpError("source view must accept extraIndices + (bid, tid, "
-                         "iter) coordinates");
-    }
-  } else if (dstGpuMemSpace == gpu::AddressSpace::Workgroup) {
-    if (outputShape.size() != 2 + extraIdxCount) {
-      return emitOpError(
-          "source view must accept extraIndices + (tid, iter) coordinates");
-    }
-  } else {
-    return emitError("source has to be either workgroup or global memory.");
+  if (outputShape.size() != extraIdxCount + 1) {
+    return emitOpError("dest view must be extraIndices + 1");
   }
-
   return success();
 }
 

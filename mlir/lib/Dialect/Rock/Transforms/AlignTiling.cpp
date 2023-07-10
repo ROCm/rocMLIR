@@ -138,9 +138,12 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
   src = applyViewsOnDest(b, loc, src, relativeViewsOnStore);
 
   // 2.2. load into registers
-  b.create<ThreadwiseReadIntoOp>(
-      loc, src, alloc, storeOp.getExtraViews(), /*extraIndices=*/ValueRange{},
-      storeOp.getForceUnroll(), storeOp.getUseIndexDiffs());
+  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
+  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, storeOp.getExtraViews(),
+                                 /*extraIndices=*/ValueRange{bid, tid},
+                                 storeOp.getForceUnroll(),
+                                 storeOp.getUseIndexDiffs());
   return alloc;
 }
 

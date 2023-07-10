@@ -52,8 +52,10 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
 
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
-    [#transform_map0](%view) -> %dest
+    [#transform_map0](%view)[%bid, %tid] -> %dest
     : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return
 }
@@ -76,8 +78,10 @@ func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest
 
   %view = rock.transform %source by #transform_map3 : memref<3x2x64x30xf32> to memref<3x2x64x32xf32>
   %extra_idx = arith.constant 1 : index
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
-    [#transform_map2](%view)[%extra_idx] -> %dest
+    [#transform_map2](%view)[%extra_idx, %bid, %tid] -> %dest
     : memref<3x2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return
 }
@@ -99,8 +103,10 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
   // CHECK-NEXT: rock.buffer_store set [[tmp]] -> [[dest]][[[args]]] if [[valid]]
 
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
-    %source -> [#transform_map0](%view) by set
+    %source -> [#transform_map0](%view)[%bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<2x64x32xf32>
   func.return
 }
@@ -123,8 +129,10 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
 
   %view = rock.transform %dest by #transform_map3 : memref<3x2x64x30xf32> to memref<3x2x64x32xf32>
   %extra_idx = arith.constant 2 : index
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
-    %source -> [#transform_map2](%view)[%extra_idx] by set
+    %source -> [#transform_map2](%view)[%extra_idx, %bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<3x2x64x32xf32>
   func.return
 }
