@@ -1,13 +1,13 @@
-; RUN: llc -mtriple=aarch64-none-eabi < %s | FileCheck --check-prefixes CHECK,CHECK-V8A %s
-; RUN: llc -mtriple=aarch64-none-eabi -mattr=v8.3a < %s | FileCheck --check-prefixes CHECK,CHECK-V83A %s
-; RUN: llc -mtriple=aarch64-none-eabi -filetype=obj -o - <%s | llvm-dwarfdump -v - | FileCheck --check-prefix=CHECK-DUMP %s
+; RUN: llc -mtriple=aarch64 < %s | FileCheck --check-prefixes CHECK,CHECK-V8A %s
+; RUN: llc -mtriple=aarch64 -mattr=v8.3a < %s | FileCheck --check-prefixes CHECK,CHECK-V83A %s
+; RUN: llc -mtriple=aarch64 -filetype=obj -o - <%s | llvm-dwarfdump -v - | FileCheck --check-prefix=CHECK-DUMP %s
 
 @.str = private unnamed_addr constant [15 x i8] c"some exception\00", align 1
 @_ZTIPKc = external dso_local constant ptr
 
 ; CHECK: @_Z3fooi
 ; CHECK-V8A: hint #25
-; CHECK-V83A: pacia x30, sp
+; CHECK-V83A: paciasp
 ; CHECK-NEXT: .cfi_negate_ra_state
 ; CHECK-NOT: .cfi_negate_ra_state
 define dso_local i32 @_Z3fooi(i32 %x) #0 {

@@ -36,7 +36,7 @@ def NVGPU_Dialect : Dialect {
   }];
 
   let useDefaultTypePrinterParser = 1;
-  let useFoldAPI = kEmitFoldAdaptorFolder;
+  let usePropertiesForAttributes = 1;
 
   let extraClassDeclaration = [{
     /// Return true if the given MemRefType has an integer address
@@ -124,9 +124,9 @@ class NVGPU_MmaSyncOp<string mnemonic> :
     std::array<int64_t, 3> getMmaShapeAsArray() {
       ArrayAttr mmaShape = this->getMmaShape();
       assert(mmaShape.size() == 3 && "mmaShape should be three integers");
-      return {mmaShape[0].cast<IntegerAttr>().getInt(),
-              mmaShape[1].cast<IntegerAttr>().getInt(),
-              mmaShape[2].cast<IntegerAttr>().getInt()};
+      return {::llvm::cast<IntegerAttr>(mmaShape[0]).getInt(),
+              ::llvm::cast<IntegerAttr>(mmaShape[1]).getInt(),
+              ::llvm::cast<IntegerAttr>(mmaShape[2]).getInt()};
     }
   }];
 
@@ -158,8 +158,7 @@ def NVGPU_MmaSyncOp : NVGPU_MmaSyncOp<"mma.sync"> {
                        AnyVector:$matrixB,
                        AnyVector:$matrixC,
                        I64ArrayAttr:$mmaShape,
-                       OptionalAttr<UnitAttr>:$tf32Enabled
-                       );
+                       OptionalAttr<UnitAttr>:$tf32Enabled);
 
   let results = (outs AnyVector:$res);
 
@@ -167,7 +166,12 @@ def NVGPU_MmaSyncOp : NVGPU_MmaSyncOp<"mma.sync"> {
     OpBuilder<(ins "Value":$matrixA,
                    "Value":$matrixB,
                    "Value":$matrixC,
-                   "ArrayAttr":$mmaShape)>
+                   "ArrayAttr":$mmaShape)>,
+    OpBuilder<(ins "Value":$matrixA,
+                   "Value":$matrixB,
+                   "Value":$matrixC,
+                   "ArrayRef<int64_t>":$mmaShape,
+                   CArg<"bool", "false">:$tf32Enabled)>
   ];
 
   let assemblyFormat = [{
@@ -332,8 +336,11 @@ def NVGPU_DeviceAsyncWaitOp : NVGPU_Op<"device_async_wait", []> {
     The `nvgpu.device_async_wait` op will block the execution thread until the group
     associated with the source token is fully completed.
 
-    The optional `$numGroup` attribute gives a lower bound of the number of
-    groups uncompleted when the wait can unblock the thread.
+    The optional `$numGroups` attribute gives an upper bound of the number of
+    groups uncompleted when the wait can unblock the thread. For example,  if
+    16 async groups are pushe and `$numGroups` is set to 12, then the thread
+    will unblock when 12 groups or fewer are in flight (4 groups have
+    completed).
 
     Example:
 

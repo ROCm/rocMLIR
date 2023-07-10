@@ -171,8 +171,8 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 static TopDownTMBuilder createTopSplitTMBuilder(PatternRewriter &b,
                                                 Location loc,
                                                 int64_t numElements,
-                                                Optional<int64_t> gridSize,
-                                                Optional<int64_t> blockSize) {
+                                                std::optional<int64_t> gridSize,
+                                                std::optional<int64_t> blockSize) {
   if (gridSize.has_value()) {
     return TopDownTMBuilder(b, {"bid", "tid", "item"},
                             {gridSize.value(), blockSize.value(), numElements},
@@ -187,8 +187,8 @@ static TopDownTMBuilder createTopSplitTMBuilder(PatternRewriter &b,
 
 ArrayAttr MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
                                                int64_t matrixM, int64_t matrixN,
-                                               Optional<int64_t> blockSize,
-                                               Optional<int64_t> gridSize) {
+                                               std::optional<int64_t> blockSize,
+                                               std::optional<int64_t> gridSize) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -465,8 +465,8 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
 ArrayAttr WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc,
                                                int64_t matrixM, int64_t matrixN,
-                                               Optional<int64_t> blockSize,
-                                               Optional<int64_t> gridSize) {
+                                               std::optional<int64_t> blockSize,
+                                               std::optional<int64_t> gridSize) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();

@@ -37,7 +37,7 @@ using namespace mlir::mhal;
 
 namespace {
 // Helper to pull out the called func
-static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
+static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
   CallOpInterface callIf(op);
   if (auto *callable = callIf.resolveCallable()) {
     if (auto func = dyn_cast<func::FuncOp>(callable))

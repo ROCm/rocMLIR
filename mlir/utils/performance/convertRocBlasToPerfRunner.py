@@ -13,8 +13,8 @@ def convertToPerfRunner(rocblasIns):
     perfRunnerIns = {}
 
     # Default values (from rocblas-bench)
-    perfRunnerIns["-transA"] = "false"
-    perfRunnerIns["-transB"] = "false"
+    perfRunnerIns["-transA"] = "true"
+    perfRunnerIns["-transB"] = "true"
     perfRunnerIns["-g"] = "1"
     perfRunnerIns["-m"] = "128"
     perfRunnerIns["-n"] = "128"
@@ -35,13 +35,10 @@ def convertToPerfRunner(rocblasIns):
             perfRunnerIns["-t"] = t
         elif rocblasIns[ii] == "--batch_count":
             perfRunnerIns["-g"] = rocblasIns[ii + 1]
-        # When MIGraphX is sending non-transposed data to rocBLAS, this means non-transposed
-        # column-major data. Our tools work in row-major format, and this means we need to transpose
-        # when we receive a non-transposed data layout.
         elif rocblasIns[ii] == "--transposeA" and rocblasIns[ii + 1] == "N":
-            perfRunnerIns["-transA"] = "true"
+            perfRunnerIns["-transA"] = "false"
         elif rocblasIns[ii] == "--transposeB" and rocblasIns[ii + 1] == "N":
-            perfRunnerIns["-transB"] = "true"
+            perfRunnerIns["-transB"] = "false"
 
     return stringify(perfRunnerIns)
 

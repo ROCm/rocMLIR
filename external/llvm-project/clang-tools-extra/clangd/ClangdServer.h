@@ -30,6 +30,7 @@
 #include "support/Path.h"
 #include "support/ThreadsafeFS.h"
 #include "clang/Tooling/Core/Replacement.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FunctionExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include <functional>
@@ -67,7 +68,7 @@ public:
     /// file, they do not interfere with "pull-based" ClangdServer::diagnostics.
     /// May be called concurrently for separate files, not for a single file.
     virtual void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
-                                    std::vector<Diag> Diagnostics) {}
+                                    llvm::ArrayRef<Diag> Diagnostics) {}
     /// Called whenever the file status is updated.
     /// May be called concurrently for separate files, not for a single file.
     virtual void onFileUpdated(PathRef File, const TUStatus &Status) {}
@@ -84,6 +85,11 @@ public:
     /// build finishes, we can provide more accurate semantic tokens, so we
     /// should tell the client to refresh.
     virtual void onSemanticsMaybeChanged(PathRef File) {}
+
+    /// Called by ClangdServer when some \p InactiveRegions for \p File are
+    /// ready.
+    virtual void onInactiveRegionsReady(PathRef File,
+                                        std::vector<Range> InactiveRegions) {}
   };
   /// Creates a context provider that loads and installs config.
   /// Errors in loading config are reported as diagnostics via Callbacks.
@@ -140,8 +146,9 @@ public:
 
     /// The resource directory is used to find internal headers, overriding
     /// defaults and -resource-dir compiler flag).
-    /// If None, ClangdServer calls CompilerInvocation::GetResourcePath() to
-    /// obtain the standard resource directory.
+    /// If std::nullopt, ClangdServer calls
+    /// CompilerInvocation::GetResourcePath() to obtain the standard resource
+    /// directory.
     std::optional<std::string> ResourceDir;
 
     /// Time to wait after a new file version before computing diagnostics.
@@ -174,6 +181,14 @@ public:
     /// Whether include fixer insertions for Objective-C code should use #import
     /// instead of #include.
     bool ImportInsertions = false;
+
+    /// Whether to collect and publish information about inactive preprocessor
+    /// regions in the document.
+    bool PublishInactiveRegions = false;
+
+    /// Whether to run preamble indexing asynchronously in an independent
+    /// thread.
+    bool AsyncPreambleIndexing = false;
 
     explicit operator TUScheduler::Options() const;
   };
@@ -439,6 +454,8 @@ private:
   bool PreambleParseForwardingFunctions = false;
 
   bool ImportInsertions = false;
+
+  bool PublishInactiveRegions = false;
 
   // GUARDED_BY(CachedCompletionFuzzyFindRequestMutex)
   llvm::StringMap<std::optional<FuzzyFindRequest>>

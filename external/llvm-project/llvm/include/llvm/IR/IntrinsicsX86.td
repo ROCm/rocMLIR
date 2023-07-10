@@ -5352,6 +5352,16 @@ let TargetPrefix = "x86" in {
               Intrinsic<[], [llvm_i8_ty, llvm_i8_ty, llvm_i8_ty],
                         [ImmArg<ArgIndex<0>>, ImmArg<ArgIndex<1>>,
                          ImmArg<ArgIndex<2>>]>;
+  // AMX-COMPLEX
+  def int_x86_tcmmimfp16ps : ClangBuiltin<"__builtin_ia32_tcmmimfp16ps">,
+              Intrinsic<[], [llvm_i8_ty, llvm_i8_ty, llvm_i8_ty],
+                        [ImmArg<ArgIndex<0>>, ImmArg<ArgIndex<1>>,
+                         ImmArg<ArgIndex<2>>]>;
+  def int_x86_tcmmrlfp16ps : ClangBuiltin<"__builtin_ia32_tcmmrlfp16ps">,
+              Intrinsic<[], [llvm_i8_ty, llvm_i8_ty, llvm_i8_ty],
+                        [ImmArg<ArgIndex<0>>, ImmArg<ArgIndex<1>>,
+                         ImmArg<ArgIndex<2>>]>;
+
   // AMX - internal intrinsics
   def int_x86_ldtilecfg_internal :
               ClangBuiltin<"__builtin_ia32_tile_loadconfig_internal">,
@@ -5410,10 +5420,25 @@ let TargetPrefix = "x86" in {
                         [llvm_i16_ty, llvm_i16_ty, llvm_i16_ty,
                          llvm_x86amx_ty, llvm_x86amx_ty,
                          llvm_x86amx_ty], []>;
+  // the vector size can be smaller than AMX register size (1024 bytes)
   def int_x86_cast_vector_to_tile:
       DefaultAttrsIntrinsic<[llvm_x86amx_ty], [llvm_anyvector_ty], [IntrNoMem]>;
+  // the vector size can be smaller than AMX register size (1024 bytes)
   def int_x86_cast_tile_to_vector:
       DefaultAttrsIntrinsic<[llvm_anyvector_ty], [llvm_x86amx_ty], [IntrNoMem]>;
+
+  def int_x86_tcmmimfp16ps_internal :
+              ClangBuiltin<"__builtin_ia32_tcmmimfp16ps_internal">,
+              Intrinsic<[llvm_x86amx_ty],
+                        [llvm_i16_ty, llvm_i16_ty, llvm_i16_ty,
+                         llvm_x86amx_ty, llvm_x86amx_ty,
+                         llvm_x86amx_ty], []>;
+  def int_x86_tcmmrlfp16ps_internal :
+              ClangBuiltin<"__builtin_ia32_tcmmrlfp16ps_internal">,
+              Intrinsic<[llvm_x86amx_ty],
+                        [llvm_i16_ty, llvm_i16_ty, llvm_i16_ty,
+                         llvm_x86amx_ty, llvm_x86amx_ty,
+                         llvm_x86amx_ty], []>;
 }
 
 //===----------------------------------------------------------------------===//

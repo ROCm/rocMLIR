@@ -1011,7 +1011,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
     emitWrappedCall(b, loc, nullptr, {});
   }
 
-  for (auto &pair : llvm::enumerate(kernel.params)) {
+  for (auto pair : llvm::enumerate(kernel.params)) {
     uint32_t i = pair.index();
     b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
     b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
@@ -1155,11 +1155,12 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
     steps.push_back(1);
   }
 
-  buildAffineLoopNest(
+  affine::buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
       [rowMajorMap, &constantsVec, toFillFlat,
        elemType](OpBuilder &b, Location loc, ValueRange ivs) {
-        auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
+        auto selectorOp =
+            b.create<affine::AffineApplyOp>(loc, rowMajorMap, ivs);
         Value toStore = b.create<vector::ExtractElementOp>(
                              loc, constantsVec, selectorOp->getResult(0))
                             .getResult();
@@ -1211,7 +1212,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
     steps.push_back(1);
   }
 
-  buildAffineLoopNest(
+  affine::buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
       [elemType, randFunc, toFillFlat, minConst,
        maxConst](OpBuilder &b, Location loc, ValueRange ivs) {
@@ -1410,36 +1411,36 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     case rock::ConvOpType::Fwd:
       // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
       // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
-      heightIdx = b.create<AffineApplyOp>(
+      heightIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
           ValueRange{ivs[genConfig.outputLayout.find('h')], ivs[6]});
-      widthIdx = b.create<AffineApplyOp>(
+      widthIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
           ValueRange{ivs[genConfig.outputLayout.find('w')], ivs[7]});
       break;
     case rock::ConvOpType::BwdData:
       // out_h_tmp = in_h_idx + padding_h_l - fil_h_idx * dilation_h;
       // out_w_tmp = in_w_idx + padding_w_l - fil_w_idx * dilation_w;
-      heightTempIdx = b.create<AffineApplyOp>(
+      heightTempIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
           ValueRange{ivs[genConfig.inputLayout.find('h')], ivs[6]});
-      widthTempIdx = b.create<AffineApplyOp>(
+      widthTempIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
           ValueRange{ivs[genConfig.inputLayout.find('w')], ivs[7]});
       // out_h_idx = out_h_tmp / stride_h;
       // out_w_idx = out_w_tmp / stride_w;
-      heightIdx = b.create<AffineApplyOp>(loc, outputHeightMap,
-                                          ValueRange{heightTempIdx});
-      widthIdx = b.create<AffineApplyOp>(loc, outputWidthMap,
-                                         ValueRange{widthTempIdx});
+      heightIdx = b.create<affine::AffineApplyOp>(loc, outputHeightMap,
+                                                  ValueRange{heightTempIdx});
+      widthIdx = b.create<affine::AffineApplyOp>(loc, outputWidthMap,
+                                                 ValueRange{widthTempIdx});
       break;
     case rock::ConvOpType::BwdWeight:
       // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
       // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
-      heightIdx = b.create<AffineApplyOp>(
+      heightIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
           ValueRange{ivs[6], ivs[genConfig.filterLayout.find('y')]});
-      widthIdx = b.create<AffineApplyOp>(
+      widthIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
           ValueRange{ivs[7], ivs[genConfig.filterLayout.find('x')]});
       break;
@@ -1484,14 +1485,15 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     auto dimHeight = b.create<arith::ConstantIndexOp>(loc, dimH);
     auto dimWidth = b.create<arith::ConstantIndexOp>(loc, dimW);
 
-    AffineIfOp ifOp;
+    affine::AffineIfOp ifOp;
     if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-      ifOp = b.create<AffineIfOp>(loc, condition,
-                                  ValueRange{heightIdx, widthIdx, heightTempIdx,
-                                             widthTempIdx, dimHeight, dimWidth},
-                                  false);
+      ifOp = b.create<affine::AffineIfOp>(
+          loc, condition,
+          ValueRange{heightIdx, widthIdx, heightTempIdx, widthTempIdx,
+                     dimHeight, dimWidth},
+          false);
     } else {
-      ifOp = b.create<AffineIfOp>(
+      ifOp = b.create<affine::AffineIfOp>(
           loc, condition, ValueRange{heightIdx, widthIdx, dimHeight, dimWidth},
           false);
     }
@@ -1549,8 +1551,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   };
 
   // Generate the loop nest
-  buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
-                      createConv2dLoopNest);
+  affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
+                              createConv2dLoopNest);
 
   b.create<func::ReturnOp>(loc, ValueRange{});
   return;
@@ -2257,7 +2259,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     SmallVector<int64_t, 1> steps(1, 1);
 
     if (testElemType != valElemType) {
-      buildAffineLoopNest(
+      affine::buildAffineLoopNest(
           b, loc, lowerBounds, upperBounds, steps,
           [valFlat, testElemType, valElemType](OpBuilder &b, Location loc,
                                                ValueRange ivs) {
@@ -2338,8 +2340,9 @@ void insertPrefills(func::FuncOp fut) {
       OpBuilder::InsertionGuard guard(builder);
       for (auto argIdxAndValueAttr : argInitValues) {
         int argIdx = argIdxAndValueAttr.first;
-        Attribute valueAttr = argIdxAndValueAttr.second;
-        auto fillValue = builder.create<arith::ConstantOp>(loc, valueAttr);
+        auto valueAttr = argIdxAndValueAttr.second;
+        auto fillValue =
+            builder.create<arith::ConstantOp>(loc, cast<TypedAttr>(valueAttr));
         Value originalArg = launchOp.getArgOperands()[argIdx];
         builder.create<linalg::FillOp>(loc, ValueRange{fillValue},
                                        ValueRange{originalArg});
@@ -2604,8 +2607,8 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
-  for (auto &[idx, paramType] : llvm::enumerate(root0.params)) {
-    auto paramMRType = paramType.template dyn_cast<MemRefType>();
+  for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
+    auto paramMRType = paramType.dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
@@ -2962,9 +2965,10 @@ int main(int argc, char **argv) {
   mlir::registerMLIRContextCLOptions();
   MLIRContext context(registry);
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
-                      AffineDialect, memref::MemRefDialect, math::MathDialect,
-                      arith::ArithDialect, vector::VectorDialect,
-                      gpu::GPUDialect, linalg::LinalgDialect>();
+                      affine::AffineDialect, memref::MemRefDialect,
+                      math::MathDialect, arith::ArithDialect,
+                      vector::VectorDialect, gpu::GPUDialect,
+                      linalg::LinalgDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,

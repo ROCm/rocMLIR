@@ -201,13 +201,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     if (!shapedTy.hasStaticShape())
       return kernelFunc.emitOpError(
           "all kernel arguments must have static shape");
-    bufferLengths.push_back(shapedTy.getSizeInBits() / 8);
+    int64_t sizeInBits =
+        shapedTy.getNumElements() * shapedTy.getElementTypeBitWidth();
+    bufferLengths.push_back(sizeInBits / 8);
   }
 
   // 2. Set up pipelines. Do this only once to save on construction cost.
   MLIRContext *ctx = source->getContext();
-  PassManager applicability(ctx, PassManager::Nesting::Implicit);
-  PassManager compilation(ctx, PassManager::Nesting::Implicit);
+  PassManager applicability(source->getName(), PassManager::Nesting::Implicit);
+  PassManager compilation(source->getName(), PassManager::Nesting::Implicit);
 
   rock::KernelOptions applicabilityOpts;
   applicabilityOpts.enableApplicability = true;

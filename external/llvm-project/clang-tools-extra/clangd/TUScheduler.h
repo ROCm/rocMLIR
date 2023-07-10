@@ -162,8 +162,8 @@ public:
   /// contains only AST nodes from the #include directives at the start of the
   /// file. AST node in the current file should be observed on onMainAST call.
   virtual void onPreambleAST(PathRef Path, llvm::StringRef Version,
-                             const CompilerInvocation &CI, ASTContext &Ctx,
-                             Preprocessor &PP, const CanonicalIncludes &) {}
+                             CapturedASTCtx Ctx,
+                             const std::shared_ptr<const CanonicalIncludes>) {}
 
   /// The argument function is run under the critical section guarding against
   /// races when closing the files.
@@ -368,8 +368,8 @@ private:
   llvm::StringMap<std::unique_ptr<FileData>> Files;
   std::unique_ptr<ASTCache> IdleASTs;
   std::unique_ptr<HeaderIncluderCache> HeaderIncluders;
-  // None when running tasks synchronously and non-None when running tasks
-  // asynchronously.
+  // std::nullopt when running tasks synchronously and non-std::nullopt when
+  // running tasks asynchronously.
   std::optional<AsyncTaskRunner> PreambleTasks;
   std::optional<AsyncTaskRunner> WorkerThreads;
   // Used to create contexts for operations that are not bound to a particular

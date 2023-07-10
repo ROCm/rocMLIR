@@ -50,7 +50,7 @@ def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
 
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
-  let dependentDialects = ["rock::RockDialect", "AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
 def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
@@ -60,18 +60,18 @@ def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
 
 def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {
   let summary = "Expand blockwise gemm into threadwise gemm and clean up fusion-related shorthand";
-  let dependentDialects = ["rock::RockDialect", "AffineDialect", "gpu::GPUDialect", "memref::MemRefDialect", "scf::SCFDialect", "vector::VectorDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "memref::MemRefDialect", "scf::SCFDialect", "vector::VectorDialect"];
 }
 
 def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
   let summary = "expand threadwise gemm to final implementation.";
-  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect"];
 }
 
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
   let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
-    "gpu::GPUDialect", "memref::MemRefDialect", "AffineDialect", "amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "scf::SCFDialect"];
+    "gpu::GPUDialect", "memref::MemRefDialect", "affine::AffineDialect", "amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "scf::SCFDialect"];
 }
 
 def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
@@ -85,11 +85,12 @@ def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::Func
 
 def RockTransformToMemrefPass : Pass<"rock-transform-to-memref", "::mlir::func::FuncOp"> {
   let summary = "convert remaining rock.transform ops to memref.expand/collapse_shape";
-  let dependentDialects = ["rock::RockDialect", "AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
 def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
+  let dependentDialects = ["scf::SCFDialect","cf::ControlFlowDialect"];
 }
 
 def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {

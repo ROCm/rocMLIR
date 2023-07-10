@@ -225,8 +225,8 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
   SmallVector<int64_t, 4> startShape {kIters};
   for(StringRef upperName : blockMap.keys()){
     int64_t startShapeDim = 1;
-    for(unsigned dim : blockMap[upperName]){
-      startShapeDim *= bidGridLengths[dim];
+    for(int64_t dimSize : bidGridLengths){
+      startShapeDim *= dimSize;
     }
     startShape.push_back(startShapeDim);
   }
@@ -239,11 +239,7 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
     ArrayRef<unsigned> lowerDims = blockMap[upperName];
     SmallVector<StringRef, 4> gridDimNames;
     SmallVector<int64_t, 4> gridDimLengths;
-    for(int64_t lowerDim : lowerDims){
-      gridDimNames.push_back(bidGridOrder[lowerDim]);
-      gridDimLengths.push_back(bidGridLengths[lowerDim]);
-    }
-    splitId.merge(gridDimNames, lowerDims, upperName, gridDimLengths);
+    splitId.merge(bidGridOrder, lowerDims, upperName, bidGridLengths);
   }
 
   if (vectorDim == GemmDimension::K) {
@@ -893,7 +889,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t nIterations = K / kPerBlock;
     BlockwiseGemmOp blockwiseGemmOp;
     // Start at 1 to make it clearer we have performed software pipelining.
-    auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
+    auto loopOp = b.create<affine::AffineForOp>(loc, 1, nIterations, 1);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -934,14 +930,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
-      IRMapping storeAUpdates, storeBUpdates;
-
-      storeAUpdates.map(blockwiseLoadA.getResult(0),
-                        blockwiseLoadAClone.getResult(0));
-      storeBUpdates.map(blockwiseLoadB.getResult(0),
-                        blockwiseLoadBClone.getResult(0));
-      b.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
-      b.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
+      b.clone(*blockwiseStoreA.getOperation());
+      b.clone(*blockwiseStoreB.getOperation());
     }
     // outside the loop.
 
@@ -1038,9 +1028,9 @@ struct GridwiseAttentionAccelRewritePattern
   LogicalResult storeGemmInputTile(PatternRewriter &rewriter, 
                                    Location loc,
                                    int64_t kpack,
-                                   TypedValue<MemRefType> regBuffer,
-                                   TypedValue<MemRefType> toLDSRegBuffer,
-                                   TypedValue<MemRefType> ldsTileByteBuffer,
+                                   Value regBuffer,
+                                   Value toLDSRegBuffer,
+                                   Value ldsTileByteBuffer,
                                    int64_t kpacksPerBlock,
                                    StringRef nonKDimName,
                                    int64_t kPerBlock,
@@ -1049,7 +1039,7 @@ struct GridwiseAttentionAccelRewritePattern
                                    int64_t copyDPerThread,
                                    bool forceUnroll
                                    ) const {
-    Type elemType = regBuffer.getType().getElementType();
+    Type elemType = regBuffer.getType().cast<MemRefType>().getElementType();
     TransformingForOp storeBufferWrite = packLoadBufferToStoreBuffer(rewriter, loc, elemType, kpack, regBuffer, toLDSRegBuffer);
     Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
     // Find the best way of vectorizing the layout
@@ -1077,9 +1067,9 @@ struct GridwiseAttentionAccelRewritePattern
                                  TypedValue<MemRefType> in,
                                  Value mIter,
                                  Value kIter,
-                                 TypedValue<MemRefType> fromGlobalRegBuffer,
-                                 TypedValue<MemRefType> toLDSRegBuffer,
-                                 TypedValue<MemRefType> ldsTileByteBuffer,
+                                 Value fromGlobalRegBuffer,
+                                 Value toLDSRegBuffer,
+                                 Value ldsTileByteBuffer,
                                  StringRef nonKDimName,
                                  int64_t kpack,
                                  int64_t kpacksPerBlock,
@@ -1350,13 +1340,13 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KpacksPerBlock = gemm1KPerBlock / kpack;
     auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] = createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV, gemm1NPerBlock, rewriter);
 
-    AffineForOp mLoopOp = rewriter.create<AffineForOp>(loc, 0, gemm0MBlocks, 1);
+    affine::AffineForOp mLoopOp = rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
-      AffineForOp kLoopOp = rewriter.create<AffineForOp>(loc, 0, kIterationsGemm0, 1);
+      affine::AffineForOp kLoopOp = rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
         SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
         SmallVector<int64_t, 3> bidGridLengths = {gemm0G, gemm0MBlocks, gemm0NBlocks};
@@ -1840,7 +1830,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nIterations = K / kPerBlock;
     BlockwiseGemmAccelOp blockwiseGemmAccelOp;
     // Start at 1 to make it clearer we have performed software pipelining.
-    auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
+    auto loopOp = b.create<affine::AffineForOp>(loc, 1, nIterations, 1);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -1882,13 +1872,8 @@ struct GridwiseGemmAccelRewritePattern
       b.clone(*packBLoop.getOperation());
 
       // Emit blockwise stores
-      IRMapping storeAUpdates, storeBUpdates;
-      storeAUpdates.map(blockwiseLoadA.getResult(0),
-                        blockwiseLoadAClone.getResult(0));
-      storeBUpdates.map(blockwiseLoadB.getResult(0),
-                        blockwiseLoadBClone.getResult(0));
-      b.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
-      b.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
+      b.clone(*blockwiseStoreA.getOperation());
+      b.clone(*blockwiseStoreB.getOperation());
     }
     // outside the loop.
 
@@ -1939,7 +1924,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
-                         memref::MemRefDialect, AffineDialect,
+                         memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 

@@ -10,6 +10,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRTosaToRock
   MLIRTosaToArith
   MLIRTosaToLinalg
+  MLIRLinalgToLLVM
   MLIRTosaToSCF
   MLIRTosaToTensor
   MLIRRockToGPU

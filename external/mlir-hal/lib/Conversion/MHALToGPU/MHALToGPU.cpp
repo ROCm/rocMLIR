@@ -48,7 +48,7 @@ public:
 } // namespace
 
 // Helper to pull out the called func
-static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
+static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
   CallOpInterface callIf(op);
   if (auto *callable = callIf.resolveCallable()) {
     if (auto func = dyn_cast<func::FuncOp>(callable))
@@ -59,7 +59,7 @@ static Optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
 }
 
 // Get target{gpu} attribute from called func
-static Optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
+static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   auto func = getCalledFunc(op);
   if (!func.has_value() || func->getNumResults() != 0)
     return std::nullopt;

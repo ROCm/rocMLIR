@@ -57,9 +57,16 @@ public:
   InterpStack &getStack() { return Stk; }
   /// Returns CHAR_BIT.
   unsigned getCharBit() const;
+  /// Return the floating-point semantics for T.
+  const llvm::fltSemantics &getFloatSemantics(QualType T) const;
 
   /// Classifies an expression.
   std::optional<PrimType> classify(QualType T) const;
+
+  const CXXMethodDecl *
+  getOverridingFunction(const CXXRecordDecl *DynamicDecl,
+                        const CXXRecordDecl *StaticDecl,
+                        const CXXMethodDecl *InitialFunction) const;
 
 private:
   /// Runs a function.

@@ -54,7 +54,7 @@ namespace mlir {
 
 inline void registerUpstreamDialects(DialectRegistry &registry) {
   // clang-format off
-  registry.insert<AffineDialect,
+  registry.insert<affine::AffineDialect,
                   amdgpu::AMDGPUDialect,
                   arith::ArithDialect,
                   async::AsyncDialect,

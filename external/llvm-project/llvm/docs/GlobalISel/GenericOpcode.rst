@@ -69,6 +69,15 @@ The address of a basic block.
 
   %0:_(p0) = G_BLOCK_ADDR blockaddress(@test_blockaddress, %ir-block.block)
 
+G_CONSTANT_POOL
+^^^^^^^^^^^^^^^
+
+The address of an object in the constant pool.
+
+.. code-block:: none
+
+  %0:_(p0) = G_CONSTANT_POOL %const.0
+
 Integer Extension and Truncation
 --------------------------------
 
@@ -925,3 +934,14 @@ It should always be safe to
 
 - Look through the source register
 - Replace the destination register with the source register
+
+
+Miscellaneous
+-------------
+
+G_CONSTANT_FOLD_BARRIER
+^^^^^^^^^^^^^^^^^^^^^^^
+
+This operation is used as an opaque barrier to prevent constant folding. Combines
+and other transformations should not look through this. These have no other
+semantics and can be safely eliminated if a target chooses.
