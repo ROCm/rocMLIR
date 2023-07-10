@@ -117,11 +117,10 @@ struct AccelEmitter {
   /// this will produce a grid-level view of the output.
   /// if none of that is provided, the default would
   /// be a thread-level view of the output.
-  virtual ArrayAttr
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t matrixM,
-                          int64_t matrixN,
-                          std::optional<int64_t> blockSize = std::nullopt,
-                          std::optional<int64_t> gridSize = std::nullopt) = 0;
+  virtual ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
@@ -158,19 +157,15 @@ struct MfmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  ArrayAttr
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t matrixM,
-                          int64_t matrixN,
-                          std::optional<int64_t> blockSize = std::nullopt,
-                          std::optional<int64_t> gridSize = std::nullopt) override;
-
-private:
-  /// Initialize the emitter parameters for mfma
+  ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
+      
   AccelEmitterParams
   initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
                          RockAccelTuningParamAttrInterface tuningParams);
 
-  // Specifc mfma parameters
   MfmaInsnGroup mfmaGroup;
 };
 
@@ -189,11 +184,10 @@ struct WmmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  ArrayAttr
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t matrixM,
-                          int64_t matrixN,
-                          std::optional<int64_t> blockSize = std::nullopt,
-                          std::optional<int64_t> gridSize = std::nullopt) override;
+  ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
 
 private:
   /// Initialize the emitter parameters for wmma
