@@ -1278,3 +1278,17 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   transform.slice(upperNameRefs, lowerNameRefs, offsets, ends);
   return transform.get();
 }
+
+void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
+                                          int64_t numElements,
+                                          SmallVectorImpl<int64_t> &dimSizes) {
+  for (auto [idx, dimStride] : llvm::enumerate(orderedDimStrides)) {
+    int64_t immLargerCoeff;
+    if (idx != 0) {
+      immLargerCoeff = orderedDimStrides[idx - 1];
+    } else {
+      immLargerCoeff = numElements;
+    }
+    dimSizes.push_back(immLargerCoeff / dimStride);
+  }
+}
