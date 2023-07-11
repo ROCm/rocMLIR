@@ -15,8 +15,7 @@
 // CHECK: func @rock_blockwise_reducesum_nr_threads_gt_blocksize
 // CHECK: %[[ZERO:.*]] = arith.constant 0 : index
 // CHECK: %[[TID0:.*]] = rock.workitem_id : index
-// CHECK: %[[TID1:.*]] = rock.workitem_id : index
-// CHECK: rock.transforming_for {{.*}} ({{.*}}, %[[ITER_ARG:.*]]) = [](%[[TID1]], %[[ZERO]]), (%[[LDS_COORD:.*]]) = [#[[TMAP]], #[[TMAP1]], #[[TMAP2]]](%[[TID1]], %[[ZERO]]) {{.*}} bounds [1, 20] strides [1, 1] {
+// CHECK: rock.transforming_for {{.*}} ({{.*}}, %[[ITER_ARG:.*]]) = [](%[[TID0]], %[[ZERO]]), (%[[LDS_COORD:.*]]) = [#[[TMAP]], #[[TMAP1]], #[[TMAP2]]](%[[TID0]], %[[ZERO]]) {{.*}} bounds [1, 20] strides [1, 1] {
 // CHECK: %[[LOAD_VAL:.*]] = rock.in_bounds_load %arg0[%[[ITER_ARG]]]
 // CHECK: rock.in_bounds_store %[[LOAD_VAL]] -> %arg2[%[[LDS_COORD]]]
 // CHECK: rock.transforming_for {{.*}} (%[[LD_COORD:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[TID0]], %[[ZERO]], %[[ZERO]]), {{.*}}, (%[[LDS_ST_COORD:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %[[ZERO]], %[[ZERO]]) {{.*}} bounds [1, 1, 20] strides [1, 1, 4] {
@@ -25,8 +24,7 @@
 // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maxf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
 // CHECK: %[[ACC_NEW:.*]] = arith.maxf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
 // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
-// CHECK: %[[TID2:.*]] = rock.workitem_id : index
-// CHECK: rock.transforming_for {{.*}} (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID2]], %[[ZERO]]), {{.*}} bounds [1, 20] strides [1, 1] {
+// CHECK: rock.transforming_for {{.*}} (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %[[ZERO]]), {{.*}} bounds [1, 20] strides [1, 1] {
 // CHECK: %[[LDS_LD_VAL:.*]] = rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]]
   
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 20] -> [20, 20]>
@@ -52,7 +50,6 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 // CHECK: func @rock_blockwise_reducesum_nr_threads_lt_blocksize
 // CHECK: %[[TID0:.*]] = rock.workitem_id : index
-// CHECK: %[[TID1:.*]] = rock.workitem_id : index
 
 // Skipping LDS workspace loading checks as they are quite same as above
 
@@ -110,9 +107,8 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // All reductions are done and stored for each point in joint non-reduction space.
 // Read-back the reduced values to regs
 
-// CHECK: %[[TID2:.*]] = rock.workitem_id : index
 // CHECK: rock.transforming_for
-// CHECK-SAME: (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID2]], %c0)
+// CHECK-SAME: (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %c0)
 // CHECK: rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]] : memref<80xf32, #gpu.address_space<workgroup>>, index -> f32
 // CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<4xf32, #gpu.address_space<private>>, index
 
