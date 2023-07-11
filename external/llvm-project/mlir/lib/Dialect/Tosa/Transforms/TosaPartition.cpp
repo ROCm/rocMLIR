@@ -97,10 +97,10 @@ bool isElementwiseOp(Operation *op) {
         tosa::NegateOp,
         tosa::ReciprocalOp,
         tosa::RsqrtOp,
-        tosa::SelectOp
-//         tosa::EqualOp,
-//         tosa::GreaterOp,
-//         tosa::GreaterEqualOp
+        tosa::SelectOp,
+        tosa::EqualOp,
+        tosa::GreaterOp,
+        tosa::GreaterEqualOp
        >(op);
   // clang-format on
 }
@@ -132,7 +132,7 @@ bool isConstSplatOp(Operation *op) {
 bool isTransposeConfigConstant(Operation *op) {
   return op->hasTrait<OpTrait::ConstantLike>() &&
          llvm::any_of(op->getUsers(), [&](Operation *u) {
-           return isTransposeOp(u) && u->getOperand(1) == op->getResult(0);
+           return isa<TransposeOp>(u) && u->getOperand(1) == op->getResult(0);
          });
 }
 
