@@ -1279,17 +1279,16 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   return transform.get();
 }
 
-void mlir::rock::removeEmbedDims(SmallVectorImpl<StringRef> &embedDimNames,
-                                 SmallVectorImpl<int64_t> &embedDimCoeffs,
-                                 ArrayRef<int64_t> removeDims) {
-  for (int64_t removeDim : removeDims) {
-    int64_t removeDimCoeff = embedDimCoeffs[removeDim];
-    embedDimCoeffs.erase(embedDimCoeffs.begin() + removeDim);
-    embedDimNames.erase(embedDimNames.begin() + removeDim);
-    for (auto [dimIdx, dimCoeff] : llvm::enumerate(embedDimCoeffs)) {
-      if (dimCoeff > removeDimCoeff) {
-        embedDimCoeffs[dimIdx] = dimCoeff / removeDimCoeff;
-      }
+void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
+                                          int64_t numElements,
+                                          SmallVectorImpl<int64_t> &dimSizes) {
+  for (auto [idx, dimStride] : llvm::enumerate(orderedDimStrides)) {
+    int64_t immLargerCoeff;
+    if (idx != 0) {
+      immLargerCoeff = orderedDimStrides[idx - 1];
+    } else {
+      immLargerCoeff = numElements;
     }
+    dimSizes.push_back(immLargerCoeff / dimStride);
   }
 }

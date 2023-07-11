@@ -310,38 +310,56 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   // all the waves will compute next to each other and then they will move to
   // the next subtile in the workgroup
   {
-    SmallVector<StringRef, 7> embedDimNamesM{
-        /*0=*/"m",       /*1=*/"wave_m",    /*2=*/"m_tid",   /*3=*/"m_i",
-        /*4=*/"blk_row", /*5=*/"vec_group", /*6=*/"vec_item"};
-    SmallVector<int64_t, 7> embedDimCoeffsM{mPerBlock,
-                                            mPerAccel,
-                                            rowGroupSize,
-                                            mPerAccel * mWaves,
-                                            m,
-                                            inputSpansPerMfmaIn * rowGroupSize,
-                                            1};
+    SmallVector<StringRef, 7> dimNamesM{/*0=*/"m",
+                                        /*1=*/"m_i",
+                                        /*2=*/"wave_m",
+                                        /*3=*/"blk_row",
+                                        /*4=*/"vec_group",
+                                        /*5=*/"m_tid",
+                                        /*6=*/"vec_item"};
+    SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
+                                               /*1=*/mPerAccel * mWaves,
+                                               /*2=*/mPerAccel,
+                                               /*3=*/m,
+                                               /*4=*/inputSpansPerMfmaIn *
+                                                   rowGroupSize,
+                                               /*5=*/rowGroupSize,
+                                               /*6=*/1};
+    SmallVector<int64_t, 7> dimSizes;
+    convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      // Nothing to remove
+      toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizes);
     } else if (blockSize.has_value()) {
-      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0});
+      toMatrixC.unmerge("gemmM", 1, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                        ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
-      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0, 1, 2});
+      toMatrixC.unmerge(
+          "gemmM", 1, {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
+          {dimSizes[1], dimSizes[3], dimSizes[4], dimSizes[6]});
     }
-    toMatrixC.embed("gemmM", 1, mLen, embedDimNamesM, embedDimCoeffsM);
   }
   {
-    SmallVector<StringRef, 5> embedDimNamesN{
-        /*0=*/"n", /*1=*/"wave_n", /*2=*/"n_i", /*3=*/"blk_col", /*4=*/"n_tid"};
-    SmallVector<int64_t, 5> embedDimCoeffsN{nPerBlock, nPerAccel,
-                                            nPerAccel * nWaves, n, 1};
+    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n",
+                                        /*1=*/"n_i",
+                                        /*2=*/"wave_n",
+                                        /*3=*/"blk_col",
+                                        /*4=*/"n_tid"};
+    SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
+                                               /*1=*/nPerAccel * nWaves,
+                                               /*2=*/nPerAccel,
+                                               /*3=*/n,
+                                               /*4=*/1};
+    SmallVector<int64_t, 7> dimSizes;
+    convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      // Nothing do remove
+      toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizes);
     } else if (blockSize.has_value()) {
-      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0});
+      toMatrixC.unmerge("gemmN", 2, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                        ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
-      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0, 1, 4});
+      toMatrixC.unmerge("gemmN", 2, {dimNamesN[1], dimNamesN[3]},
+                        {dimSizes[1], dimSizes[3]});
     }
-    toMatrixC.embed("gemmN", 2, nLen, embedDimNamesN, embedDimCoeffsN);
   }
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   ArrayAttr idToMatrixCMaps =
@@ -547,34 +565,47 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   // waves will compute next to each other and then they will move to the next
   // subtile in the workgroup
   {
-    SmallVector<StringRef, 5> embedDimNamesM{/*0=*/"m", /*1=*/"wave_m",
-                                             /*2=*/"m_tid", /*3=*/"rep_i",
-                                             /*4=*/"item_i"};
-    SmallVector<int64_t, 5> embedDimCoeffsM{mPerBlock, wmmaInsn.inputLen, 1,
-                                            mWaves * wmmaInsn.inputLen,
-                                            wmmaInsn.outputStride};
+    SmallVector<StringRef, 5> dimNamesM{/*0=*/"m",
+                                        /*1=*/"rep_i",
+                                        /*2=*/"wave_m",
+                                        /*3=*/"item_i",
+                                        /*4=*/"m_tid"};
+    SmallVector<int64_t, 5> orderedDimStridesM{/*0=*/mPerBlock,
+                                               /*1=*/mWaves * wmmaInsn.inputLen,
+                                               /*2=*/wmmaInsn.inputLen,
+                                               /*3=*/wmmaInsn.outputStride,
+                                               /*4=*/1};
+    SmallVector<int64_t, 7> dimSizes;
+    convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      // Nothing to remove here
+      toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizes);
     } else if (blockSize.has_value()) {
-      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0});
+      toMatrixC.unmerge("gemmM", 1, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                        ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
-      removeEmbedDims(embedDimNamesM, embedDimCoeffsM, {0, 1, 2});
+      toMatrixC.unmerge("gemmM", 1, {dimNamesM[1], dimNamesM[3]},
+                        {dimSizes[1], dimSizes[3]});
     }
-    toMatrixC.embed("gemmM", 1, mLen, embedDimNamesM, embedDimCoeffsM);
   }
   {
-    SmallVector<StringRef, 5> embedDimNamesN{/*0=*/"n", /*1=*/"wave_n",
-                                             /*2=*/"n_tid", /*3=*/"rep_j"};
-    SmallVector<int64_t, 5> embedDimCoeffsN{nPerBlock, wmmaInsn.inputLen, 1,
-                                            nWaves * wmmaInsn.inputLen};
+    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n",
+                                        /*1=*/"rep_j",
+                                        /*2=*/"wave_n",
+                                        /*3=*/"n_tid"};
+    SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
+                                               /*1=*/nWaves * wmmaInsn.inputLen,
+                                               /*2=*/wmmaInsn.inputLen,
+                                               /*3=*/1};
+    SmallVector<int64_t, 7> dimSizes;
+    convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      // Nothing to remove here
+      toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizes);
     } else if (blockSize.has_value()) {
-      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0});
+      toMatrixC.unmerge("gemmN", 2, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                        ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
-      removeEmbedDims(embedDimNamesN, embedDimCoeffsN, {0, 1, 2});
+      toMatrixC.unmerge("gemmN", 2, {dimNamesN[1]}, {dimSizes[1]});
     }
-    toMatrixC.embed("gemmN", 2, nLen, embedDimNamesN, embedDimCoeffsN);
   }
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   ArrayAttr idToMatrixCMaps =
