@@ -19,14 +19,23 @@ set(MLIR_CMAKE_CONFIG_DIR
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings that have an effect on the MLIR dialect
-set(LLVM_ENABLE_ZSTD "OFF" CACHE STRING "")
-set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
-set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
+set(LLVM_ENABLE_ZSTD OFF CACHE BOOL "")
+set(LLVM_ENABLE_ZLIB OFF CACHE BOOL "")
 set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")
 set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
 set(LLVM_INSTALL_UTILS ON CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
+if(MSVC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING" CACHE INTERNAL "")
+endif()
+
+# Only build the X86 backend if we'll be JIT-ing host code.
+if (MLIR_ENABLE_ROCM_RUNNER)
+  set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
+else()
+  set(LLVM_TARGETS_TO_BUILD "AMDGPU" CACHE STRING "")
+endif()
 
 # Configure ROCm support.
 if (NOT DEFINED ROCM_PATH)
@@ -101,4 +110,16 @@ function(add_rocmlir_public_c_api_library name)
     PRIVATE
     -DMLIR_CAPI_BUILDING_LIBRARY=1
   )
+endfunction()
+
+function(add_rocmlir_tool name)
+  set(exclude_from_all "")
+  if (BUILD_FAT_LIBROCKCOMPILER)
+    set(exclude_from_all "EXCLUDE_FROM_ALL")
+    # Temporarily disable "Building tools" to avoid generating install targets for
+    # unbuilt files
+    set(LLVM_BUILD_TOOLS OFF)
+    set(EXCLUDE_FROM_ALL ON) # LLVM functions read this variable, set it paranoidly
+  endif()
+  add_mlir_tool(${name} ${exclude_from_all} ${ARGN})
 endfunction()

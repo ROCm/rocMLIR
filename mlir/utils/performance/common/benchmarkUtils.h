@@ -60,6 +60,10 @@ size_t getBytesPerElement(DataType dataType, bool isOut);
 
 // Allocate a device buffer and copy the date from host memory
 void *getGpuBuffer(const void *hostMem, size_t byteSize);
+
+// Get the GPU device name
+std::string get_device_name();
+
 } // namespace benchmark
 
 #endif // MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H

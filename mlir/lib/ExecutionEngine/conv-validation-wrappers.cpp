@@ -391,14 +391,14 @@ size_t findIdxHistRelDiff(double relDiff, const double *BUCKET_BOUNDARIES,
   return i + 1;
 }
 
-void printDebugVerifyResults(int64_t dataSize, float maxAbsDiff,
+void printDebugVerifyResults(long long dataSize, float maxAbsDiff,
                              float maxVAL_abs, float maxGPU_abs,
                              double aveAbsDiff, double maxRelDiff,
                              float maxVAL_rel, float maxGPU_rel,
                              double aveRelDiff, double err_RMS,
                              const double *BUCKET_BOUNDARIES,
                              size_t NUM_BUCKETS, int *hist_relDiff) {
-  printf("Number of elements: %ld\n", dataSize);
+  printf("Number of elements: %lld\n", dataSize);
   printf("maxAbsDiff info: maxAbsDiff = %f (valNum = %.5f, gpuNum = %.5f), "
          "average absDiff = %.1e\n",
          maxAbsDiff, maxVAL_abs, maxGPU_abs, aveAbsDiff);
@@ -420,7 +420,7 @@ void printDebugVerifyResults(int64_t dataSize, float maxAbsDiff,
       printf("%.0e < relDiff <= %.0e", BUCKET_BOUNDARIES[i - 2],
              BUCKET_BOUNDARIES[i - 1]);
 
-    printf(": %d/%ld (%lf%%)\n", hist_relDiff[i], dataSize,
+    printf(": %d/%lld (%lf%%)\n", hist_relDiff[i], dataSize,
            100.0 * static_cast<double>(hist_relDiff[i]) /
                static_cast<double>(dataSize));
   }
@@ -434,7 +434,7 @@ enum class PrintOption : char {
 };
 
 template <typename T>
-void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
+void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
                 float thr_RMS, float thr_absDiff, float thr_relDiff,
                 char printDebug) {
   float valNum, gpuNum;
@@ -475,7 +475,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
   // Obtain print debug info option
   PrintOption print_option = static_cast<PrintOption>(printDebug);
 
-  for (int64_t i = 0; i < dataSize; ++i) {
+  for (long long i = 0; i < dataSize; ++i) {
     valNum = static_cast<float>(validationResults[i]);
     gpuNum = static_cast<float>(gpuResults[i]);
     // Update the max magnitutde value
@@ -517,7 +517,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
       if ((print_option == PrintOption::Always ||
            print_option == PrintOption::Failure) &&
           (absDiff > thr_absDiff || relDiff > thr_relDiff))
-        printf("%ld: %f %f %f %lf\n", i, valNum, gpuNum, absDiff, relDiff);
+        printf("%lld: %f %f %f %lf\n", i, valNum, gpuNum, absDiff, relDiff);
     }
   }
   double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
@@ -556,34 +556,35 @@ extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
 
 // Compare the results in int32
 template <typename GPUTYPE, typename VALTYPE>
-void mcpuVerifyInt(GPUTYPE *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
+void mcpuVerifyInt(GPUTYPE *gpuAligned, VALTYPE *valAligned, long long dataSize,
                    char printDebug) {
-  int64_t failure_count = 0;  // the number of incorrect elements
-  int64_t overflow_count = 0; // the number of overflow elements
-  int64_t maxAbsDiff = 0;
+  long long failure_count = 0;  // the number of incorrect elements
+  long long overflow_count = 0; // the number of overflow elements
+  long long maxAbsDiff = 0;
   int64_t max = std::numeric_limits<GPUTYPE>::max();
   int64_t min = std::numeric_limits<GPUTYPE>::min();
   PrintOption print_option = static_cast<PrintOption>(printDebug);
-  for (int64_t i = 0; i < dataSize; ++i) {
-    int64_t valNum = static_cast<int64_t>(valAligned[i]);
+  for (long long i = 0; i < dataSize; ++i) {
+    auto valNum = static_cast<long long>(valAligned[i]);
     int32_t gpuNum = gpuAligned[i];
     if (valNum > max || valNum < min) {
       overflow_count++;
       if (print_option == PrintOption::Always)
-        printf("overflow at element : %ld, gpu=%d, val=%ld\n", i, gpuNum,
+        printf("overflow at element : %lld, gpu=%d, val=%lld\n", i, gpuNum,
                valNum);
     }
 
     if (gpuNum != valNum) {
       failure_count++;
-      int64_t absDiff = std::abs(valNum - gpuNum);
+      long long absDiff = std::abs(valNum - gpuNum);
       if (absDiff > maxAbsDiff)
         maxAbsDiff = absDiff;
 
       // Print out individual failing elements if print mode is Always||Failure
       if (print_option == PrintOption::Always ||
           print_option == PrintOption::Failure) {
-        printf("%ld: gpu=%d val=%ld absDiff=%ld\n", i, gpuNum, valNum, absDiff);
+        printf("%lld: gpu=%d val=%lld absDiff=%lld\n", i, gpuNum, valNum,
+               absDiff);
       }
     }
   }
@@ -592,22 +593,21 @@ void mcpuVerifyInt(GPUTYPE *gpuAligned, VALTYPE *valAligned, int64_t dataSize,
     if ((print_option == PrintOption::Always ||
          print_option == PrintOption::Summary) &&
         overflow_count > 0) {
-      printf("Number of elements: %ld\n", dataSize);
-      printf("Number of overflow elements: %ld\n", overflow_count);
+      printf("Number of elements: %lld\n", dataSize);
+      printf("Number of overflow elements: %lld\n", overflow_count);
     }
     printf("[1 1 1]\n");
   } else {
     if (print_option == PrintOption::Always ||
         print_option == PrintOption::Failure ||
         print_option == PrintOption::Summary) {
-      printf("Number of elements: %ld\n", dataSize);
-      printf("Number of incorrect elements: %ld\n", failure_count);
-      printf("maxAbsDiff: %ld\n", maxAbsDiff);
-      printf("Number of overflow elements: %ld\n", overflow_count);
+      printf("Number of elements: %lld\n", dataSize);
+      printf("Number of incorrect elements: %lld\n", failure_count);
+      printf("maxAbsDiff: %lld\n", maxAbsDiff);
+      printf("Number of overflow elements: %lld\n", overflow_count);
     }
     printf("[0 0 0]");
   }
-  return;
 }
 
 extern "C" void mcpuVerifyInt32Int32(int32_t *gpuAllocated, int32_t *gpuAligned,
@@ -644,9 +644,9 @@ extern "C" void mcpuVerifyInt8Int64(int8_t *gpuAllocated, int8_t *gpuAligned,
 }
 
 template <typename T>
-void mcpuVerifyNaive(T *gpuAligned, T *valAligned, int64_t dataSize,
+void mcpuVerifyNaive(T *gpuAligned, T *valAligned, long long dataSize,
                      char printDebug) {
-  int64_t failure_count = 0; // the number of incorrect elements
+  long long failure_count = 0; // the number of incorrect elements
   T maxAbsDiff = 0;
 
   PrintOption print_option = static_cast<PrintOption>(printDebug);
@@ -675,13 +675,12 @@ void mcpuVerifyNaive(T *gpuAligned, T *valAligned, int64_t dataSize,
     if (print_option == PrintOption::Always ||
         print_option == PrintOption::Failure ||
         print_option == PrintOption::Summary) {
-      printf("Number of elements: %ld\n", dataSize);
-      printf("Number of incorrect elements: %ld\n", failure_count);
+      printf("Number of elements: %lld\n", dataSize);
+      printf("Number of incorrect elements: %lld\n", failure_count);
       std::cout << "maxAbsDiff: " << maxAbsDiff << std::endl;
     }
     printf("[0 0 0]");
   }
-  return;
 }
 
 extern "C" void mcpuVerifyInt8Int8(int8_t *gpuAllocated, int8_t *gpuAligned,

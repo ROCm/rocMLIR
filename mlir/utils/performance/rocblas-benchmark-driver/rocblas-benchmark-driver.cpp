@@ -47,6 +47,25 @@ static rocblas_datatype getRocblasType(bool isOut,
   }
 }
 
+/// This code is taken from
+/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
+/// and is used to set the GEMM compute type (i.e., the type of the GEMM
+/// accumulation buffer)
+bool get_compute_fp32_flag() {
+  const auto device_name = benchmark::get_device_name();
+  return (device_name.find("gfx908") != std::string::npos ||
+          device_name.find("gfx90a") != std::string::npos);
+}
+
+/// This code is taken from
+/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
+/// and is used to query if the `rocblas_gemm_flgas_pack_int8x4` is set
+bool get_int8_x4_format(rocblas_handle &handle) {
+  rocblas_gemm_flags flag;
+  rocblas_query_int8_layout_flag(handle, &flag);
+  return flag == rocblas_gemm_flags_pack_int8x4;
+}
+
 int main(int argc, char **argv) {
   auto args =
       benchmark::parseCommandLine("rocblas-benchmark-driver", argc, argv);
@@ -54,25 +73,28 @@ int main(int argc, char **argv) {
   rocblas_operation blasTransA, blasTransB;
   size_t lda, ldb;
 
-  // Please note: rocMLIR is using a row-major format
-  // to store matrices, while rocBLAS is using a
-  // column-major format. This means that transposition concepts are
-  // inverted
-  if (!args.transposeA) {
+  // Please note: MIGraphx and MLIR are using row-major format
+  // to store matrices, while rocBLAS is using a colum-major format.
+  // To be compliant to rocBLAS format, MIGraphx swaps the inputs
+  // and tells rocBLAS that B is nxk and A is kxm. So the result
+  // will be a nxm matrix stored in colum-major order. We can simply
+  // recover the original matrix C by reading the matrix in a row-major
+  // way.
+  if (args.transposeA) {
     blasTransA = rocblas_operation_transpose;
-    lda = args.gemmK;
+    lda = args.gemmM;
   } else {
     blasTransA = rocblas_operation_none;
-    lda = args.gemmM;
+    lda = args.gemmK;
   }
-  if (!args.transposeB) {
+  if (args.transposeB) {
     blasTransB = rocblas_operation_transpose;
-    ldb = args.gemmN;
+    ldb = args.gemmK;
   } else {
     blasTransB = rocblas_operation_none;
-    ldb = args.gemmK;
+    ldb = args.gemmN;
   }
-  size_t ldc = args.gemmM;
+  size_t ldc = args.gemmN;
 
   size_t strideA = args.gemmM * args.gemmK, strideB = args.gemmK * args.gemmN,
          strideC = args.gemmM * args.gemmN;
@@ -84,6 +106,11 @@ int main(int argc, char **argv) {
 
   rocblas_datatype inType = getRocblasType(false, args.dataType);
   rocblas_datatype outType = getRocblasType(true, args.dataType);
+  rocblas_datatype computeType = outType;
+
+  if ((inType == rocblas_datatype_f16_r) && get_compute_fp32_flag()) {
+    computeType = rocblas_datatype_f32_r;
+  }
 
   rocblas_initialize();
   rocblas_handle handle;
@@ -103,23 +130,32 @@ int main(int argc, char **argv) {
   ROCBLAS_ABORT_IF_FAIL(
       rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host));
 
+  rocblas_gemm_flags rocblas_flags = get_int8_x4_format(handle)
+                                         ? rocblas_gemm_flags_pack_int8x4
+                                         : rocblas_gemm_flags_none;
+
   for (int i = 0, e = args.kernelRepeats; i < e; ++i)
     if (args.gemmG == 1) {
-      ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_ex(
-          handle, blasTransA, blasTransB, args.gemmM, args.gemmN, args.gemmK,
-          alpha, aDevice, inType, lda, bDevice, inType, ldb, beta, cDevice,
-          outType, ldc, cDevice, outType, ldc,
-          /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
-          rocblas_gemm_flags_none));
+      ROCBLAS_ABORT_IF_FAIL(
+          rocblas_gemm_ex(handle, /*trans_a=*/blasTransB,
+                          /*trans_b=*/blasTransA, /*m=*/args.gemmN,
+                          /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+                          /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb,
+                          /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, beta,
+                          cDevice, outType, ldc, cDevice, outType, ldc,
+                          /*computeType=*/computeType,
+                          rocblas_gemm_algo_standard, 0, rocblas_flags));
 
     } else {
       ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_strided_batched_ex(
-          handle, blasTransA, blasTransB, args.gemmM, args.gemmN, args.gemmK,
-          alpha, aDevice, inType, lda, strideA, bDevice, inType, ldb, strideB,
+          handle, /*trans_a=*/blasTransB, /*trans_b=*/blasTransA,
+          /*m=*/args.gemmN, /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+          /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb, /*stride_a=*/strideB,
+          /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, /*stride_b=*/strideA,
           beta, cDevice, outType, ldc, strideC, cDevice, outType, ldc, strideC,
           args.gemmG,
-          /*computeType=*/outType, rocblas_gemm_algo_standard, 0,
-          rocblas_gemm_flags_none));
+          /*computeType=*/computeType, rocblas_gemm_algo_standard, 0,
+          rocblas_flags));
     }
 
   HIP_ABORT_IF_FAIL(hipMemcpy(cHost, cDevice, cBytes, hipMemcpyDeviceToHost));

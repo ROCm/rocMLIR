@@ -457,6 +457,8 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   case KernelType::Gemm:
     llvm_unreachable(
         "Gemm ops shouldn't be in convolution-specific lowering passes");
+  default:
+    llvm_unreachable("Unsuppported KernelType");
   }
 }
 
@@ -468,6 +470,8 @@ KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
     return KernelType::Conv2DBwdData;
   case ConvOpType::BwdWeight:
     return KernelType::Conv2DBwdWeight;
+  default:
+    llvm_unreachable("Unsupported ConvOpType");
   }
 }
 
@@ -649,9 +653,9 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
                                   dilationW * (sizes.x - 1), strideW);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
+      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
   int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
+      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strideW);
 
   int64_t iHTildaRight = std::min(
       hTilda,

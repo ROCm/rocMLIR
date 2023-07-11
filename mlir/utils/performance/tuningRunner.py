@@ -263,7 +263,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )
@@ -304,7 +304,8 @@ def main(args=None):
     elif opType == Operation.CONV:
         configs = perfRunner.getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, parsed_args.data_type)
+        datatypes, outputMap = perfRunner.parseDataTypes(parsed_args.data_type)
+        configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, datatypes, outputMap)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 

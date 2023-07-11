@@ -1380,7 +1380,7 @@ struct BlockwiseReduceRewritePattern
               std::log2(static_cast<double>(threadViewShape[rTidDim]) / 2);
           int64_t ceilLog2HalfRtidDimSize =
               static_cast<int64_t>(std::ceil(log2HalfRtidDimSize));
-          int64_t ceilPowerOf2 = 1 << ceilLog2HalfRtidDimSize;
+          int64_t ceilPowerOf2 = (int64_t)1 << ceilLog2HalfRtidDimSize;
 
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {

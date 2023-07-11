@@ -19,6 +19,15 @@ using namespace benchmark;
 
 namespace {
 
+/// Get the identifier of the current device
+int get_device_id() {
+  int device;
+  auto status = hipGetDevice(&device);
+  if (status != hipSuccess)
+    assert(0 && "No device found");
+  return device;
+}
+
 // Conversion helpers for F16 and BF16
 
 // BF16 conversion
@@ -48,9 +57,12 @@ uint16_t float_to_bfloat16(float src_val) {
 // Reference-1: https://stackoverflow.com/a/1659563/4066096
 // Reference-2: https://arxiv.org/pdf/2112.08926.pdf (page 28)
 uint16_t float_to_float16(float flt) {
-  uint32_t x = *(reinterpret_cast<uint32_t *>(&flt));
+  union {
+    float f;
+    uint32_t u;
+  } x{flt};
 
-  const uint32_t b = x + 0x00001000;            // round-to-nearest-even
+  const uint32_t b = x.u + 0x00001000;          // round-to-nearest-even
   const uint32_t e = (b & 0x7F800000) >> 23;    // exponent
   const uint32_t m = b & 0x007FFFFF;            // mantissa
   const uint32_t sign = (b & 0x80000000) >> 16; // sign
@@ -155,7 +167,7 @@ std::string dataTypeToStr(DataType dataType) {
     return "bf16";
   case DataType::I8:
     return "i8";
-  case DataType::UNKNOWN:
+  default:
     return "unknown";
   }
 }
@@ -239,7 +251,7 @@ size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
     return elems * 2;
   case DataType::I8:
     return elems * (isOut ? 4 : 1);
-  case DataType::UNKNOWN:
+  default:
     return 0;
   }
 }
@@ -253,7 +265,7 @@ size_t getBytesPerElement(DataType dataType, bool isOut) {
     return 2;
   case DataType::I8:
     return (isOut ? 4 : 1);
-  case DataType::UNKNOWN:
+  default:
     assert(0 && "Data type unknown");
   }
 }
@@ -274,25 +286,29 @@ void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
 }
 
 void *makeHostConstant(float flt, DataType dataType) {
-  uint32_t bytes = 0;
+  union {
+    float f;
+    uint32_t u;
+    int32_t i;
+  } bytes{0};
   switch (dataType) {
   case DataType::F32:
-    bytes = *(reinterpret_cast<uint32_t *>(&flt));
+    bytes.f = flt;
     break;
   case DataType::F16:
-    bytes = float_to_float16(flt);
+    bytes.u = float_to_float16(flt);
     break;
   case DataType::BF16:
-    bytes = float_to_bfloat16(flt);
+    bytes.u = float_to_bfloat16(flt);
     break;
   case DataType::I8:
-    bytes = static_cast<int32_t>(flt);
+    bytes.i = flt;
     break;
-  case DataType::UNKNOWN:
+  default:
     break;
   }
   uint32_t *ret = reinterpret_cast<uint32_t *>(malloc(4));
-  *ret = bytes;
+  *ret = bytes.u;
   return ret;
 }
 
@@ -302,6 +318,14 @@ void *getGpuBuffer(const void *hostMem, size_t byteSize) {
   HIP_ABORT_IF_FAIL(
       hipMemcpy(gpuBuffer, hostMem, byteSize, hipMemcpyHostToDevice));
   return gpuBuffer;
+}
+
+std::string get_device_name() {
+  hipDeviceProp_t props{};
+  auto status = hipGetDeviceProperties(&props, get_device_id());
+  if (status != hipSuccess)
+    assert(0 && "Device unknown");
+  return std::string(props.gcnArchName);
 }
 
 } // namespace benchmark
