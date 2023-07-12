@@ -124,9 +124,8 @@ struct AccelEmitter {
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
-  void computeOutputConversion(PatternRewriter &b, Location loc,
-                                Value regDest, Value convertedC,
-                                bool forceUnroll);
+  void computeOutputConversion(PatternRewriter &b, Location loc, Value regDest,
+                               Value convertedC, bool forceUnroll);
 
   /// Validate the accelerator structure
   void validateAcceleratorProperties();
@@ -161,7 +160,9 @@ struct MfmaEmitter : public AccelEmitter {
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
       std::optional<int64_t> blockSize = std::nullopt,
       std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
-      
+
+private:
+  /// Initialize the emitter parameters for mfma
   AccelEmitterParams
   initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
                          RockAccelTuningParamAttrInterface tuningParams);

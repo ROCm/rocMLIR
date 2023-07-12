@@ -1563,10 +1563,7 @@ LogicalResult AccelGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
-LogicalResult GridwiseAttentionAccelOp::verify() {
-  return success();
-}
-
+LogicalResult GridwiseAttentionAccelOp::verify() { return success(); }
 
 //===----------------------------------------------------------------------===//
 // InWarpTransposeOp
