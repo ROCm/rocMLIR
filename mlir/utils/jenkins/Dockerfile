@@ -104,6 +104,7 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   rocprofiler-dev \
   rocblas \
   rocblas-dev \
+  miopen-hip \
   libelf1 \
   pkg-config \
   sudo \
