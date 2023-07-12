@@ -176,6 +176,38 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
   return std::make_pair(copyKPerThread, copyDPerThread);
 }
 
+// This function takes k_loop x g_block x m_block x n_block x tid x iter
+// shaped view and creates collapsing trMap of block view to bid.
+static TransformMapAttr flattenBlocksTrMap(OpBuilder &b, Location loc,
+                                           ArrayRef<int64_t> startShape,
+                                           bool isOut) {
+  SmallVector<StringRef, 6> startNames;
+  if (!isOut) {
+    startNames.push_back("k_loop");
+  }
+  startNames.append({"g_block", "m_block", "n_block", "tid", "iter"});
+  BottomUpTMBuilder flatViewBuilder(b, startNames, startShape, loc);
+  unsigned lowIdx = 0;
+  if (!isOut) {
+    flatViewBuilder.passThrough("k_loop");
+    lowIdx++;
+  }
+  flatViewBuilder.merge("bid", lowIdx++, {"g_block", "m_block", "n_block"});
+  flatViewBuilder.passThrough({"tid", "iter"}, {lowIdx, lowIdx + 1},
+                              {"tid", "iter"});
+  return flatViewBuilder.get();
+}
+
+// This function takes k_loop x g_block x m_block x n_block x tid x iter
+// shaped view and collapses the block view to bid.
+static Value flattenBlocks(OpBuilder &b, Location loc, Value block3DView,
+                           bool isOut = false) {
+  ArrayRef<int64_t> startShape =
+      block3DView.getType().cast<ShapedType>().getShape();
+  return b.create<TransformOp>(loc, block3DView,
+                               flattenBlocksTrMap(b, loc, startShape, isOut));
+}
+
 /// Applies the transforms that take a G x K x D matrix
 /// to a k_iter x (x extraIdx0 x ... x extraIdx1 x) bid x tid x iter
 /// value suitable for using in a global load loop. `dName` should be "m"
@@ -190,13 +222,12 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 ///
 /// Moreover, blockMap represents how bidGridOrder should be mapped to bid or
 /// other indices where it defaults to merging all of them to be bid.
-static FailureOr<Value> wrapMatrixForGlobalLoad(
-    OpBuilder &b, Location loc, Value matrix, StringRef dName,
-    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
-    int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
-    int64_t kPerThread, int64_t dPerThread, GemmDimension vectorDim,
-    llvm::StringMap<ArrayRef<unsigned>> blockMap =
-        llvm::StringMap<ArrayRef<unsigned>>{{"bid", {1, 2, 3}}}) {
+static FailureOr<Value>
+wrapMatrixForGlobalLoad(OpBuilder &b, Location loc, Value matrix,
+                        StringRef dName, ArrayRef<int64_t> tileSizes,
+                        int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
+                        int64_t kPerThread, int64_t dPerThread,
+                        GemmDimension vectorDim) {
 
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
@@ -220,29 +251,14 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
   int64_t kThreads = kPerBlock / kPerThread;
   int64_t dThreads = dPerBlock / dPerThread;
 
-  SmallVector<StringRef, 4> startNames{"k_loop"};
-  startNames.insert(startNames.end(), blockMap.keys().begin(),
-                    blockMap.keys().end());
-  startNames.insert(startNames.end(), {"tid", "iter"});
+  SmallVector<StringRef, 4> startNames{"k_loop",  "g_block", "m_block",
+                                       "n_block", "tid",     "iter"};
   SmallVector<int64_t, 4> startShape{kIters};
-  for (StringRef upperName : blockMap.keys()) {
-    int64_t startShapeDim = 1;
-    for (int64_t dimSize : bidGridLengths) {
-      startShapeDim *= dimSize;
-    }
-    startShape.push_back(startShapeDim);
-  }
-  startShape.insert(startShape.end(), {blockSize, dataPerThread});
+  startShape.append(tileSizes.begin(), tileSizes.end());
+  startShape.append({blockSize, dataPerThread});
 
   TopDownTMBuilder splitId(b, startNames, startShape, loc);
-  splitId.passThrough("k_loop");
-  for (StringRef upperName : blockMap.keys()) {
-    ArrayRef<unsigned> lowerDims = blockMap[upperName];
-    SmallVector<StringRef, 4> gridDimNames;
-    SmallVector<int64_t, 4> gridDimLengths;
-    splitId.merge(bidGridOrder, lowerDims, upperName, bidGridLengths);
-  }
-
+  splitId.passThrough({"k_loop", "g_block", "m_block", "n_block"});
   if (vectorDim == GemmDimension::K) {
     splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
                   {dThreads, kThreads});
@@ -805,19 +821,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim);
+        b, loc, op.getA(), "m", bidGridLengths, blockSize, kPerBlock, mPerBlock,
+        aCopyKPerThread, copyMPerThread, aVectorDim);
     if (failed(maybeWrappedA))
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim);
+        b, loc, op.getB(), "n", bidGridLengths, blockSize, kPerBlock, nPerBlock,
+        bCopyKPerThread, copyNPerThread, bVectorDim);
     if (failed(maybeWrappedB))
       return maybeWrappedB;
     Value wrappedA = std::move(*maybeWrappedA),
           wrappedB = std::move(*maybeWrappedB);
+    wrappedA = flattenBlocks(b, loc, wrappedA);
+    wrappedB = flattenBlocks(b, loc, wrappedB);
 
     ArrayAttr aVectorGlobalMap = globalVectorLayout(
         b, loc, "m", aCopyKPerThread, copyMPerThread, kpack, aVectorDim);
@@ -1057,6 +1073,21 @@ struct GridwiseAttentionAccelRewritePattern
     return success();
   }
 
+  Value flattenGNAndPassMBlocks(PatternRewriter &rewriter, Location loc,
+                                Value block3DView) const {
+    SmallVector<StringRef, 4> startNames{"k_loop",  "g_block", "m_block",
+                                         "n_block", "tid",     "iter"};
+    ArrayRef<int64_t> startShapes =
+        block3DView.getType().cast<ShapedType>().getShape();
+    BottomUpTMBuilder flatViewBuilder(rewriter, startNames, startShapes, loc);
+    flatViewBuilder.passThrough({"k_loop", "m_loop"}, {0, 1},
+                                {"k_loop", "m_block"});
+    flatViewBuilder.merge("bid", 2, {"g_block", "n_block"});
+    flatViewBuilder.passThrough({"tid", "iter"}, {3, 4}, {"tid", "iter"});
+    return rewriter.create<TransformOp>(loc, block3DView,
+                                        flatViewBuilder.get());
+  }
+
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
   LogicalResult loadAndStoreGemmInputTile(
@@ -1094,13 +1125,13 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, in, copyDPerThread, copyKPerThread, vectorTiebreaker,
         kPerBlock, dPerBlock, elemType);
     FailureOr<Value> maybeViewIn = wrapMatrixForGlobalLoad(
-        rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, dPerBlock, copyKPerThread, copyDPerThread,
-        vectorDim, {{"m_iter", {2}}, {"bid", {1, 3}}});
+        rewriter, loc, in, nonKDimName, bidGridLengths, blockSize, kPerBlock,
+        dPerBlock, copyKPerThread, copyDPerThread, vectorDim);
     if (failed(maybeViewIn)) {
       return failure();
     }
     Value viewIn = maybeViewIn.value();
+    viewIn = flattenGNAndPassMBlocks(rewriter, loc, viewIn);
     rewriter.create<ThreadwiseReadIntoOp>(
         loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/ArrayAttr{},
         ValueRange{kIter, mIter}, forceUnroll, true);
@@ -1600,19 +1631,19 @@ struct GridwiseGemmAccelRewritePattern
                << "copyNPerThread: " << copyNPerThread << "\n");
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim);
+        b, loc, op.getA(), "m", bidGridLengths, blockSize, kPerBlock, mPerBlock,
+        aCopyKPerThread, copyMPerThread, aVectorDim);
     if (failed(maybeWrappedA))
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim);
+        b, loc, op.getB(), "n", bidGridLengths, blockSize, kPerBlock, nPerBlock,
+        bCopyKPerThread, copyNPerThread, bVectorDim);
     if (failed(maybeWrappedB))
       return maybeWrappedB;
     Value wrappedA = std::move(*maybeWrappedA),
           wrappedB = std::move(*maybeWrappedB);
+    wrappedA = flattenBlocks(b, loc, wrappedA);
+    wrappedB = flattenBlocks(b, loc, wrappedB);
 
     ArrayAttr aVectorGlobalMap = globalVectorLayout(
         b, loc, "m", aCopyKPerThread, copyMPerThread, kpack, aVectorDim);
@@ -1875,18 +1906,26 @@ struct GridwiseGemmAccelRewritePattern
         MemRefType::get(numOutputVectorElements, destType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
-
-    ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
-        b, loc, M, N, blockSize, bidGridLengths);
-
     accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
                                              forceUnroll);
-
-    b.create<ThreadwiseWriteAllOp>(loc, convertedC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
-                                   op.getFeatures(), op.getStoreMethod(),
-                                   forceUnroll, useIndexDiffs);
-
+    ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
+        b, loc, M, N, blockSize, bidGridLengths);
+    // We simply cannot transform the output memref and pass into the
+    // ThreadwiseWriteAllOp because we rely on the ThreadwiseWriteAllOp to have
+    // a source that is exactly what the gemm input tensor is. i.e. we cannot
+    // untransform as it might untransform beyond the gemm operation. Therefore,
+    // the flattening trmap should be prepended to the accel emitter map.
+    TransformMapAttr flatGridViewC = flattenBlocksTrMap(
+        b, loc, idToMatrixCMaps[0].cast<TransformMapAttr>().getUpperBounds(),
+        /*isOut=*/true);
+    SmallVector<Attribute, 4> outputViews;
+    outputViews.push_back(flatGridViewC);
+    outputViews.append(idToMatrixCMaps.getAsRange<Attribute>().begin(),
+                       idToMatrixCMaps.getAsRange<Attribute>().end());
+    b.create<ThreadwiseWriteAllOp>(
+        loc, convertedC, op.getC(), b.getArrayAttr(outputViews),
+        /*extraIndices=*/ValueRange{bid, tid}, op.getFeatures(),
+        op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
   }
