@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/Support/RWMutex.h"
 
 namespace mlir {
 namespace rock {
@@ -41,7 +42,12 @@ bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, StringRef perfConfig);
 
+// A tuning table for rocMLIR.
+// Note that this table carries its own reader-writer lock so that it can be
+// used from multiple client threads without requiring StringMap to be
+// thread-safe.
 struct TuningTable {
+  llvm::sys::SmartRWMutex<true> lock;
   llvm::StringMap<std::pair<SmallString<64>, float>> tuningMap;
 };
 

@@ -450,6 +450,7 @@ bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
                        StringRef perfConfig, float time) {
   if (problem.empty())
     return false;
+  llvm::sys::SmartScopedWriter<true> guard(perfTable->lock);
   auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[problem];
@@ -466,6 +467,7 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
   SmallString<2048> problem;
   if (failed(getTuningProblemStr(mod, problem)))
     return failure();
+  llvm::sys::SmartScopedReader<true> guard(perfTable->lock);
   auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[problem];
