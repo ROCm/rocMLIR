@@ -13,8 +13,10 @@ func.func @rock_threadwise_memcopy_pad(%input : memref<1x17x29xf32>,  %output : 
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<4x17xf32, #gpu.address_space<workgroup>>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
-    [#transform_map3, #transform_map2, #transform_map1, #transform_map0](%input) -> %input_reg : memref<1x17x29xf32> ->  memref<4xf32, #gpu.address_space<private>>
+    [#transform_map3, #transform_map2, #transform_map1, #transform_map0](%input)[%bid, %tid] -> %input_reg : memref<1x17x29xf32> ->  memref<4xf32, #gpu.address_space<private>>
 
   // This is to do a compute see if read_into s and write_all s are functioning
   %c0 = arith.constant 0 : index
@@ -22,9 +24,9 @@ func.func @rock_threadwise_memcopy_pad(%input : memref<1x17x29xf32>,  %output : 
   %add = arith.addf %load, %load : vector<4xf32>
   rock.in_bounds_store %add -> %input_reg[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
 
-  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %input_reg -> [#transform_map5, #transform_map4](%ws_lds) by set : memref<4xf32, #gpu.address_space<private>> -> memref<4x17xf32, #gpu.address_space<workgroup>>
+  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %input_reg -> [#transform_map5, #transform_map4](%ws_lds)[%tid] by set : memref<4xf32, #gpu.address_space<private>> -> memref<4x17xf32, #gpu.address_space<workgroup>>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
-    [#transform_map5, #transform_map4](%ws_lds) -> %output_reg : memref<4x17xf32, #gpu.address_space<workgroup>> ->  memref<4xf32, #gpu.address_space<private>>
-  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map3, #transform_map2, #transform_map1, #transform_map0](%output) by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x17x29xf32>
+    [#transform_map5, #transform_map4](%ws_lds)[%tid] -> %output_reg : memref<4x17xf32, #gpu.address_space<workgroup>> ->  memref<4xf32, #gpu.address_space<private>>
+  rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map3, #transform_map2, #transform_map1, #transform_map0](%output)[%bid, %tid] by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x17x29xf32>
   return
 }

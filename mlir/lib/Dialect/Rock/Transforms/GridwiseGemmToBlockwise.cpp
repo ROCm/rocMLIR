@@ -984,6 +984,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
+                                   /*extraIndices=*/ValueRange{bid, tid},
                                    op.getFeatures(), StoreMethod::Set,
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
@@ -1382,13 +1383,14 @@ struct GridwiseGemmAccelRewritePattern
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
     ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
-        b, loc, M, N, blockSize, gridSize, regCAllocOp);
+        b, loc, M, N, blockSize, bidGridLengths);
 
     Value registerC = accelEmitterPtr->computeOutputConversion(
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
         forceUnroll);
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
+                                   /*extraIndices=*/ValueRange{bid, tid},
                                    op.getFeatures(), op.getStoreMethod(),
                                    forceUnroll, useIndexDiffs);
 
