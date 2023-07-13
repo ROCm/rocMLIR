@@ -39,7 +39,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "AccelEmitter.h"
-#include "LayoutEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
@@ -729,14 +728,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
-  auto extraViews = op.getExtraViews();
-  ArrayRef<int64_t> inputShape;
-  if (extraViews.empty())
-    inputShape = sourceView.getType().getShape();
-  else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-
-  auto [buffer, transforms] = untransform(b, sourceView, extraViews);
+  auto [buffer, transforms] = untransform(b, sourceView, op.getExtraViews());
 
   int64_t numValues = dest.getType().getNumElements();
   MemRefType srcBufferType = buffer.getType().cast<MemRefType>();

@@ -16,7 +16,8 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64, 80,
+static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64,
+                                     /*minNumCU=*/80,
                                      /*hasFp8ConversionInstrs=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
              /*waveSize=*/64, /*minNumCU=*/110,
@@ -24,13 +25,16 @@ static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64, 80,
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
               /*waveSize=*/64, /*minNumCU=*/228,
               /*hasFp8ConversionInstrs=*/true),
-    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32, 80,
+    rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
+                  /*minNumCU=*/80,
                   /*hasFp8ConversionInstrs=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
-             /*waveSize=*/32, 80, /*hasFp8ConversionInstrs=*/false),
+             /*waveSize=*/32, /*minNumCU=*/80,
+             /*hasFp8ConversionInstrs=*/false),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
-              /*waveSize=*/32, 96, /*hasFp8ConversionInstrs=*/false);
+              /*waveSize=*/32, /*minNumCU=*/96,
+              /*hasFp8ConversionInstrs=*/false);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with

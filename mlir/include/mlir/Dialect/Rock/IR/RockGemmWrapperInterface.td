@@ -104,7 +104,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the features attribute of this op.
+          Return the optional number of Compute Units the GPU provides.
         }],
         /*retType=*/"std::optional<uint32_t>",
         /*methodName=*/"getNumCU",
