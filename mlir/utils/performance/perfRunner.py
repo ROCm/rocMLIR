@@ -1241,7 +1241,7 @@ def main(args=None):
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.external:
-            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch)])
+            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch, numCU)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR

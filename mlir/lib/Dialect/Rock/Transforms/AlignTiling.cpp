@@ -139,7 +139,7 @@ static Value applyTransforms(PatternRewriter &b, ThreadwiseWriteAllOp storeOp,
 
   // 2.2. load into registers
   b.create<ThreadwiseReadIntoOp>(loc, src, alloc, storeOp.getExtraViews(),
-                                 /*extraIndices=*/op.getExtraIndices(),
+                                 /*extraIndices=*/storeOp.getExtraIndices(),
                                  storeOp.getForceUnroll(),
                                  storeOp.getUseIndexDiffs());
   return alloc;

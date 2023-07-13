@@ -1,5 +1,4 @@
-//===- AccelEmitter.cpp - MLIR helper to emit acceleration intrinsics
-//---------------===//
+//===- LayoutEmitter.h - MLIR helper that contains the layout logic -===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -32,19 +31,21 @@ namespace mlir {
 namespace rock {
 namespace layout {
 
-struct GridCoordinates{
-    Value g_block;
-    Value m_block;
-    Value n_block;
+/// Struct containing the {g,m,n} block coordinates of a block
+/// with a given bid. I.e., block bid will compute C[g_block, m_block, n_block]
+/// output
+struct GridCoordinates {
+  Value g_block;
+  Value m_block;
+  Value n_block;
 };
 
 /// This function emits the right triplet of <group,block_m,block_n> identifers,
 /// given a flat blockId. This has been adapted from:
 /// https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html#sphx-glr-getting-started-tutorials-03-matrix-multiplication-py
 ///
-GridCoordinates gridLayout(PatternRewriter &b, Location loc,
-                                           Value bid, int64_t mBlocks,
-                                           int64_t nBlocks, int64_t numCU);
+GridCoordinates gridLayout(PatternRewriter &b, Location loc, Value bid,
+                           int64_t mBlocks, int64_t nBlocks, int64_t numCU);
 
 } // namespace layout
 } // namespace rock

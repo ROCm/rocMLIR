@@ -1,5 +1,4 @@
-//===- AccelEmitter.cpp - MLIR helper to emit acceleration intrinsics
-//---------------===//
+//===- LayoutEmitter.cpp - MLIR helper that contains the layout logic -===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -51,9 +50,9 @@ using namespace mlir::rock;
 using namespace mlir::arith;
 using namespace mlir::rock::layout;
 
-GridCoordinates
-rock::layout::gridLayout(PatternRewriter &b, Location loc, Value bid,
-                         int64_t mBlocks, int64_t nBlocks, int64_t numCU) {
+GridCoordinates rock::layout::gridLayout(PatternRewriter &b, Location loc,
+                                         Value bid, int64_t mBlocks,
+                                         int64_t nBlocks, int64_t numCU) {
 
   // Heurisitc to compute groupSize
   int64_t groupSize = std::ceil(std::sqrt(numCU));

@@ -210,7 +210,7 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
 
   TopDownTMBuilder splitId(
       b, {"k_loop", "g_block", "m_block", "n_block", "tid", "iter"},
-      {kIters, bidGridLengths[0], bidGridLengths[2], bidGridLengths[1],
+      {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[1],
        blockSize, dataPerThread},
       loc);
 
@@ -360,7 +360,8 @@ static TransformingForOp
 createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
                      Value wrappedMatrix, ArrayAttr vectorMap,
                      int64_t dataPerThread, int64_t vectorLen, Value bid,
-                     Value tid, layout::GridCoordinates coords, bool forceUnroll) {
+                     Value tid, layout::GridCoordinates coords,
+                     bool forceUnroll) {
   Value tensor;
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
@@ -374,8 +375,8 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-  SmallVector<Value, 4> globalStart = {zero,    coords.g_block, coords.m_block,
-                                       coords.n_block, tid,     zero};
+  SmallVector<Value, 4> globalStart = {
+      zero, coords.g_block, coords.m_block, coords.n_block, tid, zero};
   SmallVector<Value, 4> vectorStartOuter(6, zero);
   auto outerLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{globalStart, vectorStartOuter},
@@ -775,8 +776,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
-    SmallVector<int64_t, 3> bidGridLengths = {G, nBlocks, mBlocks};
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "n_block", "m_block"};
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
@@ -984,7 +985,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block, tid},
+                                   /*extraIndices=*/
+                                   ValueRange{gridCoords.g_block,
+                                              gridCoords.m_block,
+                                              gridCoords.n_block, tid},
                                    op.getFeatures(), StoreMethod::Set,
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
@@ -1102,8 +1106,8 @@ struct GridwiseGemmAccelRewritePattern
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n");
 
-    SmallVector<int64_t, 3> bidGridLengths = {G, nBlocks, mBlocks};
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "n_block", "m_block"};
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
@@ -1393,10 +1397,12 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
         forceUnroll);
 
-    b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
-                                   op.getFeatures(), op.getStoreMethod(),
-                                   forceUnroll, useIndexDiffs);
+    b.create<ThreadwiseWriteAllOp>(
+        loc, registerC, op.getC(), idToMatrixCMaps,
+        /*extraIndices=*/
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                   tid},
+        op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
 
     b.eraseOp(op);
     return success();

@@ -174,22 +174,17 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   }
 }
 
-static int64_t calculateGridSize(ArrayRef<int64_t> bidGridLengths) {
-  int64_t gridSizeVal = 1;
-  for (int64_t gLen : bidGridLengths) {
-    gridSizeVal *= gLen;
-  }
-  return gridSizeVal;
-}
-
 static TopDownTMBuilder
 createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
                         std::optional<ArrayRef<int64_t>> bidGridLengths,
                         std::optional<int64_t> blockSize) {
   if (bidGridLengths.has_value()) {
-    int64_t gridSizeVal = calculateGridSize(bidGridLengths.value());
-    return TopDownTMBuilder(b, {"bid", "tid", "item"},
-                            {gridSizeVal, blockSize.value(), numElements}, loc);
+    auto bidGridLengthsValue = bidGridLengths.value();
+    return TopDownTMBuilder(b, {"g_block", "m_block", "n_block", "tid", "item"},
+                            {bidGridLengthsValue[0], bidGridLengthsValue[1],
+                             bidGridLengthsValue[2], blockSize.value(),
+                             numElements},
+                            loc);
   }
   if (blockSize.has_value()) {
     return TopDownTMBuilder(b, {"tid", "item"},
@@ -530,8 +525,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   {
     unsigned lowIdx = 0;
     if (bidGridLengths.has_value()) {
-      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"}, {lowIdx, lowIdx + 1, lowIdx + 2},
-                              {"bid"}, bidGridLengths.value());
+      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
       lowIdx += 3;
     }
     if (blockSize.has_value()) {
