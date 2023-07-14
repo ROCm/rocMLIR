@@ -23,7 +23,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "AccelEmitter.h"
-#include "LayoutEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -31,7 +30,6 @@
 using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
-using namespace mlir::rock::layout;
 using namespace mlir::rock::accel;
 
 // ************************

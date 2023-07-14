@@ -43,7 +43,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "AccelEmitter.h"
-#include "LayoutEmitter.h"
+#include "GridLayoutEmitter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -808,8 +808,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
-    auto gridCoords =
-        layout::gridLayout(b, loc, bid, mBlocks, nBlocks, op.getNumCU());
+    auto gridCoords = layout::makeGroupedGridLayout(b, loc, bid, mBlocks,
+                                                    nBlocks, op.getNumCU());
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,
         aVectorLen, bid, tid, gridCoords, true);
@@ -1146,8 +1146,8 @@ struct GridwiseGemmAccelRewritePattern
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
-    auto gridCoords =
-        layout::gridLayout(b, loc, bid, mBlocks, nBlocks, op.getNumCU());
+    auto gridCoords = layout::makeGroupedGridLayout(b, loc, bid, mBlocks,
+                                                    nBlocks, op.getNumCU());
 
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,

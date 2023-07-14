@@ -44,8 +44,9 @@ struct GridCoordinates {
 /// given a flat blockId. This has been adapted from:
 /// https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html#sphx-glr-getting-started-tutorials-03-matrix-multiplication-py
 ///
-GridCoordinates gridLayout(PatternRewriter &b, Location loc, Value bid,
-                           int64_t mBlocks, int64_t nBlocks, int64_t numCU);
+GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
+                                      Value bid, int64_t mBlocks,
+                                      int64_t nBlocks, int64_t numCU);
 
 } // namespace layout
 } // namespace rock
