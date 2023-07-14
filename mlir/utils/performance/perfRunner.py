@@ -25,6 +25,7 @@ from typing import Optional, Dict, Tuple
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprof'
+MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
@@ -56,7 +57,6 @@ class Paths:
     """This structure is used to hold paths needed to perform the tests"""
     configuration_file_path : str
     mlir_paths: Optional[MLIRPaths] = None
-    miopen_driver_path: Optional[str] = None
 
 def find_mlir_build_dir() -> str:
     """
@@ -92,37 +92,7 @@ def find_mlir_build_dir() -> str:
     build_dir = Path(rocmlir_gen_path).parent.parent
     return str(build_dir)
 
-
-def find_miopen_build_dir() -> str:
-    """
-    Finds miopen build dir searching either WORKSPACE dir
-    or home dir
-    """
-
-    miopen_driver_path = None
-    candidate_paths = [
-        # if the script is run from build dir and assuming MIOpen is under mlir build
-        Path('../MIOpen/build/bin/MIOpenDriver'),
-        # if the script is run from source and assuming MIOpen is under mlir build
-        Path(__file__).parent.parent.parent.parent / 'MIOpen'/ 'build' / 'bin' / 'MIOpenDriver'
-    ]
-    for candidate_path in candidate_paths:
-        if candidate_path.exists():
-            miopen_driver_path = candidate_path
-
-    if not miopen_driver_path:
-        search_root = os.environ.get('WORKSPACE', str(Path.home()))
-        assert search_root, "Cant find WORKSPACE env arg or home directory"
-        miopen_driver_path = glob.glob(search_root + '/**/bin/MIOpenDriver', recursive=True)
-        if len(miopen_driver_path) != 1:
-            # MIOpen driver not available or ambiguous
-            return None
-        miopen_driver_path = miopen_driver_path[0]
-
-    miopen_build_dir = Path(miopen_driver_path).parent.parent
-    return str(miopen_build_dir)
-
-def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -> Paths:
+def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
     mlir_paths = None
@@ -147,12 +117,7 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
             ck_benchmark_driver_path = str(ck_benchmark_driver_location) \
               if ck_benchmark_driver_location.exists() else None)
 
-    miopen_driver_path = None
-    if miopen_build_dir_path:
-        miopen_driver_location = (Path(miopen_build_dir_path) / 'bin' / 'MIOpenDriver').resolve()
-        miopen_driver_path = str(miopen_driver_location) if miopen_driver_location.exists() else None
-
-    return Paths(config_file_path, mlir_paths, miopen_driver_path)
+    return Paths(config_file_path, mlir_paths)
 
 # utility functions.
 def getNanoSeconds(fileName):
@@ -464,7 +429,7 @@ class ConvConfiguration(PerfConfiguration):
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
         config = cls.fromCommandLine(commandLine, arch)
-        MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine, '-V', '0', '-t', '1']
+        MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandLine))
         # invoke MIOpenDriver.
         p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
@@ -779,11 +744,11 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, tuningDb:
         df["Tuned/Untuned"] = df['Tuned MLIR TFlops'] / df['MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
     if confClass is RocBLASGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['rocBLAS']
+        reportFile = reportUtils.PERF_REPORT_FILE['rocBLAS']
     elif confClass is CKGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_GEMM_FILE['CK']
+        reportFile = reportUtils.PERF_REPORT_FILE['CK']
     else:
-        reportFile = reportUtils.PERF_REPORT_FILE
+        reportFile = reportUtils.PERF_REPORT_FILE['MIOpen']
     df.fillna('NaN', inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
@@ -998,7 +963,7 @@ def tuneMLIRKernels(configs, paths: Paths, arch):
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, arch)
         if config.inputLayout == 'nchw':
-            MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine,'-V', '0']
+            MIOpenDriverCommand = [MIOPENDRIVER, *commandLine,'-V', '0']
             print(' '.join(MIOpenDriverCommand))
             p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
             # get output.
@@ -1056,8 +1021,6 @@ def getChip():
     return chip
 
 def foundExternalTool(paths: Paths, opType: Operation, gemmLibrary : Optional[GEMMLibrary] = None):
-    if opType == Operation.CONV and not paths.miopen_driver_path:
-        return False
     if opType == Operation.GEMM:
         if not paths.mlir_paths:
             return False
@@ -1083,8 +1046,6 @@ def main(args=None):
     python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     python3 perfRunner.py --external -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     python3 perfRunner.py --operation gemm [--external] -- -t f32 -transA true -transB true -g 1 -m 1024 -k 769 -n 512
-    python3 perfRunner.py --miopen_use_tuned_mlir
-    python3 perfRunner.py --miopen_use_untuned_mlir
     """
     if args is None:
         args = sys.argv[1:]
@@ -1094,7 +1055,7 @@ def main(args=None):
     chip = GFX_CHIP_RE.search(arch).group(0)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/miopen-tests/important-conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",
@@ -1107,16 +1068,6 @@ def main(args=None):
         help="Operation to benchmark")
 
     mutex_arg_group = parser.add_mutually_exclusive_group()
-    mutex_arg_group.add_argument(
-        "--miopen_use_tuned_mlir",
-        action="store_true",
-        help="Run the benchmarks using tuned MLIR kernels",
-    )
-    mutex_arg_group.add_argument(
-        "--miopen_use_untuned_mlir",
-        action="store_true",
-        help="Run the benchmarks using untuned MLIR kernels"
-    )
     mutex_arg_group.add_argument(
         "--tuning",
         action="store_true",
@@ -1177,12 +1128,6 @@ def main(args=None):
         help="The build directory of MLIR based kernel generator",
     )
     parser.add_argument(
-        "--miopen-build-dir",
-        type=str,
-        default=find_miopen_build_dir(),
-        help="The build directory of MIOpen",
-    )
-    parser.add_argument(
         "config",
         type=str,
         nargs='*',
@@ -1238,7 +1183,7 @@ def main(args=None):
             confClass = CKGemmConfig
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
+    paths = create_paths(configs_path, parsed_args.mlir_build_dir)
     configs = []
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
@@ -1250,11 +1195,6 @@ def main(args=None):
         if not foundExternalTool(paths, opType, externalLib):
             raise RuntimeError("External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
 
-    if parsed_args.miopen_use_tuned_mlir or parsed_args.miopen_use_untuned_mlir \
-            or parsed_args.tuning:
-        if not paths.miopen_driver_path:
-            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
-
     if parsed_args.batch_mlir or parsed_args.batch_all:
         if not paths.mlir_paths:
             raise RuntimeError("MLIR build dir was not provided/found")
@@ -1264,10 +1204,6 @@ def main(args=None):
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, confClass, paths, arch, tuningDb, rocmlir_gen_flags)
-    elif parsed_args.miopen_use_tuned_mlir:
-        benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
-    elif parsed_args.miopen_use_untuned_mlir:
-        benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_UNTUNED_REPORT_FILE, paths)
     elif parsed_args.tuning:
         tuneMLIRKernels(configs, paths, arch)
     elif opType == Operation.FUSION:
