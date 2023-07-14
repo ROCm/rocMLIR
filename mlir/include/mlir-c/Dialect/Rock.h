@@ -77,10 +77,11 @@ bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
 
 // Generate the string representation of `param`. This representation will be
 // copied into `buf`, which should point to `bufLen` bytes of memory. This
-// function returns the true length of the parameter string - it is the caller's
-// responsibility to ensure that the returned size is less than the size of the
-// provided buffer and to handle the case where the buffer was too small (in
-// which case, per strncpy(), no null terminator will be added to the buffer.)
+// function returns the true length of the parameter string, including the
+// terminating null - it is the caller's responsibility to ensure that the
+// returned size is less than the size of the provided buffer and to handle the
+// case where the buffer was too small (in which case, per strncpy(), no null
+// terminator will be added to the buffer.)
 MLIR_CAPI_EXPORTED
 size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
                                    size_t bufLen);
@@ -125,10 +126,11 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 // Produces a string representation of the tuning table key for the problem
 // found within `module`. The representation will be copied into `buf`, which
 // should point to `bufLen` bytes of memory. This function returns the true
-// length of the problem string - it is the caller's responsibility to ensure
-// that the returned size is less than the size of the provided buffer and to
-// handle the case where the buffer was too small (in which case, per strncpy(),
-// no null terminator will be added to the buffer.).
+// length of the problem string, including the terminating null - it is the
+// caller's responsibility to ensure that the returned size is less than the
+// size of the provided buffer and to handle the case where the buffer was too
+// small (in which case, per strncpy(), no null terminator will be added to the
+// buffer.).
 //
 // If the problem cannot be converted into a key for some reason (this shouldn't
 // happen), returns (size_t)(-1).
