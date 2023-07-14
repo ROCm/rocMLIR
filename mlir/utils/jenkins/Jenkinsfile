@@ -160,6 +160,8 @@ String getLabelFromCodepath(String codepath) {
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
+    } else if (codepath == "navi3x") {
+        label = 'mlir && ( gfx1100 || gfx1101 )'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -190,15 +192,20 @@ def rebootNode() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21 codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
+    // Filter out dense_output_bf16.mlir for navi32 codepath as a workaround for issue#1023
+    filter_out_tests = false
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
+    }
+    if ( codepath == 'navi3x') {
+        filter_out_tests = true
     }
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
+              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' } ${ filter_out_tests ? '--filter-out=dense_output_bf16.mlir' : ' '}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -237,6 +244,10 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
         return true
     }
+    // Run navi3x on private PR CI
+    if (params.canXdlops && (params.nightly == false) && (params.weekly == false) && (codepath == "navi3x")) {
+        return true
+    }
     return false
 }
 
@@ -249,6 +260,9 @@ boolean shouldRunFromChip(String chip) {
             return shouldRunFromCodepath("mfma")
         case "gfx1030":
             return shouldRunFromCodepath("navi21")
+        case "gfx1100":
+        case "gfx1101":
+            return shouldRunFromCodepath("navi3x")
     }
 }
 
@@ -297,7 +311,7 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'navi21', 'vanilla'],
+               choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: false,
@@ -337,7 +351,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x'
                     }
                 }
                 agent {
@@ -367,6 +381,7 @@ pipeline {
                                     equals expected: false, actual: params.disableNavi21;
                                 }
                                 equals expected: "vanilla", actual: params.codepath;
+                                equals expected: "navi3x", actual: params.codepath;
                             }
                             equals expected: "${CODEPATH}", actual: params.codepath;
                             equals expected: true, actual: params.canXdlops;
