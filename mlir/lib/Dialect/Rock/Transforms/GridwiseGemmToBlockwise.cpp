@@ -34,7 +34,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
@@ -552,14 +554,13 @@ TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
     Type loadType = vectorTypeOrSelf(elementType, vecLen);
     Type loadElemType = getElementTypeOrSelf(loadType);
     auto loaded = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        packLoop.getLowerCoords(0));
+                                           packLoop.getLowerCoords(0));
     Value cast = loaded;
     if (storeElemType != loadElemType) {
       Type storeType;
-      if(VectorType loadVecType = dyn_cast<VectorType>(loadType)){
+      if (VectorType loadVecType = dyn_cast<VectorType>(loadType)) {
         storeType = loadVecType.clone(storeElemType);
-      }
-      else{
+      } else {
         storeType = storeElemType;
       }
       cast = createTypeConversionOp(b, loc, loaded, storeType);
@@ -1060,8 +1061,11 @@ struct GridwiseAttentionAccelRewritePattern
       StringRef nonKDimName, int64_t kPerBlock, int64_t dPerBlock,
       int64_t copyKPerThread, int64_t copyDPerThread, bool forceUnroll) const {
     Type elemType = regBuffer.getType().cast<MemRefType>().getElementType();
-    TransformingForOp storeBufferWrite = packLoadBufferToStoreBuffer(
-        rewriter, loc, elemType, kpack, regBuffer, toLDSRegBuffer);
+    // The following is fine for software pipelining optimization as it could be
+    // considered "compute". In future, consider refactoring the following loop
+    // to be a single reg->reg op avoid verbose IR at this level.
+    (void)packLoadBufferToStoreBuffer(rewriter, loc, elemType, kpack, regBuffer,
+                                      toLDSRegBuffer);
     Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
     // Find the best way of vectorizing the layout
     GemmDimension vectorTiebreaker =
@@ -1092,9 +1096,9 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayRef<int64_t> startShapes =
         block3DView.getType().cast<ShapedType>().getShape();
     BottomUpTMBuilder flatViewBuilder(rewriter, startNames, startShapes, loc);
-    flatViewBuilder.passThrough({"k_loop", "m_loop"}, {0, 1},
-                                {"k_loop", "m_block"});
-    flatViewBuilder.merge("bid", 2, {"g_block", "n_block"});
+    flatViewBuilder.passThrough({"k_loop", "n_loop"}, {0, 1},
+                                {"k_loop", "n_block"});
+    flatViewBuilder.merge("bid", 2, {"g_block", "m_block"});
     flatViewBuilder.passThrough({"tid", "iter"}, {3, 4}, {"tid", "iter"});
     return rewriter.create<TransformOp>(loc, block3DView,
                                         flatViewBuilder.get());
@@ -1103,16 +1107,12 @@ struct GridwiseAttentionAccelRewritePattern
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
   LogicalResult loadAndStoreGemmInputTile(
-      Location loc, TypedValue<MemRefType> in, Value mIter, Value kIter,
+      Location loc, TypedValue<MemRefType> in, Value nIter, Value kIter,
       Value fromGlobalRegBuffer, Value toLDSRegBuffer, Value ldsTileByteBuffer,
       StringRef nonKDimName, int64_t kpack, int64_t kpacksPerBlock,
       int64_t dPerBlock, uint32_t blockSize, uint32_t gridSize,
       ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
       bool forceUnroll, PatternRewriter &rewriter) const {
-    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
-    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getWorkgroupAddressSpace());
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
@@ -1146,10 +1146,7 @@ struct GridwiseAttentionAccelRewritePattern
     viewIn = flattenGNAndPassMBlocks(rewriter, loc, viewIn);
     rewriter.create<ThreadwiseReadIntoOp>(
         loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/ArrayAttr{},
-        ValueRange{kIter, mIter}, forceUnroll, true);
-    // The following is fine for software pipelining optimization as it could be
-    // considered "compute". In future, consider refactoring the following loop
-    // to be a single reg->reg op avoid verbose IR at this level.
+        ValueRange{kIter, nIter}, forceUnroll, true);
     Value loadBufferA =
         viewLoadBufferDK(rewriter, loc, fromGlobalRegBuffer, vectorDim,
                          copyDPerThread, copyKPerThread);
@@ -1160,6 +1157,7 @@ struct GridwiseAttentionAccelRewritePattern
     if (failed(storeGemmTileStatus)) {
       return failure();
     }
+    return success();
   }
 
   Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -1285,6 +1283,10 @@ struct GridwiseAttentionAccelRewritePattern
     return {arrayA, arrayB};
   }
 
+  // This function does the corrections to row-based tiled reductions
+  // according to flash attention algorithm : https://arxiv.org/abs/2205.14135
+  //
+  // The shapes expected by the functions:
   // gemm0OutBufferMaxView.shape = [g0.Mpt, g0.Npt]
   // gemm0OutBufferSumView.shape = [g0.Mpt, g0.Npt]
   // gemm1OutThreadwiseView.shape = [g1.Mpt=g0.Mpt, g1.Npt]
@@ -1293,25 +1295,185 @@ struct GridwiseAttentionAccelRewritePattern
   // sumRowBuffer.shape = [g1.Mpt=g0.Mpt]
   //
   // This function will do the following logic :
-  // 
-  // maxRowBufferNew = max(maxRowBuffer, gemm0OutBufferMaxView[:,0])
-  // sumRowBufferNew = exp(maxRowBuffer - maxRowBufferNew) * sumRowBuffer + exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) * gemm0OutBufferSumView[:, 0]
-  // ---------
-  // attentionOutAccBufferMaxScaled = exp(maxRowBuffer - maxRowBufferNew) * attentionOutAccBuffer
-  // attentionOutAccBufferMaxScaledNoSumDiv = attentionOutAccBufferMaxScaled * sumRowBuffer
   //
-  // gemm1OutThreadwiseViewMaxScaled  = exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) * gemm1OutThreadwiseView
-  // [STORE] attentionOutAccBuffer = (attentionOutAccBufferMaxScaledNoSumDiv + gemm1OutThreadwiseViewMaxScaled ) / sumRowBufferNew
+  // maxRowBufferNew = max(maxRowBuffer, gemm0OutBufferMaxView[:,0])
+  //
+  // sumRowBufferNew = exp(maxRowBuffer - maxRowBufferNew) * sumRowBuffer +
+  // exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) *
+  // gemm0OutBufferSumView[:,0]
+  //
+  // attentionOutAccBufferMaxScaled =
+  // exp(maxRowBuffer - maxRowBufferNew) * attentionOutAccBuffer
+  //
+  // attentionOutAccBufferMaxScaledNoSumDiv = attentionOutAccBufferMaxScaled *
+  // sumRowBuffer
+  //
+  // gemm1OutThreadwiseViewMaxScaled  =
+  // exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) * gemm1OutThreadwiseView
+  //
+  // [STORE] attentionOutAccBuffer = (attentionOutAccBufferMaxScaledNoSumDiv +
+  // gemm1OutThreadwiseViewMaxScaled ) / sumRowBufferNew
+  //
   // [STORE] maxRowBuffer = maxRowBufferNew
+  //
   // [STORE] sumRowBuffer = sumRowBufferNew
-  LogicalResult createRowStateCorrections(Value gemm0OutBufferMaxView,
-                                          Value gemm0OutBufferSumView,
-                                          Value gemm1OutThreadwiseView,
-                                          Value attentionOutAccBuffer,
-                                          Value maxRowBuffer,
-                                          Value sumRowBuffer){
-    // Fill me
-    return success();
+  void createRowStateCorrections(PatternRewriter &rewriter, Location loc,
+                                 Value gemm0OutBufferMaxView,
+                                 Value gemm0OutBufferSumView,
+                                 Value gemm1OutThreadwiseView,
+                                 Value attentionOutAccBufferView,
+                                 Value maxRowBuffer, Value sumRowBuffer) const {
+    auto [gemm0OutBufferMax, gemm0OutBufferMaxTrs] =
+        untransform(rewriter, gemm0OutBufferMaxView);
+    auto [gemm0OutBufferSum, gemm0OutBufferSumTrs] =
+        untransform(rewriter, gemm0OutBufferSumView);
+    auto [gemm1Out, gemm1OutTrs] =
+        untransform(rewriter, gemm1OutThreadwiseView);
+    auto [attentionOutAccBuffer, attentionOutAccBufferTrs] =
+        untransform(rewriter, attentionOutAccBufferView);
+
+    MemRefType attentionOutAccBufferType =
+        attentionOutAccBufferView.getType().cast<MemRefType>();
+    Type outElemType = attentionOutAccBufferType.getElementType();
+    int64_t g1Mpt = attentionOutAccBufferType.getShape()[0];
+    int64_t g1Npt = attentionOutAccBufferType.getShape()[1];
+    int64_t g0Npt =
+        gemm0OutBufferMax.getType().cast<MemRefType>().getShape()[1];
+
+    TopDownTMBuilder sliceViewBuilder{
+        rewriter, {"g1Mpt", "g1Npt"}, {g1Mpt, g1Npt}, loc};
+    sliceViewBuilder.passThrough("g1Mpt");
+    sliceViewBuilder.constDim("g0Npt", 1, 0, g0Npt);
+    TransformMapAttr sliceViewTrMap = sliceViewBuilder.get();
+    // gemm0OutBufferMaxView[:,0]
+    gemm0OutBufferMaxTrs =
+        prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
+                          gemm0OutBufferMaxTrs);
+    // gemm0OutBufferSumView[:,0]
+    gemm0OutBufferSumTrs =
+        prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
+                          gemm0OutBufferSumTrs);
+
+    Value zero = createZeroConstantOp(rewriter, loc, rewriter.getIndexType());
+    Value lastNptIdx =
+        createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
+                            rewriter.getIndexType(), g1Npt - 1);
+    auto loop = rewriter.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{zero, zero},
+        ArrayRef<Attribute>{rewriter.getArrayAttr({}), gemm0OutBufferMaxTrs,
+                            gemm0OutBufferSumTrs, gemm1OutTrs,
+                            attentionOutAccBufferTrs},
+        /*bounds=*/ArrayRef<int64_t>{g1Mpt, g1Npt},
+        /*strides=*/ArrayRef<int64_t>{1, 1},
+        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+
+      Block::BlockArgListType upperCoords = loop.getLowerCoords(0);
+      Block::BlockArgListType gemm0OutBufferMaxCoords = loop.getLowerCoords(1);
+      Block::BlockArgListType gemm0OutBufferSumCoords = loop.getLowerCoords(2);
+      Block::BlockArgListType gemm1OutCoords = loop.getLowerCoords(3);
+      Block::BlockArgListType attentionOutAccBufferCoords =
+          loop.getLowerCoords(4);
+
+      // maxRowBufferNew = max(maxRowBuffer, gemm0OutBufferMaxView[:,0])
+      // ---------------------------------------------------------------------
+      Type maxRowBufferElemType = getElementTypeOrSelf(maxRowBuffer.getType());
+      Value ldMaxRowBuffer = rewriter.create<InBoundsLoadOp>(
+          loc, maxRowBufferElemType, maxRowBuffer, ValueRange{upperCoords[0]});
+      Value ldgemm0OutBufferMax = rewriter.create<InBoundsLoadOp>(
+          loc, maxRowBufferElemType, gemm0OutBufferMax,
+          gemm0OutBufferMaxCoords);
+      Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
+          loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
+
+      // sumRowBufferNew = exp(maxRowBuffer - maxRowBufferNew) * sumRowBuffer +
+      // exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) *
+      // gemm0OutBufferSumView[:,0]
+      // ---------------------------------------------------------------------
+      Type sumRowBufferElemType = getElementTypeOrSelf(sumRowBuffer.getType());
+      Value ldSumRowBuffer = rewriter.create<InBoundsLoadOp>(
+          loc, sumRowBufferElemType, sumRowBuffer, ValueRange{upperCoords[0]});
+      Value ldgemm0OutBufferSum = rewriter.create<InBoundsLoadOp>(
+          loc, sumRowBufferElemType, gemm0OutBufferSum,
+          gemm0OutBufferSumCoords);
+      // sumRowBufferNew0 = exp(maxRowBuffer - maxRowBufferNew) * sumRowBuffer
+      Value sumRowBufferNew0 =
+          rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
+      sumRowBufferNew0 = rewriter.create<math::ExpOp>(loc, sumRowBufferNew0);
+      sumRowBufferNew0 =
+          rewriter.create<arith::MulFOp>(loc, sumRowBufferNew0, ldSumRowBuffer);
+      // sumRowBufferNew1 = exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) *
+      // gemm0OutBufferSumView[:,0]
+      Value sumRowBufferNew1 = rewriter.create<arith::SubFOp>(
+          loc, ldgemm0OutBufferMax, maxRowBufferNew);
+      sumRowBufferNew1 = rewriter.create<math::ExpOp>(loc, sumRowBufferNew1);
+      sumRowBufferNew1 = rewriter.create<arith::MulFOp>(loc, sumRowBufferNew1,
+                                                        ldgemm0OutBufferSum);
+      // sumRowBufferNew = sumRowBufferNew0 + sumRowBufferNew1
+      Value sumRowBufferNew = rewriter.create<arith::AddFOp>(
+          loc, sumRowBufferNew0, sumRowBufferNew1);
+
+      // attentionOutAccBufferMaxScaled = exp(maxRowBuffer - maxRowBufferNew) *
+      // attentionOutAccBuffer
+      // --------------------------------------------------------------------
+      Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
+          loc, outElemType, attentionOutAccBuffer, gemm0OutBufferSumCoords);
+      Value attentionOutAccBufferMaxScaled =
+          rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
+      attentionOutAccBufferMaxScaled =
+          rewriter.create<math::ExpOp>(loc, attentionOutAccBufferMaxScaled);
+      attentionOutAccBufferMaxScaled = rewriter.create<arith::MulFOp>(
+          loc, attentionOutAccBufferMaxScaled, ldAttentionOutAccBuffer);
+
+      // attentionOutAccBufferMaxScaledNoSumDiv = attentionOutAccBufferMaxScaled
+      // * sumRowBuffer
+      // --------------------------------------------------------------------
+      Value attentionOutAccBufferMaxScaledNoSumDiv =
+          rewriter.create<arith::MulFOp>(loc, attentionOutAccBufferMaxScaled,
+                                         ldSumRowBuffer);
+
+      // gemm1OutThreadwiseViewMaxScaled  = exp(gemm0OutBufferMaxView[:,0] -
+      // maxRowBufferNew) * gemm1OutThreadwiseView
+      // --------------------------------------------------------------------
+      Value gemm1OutThreadwiseViewMaxScaled = rewriter.create<arith::SubFOp>(
+          loc, ldgemm0OutBufferMax, maxRowBufferNew);
+      gemm1OutThreadwiseViewMaxScaled =
+          rewriter.create<math::ExpOp>(loc, gemm1OutThreadwiseViewMaxScaled);
+      Value ldGemm1Out = rewriter.create<InBoundsLoadOp>(
+          loc, outElemType, gemm1Out, gemm1OutCoords);
+      gemm1OutThreadwiseViewMaxScaled = rewriter.create<arith::MulFOp>(
+          loc, gemm1OutThreadwiseViewMaxScaled, ldGemm1Out);
+
+      // [STORE] attentionOutAccBuffer = (attentionOutAccBufferMaxScaledNoSumDiv
+      // + gemm1OutThreadwiseViewMaxScaled ) / sumRowBufferNew
+      // --------------------------------------------------------------------
+      Value stAttentionOutAccBuffer = rewriter.create<arith::AddFOp>(
+          loc, attentionOutAccBufferMaxScaledNoSumDiv,
+          gemm1OutThreadwiseViewMaxScaled);
+      stAttentionOutAccBuffer = rewriter.create<arith::DivFOp>(
+          loc, stAttentionOutAccBuffer, sumRowBufferNew);
+      rewriter.create<InBoundsStoreOp>(loc, stAttentionOutAccBuffer,
+                                       attentionOutAccBuffer,
+                                       attentionOutAccBufferCoords);
+
+      // [STORE] maxRowBuffer = maxRowBufferNew
+      // [STORE] sumRowBuffer = sumRowBufferNew
+      // --------------------------------------------------------------------
+      // We only need to do with once per row
+      Value isNptLastIdx = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::eq, upperCoords[1], lastNptIdx);
+      scf::IfOp ifb = rewriter.create<scf::IfOp>(loc, isNptLastIdx,
+                                                 /*withElseRegion=*/false);
+      {
+        OpBuilder thenb = ifb.getThenBodyBuilder();
+        thenb.create<InBoundsStoreOp>(loc, maxRowBufferNew, maxRowBuffer,
+                                      ValueRange{upperCoords[0]});
+        thenb.create<InBoundsStoreOp>(loc, sumRowBufferNew, sumRowBuffer,
+                                      ValueRange{upperCoords[0]});
+      }
+    }
   }
 
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
@@ -1331,7 +1493,6 @@ struct GridwiseAttentionAccelRewritePattern
     Type elemTypeK = inK.getType().getElementType();
 
     TypedValue<MemRefType> inV = op.getValues();
-    ArrayRef<int64_t> vShape = op.getValues().getType().getShape();
     Type elemTypeV = inV.getType().getElementType();
 
     TypedValue<MemRefType> out = op.getOut();
@@ -1351,7 +1512,8 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0M = qShape[2];
     int64_t gemm0N = kShape[2];
 
-    int64_t gemm1N = vShape[2];
+    int64_t gemm1M = outShape[1];
+    int64_t gemm1N = outShape[2];
 
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
@@ -1413,10 +1575,10 @@ struct GridwiseAttentionAccelRewritePattern
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
 
     // Buffers for gemm 1
-    Value gemm0ExpOutBufferToLDS = createBufferForGemmOut(
-        loc, elemTypeQxK, accelParamsGemm0, rewriter);
-    Value gemm1LDSByteBufferA =
-        createLDSByteBuffer(rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
+    Value gemm0ExpOutBufferToLDS =
+        createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+    Value gemm1LDSByteBufferA = createLDSByteBuffer(
+        rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
@@ -1429,7 +1591,9 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KPerBlock = gemm0NPerBlock;
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1NPerBlock = gemm1N;
-    assert(gemm0NPerBlock % kpack == 0 && "nPerBlock should be divisible by kpack");
+    int64_t gemm1MBlocks = gemm1M / gemm1MPerBlock;
+    assert(gemm0NPerBlock % kpack == 0 &&
+           "nPerBlock should be divisible by kpack");
     int64_t gemm1KpacksPerBlock = gemm1KPerBlock / kpack;
     auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
         createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
@@ -1442,30 +1606,39 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Buffers for running row state
 
-    // o buffer; this is exactly same as gemm1OutBuffer; 
+    // o buffer; this is exactly same as gemm1OutBuffer;
     // we just need another buffer to do the special accumulation
-    Value attentionOutAccBuffer = createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter);
+    Value attentionOutAccBuffer =
+        createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter);
+    BottomUpTMBuilder attentionOutViewBuilder(
+        rewriter, {"g1Mpt", "g1Npt"}, {gemm1MPerThread, gemm1NPerThread}, loc);
+    attentionOutViewBuilder.merge("flat", 0, {"g1Mpt", "g1Npt"});
+    Value attentionOutAccBufferView = rewriter.create<TransformOp>(
+        loc, attentionOutAccBuffer, attentionOutViewBuilder.get());
     // m buffer; this only contains a reduced single value per row
-    auto reducedBufferType = MemRefType::get({gemm0MPerThread, 1}, rewriter.getF32Type(), AffineMap{}, /*memorySpace=*/privateMemoryAddressSpace); 
-    auto negInfSumTyped = createConstantFloatOp(rewriter, loc, 
-                                               reducedBufferType.getElementType(),
-                                               reducedBufferType.getElementType(),
-                                               -std::numeric_limits<float>::infinity()
-                                               );
-    auto maxRowBuffer = rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
+    auto reducedBufferType =
+        MemRefType::get({gemm0MPerThread}, rewriter.getF32Type(), AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
+    auto negInfSumTyped =
+        createConstantFloatOp(rewriter, loc, reducedBufferType.getElementType(),
+                              reducedBufferType.getElementType(),
+                              -std::numeric_limits<float>::infinity());
+    auto maxRowBuffer =
+        rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
     rewriter.create<FillOp>(loc, maxRowBuffer, negInfSumTyped);
     // l buffer; this only contains a reduced single value per row
     auto zeroF32 = createZeroConstantOp(rewriter, loc, rewriter.getF32Type());
-    Value sumRowBuffer = rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
+    Value sumRowBuffer =
+        rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
     rewriter.create<FillOp>(loc, sumRowBuffer, zeroF32);
 
-    affine::AffineForOp mLoopOp =
-        rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
+    affine::AffineForOp nLoopOp =
+        rewriter.create<affine::AffineForOp>(loc, 0, gemm0NBlocks, 1);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(mLoopOp.getBody());
+      rewriter.setInsertionPointToStart(nLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
-      Value mLoopIV = mLoopOp.getInductionVar();
+      Value nLoopIV = nLoopOp.getInductionVar();
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
@@ -1477,7 +1650,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            loc, inQ, mLoopIV, kLoopIV, fromGlobalRegBufferQ, toLDSRegBufferQ,
+            loc, inQ, nLoopIV, kLoopIV, fromGlobalRegBufferQ, toLDSRegBufferQ,
             ldsByteBufferQ, "m", kpack, gemm0KpacksPerBlock, gemm0MPerBlock,
             blockSize, gridSize, bidGridOrder, bidGridLengths, forceUnroll,
             rewriter);
@@ -1487,7 +1660,7 @@ struct GridwiseAttentionAccelRewritePattern
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, kpack));
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
-            loc, inK, mLoopIV, kLoopIV, fromGlobalRegBufferK, toLDSRegBufferK,
+            loc, inK, nLoopIV, kLoopIV, fromGlobalRegBufferK, toLDSRegBufferK,
             ldsByteBufferK, "n", kpack, gemm0KpacksPerBlock, gemm0NPerBlock,
             blockSize, gridSize, bidGridOrder, bidGridLengths, forceUnroll,
             rewriter);
@@ -1511,8 +1684,8 @@ struct GridwiseAttentionAccelRewritePattern
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBufferF32, forceUnroll);
       ArrayAttr gemm0BlockViewMaps =
-          accelEmitterPtrGemm0->computeOutputTransforms(rewriter, loc, gemm0MPerBlock,
-                                                        gemm0NPerBlock, blockSize);
+          accelEmitterPtrGemm0->computeOutputTransforms(
+              rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize);
       APInt reductionAxis = APInt(32, 0);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferF32, ldsReductionWorkspaceBuffer,
@@ -1543,20 +1716,24 @@ struct GridwiseAttentionAccelRewritePattern
         // used.
         SmallVector<int64_t, 3> bidGridLengths = {gemm0G, 0, 1};
         ArrayAttr gemm0ThreadViewMaps =
-            accelEmitterPtrGemm0->computeOutputTransforms(rewriter, loc, gemm0MPerThread,
-                                                          gemm0NPerThread);
+            accelEmitterPtrGemm0->computeOutputTransforms(
+                rewriter, loc, gemm0MPerThread, gemm0NPerThread);
         Value gemm0ExpMNThreadwiseView =
             transform(rewriter, gemm0OutBufferExp, gemm0ThreadViewMaps);
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
-            rewriter, loc, kpack, gemm0ExpMNThreadwiseView, gemm0ExpOutBufferToLDS,
-            gemm1LDSByteBufferA, gemm0KpacksPerBlock, "m", gemm1KPerBlock,
-            gemm1MPerBlock, gemm1KPerThread, gemm1MPerThread, forceUnroll);
+            rewriter, loc, kpack, gemm0ExpMNThreadwiseView,
+            gemm0ExpOutBufferToLDS, gemm1LDSByteBufferA, gemm0KpacksPerBlock,
+            "m", gemm1KPerBlock, gemm1MPerBlock, gemm1KPerThread,
+            gemm1MPerThread, forceUnroll);
+        if (failed(storeGemm1ATileStatus)) {
+          return failure();
+        }
         TypedValue<MemRefType> gemm1LDSBufferA = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, kpack));
         Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
         LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
             loc, inV,
-            /*mIter=*/zero,
+            /*nIter=*/zero,
             /*kIter=*/zero, fromGlobalRegBufferV, toLDSRegBufferV,
             ldsByteBufferV, "n", kpack, gemm1KpacksPerBlock, gemm1KPerBlock,
             blockSize, gridSize, bidGridOrder, bidGridLengths, forceUnroll,
@@ -1580,16 +1757,45 @@ struct GridwiseAttentionAccelRewritePattern
         // There is no second k-loop
         // Therefore can get the output straight away
         accelEmitterPtrGemm1->computeOutputConversion(
-          rewriter, loc, accRegBufferGemm1, gemm1OutBuffer, forceUnroll);
-        ArrayAttr gemm1BlockViewMaps =
-          accelEmitterPtrGemm1->computeOutputTransforms(rewriter, loc, gemm1MPerBlock,
-                                                        gemm1NPerBlock, blockSize);
-        // Resca
-
-        
+            rewriter, loc, accRegBufferGemm1, gemm1OutBuffer, forceUnroll);
+        ArrayAttr gemm1MNThreadwiseViewMaps =
+            accelEmitterPtrGemm1->computeOutputTransforms(
+                rewriter, loc, gemm1MPerThread, gemm1NPerThread);
+        Value gemm1MNThreadwiseView =
+            transform(rewriter, gemm1OutBuffer, gemm1MNThreadwiseViewMaps);
+        // Rescale/correct output, rowMax and rowSums
+        Value gemm0MaxMNThreadwiseView =
+            transform(rewriter, gemm0OutBufferMax, gemm0ThreadViewMaps);
+        Value gemm0SumMNThreadwiseView =
+            transform(rewriter, gemm0OutBufferSum, gemm0ThreadViewMaps);
+        createRowStateCorrections(
+            rewriter, loc, gemm0MaxMNThreadwiseView, gemm0SumMNThreadwiseView,
+            gemm1MNThreadwiseView, attentionOutAccBufferView, maxRowBuffer,
+            sumRowBuffer);
       }
     }
+    // gemm1 is only tiled in row axis therefore gemm1NBlocks is 1;
+    ArrayAttr gemm1GridwiseViewMaps =
+        accelEmitterPtrGemm1->computeOutputTransforms(
+            rewriter, loc, gemm1M, gemm1N, blockSize,
+            ArrayRef<int64_t>{gemm0G, gemm1MBlocks, 1});
 
+    // Get current workgroup ID.
+    auto bid = rewriter.create<WorkgroupIdOp>(loc, rewriter.getIndexType());
+    Value g1MBlockCountVal =
+        createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
+                            rewriter.getIndexType(), gemm1MBlocks);
+    auto gBlockIdx =
+        rewriter.create<arith::DivSIOp>(loc, bid, g1MBlockCountVal);
+    auto mBlockIdx =
+        rewriter.create<arith::RemSIOp>(loc, bid, g1MBlockCountVal);
+    Value one = createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
+                                    rewriter.getIndexType(), 1);
+    rewriter.create<ThreadwiseWriteAllOp>(
+        loc, attentionOutAccBuffer, out, gemm1GridwiseViewMaps,
+        /*extraIndices=*/ValueRange{gBlockIdx, mBlockIdx, one},
+        op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
+        /*useIndexDiffs=*/true);
     return success();
   }
 };

@@ -1305,3 +1305,12 @@ void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
     dimSizes.push_back(immLargerCoeff / dimStride);
   }
 }
+
+ArrayAttr mlir::rock::prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
+                                        ArrayAttr existingViews) {
+  SmallVector<Attribute, 4> views =
+      llvm::to_vector<4>(viewsToPrepend.getAsRange<Attribute>());
+  views.append(existingViews.getAsRange<Attribute>().begin(),
+               existingViews.getAsRange<Attribute>().end());
+  return b.getArrayAttr(views);
+}

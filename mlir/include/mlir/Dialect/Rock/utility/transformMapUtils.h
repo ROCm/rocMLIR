@@ -133,6 +133,11 @@ void convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
                               int64_t numElements,
                               SmallVectorImpl<int64_t> &dimSizes);
 
+// This utility function will prepend a given set of the views onto
+// a set of existing views
+ArrayAttr prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
+                            ArrayAttr existingViews);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
