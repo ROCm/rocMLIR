@@ -1,9 +1,11 @@
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_capi_libs}
+  ${rocmlir_conversion_libs}
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
@@ -45,44 +47,259 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(PACKAGE_NAME ${CMAKE_PROJECT_NAME_LOWER})
 
   set(LIBRARY_NAME rockCompiler)
-
-  file(GLOB __llvm_libraries LIST_DIRECTORIES false
-          CONFIGURE_DEPENDS ${LLVM_EXTERNAL_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
-
-  file(GLOB __rocmlir_libraries LIST_DIRECTORIES false
-          CONFIGURE_DEPENDS ${ROCMLIR_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
-
-  # Remove the rockCompiler library from the list to not include it recursively.
-  list(REMOVE_ITEM __rocmlir_libraries
-          ${ROCMLIR_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(__library_name ${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME})
 
   # Static libraries on Windows have a 4GB size limit. The Debug version of the FAT library
   # exceeds that limit significantly. Therefore, the change is to expose CMake's INTERFACE
-  # library instead as an interface to clients. Underneath, on Linux, the single monolithic
+  # library instead as the interface to clients. Underneath, on Linux, the single monolithic
   # library is delivered (as it was before). However, we deliver a series of smaller static
   # libraries on Windows due to the size limit mentioned.
   # The client interface has not changed and is OS agnostic. Both MIOpen and MIGraphX do not
   # need to modify their CMake code to find the rocMLIR package and build with it.
   add_library(${LIBRARY_NAME} INTERFACE)
 
+  set(__llvm_targets
+    lldCommon
+    lldELF
+    LLVMAggressiveInstCombine
+    LLVMAMDGPUAsmParser
+    LLVMAMDGPUCodeGen
+    LLVMAMDGPUDesc
+    LLVMAMDGPUDisassembler
+    LLVMAMDGPUInfo
+    LLVMAMDGPUUtils
+    LLVMAnalysis
+    LLVMAsmParser
+    LLVMAsmPrinter
+    LLVMBinaryFormat
+    LLVMBitReader
+    LLVMBitstreamReader
+    LLVMBitWriter
+    LLVMCodeGen
+    LLVMCodeGenTypes
+    LLVMCore
+    LLVMCoroutines
+    LLVMDebugInfoCodeView
+    LLVMDebugInfoDWARF
+    LLVMDebugInfoMSF
+    LLVMDebugInfoPDB
+    LLVMDemangle
+    LLVMExtensions
+    LLVMFrontendOpenMP
+    LLVMGlobalISel
+    LLVMInstCombine
+    LLVMInstrumentation
+    LLVMipo
+    LLVMIRPrinter
+    LLVMIRReader
+    LLVMLinker
+    LLVMLTO
+    LLVMMC
+    LLVMMCDisassembler
+    LLVMMCParser
+    LLVMMIRParser
+    LLVMObjCARCOpts
+    LLVMObject
+    LLVMOption
+    LLVMPasses
+    LLVMProfileData
+    LLVMRemarks
+    LLVMScalarOpts
+    LLVMSelectionDAG
+    LLVMSupport
+    LLVMSymbolize
+    LLVMTableGen
+    LLVMTableGenGlobalISel
+    LLVMTarget
+    LLVMTargetParser
+    LLVMTextAPI
+    LLVMTransformUtils
+    LLVMVectorize
+    MLIRAffineAnalysis
+    MLIRAffineDialect
+    MLIRAffineToStandard
+    MLIRAffineTransforms
+    MLIRAffineUtils
+    MLIRAMDGPUDialect
+    MLIRAMDGPUToROCDL
+    MLIRAMDGPUTransforms
+    MLIRAMDGPUUtils
+    MLIRAMXDialect
+    MLIRAMXTransforms
+    MLIRAnalysis
+    MLIRArithAttrToLLVMConversion
+    MLIRArithDialect
+    MLIRArithToAMDGPU
+    MLIRArithToLLVM
+    MLIRArithTransforms
+    MLIRArithUtils
+    MLIRArmNeonDialect
+    MLIRArmSMEDialect
+    MLIRArmSMETransforms
+    MLIRArmSVEDialect
+    MLIRArmSVETransforms
+    MLIRAsmParser
+    MLIRAsyncDialect
+    MLIRAsyncToLLVM
+    MLIRAsyncTransforms
+    MLIRBufferizationDialect
+    MLIRBufferizationTransformOps
+    MLIRBufferizationTransforms
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRBytecodeOpInterface
+    MLIRBytecodeReader
+    MLIRBytecodeWriter
+    MLIRCallInterfaces
+    MLIRCAPIIR
+    MLIRCastInterfaces
+    MLIRComplexDialect
+    MLIRControlFlowDialect
+    MLIRControlFlowInterfaces
+    MLIRControlFlowToLLVM
+    MLIRCopyOpInterface
+    MLIRDataLayoutInterfaces
+    MLIRDestinationStyleOpInterface
+    MLIRDialect
+    MLIRDialectUtils
+    MLIRDLTIDialect
+    MLIRExecutionEngineUtils
+    MLIRFuncDialect
+    MLIRFuncToLLVM
+    MLIRFuncTransforms
+    MLIRGPUDialect
+    MLIRGPUToGPURuntimeTransforms
+    MLIRGPUToLLVMIRTranslation
+    MLIRGPUToROCDLTransforms
+    MLIRGPUTransforms
+    MLIRIndexDialect
+    MLIRInferIntRangeCommon
+    MLIRInferIntRangeInterface
+    MLIRInferTypeOpInterface
+    MLIRIR
+    MLIRLinalgDialect
+    MLIRLinalgToLLVM
+    MLIRLinalgTransforms
+    MLIRLinalgUtils
+    MLIRLLVMCommonConversion
+    MLIRLLVMDialect
+    MLIRLLVMIRTransforms
+    MLIRLLVMToLLVMIRTranslation
+    MLIRLoopLikeInterface
+    MLIRMaskableOpInterface
+    MLIRMaskingOpInterface
+    MLIRMathDialect
+    MLIRMathToLibm
+    MLIRMathToLLVM
+    MLIRMemorySlotInterfaces
+    MLIRMemRefDialect
+    MLIRMemRefToLLVM
+    MLIRMemRefTransforms
+    MLIRMemRefUtils
+    MLIRNVGPUDialect
+    MLIRNVVMDialect
+    MLIRParallelCombiningOpInterface
+    MLIRParser
+    MLIRPass
+    MLIRPDLDialect
+    MLIRPDLInterpDialect
+    MLIRPDLToPDLInterp
+    MLIRPresburger
+    MLIRQuantDialect
+    MLIRQuantUtils
+    MLIRReconcileUnrealizedCasts
+    MLIRRewrite
+    MLIRROCDLDialect
+    MLIRROCDLToLLVMIRTranslation
+    MLIRRuntimeVerifiableOpInterface
+    MLIRSCFDialect
+    MLIRSCFToControlFlow
+    MLIRSCFTransforms
+    MLIRSCFUtils
+    MLIRShapedOpInterfaces
+    MLIRSideEffectInterfaces
+    MLIRSparseTensorDialect
+    MLIRSupport
+    MLIRTableGen
+    MLIRTargetLLVMIRExport
+    MLIRTblgenLib
+    MLIRTensorDialect
+    MLIRTensorInferTypeOpInterfaceImpl
+    MLIRTensorTilingInterfaceImpl
+    MLIRTensorToLinalg
+    MLIRTensorTransforms
+    MLIRTensorUtils
+    MLIRTilingInterface
+    MLIRTosaDialect
+    MLIRTosaToArith
+    MLIRTosaToLinalg
+    MLIRTosaToSCF
+    MLIRTosaToTensor
+    MLIRTosaTransforms
+    MLIRTransformDialect
+    MLIRTransformDialectUtils
+    MLIRTransforms
+    MLIRTransformUtils
+    MLIRTranslateLib
+    MLIRValueBoundsOpInterface
+    MLIRVectorDialect
+    MLIRVectorInterfaces
+    MLIRVectorToLLVM
+    MLIRVectorToSCF
+    MLIRVectorTransforms
+    MLIRVectorUtils
+    MLIRViewLikeInterface
+    MLIRX86VectorDialect
+    MLIRX86VectorTransforms
+  )
+
+  set(__rocmlir_targets
+    GpuModuleToRocdlirTranslation
+    MLIRCAPIMIGraphX
+    MLIRCAPIRegisterRocMLIR
+    MLIRCAPIRock
+    MLIRGPUToMIGraphX
+    MLIRMHAL
+    MLIRMHALPipeline
+    MLIRMHALSupport
+    MLIRMHALToCPU
+    MLIRMHALToGPU
+    MLIRMHALTransforms
+    MLIRMIGraphX
+    MLIRMIGraphXPipeline
+    MLIRMIGraphXToTosa
+    MLIRRockConv2dGenerator
+    MLIRRockOps
+    MLIRRockPipeline
+    MLIRRockTestPasses
+    MLIRRockThin
+    MLIRRockToGPU
+    MLIRRockTransforms
+    MLIRRockTuning
+    MLIRRockUtility
+    MLIRTosaToRock
+    RocmlirFp8ExtToTables
+  )
+
   if (WIN32)
-    add_dependencies(${LIBRARY_NAME} MLIRRockThin)
 
-    foreach(__library ${__llvm_libraries})
-      file(RELATIVE_PATH __library_file ${LLVM_EXTERNAL_LIB_DIR} ${__library})
-      target_link_libraries(${LIBRARY_NAME}
-          INTERFACE
-              $<BUILD_INTERFACE:${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/llvm/${__library_file}>)
+    # Setup build and installation interface for LLVM libraries
+    foreach(__target ${__llvm_targets})
+        list(APPEND __llvm_libraries ${LLVM_EXTERNAL_LIB_DIR}/${__target}.lib)
+        target_link_libraries(${LIBRARY_NAME}
+            INTERFACE
+                $<BUILD_INTERFACE:${__target}>
+                $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/llvm/${__target}.lib>)
     endforeach()
 
-    foreach(__library ${__rocmlir_libraries})
-      file(RELATIVE_PATH __library_file ${ROCMLIR_LIB_DIR} ${__library})
-      target_link_libraries(${LIBRARY_NAME}
-          INTERFACE
-              $<BUILD_INTERFACE:${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_file}>)
+    # Setup build and installation interface for rocMLIR libraries
+    foreach(__target ${__rocmlir_targets})
+        target_link_libraries(${LIBRARY_NAME}
+            INTERFACE
+                $<BUILD_INTERFACE:${__target}>
+                $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/${__target}.lib>)
     endforeach()
+
+    add_dependencies(${LIBRARY_NAME} MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
 
     rocm_install(FILES ${__llvm_libraries}
             DESTINATION lib/llvm)
@@ -90,19 +307,23 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     rocm_install(FILES ${ROCMLIR_LIB_DIR}/MLIRRockThin.lib
             DESTINATION lib)
 
+    unset(__llvm_libraries)
+
+    # Compatibility target with Linux
+    add_custom_target(lib${LIBRARY_NAME} ALL DEPENDS ${LIBRARY_NAME})
+
   else()
 
-    set(__library_name ${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME})
     set(full_output_path ${ROCMLIR_LIB_DIR}/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX})
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.mri)
 
     # Step one: construct mri file.
     add_custom_command(OUTPUT ${mri_file}
                        COMMAND echo "create ${full_output_path}" > ${mri_file}
-                       COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
+                       COMMAND for archive in ${ROCMLIR_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a \; do echo "addlib $$archive" >> ${mri_file} \; done
                        COMMAND echo "save" >> ${mri_file}
                        COMMAND echo "end" >> ${mri_file}
-                       DEPENDS MLIRRockThin)
+                       DEPENDS MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
 
     # Step two: use mri file to generate the fat library.
     add_custom_command(OUTPUT ${full_output_path}
@@ -115,7 +336,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     target_link_libraries(${LIBRARY_NAME}
         INTERFACE
             $<BUILD_INTERFACE:${full_output_path}>
-            $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX}>)
+            $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX}>)
 
     rocm_install(FILES ${full_output_path}
             DESTINATION lib)
@@ -126,12 +347,8 @@ if(BUILD_FAT_LIBROCKCOMPILER)
 
     unset(mri_file)
     unset(full_output_path)
-    unset(__library_name)
 
   endif()
-
-  unset(__llvm_libraries)
-  unset(__rocmlir_libraries)
 
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/${PACKAGE_NAME}/
   # as part of component rockCompiler
@@ -249,4 +466,50 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     MAINTAINER "rocMLIR Dev Team dl.dl-mlir@amd.com"
     HEADER_ONLY
   )
+
+  # Validate the correctness of the rockCompiler targets list
+  if(WIN32)
+    cmake_path(NATIVE_PATH LLVM_EXTERNAL_LIB_DIR __llvm_external_lib_dir)
+    add_custom_command(OUTPUT llvm_libs.txt
+                       COMMAND del /f llvm_libs.txt 2> nul && for %f in (${__llvm_external_lib_dir}\\*.lib) do @echo %~nf>> llvm_libs.txt
+                       DEPENDS MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
+    cmake_path(NATIVE_PATH ROCMLIR_LIB_DIR __rocmlir_lib_dir)
+    add_custom_command(OUTPUT rocmlir_libs.txt
+                       COMMAND del /f rocmlir_libs.txt 2> nul && for %f in (${__rocmlir_lib_dir}\\*.lib) do @echo %~nf>> rocmlir_libs.txt
+                       DEPENDS MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
+  else()
+    add_custom_command(OUTPUT rocmlir_libs.txt
+                       COMMAND (for f in ${ROCMLIR_LIB_DIR}/*.a \; do printf '%s\\n' "\$\${f%.a}" \; done) > rocmlir_libs.txt
+                       DEPENDS MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
+    add_custom_command(OUTPUT llvm_libs.txt
+                       COMMAND (for f in ${LLVM_EXTERNAL_LIB_DIR}/*.a \; do printf '%s\\n' "\$\${f%.a}" \; done) > llvm_libs.txt
+                       DEPENDS MLIRRockThin MLIRRockTestPasses GpuModuleToRocdlirTranslation)
+  endif()
+
+  find_package(Python 3.6 REQUIRED COMPONENTS Interpreter)
+
+  list(SORT __llvm_targets)
+  string(REPLACE ";" "\n" __llvm_targets "${__llvm_targets}")
+  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/llvm_targets.txt ${__llvm_targets}\n)
+
+  add_custom_target(__check_llvm_libs DEPENDS llvm_libs.txt)
+  add_custom_command(TARGET __check_llvm_libs POST_BUILD
+                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/checkTargets.py ${LIBRARY_NAME}
+                                  __llvm_targets llvm_targets.txt llvm_libs.txt)
+
+  list(SORT __rocmlir_targets)
+  string(REPLACE ";" "\n" __rocmlir_targets "${__rocmlir_targets}")
+  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/rocmlir_targets.txt ${__rocmlir_targets}\n)
+
+  add_custom_target(__check_rocmlir_libs DEPENDS rocmlir_libs.txt)
+  add_custom_command(TARGET __check_rocmlir_libs POST_BUILD
+                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/checkTargets.py ${LIBRARY_NAME}
+                                  __rocmlir_targets rocmlir_targets.txt rocmlir_libs.txt)
+
+  add_custom_target(check-lib${LIBRARY_NAME} DEPENDS __check_rocmlir_libs __check_llvm_libs)
+  add_dependencies(check-rocmlir check-lib${LIBRARY_NAME})
+
+  unset(__library_name)
+  unset(__llvm_targets)
+  unset(__rocmlir_targets)
 endif()
