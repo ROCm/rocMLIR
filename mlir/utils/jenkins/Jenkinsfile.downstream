@@ -9,21 +9,6 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
-void buildMIOpen(String cmakeOpts) {
-    sh '[ ! -d build ] || rm -rf build'
-    timeout(time: 60, activity: true, unit: 'MINUTES') {
-        cmakeBuild generator: 'Unix Makefiles',\
-            buildDir: 'build',\
-            buildType: 'Release',\
-            installation: 'InSearchPath',\
-            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                         -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                         ${cmakeOpts}
-                         """
-        sh 'cd build; make -j $(nproc) MIOpenDriver'
-    }
-}
-
 void showEnv() {
     echo "$env.NODE_NAME"
     sh 'hostname'
@@ -58,9 +43,7 @@ pipeline {
         booleanParam(name: 'sharedLib', defaultValue: true,
             description: 'Run shared library tests')
         booleanParam(name: 'staticLib', defaultValue: true,
-            description: 'Run static library and MIOpen integration tests')
-        string(name: 'MIOpenBranch', defaultValue: 'develop',
-            description: 'The MIOpen branch to be used with the job')
+            description: 'Build static library packages')
         string(name: 'CKBranch', defaultValue: 'develop',
             description: 'The Composable Kernel branch to be used with the job')
     }

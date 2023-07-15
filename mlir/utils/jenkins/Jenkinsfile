@@ -684,7 +684,7 @@ pipeline {
                             dir('build') {
                                 sh 'date --utc +%Y-%m-%d > perf-run-date'
                                 // Run MLIR vs MIOpend perf benchmarks.  
-                                sh 'python3 ./bin/perfRunner.py --op=conv --batch_all \
+                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                 // Run MLIR vs rocBLAS perf benchmarks

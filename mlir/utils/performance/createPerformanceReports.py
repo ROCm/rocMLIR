@@ -31,13 +31,17 @@ def printAllPerformance(chip, lib='rocBLAS'):
     plotMean = df[COLUMNS_TO_AVERAGE[:3]].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
-
     plotMean[['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)']]\
         .to_csv(chip + '_' + reportUtils.PERF_PLOT_REPORT_FILE[lib], index=False)
 
-    means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
-        .agg(reportUtils.geoMean)
-    means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    if lib == 'MIOpen':
+        means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
+            .agg(reportUtils.geoMean)
+        means.loc["All", "ALL","ALL"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    else:
+        means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
+            .agg(reportUtils.geoMean)
+        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_FILE[lib])
 
     toHighlight = [f"MLIR/{lib}"]
