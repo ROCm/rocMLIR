@@ -1,4 +1,4 @@
-//===- LayoutEmitter.h - MLIR helper that contains the layout logic -===//
+//===- GridLayoutEmitter.h - MLIR helper that contains the layout logic -===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -40,13 +40,21 @@ struct GridCoordinates {
   Value n_block;
 };
 
+/// Struct containing information that guide the layout heuristic selection
+struct GridLayoutInfo {
+  int64_t mBlocks;
+  int64_t nBlocks;
+  int64_t numCU;
+  Type inputType;
+  Type outputType;
+};
+
 /// This function emits the right triplet of <group,block_m,block_n> identifers,
 /// given a flat blockId. This has been adapted from:
 /// https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html#sphx-glr-getting-started-tutorials-03-matrix-multiplication-py
 ///
 GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
-                                      Value bid, int64_t mBlocks,
-                                      int64_t nBlocks, int64_t numCU);
+                                      Value bid, GridLayoutInfo info);
 
 } // namespace layout
 } // namespace rock

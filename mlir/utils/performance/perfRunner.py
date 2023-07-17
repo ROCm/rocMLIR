@@ -532,6 +532,7 @@ class GemmConfiguration(PerfConfiguration):
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         result = ' '.join(['-operation', 'gemm',
                            '-t', self.dataType,
+                           '-out_datatype', self.outDataType,
                            '--arch', self.arch,
                            '--num_cu', str(self.numCU),
                            '-g', str(self.g),
@@ -1236,7 +1237,7 @@ def main(args=None):
             benchmarkFusionKernels(parsed_args.test_dir, paths, arch, tuningDb)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, tuningDb, rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.external:

@@ -37,19 +37,24 @@ using namespace mlir::rock::layout;
 
 GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
                                                     Location loc, Value bid,
-                                                    int64_t mBlocks,
-                                                    int64_t nBlocks,
-                                                    int64_t numCU) {
+                                                    GridLayoutInfo info) {
 
   // Heurisitc to compute groupSize
-  int64_t groupSize = std::ceil(std::sqrt(numCU));
+  // This also covers the cases where the output width is larger
+  // than the input width
+  int64_t bitWidthIn = info.inputType.getIntOrFloatBitWidth();
+  int64_t bitWidthOut = info.outputType.getIntOrFloatBitWidth();
+  int64_t groupSize =
+      std::ceil(std::sqrt(info.numCU)) * (bitWidthOut / bitWidthIn);
+
   Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
   Value blocksPerGroup =
-      b.createOrFold<ConstantIndexOp>(loc, groupSize * nBlocks);
-  Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, mBlocks);
+      b.createOrFold<ConstantIndexOp>(loc, groupSize * info.nBlocks);
+  Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
 
   // Compute g_block first and the bid in the actual group g_block
-  Value gridSize = b.createOrFold<ConstantIndexOp>(loc, mBlocks * nBlocks);
+  Value gridSize =
+      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
   Value g_block = b.create<DivUIOp>(loc, bid, gridSize);
   bid = b.create<RemUIOp>(loc, bid, gridSize);
 

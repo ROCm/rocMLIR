@@ -808,8 +808,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
-    auto gridCoords = layout::makeGroupedGridLayout(b, loc, bid, mBlocks,
-                                                    nBlocks, op.getNumCU());
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,
         aVectorLen, bid, tid, gridCoords, true);
@@ -1012,6 +1012,7 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
     auto elementTypeB = op.getB().getType().getElementType();
+    auto destType = op.getC().getType().getElementType();
 
     // Prepare some useful constants.
     Value matA = op.getA();
@@ -1146,8 +1147,8 @@ struct GridwiseGemmAccelRewritePattern
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
-    auto gridCoords = layout::makeGroupedGridLayout(b, loc, bid, mBlocks,
-                                                    nBlocks, op.getNumCU());
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
 
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,
@@ -1266,13 +1267,7 @@ struct GridwiseGemmAccelRewritePattern
 
     Value ldsViewForGemmA = viewBufferAs(b, ldsBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsBufferB, ldsReadTypeB);
-    // -----
-
-    Type destType = op.getC().getType().getElementType();
-
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-
-    // -----
 
     // Logic to setup blockwise_gemm_accel parameters.
     //
