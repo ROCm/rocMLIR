@@ -99,9 +99,9 @@ def getPerfDate(statsPath: PurePath, default="???"):
 if __name__ == '__main__':
     chip = sys.argv[1]
     oldDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
-        else PurePath('./', 'oldData/', chip + '_' + reportUtils.PERF_REPORT_FILE)
+        else PurePath('./', 'oldData/', chip + '_' + reportUtils.PERF_REPORT_FILE['MIOpen'])
     newDataPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
-        else PurePath('./', chip + '_' + reportUtils.PERF_REPORT_FILE)
+        else PurePath('./', chip + '_' + reportUtils.PERF_REPORT_FILE['MIOpen'])
     outputPath = PurePath(sys.argv[4]) if len(sys.argv) >= 5\
         else PurePath('./', chip + '_' + 'MLIR_Performance_Changes.html')
 

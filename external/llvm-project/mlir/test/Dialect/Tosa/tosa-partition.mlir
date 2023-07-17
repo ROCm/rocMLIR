@@ -99,3 +99,29 @@ func.func @test_fusion7(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3x
   %1 = "tosa.conv2d"(%0, %arg1, %arg2) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<8xf32>) -> tensor<128x128x30x30xf32>
   return %1 : tensor<128x128x30x30xf32>
 }
+
+// CHECK-LABEL: func private @test_fusion8__part_0
+// CHECK-NEXT: tosa.conv2d
+// CHECK-NEXT: return
+// CHECK: func @test_fusion8
+// CHECK-NEXT: tosa.const
+// CHECK-NEXT: call @test_fusion8__part_0
+// CHECK-NEXT: return
+func.func @test_fusion8(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>, %arg2: tensor<8xf32>) -> tensor<128x128x30x30xf32> {
+  %0 = "tosa.const"() <{value = dense_resource<__elided__> : tensor<128x8x3x3xf32>}> : () -> tensor<128x8x3x3xf32>
+  %1 = "tosa.conv2d"(%arg0, %0, %arg2) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<8xf32>) -> tensor<128x128x30x30xf32>
+  return %1 : tensor<128x128x30x30xf32>
+}
+
+// CHECK-LABEL: func private @test_fusion9__part_0
+// CHECK-NEXT: tosa.conv2d
+// CHECK-NEXT: tosa.greater_equal
+// CHECK-NEXT: return
+// CHECK: func @test_fusion9
+// CHECK-NEXT: call @test_fusion9__part_0
+// CHECK-NEXT: return
+func.func @test_fusion9(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>, %arg2: tensor<8xf32>, %arg3: tensor<1x128x1x1xf32>) -> tensor<128x128x30x30xi1> {
+  %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<8xf32>) -> tensor<128x128x30x30xf32>
+  %1 = "tosa.greater_equal"(%arg3, %0) : (tensor<1x128x1x1xf32>, tensor<128x128x30x30xf32>) -> tensor<128x128x30x30xi1>
+  return %1 : tensor<128x128x30x30xi1>
+}

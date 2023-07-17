@@ -110,11 +110,17 @@ struct AccelEmitter {
                                        Value dWaves, Value laneId) = 0;
 
   /// Compute the output transform map to be used to store the result of the
-  /// matrix multiplication tile
-  virtual ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
-                                            int64_t matrixM, int64_t matrixN,
-                                            int64_t blockSize, int64_t gridSize,
-                                            Value regC) = 0;
+  /// matrix multiplication tile.
+  /// If the optional argument blockSize is provided,
+  /// this will produce a block-level view of the output.
+  /// if the optional arugment gridSize is provided,
+  /// this will produce a grid-level view of the output.
+  /// if none of that is provided, the default would
+  /// be a thread-level view of the output.
+  virtual ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
@@ -153,10 +159,10 @@ struct MfmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
-                                    int64_t matrixM, int64_t matrixN,
-                                    int64_t blockSize, int64_t gridSize,
-                                    Value regC) override;
+  ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -183,10 +189,10 @@ struct WmmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  ArrayAttr computeOutputTransforms(PatternRewriter &b, Location loc,
-                                    int64_t matrixM, int64_t matrixN,
-                                    int64_t blockSize, int64_t gridSize,
-                                    Value regC) override;
+  ArrayAttr computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      std::optional<int64_t> blockSize = std::nullopt,
+      std::optional<ArrayRef<int64_t>> bidGridLengths = std::nullopt) override;
 
 private:
   /// Initialize the emitter parameters for wmma

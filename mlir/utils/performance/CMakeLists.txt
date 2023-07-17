@@ -8,7 +8,6 @@ endif()
 
 set(PERFORMANCE_SCRIPTS
   convertRocBlasToPerfRunner.py
-  createGemmPerformanceReports.py
   createFusionPerformanceReports.py
   createPerformanceReports.py
   perfCommonUtils.py

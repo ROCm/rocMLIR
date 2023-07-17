@@ -199,7 +199,7 @@ def main(args=None):
     arch = ','.join(archNames)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
@@ -279,7 +279,7 @@ def main(args=None):
         configs_path = "./fusion_config_file"
     else:
         configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
     if not paths.mlir_paths:
         raise RuntimeError("MLIR build dir was not provided/found")
