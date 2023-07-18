@@ -111,8 +111,6 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
 MLIR_CAPI_EXPORTED
 void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   auto passMan = unwrap(pm);
-  // FIXME : WA for the multithreading issue, potentially fixed in upstream.
-  passMan->getContext()->disableMultithreading();
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
@@ -120,13 +118,7 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch) {
-  static std::mutex target_mutex;
-  target_mutex.lock();
-  // Some calls included in regiserGpuSerializeToHsacoPass() are not thread safe
-  // and user may call this pipeline from different threads.
-  mlir::registerGpuSerializeToHsacoPass();
-  target_mutex.unlock();
-  auto passMan = unwrap(pm);
+  auto *passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = true;

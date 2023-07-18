@@ -18,12 +18,13 @@ namespace rock {
 struct AmdArchInfo {
   GemmFeatures defaultFeatures;
   int64_t waveSize;
+  int64_t minNumCU;
   bool hasFp8ConversionInstrs;
 
   constexpr AmdArchInfo(GemmFeatures defaultFeatures, int64_t waveSize,
-                        bool hasFp8ConversionInstrs)
+                        int64_t minNumCU, bool hasFp8ConversionInstrs)
       : defaultFeatures(defaultFeatures), waveSize(waveSize),
-        hasFp8ConversionInstrs(hasFp8ConversionInstrs) {}
+        minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs) {}
 
   /// Get the default features for the pari <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);

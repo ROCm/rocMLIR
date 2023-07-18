@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "llvm/ADT/SmallString.h"
 
 namespace mlir {
@@ -203,6 +204,9 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       });
   if (!findPrimary.wasInterrupted())
     return std::string();
+  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
+  if (gemmIF.getNumCU().has_value())
+    numCU = gemmIF.getNumCU().value();
   std::string problemStr;
   char sep = ' ';
   char tab = '\t';
@@ -212,6 +216,8 @@ std::string getTuningProblemStr(ModuleOp &mod) {
 
   // ARCH string
   problemOS << gemmIF.getArch() << tab;
+  // Num of Compute Units
+  problemOS << numCU << tab;
 
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases

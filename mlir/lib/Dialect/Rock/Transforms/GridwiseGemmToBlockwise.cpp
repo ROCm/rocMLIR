@@ -43,6 +43,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "AccelEmitter.h"
+#include "GridLayoutEmitter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -562,9 +563,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
-
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
     if (aCopyPerThread == 0 || bCopyPerThread == 0) {
@@ -604,7 +602,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "bVectorDim: " << bVectorDim << "\n"
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
-
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
@@ -631,14 +630,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
+    // Compute grid coordinates
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
-        true);
+        /*extraIndices=*/
+        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
+                   gridCoords.m_block, gridCoords.n_block, tid},
+        true, true);
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
-        true);
+        /*extraIndices=*/
+        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
+                   gridCoords.m_block, gridCoords.n_block, tid},
+        true, true);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -700,15 +706,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 
-      // We don't update in the clone becasue we might accidentally replace
-      // other zeroes.
       Value iv = loopOp.getInductionVar();
       b.create<ThreadwiseReadIntoOp>(
           loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+          /*extraIndices=*/
+          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                     gridCoords.n_block, tid},
+          true, true);
       b.create<ThreadwiseReadIntoOp>(
           loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+          /*extraIndices=*/
+          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                     gridCoords.n_block, tid},
+          true, true);
 
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);
@@ -746,10 +756,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
-        b, {"bid", "tid", "iter"}, {gridSize, blockSize, threadCNumRegisters},
-        loc);
-    splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
-                            {G, mBlocks, nBlocks});
+        b, {"g_block", "m_block", "n_block", "tid", "iter"},
+        {gridSize, mBlocks, nBlocks, blockSize, threadCNumRegisters}, loc);
+    splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
     splitMemoryCoords.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
                             {3, 4, 5, 6}, "tid",
                             {mCuwavesPerBlock, nCuwavesPerBlock,
@@ -761,7 +770,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
     toMatrixC.unmerge(
         "gemmM", 1,
         {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
@@ -805,7 +814,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
+                                   /*extraIndices=*/
+                                   ValueRange{gridCoords.g_block,
+                                              gridCoords.m_block,
+                                              gridCoords.n_block, tid},
                                    op.getFeatures(), StoreMethod::Set,
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
@@ -829,6 +841,7 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
     auto elementTypeB = op.getB().getType().getElementType();
+    auto destType = op.getC().getType().getElementType();
 
     // Prepare some useful constants.
     Value matA = op.getA();
@@ -867,9 +880,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t bVectorLen = 0;
     GemmDimension aVectorDim;
     GemmDimension bVectorDim;
-
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
@@ -925,6 +935,8 @@ struct GridwiseGemmAccelRewritePattern
                << "bCopyKPerThread: " << bCopyKPerThread << "\n"
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n");
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
@@ -959,14 +971,21 @@ struct GridwiseGemmAccelRewritePattern
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    // Compute grid coordinates
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
-        true);
+        /*extraIndices=*/
+        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
+                   gridCoords.m_block, gridCoords.n_block, tid},
+        true, true);
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
-        true);
+        /*extraIndices=*/
+        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
+                   gridCoords.m_block, gridCoords.n_block, tid},
+        true, true);
 
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
@@ -1082,13 +1101,7 @@ struct GridwiseGemmAccelRewritePattern
 
     Value ldsViewForGemmA = viewBufferAs(b, ldsBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsBufferB, ldsReadTypeB);
-    // -----
-
-    Type destType = op.getC().getType().getElementType();
-
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-
-    // -----
 
     // Logic to setup blockwise_gemm_accel parameters.
     //
@@ -1142,15 +1155,19 @@ struct GridwiseGemmAccelRewritePattern
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 
-      // We don't update in the clone becasue we might accidentally replace
-      // other zeroes.
       Value iv = loopOp.getInductionVar();
       b.create<ThreadwiseReadIntoOp>(
           loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+          /*extraIndices=*/
+          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                     gridCoords.n_block, tid},
+          true, true);
       b.create<ThreadwiseReadIntoOp>(
           loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+          /*extraIndices=*/
+          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                     gridCoords.n_block, tid},
+          true, true);
 
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);
@@ -1205,10 +1222,12 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
         forceUnroll);
 
-    b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
-                                   op.getFeatures(), op.getStoreMethod(),
-                                   forceUnroll, useIndexDiffs);
+    b.create<ThreadwiseWriteAllOp>(
+        loc, registerC, op.getC(), idToMatrixCMaps,
+        /*extraIndices=*/
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                   tid},
+        op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
 
     b.eraseOp(op);
     return success();

@@ -1,8 +1,10 @@
 #!/usr/bin/evn python3
 
 import reportUtils
+import perfRunner
 
 from pathlib import PurePath
+from perfRunner import getNumCU
 import sys
 from typing import Tuple
 
@@ -18,6 +20,8 @@ def loadMlirData(filename: str):
     # Can be removed next time we touch this
     if 'PerfConfig' in df:
         df['PerfConfig'] = df['PerfConfig'].fillna('None')
+    if 'numCU' not in df:
+        df.insert(4, 'numCU', getNumCU(df['Chip'][0]))
     return df
 
 def mergePerfConfigs(v: Tuple[str, str]) -> str:

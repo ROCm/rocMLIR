@@ -1465,12 +1465,6 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType srcType = getSource().getType().cast<MemRefType>();
   gpu::AddressSpaceAttr srcMemSpaceAttr =
       srcType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace srcGpuMemSpace = gpu::AddressSpace::Global;
-  if (srcMemSpaceAttr) {
-    srcGpuMemSpace = srcMemSpaceAttr.getValue();
-  }
-
   size_t extraIdxCount = getExtraIndices().size();
   if (inputShape.size() != extraIdxCount + 1) {
     return emitOpError("source view must be extraIndices + 1");
@@ -1497,12 +1491,6 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
 
   MemRefType dstType = getDest().getType().cast<MemRefType>();
   Attribute dstMemSpaceAttr = dstType.getMemorySpace();
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace dstGpuMemSpace = gpu::AddressSpace::Global;
-  if (dstMemSpaceAttr) {
-    dstGpuMemSpace = dstMemSpaceAttr.cast<gpu::AddressSpaceAttr>().getValue();
-  }
-
   size_t extraIdxCount = getExtraIndices().size();
   if (outputShape.size() != extraIdxCount + 1) {
     return emitOpError("dest view must be extraIndices + 1");

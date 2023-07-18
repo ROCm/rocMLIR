@@ -186,10 +186,11 @@ FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
   GPUViews gpuViews;
   {
     TopDownTMBuilder gridwiseSplitId(
-        b, {"k_loop", "bid", "tid", "iter"},
-        {kIters, gridSize, blockSize, dataPerThread}, loc);
-    gridwiseSplitId.passThrough("k_loop");
-    gridwiseSplitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
+        b, {"k_loop", "g_block", "m_block", "n_block", "tid", "iter"},
+        {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
+         blockSize, dataPerThread},
+        loc);
+    gridwiseSplitId.passThrough({"k_loop", "g_block", "m_block", "n_block"});
     makeGemmInputViewsTid(gridwiseSplitId, dThreadName, dThreads, kThreads,
                           {4, 5}, isKContigousDim);
     makeGemmInputViewsIter(gridwiseSplitId, dIterName, dPerThread, kPerThread,

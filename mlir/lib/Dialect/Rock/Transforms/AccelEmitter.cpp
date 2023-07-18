@@ -172,22 +172,17 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   }
 }
 
-static int64_t calculateGridSize(ArrayRef<int64_t> bidGridLengths) {
-  int64_t gridSizeVal = 1;
-  for (int64_t gLen : bidGridLengths) {
-    gridSizeVal *= gLen;
-  }
-  return gridSizeVal;
-}
-
 static TopDownTMBuilder
 createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
                         std::optional<ArrayRef<int64_t>> bidGridLengths,
                         std::optional<int64_t> blockSize) {
   if (bidGridLengths.has_value()) {
-    int64_t gridSizeVal = calculateGridSize(bidGridLengths.value());
-    return TopDownTMBuilder(b, {"bid", "tid", "item"},
-                            {gridSizeVal, blockSize.value(), numElements}, loc);
+    auto bidGridLengthsValue = bidGridLengths.value();
+    return TopDownTMBuilder(b, {"g_block", "m_block", "n_block", "tid", "item"},
+                            {bidGridLengthsValue[0], bidGridLengthsValue[1],
+                             bidGridLengthsValue[2], blockSize.value(),
+                             numElements},
+                            loc);
   }
   if (blockSize.has_value()) {
     return TopDownTMBuilder(b, {"tid", "item"},
@@ -239,8 +234,7 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   {
     unsigned lowIdx = 0;
     if (bidGridLengths.has_value()) {
-      splitMemoryCoords.merge({"g", "m", "n"}, {lowIdx, lowIdx + 1, lowIdx + 2},
-                              {"bid"}, bidGridLengths.value());
+      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
       lowIdx += 3;
     }
     if (blockSize.has_value()) {
@@ -275,7 +269,7 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   }
   TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
   if (bidGridLengths.has_value()) {
-    rowsAndColsWrap.passThrough({"g", "m", "n"});
+    rowsAndColsWrap.passThrough({"g_block", "m_block", "n_block"});
   }
   if (blockSize.has_value()) {
     int64_t wavesInKernelBlock = blockSize.value() / waveSize;
@@ -303,14 +297,14 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
 
   auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
   if (bidGridLengths.has_value()) {
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
   }
 
   // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel, i.e.,
   // all the waves will compute next to each other and then they will move to
   // the next subtile in the workgroup
   {
-    SmallVector<StringRef, 7> dimNamesM{/*0=*/"m",
+    SmallVector<StringRef, 7> dimNamesM{/*0=*/"m_block",
                                         /*1=*/"m_i",
                                         /*2=*/"wave_m",
                                         /*3=*/"blk_row",
@@ -339,7 +333,7 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
     }
   }
   {
-    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n",
+    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
                                         /*1=*/"n_i",
                                         /*2=*/"wave_n",
                                         /*3=*/"blk_col",
@@ -529,8 +523,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   {
     unsigned lowIdx = 0;
     if (bidGridLengths.has_value()) {
-      splitMemoryCoords.merge({"g", "m", "n"}, {lowIdx, lowIdx + 1, lowIdx + 2},
-                              {"bid"}, bidGridLengths.value());
+      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
       lowIdx += 3;
     }
     if (blockSize.has_value()) {
@@ -552,7 +545,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
       TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
 
   if (bidGridLengths.has_value()) {
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
   }
 
   // m_tid is liimited to 0 or 1 (or 0,1,2,3 for wave64). Basically every
@@ -565,7 +558,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   // waves will compute next to each other and then they will move to the next
   // subtile in the workgroup
   {
-    SmallVector<StringRef, 5> dimNamesM{/*0=*/"m",
+    SmallVector<StringRef, 5> dimNamesM{/*0=*/"m_block",
                                         /*1=*/"rep_i",
                                         /*2=*/"wave_m",
                                         /*3=*/"item_i",
@@ -588,7 +581,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
     }
   }
   {
-    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n",
+    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
                                         /*1=*/"rep_j",
                                         /*2=*/"wave_n",
                                         /*3=*/"n_tid"};
