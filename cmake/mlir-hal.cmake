@@ -20,7 +20,7 @@ include_directories(${MLIR_INCLUDE_DIRS})
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 
-add_subdirectory("${MHAL_PROJECT_DIR}")
+add_subdirectory("${MHAL_PROJECT_DIR}" EXCLUDE_FROM_ALL)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${CMAKE_BINARY_DIR}/lib")
 
