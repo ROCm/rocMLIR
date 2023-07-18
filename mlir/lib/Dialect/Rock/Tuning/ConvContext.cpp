@@ -2,6 +2,7 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -46,10 +47,11 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
   if (opType == ConvOpType::BwdWeight) {
-    assert(op->hasAttrOfType<IntegerAttr>("numCu"));
+    assert(op->hasAttrOfType<IntegerAttr>("numCU"));
   }
   auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
-  int numCu = getOptionalIntAttribute(op, "numCu", 64);
+  int numCu = getOptionalIntAttribute(op, "numCU",
+                                      rock::lookupArchInfo(archVal).minNumCU);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;

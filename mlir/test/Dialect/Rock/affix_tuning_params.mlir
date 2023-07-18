@@ -151,7 +151,7 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
+    numCU = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -169,7 +169,7 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
+    numCU = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -187,7 +187,7 @@ func.func @rock_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %inpu
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
+    numCU = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -205,7 +205,7 @@ func.func @rock_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32,
+    numCU = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -266,7 +266,7 @@ func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memr
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
+    numCU = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [2 : i32, 2 : i32]
@@ -322,7 +322,7 @@ func.func @rock_gemm_from_conv2d(%a : memref<1x72x128xf32>, %b : memref<1x72x115
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx906",
-    numCu = 64 : i32
+    numCU = 64 : i32
   } : memref<1x128x115200xf32> = memref<1x72x128xf32> * memref<1x72x115200xf32>
   return
 }
@@ -335,7 +335,7 @@ func.func @rock_gemm_from_i8_conv2d(%a : memref<1x72x128xi8>, %b : memref<1x72x1
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    numCu = 120 : i32
+    numCU = 120 : i32
   } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
   return
 }
@@ -351,7 +351,7 @@ func.func @rock_gemm_from_i8_conv2d_gfx940(%a : memref<1x72x128xi8>, %b : memref
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_7]]
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx940",
-    numCu = 120 : i32
+    numCU = 120 : i32
   } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
   return
 }
@@ -365,7 +365,7 @@ func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memre
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_7]]
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx940",
-    numCu = 120 : i32
+    numCU = 120 : i32
   } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FNUZ> * memref<1x72x115200xf8E5M2FNUZ>
   return
 }

@@ -43,6 +43,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "AccelEmitter.h"
+#include "GridLayoutEmitter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -178,13 +179,6 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 /// Applies the transforms that take a G x K x D matrix to a k_iter x bid x tid
 /// x iter value suitable for using in a global load loop. `dName` should be "m"
 /// and "n", and is used to make the maps have the right names for debugging.
-///
-/// bidGridOrder should
-/// contain the strings "g_block", "m_block", and "n_block" in some order
-/// indicating how the block ID is to be partitioned into offsets (last element
-/// moves fastest) and bidGridLengths should be the lengths of those three
-/// dimensions. This is needed because the accelerated and non-accelerated gemms
-/// partition their block ID in different orders.
 static FailureOr<Value> wrapMatrixForGlobalLoad(
     OpBuilder &b, Location loc, Value matrix, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
@@ -194,6 +188,7 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
+
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
 
@@ -213,10 +208,13 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
   int64_t kThreads = kPerBlock / kPerThread;
   int64_t dThreads = dPerBlock / dPerThread;
 
-  TopDownTMBuilder splitId(b, {"k_loop", "bid", "tid", "iter"},
-                           {kIters, gridSize, blockSize, dataPerThread}, loc);
-  splitId.passThrough("k_loop");
-  splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
+  TopDownTMBuilder splitId(
+      b, {"k_loop", "g_block", "m_block", "n_block", "tid", "iter"},
+      {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[1],
+       blockSize, dataPerThread},
+      loc);
+
+  splitId.passThrough({"k_loop", "g_block", "m_block", "n_block"});
 
   if (vectorDim == GemmDimension::K) {
     splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
@@ -362,7 +360,8 @@ static TransformingForOp
 createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
                      Value wrappedMatrix, ArrayAttr vectorMap,
                      int64_t dataPerThread, int64_t vectorLen, Value bid,
-                     Value tid, bool forceUnroll) {
+                     Value tid, layout::GridCoordinates coords,
+                     bool forceUnroll) {
   Value tensor;
   ArrayAttr matrixToTensor;
   std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
@@ -376,13 +375,14 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
   Type loadType = vectorTypeOrSelf(elementType, vectorLen);
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-  SmallVector<Value, 4> globalStart = {zero, bid, tid, zero};
-  SmallVector<Value, 4> vectorStartOuter(4, zero);
+  SmallVector<Value, 4> globalStart = {
+      zero, coords.g_block, coords.m_block, coords.n_block, tid, zero};
+  SmallVector<Value, 4> vectorStartOuter(6, zero);
   auto outerLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{globalStart, vectorStartOuter},
       ArrayRef<Attribute>{matrixToTensor, b.getArrayAttr({})},
-      /*bounds=*/ArrayRef<int64_t>{1, 1, 1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen}, forceUnroll,
+      /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, 1, dataPerThread},
+      /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1, vectorLen}, forceUnroll,
       /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
@@ -393,7 +393,7 @@ createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
         outerLoop.getLowerCoords(/*domain=*/0));
 
     b.create<InBoundsStoreOp>(loc, loaded, loadBuffer,
-                              outerLoop.getLowerCoords(/*domain*/ 1)[3]);
+                              outerLoop.getLowerCoords(/*domain*/ 1)[5]);
   }
   return outerLoop;
 }
@@ -736,9 +736,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
-
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
     if (aCopyPerThread == 0 || bCopyPerThread == 0) {
@@ -779,6 +776,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
@@ -808,12 +807,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
-                             aCopyPerThread, aVectorLen, bid, tid, true);
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
-                             bCopyPerThread, bVectorLen, bid, tid, true);
+    // Compute grid coordinates
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
+        b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,
+        aVectorLen, bid, tid, gridCoords, true);
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, loadBufferB, wrappedB, bVectorGlobalMap, bCopyPerThread,
+        bVectorLen, bid, tid, gridCoords, true);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -925,10 +927,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
-        b, {"bid", "tid", "iter"}, {gridSize, blockSize, threadCNumRegisters},
-        loc);
-    splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
-                            {G, mBlocks, nBlocks});
+        b, {"g_block", "m_block", "n_block", "tid", "iter"},
+        {gridSize, mBlocks, nBlocks, blockSize, threadCNumRegisters}, loc);
+    splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
     splitMemoryCoords.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
                             {3, 4, 5, 6}, "tid",
                             {mCuwavesPerBlock, nCuwavesPerBlock,
@@ -940,7 +941,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
     toMatrixC.unmerge(
         "gemmM", 1,
         {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
@@ -984,7 +985,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
 
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
+                                   /*extraIndices=*/
+                                   ValueRange{gridCoords.g_block,
+                                              gridCoords.m_block,
+                                              gridCoords.n_block, tid},
                                    op.getFeatures(), StoreMethod::Set,
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
@@ -1008,6 +1012,7 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
     auto elementTypeB = op.getB().getType().getElementType();
+    auto destType = op.getC().getType().getElementType();
 
     // Prepare some useful constants.
     Value matA = op.getA();
@@ -1046,9 +1051,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t bVectorLen = 0;
     GemmDimension aVectorDim;
     GemmDimension bVectorDim;
-
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
@@ -1105,6 +1107,9 @@ struct GridwiseGemmAccelRewritePattern
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n");
 
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
@@ -1141,12 +1146,16 @@ struct GridwiseGemmAccelRewritePattern
     auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
-                             aCopyPerThread, aVectorLen, bid, tid, forceUnroll);
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
-                             bCopyPerThread, bVectorLen, bid, tid, forceUnroll);
+    // Compute grid coordinates
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+
+    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
+        b, loc, loadBufferA, wrappedA, aVectorGlobalMap, aCopyPerThread,
+        aVectorLen, bid, tid, gridCoords, forceUnroll);
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, loadBufferB, wrappedB, bVectorGlobalMap, bCopyPerThread,
+        bVectorLen, bid, tid, gridCoords, forceUnroll);
 
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
@@ -1258,13 +1267,7 @@ struct GridwiseGemmAccelRewritePattern
 
     Value ldsViewForGemmA = viewBufferAs(b, ldsBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsBufferB, ldsReadTypeB);
-    // -----
-
-    Type destType = op.getC().getType().getElementType();
-
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-
-    // -----
 
     // Logic to setup blockwise_gemm_accel parameters.
     //
@@ -1389,10 +1392,12 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, M, N, blockSize, gridSize, regCAllocOp, convertedC,
         forceUnroll);
 
-    b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
-                                   /*extraIndices=*/ValueRange{bid, tid},
-                                   op.getFeatures(), op.getStoreMethod(),
-                                   forceUnroll, useIndexDiffs);
+    b.create<ThreadwiseWriteAllOp>(
+        loc, registerC, op.getC(), idToMatrixCMaps,
+        /*extraIndices=*/
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                   tid},
+        op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
 
     b.eraseOp(op);
     return success();
