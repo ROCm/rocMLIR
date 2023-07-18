@@ -217,29 +217,27 @@ FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
     gpuViews.gridwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    TopDownTMBuilder blockwiseSplitId(b, {"k_loop", "tid", "iter"},
-                           {kIters, blockSize, dataPerThread}, loc);
-    blockwiseSplitId.passThrough("k_loop");
-    makeGemmInputViewsTid(blockwiseSplitId, dThreadName, dThreads, kThreads, {1, 2}, isKContigousDim);
-    makeGemmInputViewsIter(blockwiseSplitId, dIterName, dPerThread, kPerThread, {3, 4}, isKContigousDim);
+    TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
+                           {blockSize, dataPerThread}, loc);
+    makeGemmInputViewsTid(blockwiseSplitId, dThreadName, dThreads, kThreads, {0, 1}, isKContigousDim);
+    makeGemmInputViewsIter(blockwiseSplitId, dIterName, dPerThread, kPerThread, {2, 3}, isKContigousDim);
     TransformMapAttr splitIdAttr = blockwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_loop", "k_thread", "k_iter"},
-                        {kGlobal / kPerBlock, kThreads, kPerThread});
+    toGlobalIdx.unmerge("k", 0, {"k_thread", "k_iter"},
+                        {kThreads, kPerThread});
     toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
                         {dThreads, dPerThread});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.blockwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    TopDownTMBuilder threadwiseSplitId(b, {"k_loop", "iter"},
-                           {kIters, dataPerThread}, loc);
-    threadwiseSplitId.passThrough("k_loop");
-    makeGemmInputViewsIter(threadwiseSplitId, dIterName, dPerThread, kPerThread, {1, 2}, isKContigousDim);
+    TopDownTMBuilder threadwiseSplitId(b, {"iter"},
+                           {dataPerThread}, loc);
+    makeGemmInputViewsIter(threadwiseSplitId, dIterName, dPerThread, kPerThread, {0, 1}, isKContigousDim);
     TransformMapAttr splitIdAttr = threadwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_loop", "k_iter"},
-                        {kGlobal / kPerBlock, kPerThread});
+    toGlobalIdx.unmerge("k", 0, {"k_iter"},
+                        {kPerThread});
     toGlobalIdx.unmerge(dName, 1, {dIterName},
                         {dPerThread});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
