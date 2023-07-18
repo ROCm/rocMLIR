@@ -8,6 +8,8 @@ message(STATUS "MHAL BINARY: ${MHAL_BINARY_DIR}")
 set(MHAL_MAIN_INCLUDE_DIR "${MHAL_PROJECT_DIR}/include")
 option(MHAL_ENABLE_TRANSFORMS "Enable MHAL transforms" ON)
 
+option(MHAL_ENABLE_HOST_RUNNER "Enable MHAL host runner pipeline" ON)
+
 set(LLVM_ENABLE_RTTI OFF CACHE BOOL "")
 
 include_directories("${MHAL_MAIN_INCLUDE_DIR}")
