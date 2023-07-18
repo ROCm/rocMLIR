@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "llvm/ADT/SmallString.h"
 
 namespace mlir {
@@ -249,14 +250,20 @@ LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
       });
   if (!findPrimary.wasInterrupted())
     return failure();
+  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
+  if (gemmIF.getNumCU().has_value())
+    numCU = gemmIF.getNumCU().value();
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   llvm::raw_svector_ostream problemOS(out);
+
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
   // ARCH string
   problemOS << gemmIF.getArch() << tab;
+  // Num of Compute Units
+  problemOS << numCU << tab;
 
   if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
       opType == KernelType::Conv2DBwdWeight) { // conv cases
