@@ -97,7 +97,7 @@ void preMergeCheckPackage(String codepath) {
     if ( (params.nightly == false) && (codepath == "mfma") ) {
         echo "Checking if the fat library target list is accurate"
         dir('build') {
-            sh '../mlir/utils/jenkins/static-check/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
+            sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
         }
         sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
     } else {
