@@ -92,6 +92,19 @@ void preMergeCheck(String codepath) {
     }
 }
 
+void preMergeCheckPackage(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Checking if the fat library target list is accurate"
+        dir('build') {
+            sh '../mlir/utils/jenkins/static-check/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
+        }
+        sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
+    } else {
+        echo "Skipping fat library target list check"
+    }
+}
+
 void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
@@ -423,6 +436,7 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            preMergeCheckPackage("${CODEPATH}")
                             echo "Running tests on the newly-built static library"
                             dir ('build') {
                                 sh 'ninja check-rocmlir'
@@ -683,7 +697,7 @@ pipeline {
                         steps {
                             dir('build') {
                                 sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                // Run MLIR vs MIOpend perf benchmarks.  
+                                // Run MLIR vs MIOpend perf benchmarks.
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
