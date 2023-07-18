@@ -191,57 +191,25 @@ static FailureOr<Value> wrapMatrixForGlobalLoad(
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
     int64_t kPerThread, int64_t dPerThread, GemmDimension vectorDim) {
 
-  if (dName != "m" && dName != "n") {
-    return emitError(loc, "expected dName to be m or n but got " + dName);
+  FailureOr<GPUViews> globalBufferViews = createGemmInputViewsFromGlobal(
+                                                              b,
+                                                              loc,
+                                                              matrix,
+                                                              dName,
+                                                              bidGridOrder,
+                                                              bidGridLengths,
+                                                              gridSize,
+                                                              blockSize,
+                                                              kPerBlock,
+                                                              dPerBlock,
+                                                              kPerThread,
+                                                              dPerThread,
+                                                              vectorDim == GemmDimension::K
+                                                              );
+  if(failed(globalBufferViews)){
+    return failure();
   }
-  StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
-  StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
-
-  MemRefType matrixType = matrix.getType().cast<MemRefType>();
-  ArrayRef<int64_t> matrixShape = matrixType.getShape();
-  int64_t kGlobal = matrixShape[1];
-  int64_t dGlobal = matrixShape[2];
-
-  int64_t kIters = kGlobal / kPerBlock;
-  int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
-
-  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
-  SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
-
-  // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
-  // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
-  int64_t dThreads = dPerBlock / dPerThread;
-
-  TopDownTMBuilder splitId(b, {"k_loop", "bid", "tid", "iter"},
-                           {kIters, gridSize, blockSize, dataPerThread}, loc);
-  splitId.passThrough("k_loop");
-  splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
-
-  if (vectorDim == GemmDimension::K) {
-    splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid",
-                  {dThreads, kThreads});
-    splitId.merge({dIterName, "k_iter"}, {6, 7}, "iter",
-                  {dPerThread, kPerThread});
-  } else {
-    splitId.merge({"k_thread", dThreadName}, {4, 5}, "tid",
-                  {kThreads, dThreads});
-    splitId.merge({"k_iter", dIterName}, {6, 7}, "iter",
-                  {kPerThread, dPerThread});
-  }
-  TransformMapAttr splitIdAttr = splitId.get();
-
-  auto toGlobalIdx = TopDownTMBuilder::below(splitId, splitIdAttr);
-  toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-  toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
-                      {kGlobal / kPerBlock, kThreads, kPerThread});
-  toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                      {dGlobal / dPerBlock, dThreads, dPerThread});
-  toGlobalIdx.ignore(otherBlockDim);
-  TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-
-  Value intermediate = b.create<TransformOp>(loc, matrix, toGlobalIdxAttr);
-  Value transformed = b.create<TransformOp>(loc, intermediate, splitIdAttr);
+  Value transformed = transform(b, matrix, globalBufferViews->gridwiseView);
   return transformed;
 }
 
@@ -1104,26 +1072,46 @@ struct GridwiseGemmAccelRewritePattern
                << "bCopyKPerThread: " << bCopyKPerThread << "\n"
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n");
-
-    FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim);
-    if (failed(maybeWrappedA))
-      return maybeWrappedA;
-    FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim);
-    if (failed(maybeWrappedB))
-      return maybeWrappedB;
-    Value wrappedA = std::move(*maybeWrappedA),
-          wrappedB = std::move(*maybeWrappedB);
-
-    ArrayAttr aVectorGlobalMap = globalVectorLayout(
-        b, loc, "m", aCopyKPerThread, copyMPerThread, kpack, aVectorDim);
-    ArrayAttr bVectorGlobalMap = globalVectorLayout(
-        b, loc, "n", bCopyKPerThread, copyNPerThread, kpack, bVectorDim);
+    FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
+                                                              b,
+                                                              loc,
+                                                              op.getA(),
+                                                              "m",
+                                                              bidGridOrder,
+                                                              bidGridLengths,
+                                                              gridSize,
+                                                              blockSize,
+                                                              kPerBlock,
+                                                              mPerBlock,
+                                                              aCopyKPerThread,
+                                                              copyMPerThread,
+                                                              aVectorDim == GemmDimension::K
+                                                              );
+    if(failed(maybeABufferViews)){
+      return failure();
+    }
+    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
+    FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
+                                                              b,
+                                                              loc,
+                                                              op.getB(),
+                                                              "n",
+                                                              bidGridOrder,
+                                                              bidGridLengths,
+                                                              gridSize,
+                                                              blockSize,
+                                                              kPerBlock,
+                                                              nPerBlock,
+                                                              bCopyKPerThread,
+                                                              copyNPerThread,
+                                                              bVectorDim == GemmDimension::K
+                                                              );
+    if(failed(maybeBBufferViews)){
+      return failure();
+    }
+    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridwiseView);
+    ArrayAttr aVectorGlobalMap = maybeABufferViews->threadwiseView;
+    ArrayAttr bVectorGlobalMap = maybeBBufferViews->threadwiseView;
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());

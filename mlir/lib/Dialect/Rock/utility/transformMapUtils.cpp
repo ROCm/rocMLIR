@@ -49,6 +49,19 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   return {ret, b.getArrayAttr(transformList)};
 }
 
+Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
+                            ArrayAttr transforms) {
+  SmallVector<TransformMapAttr, 4> transformsVec =
+      llvm::to_vector<4>(transforms.getAsRange<TransformMapAttr>());
+  auto reverseTransformVec = llvm::reverse(transformsVec);
+  Location loc = toBeTransformed.getLoc();
+  Value ret = toBeTransformed;
+  for (TransformMapAttr trMap : reverseTransformVec) {
+    ret = b.create<TransformOp>(loc, ret, trMap);
+  }
+  return ret;
+}
+
 std::tuple<Value, ArrayAttr>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {

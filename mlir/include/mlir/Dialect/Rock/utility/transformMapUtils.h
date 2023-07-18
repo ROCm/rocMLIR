@@ -35,6 +35,10 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayRef<Attribute> existing);
+
+/// Apply a chain of transforms on a memref and return the final view
+Value transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms);
+
 /// Return a `rock.transform` op that reshapes a given 1D buffer `buffer`
 /// into `shape`, using `names` as the names of the reshaped dimensions.
 TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,

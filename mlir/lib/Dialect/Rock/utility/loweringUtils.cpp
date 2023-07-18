@@ -7,12 +7,15 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -124,4 +127,123 @@ Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
   if (len == 1)
     return elementType;
   return VectorType::get({len}, elementType);
+}
+
+static void makeGemmInputViewsTid(TopDownTMBuilder& viewBuilder,
+                                  StringRef dThreadName, 
+                                  int64_t dThreads, 
+                                  int64_t kThreads,
+                                  ArrayRef<unsigned> outDims,
+                                  bool isKContigousDim){
+  if (isKContigousDim) {
+    viewBuilder.merge({dThreadName, "k_thread"}, outDims, "tid",
+                  {dThreads, kThreads});
+  } else {
+    viewBuilder.merge({"k_thread", dThreadName}, outDims, "tid",
+                  {kThreads, dThreads});
+  }
+}
+
+static void makeGemmInputViewsIter(TopDownTMBuilder& viewBuilder,
+                                   StringRef dIterName,
+                                   int64_t dPerThread,
+                                   int64_t kPerThread,
+                                   ArrayRef<unsigned> outDims,
+                                   bool isKContigousDim
+                                   ){
+  if (isKContigousDim) {
+    viewBuilder.merge({dIterName, "k_iter"}, outDims, "iter",
+                  {dPerThread, kPerThread});
+  } else {
+    viewBuilder.merge({"k_iter", dIterName}, outDims, "iter",
+                  {kPerThread, dPerThread});
+  }
+}
+
+FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
+  OpBuilder &b, 
+  Location loc, 
+  Value globalBuffer, 
+  StringRef dName,
+  ArrayRef<StringRef> bidGridOrder, 
+  ArrayRef<int64_t> bidGridLengths,
+  int64_t gridSize, 
+  int64_t blockSize, 
+  int64_t kPerBlock, 
+  int64_t dPerBlock,
+  int64_t kPerThread, 
+  int64_t dPerThread, 
+  bool isKContigousDim
+){
+  if (dName != "m" && dName != "n") {
+    return emitError(loc, "expected dName to be m or n but got " + dName);
+  }
+  StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
+  StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
+
+  MemRefType matrixType = globalBuffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> matrixShape = matrixType.getShape();
+  int64_t kGlobal = matrixShape[1];
+  int64_t dGlobal = matrixShape[2];
+
+  int64_t kIters = kGlobal / kPerBlock;
+  int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
+
+  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
+  SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
+
+  // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
+  // blockSize
+  int64_t kThreads = kPerBlock / kPerThread;
+  int64_t dThreads = dPerBlock / dPerThread;
+
+  GPUViews gpuViews;
+  {
+    TopDownTMBuilder gridwiseSplitId(b, {"k_loop", "bid", "tid", "iter"},
+                            {kIters, gridSize, blockSize, dataPerThread}, loc);
+    gridwiseSplitId.passThrough("k_loop");
+    gridwiseSplitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
+    makeGemmInputViewsTid(gridwiseSplitId, dThreadName, dThreads, kThreads, {4, 5}, isKContigousDim);
+    makeGemmInputViewsIter(gridwiseSplitId, dIterName, dPerThread, kPerThread, {6, 7}, isKContigousDim);
+    TransformMapAttr splitIdAttr = gridwiseSplitId.get();
+    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
+    toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
+                        {kGlobal / kPerBlock, kThreads, kPerThread});
+    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                        {dGlobal / dPerBlock, dThreads, dPerThread});
+    toGlobalIdx.ignore(otherBlockDim);
+    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
+    gpuViews.gridwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+  }
+  {
+    TopDownTMBuilder blockwiseSplitId(b, {"k_loop", "tid", "iter"},
+                           {kIters, blockSize, dataPerThread}, loc);
+    blockwiseSplitId.passThrough("k_loop");
+    makeGemmInputViewsTid(blockwiseSplitId, dThreadName, dThreads, kThreads, {1, 2}, isKContigousDim);
+    makeGemmInputViewsIter(blockwiseSplitId, dIterName, dPerThread, kPerThread, {3, 4}, isKContigousDim);
+    TransformMapAttr splitIdAttr = blockwiseSplitId.get();
+    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
+    toGlobalIdx.unmerge("k", 0, {"k_loop", "k_thread", "k_iter"},
+                        {kGlobal / kPerBlock, kThreads, kPerThread});
+    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
+                        {dThreads, dPerThread});
+    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
+    gpuViews.blockwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+  }
+  {
+    TopDownTMBuilder threadwiseSplitId(b, {"k_loop", "iter"},
+                           {kIters, dataPerThread}, loc);
+    threadwiseSplitId.passThrough("k_loop");
+    makeGemmInputViewsIter(threadwiseSplitId, dIterName, dPerThread, kPerThread, {1, 2}, isKContigousDim);
+    TransformMapAttr splitIdAttr = threadwiseSplitId.get();
+    auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
+    toGlobalIdx.unmerge("k", 0, {"k_loop", "k_iter"},
+                        {kGlobal / kPerBlock, kPerThread});
+    toGlobalIdx.unmerge(dName, 1, {dIterName},
+                        {dPerThread});
+    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
+    gpuViews.threadwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+  }
+  return gpuViews;
 }

@@ -22,6 +22,17 @@ namespace rock {
 struct ConvolutionDims;
 struct GemmSize;
 
+struct GPUViews {
+  ArrayAttr gridwiseView;
+  ArrayAttr blockwiseView;
+  ArrayAttr threadwiseView;
+};
+
+FailureOr<GPUViews> createGemmInputViewsFromGlobal(OpBuilder &b, Location loc, Value gBuffer, StringRef dName,
+    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
+    int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
+    int64_t kPerThread, int64_t dPerThread, bool isKContigousDim);
+
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
