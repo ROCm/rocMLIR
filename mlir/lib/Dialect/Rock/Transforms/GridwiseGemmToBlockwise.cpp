@@ -262,46 +262,6 @@ static ArrayAttr ldsVectorLayout(OpBuilder &b, Location loc,
   return b.getArrayAttr({ignoreTidAttr});
 }
 
-static TransformingForOp
-createGlobalLoadLoop(PatternRewriter &b, Location loc, GpuAllocOp loadBuffer,
-                     Value wrappedMatrix, ArrayAttr vectorMap,
-                     int64_t dataPerThread, int64_t vectorLen, Value bid,
-                     Value tid, bool forceUnroll) {
-  Value tensor;
-  ArrayAttr matrixToTensor;
-  std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
-
-  // Optimize the transform chain.
-  ArrayRef<int64_t> tensorSize = tensor.getType().cast<ShapedType>().getShape();
-  matrixToTensor = collapseContiguousMerges(matrixToTensor, tensorSize);
-
-  Type elementType =
-      wrappedMatrix.getType().cast<MemRefType>().getElementType();
-  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
-  SmallVector<Value, 4> globalStart = {zero, bid, tid, zero};
-  SmallVector<Value, 4> vectorStartOuter(4, zero);
-  auto outerLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{globalStart, vectorStartOuter},
-      ArrayRef<Attribute>{matrixToTensor, b.getArrayAttr({})},
-      /*bounds=*/ArrayRef<int64_t>{1, 1, 1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen}, forceUnroll,
-      /*useIndexDiffs=*/true);
-  {
-    PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(outerLoop.getBody());
-
-    Value loaded = b.create<GlobalLoadOp>(
-        loc, loadType, tensor, outerLoop.getValidity(/*domain=*/0),
-        outerLoop.getLowerCoords(/*domain=*/0));
-
-    b.create<InBoundsStoreOp>(loc, loaded, loadBuffer,
-                              outerLoop.getLowerCoords(/*domain*/ 1)[3]);
-  }
-  return outerLoop;
-}
-
 /// This function pack the load buffer into a store buffer ready to be copied
 /// into LDS:
 ///  - The load buffer is (viewed as) a KPerThread x DPerThread
@@ -646,45 +606,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
-                                                              b,
-                                                              loc,
-                                                              op.getA(),
-                                                              "m",
-                                                              bidGridOrder,
-                                                              bidGridLengths,
-                                                              gridSize,
-                                                              blockSize,
-                                                              kPerBlock,
-                                                              mPerBlock,
-                                                              aCopyKPerThread,
-                                                              copyMPerThread,
-                                                              aVectorDim == GemmDimension::K
-                                                              );
-    if(failed(maybeABufferViews)){
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
+        aVectorDim == GemmDimension::K);
+    if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
     FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
-                                                              b,
-                                                              loc,
-                                                              op.getB(),
-                                                              "n",
-                                                              bidGridOrder,
-                                                              bidGridLengths,
-                                                              gridSize,
-                                                              blockSize,
-                                                              kPerBlock,
-                                                              nPerBlock,
-                                                              bCopyKPerThread,
-                                                              copyNPerThread,
-                                                              bVectorDim == GemmDimension::K
-                                                              );
-    if(failed(maybeBBufferViews)){
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
+        bVectorDim == GemmDimension::K);
+    if (failed(maybeBBufferViews)) {
       return failure();
     }
     Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridwiseView);
-    ArrayAttr aVectorGlobalMap = maybeABufferViews->threadwiseView;
-    ArrayAttr bVectorGlobalMap = maybeBBufferViews->threadwiseView;
 
     Type loadBufferAType, loadBufferBType;
     loadBufferAType = MemRefType::get({aCopyPerThread}, elementTypeA,
@@ -695,12 +631,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
-                             aCopyPerThread, aVectorLen, bid, tid, true);
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
-                             bCopyPerThread, bVectorLen, bid, tid, true);
+    b.create<ThreadwiseReadIntoOp>(
+        loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
+        true);
+    b.create<ThreadwiseReadIntoOp>(
+        loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
+        true);
 
     ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
     ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
@@ -723,11 +661,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    ArrayAttr loadBufferAViews = invertTransforms(b, loc, maybeABufferViews->threadwiseView);
+    // We invert the transforms that are iter --> K x D slice of the tensor
+    // so that we can view loadBuffer as a K x D tensor
+    ArrayAttr loadBufferAViews =
+        invertTransforms(b, loc, maybeABufferViews->threadwiseView);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
                                                  viewLoadBufferA, storeBufferA);
-    ArrayAttr loadBufferBViews = invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
+    ArrayAttr loadBufferBViews =
+        invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
                                                  viewLoadBufferB, storeBufferB);
@@ -761,20 +703,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // We don't update in the clone becasue we might accidentally replace
       // other zeroes.
       Value iv = loopOp.getInductionVar();
-      IRMapping loadAUpdates, loadBUpdates;
-      auto blockwiseLoadAClone = cast<TransformingForOp>(
-          b.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
-      blockwiseLoadAClone.setOperand(
-          blockwiseLoadAClone.getUpperInits(/*domain=*/0)
-              .getBeginOperandIndex(),
-          iv);
-
-      auto blockwiseLoadBClone = cast<TransformingForOp>(
-          b.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
-      blockwiseLoadBClone.setOperand(
-          blockwiseLoadBClone.getUpperInits(/*domain=*/0)
-              .getBeginOperandIndex(),
-          iv);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
 
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);
@@ -992,45 +926,21 @@ struct GridwiseGemmAccelRewritePattern
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n");
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
-                                                              b,
-                                                              loc,
-                                                              op.getA(),
-                                                              "m",
-                                                              bidGridOrder,
-                                                              bidGridLengths,
-                                                              gridSize,
-                                                              blockSize,
-                                                              kPerBlock,
-                                                              mPerBlock,
-                                                              aCopyKPerThread,
-                                                              copyMPerThread,
-                                                              aVectorDim == GemmDimension::K
-                                                              );
-    if(failed(maybeABufferViews)){
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
+        aVectorDim == GemmDimension::K);
+    if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
     FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
-                                                              b,
-                                                              loc,
-                                                              op.getB(),
-                                                              "n",
-                                                              bidGridOrder,
-                                                              bidGridLengths,
-                                                              gridSize,
-                                                              blockSize,
-                                                              kPerBlock,
-                                                              nPerBlock,
-                                                              bCopyKPerThread,
-                                                              copyNPerThread,
-                                                              bVectorDim == GemmDimension::K
-                                                              );
-    if(failed(maybeBBufferViews)){
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
+        bVectorDim == GemmDimension::K);
+    if (failed(maybeBBufferViews)) {
       return failure();
     }
     Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridwiseView);
-    ArrayAttr aVectorGlobalMap = maybeABufferViews->threadwiseView;
-    ArrayAttr bVectorGlobalMap = maybeBBufferViews->threadwiseView;
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -1048,22 +958,29 @@ struct GridwiseGemmAccelRewritePattern
     auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, loadBufferA, wrappedA, aVectorGlobalMap,
-                             aCopyPerThread, aVectorLen, bid, tid, forceUnroll);
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, loadBufferB, wrappedB, bVectorGlobalMap,
-                             bCopyPerThread, bVectorLen, bid, tid, forceUnroll);
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    b.create<ThreadwiseReadIntoOp>(
+        loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
+        true);
+    b.create<ThreadwiseReadIntoOp>(
+        loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{/*kIter=*/zeroConstantOp, bid, tid}, true,
+        true);
 
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    ArrayAttr loadBufferAViews = invertTransforms(b, loc, maybeABufferViews->threadwiseView);
+    // We invert the transforms that are iter --> K x D slice of the tensor
+    // so that we can view loadBuffer as a K x D tensor
+    ArrayAttr loadBufferAViews =
+        invertTransforms(b, loc, maybeABufferViews->threadwiseView);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
                                                  viewLoadBufferA, storeBufferA);
 
-    ArrayAttr loadBufferBViews = invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
+    ArrayAttr loadBufferBViews =
+        invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
                                                  viewLoadBufferB, storeBufferB);
@@ -1228,20 +1145,12 @@ struct GridwiseGemmAccelRewritePattern
       // We don't update in the clone becasue we might accidentally replace
       // other zeroes.
       Value iv = loopOp.getInductionVar();
-      IRMapping loadAUpdates, loadBUpdates;
-      auto blockwiseLoadAClone = cast<TransformingForOp>(
-          b.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
-      blockwiseLoadAClone.setOperand(
-          blockwiseLoadAClone.getUpperInits(/*domain=*/0)
-              .getBeginOperandIndex(),
-          iv);
-
-      auto blockwiseLoadBClone = cast<TransformingForOp>(
-          b.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
-      blockwiseLoadBClone.setOperand(
-          blockwiseLoadBClone.getUpperInits(/*domain=*/0)
-              .getBeginOperandIndex(),
-          iv);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+          /*extraIndices=*/ValueRange{/*kIter=*/iv, bid, tid}, true, true);
 
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);

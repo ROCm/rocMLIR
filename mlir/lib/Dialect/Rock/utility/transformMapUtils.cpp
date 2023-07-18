@@ -1306,9 +1306,10 @@ void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
   }
 }
 
-ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc, ArrayAttr transforms){
+ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
+                                       ArrayAttr transforms) {
   SmallVector<Attribute, 4> invertedTrs;
-  for(Attribute tr : llvm::reverse(transforms)){
+  for (Attribute tr : llvm::reverse(transforms)) {
     TransformMapAttr trMap = tr.cast<TransformMapAttr>();
     invertedTrs.push_back(invertTransformMap(b, trMap, loc));
   }
