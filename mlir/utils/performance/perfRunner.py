@@ -837,7 +837,7 @@ def getFusionTestInfo(filename, paths: Paths):
     p2.stdout.close()
     output, _ = tuningKey.communicate()
     result = output.decode('utf-8').strip().split('\t')
-    testEntry = {'filename' : filename, 'testVector' : result[1], 'futName' : futName}
+    testEntry = {'filename' : filename, 'testVector' : result[2], 'futName' : futName}
     return testEntry
 
 def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
