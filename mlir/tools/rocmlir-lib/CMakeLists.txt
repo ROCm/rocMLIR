@@ -46,15 +46,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
 
   set(LIBRARY_NAME rockCompiler)
 
-  file(GLOB __llvm_libraries LIST_DIRECTORIES false
-          CONFIGURE_DEPENDS ${LLVM_EXTERNAL_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
-
-  file(GLOB __rocmlir_libraries LIST_DIRECTORIES false
-          CONFIGURE_DEPENDS ${ROCMLIR_LIB_DIR}/*${CMAKE_STATIC_LIBRARY_SUFFIX})
-
-  # Remove the rockCompiler library from the list to not include it recursively.
-  list(REMOVE_ITEM __rocmlir_libraries
-          ${ROCMLIR_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${LIBRARY_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  include(librockcompiler_deps.cmake)
 
   # Static libraries on Windows have a 4GB size limit. The Debug version of the FAT library
   # exceeds that limit significantly. Therefore, the change is to expose CMake's INTERFACE
@@ -68,27 +60,31 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   if (WIN32)
     add_dependencies(${LIBRARY_NAME} MLIRRockThin)
 
-    foreach(__library ${__llvm_libraries})
-      file(RELATIVE_PATH __library_file ${LLVM_EXTERNAL_LIB_DIR} ${__library})
+    foreach(__library ${__mlir_libs})
+      list(APPEND __mlir_libraries ${LLVM_EXTERNAL_LIB_DIR}/${__library}.lib)
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/llvm/${__library_file}>)
+              $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/llvm/${__library}.lib>)
     endforeach()
 
-    foreach(__library ${__rocmlir_libraries})
-      file(RELATIVE_PATH __library_file ${ROCMLIR_LIB_DIR} ${__library})
+    foreach(__library ${__rocmlir_libs})
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${__library}>
-              $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_file}>)
+              $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/${__library}.lib>)
     endforeach()
 
-    rocm_install(FILES ${__llvm_libraries}
+    rocm_install(FILES ${__mlir_libraries}
             DESTINATION lib/llvm)
 
     rocm_install(FILES ${ROCMLIR_LIB_DIR}/MLIRRockThin.lib
             DESTINATION lib)
+
+    unset(__mlir_libraries)
+
+    # Linux compatibility custom target
+    add_custom_target(lib${LIBRARY_NAME} ALL DEPENDS ${LIBRARY_NAME})
 
   else()
 
@@ -96,10 +92,16 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     set(full_output_path ${ROCMLIR_LIB_DIR}/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX})
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}.mri)
 
+    # Get the proper path to all these libraries
+    list(TRANSFORM __rocmlir_libs PREPEND "${ROCMLIR_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}")
+    list(TRANSFORM __rocmlir_libs APPEND ${CMAKE_STATIC_LIBRARY_SUFFIX})
+    list(TRANSFORM __mlir_libs PREPEND "${LLVM_EXTERNAL_LIB_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}")
+    list(TRANSFORM __mlir_libs APPEND ${CMAKE_STATIC_LIBRARY_SUFFIX})
+
     # Step one: construct mri file.
     add_custom_command(OUTPUT ${mri_file}
                        COMMAND echo "create ${full_output_path}" > ${mri_file}
-                       COMMAND for archive in ${__rocmlir_libraries} ${__llvm_libraries} \; do echo "addlib $$archive" >> ${mri_file} \; done
+                       COMMAND for archive in ${__rocmlir_libs} ${__mlir_libs} \; do echo "addlib $$archive" >> ${mri_file} \; done
                        COMMAND echo "save" >> ${mri_file}
                        COMMAND echo "end" >> ${mri_file}
                        DEPENDS MLIRRockThin)
@@ -115,7 +117,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     target_link_libraries(${LIBRARY_NAME}
         INTERFACE
             $<BUILD_INTERFACE:${full_output_path}>
-            $<INSTALL_INTERFACE:\${_IMPORT_PREFIX}/lib/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX}>)
+            $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/lib/${__library_name}${CMAKE_STATIC_LIBRARY_SUFFIX}>)
 
     rocm_install(FILES ${full_output_path}
             DESTINATION lib)
@@ -129,9 +131,6 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     unset(__library_name)
 
   endif()
-
-  unset(__llvm_libraries)
-  unset(__rocmlir_libraries)
 
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/${PACKAGE_NAME}/
   # as part of component rockCompiler
