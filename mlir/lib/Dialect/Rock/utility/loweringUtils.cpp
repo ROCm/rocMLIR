@@ -129,38 +129,39 @@ Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
   return VectorType::get({len}, elementType);
 }
 
-static void makeGemmInputViewsTid(TopDownTMBuilder &viewBuilder,
-                                  StringRef dThreadName, int64_t dThreads,
-                                  int64_t kThreads, ArrayRef<unsigned> outDims,
-                                  bool isKContigousDim) {
-  if (isKContigousDim) {
-    viewBuilder.merge({dThreadName, "k_thread"}, outDims, "tid",
-                      {dThreads, kThreads});
-  } else {
-    viewBuilder.merge({"k_thread", dThreadName}, outDims, "tid",
-                      {kThreads, dThreads});
+static SmallVector<unsigned> getOutDimIndices(int64_t outDimStartIdx, int64_t newDimSize){
+  SmallVector<unsigned> outDims;
+  for (int i=0; i < newDimSize; i++){
+    outDims.push_back(outDimStartIdx + i);
   }
+  return std::move(outDims);
 }
 
-static void makeGemmInputViewsIter(TopDownTMBuilder &viewBuilder,
-                                   StringRef dIterName, int64_t dPerThread,
-                                   int64_t kPerThread,
-                                   ArrayRef<unsigned> outDims,
-                                   bool isKContigousDim) {
-  if (isKContigousDim) {
-    viewBuilder.merge({dIterName, "k_iter"}, outDims, "iter",
-                      {dPerThread, kPerThread});
-  } else {
-    viewBuilder.merge({"k_iter", dIterName}, outDims, "iter",
-                      {kPerThread, dPerThread});
+static std::tuple<SmallVector<StringRef>,SmallVector<int64_t>> getCombinedOrder(const LowerDimPartInfo& lhs, const LowerDimPartInfo& rhs){
+  llvm::SmallDenseMap<int64_t,std::tuple<StringRef,int64_t>> ordered;
+  for(auto [dimPartName, dimPartOrderIdx, dimPartSize] : llvm::zip(lhs.bottomDimPartNames, lhs.bottomDimPartOrder, lhs.bottomDimPartSizes)){
+    ordered[dimPartOrderIdx] = {dimPartName, dimPartSize};
   }
+  for(auto [dimPartName, dimPartOrderIdx, dimPartSize] : llvm::zip(rhs.bottomDimPartNames, rhs.bottomDimPartOrder, rhs.bottomDimPartSizes)){
+    ordered[dimPartOrderIdx] = {dimPartName, dimPartSize};
+  }
+  SmallVector<StringRef> orderedNames;
+  SmallVector<int64_t> orderedSizes;
+  for(int i=0; i < ordered.size(); i++){
+    orderedNames.push_back(std::get<0>(ordered[i]));
+    orderedSizes.push_back(std::get<1>(ordered[i]));
+  }
+  return {std::move(orderedNames), std::move(orderedSizes)};
 }
 
 FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
-    int64_t kPerThread, int64_t dPerThread, bool isKContigousDim) {
+    LowerDimPartInfo kDimTidPartInfo, 
+    LowerDimPartInfo dDimTidPartInfo,
+    LowerDimPartInfo kDimIterPartInfo, 
+    LowerDimPartInfo dDimIterPartInfo) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -175,14 +176,8 @@ FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
   int64_t kIters = kGlobal / kPerBlock;
   int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
 
-  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
-  SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
-
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
-  int64_t dThreads = dPerBlock / dPerThread;
-
   GPUViews gpuViews;
   {
     TopDownTMBuilder gridwiseSplitId(
@@ -191,17 +186,39 @@ FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
          blockSize, dataPerThread},
         loc);
     gridwiseSplitId.passThrough({"k_loop", "g_block", "m_block", "n_block"});
-    makeGemmInputViewsTid(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                          {4, 5}, isKContigousDim);
-    makeGemmInputViewsIter(gridwiseSplitId, dIterName, dPerThread, kPerThread,
-                           {6, 7}, isKContigousDim);
+    auto [tidDimNames, tidDimSizes] = getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
+    gridwiseSplitId.merge(tidDimNames, 
+                          getOutDimIndices(4, tidDimNames.size()),
+                          "tid", 
+                          tidDimSizes);
+    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    gridwiseSplitId.merge(iterDimNames, 
+                          getOutDimIndices(4 + tidDimNames.size(), iterDimNames.size()),
+                          "iter", 
+                          iterDimSizes);
+
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
-                        {kGlobal / kPerBlock, kThreads, kPerThread});
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                        {dGlobal / dPerBlock, dThreads, dPerThread});
+    {
+      SmallVector<StringRef, 3> kSubDimNames {"k_loop"};
+      kSubDimNames.append(kDimTidPartInfo.bottomDimPartNames.begin(), kDimTidPartInfo.bottomDimPartNames.end());
+      kSubDimNames.append(kDimIterPartInfo.bottomDimPartNames.begin(), kDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> kSubDimSizes {kIters};
+      kSubDimSizes.append(kDimTidPartInfo.bottomDimPartSizes.begin(), kDimTidPartInfo.bottomDimPartSizes.end());
+      kSubDimSizes.append(kDimIterPartInfo.bottomDimPartSizes.begin(), kDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge("k", 1, kSubDimNames, kSubDimSizes);
+    }
+
+    {
+      SmallVector<StringRef, 3> dSubDimNames {thisBlockDim};
+      dSubDimNames.append(dDimTidPartInfo.bottomDimPartNames.begin(), dDimTidPartInfo.bottomDimPartNames.end());
+      dSubDimNames.append(dDimIterPartInfo.bottomDimPartNames.begin(), dDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> dSubDimSizes {dGlobal / dPerBlock};
+      dSubDimSizes.append(dDimTidPartInfo.bottomDimPartSizes.begin(), dDimTidPartInfo.bottomDimPartSizes.end());
+      dSubDimSizes.append(dDimIterPartInfo.bottomDimPartSizes.begin(), dDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge(dName, 2, dSubDimNames, dSubDimSizes);
+    }
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.gridwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
@@ -209,26 +226,62 @@ FailureOr<GPUViews> mlir::rock::createGemmInputViewsFromGlobal(
   {
     TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
                                       {blockSize, dataPerThread}, loc);
-    makeGemmInputViewsTid(blockwiseSplitId, dThreadName, dThreads, kThreads,
-                          {0, 1}, isKContigousDim);
-    makeGemmInputViewsIter(blockwiseSplitId, dIterName, dPerThread, kPerThread,
-                           {2, 3}, isKContigousDim);
+    auto [tidDimNames, tidDimSizes] = getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
+    blockwiseSplitId.merge(tidDimNames, 
+                          getOutDimIndices(0, tidDimNames.size()),
+                          "tid", 
+                          tidDimSizes);
+    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    blockwiseSplitId.merge(iterDimNames, 
+                          getOutDimIndices(0 + tidDimNames.size(), iterDimNames.size()),
+                          "iter", 
+                          iterDimSizes);
     TransformMapAttr splitIdAttr = blockwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_thread", "k_iter"}, {kThreads, kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                        {dThreads, dPerThread});
+    {
+      SmallVector<StringRef, 3> kSubDimNames;
+      kSubDimNames.append(kDimTidPartInfo.bottomDimPartNames.begin(), kDimTidPartInfo.bottomDimPartNames.end());
+      kSubDimNames.append(kDimIterPartInfo.bottomDimPartNames.begin(), kDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> kSubDimSizes;
+      kSubDimSizes.append(kDimTidPartInfo.bottomDimPartSizes.begin(), kDimTidPartInfo.bottomDimPartSizes.end());
+      kSubDimSizes.append(kDimIterPartInfo.bottomDimPartSizes.begin(), kDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge("k", 0, kSubDimNames, kSubDimSizes);
+    }
+    {
+      SmallVector<StringRef, 3> dSubDimNames;
+      dSubDimNames.append(dDimTidPartInfo.bottomDimPartNames.begin(), dDimTidPartInfo.bottomDimPartNames.end());
+      dSubDimNames.append(dDimIterPartInfo.bottomDimPartNames.begin(), dDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> dSubDimSizes;
+      dSubDimSizes.append(dDimTidPartInfo.bottomDimPartSizes.begin(), dDimTidPartInfo.bottomDimPartSizes.end());
+      dSubDimSizes.append(dDimIterPartInfo.bottomDimPartSizes.begin(), dDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge(dName, 1, dSubDimNames, dSubDimSizes);
+    }
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.blockwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
     TopDownTMBuilder threadwiseSplitId(b, {"iter"}, {dataPerThread}, loc);
-    makeGemmInputViewsIter(threadwiseSplitId, dIterName, dPerThread, kPerThread,
-                           {0, 1}, isKContigousDim);
+    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    threadwiseSplitId.merge(iterDimNames, 
+                          getOutDimIndices(0, iterDimNames.size()),
+                          "iter", 
+                          iterDimSizes);
     TransformMapAttr splitIdAttr = threadwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_iter"}, {kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dIterName}, {dPerThread});
+    {
+      SmallVector<StringRef, 3> kSubDimNames;
+      kSubDimNames.append(kDimIterPartInfo.bottomDimPartNames.begin(), kDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> kSubDimSizes;
+      kSubDimSizes.append(kDimIterPartInfo.bottomDimPartSizes.begin(), kDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge("k", 0, kSubDimNames, kSubDimSizes);
+    }
+    {
+      SmallVector<StringRef, 3> dSubDimNames;
+      dSubDimNames.append(dDimIterPartInfo.bottomDimPartNames.begin(), dDimIterPartInfo.bottomDimPartNames.end());
+      SmallVector<int64_t, 3> dSubDimSizes;
+      dSubDimSizes.append(dDimIterPartInfo.bottomDimPartSizes.begin(), dDimIterPartInfo.bottomDimPartSizes.end());
+      toGlobalIdx.unmerge(dName, 1, dSubDimNames, dSubDimSizes);
+    }
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.threadwiseView = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }

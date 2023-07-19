@@ -410,6 +410,32 @@ static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
+static std::tuple<LowerDimPartInfo, LowerDimPartInfo> createTidSplits(StringRef dThreadName, int64_t dThreads, int64_t kThreads, bool isKContigousDim){
+  if(isKContigousDim){
+    LowerDimPartInfo kTidSplit({"k_thread"}, {1}, {kThreads});
+    LowerDimPartInfo dTidSplit({dThreadName}, {0}, {dThreads});
+    return {kTidSplit, dTidSplit};
+  }
+  else{
+    LowerDimPartInfo kTidSplit({"k_thread"}, {0}, {kThreads});
+    LowerDimPartInfo dTidSplit({dThreadName}, {1}, {dThreads});
+    return {kTidSplit, dTidSplit};
+  }
+}
+
+static std::tuple<LowerDimPartInfo, LowerDimPartInfo> createIterSplits(StringRef dIterName, int64_t dPerThread, int64_t kPerThread, bool isKContigousDim){
+  if(isKContigousDim){
+    LowerDimPartInfo kIterSplit({"k_iter"}, {1}, {kPerThread});
+    LowerDimPartInfo dIterSplit({dIterName}, {0}, {dPerThread});
+    return {kIterSplit, dIterSplit};
+  }
+  else{
+    LowerDimPartInfo kIterSplit({"k_iter"}, {0}, {kPerThread});
+    LowerDimPartInfo dIterSplit({dIterName}, {1}, {dPerThread});
+    return {kIterSplit, dIterSplit};
+  }
+}
+
 namespace {
 struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
@@ -604,18 +630,20 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+    auto [aKDimTidPartInfo, mDimTidPartInfo] = createTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
+    auto [aKDimIterPartInfo, mDimIterPartInfo] = createIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim == GemmDimension::K);
+        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
+    auto [bKDimTidPartInfo, nDimTidPartInfo] = createTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
+    auto [bKDimIterPartInfo, nDimIterPartInfo] = createIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
     FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim == GemmDimension::K);
+        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -937,18 +965,20 @@ struct GridwiseGemmAccelRewritePattern
                << "copyNPerThread: " << copyNPerThread << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+    auto [aKDimTidPartInfo, mDimTidPartInfo] = createTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
+    auto [aKDimIterPartInfo, mDimIterPartInfo] = createIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
     FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim == GemmDimension::K);
+        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
+    auto [bKDimTidPartInfo, nDimTidPartInfo] = createTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
+    auto [bKDimIterPartInfo, nDimIterPartInfo] = createIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
     FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim == GemmDimension::K);
+        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
       return failure();
     }

@@ -28,11 +28,23 @@ struct GPUViews {
   ArrayAttr threadwiseView;
 };
 
+struct LowerDimPartInfo{
+  SmallVector<StringRef> bottomDimPartNames;
+  SmallVector<int64_t> bottomDimPartOrder;
+  SmallVector<int64_t> bottomDimPartSizes;
+  LowerDimPartInfo(ArrayRef<StringRef> bottomDimPartNames, ArrayRef<int64_t> bottomDimPartOrder, ArrayRef<int64_t> bottomDimPartSizes) {
+    this->bottomDimPartNames = llvm::to_vector(bottomDimPartNames);
+    this->bottomDimPartOrder = llvm::to_vector(bottomDimPartOrder);
+    this->bottomDimPartSizes = llvm::to_vector(bottomDimPartSizes);
+  }
+};
+
 FailureOr<GPUViews> createGemmInputViewsFromGlobal(
     OpBuilder &b, Location loc, Value gBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
-    int64_t kPerThread, int64_t dPerThread, bool isKContigousDim);
+    LowerDimPartInfo kDimTidPartInfo, LowerDimPartInfo dDimTidPartInfo, 
+    LowerDimPartInfo kDimIterPartInfo, LowerDimPartInfo dDimIterPartInfo);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
