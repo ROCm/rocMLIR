@@ -275,7 +275,6 @@ pipeline {
                      description: 'Can this CI instance use xdlops (no for public server)')
         booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
-        // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
         string(name: 'CKBranch', defaultValue: 'develop',
@@ -832,14 +831,14 @@ pipeline {
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DLLVM_ENABLE_THREADS=Off'
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
                         steps {
                             sh 'rm -rf MIGraphX'
                             dir('MIGraphX') {
-                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='/MIGraphXDeps;${WORKSPACE}/MIGraphXDeps' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DMIGRAPHX_USE_HIPRTC=Off")
+                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DMIGRAPHX_USE_HIPRTC=Off")
                             }
                         }
                     }
