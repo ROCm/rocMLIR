@@ -28,18 +28,37 @@ struct GPUViews {
   ArrayAttr threadwiseView;
 };
 
+
+
+// This is helper data structure to allow
+// lowering define lower dimensions re-shuffling
+// into thread_id or iter into reg buffers in threads.
+// It is particularly useful to arrange data
+// in registers before they are loaded/written
+// to some memory (global or lds).
 struct LowerDimPartInfo{
-  SmallVector<StringRef> bottomDimPartNames;
-  SmallVector<int64_t> bottomDimPartOrder;
-  SmallVector<int64_t> bottomDimPartSizes;
-  LowerDimPartInfo(ArrayRef<StringRef> bottomDimPartNames, ArrayRef<int64_t> bottomDimPartOrder, ArrayRef<int64_t> bottomDimPartSizes) {
-    this->bottomDimPartNames = llvm::to_vector(bottomDimPartNames);
-    this->bottomDimPartOrder = llvm::to_vector(bottomDimPartOrder);
-    this->bottomDimPartSizes = llvm::to_vector(bottomDimPartSizes);
-  }
+  SmallVector<StringRef> lowerDimPartNames;
+  SmallVector<int64_t> lowerDimPartOrder;
+  SmallVector<int64_t> lowerDimPartSizes;
 };
 
-FailureOr<GPUViews> createGemmInputViewsFromGlobal(
+// This function creates tid split arrangement for a certain gemm dimension
+// Basically, contigous dimension in global memory needs to be the fastest
+// changing dimension in the regs as well as between consecutive threads
+std::tuple<LowerDimPartInfo, LowerDimPartInfo> createGlobalLdTidSplits(StringRef dThreadName, int64_t dThreads, int64_t kThreads, bool isKContigousDim);
+// This function creates iter split arrangement for a certain gemm dimension
+// Basically, contigous dimension in global memory needs to be the fastest
+// changing dimension in the regs as well as between consecutive threads
+std::tuple<LowerDimPartInfo, LowerDimPartInfo> createGlobalLdIterSplits(StringRef dIterName, int64_t dPerThread, int64_t kPerThread, bool isKContigousDim);
+// This function creates iter split arrangement that is suitable for LDS store
+// The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
+// kpackPerThread] buffer
+std::tuple<LowerDimPartInfo, LowerDimPartInfo> createLDSStoreIterSplits(int64_t kPerThread, int64_t dPerThread, int64_t kpack);
+
+// This function will create view of the register buffers in threads
+// once they are loaded. Among, the typical arguments it accepts
+// how tid, iter to splits of lower gemm dimensions (k & d)
+FailureOr<GPUViews> createGemmInputTileViews(
     OpBuilder &b, Location loc, Value gBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,

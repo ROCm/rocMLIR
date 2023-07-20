@@ -278,27 +278,22 @@ TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
   Type elemType = loadBuffer.getType().cast<MemRefType>().getElementType();
   int64_t copyDPerThread = loadShape[1];
   int64_t copyKPerThread = loadShape[0];
+
   // We use kpackPerThread instead of kpack to cover edge cases where
   // copyKPerThread is smaller than kpack
   int64_t kpackPerThread = std::min(copyKPerThread, kpack);
-  int64_t kOuterPerThread = copyKPerThread / kpackPerThread;
-
-  TopDownTMBuilder packStore(b, {"k", "d"}, {copyKPerThread, copyDPerThread});
-  packStore.merge({"kouter", "kpack"}, {0, 2}, "k",
-                  {kOuterPerThread, kpackPerThread});
-  packStore.passThrough({"dPerThread"}, 1, {"d"});
-  TransformMapAttr packStoreAttr = packStore.get();
-  auto transformPacked = TopDownTMBuilder::below(packStore, packStoreAttr);
-  transformPacked.unmerge("rawStore", 0, {"kouter", "dPerThread", "kpack"},
-                          {kOuterPerThread, copyDPerThread, kpackPerThread});
-  TransformMapAttr transformPackedAttr = transformPacked.get();
-  auto storeIdx = b.getArrayAttr({packStoreAttr, transformPackedAttr});
 
   Value rawLoadBuffer;
   ArrayAttr loadBufferView;
   std::tie(rawLoadBuffer, loadBufferView) = untransform(b, loadBuffer);
   ArrayRef<int64_t> rawLoadBufferShape =
       rawLoadBuffer.getType().cast<ShapedType>().getShape();
+
+  Value rawStoreBuffer;
+  ArrayAttr storeBufferView;
+  std::tie(rawStoreBuffer, storeBufferView) = untransform(b, storeBuffer);
+  ArrayRef<int64_t> rawStoreBufferShape =
+      rawStoreBuffer.getType().cast<ShapedType>().getShape();
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> start(2, zero);
@@ -323,11 +318,12 @@ TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
     strides[0] = vecLen;
   }
   loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
+  storeBufferView = collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
 
   // Run the packing loop
   auto packLoop =
       b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
-                                  ArrayRef<Attribute>{loadBufferView, storeIdx},
+                                  ArrayRef<Attribute>{loadBufferView, storeBufferView},
                                   /*bounds=*/loadShape,
                                   /*strides=*/strides, false,
                                   /*useIndexDiffs=*/false);
@@ -338,7 +334,7 @@ TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
     auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
                                         packLoop.getLowerCoords(0));
 
-    b.create<InBoundsStoreOp>(loc, val, storeBuffer,
+    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
                               packLoop.getLowerCoords(1));
   }
   return packLoop;
@@ -409,32 +405,6 @@ static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
-
-static std::tuple<LowerDimPartInfo, LowerDimPartInfo> createTidSplits(StringRef dThreadName, int64_t dThreads, int64_t kThreads, bool isKContigousDim){
-  if(isKContigousDim){
-    LowerDimPartInfo kTidSplit({"k_thread"}, {1}, {kThreads});
-    LowerDimPartInfo dTidSplit({dThreadName}, {0}, {dThreads});
-    return {kTidSplit, dTidSplit};
-  }
-  else{
-    LowerDimPartInfo kTidSplit({"k_thread"}, {0}, {kThreads});
-    LowerDimPartInfo dTidSplit({dThreadName}, {1}, {dThreads});
-    return {kTidSplit, dTidSplit};
-  }
-}
-
-static std::tuple<LowerDimPartInfo, LowerDimPartInfo> createIterSplits(StringRef dIterName, int64_t dPerThread, int64_t kPerThread, bool isKContigousDim){
-  if(isKContigousDim){
-    LowerDimPartInfo kIterSplit({"k_iter"}, {1}, {kPerThread});
-    LowerDimPartInfo dIterSplit({dIterName}, {0}, {dPerThread});
-    return {kIterSplit, dIterSplit};
-  }
-  else{
-    LowerDimPartInfo kIterSplit({"k_iter"}, {0}, {kPerThread});
-    LowerDimPartInfo dIterSplit({dIterName}, {1}, {dPerThread});
-    return {kIterSplit, dIterSplit};
-  }
-}
 
 namespace {
 struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
@@ -630,18 +600,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    auto [aKDimTidPartInfo, mDimTidPartInfo] = createTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
-    auto [aKDimIterPartInfo, mDimIterPartInfo] = createIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
+    auto [aKDimTidPartInfo, mDimTidPartInfo] = createGlobalLdTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
+    auto [aKDimIterPartInfo, mDimIterPartInfo] = createGlobalLdIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
+    FailureOr<GPUViews> maybeABufferViews = createGemmInputTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
-    auto [bKDimTidPartInfo, nDimTidPartInfo] = createTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
-    auto [bKDimIterPartInfo, nDimIterPartInfo] = createIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
+    auto [bKDimTidPartInfo, nDimTidPartInfo] = createGlobalLdTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
+    auto [bKDimIterPartInfo, nDimIterPartInfo] = createGlobalLdIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
+    FailureOr<GPUViews> maybeBBufferViews = createGemmInputTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
@@ -700,13 +670,39 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr loadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadwiseView);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS vectorization
+    // Hence, creating the view w.r.t global that correspond to such re-arranged register
+    // buffer
+    auto [aKLdsStoreIterSplit, mLdsStoreiterSplit] = createLDSStoreIterSplits(aCopyKPerThread, copyMPerThread, kpack);
+    FailureOr<GPUViews> maybeALdsStoreViews = createGemmInputTileViews(
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKLdsStoreIterSplit, mLdsStoreiterSplit);
+    if (failed(maybeALdsStoreViews)) {
+      return failure();
+    }
+    ArrayAttr storeBufferAViews =
+        invertTransforms(b, loc, maybeALdsStoreViews->threadwiseView);
+    Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
-                                                 viewLoadBufferA, storeBufferA);
+                                                 viewLoadBufferA, viewStoreBufferA);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS vectorization
+    // Hence, creating the view w.r.t global that correspond to such re-arranged register
+    // buffer
+    auto [bKLdsStoreIterSplit, nLdsStoreiterSplit] = createLDSStoreIterSplits(bCopyKPerThread, copyNPerThread, kpack);
+    FailureOr<GPUViews> maybeBLdsStoreViews = createGemmInputTileViews(
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKLdsStoreIterSplit, nLdsStoreiterSplit);
+    if (failed(maybeBLdsStoreViews)) {
+      return failure();
+    }
+    ArrayAttr storeBufferBViews =
+        invertTransforms(b, loc, maybeBLdsStoreViews->threadwiseView);
+    Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
-                                                 viewLoadBufferB, storeBufferB);
+                                                 viewLoadBufferB, viewStoreBufferB);
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
@@ -965,18 +961,18 @@ struct GridwiseGemmAccelRewritePattern
                << "copyNPerThread: " << copyNPerThread << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    auto [aKDimTidPartInfo, mDimTidPartInfo] = createTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
-    auto [aKDimIterPartInfo, mDimIterPartInfo] = createIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeABufferViews = createGemmInputViewsFromGlobal(
+    auto [aKDimTidPartInfo, mDimTidPartInfo] = createGlobalLdTidSplits("m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread, aVectorDim == GemmDimension::K);
+    auto [aKDimIterPartInfo, mDimIterPartInfo] = createGlobalLdIterSplits("m_iter", copyMPerThread, aCopyKPerThread, aVectorDim == GemmDimension::K);
+    FailureOr<GPUViews> maybeABufferViews = createGemmInputTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
     Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
-    auto [bKDimTidPartInfo, nDimTidPartInfo] = createTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
-    auto [bKDimIterPartInfo, nDimIterPartInfo] = createIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeBBufferViews = createGemmInputViewsFromGlobal(
+    auto [bKDimTidPartInfo, nDimTidPartInfo] = createGlobalLdTidSplits("n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread, bVectorDim == GemmDimension::K);
+    auto [bKDimIterPartInfo, nDimIterPartInfo] = createGlobalLdIterSplits("n_iter", copyNPerThread, bCopyKPerThread, bVectorDim == GemmDimension::K);
+    FailureOr<GPUViews> maybeBBufferViews = createGemmInputTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
         blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
@@ -1022,17 +1018,36 @@ struct GridwiseGemmAccelRewritePattern
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
-    ArrayAttr loadBufferAViews =
+   ArrayAttr loadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadwiseView);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
+    auto [aKLdsStoreIterSplit, mLdsStoreiterSplit] = createLDSStoreIterSplits(aCopyKPerThread, copyMPerThread, kpack);
+    FailureOr<GPUViews> maybeALdsStoreViews = createGemmInputTileViews(
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo, aKLdsStoreIterSplit, mLdsStoreiterSplit);
+    if (failed(maybeALdsStoreViews)) {
+      return failure();
+    }
+    ArrayAttr storeBufferAViews =
+        invertTransforms(b, loc, maybeALdsStoreViews->threadwiseView);
+    Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(b, loc, elementTypeA, kpack,
-                                                 viewLoadBufferA, storeBufferA);
-
+                                                 viewLoadBufferA, viewStoreBufferA);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
+    auto [bKLdsStoreIterSplit, nLdsStoreiterSplit] = createLDSStoreIterSplits(bCopyKPerThread, copyNPerThread, kpack);
+    FailureOr<GPUViews> maybeBLdsStoreViews = createGemmInputTileViews(
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo, bKLdsStoreIterSplit, nLdsStoreiterSplit);
+    if (failed(maybeBLdsStoreViews)) {
+      return failure();
+    }
+    ArrayAttr storeBufferBViews =
+        invertTransforms(b, loc, maybeBLdsStoreViews->threadwiseView);
+    Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(b, loc, elementTypeB, kpack,
-                                                 viewLoadBufferB, storeBufferB);
+                                                 viewLoadBufferB, viewStoreBufferB);
 
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
