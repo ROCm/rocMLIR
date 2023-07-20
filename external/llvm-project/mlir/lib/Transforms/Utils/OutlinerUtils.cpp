@@ -17,7 +17,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/Dominance.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
@@ -33,14 +32,11 @@
 #include "llvm/ADT/SmallVector.h"
 #include <algorithm>
 #include <deque>
-#include <iostream>
 
 using llvm::SmallVector;
 using namespace mlir;
 
 #define DEBUG_TYPE "outliner-utility"
-
-#define FUSION_CAPACITY_DEFAULT 32
 
 static bool isZeroAttribute(Attribute value) {
   if (auto intValue = value.dyn_cast<IntegerAttr>())
@@ -59,184 +55,10 @@ static bool isZeroAttribute(Attribute value) {
 }
 
 bool mlir::isConstantZero(Operation *op) {
-  // Cheating, by assuming that constants will have "value" attribute.
   if (op->hasTrait<OpTrait::ConstantLike>()) {
     if (auto attr = op->getAttr("value"))
       return isZeroAttribute(attr);
   }
-  return false;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-// Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp
-// and mergeIdenticalBlocks() in Utils/RegionUtils.cpp.
-
-class OutliningCandidate {
-  SmallVector<Type, FUSION_CAPACITY_DEFAULT> params;
-  SmallVector<Operation *, FUSION_CAPACITY_DEFAULT> ops;
-  llvm::hash_code hash = 0;
-  func::FuncOp function;
-
-  void processOps();
-  unsigned addOp(Operation *op, unsigned orderIt);
-
-  /// Return the order index for the given value that is within the block of
-  /// this data.
-  unsigned getOrderOf(Value value) const;
-
-  /// A map of result producing operations to their relative orders within this
-  /// block. The order of an operation is the number of defined values that are
-  /// produced within the block before this operation.
-  DenseMap<Operation *, unsigned> opOrderIndex;
-
-  bool equivalent(const OutliningCandidate &that) const;
-  bool opsMatch(Operation *lhs, Operation *rhs,
-                const OutliningCandidate &two) const;
-
-public:
-  OutliningCandidate() = default;
-  OutliningCandidate(ArrayRef<Operation *> ops_, ArrayRef<Value> params_)
-      : ops(ops_) {
-    for (auto val : params_)
-      params.push_back(val.getType());
-    processOps();
-  }
-
-  void setFunction(func::FuncOp f) {
-    function = f;
-    auto type = f.getFunctionType();
-    params.assign(type.getInputs().begin(), type.getInputs().end());
-    ops.clear();
-    for (auto &op : f.getBody().getOps())
-      ops.push_back(&op);
-    ops.pop_back(); // drop the return
-    processOps();
-  }
-
-  llvm::hash_code getHash() const { return hash; }
-  func::FuncOp getFunction() const { return function; }
-
-  bool operator==(const OutliningCandidate &that) const {
-    return hash == that.hash && equivalent(that);
-  }
-  bool operator!=(const OutliningCandidate &that) const {
-    return !operator==(that);
-  }
-};
-
-/// A DenseMapInfo
-namespace llvm {
-template <>
-struct DenseMapInfo<OutliningCandidate, void> {
-  static OutliningCandidate getEmptyKey() { return OutliningCandidate(); }
-  static OutliningCandidate getTombstoneKey() { return OutliningCandidate(); }
-  static unsigned getHashValue(const OutliningCandidate &val) {
-    return val.getHash();
-  }
-  static bool isEqual(const OutliningCandidate &lhs,
-                      const OutliningCandidate &rhs) {
-    return lhs == rhs;
-  }
-};
-} // namespace llvm
-
-unsigned OutliningCandidate::addOp(Operation *op, unsigned orderIt) {
-  if (unsigned numResults = op->getNumResults()) {
-    opOrderIndex.try_emplace(op, orderIt);
-    orderIt += numResults;
-  }
-
-  auto opHash = OperationEquivalence::computeHash(
-      op, OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::IgnoreLocations);
-
-  hash = llvm::hash_combine(hash, opHash);
-
-  return orderIt;
-}
-
-void OutliningCandidate::processOps() {
-  hash = 0;
-  opOrderIndex.clear();
-  unsigned orderIt = params.size();
-  for (auto *op : ops) {
-    orderIt = addOp(op, orderIt);
-  }
-}
-
-unsigned OutliningCandidate::getOrderOf(Value value) const {
-  // Otherwise, the result order is offset from the parent op's order.
-  auto *definingOp = value.getDefiningOp();
-  if (definingOp) {
-    auto opOrderIt = opOrderIndex.find(definingOp);
-    // Candidate arguments will have a definingOp that won't be in opOrderIndex.
-    if (opOrderIt != opOrderIndex.end())
-      return opOrderIt->second + value.cast<OpResult>().getResultNumber();
-
-    for (unsigned i = 0; i < params.size(); i++) {
-      if (params[i] == value.getType())
-        return i;
-    }
-  }
-
-  return 0;
-}
-
-bool OutliningCandidate::opsMatch(Operation *lhs, Operation *rhs,
-                                  const OutliningCandidate &two) const {
-  // Check that the operations are equivalent.
-  if (!OperationEquivalence::isEquivalentTo(
-          lhs, rhs, OperationEquivalence::ignoreValueEquivalence, nullptr,
-          OperationEquivalence::Flags::IgnoreLocations))
-    return false;
-
-  // Compare the operands of the two operations. If the operand is within
-  // the block, it must refer to the same operation.
-  auto lhsOperands = lhs->getOperands(), rhsOperands = rhs->getOperands();
-  if (lhs->getNumOperands() != rhs->getNumOperands()) {
-    return false;
-  }
-  for (auto opnds : llvm::zip(lhsOperands, rhsOperands)) {
-    Value lhsOperand = std::get<0>(opnds);
-    Value rhsOperand = std::get<1>(opnds);
-    if (lhsOperand == rhsOperand)
-      continue;
-    // Check that the types of the operands match.
-    if (lhsOperand.getType() != rhsOperand.getType())
-      return false;
-
-    // Otherwise, these operands must have the same logical order within the
-    // parent block.
-    if (getOrderOf(lhsOperand) != two.getOrderOf(rhsOperand)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool OutliningCandidate::equivalent(const OutliningCandidate &that) const {
-  if (hash == that.hash) {
-    if (params.size() != that.params.size() || ops.size() != that.ops.size()) {
-      return false;
-    }
-    for (auto params : llvm::zip(params, that.params)) {
-      if (std::get<0>(params) != std::get<1>(params)) {
-        return false;
-      }
-    }
-    // get Result Types
-
-    for (auto opPair : llvm::zip(ops, that.ops)) {
-      if (!opsMatch(std::get<0>(opPair), std::get<1>(opPair), that)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   return false;
 }
 
@@ -420,21 +242,6 @@ public:
     return true;
   }
 
-  // Given an op and its fuse-able trailing (second) and leading
-  // (front) ops, remove them into a separate function.
-  func::FuncOp lookupOrCreate(DenseSet<OutliningCandidate> &candidates,
-                              StringRef attrName) const {
-    auto candidatePair = candidates.insert(
-        OutliningCandidate(_leadingOps.getArrayRef(), _inputs.getArrayRef()));
-    auto candidate = std::get<0>(candidatePair);
-    if (std::get<1>(candidatePair)) {
-      // Build outlined func.
-      // And update the candidate with the cloned ops for comparison.
-      candidate->setFunction(build(candidates.size() - 1, attrName));
-    }
-    return candidate->getFunction();
-  }
-
   // Build the outlined function.
   func::FuncOp build(uint32_t idx, StringRef attrName) const {
     func::FuncOp anchorFunc = _anchorOp->getParentOfType<func::FuncOp>();
@@ -508,7 +315,7 @@ public:
 
   // Given an op and its fuse-able trailing (second) and leading
   // (front) ops, remove them into a separate function.
-  void makeCall(func::FuncOp outlinedFunc) {
+  void call(func::FuncOp outlinedFunc) {
     OpBuilder b(_anchorOp);
     MLIRContext *ctx = _anchorOp->getContext();
     Location fusedLoc = FusedLoc::get(ctx, _locs);
@@ -532,10 +339,10 @@ private:
   Operation *_anchorOp;
   Block *_anchorBlock;
 
-  SmallVector<Location, FUSION_CAPACITY_DEFAULT> _locs;
+  SmallVector<Location> _locs;
 
-  typedef SmallVector<Value, FUSION_CAPACITY_DEFAULT> ValVec;
-  typedef SmallVector<Operation *, FUSION_CAPACITY_DEFAULT> OpVec;
+  typedef SmallVector<Value> ValVec;
+  typedef SmallVector<Operation *> OpVec;
   SetVector<Value, ValVec> _inputs;
   SetVector<Operation *, OpVec> _leadingOps;
   SetVector<Operation *, OpVec> _trailingOps;
@@ -554,34 +361,32 @@ void Outliner::outline(ModuleOp module) {
       continue;
 
     bool hasMemrefs = false;
+    auto hasMemref = [](Value v) { return isa<MemRefType>(v.getType()); };
     std::vector<Operation *> anchors;
-    auto callback = [&](Operation *op) {
-      for (auto operand : op->getOperands()) {
-        if (isa<MemRefType>(operand.getType()))
-          hasMemrefs = true;
-      }
-      for (auto result : op->getResults()) {
-        if (isa<MemRefType>(result.getType()))
-          hasMemrefs = true;
-      }
+    auto callback = [&](Operation *op) -> WalkResult {
+      hasMemrefs |= llvm::any_of(op->getOperands(), hasMemref);
+      hasMemrefs |= llvm::any_of(op->getResults(), hasMemref);
+      if (hasMemrefs)
+        return WalkResult::interrupt();
       if (isAnchorOp(op))
         anchors.push_back(op);
+      return WalkResult::advance();
     };
+
     // Gather the anchor ops so we can process them back-to-front.
     func.walk(callback);
 
     if (!hasMemrefs) {
+      uint32_t cnt = 0;
       // (Problems with node mismatches and unexpected uses if we have the
       // candidates list at module level.)
-      DenseSet<OutliningCandidate> candidates;
       for (auto anchorOp : llvm::make_early_inc_range(llvm::reverse(anchors))) {
         // Create an OutlineBuilder for each anchor op.
         OutlineBuilder builder(*this, anchorOp);
         builder.collect();
 
-        // Make the outlined function from the ops we've gathered.
-        auto outlinedFunc = builder.lookupOrCreate(candidates, outlineTag);
-        builder.makeCall(outlinedFunc);
+        // Make and call the outlined function from the ops we've collected.
+        builder.call(builder.build(cnt++, outlineTag));
       }
     }
   }
