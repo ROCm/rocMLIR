@@ -11,10 +11,10 @@
 // FP8-BF8-SAME: (%{{.*}}: memref<3x1024x769xf8E4M3FNUZ>, %{{.*}}: memref<3x769x512xf8E5M2FNUZ>, %{{.*}}: memref<3x1024x512xf32>)
 
 // CHECK-LABEL: func @host_naive_gemm
-// F16-SAME: (%{{.*}}: memref<3x1024x769xf32>, %{{.*}}: memref<3x769x512xf32>, %{{.*}}: memref<3x1024x512xf32>)
+// F16-SAME: (%{{.*}}: memref<3x1024x769xf16>, %{{.*}}: memref<3x769x512xf16>, %{{.*}}: memref<3x1024x512xf16>)
 // I8-SAME: (%{{.*}}: memref<3x1024x769xi8>, %{{.*}}: memref<3x769x512xi8>, %{{.*}}: memref<3x1024x512xi64>)
 // I8-I8-SAME: (%{{.*}}: memref<3x1024x769xi8>, %{{.*}}: memref<3x769x512xi8>, %{{.*}}: memref<3x1024x512xi64>)
-// FP8-BF8-SAME: (%{{.*}}: memref<3x1024x769xf32>, %{{.*}}: memref<3x769x512xf32>, %{{.*}}: memref<3x1024x512xf32>)
+// FP8-BF8-SAME: (%{{.*}}: memref<3x1024x769xf8E4M3FNUZ>, %{{.*}}: memref<3x769x512xf8E5M2FNUZ>, %{{.*}}: memref<3x1024x512xf32>)
 
 // FLOAT: arith.mulf
 // FLOAT-NEXT: arith.addf

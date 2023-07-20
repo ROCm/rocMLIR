@@ -955,7 +955,6 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_gpu";
   auto gpuWrapperFuncType = b.getFunctionType(kernel.params, {});
-
   auto gpuWrapperFunc =
       func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
@@ -1268,6 +1267,152 @@ getConv2dBounds(rock::ConvOpType dir,
   return std::make_tuple(dim, dimH, dimW);
 }
 
+static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
+                                      const MemRefType destType) {
+  OpBuilder b(module.getContext());
+
+  assert(srcType.getRank() <= 1 && "Memcopy takes 1-D sources");
+  assert(destType.getRank() <= 1 && "Memcopy takes 1-D destinations");
+
+  Type srcElemType = srcType.getElementType();
+  Type dstElemType = destType.getElementType();
+  // memcpy_<srcElemType>_<dstElemType>_(srcSize|any)
+  std::string funcName = "_memcpy_";
+  llvm::raw_string_ostream funcNameStr(funcName);
+  funcNameStr << srcElemType << "_" << dstElemType << "_";
+
+  int64_t numElements = -1;
+  if (srcType.hasStaticShape())
+    numElements = srcType.getNumElements();
+
+  if (numElements != -1)
+    funcNameStr << numElements;
+  else
+    funcNameStr << "any";
+
+  if ((numElements == -1 && !destType.hasStaticShape()) ||
+      numElements != destType.getNumElements())
+    assert(0 && "Called for an uneven memcpy");
+
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
+  if (func) // already exists
+    return func;
+
+  Location loc = b.getUnknownLoc();
+
+  // clang-format off
+  // func _memcpy_<srcElemType>_<dstElemType>_<size> (%arg0 : memref<sizexf32>, %arg1 : memref<sizexf16>) {
+  //   %size = memref.dim %arg0(%c0)
+  //   scf.for %i0 = %c0 to %size step %c1 {
+  //     %2 = load %arg0[%i0] : memref<?xf32>
+  //     store %2, %arg1[%i0] : memref<?xf32>
+  //   }
+  // }
+  // clang-format on
+
+  // Emit function definition
+  func = func::FuncOp::create(loc, funcName,
+                              b.getFunctionType({srcType, destType}, {}));
+
+  module.push_back(func);
+
+  // Create a new block
+  Block *block = func.addEntryBlock();
+  b.setInsertionPoint(block, block->begin());
+
+  auto src = block->getArgument(0);
+  auto dst = block->getArgument(1);
+
+  auto insertConversionLogic = [&](OpBuilder &opBuilder, Value loadOp) {
+    Value newLoadOp = loadOp;
+    if (srcElemType != dstElemType) {
+      // insert conversion logic
+      auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
+      auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
+      if (srcElemType.isIntOrIndex()) {
+        if (dstElemType.isIntOrIndex()) {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+        } else {
+          assert(dstElemType.isa<FloatType>());
+          newLoadOp =
+              opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
+        }
+      } else {
+        assert(srcElemType.isa<FloatType>());
+        if (dstElemType.isIntOrIndex()) {
+          newLoadOp =
+              opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
+        } else {
+          if (srcBitWidth < dstBitWidth)
+            newLoadOp =
+                opBuilder.create<arith::ExtFOp>(loc, dstElemType, loadOp);
+          else
+            newLoadOp =
+                opBuilder.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+        }
+      }
+    }
+    return newLoadOp;
+  };
+
+  if (srcType.getRank() == 1) {
+    auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
+    auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
+    auto size = b.create<memref::DimOp>(loc, src, cst0Op);
+
+    auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
+    auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
+    auto iv0 = loop0.getInductionVar();
+
+    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+    loadOp = insertConversionLogic(bt0, loadOp);
+    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+  } else {
+    Value loadOp = b.create<memref::LoadOp>(loc, src, ValueRange{});
+    loadOp = insertConversionLogic(b, loadOp);
+    b.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{});
+  }
+
+  b.create<func::ReturnOp>(loc, ValueRange{});
+
+  return func;
+}
+
+static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
+  auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
+  auto loc = b.getUnknownLoc();
+
+  Value srcFlat = makeNDMemRef(b, src, 1);
+  Value dstFlat = makeNDMemRef(b, dst, 1);
+  auto srcFlatType = srcFlat.getType().cast<MemRefType>();
+  auto dstFlatType = dstFlat.getType().cast<MemRefType>();
+
+  if (srcFlatType == dstFlatType) {
+    b.create<memref::CopyOp>(loc, srcFlat, dstFlat);
+  } else {
+    auto memcpyFunc = getMemcpyFuncDecl(module, srcFlatType, dstFlatType);
+    b.create<func::CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
+  }
+}
+
+Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
+  auto refType = ref.getType().template dyn_cast<MemRefType>();
+  Type refElemType = refType.getElementType();
+  if (!refElemType.isa<FloatType>() || refElemType.isF32())
+    return ref;
+  Value refFlat = makeNDMemRef(b, ref, 1);
+  auto f32NewType = MemRefType::get(refType.getShape(), floatType);
+  auto refNew = b.create<memref::AllocOp>(loc, f32NewType);
+  Value refNewFlat = makeNDMemRef(b, refNew, 1);
+  emitMemcpy(b, refFlat, refNewFlat);
+  return refNew;
+}
+
 static void
 createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
                       const rock::Conv2dGenerator::Config &genConfig) {
@@ -1402,6 +1547,32 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   }
 
+  Value opd1, opd2, result;
+
+  switch (genConfig.operation.value()) {
+  case rock::ConvOpType::Fwd:
+    opd1 = block->getArgument(0);
+    opd2 = block->getArgument(1);
+    result = block->getArgument(2);
+    break;
+  case rock::ConvOpType::BwdWeight:
+    opd1 = block->getArgument(2);
+    opd2 = block->getArgument(1);
+    result = block->getArgument(0);
+    break;
+  case rock::ConvOpType::BwdData:
+    opd1 = block->getArgument(0);
+    opd2 = block->getArgument(2);
+    result = block->getArgument(1);
+    break;
+  }
+
+  auto floatType = b.getF32Type();
+
+  opd1 = ensureFloatIsF32(b, loc, opd1, floatType);
+  opd2 = ensureFloatIsF32(b, loc, opd2, floatType);
+  result = ensureFloatIsF32(b, loc, result, floatType);
+
   auto createConv2dLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
     Value heightIdx, widthIdx;
     Value heightTempIdx, widthTempIdx;
@@ -1500,31 +1671,21 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
     // Perform MAC operation
     SmallVector<Value, 5> idx1, idx2;
-    BlockArgument opd1, opd2, result;
-
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
       getIndices(FILTER, idx1);
       getIndices(INPUT, idx2);
-      opd1 = block->getArgument(0);
-      opd2 = block->getArgument(1);
-      result = block->getArgument(2);
       break;
     case rock::ConvOpType::BwdWeight:
       getIndices(OUTPUT, idx1);
       getIndices(INPUT, idx2);
-      opd1 = block->getArgument(2);
-      opd2 = block->getArgument(1);
-      result = block->getArgument(0);
       break;
     case rock::ConvOpType::BwdData:
       getIndices(FILTER, idx1);
       getIndices(OUTPUT, idx2);
-      opd1 = block->getArgument(0);
-      opd2 = block->getArgument(2);
-      result = block->getArgument(1);
       break;
     }
+
     llvm::ArrayRef<Value> idxRef1(idx1.data(), idx1.size());
     auto loadOp1 =
         thenBody.create<memref::LoadOp>(loc, opd1, ValueRange{idxRef1});
@@ -1553,8 +1714,29 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
                               createConv2dLoopNest);
 
+  if (!opd1.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, opd1);
+  if (!opd2.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, opd2);
+  if (!result.dyn_cast<BlockArgument>()) {
+    BlockArgument resultBlockArg;
+    switch (genConfig.operation.value()) {
+    case rock::ConvOpType::Fwd:
+      resultBlockArg = block->getArgument(2);
+      break;
+    case rock::ConvOpType::BwdWeight:
+      resultBlockArg = block->getArgument(0);
+      break;
+    case rock::ConvOpType::BwdData:
+      resultBlockArg = block->getArgument(1);
+      break;
+    }
+
+    Value resultFlat = makeNDMemRef(b, result, 1);
+    emitMemcpy(b, resultFlat, resultBlockArg);
+  }
+
   b.create<func::ReturnOp>(loc, ValueRange{});
-  return;
 }
 
 static void
@@ -1572,10 +1754,20 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
     elemType = b.getI8Type();
   }
 
+  Value filter = block->getArgument(0);
+  Value input = block->getArgument(1);
+  Value output = block->getArgument(2);
+
+  auto floatType = b.getF32Type();
+
+  filter = ensureFloatIsF32(b, loc, filter, floatType);
+  input = ensureFloatIsF32(b, loc, input, floatType);
+  output = ensureFloatIsF32(b, loc, output, floatType);
+
   auto filterType =
-      block->getArgument(0).getType().template dyn_cast<MemRefType>();
+      filter.getType().template dyn_cast<MemRefType>();
   auto outputType =
-      block->getArgument(2).getType().template dyn_cast<MemRefType>();
+      output.getType().template dyn_cast<MemRefType>();
   // Emit memref_cast.
   // %a0 = memref_cast %arg0 : memref<128x8x3x3xf32> to memref<*xf32>
   // %a1 = memref_cast %arg1 : memref<128x8x32x32xf32> to memref<*xf32>
@@ -1587,11 +1779,11 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
       UnrankedMemRefType::get(outputType.getElementType(), 0);
 
   auto filterMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(0));
+      b.create<memref::CastOp>(loc, unrankedMemRefType, filter);
   auto inputMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(1));
-  auto outputMemRefCastOp = b.create<memref::CastOp>(
-      loc, unrankedMemRefOutputType, block->getArgument(2));
+      b.create<memref::CastOp>(loc, unrankedMemRefType, input);
+  auto outputMemRefCastOp =
+      b.create<memref::CastOp>(loc, unrankedMemRefOutputType, output);
 
   // Emit ConstantOps to be used for strides, paddings and dilations
   auto intType = b.getIntegerType(32);
@@ -1746,6 +1938,16 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
                  dilationWidthConstantOp, accelConstantOp});
 
+  if (!filter.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, filter);
+  if (!input.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, input);
+  if (!output.dyn_cast<BlockArgument>()) {
+    BlockArgument resultBlockArg = block->getArgument(2);
+    Value resultFlat = makeNDMemRef(b, output, 1);
+    emitMemcpy(b, resultFlat, resultBlockArg);
+  }
+
   // Emit return op
   b.create<func::ReturnOp>(loc, ValueRange{});
   return;
@@ -1766,8 +1968,10 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  Type elemType = b.getF32Type();
-  Type outputElemType = b.getF32Type();
+  Type elemType = typeFromString(genConfig.inputDataTypeStr, module.getContext());
+  Type outputElemType =
+      typeFromString(genConfig.outputDataTypeStr, module.getContext());
+
   if (genConfig.inputDataTypeStr == "i8") {
     elemType = b.getI8Type();
     // Compute the output in int64_t to detect overflow
@@ -1891,25 +2095,27 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   Location loc = module->getLoc();
 
   SmallVector<Type, 3> cpuTypes = params.types;
-  // Raise floats to f32
-  for (Type &type : cpuTypes) {
-    if (type.isa<FloatType>())
-      type = b.getF32Type();
-  }
-
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
   auto func =
       b.create<func::FuncOp>(loc, cpuKernName, b.getFunctionType(argTypes, {}));
+  module.push_back(func);
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
 
   Value aVal = block->getArgument(0), bVal = block->getArgument(1),
         cVal = block->getArgument(2);
-  auto cType = argTypes[2].cast<MemRefType>();
+
+  auto floatType = b.getF32Type();
+
+  aVal = ensureFloatIsF32(b, loc, aVal, floatType);
+  bVal = ensureFloatIsF32(b, loc, bVal, floatType);
+  cVal = ensureFloatIsF32(b, loc, cVal, floatType);
+
+  auto cType = cVal.getType().cast<MemRefType>();
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
   b.create<linalg::FillOp>(loc, zeroOut, cVal);
@@ -1944,138 +2150,19 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
           builder.create<linalg::YieldOp>(loc, add);
         }
       });
-  b.create<func::ReturnOp>(loc);
-  module.push_back(func);
-  return func;
-}
 
-static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
-                                      const MemRefType destType) {
-  OpBuilder b(module.getContext());
-
-  assert(srcType.getRank() <= 1 && "Memcopy takes 1-D sources");
-  assert(destType.getRank() <= 1 && "Memcopy takes 1-D destinations");
-
-  Type srcElemType = srcType.getElementType();
-  Type dstElemType = destType.getElementType();
-  // memcpy_<srcElemType>_<dstElemType>_(srcSize|any)
-  std::string funcName = "_memcpy_";
-  llvm::raw_string_ostream funcNameStr(funcName);
-  funcNameStr << srcElemType << "_" << dstElemType << "_";
-
-  int64_t numElements = -1;
-  if (srcType.hasStaticShape())
-    numElements = srcType.getNumElements();
-
-  if (numElements != -1)
-    funcNameStr << numElements;
-  else
-    funcNameStr << "any";
-
-  if ((numElements == -1 && !destType.hasStaticShape()) ||
-      numElements != destType.getNumElements())
-    assert(0 && "Called for an uneven memcpy");
-
-  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
-  if (func) // already exists
-    return func;
-
-  Location loc = b.getUnknownLoc();
-
-  // clang-format off
-  // func _memcpy_<srcElemType>_<dstElemType>_<size> (%arg0 : memref<sizexf32>, %arg1 : memref<sizexf16>) {
-  //   %size = memref.dim %arg0(%c0)
-  //   scf.for %i0 = %c0 to %size step %c1 {
-  //     %2 = load %arg0[%i0] : memref<?xf32>
-  //     store %2, %arg1[%i0] : memref<?xf32>
-  //   }
-  // }
-  // clang-format on
-
-  // Emit function definition
-  func = func::FuncOp::create(loc, funcName,
-                              b.getFunctionType({srcType, destType}, {}));
-
-  module.push_back(func);
-
-  // Create a new block
-  Block *block = func.addEntryBlock();
-  b.setInsertionPoint(block, block->begin());
-
-  auto src = block->getArgument(0);
-  auto dst = block->getArgument(1);
-
-  auto insertConversionLogic = [&](OpBuilder &opBuilder, Value loadOp) {
-    Value newLoadOp = loadOp;
-    if (srcElemType != dstElemType) {
-      // insert conversion logic
-      auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
-      auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-      if (srcElemType.isIntOrIndex()) {
-        if (dstElemType.isIntOrIndex()) {
-          if (srcBitWidth < dstBitWidth)
-            newLoadOp =
-                opBuilder.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
-          else
-            newLoadOp =
-                opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
-        } else {
-          assert(dstElemType.isa<FloatType>());
-          newLoadOp =
-              opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
-        }
-      } else {
-        assert(srcElemType.isa<FloatType>());
-        if (dstElemType.isIntOrIndex()) {
-          newLoadOp =
-              opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
-        } else {
-          if (srcBitWidth < dstBitWidth)
-            newLoadOp =
-                opBuilder.create<arith::ExtFOp>(loc, dstElemType, loadOp);
-          else
-            newLoadOp =
-                opBuilder.create<arith::TruncFOp>(loc, dstElemType, loadOp);
-        }
-      }
-    }
-    return newLoadOp;
-  };
-
-  if (srcType.getRank() == 1) {
-    auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
-    auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
-    auto size = b.create<memref::DimOp>(loc, src, cst0Op);
-
-    auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
-    auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
-    auto iv0 = loop0.getInductionVar();
-
-    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
-    loadOp = insertConversionLogic(bt0, loadOp);
-    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
-  } else {
-    Value loadOp = b.create<memref::LoadOp>(loc, src, ValueRange{});
-    loadOp = insertConversionLogic(b, loadOp);
-    b.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{});
+  if (!aVal.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, aVal);
+  if (!bVal.dyn_cast<BlockArgument>())
+    b.create<memref::DeallocOp>(loc, bVal);
+  if (!cVal.dyn_cast<BlockArgument>()) {
+    BlockArgument resultBlockArg = block->getArgument(2);
+    Value resultFlat = makeNDMemRef(b, cVal, 1);
+    emitMemcpy(b, resultFlat, resultBlockArg);
   }
 
-  b.create<func::ReturnOp>(loc, ValueRange{});
-
+  b.create<func::ReturnOp>(loc);
   return func;
-}
-
-static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
-  auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
-  auto loc = b.getUnknownLoc();
-
-  Value srcFlat = makeNDMemRef(b, src, 1);
-  Value dstFlat = makeNDMemRef(b, dst, 1);
-  auto srcFlatType = srcFlat.getType().cast<MemRefType>();
-  auto dstFlatType = dstFlat.getType().cast<MemRefType>();
-  auto memcpyFunc = getMemcpyFuncDecl(module, srcFlatType, dstFlatType);
-
-  b.create<func::CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
 }
 
 static void emitPrintTensor(OpBuilder &b, Value var) {
@@ -2197,29 +2284,27 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
-  if (valElemType.isF32()) {
+  if (valElemType.isa<FloatType>()) {
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
              valElemType.isInteger(64)) {
     verifyFuncName +=
         "Int" + std::to_string(testElemType.getIntOrFloatBitWidth()) + "Int" +
         std::to_string(valElemType.getIntOrFloatBitWidth());
-  } else {
-    llvm::errs() << "Unsupported type of validation function output: ";
-    llvm::errs() << " (Only f32, int32 and int64 are supported)\n";
-    exit(1);
   }
 
   auto mr1DUnkTestType =
       MemRefType::get({mlir::ShapedType::kDynamic}, testElemType);
   auto mr1DUnkValType =
       MemRefType::get({mlir::ShapedType::kDynamic}, valElemType);
+  auto mr1DUnkF32Type =
+      MemRefType::get({mlir::ShapedType::kDynamic}, floatType);
 
   bool isTestAndValSameType =
       (testElemType.isIntOrIndex() || testElemType.isF32());
 
   Value testResult, valResult; // Values passed to the verify function
-  Value testResultNew;         // Values used for type conversion
+  Value testResultNew, valResultNew; // Values used for type conversion
   if (!isTestAndValSameType) {
     // When gpu kernel output data type = f16 | bf16, type conversions
     // are required before calling the verify function
@@ -2232,10 +2317,19 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     // %5 = memref.cast %0 : memref<802816xf32> to memref<?x?x?x?x?xf32>
     // clang-format on
 
-    testResultNew = b.create<memref::AllocOp>(loc, valFlatType);
+    auto f32FlatType = MemRefType::get(valFlatType.getShape(), floatType);
+    testResultNew = b.create<memref::AllocOp>(loc, f32FlatType);
     emitMemcpy(b, testFlat, testResultNew);
-    testResult = b.create<memref::CastOp>(loc, mr1DUnkValType, testResultNew);
-    mr1DUnkTestType = mr1DUnkValType;
+    testResult = b.create<memref::CastOp>(loc, mr1DUnkF32Type, testResultNew);
+    mr1DUnkTestType = mr1DUnkF32Type;
+    if (!valElemType.isF32()) {
+      valResultNew = b.create<memref::AllocOp>(loc, f32FlatType);
+      emitMemcpy(b, valFlat, valResultNew);
+      valResult = b.create<memref::CastOp>(loc, mr1DUnkF32Type, valResultNew);
+      mr1DUnkValType = mr1DUnkF32Type;
+    } else {
+      valResult = b.create<memref::CastOp>(loc, mr1DUnkValType, valFlat);
+    }
 
     // Cast valid result down to the same type as test result and cast back
     //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
@@ -2271,10 +2365,10 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     }
   } else {
     testResult = b.create<memref::CastOp>(loc, mr1DUnkTestType, testFlat);
+    valResult = b.create<memref::CastOp>(loc, mr1DUnkValType, valFlat);
   }
 
   // Prepare the validation result for the verify function
-  valResult = b.create<memref::CastOp>(loc, mr1DUnkValType, valFlat);
   // Declare and call the wrapper verify function
   func::FuncOp verifyFuncDecl;
 
@@ -2425,16 +2519,6 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       std::string kernelBaseName = genConfig.kernelBaseName;
       llvm::errs() << kernelBaseName << "\n";
       for (int i = kernelStart; i < kernelCount; ++i) {
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        KernelIF kernel(conv2dGenerator.getKernelFunc());
-        rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
         rock::Conv2dGenerator originalConv2dGenerator(genConfig);
@@ -2451,6 +2535,16 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         if (originalHasWorkspace && !verifierHasWorkspace) {
           valVars.resize(valVars.size() - 1);
         }
+
+        // Make the kernel and its wrapper function, and call it.
+        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                                 /*ignoreTuning=*/true))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        KernelIF kernel(conv2dGenerator.getKernelFunc());
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
         b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
@@ -2473,7 +2567,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         newParams.types = SmallVector<Type>(3, b.getF32Type());
 
       KernelIF kernel(
-          createGpuGemmKernel(module, newParams, /*is_verifier=*/true));
+          createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
       auto kernelWrapperFunc = createGPUWrapper(module, kernel);
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
@@ -2610,8 +2704,8 @@ static LogicalResult populateHostHarnessLogic(
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
-      assert(elemType.isF32() || elemType.isInteger(8) ||
-             elemType.isInteger(32) || elemType.isInteger(64));
+//       assert(elemType.isF32() || elemType.isInteger(8) ||
+//              elemType.isInteger(32) || elemType.isInteger(64));
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
           elemType = genParams.types[idx];
@@ -2632,7 +2726,7 @@ static LogicalResult populateHostHarnessLogic(
         return failure();
     }
 
-    if (hasValidation || (isCPUKernel && (isSmallFloatIn))) {
+    if (hasValidation || (isCPUKernel && isSmallFloatIn)) {
       // Emit validation var
       Type valElemType = floatType;
       if (genParams.operation.has_value() && elemType.isa<IntegerType>()) {
@@ -2644,7 +2738,11 @@ static LogicalResult populateHostHarnessLogic(
       } else if ((genValidation == "clone") || elemType.isInteger(8) ||
                  elemType.isInteger(32)) {
         valElemType = elemType;
+      } else if (!gpuValidation && isSmallFloatIn &&
+                 genParams.operation.has_value()) {
+        valElemType = elemType;
       }
+
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
       valVars.push_back(vvar);
