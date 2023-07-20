@@ -129,61 +129,72 @@ Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
   return VectorType::get({len}, elementType);
 }
 
-static SmallVector<unsigned> getOutDimIndices(int64_t outDimStartIdx, int64_t newDimSize){
+static SmallVector<unsigned> getOutDimIndices(int64_t outDimStartIdx,
+                                              int64_t newDimSize) {
   SmallVector<unsigned> outDims;
-  for (int i=0; i < newDimSize; i++){
+  for (int i = 0; i < newDimSize; i++) {
     outDims.push_back(outDimStartIdx + i);
   }
   return outDims;
 }
 
-static std::tuple<SmallVector<StringRef>,SmallVector<int64_t>> getCombinedOrder(const LowerDimPartInfo& lhs, const LowerDimPartInfo& rhs){
-  llvm::SmallDenseMap<int64_t,std::tuple<StringRef,int64_t>> ordered;
-  for(auto [dimPartName, dimPartOrderIdx, dimPartSize] : llvm::zip(lhs.lowerDimPartNames, lhs.lowerDimPartOrder, lhs.lowerDimPartSizes)){
+static std::tuple<SmallVector<StringRef>, SmallVector<int64_t>>
+getCombinedOrder(const LowerDimPartInfo &lhs, const LowerDimPartInfo &rhs) {
+  llvm::SmallDenseMap<int64_t, std::tuple<StringRef, int64_t>> ordered;
+  for (auto [dimPartName, dimPartOrderIdx, dimPartSize] :
+       llvm::zip(lhs.lowerDimPartNames, lhs.lowerDimPartOrder,
+                 lhs.lowerDimPartSizes)) {
     ordered[dimPartOrderIdx] = {dimPartName, dimPartSize};
   }
-  for(auto [dimPartName, dimPartOrderIdx, dimPartSize] : llvm::zip(rhs.lowerDimPartNames, rhs.lowerDimPartOrder, rhs.lowerDimPartSizes)){
+  for (auto [dimPartName, dimPartOrderIdx, dimPartSize] :
+       llvm::zip(rhs.lowerDimPartNames, rhs.lowerDimPartOrder,
+                 rhs.lowerDimPartSizes)) {
     ordered[dimPartOrderIdx] = {dimPartName, dimPartSize};
   }
   SmallVector<StringRef> orderedNames;
   SmallVector<int64_t> orderedSizes;
-  for(int i=0; i < ordered.size(); i++){
+  for (int i = 0; i < ordered.size(); i++) {
     orderedNames.push_back(std::get<0>(ordered[i]));
     orderedSizes.push_back(std::get<1>(ordered[i]));
   }
   return {std::move(orderedNames), std::move(orderedSizes)};
 }
 
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> mlir::rock::createGlobalLdTidSplits(StringRef dThreadName, int64_t dThreads, int64_t kThreads, bool isKContigousDim){
-  if(isKContigousDim){
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+mlir::rock::createGlobalLdTidSplits(StringRef dThreadName, int64_t dThreads,
+                                    int64_t kThreads, bool isKContigousDim) {
+  if (isKContigousDim) {
     LowerDimPartInfo kTidSplit{{"k_thread"}, {1}, {kThreads}};
     LowerDimPartInfo dTidSplit{{dThreadName}, {0}, {dThreads}};
     return {kTidSplit, dTidSplit};
-  }
-  else{
+  } else {
     LowerDimPartInfo kTidSplit{{"k_thread"}, {0}, {kThreads}};
     LowerDimPartInfo dTidSplit{{dThreadName}, {1}, {dThreads}};
     return {kTidSplit, dTidSplit};
   }
 }
 
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> mlir::rock::createGlobalLdIterSplits(StringRef dIterName, int64_t dPerThread, int64_t kPerThread, bool isKContigousDim){
-  if(isKContigousDim){
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+mlir::rock::createGlobalLdIterSplits(StringRef dIterName, int64_t dPerThread,
+                                     int64_t kPerThread, bool isKContigousDim) {
+  if (isKContigousDim) {
     LowerDimPartInfo kIterSplit{{"k_iter"}, {1}, {kPerThread}};
     LowerDimPartInfo dIterSplit{{dIterName}, {0}, {dPerThread}};
     return {kIterSplit, dIterSplit};
-  }
-  else{
+  } else {
     LowerDimPartInfo kIterSplit{{"k_iter"}, {0}, {kPerThread}};
     LowerDimPartInfo dIterSplit{{dIterName}, {1}, {dPerThread}};
     return {kIterSplit, dIterSplit};
   }
 }
 
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> mlir::rock::createLDSStoreIterSplits(int64_t kPerThread, int64_t dPerThread, int64_t kpack){
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+mlir::rock::createLDSStoreIterSplits(int64_t kPerThread, int64_t dPerThread,
+                                     int64_t kpack) {
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   int64_t kOuterPerThread = kPerThread / kpackPerThread;
-  LowerDimPartInfo kIterSplit{{"kouter", "kpack"}, {0, 2}, {kOuterPerThread, kpackPerThread}};
+  LowerDimPartInfo kIterSplit{
+      {"kouter", "kpack"}, {0, 2}, {kOuterPerThread, kpackPerThread}};
   LowerDimPartInfo dIterSplit{{"dPerThread"}, {1}, {dPerThread}};
   return {kIterSplit, dIterSplit};
 }
@@ -192,10 +203,8 @@ FailureOr<GPUViews> mlir::rock::createGemmInputTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
-    LowerDimPartInfo kDimTidPartInfo, 
-    LowerDimPartInfo dDimTidPartInfo,
-    LowerDimPartInfo kDimIterPartInfo, 
-    LowerDimPartInfo dDimIterPartInfo) {
+    LowerDimPartInfo kDimTidPartInfo, LowerDimPartInfo dDimTidPartInfo,
+    LowerDimPartInfo kDimIterPartInfo, LowerDimPartInfo dDimIterPartInfo) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -220,37 +229,45 @@ FailureOr<GPUViews> mlir::rock::createGemmInputTileViews(
          blockSize, dataPerThread},
         loc);
     gridwiseSplitId.passThrough({"k_loop", "g_block", "m_block", "n_block"});
-    auto [tidDimNames, tidDimSizes] = getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
-    gridwiseSplitId.merge(tidDimNames, 
-                          getOutDimIndices(4, tidDimNames.size()),
-                          "tid", 
-                          tidDimSizes);
-    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
-    gridwiseSplitId.merge(iterDimNames, 
-                          getOutDimIndices(4 + tidDimNames.size(), iterDimNames.size()),
-                          "iter", 
-                          iterDimSizes);
+    auto [tidDimNames, tidDimSizes] =
+        getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
+    gridwiseSplitId.merge(tidDimNames, getOutDimIndices(4, tidDimNames.size()),
+                          "tid", tidDimSizes);
+    auto [iterDimNames, iterDimSizes] =
+        getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    gridwiseSplitId.merge(
+        iterDimNames,
+        getOutDimIndices(4 + tidDimNames.size(), iterDimNames.size()), "iter",
+        iterDimSizes);
 
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     {
-      SmallVector<StringRef, 3> kSubDimNames {"k_loop"};
-      kSubDimNames.append(kDimTidPartInfo.lowerDimPartNames.begin(), kDimTidPartInfo.lowerDimPartNames.end());
-      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(), kDimIterPartInfo.lowerDimPartNames.end());
-      SmallVector<int64_t, 3> kSubDimSizes {kIters};
-      kSubDimSizes.append(kDimTidPartInfo.lowerDimPartSizes.begin(), kDimTidPartInfo.lowerDimPartSizes.end());
-      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(), kDimIterPartInfo.lowerDimPartSizes.end());
+      SmallVector<StringRef, 3> kSubDimNames{"k_loop"};
+      kSubDimNames.append(kDimTidPartInfo.lowerDimPartNames.begin(),
+                          kDimTidPartInfo.lowerDimPartNames.end());
+      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(),
+                          kDimIterPartInfo.lowerDimPartNames.end());
+      SmallVector<int64_t, 3> kSubDimSizes{kIters};
+      kSubDimSizes.append(kDimTidPartInfo.lowerDimPartSizes.begin(),
+                          kDimTidPartInfo.lowerDimPartSizes.end());
+      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(),
+                          kDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge("k", 1, kSubDimNames, kSubDimSizes);
     }
 
     {
-      SmallVector<StringRef, 3> dSubDimNames {thisBlockDim};
-      dSubDimNames.append(dDimTidPartInfo.lowerDimPartNames.begin(), dDimTidPartInfo.lowerDimPartNames.end());
-      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(), dDimIterPartInfo.lowerDimPartNames.end());
-      SmallVector<int64_t, 3> dSubDimSizes {dGlobal / dPerBlock};
-      dSubDimSizes.append(dDimTidPartInfo.lowerDimPartSizes.begin(), dDimTidPartInfo.lowerDimPartSizes.end());
-      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(), dDimIterPartInfo.lowerDimPartSizes.end());
+      SmallVector<StringRef, 3> dSubDimNames{thisBlockDim};
+      dSubDimNames.append(dDimTidPartInfo.lowerDimPartNames.begin(),
+                          dDimTidPartInfo.lowerDimPartNames.end());
+      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(),
+                          dDimIterPartInfo.lowerDimPartNames.end());
+      SmallVector<int64_t, 3> dSubDimSizes{dGlobal / dPerBlock};
+      dSubDimSizes.append(dDimTidPartInfo.lowerDimPartSizes.begin(),
+                          dDimTidPartInfo.lowerDimPartSizes.end());
+      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(),
+                          dDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge(dName, 2, dSubDimNames, dSubDimSizes);
     }
     toGlobalIdx.ignore(otherBlockDim);
@@ -260,34 +277,42 @@ FailureOr<GPUViews> mlir::rock::createGemmInputTileViews(
   {
     TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
                                       {blockSize, dataPerThread}, loc);
-    auto [tidDimNames, tidDimSizes] = getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
-    blockwiseSplitId.merge(tidDimNames, 
-                          getOutDimIndices(0, tidDimNames.size()),
-                          "tid", 
-                          tidDimSizes);
-    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
-    blockwiseSplitId.merge(iterDimNames, 
-                          getOutDimIndices(0 + tidDimNames.size(), iterDimNames.size()),
-                          "iter", 
-                          iterDimSizes);
+    auto [tidDimNames, tidDimSizes] =
+        getCombinedOrder(kDimTidPartInfo, dDimTidPartInfo);
+    blockwiseSplitId.merge(tidDimNames, getOutDimIndices(0, tidDimNames.size()),
+                           "tid", tidDimSizes);
+    auto [iterDimNames, iterDimSizes] =
+        getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    blockwiseSplitId.merge(
+        iterDimNames,
+        getOutDimIndices(0 + tidDimNames.size(), iterDimNames.size()), "iter",
+        iterDimSizes);
     TransformMapAttr splitIdAttr = blockwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
     {
       SmallVector<StringRef, 3> kSubDimNames;
-      kSubDimNames.append(kDimTidPartInfo.lowerDimPartNames.begin(), kDimTidPartInfo.lowerDimPartNames.end());
-      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(), kDimIterPartInfo.lowerDimPartNames.end());
+      kSubDimNames.append(kDimTidPartInfo.lowerDimPartNames.begin(),
+                          kDimTidPartInfo.lowerDimPartNames.end());
+      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(),
+                          kDimIterPartInfo.lowerDimPartNames.end());
       SmallVector<int64_t, 3> kSubDimSizes;
-      kSubDimSizes.append(kDimTidPartInfo.lowerDimPartSizes.begin(), kDimTidPartInfo.lowerDimPartSizes.end());
-      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(), kDimIterPartInfo.lowerDimPartSizes.end());
+      kSubDimSizes.append(kDimTidPartInfo.lowerDimPartSizes.begin(),
+                          kDimTidPartInfo.lowerDimPartSizes.end());
+      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(),
+                          kDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge("k", 0, kSubDimNames, kSubDimSizes);
     }
     {
       SmallVector<StringRef, 3> dSubDimNames;
-      dSubDimNames.append(dDimTidPartInfo.lowerDimPartNames.begin(), dDimTidPartInfo.lowerDimPartNames.end());
-      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(), dDimIterPartInfo.lowerDimPartNames.end());
+      dSubDimNames.append(dDimTidPartInfo.lowerDimPartNames.begin(),
+                          dDimTidPartInfo.lowerDimPartNames.end());
+      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(),
+                          dDimIterPartInfo.lowerDimPartNames.end());
       SmallVector<int64_t, 3> dSubDimSizes;
-      dSubDimSizes.append(dDimTidPartInfo.lowerDimPartSizes.begin(), dDimTidPartInfo.lowerDimPartSizes.end());
-      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(), dDimIterPartInfo.lowerDimPartSizes.end());
+      dSubDimSizes.append(dDimTidPartInfo.lowerDimPartSizes.begin(),
+                          dDimTidPartInfo.lowerDimPartSizes.end());
+      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(),
+                          dDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge(dName, 1, dSubDimNames, dSubDimSizes);
     }
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
@@ -295,25 +320,29 @@ FailureOr<GPUViews> mlir::rock::createGemmInputTileViews(
   }
   {
     TopDownTMBuilder threadwiseSplitId(b, {"iter"}, {dataPerThread}, loc);
-    auto [iterDimNames, iterDimSizes] = getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
-    threadwiseSplitId.merge(iterDimNames, 
-                          getOutDimIndices(0, iterDimNames.size()),
-                          "iter", 
-                          iterDimSizes);
+    auto [iterDimNames, iterDimSizes] =
+        getCombinedOrder(kDimIterPartInfo, dDimIterPartInfo);
+    threadwiseSplitId.merge(iterDimNames,
+                            getOutDimIndices(0, iterDimNames.size()), "iter",
+                            iterDimSizes);
     TransformMapAttr splitIdAttr = threadwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
     {
       SmallVector<StringRef, 3> kSubDimNames;
-      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(), kDimIterPartInfo.lowerDimPartNames.end());
+      kSubDimNames.append(kDimIterPartInfo.lowerDimPartNames.begin(),
+                          kDimIterPartInfo.lowerDimPartNames.end());
       SmallVector<int64_t, 3> kSubDimSizes;
-      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(), kDimIterPartInfo.lowerDimPartSizes.end());
+      kSubDimSizes.append(kDimIterPartInfo.lowerDimPartSizes.begin(),
+                          kDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge("k", 0, kSubDimNames, kSubDimSizes);
     }
     {
       SmallVector<StringRef, 3> dSubDimNames;
-      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(), dDimIterPartInfo.lowerDimPartNames.end());
+      dSubDimNames.append(dDimIterPartInfo.lowerDimPartNames.begin(),
+                          dDimIterPartInfo.lowerDimPartNames.end());
       SmallVector<int64_t, 3> dSubDimSizes;
-      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(), dDimIterPartInfo.lowerDimPartSizes.end());
+      dSubDimSizes.append(dDimIterPartInfo.lowerDimPartSizes.begin(),
+                          dDimIterPartInfo.lowerDimPartSizes.end());
       toGlobalIdx.unmerge(dName, 1, dSubDimNames, dSubDimSizes);
     }
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();

@@ -22,47 +22,74 @@ namespace rock {
 struct ConvolutionDims;
 struct GemmSize;
 
+// This is a helper data structure
+// to server as a return type for
+// view creating utilities.
 struct GPUViews {
+  // This is a [gridIdx0, ... , gridIdxN, tid, iter] to K x D view
+  // This is useful to define a global tile once loaded into regs.
   ArrayAttr gridwiseView;
+  // This is a [tid, iter] to flat K x D view
+  // Useful to define a blockwise tile once loaded into regs.
   ArrayAttr blockwiseView;
+  // This is a [iter] to flat K x D view
+  // Useful to define a threadwise tile once loaded into regs.
   ArrayAttr threadwiseView;
 };
 
-
-
 // This is helper data structure to allow
-// lowering define lower dimensions re-shuffling
+// lowering define lower dimensions (K or D) re-shuffling
 // into thread_id or iter into reg buffers in threads.
 // It is particularly useful to arrange data
 // in registers before they are loaded/written
 // to some memory (global or lds).
-struct LowerDimPartInfo{
+struct LowerDimPartInfo {
+  // This defines sub-dimension names of either tid or iter.
+  // These sub-dimensions will be part of the merger when creating
+  // the tid or iter dimensions.
   SmallVector<StringRef> lowerDimPartNames;
+  // This defines sub-dimension ordering when the merger of tid or iter
+  // happens.
   SmallVector<int64_t> lowerDimPartOrder;
+  // This defines sub-dimensions sizes.
   SmallVector<int64_t> lowerDimPartSizes;
 };
 
 // This function creates tid split arrangement for a certain gemm dimension
 // Basically, contigous dimension in global memory needs to be the fastest
 // changing dimension in the regs as well as between consecutive threads
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> createGlobalLdTidSplits(StringRef dThreadName, int64_t dThreads, int64_t kThreads, bool isKContigousDim);
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+createGlobalLdTidSplits(StringRef dThreadName, int64_t dThreads,
+                        int64_t kThreads, bool isKContigousDim);
 // This function creates iter split arrangement for a certain gemm dimension
 // Basically, contigous dimension in global memory needs to be the fastest
 // changing dimension in the regs as well as between consecutive threads
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> createGlobalLdIterSplits(StringRef dIterName, int64_t dPerThread, int64_t kPerThread, bool isKContigousDim);
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+createGlobalLdIterSplits(StringRef dIterName, int64_t dPerThread,
+                         int64_t kPerThread, bool isKContigousDim);
 // This function creates iter split arrangement that is suitable for LDS store
 // The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
 // kpackPerThread] buffer
-std::tuple<LowerDimPartInfo, LowerDimPartInfo> createLDSStoreIterSplits(int64_t kPerThread, int64_t dPerThread, int64_t kpack);
+std::tuple<LowerDimPartInfo, LowerDimPartInfo>
+createLDSStoreIterSplits(int64_t kPerThread, int64_t dPerThread, int64_t kpack);
 
 // This function will create view of the register buffers in threads
-// once they are loaded. Among, the typical arguments it accepts
-// how tid, iter to splits of lower gemm dimensions (k & d)
+// once they are loaded. This will always produce K X D gridwise, blockwise
+// and threadwise views.
+// Additionally the last arguments allow the user to provide four configs :
+// 1) kDimTidPartInfo :
+//    This provides how k dimension should be split into sub-dimensions of tid
+// 2) dDimTidPartInfo :
+//    This provides how d dimension should be split into sub-dimensions of tid
+// 3) kDimIterPartInfo :
+//    This provides how k dimension should be split into sub-dimensions of iter
+// 4) dDimIterPartInfo :
+//    This provides how d dimension shuold be split into sub-dimensions of iter
 FailureOr<GPUViews> createGemmInputTileViews(
     OpBuilder &b, Location loc, Value gBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
-    LowerDimPartInfo kDimTidPartInfo, LowerDimPartInfo dDimTidPartInfo, 
+    LowerDimPartInfo kDimTidPartInfo, LowerDimPartInfo dDimTidPartInfo,
     LowerDimPartInfo kDimIterPartInfo, LowerDimPartInfo dDimIterPartInfo);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
