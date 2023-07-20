@@ -191,11 +191,6 @@ struct LowerGpuOpsToROCDLOpsPass
                     flatSizeAttr);
       }
     });
-
-    OpPassManager pm("gpu.module");
-    pm.addPass(LLVM::createSoftwareBF16Pass());
-    if (failed(runPipeline(pm, getOperation())))
-      signalPassFailure();
   }
 };
 } // namespace
