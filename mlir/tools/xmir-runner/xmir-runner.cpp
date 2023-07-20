@@ -90,7 +90,6 @@ static LogicalResult runMLIRPasses(Operation *m, JitRunnerOptions &options) {
   opts.targetArchs = targetArchs;
 
   mhal::buildRunnerPipeline(pm, opts);
-  pm.addPass(LLVM::createSoftwareBF16Pass());
 
   return pm.run(m);
 }
