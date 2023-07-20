@@ -831,7 +831,7 @@ pipeline {
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On'
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
