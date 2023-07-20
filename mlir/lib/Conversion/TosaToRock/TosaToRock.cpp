@@ -413,8 +413,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                           ArrayRef<int32_t> dims) const {
     // batch dimension is expected to be 3rd from the last.
     if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
-      return matmulOp.emitError(
-          "Can't transpose the batch dimension out of place");
+      return matmulOp.emitWarning(
+          "Transposing the batch dimension out of place lowers performance");
     }
     return success();
   }
@@ -494,8 +494,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
           convOp.getWeightMutable().assign(tInput);
         } else {
-          return convOp.emitError("transpose found leading to a conv2D input "
-                                  "other than data or weight");
+          return convOp.emitWarning("transpose found leading to a conv2D input "
+                                    "other than data or weight");
         }
       } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
         if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
@@ -509,7 +509,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           setTranspose(matMulOp, "transpose_b", mmNonTrivial);
           matMulOp.getBMutable().assign(tInput);
         } else {
-          return matMulOp.emitError(
+          return matMulOp.emitWarning(
               "transpose found leading to a matmul input other than A or B");
         }
       } else {
@@ -714,15 +714,6 @@ public:
   LogicalResult matchAndRewrite(tosa::ReduceSumOp op,
                                 tosa::ReduceSumOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
-    StringAttr arch;
-    std::optional<uint32_t> num_cu;
-    rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) =
-        getArchAttributes(op, op.getInput().getType());
-    if (!rock::bitEnumContainsAll(features, rock::GemmFeatures::atomic_add)) {
-      op.emitError("Currently, we only support ReduceSum operators on GPUs "
-                   "with atomic add support.!.");
-    }
     Type elementType =
         op.getInput().getType().cast<ShapedType>().getElementType();
     if (!elementType.isF32()) {
