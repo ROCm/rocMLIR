@@ -675,7 +675,7 @@ pipeline {
                     }
                     stage("Copy tuning database") {
                         steps {
-                            copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                            copyArtifacts filter: 'build/perfDB/**',\
                                 optional: true,\
                                 flatten: true,\
                                 projectName: "/MLIR/mlir-weekly",\
