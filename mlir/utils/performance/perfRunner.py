@@ -730,7 +730,7 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
     if tuningDb:
         tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)
             for testVector in configs)
-    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch)
+    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU)
         for testVector in configs)
 
     externalName = confClass.EXTERNAL_NAME
@@ -772,21 +772,6 @@ def getSolverName(testVector, arch, numCU):
     if config.chip == 'gfx908' or config.chip == 'gfx90a':
        solverName+='Xdlops'
     return solverName
-
-def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
-    solver_names = {testVector : getSolverName(testVector, arch) for testVector in configs}
-
-    # Set environment variables for running MIOpenDriver with MLIR kernels
-    envs = os.environ.copy()
-    envs['MIOPEN_FIND_MODE'] = '1'
-    envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
-    perf_list = []
-    for testVector in configs:
-        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
-        perf_list.append(ConvConfiguration.benchmarkExternal(testVector.split(sep=' '), paths, arch, envs))
-    df = pd.DataFrame(perf_list)
-    chip = GFX_CHIP_RE.search(arch).group(0)
-    df.to_csv(chip + '_' + filename, index=False)
 
 RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:(.*)")
 ROCMLIRGEN_RE = re.compile(r"rocmlir-gen.*-fut\s*(\w+)")
@@ -962,7 +947,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
 
 #Tune MIOpen with MLIR kernels
 def tuneMLIRKernels(configs, paths: Paths, arch, numCU):
-    solver_names = {testVector : getSolverName(testVector, arch) for testVector in configs}
+    solver_names = {testVector : getSolverName(testVector, arch, numCU) for testVector in configs}
 
     envs = os.environ.copy()
     envs['MIOPEN_FIND_ENFORCE'] = '4'
@@ -1229,19 +1214,19 @@ def main(args=None):
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, confClass, paths, arch, tuningDb, rocmlir_gen_flags)
+        generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)
     elif parsed_args.tuning:
-        tuneMLIRKernels(configs, paths, arch)
+        tuneMLIRKernels(configs, paths, arch, numCU)
     elif opType == Operation.FUSION:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
         else:
-            benchmarkFusionKernels(parsed_args.test_dir, paths, arch, tuningDb)
+            benchmarkFusionKernels(parsed_args.test_dir, paths, arch, numCU, tuningDb)
     else:
         if parsed_args.batch_mlir:
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
-            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
+            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU) for testVector in configs)
         elif parsed_args.external:
             df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch, numCU)])
         else:
