@@ -1,10 +1,10 @@
 FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.5/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.6/
 ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-5.5
+ARG ROCM_PATH=/opt/rocm-5.6
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -105,6 +105,7 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   rocblas \
   rocblas-dev \
   miopen-hip \
+  miopen-hip-dev \
   libelf1 \
   pkg-config \
   sudo \
@@ -119,13 +120,3 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   parallel && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
-
-# --------------------- Section 3: MIOpen dependencies ---------------
-WORKDIR /MIOpenDepsWork
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
-    && sed -i -e '/rocMLIR/d' requirements.txt \
-    && sed -i -e '/composable_kernel/d' requirements.txt \
-    && cmake -P install_deps.cmake --prefix /usr/local
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
-WORKDIR /

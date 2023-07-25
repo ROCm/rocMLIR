@@ -1,9 +1,8 @@
-FROM rocm/mlir:rocm5.5-latest
-ARG ROCM_PATH=/opt/rocm-5.5
+FROM rocm/mlir:rocm5.6-latest
+ARG ROCM_PATH=/opt/rocm-5.6
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
-RUN apt-get update && apt-get install -y miopen-hip
 RUN pip3 install setuptools wheel
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
@@ -11,7 +10,7 @@ RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MI
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
 RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/AMDMIGraphX ${MIGRAPHX_REF}) > migraphx-deps-commit-hash
-RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++
+RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++ --cc=/opt/rocm/llvm/bin/clang
 # Download models for testing
 RUN wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea9e02/vision/classification/resnet/model/resnet50-v1-7.onnx
 WORKDIR /
