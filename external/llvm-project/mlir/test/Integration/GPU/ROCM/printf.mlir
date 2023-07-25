@@ -1,5 +1,3 @@
-// TODO: remove this once we upgrade to ROCM 5.6
-// XFAIL: *
 // RUN: mlir-opt %s \
 // RUN: | mlir-opt -pass-pipeline='builtin.module(gpu.module(strip-debuginfo,convert-gpu-to-rocdl{index-bitwidth=32 runtime=HIP},gpu-to-hsaco{chip=%chip}))' \
 // RUN: | mlir-opt -gpu-to-llvm \
