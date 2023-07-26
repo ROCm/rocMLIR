@@ -70,6 +70,9 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
       *this, "opt-level", desc("GPU compiler optimization level"), init(3)};
   PassOptions::Option<int32_t> indexBitwidth{*this, "index-bitwidth",
                                              desc("Index bit-width"), init(32)};
+  PassOptions::Option<bool> compile{
+      *this, "compile", desc("should the serailization pass be run"),
+      init(true)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
