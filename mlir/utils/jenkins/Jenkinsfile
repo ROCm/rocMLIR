@@ -92,6 +92,19 @@ void preMergeCheck(String codepath) {
     }
 }
 
+void preMergeCheckPackage(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Checking if the fat library target list is accurate"
+        dir('build') {
+            sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
+        }
+        sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
+    } else {
+        echo "Skipping fat library target list check"
+    }
+}
+
 void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
@@ -293,6 +306,11 @@ pipeline {
         // option only to be used with upstream merges
         booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
                      description: 'Ignore linting on files in external/')
+
+        // choose the task to run in weekly
+        choice(name: 'weeklyTasks',
+               choices: ['default', 'parameterSweeps', 'Tuning'],
+               description: 'Choose the weekly tasks')
     }
     stages {
         stage("Set System Property") {
@@ -423,6 +441,7 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            preMergeCheckPackage("${CODEPATH}")
                             echo "Running tests on the newly-built static library"
                             dir ('build') {
                                 sh 'ninja check-rocmlir'
@@ -445,6 +464,10 @@ pipeline {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.sharedLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "parameterSweeps", actual: params.weeklyTasks;
+               }
             }
             matrix {
                 axes {
@@ -503,6 +526,10 @@ pipeline {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "Tuning", actual: params.weeklyTasks;
+               }
             }
             matrix {
                 axes {
@@ -568,11 +595,11 @@ pipeline {
                             dir('build') {
                                 // Tune resnet50
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/fusion/e2e/resnet50/ -o tuning_fusion_${ARCH}.tsv"""
+--test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv"""
 
                                 // Tune bert
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/xmir/e2e/bert-torch-tosa/ -o tuning_fusion_${ARCH}.tsv"""
+--test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
                             }
                             sh 'rm build/CMakeCache.txt'
                         }
@@ -662,7 +689,6 @@ pipeline {
                         steps {
                             // Clean up build settings to disable static library and allow
                             // ROCm testing
-                            sh 'rm build/CMakeCache.txt'
                             buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
                                          ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
@@ -699,10 +725,10 @@ pipeline {
                             dir('build') {
                                 // Run fusion resnet50 perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=fusion \
-          --test_dir=${WORKSPACE}/mlir/test/fusion/e2e/resnet50/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                 // Run bert perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op fusion \
-          --test_dir=${WORKSPACE}/mlir/test/xmir/e2e/bert-torch-tosa/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+          --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                             }
                         }
                     }

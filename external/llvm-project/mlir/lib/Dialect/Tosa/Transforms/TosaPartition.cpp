@@ -114,6 +114,10 @@ bool isAnchorOp(Operation *op, Pass::ListOption<std::string> &anchorOps) {
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
+bool isTerminalOp(Operation *op, Pass::ListOption<std::string> &terminalOps) {
+  return llvm::is_contained(terminalOps, op->getName().getIdentifier().str());
+}
+
 bool isTransposeOp(Operation *op) {
   return isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
 }
@@ -160,10 +164,14 @@ public:
 void TosaPartitionPass::runOnOperation() {
   ModuleOp module = getOperation();
   auto anchorPred = [&](Operation *op) { return isAnchorOp(op, anchorOps); };
+  auto terminalPred = [&](Operation *op) {
+    return isTerminalOp(op, terminalOps);
+  };
   auto leadingPred = [&](Operation *op) {
     return isLeadingOp(op, trailingOnly);
   };
-  Outliner p(anchorPred, leadingPred, isTrailingOp, partitionTagOpt);
+  Outliner p(anchorPred, leadingPred, isTrailingOp, terminalPred,
+             partitionTagOpt);
   p.outline(module);
 }
 

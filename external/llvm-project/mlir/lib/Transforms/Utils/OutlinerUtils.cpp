@@ -17,7 +17,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/Dominance.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
@@ -33,10 +32,11 @@
 #include "llvm/ADT/SmallVector.h"
 #include <algorithm>
 #include <deque>
-#include <iostream>
 
 using llvm::SmallVector;
 using namespace mlir;
+
+#define DEBUG_TYPE "outliner-utility"
 
 static bool isZeroAttribute(Attribute value) {
   if (auto intValue = value.dyn_cast<IntegerAttr>())
@@ -55,455 +55,339 @@ static bool isZeroAttribute(Attribute value) {
 }
 
 bool mlir::isConstantZero(Operation *op) {
-  // Cheating, by assuming that constants will have "value" attribute.
-  if (op->hasTrait<OpTrait::ConstantLike>() && op->hasAttr("value"))
-    return isZeroAttribute(op->getAttr("value"));
+  if (op->hasTrait<OpTrait::ConstantLike>()) {
+    if (auto attr = op->getAttr("value"))
+      return isZeroAttribute(attr);
+  }
   return false;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+////   OutlineBuilder
+////   1) Collect all ops that can be fused
+////   2) Look for match in Candidate Set
+////   3) If no match, build outline func
+////   4) Replace ops with call to outline func
+////////////////////////////////////////////////////////////////////////////////////
 
-// Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp
-// and mergeIdenticalBlocks() in Utils/RegionUtils.cpp.
+class OutlineBuilder {
 
-struct OutliningCandidate {
-  OutliningCandidate(Operation *anchorOp, ArrayRef<Operation *> &trailingOps,
-                     ArrayRef<Operation *> &leadingOps, ArrayRef<Value> &params,
-                     ArrayRef<Value> &returnVals, StringRef partFnName);
-
-  unsigned addOp(Operation *op, unsigned orderIt);
-
-  Operation *anchorOp;
-  SmallVector<Operation *> trailingOps;
-  SmallVector<Operation *> leadingOps;
-  SmallVector<Type> params;
-  SmallVector<Value> returnVals;
-  std::string partFnName;
-  llvm::hash_code hash;
-  func::FuncOp function;
-  Location fusedLoc;
-
-  /// Return the order index for the given value that is within the block of
-  /// this data.
-  unsigned getOrderOf(Value value) const;
-
-  /// A map of result producing operations to their relative orders within this
-  /// block. The order of an operation is the number of defined values that are
-  /// produced within the block before this operation.
-  DenseMap<Operation *, unsigned> opOrderIndex;
-};
-
-unsigned OutliningCandidate::addOp(Operation *op, unsigned orderIt) {
-  if (unsigned numResults = op->getNumResults()) {
-    opOrderIndex.try_emplace(op, orderIt);
-    orderIt += numResults;
+  // Debug messaging for traversal
+  inline void debug(const char *tag, Operation *op) const {
+    LLVM_DEBUG(llvm::dbgs() << tag << ": " << op << "\n");
   }
 
-  auto opHash = OperationEquivalence::computeHash(
-      op, OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::IgnoreLocations);
-  hash = llvm::hash_combine(hash, opHash);
-
-  return orderIt;
-}
-
-OutliningCandidate::OutliningCandidate(Operation *anchorOp_,
-                                       ArrayRef<Operation *> &trailingOps_,
-                                       ArrayRef<Operation *> &leadingOps_,
-                                       ArrayRef<Value> &params_,
-                                       ArrayRef<Value> &returnVals_,
-                                       StringRef partFnName_)
-    : anchorOp(anchorOp_), trailingOps(trailingOps_), leadingOps(leadingOps_),
-      returnVals(returnVals_), partFnName(partFnName_), hash(0),
-      function(nullptr), fusedLoc(UnknownLoc::get(anchorOp_->getContext())) {
-  for (auto val : params_) {
-    params.push_back(val.getType());
+  inline void debug(const char *tag, Value v) const {
+    LLVM_DEBUG(llvm::dbgs() << tag << ": "; v.print(
+        llvm::dbgs(), OpPrintingFlags().elideLargeElementsAttrs());
+               llvm::dbgs() << "\n");
   }
-  unsigned orderIt = params.size();
-  for (auto *op : leadingOps) {
-    orderIt = addOp(op, orderIt);
-  }
-  orderIt = addOp(anchorOp, orderIt);
-  for (auto *op : trailingOps) {
-    orderIt = addOp(op, orderIt);
-  }
-}
 
-unsigned OutliningCandidate::getOrderOf(Value value) const {
-  // Otherwise, the result order is offset from the parent op's order.
-  auto *definingOp = value.getDefiningOp();
-  if (definingOp) {
-    auto opOrderIt = opOrderIndex.find(definingOp);
-    // Candidate arguments will have a definingOp that won't be in opOrderIndex.
-    if (opOrderIt != opOrderIndex.end())
-      return opOrderIt->second + value.cast<OpResult>().getResultNumber();
+  // Add Value/Operation methods
+  void addInput(Value v) {
+    debug("INPUT", v);
+    _inputs.insert(v);
+  }
 
-    for (unsigned i = 0; i < params.size(); i++) {
-      if (params[i] == value.getType())
-        return i;
+  void addResult(Value v) {
+    debug("RESULT", v);
+    _results.insert(v);
+  }
+
+  void addPredecessor(Operation *op) {
+    if (!_leadingOps.contains(op)) {
+      assert(!_trailingOps.contains(op));
+      debug("PRED", op);
+      _leadingOps.insert(op);
+      _locs.push_back(op->getLoc());
     }
   }
 
-  return 0;
-}
-
-static bool opsMatch(Operation *lhs, Operation *rhs, OutliningCandidate &one,
-                     OutliningCandidate &two) {
-  // Check that the operations are equivalent.
-  if (!OperationEquivalence::isEquivalentTo(
-          lhs, rhs, OperationEquivalence::ignoreValueEquivalence, nullptr,
-          OperationEquivalence::Flags::IgnoreLocations))
-    return false;
-
-  // Compare the operands of the two operations. If the operand is within
-  // the block, it must refer to the same operation.
-  auto lhsOperands = lhs->getOperands(), rhsOperands = rhs->getOperands();
-  if (lhs->getNumOperands() != rhs->getNumOperands()) {
-    return false;
-  }
-  for (auto opnds : llvm::zip(lhsOperands, rhsOperands)) {
-    Value lhsOperand = std::get<0>(opnds);
-    Value rhsOperand = std::get<1>(opnds);
-    if (lhsOperand == rhsOperand)
-      continue;
-    // Check that the types of the operands match.
-    if (lhsOperand.getType() != rhsOperand.getType())
-      return false;
-
-    // Otherwise, these operands must have the same logical order within the
-    // parent block.
-    if (one.getOrderOf(lhsOperand) != two.getOrderOf(rhsOperand)) {
-      return false;
+  void addSuccessor(Operation *op) {
+    if (!_trailingOps.contains(op)) {
+      debug("SUCC", op);
+      _trailingOps.insert(op);
+      _locs.push_back(op->getLoc());
     }
   }
 
-  return true;
-}
+  bool contains(Operation *op) const {
+    return _trailingOps.contains(op) || _leadingOps.contains(op);
+  }
 
-static bool outliningCandidatesEquivalent(OutliningCandidate &one,
-                                          OutliningCandidate &two) {
-  if (one.hash != two.hash) {
+  // Recurse back full chain looking for anchorOp
+  // - uses encountered set to reduce time
+  bool inChainToAnchor(Operation *inOp,
+                       DenseSet<Operation *> &encountered) const {
+    if (inOp == nullptr)
+      return false;
+    else if (inOp == _anchorOp)
+      return true;
+    else if (encountered.contains(inOp))
+      return false;
+    encountered.insert(inOp);
+    for (auto opr : inOp->getOperands()) {
+      if (Operation *oprOp = opr.getDefiningOp()) {
+        debug(">>>", oprOp);
+        if (inChainToAnchor(oprOp, encountered))
+          return true;
+        debug("<<<", oprOp);
+      }
+    }
     return false;
   }
 
-  if (one.params.size() != two.params.size()) {
-    return false;
+  // Make sure all operands are external or immediate in the chain from anchorOp
+  bool isImmediateOp(Operation *inOp) const {
+    for (auto opr : inOp->getOperands()) {
+      if (Operation *oprOp = opr.getDefiningOp()) {
+        debug("IN>", oprOp);
+        DenseSet<Operation *> encountered;
+        if (!contains(oprOp) && inChainToAnchor(oprOp, encountered))
+          return false;
+      }
+    }
+    return true;
   }
-  for (auto params : llvm::zip(one.params, two.params)) {
-    if (std::get<0>(params) != std::get<1>(params)) {
-      return false;
+
+  // Recurse all inputs to op and capture predecessor ops if qualified
+  void collectInputs(Operation *op, Operation *ignoreOp) {
+    for (const auto &operand : op->getOperands()) {
+      Operation *usedOp = operand.getDefiningOp();
+      if (usedOp) {
+        // Ignore input from anchor chain or already collected
+        if (usedOp != ignoreOp && !contains(usedOp)) {
+          if (_outliner.isLeadingOp(usedOp)) {
+            // Depth first collection of Leading ops
+            collectInputs(usedOp, op);
+            addPredecessor(usedOp);
+          } else if (!contains(usedOp)) {
+            // Capture as input if not already captured as Trailing
+            addInput(operand);
+          }
+        }
+      } else {
+        // Block parameter
+        addInput(operand);
+      }
     }
   }
 
-  for (auto ops : llvm::zip(one.leadingOps, two.leadingOps)) {
-    if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
-      return false;
+public:
+  OutlineBuilder(Outliner &outliner, Operation *anchorOp)
+      : _outliner(outliner), _anchorOp(anchorOp) {
+    _anchorBlock = anchorOp->getBlock();
+    debug("ANCHOR", anchorOp);
+    collectInputs(_anchorOp, _anchorOp);
+
+    addSuccessor(_anchorOp);
+  }
+
+  ~OutlineBuilder() {
+    // Erase the ops we outlined, which should be safe now.
+    for (auto &op : llvm::make_early_inc_range(llvm::reverse(_leadingOps))) {
+      if (op->use_empty())
+        op->erase();
     }
   }
-  if (!opsMatch(one.anchorOp, two.anchorOp, one, two)) {
-    return false;
-  }
-  for (auto ops : llvm::zip(one.trailingOps, two.trailingOps)) {
-    if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
-      return false;
+
+  bool collect() {
+    // Given a Conv2DOp (or other anchor op), gather all Leading
+    // and Trailing ops in the PBV chain up to and including Terminal
+    // ops.
+    //
+    // _inputs gathers what will become the parameters of the
+    // outlined function;  initially it's the anchor's arguments,
+    // and it accumulates arguments to other ops that don't come
+    // from inside the outlined function.
+    //
+    // _results will become the results of the outlined function.
+    // These are gathered after all ops have been collected, if any
+    // op has external uses.
+
+    // BFS
+    std::deque<Operation *> worklist;
+    worklist.push_back(_anchorOp);
+    while (!worklist.empty()) {
+      Operation *op = worklist.front();
+      worklist.pop_front();
+      for (auto *userOp : op->getUsers()) {
+        if (userOp->getBlock() == _anchorBlock && !contains(userOp)) {
+          bool isTerminal = _outliner.isTerminatingOp(userOp);
+          if ((_outliner.isTrailingOp(userOp) || isTerminal) &&
+              isImmediateOp(userOp)) {
+            addSuccessor(userOp);
+            // Collect all inputs other than anchor-chain
+            collectInputs(userOp, op);
+            // Traverse if not a Terminal Op
+            if (!isTerminal)
+              worklist.push_back(userOp);
+          }
+        }
+      }
     }
-  }
-  return true;
-}
 
-static OutliningCandidate *
-findOutliningCandidate(OutliningCandidate &newCandidate,
-                       std::vector<OutliningCandidate> &candidates) {
-  for (auto &candidate : candidates) {
-    if (outliningCandidatesEquivalent(candidate, newCandidate)) {
-      return &candidate;
+    // capture all result ops after anchor op that have external uses
+    for (auto *op : _trailingOps) {
+      for (auto res : op->getResults()) {
+        if (!llvm::all_of(res.getUsers(),
+                          [&](Operation *u) { return contains(u); }))
+          addResult(res);
+      }
     }
+
+    // concat all ops into 1 list
+    _leadingOps.insert(_trailingOps.begin(), _trailingOps.end());
+
+    return true;
   }
-  return nullptr;
-}
 
-// Given an op and its fuse-able trailing (second) and leading
-// (front) ops, remove them into a separate function.
-static void outlineOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
-                       ArrayRef<Operation *> leadingOps, ArrayRef<Value> params,
-                       ArrayRef<Value> returnVals, StringRef partFnName,
-                       StringRef attrName,
-                       std::vector<OutliningCandidate> &candidates) {
-  ValueRange values(params);
-  OpBuilder b(anchorOp);
-  Location loc = anchorOp->getLoc();
-  func::FuncOp outlinedFunc;
-  Location fusedLoc(loc);
+  // Build the outlined function.
+  func::FuncOp build(uint32_t idx, StringRef attrName) const {
+    func::FuncOp anchorFunc = _anchorOp->getParentOfType<func::FuncOp>();
+    ValueRange inputs(_inputs.getArrayRef());
+    OpBuilder b(anchorFunc);
+    Location loc = _anchorOp->getLoc();
+    MLIRContext *ctx = _anchorOp->getContext();
 
-  // ------------------------------------------------------------
-  // Merging part.
-
-  OutliningCandidate newCandidate(anchorOp, trailingOps, leadingOps, params,
-                                  returnVals, partFnName);
-
-  if (OutliningCandidate *found =
-          findOutliningCandidate(newCandidate, candidates)) {
-    // Matches one we already have.
-    outlinedFunc = found->function;
-    fusedLoc = found->fusedLoc;
-  } else {
-    // ------------------------------------------------------------
-    // Construction part.
-
-    // Insert outlined function before current function.
-    OpBuilder::InsertionGuard g(b);
-    b.setInsertionPoint(anchorOp->getParentOfType<func::FuncOp>());
+    auto partFnName =
+        anchorFunc.getSymName().str() + "__part_" + std::to_string(idx);
 
     // Make FuncOp from anchorOp's operand types and trailingOp's result type.
-    MLIRContext *ctx = anchorOp->getContext();
-    ValueRange results(returnVals);
+    ValueRange results(_results.getArrayRef());
     FunctionType type =
-        FunctionType::get(ctx, values.getTypes(), results.getTypes());
+        FunctionType::get(ctx, inputs.getTypes(), results.getTypes());
     SmallVector<NamedAttribute, 1> kernelAttrs{
         b.getNamedAttr(attrName, b.getUnitAttr()),
     };
-    outlinedFunc = b.create<func::FuncOp>(
+    func::FuncOp outlinedFunc = b.create<func::FuncOp>(
         loc, partFnName, type, ArrayRef<NamedAttribute>(kernelAttrs));
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
-    newCandidate.function = outlinedFunc;
 
     // Add access modes for parameters: read-only, write-only, read-write
     // All MemRef params are marked as 'read-write'
     // Non-MemRef inputs are added as 'read-only'
-    auto readAccessAttr =
+    auto readAttr =
         b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
-    auto writeAccessAttr =
+    auto writeAttr =
         b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
-    for (auto pair : llvm::enumerate(values)) {
-      auto vtype = pair.value().getType();
-      if (vtype.isa<VectorType, RankedTensorType, UnrankedTensorType>())
-        outlinedFunc.setArgAttrs(pair.index(),
-                                 b.getDictionaryAttr({readAccessAttr}));
-      else if (vtype.isa<MemRefType>())
-        outlinedFunc.setArgAttrs(
-            pair.index(),
-            b.getDictionaryAttr({readAccessAttr, writeAccessAttr}));
+    auto getAccessAttrs = [&](Type t,
+                              bool inputs) -> std::optional<DictionaryAttr> {
+      if (t.isa<VectorType, RankedTensorType, UnrankedTensorType>())
+        return b.getDictionaryAttr({inputs ? readAttr : writeAttr});
+      if (t.isa<MemRefType>())
+        return b.getDictionaryAttr({readAttr, writeAttr});
+      return {};
+    };
+
+    // Non-MemRef inputs are added as 'read-only'
+    for (auto pair : llvm::enumerate(inputs)) {
+      if (auto attrs = getAccessAttrs(pair.value().getType(), true))
+        outlinedFunc.setArgAttrs(pair.index(), *attrs);
     }
     // Non-MemRef results are added as 'write-only'
     for (auto pair : llvm::enumerate(results)) {
-      auto vtype = pair.value().getType();
-      if (vtype.isa<VectorType, RankedTensorType, UnrankedTensorType>())
-        outlinedFunc.setResultAttrs(pair.index(),
-                                    b.getDictionaryAttr({writeAccessAttr}));
-      else if (vtype.isa<MemRefType>())
-        outlinedFunc.setResultAttrs(
-            pair.index(),
-            b.getDictionaryAttr({readAccessAttr, writeAccessAttr}));
+      if (auto attrs = getAccessAttrs(pair.value().getType(), false))
+        outlinedFunc.setResultAttrs(pair.index(), *attrs);
     }
 
-    // Clone leadingOps, anchorOp, and trailingOps into the body of the new
-    // function, while also updating the comparison details for future
-    // candidates.
+    // Clone collected ops into the body of the new function.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
     IRMapping bvm;
-    for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
+    for (auto it : llvm::zip(inputs, outlinedFunc.getArguments()))
       bvm.map(std::get<0>(it), std::get<1>(it));
 
-    SmallVector<Location> collectedLocs{anchorOp->getLoc()};
-    newCandidate.leadingOps.clear();
-    for (auto *op : llvm::reverse(leadingOps)) {
-      newCandidate.leadingOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.leadingOps.back()] =
-          newCandidate.opOrderIndex[op];
-      collectedLocs.push_back(op->getLoc());
-    }
-    std::reverse(newCandidate.leadingOps.begin(),
-                 newCandidate.leadingOps.end());
-
-    newCandidate.anchorOp = b.clone(*anchorOp, bvm);
-    newCandidate.opOrderIndex[newCandidate.anchorOp] =
-        newCandidate.opOrderIndex[anchorOp];
-
-    newCandidate.trailingOps.clear();
-    for (auto *op : trailingOps) {
-      // All operands should already be in bvm.
-      assert(llvm::all_of(op->getOperands(),
-                          [&](Value v) { return bvm.lookupOrNull(v); }));
-      newCandidate.trailingOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.trailingOps.back()] =
-          newCandidate.opOrderIndex[op];
-      collectedLocs.push_back(op->getLoc());
+    for (auto *op : _leadingOps) {
+      b.clone(*op, bvm);
     }
 
     // Make ReturnOp from trailingOps' results.
     SmallVector<Value> returnOperands;
-    for (auto op : returnVals) {
-      returnOperands.push_back(bvm.lookup(op));
+    for (auto res : _results) {
+      returnOperands.push_back(bvm.lookup(res));
     }
     // Can't also supply return types, because it'll see a mismatch
     // in numbers where there isn't one.
     b.create<func::ReturnOp>(loc, returnOperands);
 
-    newCandidate.fusedLoc = FusedLoc::get(ctx, collectedLocs);
-    candidates.push_back(newCandidate);
+    return outlinedFunc;
   }
 
-  // ------------------------------------------------------------
-  // Replacement part.
+  // Given an op and its fuse-able trailing (second) and leading
+  // (front) ops, remove them into a separate function.
+  void call(func::FuncOp outlinedFunc) {
+    OpBuilder b(_anchorOp);
+    MLIRContext *ctx = _anchorOp->getContext();
+    Location fusedLoc = FusedLoc::get(ctx, _locs);
+    // ------------------------------------------------------------
+    // Replacement part.
 
-  // Replace anchorOp, trailingOps, and leadingOps with CallOp to new function.
-  Operation *lastOp = anchorOp;
-  if (!trailingOps.empty())
-    lastOp = trailingOps[trailingOps.size() - 1];
-  b.setInsertionPointAfter(lastOp);
-  func::CallOp callOp = b.create<func::CallOp>(fusedLoc, outlinedFunc, values);
+    // Replace anchorOp, trailingOps, and leadingOps with CallOp to new
+    // function. ? Look for earliest result ?
+    b.setInsertionPointAfter(_leadingOps.back());
+    func::CallOp callOp =
+        b.create<func::CallOp>(fusedLoc, outlinedFunc, _inputs.getArrayRef());
 
-  for (auto it : llvm::zip(returnVals, callOp->getResults())) {
-    std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
-  }
-
-  // Erase the ops we outlined, which should be safe now.
-  for (auto &op : llvm::make_early_inc_range(llvm::reverse(trailingOps))) {
-    if (op->use_empty()) {
-      op->erase();
+    for (auto it : llvm::zip(_results, callOp->getResults())) {
+      std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
     }
   }
-  assert(anchorOp->use_empty() && "expected 'op' to have no uses");
-  anchorOp->erase();
-  for (auto &op : llvm::make_early_inc_range(leadingOps)) {
-    if (op->use_empty()) {
-      op->erase();
-    }
-  }
-}
 
-void Outliner::traceInputs(Operation *op, Operation *ignoreOp,
-                           SetVector<Operation *> &predecessors,
-                           SetVector<Value> &inputNodes) {
-  for (const auto &opnd : op->getOperands()) {
-    Operation *usedOp = opnd.getDefiningOp();
-    if (usedOp == ignoreOp)
-      continue;
-    if (usedOp && isLeadingOp(usedOp)) {
-      if (predecessors.contains(
-              usedOp)) // If already present, move it for new use.
-        predecessors.remove(usedOp);
-      predecessors.insert(usedOp);
-      if (!usedOp->hasTrait<OpTrait::ConstantLike>()) {
-        // depth first
-        traceInputs(usedOp, op, predecessors, inputNodes);
-      }
-    } else if (!predecessors.contains(
-                   usedOp)) { // special-case consts aren't inputs
-      inputNodes.insert(opnd);
-    }
-  }
-}
+private:
+  Outliner &_outliner;
 
-// Inspired by / adapted from TestSCFIfUtilsPass in
-// test/lib/Transforms/TestSCFUtils.cpp.
+  Operation *_anchorOp;
+  Block *_anchorBlock;
+
+  SmallVector<Location> _locs;
+
+  typedef SmallVector<Value> ValVec;
+  typedef SmallVector<Operation *> OpVec;
+  SetVector<Value, ValVec> _inputs;
+  SetVector<Operation *, OpVec> _leadingOps;
+  SetVector<Operation *, OpVec> _trailingOps;
+  SetVector<Value, ValVec> _results;
+};
+
+// Walk each func outlining fusion opportunities, replacing with a call
+// to a new (or matching) function containing the functionality. The call
+// will be annotated the loc's of all fused ops.
 void Outliner::outline(ModuleOp module) {
   auto funcOps = module.getOps<func::FuncOp>();
+
   for (auto func : llvm::make_early_inc_range(funcOps)) {
     // Don't outline a kernel;  it may already have been outlined.
     if (func->hasAttr(outlineTag))
       continue;
 
+    bool hasMemrefs = false;
+    auto hasMemref = [](Value v) { return isa<MemRefType>(v.getType()); };
     std::vector<Operation *> anchors;
-    auto callback = [&](Operation *op) {
+    auto callback = [&](Operation *op) -> WalkResult {
+      hasMemrefs |= llvm::any_of(op->getOperands(), hasMemref);
+      hasMemrefs |= llvm::any_of(op->getResults(), hasMemref);
+      if (hasMemrefs)
+        return WalkResult::interrupt();
       if (isAnchorOp(op))
         anchors.push_back(op);
+      return WalkResult::advance();
     };
+
     // Gather the anchor ops so we can process them back-to-front.
     func.walk(callback);
 
-    int count = 0;
-    // (Problems with node mismatches and unexpected uses if we have the
-    // candidates list at module level.)
-    std::vector<OutliningCandidate> candidates;
-    for (auto &anchorOp : llvm::make_early_inc_range(llvm::reverse(anchors))) {
-      auto strCount = std::string("__part_") + std::to_string(count++);
+    if (!hasMemrefs) {
+      uint32_t cnt = 0;
+      // (Problems with node mismatches and unexpected uses if we have the
+      // candidates list at module level.)
+      for (auto anchorOp : llvm::make_early_inc_range(llvm::reverse(anchors))) {
+        // Create an OutlineBuilder for each anchor op.
+        OutlineBuilder builder(*this, anchorOp);
+        builder.collect();
 
-      // Given a Conv2DOp (or other anchor op), gather all the
-      // element-wise ops that are reachable from its results,
-      // contiguously.
-      //
-      // The ops after the anchor are "trailing" ops.
-      //
-      // inputNodes gathers what will become the parameters of the
-      // outlined function;  initially it's the anchor's arguments,
-      // and it accumulates arguments to other ops that don't come
-      // from inside the outlined function.
-      //
-      // resultNodes will become the results of the outlined function.
-      // It starts with the anchor's result(s) and gains the results
-      // of each new trailingOp.  When all a resultNode's users can be
-      // determined to lie within the outlined function, it's removed
-      // from the set.
-      //
-      // These are SetVectors because we test with contains() a lot,
-      // but still want to preserve order.
-      SetVector<Operation *> trailingOps;
-      SetVector<Value> inputNodes;
-      SetVector<Value> resultNodes(anchorOp->getResults().begin(),
-                                   anchorOp->getResults().end());
-
-      // Grab a useful set of leading ops, like we do for trailing.
-      SetVector<Operation *> leadingOps;
-      traceInputs(anchorOp, anchorOp, leadingOps, inputNodes);
-
-      DominanceInfo domInfo(func);
-      std::deque<Operation *> worklist; // cuz I want to pull from the front.
-
-      worklist.push_back(anchorOp);
-      while (!worklist.empty()) {
-        Operation *op = worklist.front();
-        worklist.pop_front();
-        for (auto *userOp : op->getUsers()) {
-          if (isTrailingOp(userOp)) {
-            bool skip = false;
-            // First criterion is that the op is element-wise.  Second
-            // criterion is that the op dominates all the users of the
-            // accumulated results of the outlined function.  In other words,
-            // we can't take an op that comes "after" a user of the result
-            // from the eventual call, because the call needs to dominate all
-            // its users.
-            for (const Value &val : resultNodes) {
-              for (auto *user : val.getDefiningOp()->getUsers()) {
-                if (user != userOp &&
-                    !domInfo.properlyDominates(userOp, user)) {
-                  skip = true;
-                }
-              }
-            }
-
-            // userOp is acceptable.  Keep it as a trailingOp, put it on
-            // the worklist.  Add its operands to inputNodes unless
-            // they're suitable as leading ops or come from other
-            // trailingOps (indicated by being in resultNodes).  If all
-            // the users of any resultNode are in trailingOps, there's
-            // no need to return it so remove from resultNodes.
-            // Finally, add all userOp's results to resultNodes.
-            if (!skip) {
-              // Also accept inputs to userOp.
-              // Put traced ops in leadingOps so they're always ahead of op.
-              traceInputs(userOp, op, leadingOps, inputNodes);
-              // General case.
-              trailingOps.insert(userOp);
-              worklist.push_back(userOp);
-              for (const Value &val : resultNodes)
-                if (llvm::all_of(val.getUsers(), [&](Operation *u) {
-                      return trailingOps.contains(u);
-                    }))
-                  resultNodes.remove(val);
-              for (auto res : userOp->getResults())
-                resultNodes.insert(res);
-            }
-          }
-        }
+        // Make and call the outlined function from the ops we've collected.
+        builder.call(builder.build(cnt++, outlineTag));
       }
-
-      // Make the outlined function from the ops we've gathered.
-      outlineOps(anchorOp, trailingOps.getArrayRef(), leadingOps.getArrayRef(),
-                 inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-                 std::string(func.getSymName()) + strCount, outlineTag,
-                 candidates);
     }
   }
 }

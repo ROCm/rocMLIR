@@ -64,6 +64,9 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
                "One or more operations to be used as focus of partitioned "
                "kernels",
                "llvm::cl::ZeroOrMore">,
+    ListOption<"terminalOps", "terminal-ops", "std::string",
+               "One or more operations that terminal a fusion chain",
+               "llvm::cl::ZeroOrMore">,
     Option<"partitionTagOpt", "partition-tag", "std::string",
            /*default=*/"\"kernel\"", "Attribute for outlined functions">,
     Option<"trailingOnly", "trailing-only", "bool", /*default=*/"true",

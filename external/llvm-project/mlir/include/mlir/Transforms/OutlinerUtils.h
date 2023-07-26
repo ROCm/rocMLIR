@@ -45,22 +45,22 @@ bool isConstantZero(Operation *op);
 
 class Outliner {
 public:
-  Outliner(function_ref<bool(Operation *)> isAnchorOp,
-           function_ref<bool(Operation *)> isLeadingOp,
-           function_ref<bool(Operation *)> isTrailingOp, StringRef outlineTag)
-      : isAnchorOp(isAnchorOp), isLeadingOp(isLeadingOp),
-        isTrailingOp(isTrailingOp), outlineTag(outlineTag) {}
+  Outliner(function_ref<bool(Operation *)> _isAnchorOp,
+           function_ref<bool(Operation *)> _isLeadingOp,
+           function_ref<bool(Operation *)> _isTrailingOp,
+           function_ref<bool(Operation *)> _isTerminatingOp,
+           StringRef _outlineTag)
+      : isAnchorOp(_isAnchorOp), isLeadingOp(_isLeadingOp),
+        isTrailingOp(_isTrailingOp), isTerminatingOp(_isTerminatingOp),
+        outlineTag(_outlineTag) {}
 
   void outline(ModuleOp module);
 
-private:
   function_ref<bool(Operation *)> isAnchorOp;
   function_ref<bool(Operation *)> isLeadingOp;
   function_ref<bool(Operation *)> isTrailingOp;
+  function_ref<bool(Operation *)> isTerminatingOp;
   StringRef outlineTag;
-  void traceInputs(Operation *op, Operation *ignoreOp,
-                   SetVector<Operation *> &predecessors,
-                   SetVector<Value> &inputNodes);
 };
 
 } // namespace mlir
