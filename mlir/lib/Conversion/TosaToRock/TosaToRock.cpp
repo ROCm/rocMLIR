@@ -564,7 +564,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 //     %1 = expand(%0[KC]) -> [KHWC]
 // If this feeds into a conv2d as filter, we will drop the collapse/expand and
 // update the filter_layout attribute.
-struct CollapseExpandRewritePattern : public OpRewritePattern<tensor::ExpandShapeOp> {
+struct CollapseExpandRewritePattern
+    : public OpRewritePattern<tensor::ExpandShapeOp> {
   using OpRewritePattern<tensor::ExpandShapeOp>::OpRewritePattern;
 
   bool checkExpand(tensor::ExpandShapeOp expOp) const {
@@ -572,9 +573,8 @@ struct CollapseExpandRewritePattern : public OpRewritePattern<tensor::ExpandShap
     auto resSh = expOp.getResultType().cast<ShapedType>().getShape();
     // [[0, 1, 2], [3]]
     // NC -> NHWC
-    if (srcSh.size() == 2 && resSh.size() == 4 &&
-        srcSh[0] == resSh[0] && srcSh[1] == resSh[3] &&
-        resSh[1] == 1 && resSh[2] == 1) {
+    if (srcSh.size() == 2 && resSh.size() == 4 && srcSh[0] == resSh[0] &&
+        srcSh[1] == resSh[3] && resSh[1] == 1 && resSh[2] == 1) {
       return true;
     }
     return false;
@@ -585,9 +585,8 @@ struct CollapseExpandRewritePattern : public OpRewritePattern<tensor::ExpandShap
     auto resSh = colOp.getResultType().cast<ShapedType>().getShape();
     // [[0], [1, 2, 3]]
     // NCHW -> NC
-    if (srcSh.size() == 4 && resSh.size() == 2 &&
-        srcSh[0] == resSh[0] && srcSh[1] == resSh[1] &&
-        srcSh[2] == 1 && srcSh[3] == 1) {
+    if (srcSh.size() == 4 && resSh.size() == 2 && srcSh[0] == resSh[0] &&
+        srcSh[1] == resSh[1] && srcSh[2] == 1 && srcSh[3] == 1) {
       return true;
     }
     return false;
@@ -596,7 +595,7 @@ struct CollapseExpandRewritePattern : public OpRewritePattern<tensor::ExpandShap
   LogicalResult matchAndRewrite(tensor::ExpandShapeOp expOp,
                                 PatternRewriter &b) const final {
     LogicalResult lres = failure();
-    
+
     Value expInp = expOp.getOperand();
     Value expOut = expOp.getResult();
 
@@ -615,7 +614,7 @@ struct CollapseExpandRewritePattern : public OpRewritePattern<tensor::ExpandShap
             permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
             // replace filter input with collapse source
             convOp->replaceUsesOfWith(expOut, colInp);
-            
+
             lres = success();
           }
         }
