@@ -92,7 +92,7 @@ MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
 
 // Set the tuning params of the given module using provided perf string
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningSetFromStr(MlirModule module, const char *perfCStr);
+bool mlirRockTuningSetFromStr(MlirModule module, MlirStringRef perfStr);
 
 // Opaque pointer to tuning table storage. This could be used as an abstraction
 // to access the database. Initially, it's pointing to a memory map for now.
@@ -110,7 +110,7 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table);
 // table was actually updated, and false if a better-performing entry exists.
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
-                               const char *probCStr, const char *perfCStr,
+                               MlirStringRef problemKey, MlirStringRef perfStr,
                                float time);
 
 // Search the tuning table and get the stored best value for the given problem.

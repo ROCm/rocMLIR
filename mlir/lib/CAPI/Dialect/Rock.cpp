@@ -93,9 +93,9 @@ bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningSetFromStr(MlirModule module, const char *perfCStr) {
+bool mlirRockTuningSetFromStr(MlirModule module, MlirStringRef perfStr) {
   auto mod = unwrap(module);
-  StringRef perfConfig(perfCStr);
+  StringRef perfConfig = unwrap(perfStr);
   return rock::tuningSetStr(mod, perfConfig);
 }
 
@@ -112,10 +112,10 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table) {
 
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
-                               const char *probCStr, const char *perfCStr,
+                               MlirStringRef problemKey, MlirStringRef perfStr,
                                float time) {
-  StringRef problem = unwrap(mlirStringRefCreateFromCString(probCStr));
-  StringRef perfConfig = unwrap(mlirStringRefCreateFromCString(perfCStr));
+  StringRef problem = unwrap(problemKey);
+  StringRef perfConfig = unwrap(perfStr);
   auto *pTable = unwrap(perfTable);
   return rock::tuningTableUpdate(pTable, problem, perfConfig, time);
 }
