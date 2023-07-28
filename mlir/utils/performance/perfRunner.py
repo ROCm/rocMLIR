@@ -710,9 +710,10 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
 def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
     config = confClass.fromCommandLine(commandLine, arch, numCU)
     configStr = ' '.join(commandLine)
+    archNumCU = f"{arch}({numCU} CUs)"
     if tuningDb:
-        if (arch, configStr) in tuningDb:
-            config.setPerfConfig(tuningDb[arch, configStr])
+        if (archNumCU, configStr) in tuningDb:
+            config.setPerfConfig(tuningDb[archNumCU, configStr])
         else: # Tuning DB present but doesn't contain config, return N/A
             return config.tableEntry(np.nan)
 
@@ -908,9 +909,10 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
 
         # Find the best perf_config
         bestPerf =""
+        archNumCU = f"{arch}({numCU} CUs)"
         if tuningDb:
-            if (arch, testVector) in tuningDb:
-               bestPerf = tuningDb[arch, testVector]
+            if (archNumCU, testVector) in tuningDb:
+               bestPerf = tuningDb[archNumCU, testVector]
                config.setPerfConfig(bestPerf)
             else: # Tuning DB present but doesn't contain config, add a NaN entry
                if not testVector in perfResults:

@@ -323,7 +323,7 @@ def main(args=None):
         print("# arch\ttestVector\tperfConfig", file=outFile)
         for testVector, perfConfig in winners.items():
             print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', perfConfig = {perfConfig}")
-            print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
+            print(f"{arch}({numCU} CUs)\t{testVector}\t{perfConfig}", file=outFile)
 
 if __name__ == '__main__':
     sys.exit(main())
