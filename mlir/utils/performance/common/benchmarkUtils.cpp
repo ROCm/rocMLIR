@@ -188,9 +188,9 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   // Note: this parsing function is only meant to parse arguments in this
   // specific form:
   //
-  // -operation gemm -t dataType --arch arch -g G -m M -k K -n K
-  // -transA={True/False} -transB={True/False} --kernel-repeats=reps
-  // --perf_config=
+  // -operation gemm -t dataType --arch arch -out_datatype dataType --num_cu
+  // numCU -g G -m M -k K -n N -transA={True/False} -transB={True/False}
+  // --kernel-repeats=reps --perf_config=
   //
   // issued by the perfRunner.py script
   BenchmarkArgs res;
@@ -216,6 +216,7 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       std::string value = arg.substr(lenTransB);
       res.transposeB = atob(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
+               arg == "-out_datatype" || arg == "--num_cu" ||
                arg == "-operation") {
       i++;
     } else if (arg == "--kernel-repeats") {
