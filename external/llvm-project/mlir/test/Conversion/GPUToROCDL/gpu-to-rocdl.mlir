@@ -456,12 +456,41 @@ gpu.module @test_module {
   // CHECK-LABEL: func @gpu_unroll
   func.func @gpu_unroll(%arg0 : vector<4xf32>) -> vector<4xf32> {
     %result = math.exp %arg0 : vector<4xf32>
-    // CHECK: llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
-    // CHECK: llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
-    // CHECK: llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
-    // CHECK: llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
+    // CHECK: %[[V0:.+]] = llvm.mlir.undef : vector<4xf32>
+    // CHECK: %[[CL:.+]] = llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
+    // CHECK: %[[V1:.+]] = llvm.insertelement %[[CL]], %[[V0]]
+    // CHECK: %[[CL:.+]] = llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
+    // CHECK: %[[V2:.+]] = llvm.insertelement %[[CL]], %[[V1]]
+    // CHECK: %[[CL:.+]] = llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
+    // CHECK: %[[V3:.+]] = llvm.insertelement %[[CL]], %[[V2]]
+    // CHECK: %[[CL:.+]] = llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
+    // CHECK: %[[V4:.+]] = llvm.insertelement %[[CL]], %[[V3]]
+    // CHECK: return %[[V4]]
     func.return %result : vector<4xf32>
   }
+}
+
+// -----
+
+// Test that the bf16 type is lowered away on this target.
+
+gpu.module @test_module {
+  // CHECK-LABEL: func @bf16_id
+  func.func @bf16_id(%arg0 : bf16) -> bf16 {
+    // CHECK-SAME: (%[[ARG0:.+]]: i16)
+    // CHECK-SAME: -> i16
+    // CHECK: return %[[ARG0]] : i16
+    func.return %arg0 : bf16
+  }
+
+  // CHECK-LABEL: func @bf16x4_id
+  func.func @bf16x4_id(%arg0 : vector<4xbf16>) -> vector<4xbf16> {
+    // CHECK-SAME: (%[[ARG0:.+]]: vector<4xi16>)
+    // CHECK-SAME: -> vector<4xi16>
+    // CHECK: return %[[ARG0]] : vector<4xi16>
+    func.return %arg0 : vector<4xbf16>
+  }
+
 }
 
 // -----

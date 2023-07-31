@@ -9,4 +9,4 @@ for dir in "$PWD/.." "$PWD" "$PWD/build" \
     fi
 done
 
-exec "${BASEDIR}/external/llvm-project/llvm/bin/mlir-cpu-runner" "-O2" "--shared-libs=${BASEDIR}/external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,${BASEDIR}/lib/libconv-validation-wrappers.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_runner_utils.so" --entry-point-result=void "$@"
+exec "${BASEDIR}/external/llvm-project/llvm/bin/mlir-cpu-runner" "-O2" "--shared-libs=${BASEDIR}/external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,${BASEDIR}/lib/libconv-validation-wrappers.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_runner_utils.so,${BASEDIR}/external/llvm-project/llvm/lib/libmlir_float16_utils.so" --entry-point-result=void "$@"

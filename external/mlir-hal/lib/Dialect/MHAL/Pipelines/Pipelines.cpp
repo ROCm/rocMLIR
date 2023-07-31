@@ -40,6 +40,7 @@
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -73,6 +74,10 @@ void mhal::buildGraphPipeline(OpPassManager &pm,
   opts.anchorOps = anchors;
   opts.trailingOnly = true;
   pm.addPass(tosa::createTosaPartition(opts));
+
+  /* mlir-opt --duplicate-function-elimination
+   */
+  pm.addPass(func::createDuplicateFunctionEliminationPass());
 
   // make mhal kernel launch's
   /* mlir-opt --mhal-infer-graph

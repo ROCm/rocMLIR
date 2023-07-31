@@ -606,6 +606,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
 
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  func::FuncOp func = getOperation();
+  // Only run this pass on GPU kernel functions.
+  if (!func->hasAttr("kernel"))
+    return;
   {
     RewritePatternSet patterns(ctx);
     patterns.add<LAGenericRewritePattern>(ctx);
@@ -613,14 +617,13 @@ void RockLinalgAlignPass::runOnOperation() {
     patterns.add<MemcpyRewritePattern>(ctx);
     GreedyRewriteConfig config;
     config.useTopDownTraversal = true;
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
-                                            config)))
+    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config)))
       signalPassFailure();
   }
 
   {
     WalkResult verifyAllStores =
-        getOperation().walk([](ThreadwiseWriteAllOp store) {
+        func.walk([](ThreadwiseWriteAllOp store) {
           return isUnfusedKernelStore(store) ? WalkResult::interrupt()
                                              : WalkResult::advance();
         });

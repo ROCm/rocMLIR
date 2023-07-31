@@ -26,6 +26,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -122,13 +123,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    *   --rock-gemm-to-gridwise --rock-regularize
    *   --rock-gridwise-gemm-to-blockwise
    */
-  pm.addNestedPass<func::FuncOp>(rock::createRockAffixTuningParametersPass(
+  auto &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{0, 0,
                                                  options.tuningFallback}));
-  pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
-  pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
-  pm.addNestedPass<func::FuncOp>(rock::createRockRegularizePass());
-  pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
+  funcPm.addPass(rock::createRockConvToGemmPass());
+  funcPm.addPass(rock::createRockGemmToGridwisePass());
+  funcPm.addPass(rock::createRockRegularizePass());
+  funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
@@ -136,14 +138,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       /* rocmlir-opt --rock-linalg-align --canonicalize
        * --convert-linalg-to-affine-loops
        */
-      pm.addNestedPass<func::FuncOp>(rock::createRockLinalgAlignPass());
-      pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-      pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
+      funcPm.addPass(rock::createRockLinalgAlignPass());
+      funcPm.addPass(createCanonicalizerPass());
+      funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     }
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
-    pm.addNestedPass<func::FuncOp>(rock::createRockLowerReducePass());
+    funcPm.addPass(rock::createRockLowerReducePass());
 
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
@@ -152,16 +154,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --rock-transform-to-memref --rock-loops-to-cf
      *   --convert-rock-to-gpu
      */
-    pm.addNestedPass<func::FuncOp>(
-        rock::createRockBlockwiseGemmToThreadwisePass());
-    pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-    pm.addNestedPass<func::FuncOp>(
-        rock::createRockThreadwiseGemmLoweringPass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockSugarToLoopsPass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockCleanMathPass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockBufferLoadMergePass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockTransformToMemrefPass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockLoopsToCfPass());
+    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
+    funcPm.addPass(createCanonicalizerPass());
+    funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
+    funcPm.addPass(rock::createRockSugarToLoopsPass());
+    funcPm.addPass(rock::createRockCleanMathPass());
+    funcPm.addPass(rock::createRockBufferLoadMergePass());
+    funcPm.addPass(rock::createRockTransformToMemrefPass());
+    funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
 
     // lowering linalg to cf
@@ -183,6 +183,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    *   --convert-arith-to-amdgpu
    *   --fp8-ext-to-tables
    *   "--amdgpu-emulate-atomics=chipset=$chip"
+   *   --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32"
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
@@ -191,12 +192,18 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   if (archInfo.hasFp8ConversionInstrs)
     pm.addNestedPass<gpu::GPUModuleOp>(createArithToAMDGPUConversionPass());
   pm.addPass(createFp8ExtToTablesPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(
-      amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
-  pm.addNestedPass<gpu::GPUModuleOp>(createLowerGpuOpsToROCDLOpsPass(
+  auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
+  gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
+  arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
+  SmallVector<std::string, 1> unsupportedFloats = {"bf16"};
+  floatEmuOpts.sourceTypeStrs = unsupportedFloats;
+  floatEmuOpts.targetTypeStr = "f32";
+  gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
+  gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
-  pm.addNestedPass<gpu::GPUModuleOp>(createGpuSerializeToHsacoPass(
-      options.triple, options.chip, options.features, options.optLevel));
+  if (options.compile)
+    gpuPm.addPass(createGpuSerializeToHsacoPass(
+        options.triple, options.chip, options.features, options.optLevel));
 }
 
 //===----------------------------------------------------------------------===//

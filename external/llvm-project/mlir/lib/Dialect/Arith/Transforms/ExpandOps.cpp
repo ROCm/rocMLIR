@@ -246,55 +246,29 @@ struct BFloat16TruncFOpConverter : public OpRewritePattern<arith::TruncFOp> {
       f32Ty = shapedTy.clone(f32Ty);
     }
 
-    Value bitcast = b.create<arith::BitcastOp>(i32Ty, operand);
-
-    Value c23 = createConst(op.getLoc(), i32Ty, 23, rewriter);
-    Value c31 = createConst(op.getLoc(), i32Ty, 31, rewriter);
-    Value c23Mask = createConst(op.getLoc(), i32Ty, (1 << 23) - 1, rewriter);
-    Value expMask =
-        createConst(op.getLoc(), i32Ty, ((1 << 8) - 1) << 23, rewriter);
-    Value expMax =
-        createConst(op.getLoc(), i32Ty, ((1 << 8) - 2) << 23, rewriter);
-
-    // Grab the sign bit.
-    Value sign = b.create<arith::ShRUIOp>(bitcast, c31);
-
-    // Our mantissa rounding value depends on the sign bit and the last
-    // truncated bit.
-    Value cManRound = createConst(op.getLoc(), i32Ty, (1 << 15), rewriter);
-    cManRound = b.create<arith::SubIOp>(cManRound, sign);
-
-    // Grab out the mantissa and directly apply rounding.
-    Value man = b.create<arith::AndIOp>(bitcast, c23Mask);
-    Value manRound = b.create<arith::AddIOp>(man, cManRound);
-
-    // Grab the overflow bit and shift right if we overflow.
-    Value roundBit = b.create<arith::ShRUIOp>(manRound, c23);
-    Value manNew = b.create<arith::ShRUIOp>(manRound, roundBit);
-
-    // Grab the exponent and round using the mantissa's carry bit.
-    Value exp = b.create<arith::AndIOp>(bitcast, expMask);
-    Value expCarry = b.create<arith::AddIOp>(exp, manRound);
-    expCarry = b.create<arith::AndIOp>(expCarry, expMask);
-
-    // If the exponent is saturated, we keep the max value.
-    Value expCmp =
-        b.create<arith::CmpIOp>(arith::CmpIPredicate::uge, exp, expMax);
-    exp = b.create<arith::SelectOp>(expCmp, exp, expCarry);
-
-    // If the exponent is max and we rolled over, keep the old mantissa.
-    Value roundBitBool = b.create<arith::TruncIOp>(i1Ty, roundBit);
-    Value keepOldMan = b.create<arith::AndIOp>(expCmp, roundBitBool);
-    man = b.create<arith::SelectOp>(keepOldMan, man, manNew);
-
-    // Assemble the now rounded f32 value (as an i32).
-    Value rounded = b.create<arith::ShLIOp>(sign, c31);
-    rounded = b.create<arith::OrIOp>(rounded, exp);
-    rounded = b.create<arith::OrIOp>(rounded, man);
-
+    // See also lib/ExecutionEngine/Float16bits.cpp .
+    Value c1 = createConst(op.getLoc(), i32Ty, 1, rewriter);
     Value c16 = createConst(op.getLoc(), i32Ty, 16, rewriter);
-    Value shr = b.create<arith::ShRUIOp>(rounded, c16);
-    Value trunc = b.create<arith::TruncIOp>(i16Ty, shr);
+    Value c31 = createConst(op.getLoc(), i32Ty, 31, rewriter);
+    Value cBias = createConst(op.getLoc(), i32Ty, 0x7fff, rewriter);
+    Value qNaN = createConst(op.getLoc(), i16Ty, 0x7FC0, rewriter);
+    Value sNaN = createConst(op.getLoc(), i16Ty, 0xFFC0, rewriter);
+
+    Value bitcast = b.create<arith::BitcastOp>(i32Ty, operand);
+    Value isNaN =
+        b.create<arith::CmpFOp>(arith::CmpFPredicate::UNO, operand, operand);
+    Value sign =
+        b.create<arith::TruncIOp>(i1Ty, b.create<arith::ShRUIOp>(bitcast, c31));
+    Value nanVal = b.create<arith::SelectOp>(sign, sNaN, qNaN);
+
+    Value lsb =
+        b.create<arith::AndIOp>(b.create<arith::ShRUIOp>(bitcast, c16), c1);
+    Value roundingBias = b.create<arith::AddIOp>(cBias, lsb);
+    Value biased = b.create<arith::AddIOp>(bitcast, roundingBias);
+
+    Value shifted = b.create<arith::ShRUIOp>(biased, c16);
+    Value truncTypical = b.create<arith::TruncIOp>(i16Ty, shifted);
+    Value trunc = b.create<arith::SelectOp>(isNaN, nanVal, truncTypical);
     Value result = b.create<arith::BitcastOp>(resultTy, trunc);
 
     rewriter.replaceOp(op, result);
