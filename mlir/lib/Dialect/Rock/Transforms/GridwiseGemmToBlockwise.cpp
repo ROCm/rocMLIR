@@ -576,34 +576,22 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    auto [aKDimTidPartInfo, mDimTidPartInfo] = createGlobalLdTidSplits(
-        "m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread,
+    FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+        kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
         aVectorDim == GemmDimension::K);
-    auto [aKDimIterPartInfo, mDimIterPartInfo] =
-        createGlobalLdIterSplits("m_iter", copyMPerThread, aCopyKPerThread,
-                                 aVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeABufferViews = createGemmInputTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo,
-        aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
-    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
-    auto [bKDimTidPartInfo, nDimTidPartInfo] = createGlobalLdTidSplits(
-        "n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread,
+    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
+    FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+        kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
         bVectorDim == GemmDimension::K);
-    auto [bKDimIterPartInfo, nDimIterPartInfo] =
-        createGlobalLdIterSplits("n_iter", copyNPerThread, bCopyKPerThread,
-                                 bVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeBBufferViews = createGemmInputTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo,
-        bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
-    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridwiseView);
+    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
 
     Type loadBufferAType, loadBufferBType;
     loadBufferAType = MemRefType::get({aCopyPerThread}, elementTypeA,
@@ -639,42 +627,40 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
-        invertTransforms(b, loc, maybeABufferViews->threadwiseView);
+        invertTransforms(b, loc, maybeABufferViews->threadSubTile);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
-    auto [aKLdsStoreIterSplit, mLdsStoreiterSplit] =
-        createLDSStoreIterSplits(aCopyKPerThread, copyMPerThread, kpack);
-    FailureOr<GPUViews> maybeALdsStoreViews = createGemmInputTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo,
-        aKLdsStoreIterSplit, mLdsStoreiterSplit);
+    FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
+        getPackedRegsAsTileViews(b, loc, op.getA(), "m", bidGridOrder,
+                                 bidGridLengths, blockSize, kPerBlock,
+                                 mPerBlock, aCopyKPerThread, copyMPerThread,
+                                 kpack, aVectorDim == GemmDimension::K);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferAViews =
-        invertTransforms(b, loc, maybeALdsStoreViews->threadwiseView);
+        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(
         b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
     ArrayAttr loadBufferBViews =
-        invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
+        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
-    auto [bKLdsStoreIterSplit, nLdsStoreIterSplit] =
-        createLDSStoreIterSplits(bCopyKPerThread, copyNPerThread, kpack);
-    FailureOr<GPUViews> maybeBLdsStoreViews = createGemmInputTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo,
-        bKLdsStoreIterSplit, nLdsStoreIterSplit);
+    FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
+        getPackedRegsAsTileViews(b, loc, op.getB(), "n", bidGridOrder,
+                                 bidGridLengths, blockSize, kPerBlock,
+                                 nPerBlock, bCopyKPerThread, copyNPerThread,
+                                 kpack, bVectorDim == GemmDimension::K);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferBViews =
-        invertTransforms(b, loc, maybeBLdsStoreViews->threadwiseView);
+        invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(
         b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
@@ -688,7 +674,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // This is KxD view of the flat LDS buffer
     Value wrappedLdsA = std::move(*maybeWrappedLdsA);
     // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockwiseView);
+    wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
 
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsB =
@@ -699,7 +685,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // This is KxD view of the flat LDS buffer
     Value wrappedLdsB = std::move(*maybeWrappedLdsB);
     // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockwiseView);
+    wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
@@ -958,34 +944,22 @@ struct GridwiseGemmAccelRewritePattern
                << "copyNPerThread: " << copyNPerThread << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    auto [aKDimTidPartInfo, mDimTidPartInfo] = createGlobalLdTidSplits(
-        "m_thread", mPerBlock / copyMPerThread, kPerBlock / aCopyKPerThread,
+    FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+        kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
         aVectorDim == GemmDimension::K);
-    auto [aKDimIterPartInfo, mDimIterPartInfo] =
-        createGlobalLdIterSplits("m_iter", copyMPerThread, aCopyKPerThread,
-                                 aVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeABufferViews = createGemmInputTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo,
-        aKDimIterPartInfo, mDimIterPartInfo);
     if (failed(maybeABufferViews)) {
       return failure();
     }
-    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridwiseView);
-    auto [bKDimTidPartInfo, nDimTidPartInfo] = createGlobalLdTidSplits(
-        "n_thread", nPerBlock / copyNPerThread, kPerBlock / bCopyKPerThread,
+    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
+    FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+        kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
         bVectorDim == GemmDimension::K);
-    auto [bKDimIterPartInfo, nDimIterPartInfo] =
-        createGlobalLdIterSplits("n_iter", copyNPerThread, bCopyKPerThread,
-                                 bVectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeBBufferViews = createGemmInputTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo,
-        bKDimIterPartInfo, nDimIterPartInfo);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
-    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridwiseView);
+    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -1026,36 +1000,40 @@ struct GridwiseGemmAccelRewritePattern
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
-        invertTransforms(b, loc, maybeABufferViews->threadwiseView);
+        invertTransforms(b, loc, maybeABufferViews->threadSubTile);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
-    auto [aKLdsStoreIterSplit, mLdsStoreiterSplit] =
-        createLDSStoreIterSplits(aCopyKPerThread, copyMPerThread, kpack);
-    FailureOr<GPUViews> maybeALdsStoreViews = createGemmInputTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, mPerBlock, aKDimTidPartInfo, mDimTidPartInfo,
-        aKLdsStoreIterSplit, mLdsStoreiterSplit);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
+    // vectorization Hence, creating the view w.r.t global that correspond to
+    // such re-arranged register buffer
+    FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
+        getPackedRegsAsTileViews(b, loc, op.getA(), "m", bidGridOrder,
+                                 bidGridLengths, blockSize, kPerBlock,
+                                 mPerBlock, aCopyKPerThread, copyMPerThread,
+                                 kpack, aVectorDim == GemmDimension::K);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferAViews =
-        invertTransforms(b, loc, maybeALdsStoreViews->threadwiseView);
+        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
     auto packALoop = packLoadBufferToStoreBuffer(
         b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
     ArrayAttr loadBufferBViews =
-        invertTransforms(b, loc, maybeBBufferViews->threadwiseView);
+        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
-    auto [bKLdsStoreIterSplit, nLdsStoreIterSplit] =
-        createLDSStoreIterSplits(bCopyKPerThread, copyNPerThread, kpack);
-    FailureOr<GPUViews> maybeBLdsStoreViews = createGemmInputTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, nPerBlock, bKDimTidPartInfo, nDimTidPartInfo,
-        bKLdsStoreIterSplit, nLdsStoreIterSplit);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
+    // vectorization Hence, creating the view w.r.t global that correspond to
+    // such re-arranged register buffer
+    FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
+        getPackedRegsAsTileViews(b, loc, op.getB(), "n", bidGridOrder,
+                                 bidGridLengths, blockSize, kPerBlock,
+                                 nPerBlock, bCopyKPerThread, copyNPerThread,
+                                 kpack, bVectorDim == GemmDimension::K);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferBViews =
-        invertTransforms(b, loc, maybeBLdsStoreViews->threadwiseView);
+        invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
     auto packBLoop = packLoadBufferToStoreBuffer(
         b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
@@ -1142,7 +1120,7 @@ struct GridwiseGemmAccelRewritePattern
     // This is KxD view of the flat LDS buffer
     Value wrappedLdsA = std::move(*maybeWrappedLdsA);
     // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockwiseView);
+    wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
 
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsB =
@@ -1153,7 +1131,7 @@ struct GridwiseGemmAccelRewritePattern
     // This is KxD view of the flat LDS buffer
     Value wrappedLdsB = std::move(*maybeWrappedLdsB);
     // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockwiseView);
+    wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
     TransformingForOp blockwiseStoreA =
         createLdsStoreLoop(b, loc, storeBufferA, aVectorLdsMap, wrappedLdsA,
