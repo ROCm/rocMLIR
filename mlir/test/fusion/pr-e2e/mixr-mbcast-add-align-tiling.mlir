@@ -2,6 +2,7 @@
 // ALLOW_RETRIES: 2
 
 module {
+    // CHECK-COUNT-4: rock.threadwise_read_into {{.*}}
     // CHECK: rock.threadwise_read_into 
     // CHECK: linalg.generic
     // CHECK: rock.threadwise_write_all

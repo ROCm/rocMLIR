@@ -35,8 +35,9 @@ using namespace mlir::rock;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, const std::string &chip, const std::string &triple,
-    const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
-    GemmFeatures features, const std::optional<ConvOpType> operation,
+    const std::string &chipFeatures, const std::string &perfConfig,
+    std::optional<int> num_cu, GemmFeatures features,
+    const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
@@ -409,7 +410,7 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*gemmBType=*/dataType,
                           /*kernelType=*/KernelType::Conv2DBwdWeight,
                           /*batchSize=*/convDims.n,
-                          /*numCu=*/static_cast<uint32_t>(config.num_cu)};
+                          /*numCU=*/getNumCU()};
 
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
@@ -487,6 +488,11 @@ LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
                     builder.getF32Type().getWidth() / 8;
   }
   return success();
+}
+
+uint32_t Conv2dGenerator::getNumCU() const {
+  return config.num_cu.has_value() ? config.num_cu.value()
+                                   : rock::lookupArchInfo(config.arch).minNumCU;
 }
 
 LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
@@ -850,13 +856,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           "output_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
-
+      builder.getNamedAttr("numCU", builder.getI32IntegerAttr(getNumCU())),
   };
-
-  if (config.operation.value() == ConvOpType::BwdWeight) {
-    attributes.push_back(builder.getNamedAttr(
-        "numCu", builder.getI32IntegerAttr(config.num_cu)));
-  }
 
   // The backwards data kernel needs to know its kernel ID, as there are
   // multiple copies of it that compute different parts of the input tensor in

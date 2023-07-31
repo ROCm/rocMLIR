@@ -628,7 +628,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
+      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
@@ -864,7 +864,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto gemm = b.create<GemmOp>(
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
+      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
@@ -1112,7 +1112,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr, op.getArchAttr(),
-                     op.getNumCuAttr(), op.getFeaturesAttr(), storeMethod,
+                     op.getNumCUAttr(), op.getFeaturesAttr(), storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 

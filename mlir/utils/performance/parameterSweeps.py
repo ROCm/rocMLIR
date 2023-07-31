@@ -406,12 +406,6 @@ def main() -> bool:
         default=perfRunner.find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
     )
-    parser.add_argument(
-        "--miopen-build-dir",
-        type=str,
-        default=perfRunner.find_miopen_build_dir(),
-        help="The build directory of MIOpen",
-    )
     args = parser.parse_args()
 
     arch = ','.join(getArch())
@@ -436,7 +430,7 @@ def main() -> bool:
 
     options = Options(debug=args.debug, quiet=args.quiet,
         arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs)
-    paths = perfRunner.create_paths(None, args.mlir_build_dir, args.miopen_build_dir)
+    paths = perfRunner.create_paths(None, args.mlir_build_dir)
 
     config = args.config
     if config == 'perf_config':

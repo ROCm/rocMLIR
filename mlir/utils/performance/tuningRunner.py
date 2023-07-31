@@ -29,6 +29,7 @@ import pandas as pd
 class Options:
     debug: bool
     arch: str
+    numCU: int
     rocmlir_gen_flags: str
     verifyMode: str
 
@@ -88,7 +89,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
-        if i > 0 and i % 1000 == 0:
+        if i > 0 and i % 100 == 0:
             print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}")
         if options.debug:
             print(result)
@@ -115,7 +116,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     winners = {}
     for testVector in configs:
         commandLine = testVector.split(sep=' ')
-        config = confClass.fromCommandLine(commandLine, options.arch)
+        config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
         config.MLIR_N_REPEATS=1
         print("Tuning:", testVector)
         commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
@@ -197,9 +198,9 @@ def main(args=None):
 
     archNames = perfRunner.getArch()
     arch = ','.join(archNames)
-
+    numCU = perfRunner.getNumCU(perfRunner.getChip())
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
@@ -279,12 +280,12 @@ def main(args=None):
         configs_path = "./fusion_config_file"
     else:
         configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir, None)
+    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
     if not paths.mlir_paths:
         raise RuntimeError("MLIR build dir was not provided/found")
 
-    options = Options(arch=arch, debug=parsed_args.debug,
+    options = Options(arch=arch, numCU=numCU, debug=parsed_args.debug,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode)
 
@@ -321,7 +322,7 @@ def main(args=None):
     with open(parsed_args.output, 'a') as outFile:
         print("# arch\ttestVector\tperfConfig", file=outFile)
         for testVector, perfConfig in winners.items():
-            print(f"Arch = {arch}, vector = '{testVector}', perfConfig = {perfConfig}")
+            print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', perfConfig = {perfConfig}")
             print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
 
 if __name__ == '__main__':

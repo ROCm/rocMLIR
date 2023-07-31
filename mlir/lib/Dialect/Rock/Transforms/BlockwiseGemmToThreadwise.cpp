@@ -766,8 +766,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
 
   SmallVector<Value, 3> readStartCoords =
       llvm::to_vector<3>(op.getExtraIndices());
@@ -858,8 +856,6 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
 
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Value bid = b.createOrFold<rock::WorkgroupIdOp>(loc, b.getIndexType());
-  Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
 
   SmallVector<Value, 3> writeStartCoords =
       llvm::to_vector<3>(op.getExtraIndices());

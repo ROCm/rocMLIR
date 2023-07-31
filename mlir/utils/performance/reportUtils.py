@@ -4,14 +4,13 @@ import scipy.stats
 
 from typing import Tuple, List
 
-PERF_REPORT_FILE = 'mlir_vs_miopen_perf.csv'
-PERF_REPORT_GEMM_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf.csv', 'CK': 'mlir_vs_ck_perf.csv'}
+PERF_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf.csv', 'CK': 'mlir_vs_ck_perf.csv', 'MIOpen': 'mlir_vs_miopen_perf.csv'}
 PERF_REPORT_FUSION_FILE = 'mlir_fusion_perf.csv'
 PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
-PERF_PLOT_REPORT_GEMM_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_for_plot.csv', 'CK' : 'mlir_vs_ck_perf_for_plot.csv'}
+PERF_PLOT_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_for_plot.csv', 'CK' : 'mlir_vs_ck_perf_for_plot.csv', 'MIOpen': 'mlir_vs_miopen_perf_for_plot.csv'}
 PERF_PLOT_REPORT_FUSION_FILE = 'mlir_fusion_perf_for_plot.csv'
 PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
-PERF_STATS_REPORT_GEMM_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_means.csv', 'CK' : 'mlir_vs_ck_perf_means.csv'}
+PERF_STATS_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_means.csv', 'CK' : 'mlir_vs_ck_perf_means.csv', 'MIOpen': 'mlir_vs_miopen_perf_means.csv'}
 PERF_STATS_REPORT_FUSION_FILE = 'mlir_fusion_perf_means.csv'
 MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
@@ -19,11 +18,11 @@ MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
 ## In order to prevent issues with the tuning data reporting, 'PerfConfig'
 ## MUST STAY LAST!
-CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
+CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout',
                         'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                         'PaddingH', 'PaddingW', 'PerfConfig']
-GEMM_TEST_PARAMETERS = ['DataType', 'OutDataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
+GEMM_TEST_PARAMETERS = ['DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
 ROUND_DIGITS = 2
 
 def geoMean(data):
@@ -148,4 +147,3 @@ caption {{
 </body>
 </html>
 """, file=stream)
-

@@ -174,11 +174,12 @@ createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
                         std::optional<ArrayRef<int64_t>> bidGridLengths,
                         std::optional<int64_t> blockSize) {
   if (bidGridLengths.has_value()) {
-    SmallVector<int64_t, 5> startShapes =
-        llvm::to_vector<5>(bidGridLengths.value());
-    startShapes.append({blockSize.value(), numElements});
+    auto bidGridLengthsValue = bidGridLengths.value();
     return TopDownTMBuilder(b, {"g_block", "m_block", "n_block", "tid", "item"},
-                            startShapes, loc);
+                            {bidGridLengthsValue[0], bidGridLengthsValue[1],
+                             bidGridLengthsValue[2], blockSize.value(),
+                             numElements},
+                            loc);
   }
   if (blockSize.has_value()) {
     return TopDownTMBuilder(b, {"tid", "item"},

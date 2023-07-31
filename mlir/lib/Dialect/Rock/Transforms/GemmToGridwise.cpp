@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -151,6 +152,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
+  IntegerAttr numCUAttr = op.getNumCUAttr();
+  if (!numCUAttr) {
+    int64_t minNumCU = rock::lookupArchInfo(op.getArchAttr()).minNumCU;
+    numCUAttr = rw.getI32IntegerAttr(minNumCU);
+  }
+
   bool isAccel = rock::isAccel(op.getFeatures());
 
   if (isAccel && !blockSize)
@@ -161,13 +168,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, c, op.getArchAttr(), op.getFeaturesAttr(),
+        loc, a, b, c, op.getArchAttr(), numCUAttr, op.getFeaturesAttr(),
         op.getStoreMethodAttr(), blockSize, gridSize,
         params.cast<RockAccelTuningParamAttrInterface>());
     rw.eraseOp(op);
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), gridSize,
-                              params.cast<GeneralGemmParamsAttr>());
+    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), numCUAttr,
+                              gridSize, params.cast<GeneralGemmParamsAttr>());
     rw.eraseOp(op);
   }
   return success();
