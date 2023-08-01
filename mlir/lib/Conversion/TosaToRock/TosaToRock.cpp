@@ -363,6 +363,23 @@ public:
   }
 };
 
+static void permuteLayout(Operation *op, const char *attrKey,
+                          const char *layoutDefault, ArrayRef<int32_t> permDims,
+                          bool isInput = false) {
+  StringRef currentLayout(layoutDefault);
+  if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
+    currentLayout = attr.getValue();
+  SmallString<4> layout(currentLayout);
+  if (isInput) {
+    for (int i = 0, e = permDims.size(); i < e; ++i)
+      layout[permDims[i]] = currentLayout[i];
+  } else {
+    for (int i = 0, e = permDims.size(); i < e; ++i)
+      layout[i] = currentLayout[permDims[i]];
+  }
+  op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
+}
+
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
@@ -384,23 +401,6 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     return failure();
   }
 
-  void permuteLayout(Operation *op, const char *attrKey,
-                     const char *layoutDefault, ArrayRef<int32_t> permDims,
-                     bool isInput = false) const {
-    StringRef currentLayout(layoutDefault);
-    if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
-      currentLayout = attr.getValue();
-    SmallString<4> layout(currentLayout);
-    if (isInput) {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[permDims[i]] = currentLayout[i];
-    } else {
-      for (int i = 0, e = permDims.size(); i < e; ++i)
-        layout[i] = currentLayout[permDims[i]];
-    }
-    op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
-  }
-
   void setTranspose(Operation *op, StringRef name, bool isNonTrivial) const {
     bool currentValue = false;
     if (auto attr = op->getAttrOfType<BoolAttr>(name))
@@ -413,8 +413,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                           ArrayRef<int32_t> dims) const {
     // batch dimension is expected to be 3rd from the last.
     if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
-      return matmulOp.emitError(
-          "Can't transpose the batch dimension out of place");
+      return matmulOp.emitWarning(
+          "Transposing the batch dimension out of place lowers performance");
     }
     return success();
   }
@@ -494,8 +494,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
           convOp.getWeightMutable().assign(tInput);
         } else {
-          return convOp.emitError("transpose found leading to a conv2D input "
-                                  "other than data or weight");
+          return convOp.emitWarning("transpose found leading to a conv2D input "
+                                    "other than data or weight");
         }
       } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
         if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
@@ -509,7 +509,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           setTranspose(matMulOp, "transpose_b", mmNonTrivial);
           matMulOp.getBMutable().assign(tInput);
         } else {
-          return matMulOp.emitError(
+          return matMulOp.emitWarning(
               "transpose found leading to a matmul input other than A or B");
         }
       } else {
@@ -554,6 +554,74 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
     b.eraseOp(top);
     return success();
+  }
+};
+
+// In Tosa canonicalize, a transpose of NCHW to NHWC where H==W==1 will convert
+// to a reshape because it does not change memory layout. Then in TosaToTensor
+// conversion, the reshape is replaced by this pattern:
+//     %0 = collapse(filters[KCHW]) -> [KC]
+//     %1 = expand(%0[KC]) -> [KHWC]
+// If this feeds into a conv2d as filter, we will drop the collapse/expand and
+// update the filter_layout attribute.
+struct CollapseExpandRewritePattern
+    : public OpRewritePattern<tensor::ExpandShapeOp> {
+  using OpRewritePattern<tensor::ExpandShapeOp>::OpRewritePattern;
+
+  bool checkExpand(tensor::ExpandShapeOp expOp) const {
+    auto srcSh = expOp.getOperand().getType().cast<ShapedType>().getShape();
+    auto resSh = expOp.getResultType().cast<ShapedType>().getShape();
+    // [[0, 1, 2], [3]]
+    // NC -> NHWC
+    if (srcSh.size() == 2 && resSh.size() == 4 && srcSh[0] == resSh[0] &&
+        srcSh[1] == resSh[3] && resSh[1] == 1 && resSh[2] == 1) {
+      return true;
+    }
+    return false;
+  }
+
+  bool checkCollapse(tensor::CollapseShapeOp colOp) const {
+    auto srcSh = colOp.getOperand().getType().cast<ShapedType>().getShape();
+    auto resSh = colOp.getResultType().cast<ShapedType>().getShape();
+    // [[0], [1, 2, 3]]
+    // NCHW -> NC
+    if (srcSh.size() == 4 && resSh.size() == 2 && srcSh[0] == resSh[0] &&
+        srcSh[1] == resSh[1] && srcSh[2] == 1 && srcSh[3] == 1) {
+      return true;
+    }
+    return false;
+  }
+
+  LogicalResult matchAndRewrite(tensor::ExpandShapeOp expOp,
+                                PatternRewriter &b) const final {
+    LogicalResult lres = failure();
+
+    Value expInp = expOp.getOperand();
+    Value expOut = expOp.getResult();
+
+    if (!checkExpand(expOp))
+      return failure();
+
+    auto colOp = expInp.getDefiningOp<tensor::CollapseShapeOp>();
+    if (colOp && checkCollapse(colOp)) {
+      auto colInp = colOp.getOperand();
+
+      for (Operation *usr : expOut.getUsers()) {
+        if (auto convOp = dyn_cast<tosa::Conv2DOp>(usr)) {
+          if (convOp.getOperand(1) == expOut) {
+            // update filter_layout
+            SmallVector<int32_t> dims{0, 2, 3, 1};
+            permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+            // replace filter input with collapse source
+            convOp->replaceUsesOfWith(expOut, colInp);
+
+            lres = success();
+          }
+        }
+      }
+    }
+
+    return lres;
   }
 };
 
@@ -714,15 +782,6 @@ public:
   LogicalResult matchAndRewrite(tosa::ReduceSumOp op,
                                 tosa::ReduceSumOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
-    StringAttr arch;
-    std::optional<uint32_t> num_cu;
-    rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) =
-        getArchAttributes(op, op.getInput().getType());
-    if (!rock::bitEnumContainsAll(features, rock::GemmFeatures::atomic_add)) {
-      op.emitError("Currently, we only support ReduceSum operators on GPUs "
-                   "with atomic add support.!.");
-    }
     Type elementType =
         op.getInput().getType().cast<ShapedType>().getElementType();
     if (!elementType.isF32()) {
@@ -765,5 +824,6 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
 
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<AttentionRewritePattern, TransposeRewritePattern>(context);
+  patterns.add<AttentionRewritePattern, TransposeRewritePattern,
+               CollapseExpandRewritePattern>(context);
 }

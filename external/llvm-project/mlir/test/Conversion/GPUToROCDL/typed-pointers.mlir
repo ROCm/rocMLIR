@@ -16,16 +16,17 @@ gpu.module @test_module {
     // OCL-NEXT: %[[IMM2:.*]] = llvm.getelementptr %[[IMM0]][0, 0] : (!llvm.ptr<array<11 x i8>, 4>) -> !llvm.ptr<i8, 4>
     // OCL-NEXT: %{{.*}} = llvm.call @printf(%[[IMM2]], %[[ARG0]]) : (!llvm.ptr<i8, 4>, i32) -> i32
 
-    // HIP-NEXT: %[[ISNTLAST:.*]] = llvm.mlir.constant(0 : i32) : i32
-    // HIP-NEXT: %[[CST1:.*]] = llvm.mlir.constant(1 : i32) : i32
-    // HIP-NEXT: %[[FORMATLEN:.*]] = llvm.mlir.constant(11 : i64) : i64
     // HIP: %[[CST0:.*]] = llvm.mlir.constant(0 : i64) : i64
-    // HIP-NEXT: %[[DESC0:.*]] = llvm.call @__ockl_printf_begin(%[[CST0]]) : (i64) -> i64
+    // HIP-NEXT: %[[DESC0:.*]] = llvm.call @__ockl_printf_begin(%0) : (i64) -> i64
     // HIP-NEXT: %[[FORMATSTR:.*]] = llvm.mlir.addressof @[[$PRINT_GLOBAL1]] : !llvm.ptr<array<11 x i8>>
     // HIP-NEXT: %[[FORMATSTART:.*]] = llvm.getelementptr %[[FORMATSTR]][0, 0] : (!llvm.ptr<array<11 x i8>>) -> !llvm.ptr<i8>
+    // HIP-NEXT: %[[FORMATLEN:.*]] = llvm.mlir.constant(11 : i64) : i64
+    // HIP-NEXT: %[[ISLAST:.*]] = llvm.mlir.constant(1 : i32) : i32
+    // HIP-NEXT: %[[ISNTLAST:.*]] = llvm.mlir.constant(0 : i32) : i32
     // HIP-NEXT: %[[DESC1:.*]] = llvm.call @__ockl_printf_append_string_n(%[[DESC0]], %[[FORMATSTART]], %[[FORMATLEN]], %[[ISNTLAST]]) : (i64, !llvm.ptr<i8>, i64, i32) -> i64
+    // HIP-NEXT: %[[NARGS1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // HIP-NEXT: %[[ARG0_64:.*]] = llvm.zext %[[ARG0]] : i32 to i64
-    // HIP-NEXT: %{{.*}} = llvm.call @__ockl_printf_append_args(%[[DESC1]], %[[CST1]], %[[ARG0_64]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST1]]) : (i64, i32, i64, i64, i64, i64, i64, i64, i64, i32) -> i64
+    // HIP-NEXT: %{{.*}} = llvm.call @__ockl_printf_append_args(%[[DESC1]], %[[NARGS1]], %[[ARG0_64]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[ISLAST]]) : (i64, i32, i64, i64, i64, i64, i64, i64, i64, i32) -> i64
 
     gpu.printf "Hello: %d\n" %arg0 : i32
     gpu.return

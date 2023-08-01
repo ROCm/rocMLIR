@@ -14,6 +14,11 @@ func.func @trunc_bf16(%a : f32) {
 
 func.func @main() {
   // CHECK: 1.00781
+  %noRoundOneI = arith.constant 0x3f808001 : i32
+  %noRoundOneF = arith.bitcast %noRoundOneI : i32 to f32
+  call @trunc_bf16(%noRoundOneF): (f32) -> ()
+
+  // CHECK: 1
   %roundOneI = arith.constant 0x3f808000 : i32
   %roundOneF = arith.bitcast %roundOneI : i32 to f32
   call @trunc_bf16(%roundOneF): (f32) -> ()
@@ -38,12 +43,12 @@ func.func @main() {
   %neginff = arith.bitcast %neginfi : i32 to f32
   call @trunc_bf16(%neginff): (f32) -> ()
 
-  // CHECK-NEXT: 3.38953e+38
+  // CHECK-NEXT: inf
   %bigi = arith.constant 0x7f7fffff : i32
   %bigf = arith.bitcast %bigi : i32 to f32
   call @trunc_bf16(%bigf): (f32) -> ()
 
-  // CHECK-NEXT: -3.38953e+38
+  // CHECK-NEXT: -inf
   %negbigi = arith.constant 0xff7fffff : i32
   %negbigf = arith.bitcast %negbigi : i32 to f32
   call @trunc_bf16(%negbigf): (f32) -> ()
