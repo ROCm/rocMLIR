@@ -109,18 +109,13 @@ static benchmark::DataType getDataType(Type inputType) {
   }
 
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double> benchmarkKernel(const char *binary,
-                                         const char *funcName,
-                                         uint32_t blockSize, uint32_t gridSize,
-                                         benchmark::DataType dataType,
-                                         ArrayRef<void *> hostBuffers,
-                                         MutableArrayRef<void *> gpuBuffers,
-                                         ArrayRef<size_t> bufferSizes) {
+static FailureOr<double> benchmarkKernels(
+    ArrayRef<std::string> binaries, ArrayRef<std::string> funcNames,
+    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
+    benchmark::DataType dataType, ArrayRef<void *> hostBuffers,
+    MutableArrayRef<void *> gpuBuffers, ArrayRef<size_t> bufferSizes) {
   constexpr double msToNs = 1e6;
-  hipModule_t mod;
-  HIPCHECK(hipModuleLoadData(&mod, binary))
-  hipFunction_t func;
-  HIPCHECK(hipModuleGetFunction(&func, mod, funcName))
+  float milliseconds = 0.0;
 
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream))
@@ -131,54 +126,87 @@ static FailureOr<double> benchmarkKernel(const char *binary,
                             hipMemcpyHostToDevice, stream));
   }
 
-  hipEvent_t startEvent, stopEvent;
-  HIPCHECK(hipEventCreate(&startEvent))
-  HIPCHECK(hipEventCreate(&stopEvent));
-
   // HIP wants an array of pointers to each argument
   std::vector<void *> argPointers;
   for (void *&item : gpuBuffers) {
     argPointers.push_back(reinterpret_cast<void *>(&item));
   }
 
-  HIPCHECK(hipExtModuleLaunchKernel(func, gridSize * blockSize, 1, 1, blockSize,
-                                    1, 1, 0, stream, argPointers.data(),
-                                    nullptr, startEvent, stopEvent))
-  HIPCHECK(hipStreamSynchronize(stream))
-  float milliseconds = -1.0;
-  HIPCHECK(hipEventElapsedTime(&milliseconds, startEvent, stopEvent))
+  for (auto [binary, funcName, blockSize, gridSize] :
+       llvm::zip(binaries, funcNames, blockSizes, gridSizes)) {
+    hipModule_t mod;
+    HIPCHECK(hipModuleLoadData(&mod, binary.c_str()))
+    hipFunction_t func;
+    HIPCHECK(hipModuleGetFunction(&func, mod, funcName.c_str()))
+
+    hipEvent_t startEvent, stopEvent;
+    HIPCHECK(hipEventCreate(&startEvent))
+    HIPCHECK(hipEventCreate(&stopEvent));
+
+    HIPCHECK(hipExtModuleLaunchKernel(
+        func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+        argPointers.data(), nullptr, startEvent, stopEvent))
+    HIPCHECK(hipStreamSynchronize(stream))
+    HIPCHECK(hipEventElapsedTime(&milliseconds, startEvent, stopEvent))
+
+    HIPCHECK(hipEventDestroy(stopEvent))
+    HIPCHECK(hipEventDestroy(startEvent))
+
+    HIPCHECK(hipModuleUnload(mod))
+
+    milliseconds += milliseconds;
+  }
+
   double ret = msToNs * static_cast<double>(milliseconds);
 
-  HIPCHECK(hipEventDestroy(stopEvent))
-  HIPCHECK(hipEventDestroy(startEvent))
   HIPCHECK(hipStreamDestroy(stream))
-  HIPCHECK(hipModuleUnload(mod))
 
   return ret;
 }
 
-static FailureOr<rock::RockGemmWrapperInterface> extractKernel(ModuleOp op) {
+static int toKernelOrder(Attribute attr) {
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr); intAttr)
+    return intAttr.getInt();
+  return -1;
+}
+
+static FailureOr<rock::RockGemmWrapperInterface>
+extractKernels(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
         "no architecture set, set mhal.arch on the input module");
   }
-  rock::RockGemmWrapperInterface kernel;
-  uint32_t nKernels = 0;
-  op.walk([&kernel, &nKernels](rock::RockGemmWrapperInterface candidate) {
-    nKernels++;
-    kernel = candidate;
+  rock::RockGemmWrapperInterface toTune;
+  op.walk([&toTune, &kernels](func::FuncOp f) {
+    Attribute kernel = f->getAttr("kernel");
+    if (!kernel)
+      return;
+    kernels.push_back(f);
+    if (!toTune) {
+      f.walk([&toTune](rock::RockGemmWrapperInterface gemmLike) {
+        toTune = gemmLike;
+      });
+    }
   });
-  if (nKernels == 0)
-    return op.emitOpError("input module contains no kernels");
-  if (nKernels > 1)
-    return op.emitOpError(
-        "more than one kernel on the input, don't know what to tune");
-  return kernel;
+
+  std::sort(kernels.begin(), kernels.end(),
+            [](const func::FuncOp &a, const func::FuncOp &b) {
+              int kernelA = toKernelOrder(a->getAttr("kernel"));
+              int kernelB = toKernelOrder(b->getAttr("kernel"));
+              return kernelA < kernelB;
+            });
+
+  if (!toTune) {
+    return op.emitError("could not find a tunable kernel in the input");
+  }
+  return toTune;
 }
 
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
-  FailureOr<rock::RockGemmWrapperInterface> maybeToTune = extractKernel(source);
+  SmallVector<func::FuncOp> funcs;
+  FailureOr<rock::RockGemmWrapperInterface> maybeToTune =
+      extractKernels(source, funcs);
   if (failed(maybeToTune))
     return failure();
   rock::RockGemmWrapperInterface toTune = std::move(*maybeToTune);
@@ -186,21 +214,21 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // should be a per-buffer value in the futurue.
   benchmark::DataType dataType = getDataType(toTune.getAType());
 
-  auto kernelFunc = toTune->getParentOfType<func::FuncOp>();
-  if (!kernelFunc || !kernelFunc->hasAttr("kernel"))
-    return toTune.emitOpError(
-        "kernel must be in a function with the kernel attribute");
-
   // We need a copy since HIP'll want a C string
-  std::string kernelFuncName = kernelFunc.getSymName().str();
-  std::vector<size_t> bufferLengths;
-  for (Type argType : kernelFunc.getArgumentTypes()) {
+  SmallVector<std::string> kernelFuncNames;
+  SmallVector<size_t> bufferLengths;
+  for (func::FuncOp &funcOp : funcs) {
+    kernelFuncNames.push_back(funcOp.getSymName().str());
+  }
+  for (Type argType : funcs[0].getArgumentTypes()) {
     auto shapedTy = argType.dyn_cast<ShapedType>();
-    if (!shapedTy)
-      return kernelFunc.emitOpError("all kernel inputs must be shaped types");
-    if (!shapedTy.hasStaticShape())
-      return kernelFunc.emitOpError(
+    if (!shapedTy) {
+      return funcs[0].emitOpError("all kernel inputs must be shaped types");
+    }
+    if (!shapedTy.hasStaticShape()) {
+      return funcs[0].emitOpError(
           "all kernel arguments must have static shape");
+    }
     int64_t sizeInBits =
         shapedTy.getNumElements() * shapedTy.getElementTypeBitWidth();
     bufferLengths.push_back(sizeInBits / 8);
@@ -272,18 +300,23 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                    << "N/A\n";
       continue;
     }
-    auto tunedFunc = tuneCopy.lookupSymbol<func::FuncOp>(kernelFuncName);
-    if (!tunedFunc) {
-      llvm::errs() << "Tuned copy somehow missing kernel function\n";
-      return failure();
+
+    SmallVector<uint32_t> blockSizes;
+    SmallVector<uint32_t> gridSizes;
+    for (auto &fn_name : kernelFuncNames) {
+      auto tunedFunc = tuneCopy.lookupSymbol<func::FuncOp>(fn_name);
+      if (!tunedFunc) {
+        llvm::errs() << "Tuned copy somehow missing kernel function\n";
+        return failure();
+      }
+      blockSizes.push_back(
+          tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
+      gridSizes.push_back(
+          tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
     }
     // We have to get these now, they disappear later. Also, if these attributes
     // aren't set the contract of the applicability pipeline changed and that's
     // a problem.
-    uint32_t blockSize =
-        tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt();
-    uint32_t gridSize =
-        tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
     if (failed(compilation.run(tuneCopy))) {
       llvm::errs() << "Backend pipeline failed for config: " << perfConfig
                    << "\n";
@@ -291,21 +324,19 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     // Extract binary and benchmark
-    std::string hipModule;
-    tuneCopy.walk([&hipModule, &kernelFuncName](gpu::GPUModuleOp op) {
-      std::string moduleName = op.getName().str();
-      if (moduleName == kernelFuncName + "_module") {
-        hipModule =
-            op->getAttrOfType<StringAttr>("gpu.binary").getValue().str();
-        return WalkResult::interrupt();
+    SmallVector<std::string> hipModules;
+    for (const auto &fnName : kernelFuncNames) {
+      Operation *module = tuneCopy.lookupSymbol(fnName + "_module");
+      if (!isa<gpu::GPUModuleOp>(module)) {
+        llvm::errs() << "could not find the GPU module\n";
       }
-      llvm::errs() << "Ignoring utility kernels, benchmark times will not "
-                      "match performance tests\n";
-      return WalkResult::advance();
-    });
-    FailureOr<double> timing = benchmarkKernel(
-        hipModule.c_str(), kernelFuncName.c_str(), blockSize, gridSize,
-        dataType, hostBuffers, gpuBuffers, bufferLengths);
+      hipModules.push_back(
+          module->getAttrOfType<StringAttr>("gpu.binary").getValue().str());
+    }
+
+    FailureOr<double> timing =
+        benchmarkKernels(hipModules, kernelFuncNames, blockSizes, gridSizes,
+                         dataType, hostBuffers, gpuBuffers, bufferLengths);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
