@@ -16,10 +16,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK: %[[cond:.+]] = llvm.icmp "eq" %[[resInt_2]], %[[prevInt_2]]
 // CHECK: llvm.cond_br %[[cond]], ^{{.*}}, ^[[bb]](%[[res]] : f32)
 func.func @add_scalar(%val: f32, %mem: memref<4xf32>) attributes {kernel} {
-  %c0 = arith.constant 0 : index
-  %true = arith.constant true
-  rock.buffer_store atomic_add %val -> %mem[%c0] if %true features = dot
-      : f32 -> memref<4xf32>, index
+  %c0 = arith.constant 0 : i32
+  amdgpu.raw_buffer_atomic_fadd {boundsCheck = false} %val -> %mem[%c0] : f32 -> memref<4xf32>, i32
   return
 }
 }

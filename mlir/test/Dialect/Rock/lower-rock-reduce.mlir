@@ -16,7 +16,7 @@ func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>
     // CHECK: %[[ld:.*]] = rock.global_load %arg0[%[[loadCoord0]], %[[loadCoord1]], %[[loadCoord2]]]
     // CHECK: %[[ldRed:.*]] = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
     // CHECK: rock.in_bounds_store %[[ld]] -> %[[ldRed]][%c0] : f32 -> memref<1xf32, #gpu.address_space<private>>, index
-    // CHECK: rock.global_store %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]] storeMethod( atomic_add)
+    // CHECK: rock.global_store atomic_add %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]]
     rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf32>
     func.return
 }
@@ -29,7 +29,7 @@ func.func @test_reduce_max(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>
     // CHECK: %[[ld:.*]] = rock.global_load %arg0[%[[loadCoord0]], %[[loadCoord1]], %[[loadCoord2]]]
     // CHECK: %[[ldRed:.*]] = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
     // CHECK: rock.in_bounds_store %[[ld]] -> %[[ldRed]][%c0] : f32 -> memref<1xf32, #gpu.address_space<private>>, index
-    // CHECK: rock.global_store %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]] storeMethod( atomic_max)
+    // CHECK: rock.global_store atomic_max %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]]
     rock.reduce max %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf32>
     func.return
 }

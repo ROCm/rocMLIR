@@ -783,83 +783,6 @@ defvar NativeMemoryOpTypes = [F32, F16, BF16, I8, I32,
                            VectorOfLengthAndType<[2, 4, 8, 16],
                              [I8, F8E5M2FNUZ, F8E4M3FNUZ]>];
 
-// buffer_load
-def Rock_BufferLoadOp :
-    Rock_Op<"buffer_load">,
-    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>,
-        "buffer to load from", [MemRead]>:$source,
-      I1:$valid,
-      Variadic<Index>:$coords,
-      OptionalAttr<IndexAttr>:$offset,
-      UnitAttr:$oobIsOverflow)>,
-    Results<(outs AnyTypeOf<NativeMemoryOpTypes>:$result)> {
-  let summary = "Load data from a global buffer";
-
-  let description = [{
-    rock.buffer_load uses, if necessary, GPU buffer load intrinsics to
-    ensure that out of bounds loads return 0 instead of a garbage value.
-
-    If `valid` is false, this operation will ignore the provided coordinates
-    and instead return 0.
-
-    This op can perform vector reads.
-
-    If provided, `offset` is a constant offset (in units of the underlying scalar
-    data type) that is added to the final coordinates.
-
-    If `oobIsOverflow` is set, then `valid` is ignored and the indices passed to
-    the load are used unconditionally, but the hardware bounds checking is enabled
-    even if if `valid` were always true. This is used to simplify the implementation
-    of elementwise kernels.
-
-    The memref must be in global memory (memory space 0).
-  }];
-  let assemblyFormat = [{
-    $source `[` $coords `]` `if` $valid attr-dict
-    `:` type($source) (`,` type($coords)^)? `->` type($result)
-  }];
-  let hasVerifier = 1;
-}
-
-// buffer_store
-def Rock_BufferStoreOp :
-    Rock_Op<"buffer_store", []>,
-    Arguments<(ins AnyTypeOf<NativeMemoryOpTypes>:$data,
-      Arg<MemRefOf<SupportedMemoryElems>,
-        "Buffer to store to", [MemWrite]>:$dest,
-      I1:$valid,
-      Variadic<Index>:$coords,
-      Rock_GemmFeaturesAttr:$features,
-      StoreMethodAttr:$storeMethod,
-      OptionalAttr<IndexAttr>:$offset,
-      UnitAttr:$oobIsOverflow)> {
-  let summary = "Store data to a global buffer";
-
-  let description = [{
-    `rock.buffer_store` stores data to a global buffer, ignoring out of bounds writes.
-
-    If `valid` is false, the provided coordinates will be ignored and an out
-    of bounds write will be generated.
-
-    This op supports vector writes and uses buffer store intrinsics if needed.
-
-    `storeMethod` controls whether the data is written to memory, overwriting
-    existing contents, or whether it is added to the existing memory atomically.
-
-    If `oobIsOverflow` is set, then `valid` is ignored and the indices passed to
-    the load are used unconditionally, but the hardware bounds checking is enabled
-    even if if `valid` were always true. This is used to simplify the implementation
-    of elementwise kernels.
-
-    The buffer must reside in global memory.
-  }];
-  let assemblyFormat = [{
-    $storeMethod $data `->` $dest `[` $coords `]` `if` $valid `features` `=` $features attr-dict
-    `:` type($data) `->` type($dest) (`,` type($coords)^)?
-  }];
-  let hasVerifier = 1;
-}
-
 // in_bounds_load
 def Rock_InBoundsLoadOp :
     Rock_Op<"in_bounds_load", [AllElementTypesMatch<["source", "result"]>]>,
@@ -908,20 +831,31 @@ def Rock_GlobalLoadOp :
     Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
     Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source memory", [MemRead]>:$source,
                    I1:$valid,
-                   Variadic<Index>:$sourceCoord)>,
+                   Variadic<Index>:$sourceCoord,
+                   UnitAttr:$needs64BitIdx,
+                   UnitAttr:$canReadOffEnd)>,
     Results<(outs AnyType:$result)> {
-  let summary = "Marker for one or more vectorized global loads";
+  let summary = "Load from global memory, applying bounds checks";
   let description = [{
-    `global_load` is a wrapper around one or more `rock.buffer_load` operations
-    that loads a contiguous vector from %source[%sourceCoord, ...].
-    This is used both to allow for vectorization lengths greater than one load
-    instruction permits and to mark the global load loops to allow fusion.
+    `global_load` loads an item or vector of items from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord`. However,
+    if `valid` is false, it will instead return 0s.
+    Note that the lowering of this operation may be optimized when `valid`
+    is unconditionally true.
+
+    If `needs64BitIdx` is present, then this operation will force its containing
+    kernel to be compiled with `index == i64` and will use less-efficient
+    implementations of bounds-checked load.
+
+    If `canReadOffEnd` is present, then the `valid` input is ignored and the
+    bounds-checked implementation of this operation is always used. This
+    is used to simplify the implementation of certain utility kernels.
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]` `if` $valid attr-dict
-    `:` type($source) `->`
-    type($result)
+    `:` type($source) `->` type($result)
   }];
+  let hasVerifier = 1;
 }
 
 // global_store
@@ -930,30 +864,42 @@ def Rock_GlobalStoreOp :
     Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
                    MemRefOf<SupportedMemoryElems>:$dest,
                    IndexAttr:$length,
+
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    Index:$sourceCoord,
                    I1:$valid,
-                   Variadic<Index>:$destCoord)> {
-  let summary = "Marker for stores to global memory";
+                   Variadic<Index>:$destCoord,
+                   UnitAttr:$needs64BitIdx,
+                   UnitAttr:$canStoreOffEnd)> {
+  let summary = "Store data into global memory from a source";
   let description = [{
-    The `global_store` op is a wrapper around storing to a global buffer.
-    This is used in order to make it easier for operator
-    fusion to identify the write out to global memory produced within a gridwise
-    gemm.
+    `global_store` reads `length` elements starting at `%source[%sourceCoord]`
+    and writes them to successive locations in `dest` starting at `[%destCoord]`.
+    However, if `valid` is false, it instead ignores the writes.
 
-    It will lower to one or more buffer store operations.
+    The write is performed using `storeMethod`, which could be an atomic operation.
 
-    The location `%dest[..., %N + (length - 1)]` must be a valid memory
-    address, even if it is not in-bounds from the `memref` perspective.
+    This operation may correspond to multiple underlying memory operations.
+
+    If `valid` is always true, a more optimized implementation may be used.
+
+    If `needs64BitIdx` is present, then the kernel containing this `global_store`
+    will be flagged for compilation with `index == i64` and a less efficient
+    implementation of the underlying operation will be used.
+
+    If `canWriteOffEnd` is set, then the lowering will assume that bounds checks
+    are required, irrespective of the value of `valid`. This is used to simplify
+    the implementation of certain utility kernels.
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoord `]`
+    $storeMethod $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]` `if` $valid
-    `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict
+    `features` `=` `` $features attr-dict
     `:` type($source) `->`
-    type($dest) `,` type($destCoord)
+    type($dest)
   }];
+  let hasVerifier = 1;
 }
 
 // threadwise_read_into

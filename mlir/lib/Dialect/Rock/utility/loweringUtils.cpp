@@ -31,6 +31,21 @@ bool mlir::rock::isAccel(GemmFeatures features) {
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
+bool mlir::rock::is4GBMemoryType(ShapedType type) {
+  if (!type.hasStaticShape())
+    return true;
+  int64_t elemBytes;
+  if (auto shapedElemTy = dyn_cast<ShapedType>(type.getElementType()))
+    elemBytes = (shapedElemTy.getNumElements() *
+                 shapedElemTy.getElementTypeBitWidth()) /
+                8;
+  else
+    elemBytes = type.getElementTypeBitWidth() / 8;
+
+  return (type.getNumElements() * elemBytes) >
+         (int64_t)std::numeric_limits<uint32_t>::max();
+}
+
 LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
                                              const GemmSize &gemmSize,
                                              int64_t MPerBlock,

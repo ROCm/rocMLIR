@@ -20,7 +20,7 @@ def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::Func
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "arith::ArithDialect",
-    "scf::SCFDialect"];
+    "scf::SCFDialect", "gpu::GPUDialect"];
 }
 
 def RockAffixTuningParametersPass : Pass<"rock-affix-params", "::mlir::func::FuncOp"> {

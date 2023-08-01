@@ -234,22 +234,6 @@ func.func @rock_insert_slice(%u: vector<4xf32>, %v: vector<32xf32>) -> vector<32
 // CHECK-LABEL: func.func @rock_insert_slice
 // CHECK: rock.insert_slice
 
-func.func @rock_buffer_load(%buffer: memref<128x128xf32>, %valid: i1, %idx0: index, %idx1: index) -> vector<4xf32> {
-  %ret = rock.buffer_load %buffer[%idx0, %idx1] if %valid
-    : memref<128x128xf32>, index, index -> vector<4xf32>
-  return %ret : vector<4xf32>
-}
-// CHECK-LABEL: func.func @rock_buffer_load
-// CHECK-NEXT: rock.buffer_load
-
-func.func @rock_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %valid: i1, %idx0: index, %idx1: index) {
-  rock.buffer_store set %data -> %buffer[%idx0, %idx1] if %valid features = none
-  : vector<4xf32> -> memref<128x128xf32>, index, index
-  return
-}
-// CHECK-LABEL: func.func @rock_buffer_store
-// CHECK-NEXT: rock.buffer_store
-
 func.func @rock_in_bounds_load(%buffer: memref<128x128xf32, 3>, %idx0: index, %idx1: index) -> vector<4xf32> {
   %ret = rock.in_bounds_load %buffer[%idx0, %idx1]
     : memref<128x128xf32, 3>, index, index -> vector<4xf32>

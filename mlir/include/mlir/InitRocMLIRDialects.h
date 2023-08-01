@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Bufferization/TransformOps/BufferizationTransformOps.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -60,6 +61,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   async::AsyncDialect,
                   bufferization::BufferizationDialect,
                   cf::ControlFlowDialect,
+                  DLTIDialect,
                   gpu::GPUDialect,
                   func::FuncDialect,
                   LLVM::LLVMDialect,

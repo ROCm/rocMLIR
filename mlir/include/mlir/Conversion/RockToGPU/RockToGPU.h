@@ -13,6 +13,7 @@
 #ifndef MLIR_CONVERSION_ROCKTOGPU_ROCKTOGPU_H_
 #define MLIR_CONVERSION_ROCKTOGPU_ROCKTOGPU_H_
 
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
