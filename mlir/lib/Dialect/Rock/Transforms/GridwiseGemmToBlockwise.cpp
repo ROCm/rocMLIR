@@ -854,16 +854,15 @@ struct GridwiseAttentionAccelRewritePattern
     : public OpRewritePattern<GridwiseAttentionAccelOp> {
   using OpRewritePattern<GridwiseAttentionAccelOp>::OpRewritePattern;
 
-  LogicalResult
-  storeGemmInputTile(PatternRewriter &rewriter, Location loc, int64_t kpack,
-                     Value regBuffer, GPUViews toLDSViews, Value storeBuffer,
-                     Value ldsTileByteBuffer, int64_t kpacksPerBlock,
-                     StringRef nonKDimName, int64_t kPerBlock,
-                     int64_t dPerBlock, int64_t copyKPerThread,
-                     int64_t copyDPerThread, bool forceUnroll) const {
+  LogicalResult storeGemmInputTile(
+      PatternRewriter &rewriter, Location loc, int64_t kpack, Value regBuffer,
+      RegsAsMatrixSubTiles toLDSViews, Value storeBuffer,
+      Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
+      int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
+      int64_t copyDPerThread, bool forceUnroll) const {
     Type elemType = regBuffer.getType().cast<MemRefType>().getElementType();
     ArrayAttr storeBufferViews =
-        invertTransforms(rewriter, loc, toLDSViews.threadwiseView);
+        invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
     Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
@@ -883,7 +882,7 @@ struct GridwiseAttentionAccelRewritePattern
     // This is KxD view of the flat LDS buffer
     Value wrappedLds = std::move(*maybeWrappedLds);
     // This will produce a (tid, iter) --> flat LDS view
-    wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockwiseView);
+    wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/ArrayAttr{},
         /*extraIndices=*/ValueRange{}, GemmFeatures::none, StoreMethod::Set,
@@ -939,21 +938,14 @@ struct GridwiseAttentionAccelRewritePattern
     std::tie(vectorDim, vectorLen) = bestGlobalVectorization(
         rewriter, in, copyDPerThread, copyKPerThread, vectorTiebreaker,
         kPerBlock, dPerBlock, elemType);
-
-    auto [kDimTidPartInfo, dDimTidPartInfo] = createGlobalLdTidSplits(
-        "m_thread", dPerBlock / copyDPerThread, kPerBlock / copyKPerThread,
+    FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews = getLoadRegsAsTileViews(
+        rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, blockSize,
+        kPerBlock, dPerBlock, copyKPerThread, copyDPerThread,
         vectorDim == GemmDimension::K);
-    auto [kDimIterPartInfo, dDimIterPartInfo] =
-        createGlobalLdIterSplits("m_iter", copyDPerThread, copyKPerThread,
-                                 vectorDim == GemmDimension::K);
-    FailureOr<GPUViews> maybeInBufferViews = createGemmInputTileViews(
-        rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, dPerBlock, kDimTidPartInfo, dDimTidPartInfo,
-        kDimIterPartInfo, dDimIterPartInfo);
     if (failed(maybeInBufferViews)) {
       return failure();
     }
-    Value viewIn = transform(rewriter, in, maybeInBufferViews->gridwiseView);
+    Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
     rewriter.create<ThreadwiseReadIntoOp>(
         loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/ArrayAttr{},
         ValueRange{kIter, nIter, gridCoords.g_block, gridCoords.m_block,
@@ -963,16 +955,15 @@ struct GridwiseAttentionAccelRewritePattern
     // Hence we invert to create the reg buffer to be viewed
     // as K x D memref
     ArrayAttr loadBufferViews =
-        invertTransforms(rewriter, loc, maybeInBufferViews->threadwiseView);
+        invertTransforms(rewriter, loc, maybeInBufferViews->threadSubTile);
     Value viewLoadBuffer =
         transform(rewriter, fromGlobalRegBuffer, loadBufferViews);
 
-    auto [kLdsStoreIterSplit, dLdsStoreiterSplit] =
-        createLDSStoreIterSplits(copyKPerThread, copyDPerThread, kpack);
-    FailureOr<GPUViews> maybeLdsStoreViews = createGemmInputTileViews(
-        rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, gridSize,
-        blockSize, kPerBlock, dPerBlock, kDimTidPartInfo, dDimTidPartInfo,
-        kLdsStoreIterSplit, dLdsStoreiterSplit);
+    FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
+        getPackedRegsAsTileViews(rewriter, loc, in, nonKDimName, bidGridOrder,
+                                 bidGridLengths, blockSize, kPerBlock,
+                                 dPerBlock, copyKPerThread, copyDPerThread,
+                                 kpack, vectorDim == GemmDimension::K);
     if (failed(maybeLdsStoreViews)) {
       return failure();
     }
@@ -1566,11 +1557,12 @@ struct GridwiseAttentionAccelRewritePattern
             accelEmitterPtrGemm0->computeOutputTransforms(
                 rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
                 bidGridLengths);
-        GPUViews gemm0Views{gemm0GridwiseViewMaps, gemm0BlockwiseViewMaps,
-                            gemm0ThreadwiseViewMaps};
+        RegsAsMatrixSubTiles gemm0Views{gemm0GridwiseViewMaps,
+                                        gemm0BlockwiseViewMaps,
+                                        gemm0ThreadwiseViewMaps};
 
         Value gemm0ExpMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferExp, gemm0Views.threadwiseView);
+            transform(rewriter, gemm0OutBufferExp, gemm0Views.threadSubTile);
         // Correct the below toLDSViews to be max LDS vectorizable
         // (For now just hacked in the existing view)
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
@@ -1618,9 +1610,9 @@ struct GridwiseAttentionAccelRewritePattern
             transform(rewriter, gemm1OutBuffer, gemm1MNThreadwiseViewMaps);
         // Rescale/correct output, rowMax and rowSums
         Value gemm0MaxMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferMax, gemm0Views.threadwiseView);
+            transform(rewriter, gemm0OutBufferMax, gemm0Views.threadSubTile);
         Value gemm0SumMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferSum, gemm0Views.threadwiseView);
+            transform(rewriter, gemm0OutBufferSum, gemm0Views.threadSubTile);
         createRowStateCorrections(
             rewriter, loc, gemm0MaxMNThreadwiseView, gemm0SumMNThreadwiseView,
             gemm1MNThreadwiseView, attentionOutAccBufferView, maxRowBuffer,
@@ -1633,15 +1625,6 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, gemm1M, gemm1N, blockSize,
             ArrayRef<int64_t>{gemm0G, gemm1MBlocks, 1});
 
-    // Value g1MBlockCountVal =
-    //     createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
-    //                         rewriter.getIndexType(), gemm1MBlocks);
-    // auto gBlockIdx =m,
-    //     rewriter.create<arith::DivSIOp>(loc, bid, g1MBlockCountVal);
-    // auto mBlockIdx =
-    //     rewriter.create<arith::RemSIOp>(loc, bid, g1MBlockCountVal);
-    // Value one = createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
-    //                                 rewriter.getIndexType(), 1);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBuffer, out, gemm1GridwiseViewMaps,
         /*extraIndices=*/
