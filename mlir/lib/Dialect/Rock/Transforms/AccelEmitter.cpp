@@ -293,8 +293,9 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
 
   auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+  unsigned toMatrixClowIdx = 0;
   if (bidGridLengths.has_value()) {
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.passThrough({"gemmG"}, {toMatrixClowIdx++}, {"g_block"});
   }
 
   // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel, i.e.,
@@ -319,13 +320,13 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
     SmallVector<int64_t, 7> dimSizes;
     convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizes);
+      toMatrixC.unmerge("gemmM", toMatrixClowIdx++, dimNamesM, dimSizes);
     } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmM", 1, ArrayRef<StringRef>{dimNamesM}.slice(1),
+      toMatrixC.unmerge("gemmM", toMatrixClowIdx++, ArrayRef<StringRef>{dimNamesM}.slice(1),
                         ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
       toMatrixC.unmerge(
-          "gemmM", 1, {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
+          "gemmM", toMatrixClowIdx++, {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
           {dimSizes[1], dimSizes[3], dimSizes[4], dimSizes[6]});
     }
   }
@@ -343,12 +344,12 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
     SmallVector<int64_t, 7> dimSizes;
     convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizes);
     if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizes);
+      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, dimNamesN, dimSizes);
     } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmN", 2, ArrayRef<StringRef>{dimNamesN}.slice(1),
+      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, ArrayRef<StringRef>{dimNamesN}.slice(1),
                         ArrayRef<int64_t>{dimSizes}.slice(1));
     } else {
-      toMatrixC.unmerge("gemmN", 2, {dimNamesN[1], dimNamesN[3]},
+      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, {dimNamesN[1], dimNamesN[3]},
                         {dimSizes[1], dimSizes[3]});
     }
   }

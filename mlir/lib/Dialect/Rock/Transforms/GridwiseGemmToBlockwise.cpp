@@ -884,7 +884,7 @@ struct GridwiseAttentionAccelRewritePattern
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
     rewriter.create<ThreadwiseWriteAllOp>(
-        loc, storeBuffer, wrappedLds, /*extraViews=*/ArrayAttr{},
+        loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
         /*extraIndices=*/ValueRange{}, GemmFeatures::none, StoreMethod::Set,
         forceUnroll, true);
     return success();
@@ -947,7 +947,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
     rewriter.create<ThreadwiseReadIntoOp>(
-        loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/ArrayAttr{},
+        loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/rewriter.getArrayAttr({}),
         ValueRange{kIter, nIter, gridCoords.g_block, gridCoords.m_block,
                    gridCoords.n_block},
         forceUnroll, true);
@@ -1451,8 +1451,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
     rewriter.create<FillOp>(loc, sumRowBuffer, zeroF32);
 
-    Value one = createConstantIntOp(rewriter, loc, rewriter.getIndexType(),
-                                    rewriter.getIndexType(), 1);
+    Value one = rewriter.createOrFold<ConstantIndexOp>(loc, 1);
     auto gridCoordsGemm1 = layout::makeMMajorGxMGridLayout(
         rewriter, loc, bid, one,
         {gemm1MBlocks, 1, /*op.getNumCU()=*/20, elemTypeV, elemTypeOut});
@@ -1516,7 +1515,7 @@ struct GridwiseAttentionAccelRewritePattern
       ArrayAttr gemm0BlockViewMaps =
           accelEmitterPtrGemm0->computeOutputTransforms(
               rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize);
-      APInt reductionAxis = APInt(32, 0);
+      APInt reductionAxis = APInt(64, 0);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferF32, ldsReductionWorkspaceBuffer,
           gemm0OutBufferMax, reductionAxis, rock::ReduceMethod::Max,
@@ -1527,11 +1526,11 @@ struct GridwiseAttentionAccelRewritePattern
           ValueRange{gemm0OutBufferF32, gemm0OutBufferMax},
           ValueRange{gemm0OutBufferMax},
           rewriter.getAttr<linalg::BinaryFnAttr>(linalg::BinaryFn::sub),
-          nullptr);
+          rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed));
       rewriter.create<linalg::ElemwiseUnaryOp>(
           loc, TypeRange{gemm0OutBufferExp.getType()},
           ValueRange{gemm0OutBufferMax}, ValueRange{gemm0OutBufferExp},
-          rewriter.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::exp), nullptr);
+          rewriter.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::exp), rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed));
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, reductionAxis, rock::ReduceMethod::Sum,
@@ -1561,8 +1560,10 @@ struct GridwiseAttentionAccelRewritePattern
                                         gemm0BlockwiseViewMaps,
                                         gemm0ThreadwiseViewMaps};
 
+        ArrayAttr gemm0ThreadwiseSubtileViewMaps =
+        invertTransforms(rewriter, loc, gemm0Views.threadSubTile);
         Value gemm0ExpMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferExp, gemm0Views.threadSubTile);
+            transform(rewriter, gemm0OutBufferExp, gemm0ThreadwiseSubtileViewMaps);
         // Correct the below toLDSViews to be max LDS vectorizable
         // (For now just hacked in the existing view)
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
@@ -2080,14 +2081,14 @@ struct GridwiseGemmAccelRewritePattern
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp>();
+  target.addIllegalOp<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp, GridwiseAttentionAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmAccelRewritePattern>(
+  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmAccelRewritePattern, GridwiseAttentionAccelRewritePattern>(
       ctx);
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

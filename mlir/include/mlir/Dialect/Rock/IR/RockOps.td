@@ -417,7 +417,7 @@ def Rock_GridwiseAttentionAccelOp :
     Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
                    MemRefRankOf<[F32, F16], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
-                   MemRefRankOf<[F32, F16], [3]>:$scale,
+                  //  MemRefRankOf<[F32, F16], [3]>:$scale,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
