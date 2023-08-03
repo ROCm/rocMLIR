@@ -3,13 +3,13 @@
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK-LABEL: llvm.func @add_scalar
 // CHECK-SAME: (%[[val:.*]]: f32,
-// CHECK: %[[init:.+]] = rocdl.raw.buffer.load
+// CHECK: %[[init:.+]] = rocdl.raw.ptr.buffer.load
 // CHECK: llvm.br ^[[bb:.+]](%[[init]] : f32)
 // CHECK: ^[[bb]](%[[prev:.+]]: f32)
 // CHECK-DAG: %[[add:.+]] = llvm.fadd %[[val]], %[[prev]]
 // CHECK-DAG: %[[prevInt:.+]] = llvm.bitcast %[[prev]] : f32 to i32
 // CHECK-DAG: %[[addInt:.+]] = llvm.bitcast %[[add]] : f32 to i32
-// CHECK: %[[resInt:.+]] = rocdl.raw.buffer.atomic.cmpswap(%[[addInt]], %[[prevInt]]
+// CHECK: %[[resInt:.+]] = rocdl.raw.ptr.buffer.atomic.cmpswap %[[addInt]], %[[prevInt]]
 // CHECK-DAG: %[[res:.+]] = llvm.bitcast %[[resInt]] : i32 to f32
 // CHECK-DAG: %[[prevInt_2:.+]] = llvm.bitcast %[[prev]] : f32 to i32
 // CHECK: %[[resInt_2:.+]] = llvm.bitcast %[[res]] : f32 to i32
