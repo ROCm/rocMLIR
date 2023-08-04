@@ -1400,6 +1400,8 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
   }
 }
 
+// If the ref is float and not F32, make an F32 buffer and copy into it.
+// Used when a CPU kernel will have parameters that it can't handle natively.
 Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
   auto refType = ref.getType().template dyn_cast<MemRefType>();
   Type refElemType = refType.getElementType();
@@ -1714,11 +1716,11 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
                               createConv2dLoopNest);
 
-  if (!opd1.dyn_cast<BlockArgument>())
+  if (!opd1.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, opd1);
-  if (!opd2.dyn_cast<BlockArgument>())
+  if (!opd2.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, opd2);
-  if (!result.dyn_cast<BlockArgument>()) {
+  if (!result.isa<BlockArgument>()) {
     BlockArgument resultBlockArg;
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
@@ -1734,6 +1736,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
     Value resultFlat = makeNDMemRef(b, result, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
+    b.create<memref::DeallocOp>(loc, result);
   }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
@@ -1938,14 +1941,15 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
                  dilationWidthConstantOp, accelConstantOp});
 
-  if (!filter.dyn_cast<BlockArgument>())
+  if (!filter.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, filter);
-  if (!input.dyn_cast<BlockArgument>())
+  if (!input.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, input);
-  if (!output.dyn_cast<BlockArgument>()) {
+  if (!output.isa<BlockArgument>()) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, output, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
+    b.create<memref::DeallocOp>(loc, output);
   }
 
   // Emit return op
@@ -2151,14 +2155,15 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
         }
       });
 
-  if (!aVal.dyn_cast<BlockArgument>())
+  if (!aVal.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, aVal);
-  if (!bVal.dyn_cast<BlockArgument>())
+  if (!bVal.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, bVal);
-  if (!cVal.dyn_cast<BlockArgument>()) {
+  if (!cVal.isa<BlockArgument>()) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, cVal, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
+    b.create<memref::DeallocOp>(loc, cVal);
   }
 
   b.create<func::ReturnOp>(loc);
@@ -2284,7 +2289,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
-  if (valElemType.isa<FloatType>()) {
+  if (valElemType.isF32()) {            // +++pf:  isa<FloatType>
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
              valElemType.isInteger(64)) {
@@ -2395,6 +2400,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (!isTestAndValSameType) {
     // Deallocate the buffer for f32 version of the test results
     b.create<memref::DeallocOp>(loc, testResultNew);
+    if (!valElemType.isF32())
+      b.create<memref::DeallocOp>(loc, valResultNew);
   }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
@@ -2519,6 +2526,15 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       std::string kernelBaseName = genConfig.kernelBaseName;
       llvm::errs() << kernelBaseName << "\n";
       for (int i = kernelStart; i < kernelCount; ++i) {
+        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                                 /*ignoreTuning=*/true))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        KernelIF kernel(conv2dGenerator.getKernelFunc());
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
         rock::Conv2dGenerator originalConv2dGenerator(genConfig);
@@ -2535,16 +2551,6 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         if (originalHasWorkspace && !verifierHasWorkspace) {
           valVars.resize(valVars.size() - 1);
         }
-
-        // Make the kernel and its wrapper function, and call it.
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        KernelIF kernel(conv2dGenerator.getKernelFunc());
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
         b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
