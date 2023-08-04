@@ -2,7 +2,7 @@
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK: gpu.module @emptykernel_module
-// CHECK-NEXT: gpu.func @emptykernel(%{{.*}}: memref<?x?x?x?xf32>) kernel
+// CHECK-NEXT: gpu.func @emptykernel(%{{.*}}: memref<?x?x?x?xf32> {llvm.noalias}) kernel
 module {
   gpu.module @existing_module {
   }

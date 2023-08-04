@@ -2,7 +2,7 @@
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @misckernel_module
-// CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32>, %{{.*}}: memref<?xf32>) kernel
+// CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32> {llvm.noalias}, %{{.*}}: memref<?xf32> {llvm.noalias}) kernel
 // CHECK-SAME: block_size = 64 : i32
 // CHECK-SAME: gpu.known_block_size = array<i32: 64, 1, 1>
 // CHECK-SAME: gpu.known_grid_size = array<i32: 900, 1, 1>

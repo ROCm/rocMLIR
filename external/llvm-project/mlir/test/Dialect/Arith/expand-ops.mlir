@@ -225,34 +225,24 @@ func.func @truncf_f32(%arg0 : f32) -> bf16 {
 }
 
 // CHECK-LABEL: @truncf_f32
-
+// CHECK-DAG: %[[C1:.+]] = arith.constant 1
 // CHECK-DAG: %[[C16:.+]] = arith.constant 16
-// CHECK-DAG: %[[C32768:.+]] = arith.constant 32768
-// CHECK-DAG: %[[C2130706432:.+]] = arith.constant 2130706432
-// CHECK-DAG: %[[C2139095040:.+]] = arith.constant 2139095040
-// CHECK-DAG: %[[C8388607:.+]] = arith.constant 8388607
 // CHECK-DAG: %[[C31:.+]] = arith.constant 31
-// CHECK-DAG: %[[C23:.+]] = arith.constant 23
+// CHECK-DAG: %[[C32767:.+]] = arith.constant 32767
+// CHECK-DAG: %[[C32704:.+]] = arith.constant 32704
+// CHECK-DAG: %[[C_64:.+]] = arith.constant -64
 // CHECK-DAG: %[[BITCAST:.+]] = arith.bitcast %arg0
+// CHECK-DAG: %[[ISNAN:.+]] = arith.cmpf uno, %arg0, %arg0
 // CHECK-DAG: %[[SIGN:.+]] = arith.shrui %[[BITCAST:.+]], %[[C31]]
-// CHECK-DAG: %[[ROUND:.+]] = arith.subi %[[C32768]], %[[SIGN]]
-// CHECK-DAG: %[[MANTISSA:.+]] = arith.andi %[[BITCAST]], %[[C8388607]]
-// CHECK-DAG: %[[ROUNDED:.+]] = arith.addi %[[MANTISSA]], %[[ROUND]]
-// CHECK-DAG: %[[ROLL:.+]] = arith.shrui %[[ROUNDED]], %[[C23]]
-// CHECK-DAG: %[[SHR:.+]] = arith.shrui %[[ROUNDED]], %[[ROLL]]
-// CHECK-DAG: %[[EXP:.+]] = arith.andi %0, %[[C2139095040]]
-// CHECK-DAG: %[[EXPROUND:.+]] = arith.addi %[[EXP]], %[[ROUNDED]]
-// CHECK-DAG: %[[EXPROLL:.+]] = arith.andi %[[EXPROUND]], %[[C2139095040]]
-// CHECK-DAG: %[[EXPMAX:.+]] = arith.cmpi uge, %[[EXP]], %[[C2130706432]]
-// CHECK-DAG: %[[EXPNEW:.+]] = arith.select %[[EXPMAX]], %[[EXP]], %[[EXPROLL]]
-// CHECK-DAG: %[[OVERFLOW_B:.+]] = arith.trunci %[[ROLL]]
-// CHECK-DAG: %[[KEEP_MAN:.+]] = arith.andi %[[EXPMAX]], %[[OVERFLOW_B]]
-// CHECK-DAG: %[[MANNEW:.+]] = arith.select %[[KEEP_MAN]], %[[MANTISSA]], %[[SHR]]
-// CHECK-DAG: %[[NEWSIGN:.+]] = arith.shli %[[SIGN]], %[[C31]]
-// CHECK-DAG: %[[WITHEXP:.+]] = arith.ori %[[NEWSIGN]], %[[EXPNEW]]
-// CHECK-DAG: %[[WITHMAN:.+]] = arith.ori %[[WITHEXP]], %[[MANNEW]]
-// CHECK-DAG: %[[SHIFT:.+]] = arith.shrui %[[WITHMAN]], %[[C16]]
-// CHECK-DAG: %[[TRUNC:.+]] = arith.trunci %[[SHIFT]]
+// CHECK-DAG: %[[SIGNBIT:.+]] = arith.trunci %[[SIGN]]
+// CHECK-DAG: %[[NANVAL:.+]] = arith.select %[[SIGNBIT]], %[[C_64]], %[[C32704]]
+// CHECK-DAG: %[[LSB_PART:.+]] = arith.shrui %[[BITCAST]], %[[C16]]
+// CHECK-DAG: %[[LSB:.+]] = arith.andi %[[LSB_PART]], %[[C1]]
+// CHECK-DAG: %[[BIAS:.+]] = arith.addi %[[C32767]], %[[LSB]]
+// CHECK-DAG: %[[BIASED:.+]] = arith.addi %[[BITCAST]], %[[BIAS]]
+// CHECK-DAG: %[[SHIFT:.+]] = arith.shrui %[[BIASED]], %[[C16]]
+// CHECK-DAG: %[[TRUNCTYPICAL:.+]] = arith.trunci %[[SHIFT]]
+// CHECK-DAG: %[[TRUNC:.+]] = arith.select %[[ISNAN]], %[[NANVAL]], %[[TRUNCTYPICAL]]
 // CHECK-DAG: %[[RES:.+]] = arith.bitcast %[[TRUNC]]
 // CHECK: return %[[RES]]
 

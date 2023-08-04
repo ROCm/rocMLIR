@@ -168,21 +168,9 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     // Set up the default lowering pipeline which goes down to GPU dialect.
     rock::buildKernelPipeline(pm);
   }
-  if (kernelPipelineSet.contains("rocdl")) {
-    std::string chipset = devName.getChip().str();
-    rock::AmdArchInfo archInfo = rock::lookupArchInfo(chipset);
-    if (archInfo.hasFp8ConversionInstrs) {
-      pm.addNestedPass<gpu::GPUModuleOp>(createArithToAMDGPUConversionPass());
-    }
-    pm.addPass(createFp8ExtToTablesPass());
-    pm.addNestedPass<gpu::GPUModuleOp>(
-        amdgpu::createAmdgpuEmulateAtomicsPass({chipset}));
-    pm.addPass(
-        createLowerGpuOpsToROCDLOpsPass(chipset,
-                                        /*indexBitWidth=*/32,
-                                        /*useBarePtrCallConv=*/barePointers));
-  }
-  if (kernelPipelineSet.contains("binary")) {
+  bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
+                     !kernelPipelineSet.contains("binary");
+  if (kernelPipelineSet.contains("binary") || isRocdlOnly) {
     // Set up the lowering pipeline which goes down to ELF Binary
     int optLevel = gpuOpt.getValue();
     if (optLevel < 0 || optLevel > 3) {
@@ -195,6 +183,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     opts.chip = devName.getChip().str();
     opts.features = devName.getFeaturesForBackend();
     opts.optLevel = optLevel;
+    opts.compile = !isRocdlOnly;
     rock::buildBackendPipeline(pm, opts);
   }
 
@@ -374,7 +363,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     runnerOptions.targetTypes = targetTypes;
     runnerOptions.targetArchs = targetArchs;
     mhal::buildRunnerPipeline(pm, runnerOptions);
-    pm.addPass(LLVM::createSoftwareBF16Pass());
     if (failed(pm.run(module)))
       return failure();
   }
