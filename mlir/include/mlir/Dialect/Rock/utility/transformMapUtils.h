@@ -141,6 +141,9 @@ void convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
 ArrayAttr prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
                             ArrayAttr existingViews);
 
+
+ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
