@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -186,11 +187,20 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
 }
 
 LogicalResult
-PopulateParams::isParamAttrPlausible(const PopulateParamsInfo &info,
-                                     const InitParamsNonAccel &params) {
+PopulateParams::paramsProbablyValid(const PopulateParamsInfo &info,
+                                    const InitParamsNonAccel &params) {
   uint32_t gridSize;
   GemmSize newGemmSize = info.gemmSize;
   return populateDerived(params, newGemmSize, gridSize);
+}
+
+LogicalResult
+PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
+                                  const InitParamsNonAccel &params) {
+  // Implement this if needed.
+  (void)info;
+  (void)params;
+  return success();
 }
 
 LogicalResult PopulateParams::obtainTuningParameters(
@@ -359,13 +369,19 @@ PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
 }
 
 LogicalResult
-PopulateParamsAccel::isParamAttrPlausible(const PopulateParamsInfo &info,
-                                          const InitParamsAccel &params) {
+PopulateParamsAccel::paramsProbablyValid(const PopulateParamsInfo &info,
+                                         const InitParamsAccel &params) {
   uint32_t blockSize, gridSize;
   int64_t gemmKBlocks;
   GemmSize newGemmSize = info.gemmSize;
   return populateDerived(params, info, newGemmSize, blockSize, gridSize,
                          gemmKBlocks);
+}
+
+LogicalResult
+PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
+                                       const InitParamsAccel &params) {
+  return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
@@ -573,6 +589,16 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   return res;
 }
 
+LogicalResult
+PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
+                                             Type dataTypeA, Type dataTypeB) {
+  // Implement this if needed.
+  (void)params;
+  (void)dataTypeA;
+  (void)dataTypeB;
+  return success();
+}
+
 Attribute
 PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
                                      const InitParamsAccel &validParams) const {
@@ -692,6 +718,16 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
         return true;
       });
   return res;
+}
+
+LogicalResult
+PopulateParamsWmma::specificCouldBePerformant(const InitParamsAccel &params,
+                                              Type dataTypeA, Type dataTypeB) {
+  // Implement this if needed.
+  (void)params;
+  (void)dataTypeA;
+  (void)dataTypeB;
+  return success();
 }
 
 Attribute PopulateParamsWmma::getGemmParamsAttr(

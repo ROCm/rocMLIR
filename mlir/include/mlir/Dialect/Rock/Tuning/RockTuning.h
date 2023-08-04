@@ -21,6 +21,20 @@
 namespace mlir {
 namespace rock {
 
+// The available sets of tuning parameters.
+enum class TuningParamSetKind : uint32_t {
+  // A short (around 10-15) list of tuning entries that should be tried to
+  // quickly obtain reasonable performance on an unknown configuration.
+  Quick = 0,
+  // A full tuning space suitable for most offline tuning tasks which omits
+  // configurations that have been shown not to yield good performance.
+  // (Note: this filtering is currently unimplemented).
+  Full = 1,
+  // A tuning space consisting of all possible sets of tuning parameters,
+  // excluding those that could not be applicable to the given problem.
+  Exhaustive = 2,
+};
+
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
   RockTuningParamAttrInterface param;
@@ -28,17 +42,15 @@ struct ParamEntry {
 };
 
 // Total tuning space
-struct TunableParams {
-  std::vector<RockTuningParamAttrInterface> tuningRangeFull;
-  std::vector<RockTuningParamAttrInterface> tuningRangeQuick;
+struct TuningParamSet {
+  std::vector<RockTuningParamAttrInterface> tuningRange;
   KernelType primaryOpType;
 };
 
-TunableParams *createTunableParamSpace(ModuleOp &mod);
-bool tuningGetParamFull(TunableParams *tuningSpace, unsigned pos,
-                        ParamEntry *paramEntry);
-bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
-                         ParamEntry *paramEntry);
+TuningParamSet *createTunableParamSpace(ModuleOp &mod, TuningParamSetKind kind);
+// Get a parameters from the set of tunable parameters.
+bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
+                    ParamEntry *paramEntry);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, StringRef perfConfig);
 

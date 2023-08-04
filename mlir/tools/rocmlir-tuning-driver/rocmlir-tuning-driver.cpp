@@ -284,9 +284,10 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // 4. Actually tune
-  rock::TunableParams *tuningSpace = rock::createTunableParamSpace(source);
+  rock::TuningParamSet *tuningSpace = rock::createTunableParamSpace(
+      source, rock::TuningParamSetKind::Exhaustive);
   for (rock::RockTuningParamAttrInterface tuningAttr :
-       tuningSpace->tuningRangeFull) {
+       tuningSpace->tuningRange) {
     ModuleOp tuneCopy = cast<ModuleOp>(source->clone());
     // TODO: remove this once perf_config gets parsed earlier
     SmallString<64> perfConfig;

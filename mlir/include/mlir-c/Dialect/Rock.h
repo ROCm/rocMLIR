@@ -34,18 +34,21 @@ DEFINE_C_API_STRUCT(MlirRockTuningTable, void);
 // DEFINE_C_API_STRUCT(MlirRockGemmWrapperInterface, void);
 DEFINE_C_API_STRUCT(MlirRockTuningKey, const void);
 
+// See TuningParamSetKind in the C++ for descriptions of these flags.
+enum RocmlirTuningParamSetKind {
+  RocmlirTuningParamSetKindQuick = 0,
+  RocmlirTuningParamSetKindFull = 1,
+  RocmlirTuningParamSetKindExhaustive = 2
+};
+typedef enum RocmlirTuningParamSetKind RocmlirTuningParamSetKind;
+
 // Create full range of the tuning params space
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
-mlirRockTuningSpaceCreate(MlirModule module);
+mlirRockTuningSpaceCreate(MlirModule module, RocmlirTuningParamSetKind kind);
 
-// Returns the estimated number of tuning params that user can quickly find the
-// optimal solution in the sorted array
+// Returns the number of parameters in the given tuning space.
 MLIR_CAPI_EXPORTED unsigned
-mlirRockTuningGetNumParamsQuick(MlirRockTuningSpace params);
-
-// Returns total number of the tuning params in the array
-MLIR_CAPI_EXPORTED unsigned
-mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params);
+mlirRockTuningGetNumParams(MlirRockTuningSpace params);
 
 // Allocate memory for a single instance of the tuning params
 MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate(void);
@@ -58,12 +61,12 @@ void mlirRockTuningParamDestroy(MlirRockTuningParam param);
 MLIR_CAPI_EXPORTED
 void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params);
 
-// Get tuning params at the given position in the full tuning table and return
-// it into `dest`. Returns false on failure. This will not modify `params`
-// and will copy into `param`, overwriting it.
+// Get tuning params at the given position in the tuning parameter set and
+// return it into `dest`. Returns false on failure. This will not modify
+// `params` and will copy into `param`, overwriting it.
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningParamGetFull(MlirRockTuningSpace params, unsigned pos,
-                                MlirRockTuningParam param);
+bool mlirRockTuningParamGet(MlirRockTuningSpace params, unsigned pos,
+                            MlirRockTuningParam param);
 
 // Get tuning params at the given position in the quick tuning table and return
 // it into `dest`. Returns false on failure.This will not modify `params`
@@ -77,11 +80,11 @@ bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
 
 // Generate the string representation of `param`. This representation will be
 // copied into `buf`, which should point to `bufLen` bytes of memory. This
-// function returns the true length of the parameter string, including the
-// terminating null - it is the caller's responsibility to ensure that the
-// returned size is less than the size of the provided buffer and to handle the
-// case where the buffer was too small (in which case, per strncpy(), no null
-// terminator will be added to the buffer.)
+// function returns the true length of the parameter string, excluding the
+// trailing null which is not guaranteed to be inserted - it is the caller's
+// responsibility to ensure that the returned size is less than the size of the
+// provided buffer and to handle the case where the buffer was too small (in
+// which case, per strncpy(), no null terminator will be added to the buffer.)
 MLIR_CAPI_EXPORTED
 size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
                                    size_t bufLen);
@@ -126,11 +129,11 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 // Produces a string representation of the tuning table key for the problem
 // found within `module`. The representation will be copied into `buf`, which
 // should point to `bufLen` bytes of memory. This function returns the true
-// length of the problem string, including the terminating null - it is the
+// length of the problem string, excluding the terminating null - it is the
 // caller's responsibility to ensure that the returned size is less than the
 // size of the provided buffer and to handle the case where the buffer was too
 // small (in which case, per strncpy(), no null terminator will be added to the
-// buffer.).
+// buffer).
 //
 // If the problem cannot be converted into a key for some reason (this shouldn't
 // happen), returns (size_t)(-1).

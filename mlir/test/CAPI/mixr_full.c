@@ -183,12 +183,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     return false;
   }
 
-  MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
+  MlirRockTuningSpace tuningSpace =
+      mlirRockTuningSpaceCreate(module, RocmlirTuningParamSetKindFull);
   printf("Got tuning space,\n");
-  unsigned qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
-  unsigned fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
-  // CHECK: quick set = 5, full set = 594
-  printf("quick set = %u, full set = %u\n", qNum, fNum);
+  unsigned fNum = mlirRockTuningGetNumParams(tuningSpace);
+  // CHECK: full set = 594
+  printf("full set = %u\n", fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
 
@@ -203,7 +203,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   }
 
   for (unsigned i = 0; i < fNum && numSuccesses < 2; ++i) {
-    if (!mlirRockTuningParamGetFull(tuningSpace, i, tuningParam)) {
+    if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
       printf("fails to obtain param\n");
       return false;
     }
@@ -233,8 +233,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
         "Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
         problemKey, paramStr, fakeTime);
     // CHECK: fails to update table, existing config is faster
-    if (!mlirRockTuningUpdateTable(tuningTable, problemKey, paramStr,
-                                   fakeTime)) {
+    if (!mlirRockTuningUpdateTable(
+            tuningTable, mlirStringRefCreateFromCString(problemKey),
+            mlirStringRefCreateFromCString(paramStr), fakeTime)) {
       printf("fails to update table, existing config is faster\n");
     }
     ++numSuccesses;

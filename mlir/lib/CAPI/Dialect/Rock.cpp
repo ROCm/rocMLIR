@@ -18,30 +18,36 @@
 #include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
-DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TunableParams)
+DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TuningParamSet)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningTable, mlir::rock::TuningTable)
 
 using namespace mlir;
 
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
-mlirRockTuningSpaceCreate(MlirModule module) {
-  struct rock::TunableParams *newParams;
+mlirRockTuningSpaceCreate(MlirModule module, RocmlirTuningParamSetKind kind) {
+  struct rock::TuningParamSet *newParams;
+  rock::TuningParamSetKind ourKind;
+  switch (kind) {
+  case RocmlirTuningParamSetKindQuick:
+    ourKind = rock::TuningParamSetKind::Quick;
+    break;
+  case RocmlirTuningParamSetKindFull:
+    ourKind = rock::TuningParamSetKind::Full;
+    break;
+  case RocmlirTuningParamSetKindExhaustive:
+    ourKind = rock::TuningParamSetKind::Exhaustive;
+    break;
+  }
   auto mod = unwrap(module);
-  newParams = rock::createTunableParamSpace(mod);
+  newParams = rock::createTunableParamSpace(mod, ourKind);
   return wrap(newParams);
 }
 
-MLIR_CAPI_EXPORTED unsigned
-mlirRockTuningGetNumParamsQuick(MlirRockTuningSpace params) {
-  auto *tuningSpace = unwrap(params);
-  return tuningSpace->tuningRangeQuick.size();
-}
-
 MLIR_CAPI_EXPORTED
-unsigned mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params) {
+unsigned mlirRockTuningGetNumParams(MlirRockTuningSpace params) {
   auto *tuningSpace = unwrap(params);
-  return tuningSpace->tuningRangeFull.size();
+  return tuningSpace->tuningRange.size();
 }
 
 MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate() {
@@ -60,19 +66,11 @@ void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningParamGetFull(MlirRockTuningSpace params, unsigned pos,
-                                MlirRockTuningParam param) {
+bool mlirRockTuningParamGet(MlirRockTuningSpace params, unsigned pos,
+                            MlirRockTuningParam param) {
   auto *tuningSpace = unwrap(params);
   auto *paramEntry = unwrap(param);
-  return rock::tuningGetParamFull(tuningSpace, pos, paramEntry);
-}
-
-MLIR_CAPI_EXPORTED
-bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
-                                 MlirRockTuningParam param) {
-  auto *tuningSpace = unwrap(params);
-  auto *paramEntry = unwrap(param);
-  return rock::tuningGetParamQuick(tuningSpace, pos, paramEntry);
+  return rock::tuningGetParam(tuningSpace, pos, paramEntry);
 }
 
 MLIR_CAPI_EXPORTED

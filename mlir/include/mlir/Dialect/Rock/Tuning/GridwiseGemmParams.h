@@ -238,8 +238,14 @@ public:
   // Succeed if the given `params` could be a valid set of tuning parameters for
   // `info`. This is not a guarantee that a given set of parameters will pass
   // applicability, but it should filter out inapplicable configs.
-  virtual LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
-                                             const InitParamType &params) = 0;
+  virtual LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+                                            const InitParamType &params) = 0;
+
+  // Succced if `params` should be included in a "full" tuning space that
+  // excludes those known to not yeild good performance on the problem described
+  // in `info`. This function uses hardcoded heuristics.
+  virtual LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+                                          const InitParamType &params) = 0;
 
   // Convert the provided InitParamType into an MLIR `Attribute`.
   virtual Attribute getGemmParamsAttr(OpBuilder &b,
@@ -285,8 +291,11 @@ public:
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;
 
-  LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
-                                     const InitParamsNonAccel &params) override;
+  LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+                                    const InitParamsNonAccel &params) override;
+
+  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+                                  const InitParamsNonAccel &params) override;
 
   int64_t calculatePaddingAmount(const InitParamsNonAccel &params,
                                  const GemmSize &gemmSize) const override;
@@ -325,8 +334,11 @@ public:
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
-  LogicalResult isParamAttrPlausible(const PopulateParamsInfo &info,
-                                     const InitParamsAccel &params) override;
+  LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+                                    const InitParamsAccel &params) override;
+
+  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+                                  const InitParamsAccel &params) override;
 
 protected:
   virtual LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
@@ -350,6 +362,13 @@ protected:
                                              GemmSize &gemmSize,
                                              uint32_t &blockSize,
                                              uint32_t &gridSize);
+
+  /// The actual implementation of couldBePerformant(), which shouldn't exist
+  /// once we merge gridwise_gemm and gridwise_gemm_accel and thus flatten
+  /// out the class heirachy in this file.
+  virtual LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+                                                  Type dataTypeA,
+                                                  Type dataTypeB) = 0;
 };
 
 //
@@ -383,6 +402,9 @@ protected:
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch,
                                      uint32_t blockSize) override;
+  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+                                          Type dataTypeA,
+                                          Type dataTypeB) override;
 };
 
 //
@@ -413,6 +435,10 @@ protected:
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch,
                                      uint32_t blockSize) override;
+
+  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+                                          Type dataTypeA,
+                                          Type dataTypeB) override;
 };
 
 } // namespace rock

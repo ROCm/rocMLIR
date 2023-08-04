@@ -419,10 +419,19 @@ static llvm::cl::opt<bool>
                           llvm::cl::value_desc("To populate default values"),
                           llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    emitTuningSpace("emit-tuning-space", llvm::cl::desc("Tune a Gemm kernel"),
-                    llvm::cl::value_desc("To tune a Gemm kernel"),
-                    llvm::cl::init(false));
+static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
+    "emit-tuning-space",
+    llvm::cl::desc("Print a tuning space for the specified kernel"),
+    llvm::cl::values(
+        clEnumValN(rock::TuningParamSetKind::Quick, "quick",
+                   "Quick tuning space"),
+        clEnumValN(rock::TuningParamSetKind::Full, "full",
+                   "Full tuning space, excluding known-bad configurations"),
+        clEnumValN(
+            rock::TuningParamSetKind::Exhaustive, "exhaustive",
+            "All tuning space combinatinos that could apply to a kernel")),
+    llvm::cl::value_desc("tuning space kind to emit"),
+    llvm::cl::init(rock::TuningParamSetKind::Full));
 
 static llvm::cl::opt<bool> emitTuningKey(
     "emit-tuning-key",
@@ -3001,12 +3010,13 @@ int main(int argc, char **argv) {
     module = generateKernel(&context, genParams, module);
   }
 
-  if (emitTuningSpace) {
-    auto tunableParams = rock::createTunableParamSpace(module);
+  if (emitTuningSpace.getNumOccurrences() > 0) {
+    auto tunableParams = rock::createTunableParamSpace(module, emitTuningSpace);
     SmallString<64> perfConfig;
-    for (auto param : tunableParams->tuningRangeFull) {
+    for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);
       llvm::outs() << perfConfig << "\n";
+      perfConfig.clear();
     }
     delete tunableParams;
     return 0;

@@ -21,11 +21,12 @@ namespace mlir {
 namespace rock {
 
 // The full space is a brute-force search starting with the configs that have
-// the smallest parameters. The quick tuning space is created using the
-// heuristic parameter sets and is not This filters out perf configs that are
+// the smallest parameters. This filters out perf configs that are
 // known to be impossible during tthe AffixTuningParams check.
-void createGemmTuningRangeBF(struct TunableParams *newSpace,
-                             RockGemmWrapperInterface gemmOp) {
+// If `kind` is Full, also filters out unlikely-to-be-good configurations.
+void createGemmTuningRangeBF(TuningParamSet *newSpace,
+                             RockGemmWrapperInterface gemmOp,
+                             TuningParamSetKind kind) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
 
   // blockSize M/block N/block K/block M/thread N/thread
@@ -84,8 +85,11 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
                   if (succeeded(
-                          tuningInfo.isParamAttrPlausible(info, gemmParams)))
-                    newSpace->tuningRangeFull.push_back(
+                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       succeeded(
+                           tuningInfo.couldBePerformant(info, gemmParams))))
+                    newSpace->tuningRange.push_back(
                         cast<RockTuningParamAttrInterface>(
                             tuningInfo.getGemmParamsAttr(b, gemmParams)));
                 }
@@ -94,14 +98,6 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           }
         }
       }
-    }
-    for (InitParamsAccel param : tuningInfo.orderInitParams(
-             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.isParamAttrPlausible(info, param)))
-        newSpace->tuningRangeQuick.push_back(cast<RockTuningParamAttrInterface>(
-            tuningInfo.getGemmParamsAttr(b, param)));
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
@@ -119,8 +115,11 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, false);
                   if (succeeded(
-                          tuningInfo.isParamAttrPlausible(info, gemmParams)))
-                    newSpace->tuningRangeFull.push_back(
+                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       succeeded(
+                           tuningInfo.couldBePerformant(info, gemmParams))))
+                    newSpace->tuningRange.push_back(
                         cast<RockTuningParamAttrInterface>(
                             tuningInfo.getGemmParamsAttr(b, gemmParams)));
                 }
@@ -129,14 +128,6 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           }
         }
       }
-    }
-    for (InitParamsAccel param : tuningInfo.orderInitParams(
-             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.isParamAttrPlausible(info, param)))
-        newSpace->tuningRangeQuick.push_back(cast<RockTuningParamAttrInterface>(
-            tuningInfo.getGemmParamsAttr(b, param)));
     }
   } else {
     // Non-XDLOPS
@@ -151,8 +142,10 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
                                               gemmNPerBlock, gemmKPerBlock,
                                               gemmMPerThread, gemmNPerThread);
                 if (succeeded(
-                        tuningInfo.isParamAttrPlausible(info, gemmParams)))
-                  newSpace->tuningRangeFull.push_back(
+                        tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                    (kind == TuningParamSetKind::Exhaustive ||
+                     succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
+                  newSpace->tuningRange.push_back(
                       cast<RockTuningParamAttrInterface>(
                           tuningInfo.getGemmParamsAttr(b, gemmParams)));
               }
@@ -161,25 +154,66 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
         }
       }
     }
+  }
+}
+
+void createQuickTuningRange(TuningParamSet *newSpace,
+                            RockGemmWrapperInterface gemmOp) {
+  auto info = PopulateParamsInfo::fromOp(gemmOp);
+  OpBuilder b(gemmOp.getContext());
+  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+    PopulateParamsXDL tuningInfo;
+
+    for (InitParamsAccel param : tuningInfo.orderInitParams(
+             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
+                                            info.gemmBType, info.arch),
+             info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+  } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    // Wmma
+    PopulateParamsWmma tuningInfo;
+    for (InitParamsAccel param : tuningInfo.orderInitParams(
+             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
+                                            info.gemmBType, info.arch),
+             info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+  } else {
+    // Non-XDLOPS
+    PopulateParams tuningInfo;
     for (InitParamsNonAccel param : tuningInfo.orderInitParams(
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.isParamAttrPlausible(info, param)))
-        newSpace->tuningRangeQuick.push_back(cast<RockTuningParamAttrInterface>(
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
     }
   }
 }
 
-TunableParams *createTunableParamSpace(ModuleOp &mod) {
-  struct TunableParams *newSpace;
-  newSpace = new TunableParams();
+TuningParamSet *createTunableParamSpace(ModuleOp &mod,
+                                        TuningParamSetKind kind) {
+  struct TuningParamSet *newSpace;
+  newSpace = new TuningParamSet();
 
   // create range and heuristic
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        createGemmTuningRangeBF(newSpace, op);
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createQuickTuningRange(newSpace, op);
+        }
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
@@ -189,21 +223,12 @@ TunableParams *createTunableParamSpace(ModuleOp &mod) {
   return newSpace;
 }
 
-bool tuningGetParamFull(TunableParams *tuningSpace, unsigned pos,
-                        ParamEntry *paramEntry) {
+bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
+                    ParamEntry *paramEntry) {
   // out of bound check.
-  if (pos > tuningSpace->tuningRangeFull.size() - 1)
+  if (pos > tuningSpace->tuningRange.size() - 1)
     return false;
-  paramEntry->param = tuningSpace->tuningRangeFull[pos];
-  return true;
-}
-
-bool tuningGetParamQuick(TunableParams *tuningSpace, unsigned pos,
-                         ParamEntry *paramEntry) {
-  // out of bound check.
-  if (pos > tuningSpace->tuningRangeQuick.size() - 1)
-    return false;
-  paramEntry->param = tuningSpace->tuningRangeQuick[pos];
+  paramEntry->param = tuningSpace->tuningRange[pos];
   return true;
 }
 
