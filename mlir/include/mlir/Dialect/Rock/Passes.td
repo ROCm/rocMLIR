@@ -98,4 +98,8 @@ def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
+def RockMakeGepsInboundsPass : Pass<"rock-make-geps-inbounds", ""> {
+  let summary = "appends inbounds attribute to GEP instructions";
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
