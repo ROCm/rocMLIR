@@ -1767,10 +1767,8 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   input = ensureFloatIsF32(b, loc, input, floatType);
   output = ensureFloatIsF32(b, loc, output, floatType);
 
-  auto filterType =
-      filter.getType().template dyn_cast<MemRefType>();
-  auto outputType =
-      output.getType().template dyn_cast<MemRefType>();
+  auto filterType = filter.getType().template dyn_cast<MemRefType>();
+  auto outputType = output.getType().template dyn_cast<MemRefType>();
   // Emit memref_cast.
   // %a0 = memref_cast %arg0 : memref<128x8x3x3xf32> to memref<*xf32>
   // %a1 = memref_cast %arg1 : memref<128x8x32x32xf32> to memref<*xf32>
@@ -1972,7 +1970,8 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  Type elemType = typeFromString(genConfig.inputDataTypeStr, module.getContext());
+  Type elemType =
+      typeFromString(genConfig.inputDataTypeStr, module.getContext());
   Type outputElemType =
       typeFromString(genConfig.outputDataTypeStr, module.getContext());
 
@@ -2289,7 +2288,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
-  if (valElemType.isF32()) {            // +++pf:  isa<FloatType>
+  if (valElemType.isF32()) {
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
              valElemType.isInteger(64)) {
@@ -2710,8 +2709,6 @@ static LogicalResult populateHostHarnessLogic(
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
     if (isCPUKernel) { // -prc
-//       assert(elemType.isF32() || elemType.isInteger(8) ||
-//              elemType.isInteger(32) || elemType.isInteger(64));
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
           elemType = genParams.types[idx];
