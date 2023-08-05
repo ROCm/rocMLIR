@@ -175,6 +175,15 @@
   by [<Unmerge{8, 2, 3} ["a", "b", "c"] at [0, 1, 2] -> ["x"] at [0]>]
   bounds = [8, 2, 3] -> [48]>
 
+#transform_map_embed_tiebreak1 = #rock.transform_map<affine_map<(d0, d1) -> (d0, 0, d1)>
+  by [<PassThrough ["x"] at [0] -> ["x"] at [0]>,
+    <Merge{2, 8} ["y"] at [1] -> ["a", "b"] at [1, 2]>]
+  bounds = [4, 16] -> [4, 2, 8]>
+
+#transform_map_embed_tiebreak2 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0 + d1 + d2)>
+  by [<Embed{1, 1, 1} ["x", "a", "b"] at [0, 1, 2] -> ["d"] at [0]>]
+  bounds = [4, 2, 8] -> [13]>
+
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
@@ -295,7 +304,10 @@ func.func @test_vectorization() {
   // Even though we injected a 0, it _could_ have been a 1.
   // CHECK-NEXT: result = 1
   %40 = "get_length"() {transforms = [#transform_merge, #transform_inject_non_unit_const, #transform_unmerge_injected_non_unit], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<48xf32>)
- func.return
+
+  // CHECK-NEXT: result = 8
+  %41 = "get_length"() {transforms = [#transform_map_embed_tiebreak1, #transform_map_embed_tiebreak2], in_dim = 1 : index, max_len = 16 : index} : () -> (memref<13xf32>)
+  func.return
 }
 
 
