@@ -540,8 +540,8 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       auto &&zip = llvm::zip(params, upperDims);
       SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
       std::sort(data.begin(), data.end(), [&](const auto &a, const auto &b) {
-        int64_t paramA = std::get<0>(a), paramB = std::get<0>(b);
-        uint32_t dimA = std::get<1>(a), dimB = std::get<1>(b);
+        auto [paramA, dimA] = a;
+        auto [paramB, dimB] = b;
         if (paramA != paramB)
           return paramA < paramB;
         bool aHasVec = input[dimA].has_value(),
@@ -553,13 +553,13 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
         if (!aHasVec && bHasVec)
           return false;
 
-        bool aIsGood = input[dimA]->needsCoefficient == paramA,
-             bIsGood = input[dimB]->needsCoefficient == paramB;
-        if (aIsGood && !bIsGood)
+        bool aNeedsThisCoeff = input[dimA]->needsCoefficient == paramA,
+             bNeedsThisCoeff = input[dimB]->needsCoefficient == paramB;
+        if (aNeedsThisCoeff && !bNeedsThisCoeff)
           return true;
-        if (!aIsGood && bIsGood)
+        if (!aNeedsThisCoeff && bNeedsThisCoeff)
           return false;
-        if (aIsGood && bIsGood) {
+        if (aNeedsThisCoeff && bNeedsThisCoeff) {
           int64_t aLen = input[dimA]->maxLength, bLen = input[dimB]->maxLength;
           if (aLen != bLen)
             return aLen < bLen;

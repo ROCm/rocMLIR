@@ -270,6 +270,10 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
   }
   if (blockSize.has_value()) {
     int64_t wavesInKernelBlock = blockSize.value() / waveSize;
+    llvm::errs() << "wavesInKernelBlock = " << wavesInKernelBlock << "\n";
+    llvm::errs() << "nPerWave = " << nPerWave << "\n";
+    llvm::errs() << "nPerBlock = " << nPerBlock << "\n";
+    llvm::errs() << "nWaves = " << nWaves << "\n";
     rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
                           {wavesInKernelBlock / nWaves, nWaves});
     rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
