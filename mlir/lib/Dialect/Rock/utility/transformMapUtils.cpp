@@ -49,6 +49,19 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   return {ret, b.getArrayAttr(transformList)};
 }
 
+Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
+                            ArrayAttr transforms) {
+  SmallVector<TransformMapAttr, 4> transformsVec =
+      llvm::to_vector<4>(transforms.getAsRange<TransformMapAttr>());
+  auto reverseTransformVec = llvm::reverse(transformsVec);
+  Location loc = toBeTransformed.getLoc();
+  Value ret = toBeTransformed;
+  for (TransformMapAttr trMap : reverseTransformVec) {
+    ret = b.create<TransformOp>(loc, ret, trMap);
+  }
+  return ret;
+}
+
 std::tuple<Value, ArrayAttr>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {
@@ -1329,4 +1342,14 @@ void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
     }
     dimSizes.push_back(immLargerCoeff / dimStride);
   }
+}
+
+ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
+                                       ArrayAttr transforms) {
+  SmallVector<Attribute, 4> invertedTrs;
+  for (Attribute tr : llvm::reverse(transforms)) {
+    TransformMapAttr trMap = tr.cast<TransformMapAttr>();
+    invertedTrs.push_back(invertTransformMap(b, trMap, loc));
+  }
+  return b.getArrayAttr(invertedTrs);
 }
