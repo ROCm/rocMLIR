@@ -36,16 +36,6 @@ config.substitutions.append(('%rocmlir_gen_flags', config.rocmlir_gen_flags))
 config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
-if config.arch_support_mfma:
-    config.substitutions.append(("%mfma", "on"))
-else:
-    config.substitutions.append(("%mfma", "off"))
-
-if config.arch_support_wmma:
-    config.substitutions.append(("%wmma", "on"))
-else:
-    config.substitutions.append(("%wmma", "off"))
-
 llvm_config.with_system_environment(
     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
 
