@@ -49,6 +49,19 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   return {ret, b.getArrayAttr(transformList)};
 }
 
+Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
+                            ArrayAttr transforms) {
+  SmallVector<TransformMapAttr, 4> transformsVec =
+      llvm::to_vector<4>(transforms.getAsRange<TransformMapAttr>());
+  auto reverseTransformVec = llvm::reverse(transformsVec);
+  Location loc = toBeTransformed.getLoc();
+  Value ret = toBeTransformed;
+  for (TransformMapAttr trMap : reverseTransformVec) {
+    ret = b.create<TransformOp>(loc, ret, trMap);
+  }
+  return ret;
+}
+
 std::tuple<Value, ArrayAttr>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {
@@ -511,10 +524,48 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
     // isn't equal to the accumulated value times the smallest coefficient seen
     // on a dimension being vectorized.
     case TransformType::Embed: {
-      // Since embed coefficients can go in any order, we need them sorted
+      // Since embed coefficients can go in any order, we need them sorted.
+      // We first sort by the Embed coefficient
+      // We tiebreak dimensions with equal coefficients as follows:
+      //  - Dimensions that have vectorization info are processed before those
+      //    that don't.
+      //   - Two vectorization dimensions have ties broken by whether their
+      //      needed coefficient is equal to their embed coefficient.
+      //   - If both inputs have a matching coefficient, the one with the longer
+      //     vectorization length is used (sending equality to input order).
+      //   - Failing that, since neither of the inputs being compared are
+      //     going to succesfully advance the vectorizaion, we fall back to
+      //     order in the input map.
+      // - In all otther cases, ties are broken by position in the input map.
       auto &&zip = llvm::zip(params, upperDims);
       SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
-      std::sort(data.begin(), data.end());
+      std::sort(data.begin(), data.end(), [&](const auto &a, const auto &b) {
+        auto [paramA, dimA] = a;
+        auto [paramB, dimB] = b;
+        if (paramA != paramB)
+          return paramA < paramB;
+        bool aHasVec = input[dimA].has_value(),
+             bHasVec = input[dimB].has_value();
+        if (!aHasVec && !bHasVec)
+          return dimA < dimB;
+        if (aHasVec && !bHasVec)
+          return true;
+        if (!aHasVec && bHasVec)
+          return false;
+
+        bool aNeedsThisCoeff = input[dimA]->needsCoefficient == paramA,
+             bNeedsThisCoeff = input[dimB]->needsCoefficient == paramB;
+        if (aNeedsThisCoeff && !bNeedsThisCoeff)
+          return true;
+        if (!aNeedsThisCoeff && bNeedsThisCoeff)
+          return false;
+        if (aNeedsThisCoeff && bNeedsThisCoeff) {
+          int64_t aLen = input[dimA]->maxLength, bLen = input[dimB]->maxLength;
+          if (aLen != bLen)
+            return aLen < bLen;
+        }
+        return dimA < dimB;
+      });
 
       // Note: with negative coefficients, we can't reliably vectorize, as
       // the subtraction can push us off the left edge and we don't necessarily
@@ -1291,4 +1342,14 @@ void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
     }
     dimSizes.push_back(immLargerCoeff / dimStride);
   }
+}
+
+ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
+                                       ArrayAttr transforms) {
+  SmallVector<Attribute, 4> invertedTrs;
+  for (Attribute tr : llvm::reverse(transforms)) {
+    TransformMapAttr trMap = tr.cast<TransformMapAttr>();
+    invertedTrs.push_back(invertTransformMap(b, trMap, loc));
+  }
+  return b.getArrayAttr(invertedTrs);
 }
