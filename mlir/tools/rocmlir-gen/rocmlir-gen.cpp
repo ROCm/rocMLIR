@@ -94,7 +94,9 @@ static llvm::cl::opt<rock::KernelType> operation(
                    "Backpropogate convolution data"),
         clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
                    "Backpropogate convolution weights"),
-        clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication")),
+        clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication"),
+        clEnumValN(rock::KernelType::Attention, "attention",
+                   "Attention operation of transformer models")),
     llvm::cl::value_desc("kernel type"),
     llvm::cl::init(rock::KernelType::Conv2D));
 
@@ -253,6 +255,15 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::desc("N dimennsion of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
+                   llvm::cl::value_desc("positive integer"),
+                   llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
+             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
     transposeA("transA",
@@ -855,18 +866,38 @@ static void populateDefaults() {
 }
 
 static LogicalResult detectMissingArguments() {
-  const static std::vector<const llvm::cl::opt<int64_t> *> requiredConvArgs = {
+  using RequiredArgsType = std::vector<const llvm::cl::opt<int64_t> *>;
+  static RequiredArgsType requiredConvArgs = {
       &groupSize,  &batchSize,     &inputChannel, &inputHeight,
       &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
-  const static std::vector<const llvm::cl::opt<int64_t> *> requiredGemmArgs = {
-      &groupSize, &gemmM, &gemmK, &gemmN};
-  for (auto *arg : ((operation == rock::KernelType::Gemm) ? requiredGemmArgs
-                                                          : requiredConvArgs)) {
+
+  static RequiredArgsType requiredGemmArgs = {&groupSize, &gemmM, &gemmK,
+                                              &gemmN};
+
+  static RequiredArgsType requiredAttenArgs = {&groupSize, &sequenceLength,
+                                               &headDims};
+
+  RequiredArgsType &requiredArgs{requiredConvArgs};
+  if (operation == rock::KernelType::Gemm) {
+    requiredArgs = requiredGemmArgs;
+  } else if (operation == rock::KernelType::Attention) {
+    requiredArgs = requiredAttenArgs;
+  }
+
+  for (auto *arg : requiredArgs) {
     if (arg->getValue() <= 0) {
       llvm::errs() << "Value for: " << arg->ArgStr << " not specified\n";
       return failure();
     }
   }
+
+  if (operation == rock::KernelType::Attention) {
+    if (dataTypeAlias.getValue().empty()) {
+      llvm::errs() << "Type of the Attention operation is not specified\n";
+      return failure();
+    }
+  }
+
   return success();
 }
 
@@ -1174,7 +1205,6 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
                                                    ModuleOp module,
                                                    Type elemType, Value toFill,
                                                    int idx) {
-
   llvm::SmallDenseMap<short, Value> i16vals;
   auto getI16Val = [&](short v) {
     if (i16vals.find(v) == i16vals.end()) {
@@ -1880,6 +1910,64 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
   b.create<func::ReturnOp>(loc);
 
+  module.push_back(func);
+  return func;
+}
+
+static void getAttentionTypes(SmallVectorImpl<Type> &result,
+                              const Type &elemTypes) {
+  SmallVector<int64_t> dims{sequenceLength, headDims};
+  SmallVector<int64_t> scaleDims{sequenceLength, sequenceLength};
+
+  MemRefType qType = MemRefType::get(dims, elemTypes),
+             kType = MemRefType::get(dims, elemTypes),
+             vType = MemRefType::get(dims, elemTypes),
+             sType = MemRefType::get(scaleDims, elemTypes),
+             outType = MemRefType::get(dims, elemTypes);
+
+  result.push_back(qType);
+  result.push_back(kType);
+  result.push_back(vType);
+  result.push_back(sType);
+  result.push_back(outType);
+}
+
+static func::FuncOp createGpuAttentionKernel(ModuleOp module,
+                                             const Type &elemTypes,
+                                             const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  Location loc = module->getLoc();
+  OpBuilder builder(ctx);
+
+  // Set mhal.arch on module to make compilation pipeline work
+  StringAttr archAttr = builder.getStringAttr(params.arch);
+  if (!module->hasAttr("mhal.arch"))
+    module->setAttr("mhal.arch", archAttr);
+
+  SmallVector<Type, 5> argTypes;
+  getAttentionTypes(argTypes, elemTypes);
+
+  SmallVector<NamedAttribute, 2> funcAttrs = {
+      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+      builder.getNamedAttr("mhal.arch", archAttr)};
+
+  constexpr StringLiteral kernelName("rock_attention");
+  auto func = builder.create<func::FuncOp>(
+      loc, kernelName, builder.getFunctionType(argTypes, {}), funcAttrs);
+
+  Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+  Value queries = block->getArgument(0);
+  Value keys = block->getArgument(1);
+  Value values = block->getArgument(2);
+  Value scale = block->getArgument(3);
+  Value output = block->getArgument(4);
+
+  builder.create<rock::AttentionOp>(
+      loc, TypeRange{}, queries, keys, values, scale, output, params.features,
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr);
+
+  builder.create<func::ReturnOp>(loc);
   module.push_back(func);
   return func;
 }
@@ -2598,6 +2686,9 @@ static LogicalResult populateHostHarnessLogic(
     case rock::KernelType::Conv2DBwdWeight:
       outIndices.push_back(0);
       break;
+    case rock::KernelType::Attention:
+      // not host harness logic is implemented for the attention
+      break;
     }
   } else {
     outIndices = root0.outIndices;
@@ -2806,11 +2897,13 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
   OpBuilder builder(context);
   static rock::Conv2dGenerator conv2dGenerator;
 
-  bool isGemm = operation == rock::KernelType::Gemm;
+  const bool isGemm = operation == rock::KernelType::Gemm;
+  const bool isAttention = operation == rock::KernelType::Attention;
+  const bool isConv = !(isGemm || isAttention);
   auto convConfig = populateConvConfig.getValue();
 
-  if (!convConfig.empty() && isGemm) {
-    llvm::errs() << "Cannot use --conv-config with gemm operations\n";
+  if (!convConfig.empty() && isConv) {
+    llvm::errs() << "Cannot use --conv-config with gemm/attention operations\n";
     exit(1);
   }
 
@@ -2888,8 +2981,13 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
         genParams.types.push_back(typeFromString(arg, context));
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
+    } else if (isAttention) {
+      // Note: In the current implementaiton, all operands have the same type.
+      // This behaviour enforced by `-t`. See, detectMissingArguments()
+      auto elemTypes = typeFromString(inputDataType.getValue(), context);
+      genParams.convConfig = std::nullopt;
+      (void)createGpuAttentionKernel(module, elemTypes, genParams);
     } else {
-
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
@@ -2919,8 +3017,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
   }
 
   // TODO: Extract isApplicable check to be its own component
-  if (!isGemm &&
-      failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+  if (isConv && failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
     llvm::errs() << "Convolution configuration does not have valid dimension\n";
     exit(1);
   }
