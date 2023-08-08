@@ -617,18 +617,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
-    ThreadwiseWriteAllOp blockwiseStoreA = b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA, 
-                                                                          /*extraViews=*/b.getArrayAttr({}),
-                                                                          /*extraIndices=*/ValueRange{tid},
-                                                                          op.getFeatures(), StoreMethod::Set,
-                                                                          /*forceUnroll=*/true, /*useIndexDiffs=*/true
-                                                                          );
-    ThreadwiseWriteAllOp blockwiseStoreB = b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB, 
-                                                                          /*extraViews=*/b.getArrayAttr({}),
-                                                                          /*extraIndices=*/ValueRange{tid},
-                                                                          op.getFeatures(), StoreMethod::Set,
-                                                                          /*forceUnroll=*/true, /*useIndexDiffs=*/true
-                                                                          );
+    ThreadwiseWriteAllOp blockwiseStoreA = b.create<ThreadwiseWriteAllOp>(
+        loc, storeBufferA, wrappedLdsA,
+        /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    ThreadwiseWriteAllOp blockwiseStoreB = b.create<ThreadwiseWriteAllOp>(
+        loc, storeBufferB, wrappedLdsB,
+        /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
 
     // The blockwise gemm isn't set up for vector-of-kpack loads and so expects
     // a scalar kpacksPerBlock x dPerBlock x kpack x T buffer unconditionally.
@@ -1066,18 +1064,16 @@ struct GridwiseGemmAccelRewritePattern
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
-    ThreadwiseWriteAllOp blockwiseStoreA = b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA, 
-                                                                          /*extraViews=*/b.getArrayAttr({}),
-                                                                          /*extraIndices=*/ValueRange{tid},
-                                                                          op.getFeatures(), StoreMethod::Set,
-                                                                          /*forceUnroll=*/forceUnroll, /*useIndexDiffs=*/true
-                                                                          );
-    ThreadwiseWriteAllOp blockwiseStoreB = b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB, 
-                                                                          /*extraViews=*/b.getArrayAttr({}),
-                                                                          /*extraIndices=*/ValueRange{tid},
-                                                                          op.getFeatures(), StoreMethod::Set,
-                                                                          /*forceUnroll=*/forceUnroll, /*useIndexDiffs=*/true
-                                                                          );
+    ThreadwiseWriteAllOp blockwiseStoreA = b.create<ThreadwiseWriteAllOp>(
+        loc, storeBufferA, wrappedLdsA,
+        /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
+        /*forceUnroll=*/forceUnroll, /*useIndexDiffs=*/true);
+    ThreadwiseWriteAllOp blockwiseStoreB = b.create<ThreadwiseWriteAllOp>(
+        loc, storeBufferB, wrappedLdsB,
+        /*extraViews=*/b.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
+        /*forceUnroll=*/forceUnroll, /*useIndexDiffs=*/true);
 
     Value ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);

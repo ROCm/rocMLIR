@@ -847,7 +847,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     elementType = elemVecType.getElementType();
   }
   int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType, implicitStride);
+      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType,
+      implicitStride);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
 
@@ -891,11 +892,10 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
             thenb.create<InBoundsLoadOp>(loc, loadType, source,
                                          outLoop.getLowerCoords(
                                              /*domain=*/0)[extraIdxCount]);
-        if(!destElemType.isa<VectorType>()){
+        if (!destElemType.isa<VectorType>()) {
           thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
                                         outLoop.getLowerCoords(/*domain=*/1));
-        }
-        else{
+        } else {
           thenb.create<memref::StoreOp>(loc, loaded, buffer,
                                         outLoop.getLowerCoords(/*domain=*/1));
         }
