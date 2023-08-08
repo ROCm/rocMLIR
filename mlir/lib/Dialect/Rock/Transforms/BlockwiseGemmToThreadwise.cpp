@@ -813,8 +813,6 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   auto source = cast<TypedValue<MemRefType>>(adaptor.getSource());
   auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
-  auto elementType = destView.getType().getElementType();
-
   ArrayAttr extraViews = op.getExtraViews();
   ArrayRef<int64_t> outputShape;
   if (extraViews.empty())
@@ -834,10 +832,22 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
         dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
   }
   int64_t iterLen = outputShape[extraIdxCount];
-
+  auto destElemType = buffer.getType().cast<MemRefType>().getElementType();
   // We are vectorizing in the iter dimension, not block ID or thread ID
+  int64_t maxVecLen = iterLen;
+  Type elementType = destElemType;
+  int64_t implicitStride = 1;
+  // If the dest is already being viewed as vector-typed, there's no good
+  // mechanism to, for example, store a vector<8xf32> as two consecutive
+  // vector<4xf32>s, and there's unlikely to be any performance benefit from
+  // doing so. Therefore, don't bother.
+  if (auto elemVecType = destElemType.dyn_cast<VectorType>()) {
+    implicitStride = elemVecType.getNumElements();
+    maxVecLen = elemVecType.getNumElements();
+    elementType = elemVecType.getElementType();
+  }
   int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, iterLen, bufferShape, elementType);
+      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType, implicitStride);
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
 
@@ -881,8 +891,14 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
             thenb.create<InBoundsLoadOp>(loc, loadType, source,
                                          outLoop.getLowerCoords(
                                              /*domain=*/0)[extraIdxCount]);
-        thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
-                                      outLoop.getLowerCoords(/*domain=*/1));
+        if(!destElemType.isa<VectorType>()){
+          thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
+                                        outLoop.getLowerCoords(/*domain=*/1));
+        }
+        else{
+          thenb.create<memref::StoreOp>(loc, loaded, buffer,
+                                        outLoop.getLowerCoords(/*domain=*/1));
+        }
       }
     }
   }
