@@ -1926,10 +1926,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               const Type &elemTypes) {
   SmallVector<int64_t> dims{sequenceLength, headDims};
+  SmallVector<int64_t> transposedDims{headDims, sequenceLength};
   SmallVector<int64_t> scaleDims{sequenceLength, sequenceLength};
 
   MemRefType qType = MemRefType::get(dims, elemTypes),
-             kType = MemRefType::get(dims, elemTypes),
+             kType = MemRefType::get(transposedDims, elemTypes),
              vType = MemRefType::get(dims, elemTypes),
              sType = MemRefType::get(scaleDims, elemTypes),
              outType = MemRefType::get(dims, elemTypes);
