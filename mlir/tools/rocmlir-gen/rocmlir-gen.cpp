@@ -803,61 +803,70 @@ static void verifyConvLayout() {
 }
 
 static void populateDefaults() {
-  bool isGemm = operation == rock::KernelType::Gemm;
+  const bool isGemm = operation == rock::KernelType::Gemm;
+  const bool isAttention = operation == rock::KernelType::Attention;
+  const bool isConv = !(isGemm || isAttention);
   // Default f32 if we passed no `-t` arguments at all.
   if (outputDataType.empty())
     outputDataType = "f32";
   if (populateDefaultValues) {
     if (isGemm) {
+      groupSize = 1;
       gemmM = 1024;
       gemmK = 769;
       gemmN = 512;
-      groupSize = 1;
     }
-    if (mfmaFeature != FeatureToggle::on) {
+    if (isAttention) {
       groupSize = 1;
-      batchSize = 128;
-      inputChannel = 8;
-      outputChannel = 128;
-      inputHeight = 32;
-      inputWidth = 32;
-      filterHeight = 3;
-      filterWidth = 3;
-      dilationHeight = 1;
-      dilationWidth = 1;
-      strideHeight = 1;
-      strideWidth = 1;
-      paddingHeightLeft = 0;
-      paddingHeightRight = 0;
-      paddingWidthLeft = 0;
-      paddingWidthRight = 0;
-    } else {
-      groupSize = 1;
-      batchSize = 128;
-      inputChannel = 1024;
-      outputChannel = 1024;
-      inputHeight = 14;
-      inputWidth = 14;
-      filterHeight = 1;
-      filterWidth = 1;
-      dilationHeight = 1;
-      dilationWidth = 1;
-      strideHeight = 1;
-      strideWidth = 1;
-      paddingHeightLeft = 0;
-      paddingHeightRight = 0;
-      paddingWidthLeft = 0;
-      paddingWidthRight = 0;
+      sequenceLength = 1024;
+      headDims = 32;
+    }
+    if (isConv) {
+      if (mfmaFeature != FeatureToggle::on) {
+        groupSize = 1;
+        batchSize = 128;
+        inputChannel = 8;
+        outputChannel = 128;
+        inputHeight = 32;
+        inputWidth = 32;
+        filterHeight = 3;
+        filterWidth = 3;
+        dilationHeight = 1;
+        dilationWidth = 1;
+        strideHeight = 1;
+        strideWidth = 1;
+        paddingHeightLeft = 0;
+        paddingHeightRight = 0;
+        paddingWidthLeft = 0;
+        paddingWidthRight = 0;
+      } else {
+        groupSize = 1;
+        batchSize = 128;
+        inputChannel = 1024;
+        outputChannel = 1024;
+        inputHeight = 14;
+        inputWidth = 14;
+        filterHeight = 1;
+        filterWidth = 1;
+        dilationHeight = 1;
+        dilationWidth = 1;
+        strideHeight = 1;
+        strideWidth = 1;
+        paddingHeightLeft = 0;
+        paddingHeightRight = 0;
+        paddingWidthLeft = 0;
+        paddingWidthRight = 0;
+      }
     }
   }
 
-  if (!isGemm && outputHeight.getNumOccurrences() == 0) {
+  if (isConv && outputHeight.getNumOccurrences() == 0) {
     outputHeight = rock::Conv2dGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
         strideHeight.getValue(), dilationHeight.getValue());
   }
-  if (!isGemm && outputWidth.getNumOccurrences() == 0) {
+  if (isConv && outputWidth.getNumOccurrences() == 0) {
     outputWidth = rock::Conv2dGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
