@@ -2911,7 +2911,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
   const bool isConv = !(isGemm || isAttention);
   auto convConfig = populateConvConfig.getValue();
 
-  if (!convConfig.empty() && isConv) {
+  if (!convConfig.empty() && !isConv) {
     llvm::errs() << "Cannot use --conv-config with gemm/attention operations\n";
     exit(1);
   }
