@@ -874,25 +874,30 @@ static void populateDefaults() {
   }
 }
 
-static LogicalResult detectMissingArguments() {
+auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   using RequiredArgsType = std::vector<const llvm::cl::opt<int64_t> *>;
-  static RequiredArgsType requiredConvArgs = {
-      &groupSize,  &batchSize,     &inputChannel, &inputHeight,
-      &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
-
-  static RequiredArgsType requiredGemmArgs = {&groupSize, &gemmM, &gemmK,
-                                              &gemmN};
-
-  static RequiredArgsType requiredAttenArgs = {&groupSize, &sequenceLength,
-                                               &headDims};
-
-  RequiredArgsType &requiredArgs{requiredConvArgs};
-  if (operation == rock::KernelType::Gemm) {
-    requiredArgs = requiredGemmArgs;
-  } else if (operation == rock::KernelType::Attention) {
-    requiredArgs = requiredAttenArgs;
+  switch (kernelType.value()) {
+  case rock::KernelType::Gemm: {
+    const static RequiredArgsType requiredGemmArgs = {&groupSize, &gemmM,
+                                                      &gemmK, &gemmN};
+    return requiredGemmArgs;
   }
+  case rock::KernelType::Attention: {
+    const static RequiredArgsType requiredAttenArgs = {
+        &groupSize, &sequenceLength, &headDims};
+    return requiredAttenArgs;
+  }
+  default: {
+    const static RequiredArgsType requiredConvArgs = {
+        &groupSize,  &batchSize,     &inputChannel, &inputHeight,
+        &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
+    return requiredConvArgs;
+  }
+  };
+}
 
+static LogicalResult detectMissingArguments() {
+  const static auto requiredArgs = getRequiredArgs(operation);
   for (auto *arg : requiredArgs) {
     if (arg->getValue() <= 0) {
       llvm::errs() << "Value for: " << arg->ArgStr << " not specified\n";
@@ -2697,8 +2702,9 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      // not host harness logic is implemented for the attention
-      break;
+      llvm::errs()
+          << "no host harness logic is implemented for the attention yet.\n";
+      return failure();
     }
   } else {
     outIndices = root0.outIndices;
