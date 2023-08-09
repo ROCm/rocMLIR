@@ -1,4 +1,4 @@
-//===- CleanMath.cpp - Clean up math after lowering/unrolling loops  ---===//
+//===- RockPrepareLLVM.cpp - prepares the generated code for LLVM       ---===//
 //
 // Copyright 2022 AMD
 //
@@ -24,24 +24,23 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKMAKEGEPSINBOUNDSPASS
+#define GEN_PASS_DEF_ROCKPREPARELLVMPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "rock-make-geps-inbounds"
+#define DEBUG_TYPE "rock-prepare-llvm"
 
 using namespace mlir;
 
 namespace {
-struct RockMakeGepsInboundsPass
-    : public rock::impl::RockMakeGepsInboundsPassBase<
-          RockMakeGepsInboundsPass> {
+struct RockPrepareLLVMPass
+    : public rock::impl::RockPrepareLLVMPassBase<RockPrepareLLVMPass> {
   void runOnOperation() override;
 };
 } // end namespace
 
-void RockMakeGepsInboundsPass::runOnOperation() {
+void RockPrepareLLVMPass::runOnOperation() {
   auto func = getOperation();
   func->walk([](LLVM::GEPOp gepOp) { gepOp.setInbounds(true); });
 }
