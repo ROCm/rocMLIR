@@ -85,7 +85,8 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
 
 // Returns the size of compiled binary if called with null ptr
 // and return the compiled binary when buffer is provided
-MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
+MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
+                                      char *bin) {
   bool success = false;
   auto mod = unwrap(module);
   if (bin == nullptr && size == nullptr)
@@ -100,6 +101,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
         success = true;
       } else {
         *size = hsacoAttr.getValue().size();
+        success = true;
       }
     }
   });
@@ -114,6 +116,17 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
+}
+
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
+  auto *passMan = unwrap(pm);
+  passMan->setNesting(mlir::PassManager::Nesting::Implicit);
+  mlir::rock::KernelOptions opts;
+  opts.enableApplicability = true;
+  // This is the default, but we set it paranoidly.
+  opts.tuningFallback = false;
+  mlir::rock::buildKernelPipeline(*passMan, opts);
 }
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,

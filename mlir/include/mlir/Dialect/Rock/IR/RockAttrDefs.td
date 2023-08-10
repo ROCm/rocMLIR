@@ -234,14 +234,13 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   );
 
   let extraClassDeclaration = [{
-    void getPerfConfigStr(std::string &perfStr){
-      perfStr =
-       (Twine(getBlockSize()) + ","
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+      (Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread())).str();
+      + Twine(getNPerThread())).toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
   }];
@@ -268,9 +267,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   );
 
   let extraClassDeclaration = [{
-    void getPerfConfigStr(std::string &perfStr){
-      perfStr =
-         (Twine(getMPerBlock()) + ","
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+        (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
@@ -278,7 +276,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getKpack()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
-        .str();
+        .toVector(perfStr);
     }
   }];
 
@@ -303,9 +301,8 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
   );
 
   let extraClassDeclaration = [{
-    void getPerfConfigStr(std::string &perfStr){
-      perfStr =
-         (Twine(getMPerBlock()) + ","
+    void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
+        (Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
@@ -313,7 +310,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getKpack()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
-        .str();
+        .toVector(perfStr);
     }
   }];
 
