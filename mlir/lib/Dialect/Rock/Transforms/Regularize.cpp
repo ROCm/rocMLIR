@@ -255,6 +255,24 @@ struct PushTransformsUpRewritePattern
           Operation *lastTOp = readChain.back();
           Value readInp = lastTOp->getResult(0);
 
+          // Collect inverses of transforms now so we can bail without modifying
+          // IR.
+          SmallVector<TransformMapAttr> inverses;
+          inverses.reserve(readChain.size());
+          for (Operation *op : llvm::reverse(readChain)) {
+            auto txOp = dyn_cast<rock::TransformOp>(op);
+            if (!txOp)
+              return rw.notifyMatchFailure(op->getLoc(),
+                                           "non-transform op in read chain");
+            auto itx = rock::invertTransformMap(rw, txOp.getTransform(), loc);
+            if (!itx)
+              return rw.notifyMatchFailure(
+                  txOp.getLoc(), [&txOp](Diagnostic &diag) {
+                    diag << "unable to invert transform" << txOp.getTransform();
+                  });
+            inverses.push_back(itx);
+          }
+
           // create new buffer (substitue in reader)
           MemRefType nbufferType = readInp.getType().cast<MemRefType>();
           Value nbuffer =
@@ -265,15 +283,10 @@ struct PushTransformsUpRewritePattern
 
           // insert inverse transforms after new buffer to writer chain
           Value val = nbuffer;
-          for (auto op : llvm::reverse(readChain)) {
-            auto txOp = dyn_cast<rock::TransformOp>(op);
-            auto itx = rock::invertTransformMap(rw, txOp.getTransform(), loc);
-            if (!itx) {
-              LLVM_DEBUG(llvm::dbgs() << "unable to invert transform\n");
-              return failure();
-            }
+          for (auto [itx, op] : llvm::zip(inverses, llvm::reverse(readChain))) {
             auto top = rw.create<rock::TransformOp>(loc, val, itx);
             val = top.getResult();
+            rw.eraseOp(op);
           }
           rw.replaceOp(alloc, val);
 
