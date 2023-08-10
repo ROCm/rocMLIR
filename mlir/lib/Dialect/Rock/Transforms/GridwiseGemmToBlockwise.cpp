@@ -44,6 +44,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 #include "AccelEmitter.h"
 #include "GridLayoutEmitter.h"
@@ -818,9 +819,10 @@ struct GridwiseAttentionAccelRewritePattern
     Value wrappedLds = std::move(*maybeWrappedLds);
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{}, GemmFeatures::none, StoreMethod::Set,
+        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
         forceUnroll, true);
     return success();
   }
@@ -881,10 +883,11 @@ struct GridwiseAttentionAccelRewritePattern
       return failure();
     }
     Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseReadIntoOp>(
         loc, viewIn, fromGlobalRegBuffer, /*extraViews=*/rewriter.getArrayAttr({}), 
-        ValueRange{kIter, nIter, gridCoords.g_block, gridCoords.m_block,
-                   gridCoords.n_block},
+        ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
+                   gridCoords.n_block, tid},
         forceUnroll, true);
     // threadwiseView is iter --> K,D
     // Hence we invert to create the reg buffer to be viewed
@@ -1110,7 +1113,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value lastNptIdx = rewriter.createOrFold<ConstantIndexOp>(loc, g1Npt - 1);
 
     auto loop = rewriter.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{zero, zero},
+        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}, {zero, zero}, {zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{rewriter.getArrayAttr({}), gemm0OutBufferMaxTrs,
                             gemm0OutBufferSumTrs, gemm1OutTrs,
                             attentionOutAccBufferTrs},
@@ -1373,10 +1376,20 @@ struct GridwiseAttentionAccelRewritePattern
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
 
     // Buffers for reductions
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+    SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks, gemm0NBlocks};
+    // nblock is 1 for gemm1 as the full slice is done inside a block.
+    // m_block would be otherDim that is ignored; putting 0 as it is not
+    // used.
+    SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm0MBlocks, 1};
+    RegsAsMatrixSubTiles gemm0OutSubTileViews = accelEmitterPtrGemm0->computeOutputTransforms(
+            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
+            gemm0BidGridLengths);
+    
     MemRefType gemm0OutBufferType =
         gemm0OutBufferF32.getType().cast<MemRefType>();
     MemRefType ldsWorkspaceBufferType =
-        MemRefType::get({gemm0OutBufferType.getNumElements()},
+        MemRefType::get({getLowerShape(gemm0OutSubTileViews.blockSubTile)[0] * getLowerShape(gemm0OutSubTileViews.blockSubTile)[1]},
                         gemm0OutBufferType.getElementType(), AffineMap{},
                         workgroupMemoryAddressSpace);
     Value ldsReductionWorkspaceBuffer =
@@ -1408,23 +1421,13 @@ struct GridwiseAttentionAccelRewritePattern
     assert(gemm0NPerBlock % kpack == 0 &&
            "nPerBlock should be divisible by kpack");
     int64_t gemm1KpacksPerBlock = gemm1KPerBlock / kpack;
+    RegsAsMatrixSubTiles gemm1OutSubTileViews = accelEmitterPtrGemm1->computeOutputTransforms(
+            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
+            gemm1BidGridLengths);
     auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
         createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
                                gemm1NPerBlock, rewriter);
 
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks, gemm0NBlocks};
-    // nblock is 1 for gemm1 as the full slice is done inside a block.
-    // m_block would be otherDim that is ignored; putting 0 as it is not
-    // used.
-    SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm0MBlocks, 1};
-    RegsAsMatrixSubTiles gemm0OutSubTileViews = accelEmitterPtrGemm0->computeOutputTransforms(
-            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
-            gemm0BidGridLengths);
-    RegsAsMatrixSubTiles gemm1OutSubTileViews = accelEmitterPtrGemm1->computeOutputTransforms(
-            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
-            gemm1BidGridLengths);
-    
     int64_t gemm0MPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
     int64_t gemm0NPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
     int64_t gemm1MPerThread = gemm0MPerThread;
@@ -1472,13 +1475,13 @@ struct GridwiseAttentionAccelRewritePattern
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
+        PatternRewriter::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(kLoopOp.getBody());
         // Compute grid coordinates
         auto gridCoords = layout::makeMMajorGxMGridLayout(
             rewriter, loc, bid, nLoopIV,
             {gemm0MBlocks, gemm0NBlocks, /*op.getNumCU()=*/20, elemTypeQ,
              elemTypeQxK});
-        PatternRewriter::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, nLoopIV, kLoopIV, gridCoords, fromGlobalRegBufferQ,
@@ -1521,15 +1524,20 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViews.blockSubTile, blockSize);
       // softmax normalization.
       rewriter.create<linalg::ElemwiseBinaryOp>(
-          loc, TypeRange{gemm0OutBufferMax.getType()},
+          loc,
           ValueRange{gemm0OutBufferF32, gemm0OutBufferMax},
           ValueRange{gemm0OutBufferMax},
-          rewriter.getAttr<linalg::BinaryFnAttr>(linalg::BinaryFn::sub),
-          rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed));
+          ArrayRef<NamedAttribute>{
+            rewriter.getNamedAttr("fun", rewriter.getAttr<linalg::BinaryFnAttr>(linalg::BinaryFn::sub)),
+            rewriter.getNamedAttr("cast", rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed))
+          });
       rewriter.create<linalg::ElemwiseUnaryOp>(
-          loc, TypeRange{gemm0OutBufferExp.getType()},
+          loc,
           ValueRange{gemm0OutBufferMax}, ValueRange{gemm0OutBufferExp},
-          rewriter.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::exp), rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed));
+          ArrayRef<NamedAttribute>{
+            rewriter.getNamedAttr("fun", rewriter.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::exp)),
+            rewriter.getNamedAttr("cast", rewriter.getAttr<linalg::TypeFnAttr>(linalg::TypeFn::cast_signed))
+          });
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, reductionAxis, rock::ReduceMethod::Sum,
@@ -1590,8 +1598,6 @@ struct GridwiseAttentionAccelRewritePattern
         // Rescale/correct output, rowMax and rowSums
         Value gemm0MaxMNThreadwiseView =
             transform(rewriter, gemm0OutBufferMax, invertTransforms(rewriter, loc, gemm0OutSubTileViews.threadSubTile));
-        llvm::errs() << "gemm0OutSubTileViews.threadSubTile = " << gemm0OutSubTileViews.threadSubTile << "\n";
-        llvm::errs() << "gemm0MaxMNThreadwiseView = " << gemm0MaxMNThreadwiseView << "\n";
         Value gemm0SumMNThreadwiseView =
             transform(rewriter, gemm0OutBufferSum, invertTransforms(rewriter, loc, gemm0OutSubTileViews.threadSubTile));
         createRowStateCorrections(
@@ -1608,6 +1614,7 @@ struct GridwiseAttentionAccelRewritePattern
         op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
         /*useIndexDiffs=*/true);
     rewriter.eraseOp(op);
+    (void)mlir::runRegionDCE(rewriter, op->getParentOfType<func::FuncOp>()->getRegions());
     return success();
   }
 };
