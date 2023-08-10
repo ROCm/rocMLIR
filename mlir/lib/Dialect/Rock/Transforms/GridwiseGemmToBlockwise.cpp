@@ -1245,32 +1245,6 @@ struct GridwiseAttentionAccelRewritePattern
       /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
   }
 
-  // TODO(reconcile this into a single function that produces GPUViews inside AccelEmitter)
-  RegsAsMatrixSubTiles createGemmOutputMatrixSubtileViews(PatternRewriter &rewriter,
-                                                          Location loc,
-                                                          const std::unique_ptr<mlir::rock::accel::AccelEmitter>& accelEmitterPtr,
-                                                          int64_t mPerThread,
-                                                          int64_t nPerThread,
-                                                          int64_t mPerBlock,
-                                                          int64_t nPerBlock,
-                                                          int64_t blockSize,
-                                                          ArrayRef<int64_t> bidGridLengths) const {
-    ArrayAttr threadwiseViewMaps =
-            accelEmitterPtr->computeOutputTransforms(
-                rewriter, loc, mPerThread, nPerThread);
-    ArrayAttr blockwiseViewMaps =
-        accelEmitterPtr->computeOutputTransforms(
-            rewriter, loc, mPerBlock, nPerBlock, blockSize);
-    ArrayAttr gridwiseViewMaps =
-        accelEmitterPtr->computeOutputTransforms(
-            rewriter, loc, mPerBlock, nPerBlock, blockSize,
-            bidGridLengths);
-    RegsAsMatrixSubTiles matrixViews{gridwiseViewMaps,
-                                    blockwiseViewMaps,
-                                    threadwiseViewMaps};
-    return matrixViews;
-  }
-
   // The rows and columns of subtile view needs to
   // be transposed depending on which operand of
   // gemm the view is going to be.
@@ -1444,28 +1418,13 @@ struct GridwiseAttentionAccelRewritePattern
     // m_block would be otherDim that is ignored; putting 0 as it is not
     // used.
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm0MBlocks, 1};
-    RegsAsMatrixSubTiles gemm0OutSubTileViews = createGemmOutputMatrixSubtileViews(
-        rewriter,
-        loc,
-        accelEmitterPtrGemm0,
-        gemm0MPerBlock / blockSize,
-        gemm0NPerBlock / blockSize,
-        gemm0MPerBlock,
-        gemm0NPerBlock,
-        blockSize,
-        gemm0BidGridLengths
-    );
-    RegsAsMatrixSubTiles gemm1OutSubTileViews = createGemmOutputMatrixSubtileViews(
-        rewriter,
-        loc,
-        accelEmitterPtrGemm1,
-        gemm1MPerBlock / blockSize,
-        gemm1NPerBlock / blockSize,
-        gemm1MPerBlock,
-        gemm1NPerBlock,
-        blockSize,
-        gemm1BidGridLengths
-    );
+    RegsAsMatrixSubTiles gemm0OutSubTileViews = accelEmitterPtrGemm0->computeOutputTransforms(
+            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
+            gemm0BidGridLengths);
+    RegsAsMatrixSubTiles gemm1OutSubTileViews = accelEmitterPtrGemm1->computeOutputTransforms(
+            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
+            gemm1BidGridLengths);
+    
     int64_t gemm0MPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
     int64_t gemm0NPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
     int64_t gemm1MPerThread = gemm0MPerThread;
@@ -1555,14 +1514,11 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBufferF32, forceUnroll);
-      ArrayAttr gemm0BlockViewMaps =
-          accelEmitterPtrGemm0->computeOutputTransforms(
-              rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize);
       APInt reductionAxis = APInt(64, 0);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferF32, ldsReductionWorkspaceBuffer,
           gemm0OutBufferMax, reductionAxis, rock::ReduceMethod::Max,
-          gemm0BlockViewMaps, blockSize);
+          gemm0OutSubTileViews.blockSubTile, blockSize);
       // softmax normalization.
       rewriter.create<linalg::ElemwiseBinaryOp>(
           loc, TypeRange{gemm0OutBufferMax.getType()},
@@ -1577,7 +1533,7 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, reductionAxis, rock::ReduceMethod::Sum,
-          gemm0BlockViewMaps, blockSize);
+          gemm0OutSubTileViews.blockSubTile, blockSize);
 
       // Emit blockwise GEMM 1.
       {
@@ -2079,8 +2035,11 @@ struct GridwiseGemmAccelRewritePattern
         MemRefType::get(numOutputVectorElements, destType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
-    ArrayAttr idToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
-        b, loc, M, N, blockSize, bidGridLengths);
+
+    ArrayAttr idToMatrixCMaps =
+        accelEmitterPtr
+            ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths)
+            .gridSubTile;
 
     accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
                                              forceUnroll);

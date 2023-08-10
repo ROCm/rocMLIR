@@ -169,29 +169,28 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   }
 }
 
-static TopDownTMBuilder
-createTopSplitTMBuilder(PatternRewriter &b, Location loc, int64_t numElements,
-                        std::optional<ArrayRef<int64_t>> bidGridLengths,
-                        std::optional<int64_t> blockSize) {
-  if (bidGridLengths.has_value()) {
-    auto bidGridLengthsValue = bidGridLengths.value();
-    return TopDownTMBuilder(b, {"g_block", "m_block", "n_block", "tid", "item"},
-                            {bidGridLengthsValue[0], bidGridLengthsValue[1],
-                             bidGridLengthsValue[2], blockSize.value(),
-                             numElements},
-                            loc);
-  }
-  if (blockSize.has_value()) {
-    return TopDownTMBuilder(b, {"tid", "item"},
-                            {blockSize.value(), numElements}, loc);
-  }
-  return TopDownTMBuilder(b, {"item"}, {numElements}, loc);
+static void
+makeViewsForRowsAndCols(TopDownTMBuilder &viewBuilder, int64_t mPerRepeat,
+                        int64_t nPerRepeat,
+                        const llvm::StringMap<uint32_t> &rowsAndColsIdxs,
+                        int64_t endSizeJ, int64_t blocksInOutRegs) {
+  // Here we use the full builder API since we want index and name control
+  bool isABroadcast = (nPerRepeat >= mPerRepeat);
+  SmallVector<StringRef, 2> rowsFirst = {"blk_row", "blk_col"};
+  SmallVector<StringRef, 2> colsFirst = {"blk_col", "blk_row"};
+  viewBuilder.merge(
+      isABroadcast ? rowsFirst : colsFirst,
+      {rowsAndColsIdxs.lookup("blkMajor"), rowsAndColsIdxs.lookup("blkMinor")},
+      "j", {endSizeJ / blocksInOutRegs, blocksInOutRegs});
+  viewBuilder.passThrough(
+      {"vec_group", "vec_item"},
+      {rowsAndColsIdxs.lookup("vec_group"), rowsAndColsIdxs.lookup("vec_item")},
+      {"vec_group", "vec_item"});
 }
 
-ArrayAttr MfmaEmitter::computeOutputTransforms(
+RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    std::optional<int64_t> blockSize,
-    std::optional<ArrayRef<int64_t>> bidGridLengths) {
+    int64_t blockSize, ArrayRef<int64_t> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -226,141 +225,164 @@ ArrayAttr MfmaEmitter::computeOutputTransforms(
 
   int64_t retNumElements = accVectorType.getNumElements();
   int64_t numElements = retNumElements * mRepeats * nRepeats * nResultVectors;
-  TopDownTMBuilder splitMemoryCoords =
-      createTopSplitTMBuilder(b, loc, numElements, bidGridLengths, blockSize);
-  {
-    unsigned lowIdx = 0;
-    if (bidGridLengths.has_value()) {
-      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
-      lowIdx += 3;
-    }
-    if (blockSize.has_value()) {
-      int64_t wavesInKernelBlock = blockSize.value() / waveSize;
-      splitMemoryCoords.merge(
-          {"wave", "m_tid", "n_tid"}, {lowIdx, lowIdx + 1, lowIdx + 2}, "tid",
-          {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
-      lowIdx += 3;
-    }
-    splitMemoryCoords.merge(
-        {"i", "j", "vec_group", "vec_item"},
-        {lowIdx, lowIdx + 1, lowIdx + 2, lowIdx + 3}, "item",
-        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
-         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
-  }
-  TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-
-  // "blkMajor" and "blkMinor" are placeholder names because we don't know
-  // if they'll be column or row until we check for broadcast-ness.
-  auto toRowsAndCols =
-      TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-  llvm::StringMap<uint32_t> rowsAndColsIdxs;
-  if (blockSize.has_value()) {
-    rowsAndColsIdxs = expandNamesInPlace(splitMemoryCoords,
-                                         {{"wave", {"wave_m", "wave_n"}},
-                                          {"i", {"m_i", "n_i"}},
-                                          {"j", {"blkMajor", "blkMinor"}}});
-  } else {
-    rowsAndColsIdxs = expandNamesInPlace(
-        splitMemoryCoords,
-        {{"i", {"m_i", "n_i"}}, {"j", {"blkMajor", "blkMinor"}}});
-  }
-  TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-  if (bidGridLengths.has_value()) {
-    rowsAndColsWrap.passThrough({"g_block", "m_block", "n_block"});
-  }
-  if (blockSize.has_value()) {
-    int64_t wavesInKernelBlock = blockSize.value() / waveSize;
-    llvm::errs() << "wavesInKernelBlock = " << wavesInKernelBlock << "\n";
-    llvm::errs() << "nPerWave = " << nPerWave << "\n";
-    llvm::errs() << "nPerBlock = " << nPerBlock << "\n";
-    llvm::errs() << "nWaves = " << nWaves << "\n";
-    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
-                          {wavesInKernelBlock / nWaves, nWaves});
-    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
-  }
-  rowsAndColsWrap.merge({"m_i", "n_i"}, "i",
-                        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
-
-  // Here we use the full builder API since we want index and name control
-  bool isABroadcast = (nPerRepeat >= mPerRepeat);
-  SmallVector<StringRef, 2> rowsFirst = {"blk_row", "blk_col"};
-  SmallVector<StringRef, 2> colsFirst = {"blk_col", "blk_row"};
-  toRowsAndCols.merge(
-      isABroadcast ? rowsFirst : colsFirst,
-      {rowsAndColsIdxs["blkMajor"], rowsAndColsIdxs["blkMinor"]}, "j",
-      {splitMemoryCoords.endSize("j") / blocksInOutRegs, blocksInOutRegs});
-  toRowsAndCols.passThrough(
-      {"vec_group", "vec_item"},
-      {rowsAndColsIdxs["vec_group"], rowsAndColsIdxs["vec_item"]},
-      {"vec_group", "vec_item"});
-
-  TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
-
-  auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-  unsigned toMatrixClowIdx = 0;
-  if (bidGridLengths.has_value()) {
-    toMatrixC.passThrough({"gemmG"}, {toMatrixClowIdx++}, {"g_block"});
-  }
+  int64_t wavesInKernelBlock = blockSize / waveSize;
 
   // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel, i.e.,
   // all the waves will compute next to each other and then they will move to
   // the next subtile in the workgroup
+  SmallVector<StringRef, 7> dimNamesM{/*0=*/"m_block",
+                                      /*1=*/"m_i",
+                                      /*2=*/"wave_m",
+                                      /*3=*/"blk_row",
+                                      /*4=*/"vec_group",
+                                      /*5=*/"m_tid",
+                                      /*6=*/"vec_item"};
+  SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
+                                             /*1=*/mPerAccel * mWaves,
+                                             /*2=*/mPerAccel,
+                                             /*3=*/m,
+                                             /*4=*/inputSpansPerMfmaIn *
+                                                 rowGroupSize,
+                                             /*5=*/rowGroupSize,
+                                             /*6=*/1};
+  SmallVector<int64_t, 7> dimSizesM;
+  convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizesM);
+
+  SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
+                                      /*1=*/"n_i",
+                                      /*2=*/"wave_n",
+                                      /*3=*/"blk_col",
+                                      /*4=*/"n_tid"};
+  SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
+                                             /*1=*/nPerAccel * nWaves,
+                                             /*2=*/nPerAccel,
+                                             /*3=*/n,
+                                             /*4=*/1};
+  SmallVector<int64_t, 7> dimSizesN;
+  convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
+
+  RegsAsMatrixSubTiles ret;
   {
-    SmallVector<StringRef, 7> dimNamesM{/*0=*/"m_block",
-                                        /*1=*/"m_i",
-                                        /*2=*/"wave_m",
-                                        /*3=*/"blk_row",
-                                        /*4=*/"vec_group",
-                                        /*5=*/"m_tid",
-                                        /*6=*/"vec_item"};
-    SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
-                                               /*1=*/mPerAccel * mWaves,
-                                               /*2=*/mPerAccel,
-                                               /*3=*/m,
-                                               /*4=*/inputSpansPerMfmaIn *
-                                                   rowGroupSize,
-                                               /*5=*/rowGroupSize,
-                                               /*6=*/1};
-    SmallVector<int64_t, 7> dimSizes;
-    convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizes);
-    if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmM", toMatrixClowIdx++, dimNamesM, dimSizes);
-    } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmM", toMatrixClowIdx++, ArrayRef<StringRef>{dimNamesM}.slice(1),
-                        ArrayRef<int64_t>{dimSizes}.slice(1));
-    } else {
-      toMatrixC.unmerge(
-          "gemmM", toMatrixClowIdx++, {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
-          {dimSizes[1], dimSizes[3], dimSizes[4], dimSizes[6]});
-    }
+    // Create views as gridwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"g_block", "m_block", "n_block", "tid", "item"},
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
+         numElements},
+        loc);
+    splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+    splitMemoryCoords.merge(
+        {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
+        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+    splitMemoryCoords.merge(
+        {"i", "j", "vec_group", "vec_item"}, {6, 7, 8, 9}, "item",
+        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    auto toRowsAndCols =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    // "blkMajor" and "blkMinor" are placeholder names because we don't know
+    // if they'll be column or row until we check for broadcast-ness.
+    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
+        splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
+                            {"i", {"m_i", "n_i"}},
+                            {"j", {"blkMajor", "blkMinor"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.passThrough({"g_block", "m_block", "n_block"});
+    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+                          {wavesInKernelBlock / nWaves, nWaves});
+    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
+    rowsAndColsWrap.merge(
+        {"m_i", "n_i"}, "i",
+        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
+    makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
+                            rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
+                            blocksInOutRegs);
+    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
+    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.gridSubTile = b.getArrayAttr(
+        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
   }
+
   {
-    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
-                                        /*1=*/"n_i",
-                                        /*2=*/"wave_n",
-                                        /*3=*/"blk_col",
-                                        /*4=*/"n_tid"};
-    SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                               /*1=*/nPerAccel * nWaves,
-                                               /*2=*/nPerAccel,
-                                               /*3=*/n,
-                                               /*4=*/1};
-    SmallVector<int64_t, 7> dimSizes;
-    convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizes);
-    if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, dimNamesN, dimSizes);
-    } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, ArrayRef<StringRef>{dimNamesN}.slice(1),
-                        ArrayRef<int64_t>{dimSizes}.slice(1));
-    } else {
-      toMatrixC.unmerge("gemmN", toMatrixClowIdx++, {dimNamesN[1], dimNamesN[3]},
-                        {dimSizes[1], dimSizes[3]});
-    }
+    // Create views as blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(b, {"tid", "item"},
+                                       {blockSize, numElements}, loc);
+    splitMemoryCoords.merge(
+        {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
+        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+    splitMemoryCoords.merge(
+        {"i", "j", "vec_group", "vec_item"}, {3, 4, 5, 6}, "item",
+        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    auto toRowsAndCols =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    // "blkMajor" and "blkMinor" are placeholder names because we don't know
+    // if they'll be column or row until we check for broadcast-ness.
+    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
+        splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
+                            {"i", {"m_i", "n_i"}},
+                            {"j", {"blkMajor", "blkMinor"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+                          {wavesInKernelBlock / nWaves, nWaves});
+    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
+    rowsAndColsWrap.merge(
+        {"m_i", "n_i"}, "i",
+        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
+    makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
+                            rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
+                            blocksInOutRegs);
+    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                      ArrayRef<int64_t>{dimSizesM}.slice(1));
+    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                      ArrayRef<int64_t>{dimSizesN}.slice(1));
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.blockSubTile = b.getArrayAttr(
+        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
   }
-  TransformMapAttr toMatrixCAttr = toMatrixC.get();
-  ArrayAttr idToMatrixCMaps =
-      b.getArrayAttr({splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
-  return idToMatrixCMaps;
+
+  {
+    // Create views as threadwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(b, {"item"}, {numElements}, loc);
+    splitMemoryCoords.merge(
+        {"i", "j", "vec_group", "vec_item"}, {0, 1, 2, 3}, "item",
+        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    auto toRowsAndCols =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    // "blkMajor" and "blkMinor" are placeholder names because we don't know
+    // if they'll be column or row until we check for broadcast-ness.
+    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
+        splitMemoryCoords,
+        {{"i", {"m_i", "n_i"}}, {"j", {"blkMajor", "blkMinor"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.merge(
+        {"m_i", "n_i"}, "i",
+        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
+    makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
+                            rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
+                            blocksInOutRegs);
+    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+    toMatrixC.unmerge("gemmM", 0,
+                      {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
+                      {dimSizesM[1], dimSizesM[3], dimSizesM[4], dimSizesM[6]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[1], dimNamesN[3]},
+                      {dimSizesN[1], dimSizesN[3]});
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.threadSubTile = b.getArrayAttr(
+        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+  }
+
+  return ret;
 }
 
 Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
@@ -487,10 +509,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
 }
 
-ArrayAttr WmmaEmitter::computeOutputTransforms(
+RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    std::optional<int64_t> blockSize,
-    std::optional<ArrayRef<int64_t>> bidGridLengths) {
+    int64_t blockSize, ArrayRef<int64_t> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -520,35 +541,7 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   //
 
   int64_t retNumElements = accVectorType.getNumElements();
-  TopDownTMBuilder splitMemoryCoords = createTopSplitTMBuilder(
-      b, loc, mRepeats * nRepeats * retNumElements, bidGridLengths, blockSize);
-  {
-    unsigned lowIdx = 0;
-    if (bidGridLengths.has_value()) {
-      splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
-      lowIdx += 3;
-    }
-    if (blockSize.has_value()) {
-      int64_t wavesInKernelBlock = blockSize.value() / waveSize;
-      splitMemoryCoords.merge(
-          {"wave_m", "wave_n", "m_tid", "n_tid"},
-          {lowIdx, lowIdx + 1, lowIdx + 2, lowIdx + 3}, "tid",
-          {wavesInKernelBlock / nWaves, nWaves, waveSize / wmmaInsn.inputLen,
-           wmmaInsn.inputLen});
-      lowIdx += 4;
-    }
-    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"},
-                            {lowIdx, lowIdx + 1, lowIdx + 2}, "item",
-                            {mRepeats, nRepeats, retNumElements});
-  }
-  TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-
-  auto toMatrixC =
-      TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-
-  if (bidGridLengths.has_value()) {
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-  }
+  int64_t wavesInKernelBlock = blockSize / waveSize;
 
   // m_tid is liimited to 0 or 1 (or 0,1,2,3 for wave64). Basically every
   // workitem is computing 8 values, which represent a sub-column of a 16x16
@@ -559,53 +552,98 @@ ArrayAttr WmmaEmitter::computeOutputTransforms(
   // Note that `wave_m` and `wave_n` are strided by the inputLen, i.e., all the
   // waves will compute next to each other and then they will move to the next
   // subtile in the workgroup
+  SmallVector<StringRef, 5> dimNamesM{/*0=*/"m_block",
+                                      /*1=*/"rep_i",
+                                      /*2=*/"wave_m",
+                                      /*3=*/"item_i",
+                                      /*4=*/"m_tid"};
+  SmallVector<int64_t, 5> orderedDimStridesM{/*0=*/mPerBlock,
+                                             /*1=*/mWaves * wmmaInsn.inputLen,
+                                             /*2=*/wmmaInsn.inputLen,
+                                             /*3=*/wmmaInsn.outputStride,
+                                             /*4=*/1};
+  SmallVector<int64_t, 7> dimSizesM;
+  convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizesM);
+
+  SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
+                                      /*1=*/"rep_j",
+                                      /*2=*/"wave_n",
+                                      /*3=*/"n_tid"};
+  SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
+                                             /*1=*/nWaves * wmmaInsn.inputLen,
+                                             /*2=*/wmmaInsn.inputLen,
+                                             /*3=*/1};
+  SmallVector<int64_t, 7> dimSizesN;
+  convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
+
+  RegsAsMatrixSubTiles ret;
+
   {
-    SmallVector<StringRef, 5> dimNamesM{/*0=*/"m_block",
-                                        /*1=*/"rep_i",
-                                        /*2=*/"wave_m",
-                                        /*3=*/"item_i",
-                                        /*4=*/"m_tid"};
-    SmallVector<int64_t, 5> orderedDimStridesM{/*0=*/mPerBlock,
-                                               /*1=*/mWaves * wmmaInsn.inputLen,
-                                               /*2=*/wmmaInsn.inputLen,
-                                               /*3=*/wmmaInsn.outputStride,
-                                               /*4=*/1};
-    SmallVector<int64_t, 7> dimSizes;
-    convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizes);
-    if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizes);
-    } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmM", 1, ArrayRef<StringRef>{dimNamesM}.slice(1),
-                        ArrayRef<int64_t>{dimSizes}.slice(1));
-    } else {
-      toMatrixC.unmerge("gemmM", 1, {dimNamesM[1], dimNamesM[3]},
-                        {dimSizes[1], dimSizes[3]});
-    }
+    // Create views as gridwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"g_block", "m_block", "n_block", "tid", "item"},
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
+         mRepeats * nRepeats * retNumElements},
+        loc);
+    splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
+                            {3, 4, 5, 6}, "tid",
+                            {wavesInKernelBlock / nWaves, nWaves,
+                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
+                            {mRepeats, nRepeats, retNumElements});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toMatrixC =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
+    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.gridSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
   }
+
   {
-    SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
-                                        /*1=*/"rep_j",
-                                        /*2=*/"wave_n",
-                                        /*3=*/"n_tid"};
-    SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                               /*1=*/nWaves * wmmaInsn.inputLen,
-                                               /*2=*/wmmaInsn.inputLen,
-                                               /*3=*/1};
-    SmallVector<int64_t, 7> dimSizes;
-    convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizes);
-    if (bidGridLengths.has_value()) {
-      toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizes);
-    } else if (blockSize.has_value()) {
-      toMatrixC.unmerge("gemmN", 2, ArrayRef<StringRef>{dimNamesN}.slice(1),
-                        ArrayRef<int64_t>{dimSizes}.slice(1));
-    } else {
-      toMatrixC.unmerge("gemmN", 2, {dimNamesN[1]}, {dimSizes[1]});
-    }
+    // Create views as blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"tid", "item"}, {blockSize, mRepeats * nRepeats * retNumElements},
+        loc);
+    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
+                            {0, 1, 2, 3}, "tid",
+                            {wavesInKernelBlock / nWaves, nWaves,
+                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {4, 5, 6}, "item",
+                            {mRepeats, nRepeats, retNumElements});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toMatrixC =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                      ArrayRef<int64_t>{dimSizesM}.slice(1));
+    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                      ArrayRef<int64_t>{dimSizesN}.slice(1));
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.blockSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
   }
-  TransformMapAttr toMatrixCAttr = toMatrixC.get();
-  ArrayAttr idToMatrixCMaps =
-      b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
-  return idToMatrixCMaps;
+
+  {
+    // Create views as threadwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"item"}, {mRepeats * nRepeats * retNumElements}, loc);
+    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {0, 1, 2}, "item",
+                            {mRepeats, nRepeats, retNumElements});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toMatrixC =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[1], dimNamesM[3]},
+                      {dimSizesM[1], dimSizesM[3]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[1]}, {dimSizesN[1]});
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    ret.threadSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
+  }
+
+  return ret;
 }
 
 std::unique_ptr<AccelEmitter>
