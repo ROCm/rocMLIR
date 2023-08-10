@@ -1025,7 +1025,7 @@ def Rock_ThreadwiseWriteAllOp :
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
       "source registers", [MemRead]>:$source,
-      Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
+      Arg<MemRefOf<NativeMemoryOpTypes>, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       Variadic<Index>:$extraIndices,
       Rock_GemmFeaturesAttr:$features,

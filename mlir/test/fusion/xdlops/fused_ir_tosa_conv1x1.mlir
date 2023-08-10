@@ -14,8 +14,16 @@ module {
   }
 }
 // 1. Tracks the beginning of the store loop of gemmv2
+// Prologue
+//CHECK-COUNT-2: rock.threadwise_read_into
+//CHECK-COUNT-2: rock.threadwise_write_all {{.*}} #gpu.address_space<workgroup>
+// SW pipelined loop
+//CHECK: affine.for
+//CHECK-COUNT-2: rock.threadwise_read_into
 //CHECK: rock.blockwise_gemm_accel
-//CHECK: rock.transforming_for
+//CHECK-COUNT-2: rock.threadwise_write_all {{.*}} #gpu.address_space<workgroup>
+// Epilogue
+//CHECK: rock.blockwise_gemm_accel
 
 // 2. Check if ops are fused and copy_v2 is not present here
 //CHECK-NOT: rock.threadwise_write_all
