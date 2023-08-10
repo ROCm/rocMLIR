@@ -62,10 +62,12 @@ def KernelTypeConv2D : I32EnumAttrCase<"Conv2D", 0>;
 def KernelTypeConv2DBwdData : I32EnumAttrCase<"Conv2DBwdData", 1>;
 def KernelTypeConv2DBwdWeight : I32EnumAttrCase<"Conv2DBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
+def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
 
 def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
   [KernelTypeConv2D, KernelTypeConv2DBwdData,
-    KernelTypeConv2DBwdWeight, KernelTypeGemm]>;
+    KernelTypeConv2DBwdWeight, KernelTypeGemm,
+    KernelTypeAttention]>;
 
 /// TransformType
 def PassThrough : I32EnumAttrCase<"PassThrough", 0>;
