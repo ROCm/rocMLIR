@@ -457,9 +457,8 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   case KernelType::Gemm:
     llvm_unreachable(
         "Gemm ops shouldn't be in convolution-specific lowering passes");
-  default:
-    llvm_unreachable("Unsuppported KernelType");
   }
+  llvm_unreachable("Unsuppported KernelType");
 }
 
 KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
@@ -470,9 +469,8 @@ KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
     return KernelType::Conv2DBwdData;
   case ConvOpType::BwdWeight:
     return KernelType::Conv2DBwdWeight;
-  default:
-    llvm_unreachable("Unsupported ConvOpType");
   }
+  llvm_unreachable("Unsupported ConvOpType");
 }
 
 GemmSize GemmSize::fromConvolution(ConvOpType type,
@@ -1462,9 +1460,6 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   else
     inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  MemRefType srcType = getSource().getType().cast<MemRefType>();
-  gpu::AddressSpaceAttr srcMemSpaceAttr =
-      srcType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
   size_t extraIdxCount = getExtraIndices().size();
   if (inputShape.size() != extraIdxCount + 1) {
     return emitOpError("source view must be extraIndices + 1");
@@ -1489,8 +1484,6 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   else
     outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
-  MemRefType dstType = getDest().getType().cast<MemRefType>();
-  Attribute dstMemSpaceAttr = dstType.getMemorySpace();
   size_t extraIdxCount = getExtraIndices().size();
   if (outputShape.size() != extraIdxCount + 1) {
     return emitOpError("dest view must be extraIndices + 1");
