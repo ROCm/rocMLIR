@@ -2400,13 +2400,16 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
-  if (valElemType.isF32()) {
+  if (valElemType.isa<FloatType>()) {
+    // f16, bf16, fp8, bf8 will be converted to f32 by wrapper.
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
              valElemType.isInteger(64)) {
     verifyFuncName +=
         "Int" + std::to_string(testElemType.getIntOrFloatBitWidth()) + "Int" +
         std::to_string(valElemType.getIntOrFloatBitWidth());
+  } else {
+    llvm_unreachable("There's a valElemType not accounted for");
   }
 
   auto mr1DUnkTestType =
