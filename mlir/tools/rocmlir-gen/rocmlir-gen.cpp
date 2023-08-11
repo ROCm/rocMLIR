@@ -2810,9 +2810,7 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      llvm::errs()
-          << "no host harness logic is implemented for the attention yet.\n";
-      return failure();
+      outIndices.push_back(4);
     }
   } else {
     outIndices = root0.outIndices;
