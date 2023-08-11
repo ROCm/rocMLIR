@@ -627,6 +627,19 @@ PopulateParamsWmma::isValidBlockwiseGemm(const InitParamsAccel &param,
   }
 
   // Reject invalid KPACK values.
+  auto maybeWmmaInsn = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
+                                        param.gemmMPerWave, param.gemmNPerWave);
+  if (failed(maybeWmmaInsn)) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
+    return failure();
+  }
+  WmmaInsn wmmaInsn = *maybeWmmaInsn;
+  if (!wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Wmma instruction selection is not compatible with k.\n");
+    return failure();
+  }
+
   return success();
 }
 
