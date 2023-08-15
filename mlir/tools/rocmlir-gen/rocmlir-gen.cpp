@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -3402,6 +3403,17 @@ int main(int argc, char **argv) {
   if (genHostHarness.getValue()) {
     if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
+      exit(1);
+    }
+
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+
+    rock::BufferizeOptions bufferizeOptions;
+    bufferizeOptions.disableRock = true;
+    rock::buildBufferizePipeline(pm, bufferizeOptions);
+
+    if (failed(pm.run(module))) {
+      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
       exit(1);
     }
   }
