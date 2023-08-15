@@ -184,6 +184,14 @@
   by [<Embed{1, 1, 1} ["x", "a", "b"] at [0, 1, 2] -> ["d"] at [0]>]
   bounds = [4, 2, 8] -> [13]>
 
+// iso-coefficient embed alignment checks
+#transform_map_over_vec_top1 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 4, d4 mod 4, d5 floordiv 4, d5 mod 4)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{16, 4} ["tid"] at [4] -> ["n_thread", "k_thread"] at [4, 5]>, <Merge{4, 4} ["iter"] at [5] -> ["n_iter", "k_iter"] at [6, 7]>] bounds = [16, 1, 2, 45, 64, 16] -> [16, 1, 2, 45, 16, 4, 4, 4]>
+#transform_map_over_vec_top2 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 4 + d5) * 4 + d7, (d3 * 16 + d4) * 4 + d6)> by [<PassThrough ["g_block"] at [1] -> ["g"] at [0]>, <Unmerge{16, 4, 4} ["k_loop", "k_thread", "k_iter"] at [0, 5, 7] -> ["k"] at [1]>, <Unmerge{45, 16, 4} ["n_block", "n_thread", "n_iter"] at [3, 4, 6] -> ["n"] at [2]>, <AddDim{2} ["m_block"] at [2] -> [] at []>] bounds = [16, 1, 2, 45, 16, 4, 4, 4] -> [1, 256, 2880]>
+
+#transform_map_over_vec_bottom1 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d2 floordiv 45, d0, d1 floordiv 4, (d1 mod 4) floordiv 2, (d2 mod 45) floordiv 5, d1 mod 2, d2 mod 5)> by [<PassThrough ["gemmG"] at [0] -> ["gi"] at [1]>, <Merge{64, 2, 2} ["gemmK"] at [1] -> ["ci", "y", "x"] at [2, 3, 5]>, <Merge{64, 9, 5} ["gemmN"] at [2] -> ["ni", "ho", "wo"] at [0, 4, 6]>] bounds = [1, 256, 2880] -> [64, 1, 64, 2, 9, 2, 5]>
+#transform_map_over_vec_bottom2 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1, d2, d3 + d4, d5 + d6)> by [<PassThrough ["ni", "gi", "ci"] at [0, 1, 2] -> ["ni", "gi", "ci"] at [0, 1, 2]>, <Embed{1, 1} ["y", "ho"] at [3, 4] -> ["hipad"] at [3]>, <Embed{1, 1} ["x", "wo"] at [5, 6] -> ["wipad"] at [4]>] bounds = [64, 1, 64, 2, 9, 2, 5] -> [64, 1, 64, 10, 6]>
+#transform_map_over_vec_bottom3 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 3, d4)> by [<PassThrough ["ni"] at [0] -> ["ni"] at [0]>, <PassThrough ["gi"] at [1] -> ["gi"] at [1]>, <PassThrough ["ci"] at [2] -> ["ci"] at [2]>, <Pad{3, 3, 0, 2} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>] bounds = [64, 1, 64, 10, 6] -> [64, 1, 64, 4, 4]>
+
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
@@ -307,6 +315,11 @@ func.func @test_vectorization() {
 
   // CHECK-NEXT: result = 8
   %41 = "get_length"() {transforms = [#transform_map_embed_tiebreak1, #transform_map_embed_tiebreak2], in_dim = 1 : index, max_len = 16 : index} : () -> (memref<13xf32>)
+
+  // CHECK-NEXT: result = 1
+  %42 = "get_length"() {transforms = [#transform_map_over_vec_bottom1, #transform_map_over_vec_bottom2, #transform_map_over_vec_bottom3], in_dim = 1 : index, max_len = 16 : index} : () -> (memref<64x1x64x4x4xf32>)
+  // CHECK-NEXT: result = 1
+  %43 = "get_length"() {transforms = [#transform_map_over_vec_top1, #transform_map_over_vec_top2, #transform_map_over_vec_bottom1, #transform_map_over_vec_bottom2, #transform_map_over_vec_bottom3], in_dim = 5 : index, max_len = 16 : index} : () -> (memref<64x1x64x4x4xf32>)
   func.return
 }
 
