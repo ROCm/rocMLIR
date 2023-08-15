@@ -683,7 +683,7 @@ struct KernelIF {
 
 struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
-  SmallVector<Type, 3> types;
+  SmallVector<Type, 5> types;
   rock::GemmFeatures features = rock::GemmFeatures::none;
   std::optional<const rock::Conv2dGenerator::Config *> convConfig =
       std::nullopt;
@@ -2147,16 +2147,17 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 }
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
-                              const Type &elemTypes) {
+                              ArrayRef<Type> elemTypes) {
   SmallVector<int64_t> dims{sequenceLength, headDims};
   SmallVector<int64_t> transposedDims{headDims, sequenceLength};
   SmallVector<int64_t> scaleDims{sequenceLength, sequenceLength};
 
-  MemRefType qType = MemRefType::get(dims, elemTypes),
-             kType = MemRefType::get(transposedDims, elemTypes),
-             vType = MemRefType::get(dims, elemTypes),
-             sType = MemRefType::get(scaleDims, elemTypes),
-             outType = MemRefType::get(dims, elemTypes);
+  assert(elemTypes.size() == 5 && "expect 5 type elements");
+  MemRefType qType = MemRefType::get(dims, elemTypes[0]),
+             kType = MemRefType::get(transposedDims, elemTypes[1]),
+             vType = MemRefType::get(dims, elemTypes[2]),
+             sType = MemRefType::get(scaleDims, elemTypes[3]),
+             outType = MemRefType::get(dims, elemTypes[4]);
 
   result.push_back(qType);
   result.push_back(kType);
@@ -2166,7 +2167,6 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
-                                             const Type &elemTypes,
                                              const GenParams &params) {
   MLIRContext *ctx = module.getContext();
   Location loc = module->getLoc();
@@ -2178,7 +2178,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     module->setAttr("mhal.arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
-  getAttentionTypes(argTypes, elemTypes);
+  getAttentionTypes(argTypes, params.types);
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
@@ -2211,7 +2211,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   OpBuilder b(ctx);
   Location loc = module->getLoc();
 
-  SmallVector<Type, 3> cpuTypes = params.types;
+  auto cpuTypes = params.types;
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
 
@@ -2289,9 +2289,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   OpBuilder builder(ctx);
   Location loc = module->getLoc();
 
-  auto elemTypes = typeFromString(inputDataType.getValue(), ctx);
+  // auto elemTypes = typeFromString(inputDataType.getValue(), ctx);
   SmallVector<Type, 5> argTypes;
-  getAttentionTypes(argTypes, elemTypes);
+  getAttentionTypes(argTypes, params.types);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
   auto func = builder.create<func::FuncOp>(
@@ -3219,8 +3219,12 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       // Note: In the current implementaiton, all operands have the same type.
       // This behaviour enforced by `-t`. See, detectMissingArguments()
       auto elemTypes = typeFromString(inputDataType.getValue(), context);
+      constexpr size_t maxNumArgs{5};
+      for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
+        genParams.types.push_back(elemTypes);
+      }
       genParams.convConfig = std::nullopt;
-      (void)createGpuAttentionKernel(module, elemTypes, genParams);
+      (void)createGpuAttentionKernel(module, genParams);
     } else {
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
