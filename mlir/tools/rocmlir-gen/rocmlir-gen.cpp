@@ -15,6 +15,7 @@
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -27,6 +28,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -2281,6 +2283,103 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   return func;
 }
 
+static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
+                                                     const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  OpBuilder builder(ctx);
+  Location loc = module->getLoc();
+
+  auto elemTypes = typeFromString(inputDataType.getValue(), ctx);
+  SmallVector<Type, 5> argTypes;
+  getAttentionTypes(argTypes, elemTypes);
+
+  constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
+  auto func = builder.create<func::FuncOp>(
+      loc, cpuKernName, builder.getFunctionType(argTypes, {}));
+
+  Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+
+  auto extendMemref = [&builder, &loc](mlir::Value value) {
+    auto memRef = value.getType().cast<MemRefType>();
+    auto origShape = memRef.getShape();
+
+    SmallVector<int64_t, 5> expShape;
+    SmallVector<ReassociationIndices, 5> reassociation;
+
+    expShape.push_back(1);
+    reassociation.push_back({0, 1});
+    for (uint32_t dim = 0; dim < origShape.size(); ++dim) {
+      expShape.push_back(origShape[dim]);
+      reassociation.push_back({dim + 2});
+    }
+    reassociation.pop_back();
+
+    auto expType = MemRefType::get(expShape, memRef.getElementType());
+    return builder.create<memref::ExpandShapeOp>(loc, expType, value,
+                                                 reassociation);
+  };
+
+  auto queries = extendMemref(block->getArgument(0));
+  auto keys = extendMemref(block->getArgument(1));
+  auto values = extendMemref(block->getArgument(2));
+  auto scale = extendMemref(block->getArgument(3));
+
+  auto queriesTensor = builder.create<bufferization::ToTensorOp>(
+      loc, queries, /*restrict=*/true, /*writable=*/false);
+  auto keysTensor = builder.create<bufferization::ToTensorOp>(
+      loc, keys, /*restrict=*/true, /*writable=*/false);
+  auto valuesTensor = builder.create<bufferization::ToTensorOp>(
+      loc, values, /*restrict=*/true, /*writable=*/false);
+  auto scaleTensor = builder.create<bufferization::ToTensorOp>(
+      loc, scale, /*restrict=*/true, /*writable=*/false);
+
+  auto qkTensor = builder.create<tosa::MatMulOp>(loc, scaleTensor.getType(),
+                                                 queriesTensor, keysTensor);
+
+  auto intermediateTensorType = scaleTensor.getType();
+  auto sqkTensor = builder.create<tosa::MulOp>(
+      loc, intermediateTensorType, qkTensor, scaleTensor, /*shift=*/0);
+
+  // compute type of the reduced tensor
+  auto intermediateTensorShape = intermediateTensorType.getShape();
+
+  SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
+  std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
+            reducedTensorShape.begin());
+  constexpr int64_t reductionAxis{2};
+  assert(intermediateTensorShape.size() >= reductionAxis);
+  reducedTensorShape[reductionAxis] = 1;
+
+  auto reducedTensorType = mlir::RankedTensorType::get(
+      reducedTensorShape, intermediateTensorType.getElementType());
+
+  auto sqkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
+                                                   sqkTensor, reductionAxis);
+  auto normilizedSqkTensor = builder.create<tosa::SubOp>(
+      loc, intermediateTensorType, sqkTensor, sqkMaxs);
+  auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
+                                                normilizedSqkTensor);
+
+  auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
+                                                    expsTensor, reductionAxis);
+  auto invExpsSums =
+      builder.create<tosa::ReciprocalOp>(loc, reducedTensorType, expsSums);
+  auto softmaxTensor = builder.create<tosa::MulOp>(
+      loc, intermediateTensorType, expsTensor, invExpsSums, /*shift=*/0);
+  auto resultTensor = builder.create<tosa::MatMulOp>(
+      loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
+
+  auto output = extendMemref(block->getArgument(4));
+  auto result = builder.create<bufferization::ToMemrefOp>(loc, output.getType(),
+                                                          resultTensor);
+
+  builder.create<memref::CopyOp>(loc, result, output);
+  builder.create<func::ReturnOp>(loc);
+  module.push_back(func);
+  return func;
+}
+
 static void emitPrintTensor(OpBuilder &b, Value var) {
   auto loc = b.getUnknownLoc();
   auto varType = var.getType().template dyn_cast<MemRefType>();
@@ -2422,7 +2521,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   bool isTestAndValSameType =
       (testElemType.isIntOrIndex() || testElemType.isF32());
 
-  Value testResult, valResult; // Values passed to the verify function
+  Value testResult, valResult;       // Values passed to the verify function
   Value testResultNew, valResultNew; // Values used for type conversion
   if (!isTestAndValSameType) {
     // When gpu kernel output data type = f16 | bf16, type conversions
@@ -2705,6 +2804,14 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto cpuGemmFunc = createCpuGemmKernelWithMlir(module, genParams);
       b.create<func::CallOp>(loc, cpuGemmFunc, valVars);
+    } else if (genParams.operation == rock::KernelType::Attention) {
+      if (validationType == "cpp") {
+        llvm::errs() << "External attention validator is not available\n";
+        exit(1);
+      }
+      auto cpuAttentionFunc =
+          createCpuAttentionKernelWithMlir(module, genParams);
+      b.create<func::CallOp>(loc, cpuAttentionFunc, valVars);
     } else {
       llvm::errs()
           << "Validation generation requested, but no operation specified\n";
@@ -3192,7 +3299,8 @@ int main(int argc, char **argv) {
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
-                      linalg::LinalgDialect>();
+                      linalg::LinalgDialect,
+                      bufferization::BufferizationDialect, tosa::TosaDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
