@@ -657,6 +657,11 @@ static llvm::cl::opt<int> kernelRepeats(
     llvm::cl::desc("Number of times to repeat the kernel invocation"),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
+static llvm::cl::opt<bool> applyBufferizationPipeline(
+    "apply-bufferization-pipeline",
+    llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
+    llvm::cl::init(true));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -3406,15 +3411,17 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    if (applyBufferizationPipeline.getValue()) {
+      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
-    rock::BufferizeOptions bufferizeOptions;
-    bufferizeOptions.disableRock = true;
-    rock::buildBufferizePipeline(pm, bufferizeOptions);
+      rock::BufferizeOptions bufferizeOptions;
+      bufferizeOptions.disableRock = true;
+      rock::buildBufferizePipeline(pm, bufferizeOptions);
 
-    if (failed(pm.run(module))) {
-      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
-      exit(1);
+      if (failed(pm.run(module))) {
+        llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
+        exit(1);
+      }
     }
   }
 
