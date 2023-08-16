@@ -14,6 +14,7 @@
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
+#include "mlir/Dialect/MIGraphX/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -47,12 +48,11 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string>
-    kernelPipeline("kernel-pipeline",
-                   cl::desc("rocmlir-driver kernel pipeline list"),
-                   cl::value_desc("comma separated list of rock pipelines: "
-                                  "applicability,gpu,rocdl,binary or full"),
-                   cl::init(""));
+static cl::opt<std::string> kernelPipeline(
+    "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
+    cl::value_desc("comma separated list of rock pipelines: "
+                   "applicability,migraphx,highlevel,gpu,rocdl,binary or full"),
+    cl::init(""));
 
 static cl::opt<std::string>
     hostPipeline("host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
@@ -152,6 +152,9 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     return failure();
   }
 
+  if (kernelPipelineSet.contains("migraphx")) {
+    migraphx::addHighLevelPipeline(pm);
+  }
   if (isHighLevel) {
     rock::BufferizeOptions opts;
     opts.disableRock = cpuOnly.getValue();
@@ -223,8 +226,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     arch = canonicalArch.str().str();
   }
 
-  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"applicability", "gpu",
-                                                       "rocdl", "binary"};
+  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
+      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
@@ -262,7 +265,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  bool isHighLevel = hostPipelineSet.contains("highlevel");
+  bool isHighLevel = hostPipelineSet.contains("highlevel") ||
+                     kernelPipelineSet.contains("highlevel");
 
   StringRef onlyArch;
   if (targetList.size())
