@@ -148,14 +148,17 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                     continue
                 entries = line.split('\t')
 
-                # note: legecy format has 3 entries
+                # note: legacy format has 3 entries
                 if len(entries) == 3:
                     arch, config, perfConfig = entries
                     ret[arch, config] = perfConfig
-
                 # note: new format has 4 entries
-                if len(entries) == 4:
+                elif len(entries) == 4:
                     arch, _, config, perfConfig = entries
+                    ret[arch, config] = perfConfig
+                # note: 5-entry form includes tflops at end
+                elif len(entries) == 5:
+                    arch, _, config, perfConfig, _ = entries
                     ret[arch, config] = perfConfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
