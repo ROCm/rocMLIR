@@ -84,9 +84,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
-                  if (succeeded(
-                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
-                      (kind == TuningParamSetKind::Exhaustive ||
+                  if (kind == TuningParamSetKind::Exhaustive ||
+                      (succeeded(
+                           tuningInfo.paramsProbablyValid(info, gemmParams)) &&
                        succeeded(
                            tuningInfo.couldBePerformant(info, gemmParams))))
                     newSpace->tuningRange.push_back(
