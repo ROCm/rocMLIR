@@ -62,8 +62,8 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: %[[ACC_NEW:.*]] = arith.addf %[[TO_REDUCE_ACC]], %[[SUM_REDUCE]]
 // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> {{.*}}[%c0] {{.*}} #gpu.address_space<private>>
 // CHECK: rock.transforming_for {{.*}}[#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 1] strides [1, 1, 1] {
-// CHECK: rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> vector<4xf32>
-// CHECK: rock.in_bounds_store {{.*}} : vector<4xf32> -> memref<80xf32, #gpu.address_space<workgroup>>, index
+// CHECK: rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
+// CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<80xf32, #gpu.address_space<workgroup>>, index
 // CHECK: rock.lds_barrier
 
 // Partial threadwise reductions done now...
