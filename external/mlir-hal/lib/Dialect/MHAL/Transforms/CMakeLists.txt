@@ -18,13 +18,10 @@ add_mlir_dialect_library(MLIRMHALTransforms
   MLIRMHAL
   MLIRMHALSupport
   MLIRFuncDialect
-  MLIRExecutionEngineUtils
   MLIRGPUTransforms
   MLIRIR
   MLIRPass
   MLIRLLVMDialect
-  MLIRAffineToStandard
-  MLIRSCFToControlFlow
   MLIRSupport
   MLIRTransformUtils
 )
