@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/AffineMap.h"
@@ -16,6 +15,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/MathExtras.h"
 
@@ -50,15 +50,6 @@ OpFoldResult RecipOp::fold(FoldAdaptor operands) {
     return parentRecip.getInA();
   }
   return {};
-}
-
-LogicalResult QuantizeLinearOp::verify() {
-  if (auto bias = getBias()) {
-    auto output = getOutput();
-    if (getShapedElementTy(bias) != getShapedElementTy(output))
-      return emitOpError() << "element type for bias and output doesn't match";
-  }
-  return success();
 }
 
 LogicalResult DeQuantizeLinearOp::verify() {
