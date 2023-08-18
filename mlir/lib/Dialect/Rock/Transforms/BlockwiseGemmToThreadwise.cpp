@@ -1445,8 +1445,8 @@ struct BlockwiseReduceRewritePattern
                 thenb.create<InBoundsStoreOp>(loc, reduced, workspaceLDSBuffer,
                                               firstLDSLoadCoords);
               }
-              thenb.create<LDSBarrierOp>(loc);
             }
+            rewriter.create<LDSBarrierOp>(loc);
           }
           ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
               loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
