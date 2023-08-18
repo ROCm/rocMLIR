@@ -1046,7 +1046,9 @@ defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputType
 def Rock_BlockwiseGemmOp:
     Rock_Op<"blockwise_gemm">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
+                   BoolAttr : $isKContiguousDimA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
+                   BoolAttr : $isKContiguousDimB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
@@ -1084,7 +1086,9 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 def Rock_BlockwiseGemmAccelOp:
     Rock_Op<"blockwise_gemm_accel">,
     Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
+                   BoolAttr:$isKContiguousDimA,
                    MemRefOf<LdsBufferTypes>:$matrixB,
+                   BoolAttr:$isKContiguousDimB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<AccelArgTypes>:$bufferA,

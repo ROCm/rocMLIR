@@ -21,6 +21,8 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<16xf16>, #
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 32 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 16,
@@ -58,6 +60,8 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
@@ -89,6 +93,8 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,

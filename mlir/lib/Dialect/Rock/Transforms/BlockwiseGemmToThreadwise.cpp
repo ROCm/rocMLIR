@@ -242,6 +242,28 @@ struct BlockwiseGemmRewritePattern
       return splitTidForLDS;
     };
 
+    int64_t aCopyPerThread = (k * m) / blockSize;
+    int64_t bCopyPerThread = (k * n) / blockSize;
+
+    Type elementTypeA = blockAType.getElementType();
+    if (auto vectorDataType = elementTypeA.dyn_cast<VectorType>())
+      elementTypeA = vectorDataType.getElementType();
+
+    auto maybeCopyAPerThread = computeCopyPerThread(
+        elementTypeA, aCopyPerThread, k * kPack, m, kPack, loc);
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
+
+    Type elementTypeB = blockBType.getElementType();
+    if (auto vectorDataType = elementTypeB.dyn_cast<VectorType>())
+      elementTypeB = vectorDataType.getElementType();
+    auto maybeCopyBPerThread = computeCopyPerThread(
+        elementTypeB, bCopyPerThread, k * kPack, n, kPack, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+
     TopDownTMBuilder splitTidA =
         ldsTidSplitter("m_repeat", mRepeat, "m_thread", mPerThread);
     TransformMapAttr splitTidAAttr = splitTidA.get();
@@ -254,6 +276,13 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexA.ignore("n_cuwave");
     toLdsIndexA.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexAAttr = toLdsIndexA.get();
+    SmallVector<Attribute, 4> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
+
+    // Since the LDS layout is `kOuter x rotate(m) x kpack` we want to rotate
+    // the dimension `m` before reading from LDS
+    int64_t strideA = (kPack == 1 ? copyMPerThread : 1);
+    rotateIf(op.getIsKContiguousDimA(), toLdsIndexA, toLdsIndexAAttr, strideA,
+             "m", m, 1, "k", k, {"k"}, {"kpack"}, transformAttrsA);
 
     TopDownTMBuilder splitTidB =
         ldsTidSplitter("n_repeat", nRepeat, "n_thread", nPerThread);
@@ -267,16 +296,21 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexB.ignore("m_cuwave");
     toLdsIndexB.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
+    SmallVector<Attribute, 4> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
+
+    // Since the LDS layou is `kOuter x rotate(m) x kpack` we want to rotate
+    // the dimension `n` before reading from LDS
+    int64_t strideB = (kPack == 1 ? copyNPerThread : 1);
+    rotateIf(op.getIsKContiguousDimB(), toLdsIndexB, toLdsIndexBAttr, strideB,
+             "n", n, 1, "k", k, {"k"}, {"kpack"}, transformAttrsB);
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
     bool ldsANeedsi64, ldsBNeedsi64;
     std::tie(matrixA, transformsA, ldsANeedsi64) =
-        untransform(b, adaptor.getMatrixA(),
-                    b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
+        untransform(b, adaptor.getMatrixA(), b.getArrayAttr(transformAttrsA));
     std::tie(matrixB, transformsB, ldsBNeedsi64) =
-        untransform(b, adaptor.getMatrixB(),
-                    b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
+        untransform(b, adaptor.getMatrixB(), b.getArrayAttr(transformAttrsB));
     if (ldsANeedsi64 || ldsBNeedsi64)
       return b.notifyMatchFailure(loc, "LDS map can't need 64-bit indexing");
 
@@ -423,6 +457,21 @@ struct BlockwiseGemmAccelRewritePattern
     Value mWavesConstantOp = b.create<ConstantIndexOp>(loc, mWaves);
     Value nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
 
+    int64_t aCopyPerThread = (K * M * KPack) / op.getBlockSize();
+    int64_t bCopyPerThread = (K * N * KPack) / op.getBlockSize();
+
+    auto maybeCopyAPerThread = computeCopyPerThread(dataTypeA, aCopyPerThread,
+                                                    K * KPack, M, KPack, loc);
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
+
+    auto maybeCopyBPerThread = computeCopyPerThread(dataTypeB, bCopyPerThread,
+                                                    K * KPack, N, KPack, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto laneId =
@@ -455,10 +504,30 @@ struct BlockwiseGemmAccelRewritePattern
                                  Value sourceBase, Value mn_i, Value MN,
                                  Value k_i, Value K, Value mnPerMfmaGroup,
                                  Value mnWaves, Type ldsBufferElemType,
-                                 Type dataType, Value ldsOrig, Value regDest) {
+                                 Type dataType, Value ldsOrig, Value regDest,
+                                 bool isKContiguousDim,
+                                 int64_t copyMNPerThread) {
       // Compute source offset
       Value sourceOffset = accelEmitterPtr->computeLdsSourceOffset(
           kb, k_i, mnb, mn_i, b, MN, loc, sourceBase, mnWaves, laneId);
+
+      // Since the LDS layou is `k0 x rotate(m) x kpack` we want to rotate
+      // the dimension `n` before reading from LDS. Since we don't use
+      // any transform here, this is done by hand with rem/div operators
+      if (isKContiguousDim) {
+        Value col = kb.create<arith::RemUIOp>(loc, sourceOffset, MN);
+        Value row = kb.create<arith::DivUIOp>(loc, sourceOffset, MN);
+        Value offset = row;
+        if (KPack == 1) {
+          Value stride =
+              kb.create<arith::ConstantIndexOp>(loc, copyMNPerThread);
+          offset = kb.create<arith::MulIOp>(loc, row, stride);
+        }
+        col = kb.create<arith::AddIOp>(loc, col, offset);
+        col = kb.create<arith::RemUIOp>(loc, col, MN);
+        sourceOffset = kb.create<arith::AddIOp>(
+            loc, kb.create<arith::MulIOp>(loc, row, MN), col);
+      }
 
       Value value = kb.create<memref::LoadOp>(loc, ldsBufferElemType, ldsOrig,
                                               sourceOffset);
@@ -508,27 +577,28 @@ struct BlockwiseGemmAccelRewritePattern
       }
     };
 
-    auto ldsToRegisterCopyKdim = [&](OpBuilder outerLoopB,
-                                     affine::AffineForOp outerLoopBodyOp,
-                                     Value sourceBase, Value MN,
-                                     Value mnPerMfmaGroup, Value mnWaves,
-                                     Type ldsBufferElemType, Type dataType,
-                                     Value ldsOrig, Value regDest) {
-      auto innerLoopK =
-          outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
-      auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPoint(outerLoopBodyOp);
-        OpBuilder::InsertionGuard guardBody(outerLoopB);
-        outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
-        ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
-                          outerLoopBodyOp.getInductionVar(), MN,
-                          innerLoopK.getInductionVar(), KPerThreadConstantOp,
-                          mnPerMfmaGroup, mnWaves, ldsBufferElemType, dataType,
-                          ldsOrig, regDest);
-      }
-    };
+    auto ldsToRegisterCopyKdim =
+        [&](OpBuilder outerLoopB, affine::AffineForOp outerLoopBodyOp,
+            Value sourceBase, Value MN, Value mnPerMfmaGroup, Value mnWaves,
+            Type ldsBufferElemType, Type dataType, Value ldsOrig, Value regDest,
+            bool isKContiguousDim, int64_t copyMNPerThread) {
+          auto innerLoopK =
+              outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
+          auto ilkb =
+              ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
+          {
+            OpBuilder::InsertionGuard guard(b);
+            b.setInsertionPoint(outerLoopBodyOp);
+            OpBuilder::InsertionGuard guardBody(outerLoopB);
+            outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
+            ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
+                              outerLoopBodyOp.getInductionVar(), MN,
+                              innerLoopK.getInductionVar(),
+                              KPerThreadConstantOp, mnPerMfmaGroup, mnWaves,
+                              ldsBufferElemType, dataType, ldsOrig, regDest,
+                              isKContiguousDim, copyMNPerThread);
+          }
+        };
 
     // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
@@ -538,7 +608,8 @@ struct BlockwiseGemmAccelRewritePattern
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
                           mPerAccelConstantOp, mWavesConstantOp,
-                          bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA);
+                          bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA,
+                          op.getIsKContiguousDimA(), copyMPerThread);
 
     // load B from LDS into registers
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
@@ -548,7 +619,8 @@ struct BlockwiseGemmAccelRewritePattern
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
                           nPerAccelConstantOp, nWavesConstantOp,
-                          bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB);
+                          bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB,
+                          op.getIsKContiguousDimB(), copyNPerThread);
 
     b.eraseOp(op);
     olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),

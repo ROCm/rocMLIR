@@ -1364,6 +1364,51 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   return transform.get();
 }
 
+TopDownTMBuilder mlir::rock::rotateIf(
+    bool condition, TopDownTMBuilder &builder, TransformMapAttr &attr,
+    int64_t stride, StringRef dName, int64_t d, int64_t dPos, StringRef kName,
+    int64_t kOuter, ArrayRef<StringRef> beforeDims,
+    ArrayRef<StringRef> afterDims, SmallVector<Attribute, 4> &transformAttrs) {
+  if (condition) {
+    // d = (d+k_outer)
+    TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);
+    rotateD0.passThrough(beforeDims);
+    rotateD0.embed(dName, dPos, d * kOuter, {kName, dName}, {stride, 1});
+    if (!afterDims.empty())
+      rotateD0.passThrough(afterDims);
+    TransformMapAttr rotateD0Attr = rotateD0.get();
+    transformAttrs.push_back(rotateD0Attr);
+
+    // d = (d+k_outer) % d
+    unsigned int numBeforeDims = beforeDims.size();
+    unsigned int idx = numBeforeDims;
+    TopDownTMBuilder rotateD1 = TopDownTMBuilder::below(rotateD0, rotateD0Attr);
+    rotateD1.passThrough(beforeDims);
+    rotateD1.merge({"to_discard", dName}, {idx, ++idx}, dName, {kOuter, d});
+    for (auto dim : afterDims)
+      rotateD1.passThrough({dim}, ++idx, {dim});
+    TransformMapAttr rotateD1Attr = rotateD1.get();
+    transformAttrs.push_back(rotateD1Attr);
+
+    // discard the additional dimension
+    TopDownTMBuilder rotateD2 = TopDownTMBuilder::below(rotateD1, rotateD1Attr);
+    idx = numBeforeDims;
+    rotateD2.passThrough(beforeDims);
+    rotateD2.ignore("to_discard");
+    rotateD2.passThrough({dName}, {idx++}, {dName});
+    for (auto dim : afterDims)
+      rotateD2.passThrough({dim}, idx++, {dim});
+    TransformMapAttr rotateD2Attr = rotateD2.get();
+    transformAttrs.push_back(rotateD2Attr);
+
+    TopDownTMBuilder rotated = TopDownTMBuilder::below(rotateD2, rotateD2Attr);
+    return rotated;
+  } else {
+    TopDownTMBuilder unrotated = TopDownTMBuilder::below(builder, attr);
+    return unrotated;
+  }
+}
+
 void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
                                           int64_t numElements,
                                           SmallVectorImpl<int64_t> &dimSizes) {

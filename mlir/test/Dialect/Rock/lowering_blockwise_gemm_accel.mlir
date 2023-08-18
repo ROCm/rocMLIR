@@ -12,6 +12,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize= 256 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.xdlops_gemm_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -33,6 +35,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.xdlops_gemm_params<
       kpackPerBlock = 2,
       kpack = 8,
@@ -56,6 +60,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx940",
     blockSize = 256 : i32,
+    isKContiguousDimA = true,
+    isKContiguousDimB = false,
     params = #rock.xdlops_gemm_params<
       kpackPerBlock = 8,
       mPerBlock = 128,

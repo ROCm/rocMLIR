@@ -10,7 +10,6 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -218,8 +217,10 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
+
     toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
                         {dGlobal / dPerBlock, dThreads, dPerThread});
+
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
@@ -324,8 +325,15 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     toGlobalIdx.unmerge("k", 0,
                         {"k_thread", "kouterPerThread", "kpackPerThread"},
                         {kThreads, kOuterPerThread, kpackPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                        {dThreads, dPerThread});
+    // if the matrix is KxD swap the iter/thread dimension. This is so that
+    // each thread writes in LDS contiguously, minimizing bank conflicts
+    if (isKContigousDim)
+      toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
+                          {dThreads, dPerThread});
+    else
+      toGlobalIdx.unmerge(dName, 1, {dIterName, dThreadName},
+                          {dPerThread, dThreads});
+
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
@@ -343,4 +351,95 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   return gpuViews;
+}
+
+/// Compute a thread copy layout, i.e., how many elements a single thread (or
+/// workitem) reads along K and M (independently on how we vectorize the reads)
+FailureOr<std::pair<int64_t, int64_t>>
+mlir::rock::computeCopyPerThread(Type elementType, int64_t copyPerThread,
+                                 int64_t kPerBlock, int64_t dPerBlock,
+                                 int64_t kpack, Location loc) {
+
+  // By default, we try to maximize the LDS store vectorization. So we will try
+  // to read as many elements as possible along the contiguous dimension in LDS
+  // and `copyPerThread/elements` in the other dimension
+  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
+  int64_t copyKPerThread = 0;
+  int64_t copyDPerThread = 0;
+
+  if (kpack == 1) {
+    copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
+    copyKPerThread = copyPerThread / copyDPerThread;
+  } else {
+    copyKPerThread =
+        math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread));
+    copyDPerThread = copyPerThread / copyKPerThread;
+  }
+
+  if (copyKPerThread == 0 || copyDPerThread == 0) {
+    return emitError(loc) << "gemmA copy size too small,"
+                          << " copyKPerThread: " << copyKPerThread
+                          << " copyDPerThread: " << copyDPerThread << "\n";
+  }
+  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    return mlir::emitError(loc)
+           << "gemmA per thread copy smaller than per"
+           << " block copy, incohereant tuning parameters\n";
+  }
+  return std::make_pair(copyKPerThread, copyDPerThread);
+}
+
+TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
+    TopDownTMBuilder &toMatrixC, ArrayRef<int64_t> bidGridLengths,
+    int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
+    int64_t nPerBlock, bool isKContiguousDimA, bool isKContiguousDimB,
+    SmallVector<Attribute> &transformAttr) {
+  TransformMapAttr toMatrixCAttr = toMatrixC.get();
+  transformAttr.push_back(toMatrixCAttr);
+
+  auto splitAgain = TopDownTMBuilder::below(toMatrixC, toMatrixCAttr);
+  {
+    splitAgain.passThrough("gemmG");
+    unsigned int idx = 1;
+    if (isKContiguousDimA) {
+      splitAgain.passThrough({"gemmM"}, {idx}, {"gemmM"});
+      idx += 1;
+    } else {
+      splitAgain.merge(
+          {"m_block", "m_iter", "m_tid"}, {idx, idx + 1, idx + 2}, "gemmM",
+          {bidGridLengths[1], copyMPerThread, mPerBlock / copyMPerThread});
+      idx += 3;
+    }
+
+    if (isKContiguousDimB)
+      splitAgain.passThrough({"gemmN"}, {idx}, {"gemmN"});
+    else
+      splitAgain.merge(
+          {"n_block", "n_iter", "n_tid"}, {idx, idx + 1, idx + 2}, "gemmN",
+          {bidGridLengths[2], copyNPerThread, nPerBlock / copyNPerThread});
+  }
+  TransformMapAttr splitAgainAttr = splitAgain.get();
+  transformAttr.push_back(splitAgainAttr);
+
+  auto swapBack = TopDownTMBuilder::below(splitAgain, splitAgainAttr);
+  {
+    swapBack.passThrough("gemmG");
+    if (isKContiguousDimA)
+      swapBack.passThrough({"gemmM"}, {1}, {"gemmM"});
+    else
+      swapBack.unmerge(
+          "gemmM", 1, {"m_block", "m_tid", "m_iter"},
+          {bidGridLengths[1], mPerBlock / copyMPerThread, copyMPerThread});
+
+    if (isKContiguousDimB)
+      swapBack.passThrough({"gemmN"}, {2}, {"gemmN"});
+    else
+      swapBack.unmerge(
+          "gemmN", 2, {"n_block", "n_tid", "n_iter"},
+          {bidGridLengths[2], nPerBlock / copyNPerThread, copyNPerThread});
+  }
+  TransformMapAttr swapBackAttr = swapBack.get();
+  transformAttr.push_back(swapBackAttr);
+
+  return swapBack;
 }
