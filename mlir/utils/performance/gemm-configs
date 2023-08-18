@@ -61,3 +61,9 @@
 -transA false -transB false -g 1 -m 24576 -n 4096 -k 1024
 -transA false -transB false -g 64 -m 384 -n 3072 -k 1024
 -transA false -transB true -g 1024 -m 384 -n 384 -k 64
+
+# Dense gemms
+-transA false -transB false -g 1 -m 1024 -n 1024 -k 1024
+-transA false -transB false -g 1 -m 2048 -n 2048 -k 2048
+-transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
+-transA false -transB false -g 1 -m 8192 -n 8192 -k 8192

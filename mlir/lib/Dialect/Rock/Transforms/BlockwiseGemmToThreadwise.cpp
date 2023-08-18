@@ -1178,7 +1178,8 @@ struct BlockwiseReduceRewritePattern
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
 
     // Create strides and bounds to iterate the virtual tensor
-    TransformMapAttr lowerTr = inputViewArrayAttr[0].cast<TransformMapAttr>();
+    TransformMapAttr lowerTr = inputViewArrayAttr[inputViewArrayAttr.size() - 1]
+                                   .cast<TransformMapAttr>();
     ArrayRef<int64_t> lowerTrLowerBounds =
         lowerTr.getLowerBounds().asArrayRef();
     SmallVector<int64_t, 4> regTensorShape =
@@ -1189,6 +1190,7 @@ struct BlockwiseReduceRewritePattern
         createLDSWorkspaceView(loc, rewriter, inputViewArrayAttr, axis),
         /*extraIndices=*/ValueRange{tid}, rock::GemmFeatures::none,
         StoreMethod::Set, true, true);
+    rewriter.create<LDSBarrierOp>(loc);
 
     // Following RAII scope will create reduction loops.
     {
@@ -1253,8 +1255,22 @@ struct BlockwiseReduceRewritePattern
             rewriter.setInsertionPointToStart(reductionLoop.getBody());
             Block::BlockArgListType LDSLoadCoords =
                 reductionLoop.getLowerCoords(/*domain=*/0);
+            // There are two vectorization scenarios :
+            // 1) rIterVectorLen > 1 &&  nrIterVectorLen == 1
+            //    Here we will have a load vector and accReg that is a scalar
+            //    The code in createReducingOp will vector reduce it before
+            //    doing a reducing store to accReg
+            // 2) nrIterVectorLen > 1 && rIterVectorLen == 1
+            //    Here we will have a load vector and accReg that is also a
+            //    vector The code in createReducingOp will do vector elementwise
+            //    op and store the resulting vector to accReg.
+            // NOTE: currently, LDS is viewed as [nrDim x rDim] therefore
+            // only scenario 1) is exercised. However, we'd like to keep
+            // this code compatible with both approaches for future changes.
             Value loadVal = rewriter.create<InBoundsLoadOp>(
-                loc, vectorTypeOrSelf(elemType, rIterVectorLen),
+                loc,
+                vectorTypeOrSelf(elemType,
+                                 std::max(rIterVectorLen, nrIterVectorLen)),
                 workspaceLDSBuffer, LDSLoadCoords);
             Value loadAcc = rewriter.create<InBoundsLoadOp>(
                 loc, vectorTypeOrSelf(elemType, nrIterVectorLen), accReg,
@@ -1286,6 +1302,7 @@ struct BlockwiseReduceRewritePattern
         }
         ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
             loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+        rewriter.create<LDSBarrierOp>(loc);
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
             /*extraIndices=*/ValueRange{tid}, true, true);
@@ -1323,9 +1340,9 @@ struct BlockwiseReduceRewritePattern
         if (threadViewShape[rIterDim] > 1) {
           // This is where thread_wise reduction result is stored.
           Type loadTypeInputReg = vectorTypeOrSelf(elemType, rIterVectorLen);
-          Value accReg = rewriter.create<GpuAllocOp>(
-              loc, MemRefType::get({1}, elemType, AffineMap{},
-                                   privateMemoryAddressSpace));
+          Type accRegType = MemRefType::get({1}, elemType, AffineMap{},
+                                            privateMemoryAddressSpace);
+          Value accReg = rewriter.create<GpuAllocOp>(loc, accRegType);
           // This RAII scope would create a loop to iteratively partialy reduce
           // on a thread basis until items to reduce will match the available
           // number of threads.
@@ -1377,7 +1394,7 @@ struct BlockwiseReduceRewritePattern
               Block::BlockArgListType LDSStoreCoords =
                   reductionLoop.getLowerCoords(/*domain=*/0);
               Value loadVal = rewriter.create<InBoundsLoadOp>(
-                  loc, loadTypeInputReg, accReg, zeroConstantOp);
+                  loc, elemType, accReg, zeroConstantOp);
               rewriter.create<InBoundsStoreOp>(loc, loadVal, workspaceLDSBuffer,
                                                LDSStoreCoords);
             }
@@ -1396,7 +1413,6 @@ struct BlockwiseReduceRewritePattern
           int64_t ceilLog2HalfRtidDimSize =
               static_cast<int64_t>(std::ceil(log2HalfRtidDimSize));
           int64_t ceilPowerOf2 = (int64_t)1 << ceilLog2HalfRtidDimSize;
-
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {
             Value offsetVal =

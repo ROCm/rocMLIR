@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "llvm/ADT/SmallString.h"
@@ -18,16 +20,21 @@
 namespace mlir {
 namespace rock {
 
-// Brute-force search in incremental order
-void createGemmTuningRangeBF(struct TunableParams *newSpace,
-                             RockGemmWrapperInterface gemmOp) {
+// The full space is a brute-force search starting with the configs that have
+// the smallest parameters. This filters out perf configs that are
+// known to be impossible during tthe AffixTuningParams check.
+// If `kind` is Full, also filters out unlikely-to-be-good configurations.
+void createGemmTuningRangeBF(TuningParamSet *newSpace,
+                             RockGemmWrapperInterface gemmOp,
+                             TuningParamSetKind kind) {
+  auto info = PopulateParamsInfo::fromOp(gemmOp);
 
   // blockSize M/block N/block K/block M/thread N/thread
-  const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
+  const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
-  const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
+  const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
       {1, 2, 4, 8},
@@ -38,16 +45,16 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
-      ValidRangeXdlopsGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
-                                                 {16, 32, 64, 128, 256},
-                                                 {4, 8, 16, 32},
-                                                 {4, 8, 16, 32, 64, 128},
-                                                 {4, 8, 16, 32, 64, 128},
-                                                 {1, 4, 8, 16},
-                                                 {0, 1}};
+      validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
+                                                {16, 32, 64, 128, 256},
+                                                {4, 8, 16, 32},
+                                                {4, 8, 16, 32, 64, 128},
+                                                {4, 8, 16, 32, 64, 128},
+                                                {1, 4, 8, 16},
+                                                {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
-  const std::vector<std::vector<uint32_t>> ValidRangeWmmaGemmParams = {
+  const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
       {16, 32},
@@ -59,13 +66,14 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+    PopulateParamsXDL tuningInfo;
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
     bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
                            inTypeA.isFloat8E4M3FNUZ();
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
-        is8BitReduction ? ValidRangeXdlopsGemmParams8BitReduction
-                        : ValidRangeXdlopsGemmParams;
+        is8BitReduction ? validRangeAccelGemmParams8BitReduction
+                        : validRangeAccelGemmParams;
     for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
@@ -73,12 +81,17 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
             for (uint32_t gemmNPerWave : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 for (uint32_t forceUnroll : xdlopsParams[6]) {
-                  XdlopsGemmParamsAttr gemmParams =
-                      b.getAttr<XdlopsGemmParamsAttr>(
-                          gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
-                          gemmKPack, gemmMPerWave, gemmNPerWave, forceUnroll);
-                  newSpace->tuningRange.push_back(
-                      gemmParams.cast<RockTuningParamAttrInterface>());
+                  InitParamsAccel gemmParams(
+                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmNPerWave, gemmKPack, forceUnroll, true);
+                  if (succeeded(
+                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       succeeded(
+                           tuningInfo.couldBePerformant(info, gemmParams))))
+                    newSpace->tuningRange.push_back(
+                        cast<RockTuningParamAttrInterface>(
+                            tuningInfo.getGemmParamsAttr(b, gemmParams)));
                 }
               }
             }
@@ -89,7 +102,8 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
     const std::vector<std::vector<uint32_t>> &wmmaParams =
-        ValidRangeWmmaGemmParams;
+        validRangeWmmaGemmParams;
+    PopulateParamsWmma tuningInfo;
     for (uint32_t gemmMPerBlock : wmmaParams[0]) {
       for (uint32_t gemmNPerBlock : wmmaParams[1]) {
         for (uint32_t gemmKPerBlock : wmmaParams[2]) {
@@ -97,11 +111,17 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
             for (uint32_t gemmNPerWave : wmmaParams[4]) {
               for (uint32_t gemmKPack : wmmaParams[5]) {
                 for (uint32_t forceUnroll : wmmaParams[6]) {
-                  WmmaGemmParamsAttr gemmParams = b.getAttr<WmmaGemmParamsAttr>(
-                      gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
-                      gemmMPerWave, gemmNPerWave, forceUnroll);
-                  newSpace->tuningRange.push_back(
-                      gemmParams.cast<RockTuningParamAttrInterface>());
+                  InitParamsAccel gemmParams(
+                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmNPerWave, gemmKPack, forceUnroll, false);
+                  if (succeeded(
+                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       succeeded(
+                           tuningInfo.couldBePerformant(info, gemmParams))))
+                    newSpace->tuningRange.push_back(
+                        cast<RockTuningParamAttrInterface>(
+                            tuningInfo.getGemmParamsAttr(b, gemmParams)));
                 }
               }
             }
@@ -111,19 +131,23 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
     }
   } else {
     // Non-XDLOPS
-    for (uint32_t blockSize : ValidRangeGeneralGemmParams[0]) {
-      for (uint32_t gemmMPerBlock : ValidRangeGeneralGemmParams[1]) {
-        for (uint32_t gemmNPerBlock : ValidRangeGeneralGemmParams[2]) {
-          for (uint32_t gemmKPerBlock : ValidRangeGeneralGemmParams[3]) {
-            for (uint32_t gemmMPerThread : ValidRangeGeneralGemmParams[4]) {
-              for (uint32_t gemmNPerThread : ValidRangeGeneralGemmParams[5]) {
-                GeneralGemmParamsAttr gemmParams =
-                    b.getAttr<GeneralGemmParamsAttr>(
-                        blockSize, gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
-                        /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
-                        /*kpack=*/1);
-                newSpace->tuningRange.push_back(
-                    gemmParams.cast<RockTuningParamAttrInterface>());
+    PopulateParams tuningInfo;
+    for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
+      for (uint32_t gemmMPerBlock : validRangeGeneralGemmParams[1]) {
+        for (uint32_t gemmNPerBlock : validRangeGeneralGemmParams[2]) {
+          for (uint32_t gemmKPerBlock : validRangeGeneralGemmParams[3]) {
+            for (uint32_t gemmMPerThread : validRangeGeneralGemmParams[4]) {
+              for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
+                InitParamsNonAccel gemmParams(blockSize, gemmMPerBlock,
+                                              gemmNPerBlock, gemmKPerBlock,
+                                              gemmMPerThread, gemmNPerThread);
+                if (succeeded(
+                        tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                    (kind == TuningParamSetKind::Exhaustive ||
+                     succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
+                  newSpace->tuningRange.push_back(
+                      cast<RockTuningParamAttrInterface>(
+                          tuningInfo.getGemmParamsAttr(b, gemmParams)));
               }
             }
           }
@@ -131,18 +155,65 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
       }
     }
   }
-
-  newSpace->numHeuristicQuick = 0;
 }
 
-TunableParams *createTunableParamSpace(ModuleOp &mod) {
-  struct TunableParams *newSpace;
-  newSpace = new TunableParams();
+void createQuickTuningRange(TuningParamSet *newSpace,
+                            RockGemmWrapperInterface gemmOp) {
+  auto info = PopulateParamsInfo::fromOp(gemmOp);
+  OpBuilder b(gemmOp.getContext());
+  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+    PopulateParamsXDL tuningInfo;
+
+    for (InitParamsAccel param : tuningInfo.orderInitParams(
+             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
+                                            info.gemmBType, info.arch),
+             info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+  } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    // Wmma
+    PopulateParamsWmma tuningInfo;
+    for (InitParamsAccel param : tuningInfo.orderInitParams(
+             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
+                                            info.gemmBType, info.arch),
+             info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+  } else {
+    // Non-XDLOPS
+    PopulateParams tuningInfo;
+    for (InitParamsNonAccel param : tuningInfo.orderInitParams(
+             tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
+                                            info.gemmBType),
+             info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+  }
+}
+
+TuningParamSet *createTunableParamSpace(ModuleOp &mod,
+                                        TuningParamSetKind kind) {
+  struct TuningParamSet *newSpace;
+  newSpace = new TuningParamSet();
 
   // create range and heuristic
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        createGemmTuningRangeBF(newSpace, op);
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createQuickTuningRange(newSpace, op);
+        }
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
@@ -152,10 +223,10 @@ TunableParams *createTunableParamSpace(ModuleOp &mod) {
   return newSpace;
 }
 
-bool tuningGetParam(TunableParams *tuningSpace, int pos,
+bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry) {
   // out of bound check.
-  if (pos < 0 || (unsigned int)pos > tuningSpace->tuningRange.size() - 1)
+  if (pos > tuningSpace->tuningRange.size() - 1)
     return false;
   paramEntry->param = tuningSpace->tuningRange[pos];
   return true;
@@ -164,8 +235,8 @@ bool tuningGetParam(TunableParams *tuningSpace, int pos,
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        auto ctx = op.getContext();
-        std::string perfConfig;
+        auto *ctx = op.getContext();
+        SmallString<64> perfConfig;
         paramEntry->param.getPerfConfigStr(perfConfig);
         StringAttr attr = StringAttr::get(ctx, perfConfig);
         op->setAttr("perf_config", attr);
@@ -174,10 +245,10 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   return setPrimary.wasInterrupted();
 }
 
-bool tuningSetStr(ModuleOp &mod, std::string perfConfig) {
+bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        auto ctx = op.getContext();
+        auto *ctx = op.getContext();
         StringAttr attr = StringAttr::get(ctx, perfConfig);
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
@@ -195,7 +266,7 @@ TuningTable *tuningTableCreate() {
 // operation. String format of the problem will not be required by the DB,
 // since it can store each field separately.
 // Currently serialize the problem in MIOpenDriver command friendly format
-std::string getTuningProblemStr(ModuleOp &mod) {
+LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
   rock::RockGemmWrapperInterface gemmIF;
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
@@ -203,14 +274,14 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         return WalkResult::interrupt();
       });
   if (!findPrimary.wasInterrupted())
-    return std::string();
+    return failure();
   int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
   if (gemmIF.getNumCU().has_value())
     numCU = gemmIF.getNumCU().value();
-  std::string problemStr;
-  char sep = ' ';
-  char tab = '\t';
-  llvm::raw_string_ostream problemOS(problemStr);
+  constexpr char sep = ' ';
+  constexpr char tab = '\t';
+  llvm::raw_svector_ostream problemOS(out);
+
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
@@ -237,9 +308,9 @@ std::string getTuningProblemStr(ModuleOp &mod) {
         gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
 
     unsigned size = filterLayoutAttr.size();
-    std::map<StringRef, unsigned> fLayoutMap;
-    std::map<StringRef, unsigned> iLayoutMap;
-    std::map<StringRef, unsigned> oLayoutMap;
+    llvm::StringMap<unsigned> fLayoutMap;
+    llvm::StringMap<unsigned> iLayoutMap;
+    llvm::StringMap<unsigned> oLayoutMap;
 
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
@@ -290,7 +361,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     } else if (inType.getElementType().isInteger(8)) {
       problemOS << "convint8 ";
     } else {
-      llvm_unreachable("Unknown data type.\n");
+      return failure();
     }
 
     // OP direction
@@ -305,7 +376,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       problemOS << "-F 4" << sep;
       break;
     default:
-      llvm_unreachable("Unknown conv kernel type.\n");
+      return failure();
     }
 
     // filter layout
@@ -365,7 +436,7 @@ std::string getTuningProblemStr(ModuleOp &mod) {
       problemOS << "bf8_bf8";
     } else {
       // Unknown data type
-      return std::string();
+      return failure();
     }
 
     // OUtput datatype
@@ -401,16 +472,17 @@ std::string getTuningProblemStr(ModuleOp &mod) {
     problemOS << "-k " << gemmIF.getGemmSize().k << sep;
   } else {
     // Unknown op type, unreachable.
-    return std::string();
+    return failure();
   }
 
-  return problemStr;
+  return success();
 }
 
-bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
-                       std::string perfConfig, float time) {
+bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
+                       StringRef perfConfig, float time) {
   if (problem.empty())
     return false;
+  llvm::sys::SmartScopedWriter<true> guard(perfTable->lock);
   auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[problem];
@@ -422,16 +494,19 @@ bool tuningTableUpdate(TuningTable *perfTable, std::string problem,
   return true;
 }
 
-std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
-  std::string problem = getTuningProblemStr(mod);
-  if (problem.empty())
-    return std::string();
+LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
+                                SmallVectorImpl<char> &out) {
+  SmallString<2048> problem;
+  if (failed(getTuningProblemStr(mod, problem)))
+    return failure();
+  llvm::sys::SmartScopedReader<true> guard(perfTable->lock);
   auto search = perfTable->tuningMap.find(problem);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[problem];
-    return entry.first;
+    out.assign(entry.first);
+    return success();
   }
-  return std::string();
+  return failure();
 }
 
 } // namespace rock

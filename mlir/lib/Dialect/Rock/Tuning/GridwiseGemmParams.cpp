@@ -4,12 +4,14 @@
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -171,6 +173,33 @@ LogicalResult PopulateParams::populateDerived(const InitParamsNonAccel &params,
   }
 
   gridSize = obtainGridSize(gemmSize, params);
+  return success();
+}
+
+Attribute
+PopulateParams::getGemmParamsAttr(OpBuilder &b,
+                                  const InitParamsNonAccel &params) const {
+  return b.getAttr<GeneralGemmParamsAttr>(
+      params.blockSize, params.gemmKPerBlock, params.gemmMPerBlock,
+      params.gemmNPerBlock,
+      /*kPerThread=*/1, params.gemmMPerThread, params.gemmNPerThread,
+      /*kpack=*/1);
+}
+
+LogicalResult
+PopulateParams::paramsProbablyValid(const PopulateParamsInfo &info,
+                                    const InitParamsNonAccel &params) {
+  uint32_t gridSize;
+  GemmSize newGemmSize = info.gemmSize;
+  return populateDerived(params, newGemmSize, gridSize);
+}
+
+LogicalResult
+PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
+                                  const InitParamsNonAccel &params) {
+  // Implement this if needed.
+  (void)info;
+  (void)params;
   return success();
 }
 
@@ -337,6 +366,22 @@ PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
     gridSize *= gemmKBlocks;
   }
   return success();
+}
+
+LogicalResult
+PopulateParamsAccel::paramsProbablyValid(const PopulateParamsInfo &info,
+                                         const InitParamsAccel &params) {
+  uint32_t blockSize, gridSize;
+  int64_t gemmKBlocks;
+  GemmSize newGemmSize = info.gemmSize;
+  return populateDerived(params, info, newGemmSize, blockSize, gridSize,
+                         gemmKBlocks);
+}
+
+LogicalResult
+PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
+                                       const InitParamsAccel &params) {
+  return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
@@ -544,9 +589,19 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   return res;
 }
 
+LogicalResult
+PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
+                                             Type dataTypeA, Type dataTypeB) {
+  // Implement this if needed.
+  (void)params;
+  (void)dataTypeA;
+  (void)dataTypeB;
+  return success();
+}
+
 Attribute
-PopulateParamsXDL::getGemmParamsAttr(OpBuilder builder,
-                                     InitParamsAccel validParams) const {
+PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
+                                     const InitParamsAccel &validParams) const {
   return builder.getAttr<XdlopsGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
@@ -665,9 +720,18 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   return res;
 }
 
-Attribute
-PopulateParamsWmma::getGemmParamsAttr(OpBuilder builder,
-                                      InitParamsAccel validParams) const {
+LogicalResult
+PopulateParamsWmma::specificCouldBePerformant(const InitParamsAccel &params,
+                                              Type dataTypeA, Type dataTypeB) {
+  // Implement this if needed.
+  (void)params;
+  (void)dataTypeA;
+  (void)dataTypeB;
+  return success();
+}
+
+Attribute PopulateParamsWmma::getGemmParamsAttr(
+    OpBuilder &builder, const InitParamsAccel &validParams) const {
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,

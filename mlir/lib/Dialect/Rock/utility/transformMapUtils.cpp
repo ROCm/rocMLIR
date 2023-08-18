@@ -578,6 +578,22 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       // of 1
       bool hasNegativeCoefficients = false;
       std::optional<VectorizationInfo> ourResult;
+
+      // When there are equal embed coefficients
+      // we should always refer to the one with lowest
+      // alignment as the alignment
+      llvm::SmallDenseMap<int64_t, int64_t> coeffToAlignment;
+      for (auto [coefficient, upperDim] : data) {
+        if (input[upperDim].has_value()) {
+          if (coeffToAlignment.count(coefficient)) {
+            coeffToAlignment[coefficient] = math_util::gcd(
+                coeffToAlignment[coefficient], input[upperDim]->alignment);
+          } else {
+            coeffToAlignment[coefficient] = input[upperDim]->alignment;
+          }
+        }
+      }
+
       // We first compute the alignment assuming the held constant dimensions
       // don't matter, then we take the gcd of that result with the coefficients
       // on the held-constant dimensions.
@@ -592,7 +608,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
 
           int64_t upperLen = input[upperDim]->maxLength;
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
-          int64_t thisAlignment = input[upperDim]->alignment;
+          int64_t thisAlignment = coeffToAlignment[coefficient];
 
           if (!ourResult.has_value()) {
             ourResult =
@@ -602,6 +618,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
               break;
             }
           }
+
           if (coefficient == needsCoeff &&
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {

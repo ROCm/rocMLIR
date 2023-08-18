@@ -201,6 +201,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
+  gpuPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel));

@@ -34,7 +34,7 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         }],
         /*retType=*/"void",
         /*methodName=*/"getPerfConfigStr",
-        /*args=*/(ins "std::string &":$perfStr),
+        /*args=*/(ins "::llvm::SmallVectorImpl<char>&":$perfStr),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,

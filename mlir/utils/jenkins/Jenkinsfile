@@ -275,6 +275,7 @@ pipeline {
                      description: 'Can this CI instance use xdlops (no for public server)')
         booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
+        // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
         string(name: 'CKBranch', defaultValue: 'develop',

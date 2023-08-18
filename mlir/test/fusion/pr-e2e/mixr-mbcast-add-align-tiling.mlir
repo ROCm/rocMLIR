@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline highlevel | rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise --rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise --rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s
 // ALLOW_RETRIES: 2
 
 module {
