@@ -122,9 +122,12 @@ struct ThreadwiseGemmRewritePattern
 
     ArrayAttr aTransforms, bTransforms, cTransforms;
     Value bufferA, bufferB, bufferC;
-    std::tie(bufferA, aTransforms) = untransform(b, gemmA, {aViewAttr});
-    std::tie(bufferB, bTransforms) = untransform(b, gemmB, {bViewAttr});
-    std::tie(bufferC, cTransforms) = untransform(b, gemmC, {cViewAttr});
+    bool isBigA, isBigB, isBigC;
+    std::tie(bufferA, aTransforms, isBigA) = untransform(b, gemmA, {aViewAttr});
+    std::tie(bufferB, bTransforms, isBigB) = untransform(b, gemmB, {bViewAttr});
+    std::tie(bufferC, cTransforms, isBigC) = untransform(b, gemmC, {cViewAttr});
+    if (isBigA || isBigB || isBigC)
+      return b.notifyMatchFailure(loc, "we don't have 2 GB of registers");
 
     auto gemmLoop = b.replaceOpWithNewOp<TransformingForOp>(
         op, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},

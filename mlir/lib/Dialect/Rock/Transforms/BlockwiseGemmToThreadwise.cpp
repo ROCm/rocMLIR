@@ -270,12 +270,15 @@ struct BlockwiseGemmRewritePattern
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
-    std::tie(matrixA, transformsA) =
+    bool ldsANeedsi64, ldsBNeedsi64;
+    std::tie(matrixA, transformsA, ldsANeedsi64) =
         untransform(b, adaptor.getMatrixA(),
                     b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
-    std::tie(matrixB, transformsB) =
+    std::tie(matrixB, transformsB, ldsBNeedsi64) =
         untransform(b, adaptor.getMatrixB(),
                     b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
+    if (ldsANeedsi64 || ldsBNeedsi64)
+      return b.notifyMatchFailure(loc, "LDS map can't need 64-bit indexing");
 
     int64_t threadANumRegisters = kPerThread * mC * kPack;
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
@@ -556,153 +559,6 @@ struct BlockwiseGemmAccelRewritePattern
   }
 };
 
-//===----------------------------------------------------------------------===//
-// GlobalLoadOp lowering.
-//===----------------------------------------------------------------------===//
-struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
-  using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(GlobalLoadOp op,
-                                PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    MemRefType sourceType = op.getSource().getType();
-    Type sourceElemType = sourceType.getElementType();
-    int64_t elemsPerWord = (32 / sourceElemType.getIntOrFloatBitWidth());
-    int64_t maxLoadLen = 4 * elemsPerWord;
-
-    Type resType = op.getResult().getType();
-    int64_t totalLength = 1;
-    if (auto vecType = resType.dyn_cast<VectorType>()) {
-      totalLength = vecType.getNumElements();
-    }
-    // Don't use any vector magic if we don't need to
-    if ((totalLength <= maxLoadLen) && (maxLoadLen % totalLength == 0)) {
-      Type typeToLoad = sourceElemType;
-      if (totalLength > 1)
-        typeToLoad = VectorType::get({totalLength}, typeToLoad);
-      BufferLoadOp load =
-          b.create<BufferLoadOp>(loc, typeToLoad, op.getSource(), op.getValid(),
-                                 op.getSourceCoord(), IntegerAttr(),
-                                 /*oobIsOverload=*/nullptr);
-      b.replaceOp(op, load);
-      return success();
-    }
-    int64_t remainingLength = totalLength;
-    int64_t offset = 0;
-
-    Value result = createZeroConstantOp(b, loc, resType);
-
-    while (remainingLength > 0) {
-      int64_t copyLength = std::min(remainingLength, maxLoadLen);
-
-      // Clean up bad copy lengths
-      if (copyLength != maxLoadLen && copyLength > (2 * elemsPerWord))
-        copyLength = 2 * elemsPerWord;
-      if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
-        copyLength = elemsPerWord;
-      if (copyLength > 1 && copyLength < elemsPerWord)
-        // TODO: revisit this to handle things like (2xi8) -> load short
-        copyLength = 1;
-
-      Type typeToLoad = sourceElemType;
-      if (copyLength > 1)
-        typeToLoad = VectorType::get({copyLength}, typeToLoad);
-
-      IntegerAttr offsetAttr =
-          (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
-
-      Value loaded =
-          b.create<BufferLoadOp>(loc, typeToLoad, op.getSource(), op.getValid(),
-                                 op.getSourceCoord(), offsetAttr,
-                                 /*oobIsOverload=*/nullptr);
-      if (totalLength == 1) {
-        result = loaded;
-      } else {
-        Value offsetIdx = b.createOrFold<ConstantIndexOp>(loc, offset);
-        result =
-            b.create<InsertSliceOp>(loc, resType, loaded, result, offsetIdx);
-      }
-
-      remainingLength -= copyLength;
-      offset += copyLength;
-    }
-    b.replaceOp(op, result);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
-// GlobalStore lowering.
-//===----------------------------------------------------------------------===//
-struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
-  using OpRewritePattern<GlobalStoreOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(GlobalStoreOp op,
-                                PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    Value source = op.getSource();
-    MemRefType sourceType = op.getSource().getType();
-    Value sourceCoord = op.getSourceCoord();
-
-    Type sourceElemType = sourceType.getElementType();
-    Type destElemType = op.getDest().getType().getElementType();
-    int64_t elemsPerWord = (32 / destElemType.getIntOrFloatBitWidth());
-    int64_t maxWriteLen = 4 * elemsPerWord;
-    int64_t remainingLength = op.getLength().getSExtValue();
-    int64_t offset = 0;
-    // Don't use any vector magic if we don't need to
-    if ((remainingLength <= maxWriteLen) &&
-        (maxWriteLen % remainingLength == 0)) {
-      Type typeToLoad = sourceElemType;
-      if (remainingLength > 1)
-        typeToLoad = VectorType::get({remainingLength}, typeToLoad);
-      Value loaded =
-          b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
-      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getValid(),
-                              op.getDestCoord(), op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), IntegerAttr(),
-                              /*oobIsOverload=*/nullptr);
-      b.eraseOp(op);
-      return success();
-    }
-    while (remainingLength > 0) {
-      int64_t copyLength = std::min(remainingLength, maxWriteLen);
-
-      // Clean up bad copy lengths
-      if (copyLength != maxWriteLen && copyLength > (2 * elemsPerWord))
-        copyLength = 2 * elemsPerWord;
-      if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
-        copyLength = elemsPerWord;
-      if (copyLength > 1 && copyLength < elemsPerWord)
-        copyLength = 1;
-
-      Type typeToLoad = sourceElemType;
-      if (copyLength > 1)
-        typeToLoad = VectorType::get({copyLength}, typeToLoad);
-      Type typeToStore = destElemType;
-      if (copyLength > 1)
-        typeToStore = VectorType::get({copyLength}, typeToStore);
-
-      Value loadCoord = sourceCoord;
-      if (offset > 0)
-        loadCoord = b.createOrFold<AddIOp>(
-            loc, sourceCoord, b.create<ConstantIndexOp>(loc, offset));
-      Value loaded =
-          b.create<InBoundsLoadOp>(loc, typeToLoad, source, loadCoord);
-      IntegerAttr offsetAttr =
-          (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
-      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getValid(),
-                              op.getDestCoord(), op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), offsetAttr,
-                              /*oobIsOverflow=*/nullptr);
-      remainingLength -= copyLength;
-      offset += copyLength;
-    }
-    b.eraseOp(op);
-    return success();
-  }
-};
-
 namespace {
 struct ThreadwiseReadIntoRewritePattern
     : public OpConversionPattern<ThreadwiseReadIntoOp> {
@@ -728,7 +584,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
-  auto [buffer, transforms] = untransform(b, sourceView, op.getExtraViews());
+  auto [buffer, transforms, needs64BitIdx] =
+      untransform(b, sourceView, op.getExtraViews());
 
   int64_t numValues = dest.getType().getNumElements();
   MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
@@ -777,11 +634,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     if (srcAddrSpace == gpu::AddressSpace::Global) {
       Value loaded = b.create<GlobalLoadOp>(
           loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
-          loadLoop.getLowerCoords(/*domain=*/0));
+          loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
       b.create<InBoundsStoreOp>(loc, loaded, dest,
                                 loadLoop.getLowerCoords(
                                     /*domain=*/1)[extraIdxCount]);
     } else {
+      if (needs64BitIdx)
+        return b.notifyMatchFailure(
+            loc, "non-global address spaces must have 32-bit pointers");
       TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb =
           b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
@@ -819,7 +679,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     outputShape = destView.getType().getShape();
   else
     outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-  auto [buffer, transforms] = untransform(b, destView, extraViews);
+  auto [buffer, transforms, needs64BitIdx] =
+      untransform(b, destView, extraViews);
 
   MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = dstBufferType.getShape();
@@ -881,8 +742,13 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
                               outLoop.getLowerCoords(
                                   /*domain=*/0)[extraIdxCount],
                               outLoop.getValidity(/*domain=*/1),
-                              outLoop.getLowerCoords(/*domain=*/1));
+                              outLoop.getLowerCoords(/*domain=*/1),
+                              needs64BitIdx ? b.getUnitAttr() : nullptr,
+                              /*canStoreOffEnd=*/nullptr);
     } else {
+      if (needs64BitIdx)
+        return b.notifyMatchFailure(
+            loc, "non-global address spaces must have 32-bit pointers");
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
@@ -1464,9 +1330,20 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
       signalPassFailure();
   }
 
+  WalkResult kernelNeeds64Bit = getOperation().walk([](Operation *op) {
+    if (auto globalLoad = dyn_cast<GlobalLoadOp>(op))
+      return globalLoad.getNeeds64BitIdx() ? WalkResult::interrupt()
+                                           : WalkResult::advance();
+    if (auto globalStore = dyn_cast<GlobalStoreOp>(op))
+      return globalStore.getNeeds64BitIdx() ? WalkResult::interrupt()
+                                            : WalkResult::advance();
+    return WalkResult::advance();
+  });
+  if (kernelNeeds64Bit.wasInterrupted())
+    getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
+
   ConversionTarget target(*ctx);
-  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp,
-                      GlobalLoadOp, GlobalStoreOp>();
+  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
                          memref::MemRefDialect>();
@@ -1474,8 +1351,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmAccelRewritePattern, GlobalLoadRewritePattern,
-               GlobalStoreRewritePattern>(ctx);
+               BlockwiseGemmAccelRewritePattern>(ctx);
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();

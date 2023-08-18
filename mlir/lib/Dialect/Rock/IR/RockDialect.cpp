@@ -687,28 +687,6 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 // GemmOp
 //===-----------------------------------------------------===//
 
-static LogicalResult checkGemmSize(Value matrix, Operation *op,
-                                   StringRef name) {
-  constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
-  // Hack: remove padding, other transformations that add "size" to a matrix
-  // without affecting the underlying buffer's maximum index, which must be
-  // fittable within a uint32_t (as a byte offset) for buffer_load or
-  // buffer_store to work correctly. And we can't use untransform() here because
-  // it's in a library that depends on this.
-  Value raw = matrix;
-  while (auto transform = raw.getDefiningOp<rock::TransformOp>())
-    raw = transform.getInput();
-  ShapedType type = raw.getType().cast<ShapedType>();
-  if (!type.hasStaticShape())
-    return op->emitOpError() << "only static shapes are supported";
-
-  int64_t sizeInBits = type.getNumElements() * type.getElementTypeBitWidth();
-  if (sizeInBits >= fourGbits)
-    return op->emitOpError() << "underlying storage for matrix " << name
-                             << " cannot potentially be 4 GB or more";
-  return success();
-}
-
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -768,12 +746,6 @@ LogicalResult GemmOp::verify() {
   if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
-  }
-
-  if (failed(checkGemmSize(getA(), *this, "A")) ||
-      failed(checkGemmSize(getB(), *this, "B")) ||
-      failed(checkGemmSize(getC(), *this, "C"))) {
-    return failure();
   }
 
   RockGemmWrapperInterface gemmIfaceOp =
@@ -1375,41 +1347,43 @@ LogicalResult IndexDiffUpdateOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// BufferLoadOp
+// GlobalLoadOp
 //===-----------------------------------------------------===//
-LogicalResult BufferLoadOp::verify() {
+LogicalResult GlobalLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (getCoords().size() != nDims)
+  if (getSourceCoord().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (getCanReadOffEnd() && nDims != 1)
+    return emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Source memref must live in global memory");
-  if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
-    return emitOpError(
-        "Result element type must match source memref's element type");
   return success();
 }
 
 //===-----------------------------------------------------===//
-// BufferStoreOp
+// GlobalStoreOp
 //===-----------------------------------------------------===//
-LogicalResult BufferStoreOp::verify() {
+LogicalResult GlobalStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  if (getCoords().size() != nDims)
+  if (getDestCoord().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
+  if (getCanStoreOffEnd() && nDims != 1)
+    return emitOpError("can only have one dimension in a canStoreOffEnd write");
   Attribute memSpaceAttr = destType.getMemorySpace();
   auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Destination memref must live in global memory");
-  if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
-    return emitOpError(
-        "Element type of data must match element type of destination memref");
+  if (getStoreMethod() == StoreMethod::AtomicMax &&
+      isa<FloatType>(destType.getElementType()))
+    if (!destType.getElementType().isF32())
+      return emitOpError("atomic max for floats only supports f32");
   return success();
 }
 

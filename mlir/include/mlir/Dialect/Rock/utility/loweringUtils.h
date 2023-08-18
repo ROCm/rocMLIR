@@ -66,6 +66,10 @@ bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
 
 bool isAccel(GemmFeatures features);
 
+// Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
+// in memory.
+bool is4GBMemoryType(ShapedType type);
+
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
 //

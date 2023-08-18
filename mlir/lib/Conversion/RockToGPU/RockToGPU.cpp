@@ -24,6 +24,7 @@
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -185,6 +186,14 @@ void LowerRockOpsToGPUPass::runOnOperation() {
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
       }
     }
+
+    int32_t indexWidth = 32;
+    if (theFunc->hasAttr("rock.64bitindex"))
+      indexWidth = 64;
+    DataLayoutEntryInterface indexWidthAttr = DataLayoutEntryAttr::get(
+        b.getIndexType(), b.getI32IntegerAttr(indexWidth));
+    auto dltiSpec = b.getAttr<DataLayoutSpecAttr>(indexWidthAttr);
+    gpuMod->setAttr(DLTIDialect::kDataLayoutAttrName, dltiSpec);
 
     // associate arguments for newly created GPUFuncOp.
     IRMapping map;

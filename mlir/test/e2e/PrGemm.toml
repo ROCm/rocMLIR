@@ -33,7 +33,15 @@ config = "-g 3 -m 1024 -k 769 -n 1024"
 # Don't re-test f16 and i8 with transposes: it won't give us much new
 [[suite.test.exclude]]
 name = "data type"
-values = ["f16", "i8", "fp8"]
+values = ["f16", "i8", "fp8_bf8"]
 [[suite.test.exclude]]
 name = "transA"
 values = ["true"]
+
+# Test large tensors with padding
+[[suite.test]]
+config = "-g 1 -m 32768 -k 1 -n 32769"
+# Only test f32 here
+[[suite.test.exclude]]
+name = "data type"
+values = ["f16", "i8", "fp8_bf8"]

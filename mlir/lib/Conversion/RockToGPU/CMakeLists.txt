@@ -11,13 +11,12 @@ add_rocmlir_conversion_library(MLIRRockToGPU
 )
 target_link_libraries(MLIRRockToGPU
   PUBLIC
-  MLIRAffineToStandard
   MLIRRockTransforms
+  MLIRAMDGPUDialect
+  MLIRDLTIDialect
   MLIRLLVMDialect
   MLIRIR
   MLIRPass
-  MLIRSCFToControlFlow
-  MLIRFuncToLLVM
   MLIRSupport
   MLIRTransforms
   MLIRVectorDialect

@@ -20,6 +20,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -237,6 +238,33 @@ LogicalResult createElementwiseLoop(
   return success();
 }
 
+/// Create a private buffer that can hold type `type`.
+static Value makePrivateGpuAlloc(OpBuilder &b, Location loc, Type type) {
+  Type elemTy = type;
+  int64_t numElems = 1;
+  if (auto vecTy = dyn_cast<VectorType>(type)) {
+    elemTy = vecTy.getElementType();
+    numElems = vecTy.getNumElements();
+  }
+  auto memrefTy =
+      MemRefType::get(numElems, elemTy, nullptr,
+                      gpu::AddressSpaceAttr::get(type.getContext(),
+                                                 gpu::AddressSpace::Private));
+  Value memref = b.create<rock::GpuAllocOp>(loc, memrefTy);
+  return memref;
+}
+
+/// Store `value` into a private memref buffer to make it an acceptable argument
+/// to memref.store. Returns the allocated buffer.
+static Value makeGpuAllocContaining(OpBuilder &b, Value v) {
+  Location loc = v.getLoc();
+  Type type = v.getType();
+  Value memref = makePrivateGpuAlloc(b, loc, type);
+  b.create<rock::InBoundsStoreOp>(
+      loc, v, memref, b.createOrFold<arith::ConstantIndexOp>(loc, 0));
+  return memref;
+}
+
 /// 0-initialize a given buffer.
 struct ZeroInitKernelRewritePattern final
     : public OpConversionPattern<ZeroInitKernelOp> {
@@ -254,17 +282,23 @@ struct ZeroInitKernelRewritePattern final
     int64_t zeroInitVectorLen = getUtilityVectorizationLen(
         buffer.getType(), op.getElemsPerThread()->getZExtValue());
     Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
+    bool needs64BitIdx = is4GBMemoryType(buffer.getType());
     Value zeroOp = createZeroConstantOp(b, loc, storeType);
-    Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
-    GemmFeaturesAttr features = op.getFeaturesAttr();
+    Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value memref = makeGpuAllocContaining(b, zeroOp);
+    Value trueOp =
+        b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    GemmFeatures features = op.getFeatures();
 
-    auto loopBody = [&zeroOp, &trueOp, &features](OpBuilder &b, Location loc,
-                                                  ValueRange collapsed,
-                                                  Value index) {
-      b.create<BufferStoreOp>(
-          loc, zeroOp, collapsed[0], /*valid=*/trueOp, index, features,
-          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+    auto loopBody = [&memref, &zeroInitVectorLen, &trueOp, &features,
+                     &zeroIndex, &needs64BitIdx](OpBuilder &b, Location loc,
+                                                 ValueRange collapsed,
+                                                 Value index) {
+      b.create<GlobalStoreOp>(loc, memref, collapsed[0],
+                              APInt(64, zeroInitVectorLen), features,
+                              StoreMethod::Set, /*sourceCoord=*/zeroIndex,
+                              /*valid=*/trueOp, index, needs64BitIdx,
+                              /*canStoreOffEnd=*/true);
     };
     LogicalResult res =
         createElementwiseLoop(b, loc, op, buffer, zeroInitVectorLen, loopBody);
@@ -299,18 +333,24 @@ struct ConvertingCopyKernelRewritePattern final
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
-    GemmFeaturesAttr features = op.getFeaturesAttr();
-    auto loopBody = [&loadType, &storeType, &trueOp,
-                     &features](OpBuilder &b, Location loc,
-                                ValueRange collapsed, Value index) {
-      Value loaded = b.create<BufferLoadOp>(
-          loc, loadType, collapsed[0], /*valid=*/trueOp, index,
-          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+    GemmFeatures features = op.getFeatures();
+    bool needs64BitIdx =
+        is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
+    Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
+    Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    auto loopBody = [&loadType, &storeType, &conversionVectorLen, &trueOp,
+                     &storeMemref, &zeroIndex, &features,
+                     &needs64BitIdx](OpBuilder &b, Location loc,
+                                     ValueRange collapsed, Value index) {
+      Value loaded = b.create<GlobalLoadOp>(
+          loc, loadType, collapsed[0], /*valid=*/trueOp, index, needs64BitIdx,
+          /*canReadOffEnd=*/true);
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-      b.create<BufferStoreOp>(
-          loc, converted, collapsed[1], /*valid=*/trueOp, index, features,
-          b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-          /*offset=*/IntegerAttr(), /*oobIsOverflow=*/b.getUnitAttr());
+      b.create<InBoundsStoreOp>(loc, converted, storeMemref, zeroIndex);
+      b.create<GlobalStoreOp>(
+          loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
+          features, StoreMethod::Set, /*sourceCoord=*/zeroIndex,
+          /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
                                               conversionVectorLen, loopBody);
@@ -1173,8 +1213,8 @@ void RockConvToGemmPass::runOnOperation() {
                       rock::Conv2DBwdWeightOp, rock::ZeroInitKernelOp,
                       rock::ConvertingCopyKernelOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
-                    rock::WorkitemIdOp, rock::BufferLoadOp,
-                    rock::BufferStoreOp>();
+                    rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
+                    rock::GpuAllocOp, rock::InBoundsStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
   target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
                          scf::SCFDialect>();
