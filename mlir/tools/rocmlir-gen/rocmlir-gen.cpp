@@ -3295,6 +3295,7 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
+  mlir::registerPassManagerCLOptions();
   MLIRContext context(registry);
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       affine::AffineDialect, memref::MemRefDialect,
