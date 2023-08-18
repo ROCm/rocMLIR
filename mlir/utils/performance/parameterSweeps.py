@@ -262,7 +262,7 @@ CONV_STRUCTURE = itertools.product(
     # dtype
     # TODO(kdrewnia): add bf16 once we're confident in that support
     # and add int8 for fwd only
-    ['f32', 'f16'],
+    ['f16'],
     # Padding - hl, hr, wl, wr in [0, 3]
     # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
     range(0, 4),
@@ -288,6 +288,27 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
         n, c, k = 1, 7, 7
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
         phl, phr, pwl, pwr, dh, dw, g, options.arch)
+
+WMMA_PERF_CONFIG = itertools.product(
+    # op
+    ['fwd', 'wrw', 'bwd'],
+    # layout
+    ['NCHW', 'NHWC'],
+    # dtype
+    ['f16'],
+    # MPerBlock (exponent)
+    range(2, 9),
+    # NPerBlock (exponent)
+    range(4, 9),
+    # KPerBlock (exponent)
+    range(0, 4),
+    # MPerWave (exponent)
+    range(1, 8),
+    # NPerWave (exponent)
+    range(4, 8),
+    # KPack (exponent)
+    range(1, 4)
+)
 
 MFMA_PERF_CONFIG = itertools.product(
     # op
@@ -407,14 +428,14 @@ def main() -> bool:
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
-
+    print(args)
     arch = ','.join(getArch())
-    supported_codepath = ['mfma', 'vanilla']
+    supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch
     codepath = args.codepath
     rocmlir_gen_flags = []
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch:
+        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on']
         elif 'gfx906' in arch:
@@ -424,6 +445,9 @@ def main() -> bool:
             # Use vanilla codepath for gfx1030 until it has its own perf configs
             codepath = 'vanilla'
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
+        elif 'gfx11' in arch:
+            codepath = 'wmma'
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=on']
         else:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
@@ -445,6 +469,9 @@ def main() -> bool:
     elif config == 'vanilla_perf_config':
         succeeded = asyncio.run(runConfig(VANILLA_PERF_CONFIG,
             to_vanilla_perf_config_test, options, paths))
+    elif config == 'wmma_perf_config':
+        succeeded = asyncio.run(runConfig(WMMA_PERF_CONFIG,
+            to_mfma_perf_config_test, options, paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded
