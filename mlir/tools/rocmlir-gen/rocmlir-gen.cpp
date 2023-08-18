@@ -2306,39 +2306,24 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
 
-  auto extendMemref = [&builder, &loc](mlir::Value value) {
-    auto memRef = value.getType().cast<MemRefType>();
-    auto origShape = memRef.getShape();
+  auto getAsTensor = [&builder, &loc](mlir::Value value,
+                                      bool isWritable = false) {
+    constexpr bool isRestrict{true};
+    auto origTensor = builder.create<bufferization::ToTensorOp>(
+        loc, value, isRestrict, isWritable);
+    auto origShape = origTensor.getType().getShape();
 
-    SmallVector<int64_t, 5> expShape;
-    SmallVector<ReassociationIndices, 5> reassociation;
+    std::vector<int64_t> expShape(origShape.size() + 1);
+    std::copy(origShape.begin(), origShape.end(), expShape.begin() + 1);
+    expShape[0] = 1;
 
-    expShape.push_back(1);
-    reassociation.push_back({0, 1});
-    for (uint32_t dim = 0; dim < origShape.size(); ++dim) {
-      expShape.push_back(origShape[dim]);
-      reassociation.push_back({dim + 2});
-    }
-    reassociation.pop_back();
-
-    auto expType = MemRefType::get(expShape, memRef.getElementType());
-    return builder.create<memref::ExpandShapeOp>(loc, expType, value,
-                                                 reassociation);
+    return builder.create<tosa::ReshapeOp>(loc, origTensor, expShape);
   };
 
-  auto queries = extendMemref(block->getArgument(0));
-  auto keys = extendMemref(block->getArgument(1));
-  auto values = extendMemref(block->getArgument(2));
-  auto scale = extendMemref(block->getArgument(3));
-
-  auto queriesTensor = builder.create<bufferization::ToTensorOp>(
-      loc, queries, /*restrict=*/true, /*writable=*/false);
-  auto keysTensor = builder.create<bufferization::ToTensorOp>(
-      loc, keys, /*restrict=*/true, /*writable=*/false);
-  auto valuesTensor = builder.create<bufferization::ToTensorOp>(
-      loc, values, /*restrict=*/true, /*writable=*/false);
-  auto scaleTensor = builder.create<bufferization::ToTensorOp>(
-      loc, scale, /*restrict=*/true, /*writable=*/false);
+  auto queriesTensor = getAsTensor(block->getArgument(0));
+  auto keysTensor = getAsTensor(block->getArgument(1));
+  auto valuesTensor = getAsTensor(block->getArgument(2));
+  auto scaleTensor = getAsTensor(block->getArgument(3));
 
   auto qkTensor = builder.create<tosa::MatMulOp>(loc, scaleTensor.getType(),
                                                  queriesTensor, keysTensor);
@@ -2376,11 +2361,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto resultTensor = builder.create<tosa::MatMulOp>(
       loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
 
-  auto output = extendMemref(block->getArgument(4));
-  auto result = builder.create<bufferization::ToMemrefOp>(loc, output.getType(),
-                                                          resultTensor);
+  auto outputTensor = getAsTensor(block->getArgument(4), true);
+  auto type = outputTensor.getType();
+  auto memrefType = MemRefType::get(type.getShape(), type.getElementType());
 
-  builder.create<memref::CopyOp>(loc, result, output);
+  auto outputMemref =
+      builder.create<bufferization::ToMemrefOp>(loc, memrefType, outputTensor);
+  auto resultMemref =
+      builder.create<bufferization::ToMemrefOp>(loc, memrefType, resultTensor);
+
+  builder.create<memref::CopyOp>(loc, resultMemref, outputMemref);
+
   builder.create<func::ReturnOp>(loc);
   module.push_back(func);
   return func;
