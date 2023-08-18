@@ -245,7 +245,7 @@ boolean shouldRunFromCodepath(String codepath) {
         return true
     }
     // Run navi3x on private PR CI if it is not disabled
-    if (params.canXdlops && (params.nightly == false) && (params.weekly == false) && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+    if (params.canXdlops && (params.weekly == false) && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
     return false

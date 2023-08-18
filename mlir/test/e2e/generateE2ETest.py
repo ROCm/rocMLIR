@@ -35,6 +35,19 @@ import os
 import sys
 import getopt
 import glob
+import subprocess
+
+def getArch():
+    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
+                       stdout=subprocess.PIPE)
+    agents = set(x.decode("utf-8") for x in p.stdout.split())
+    if not agents:
+        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
+                              check=True, stdout=subprocess.PIPE)
+        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+    return agents
 
 def generate_option_list(prefixes: dict, table: list, key1: str, key2: str):
     options_list=[]
@@ -107,6 +120,8 @@ if __name__ == '__main__':
         if "prefix" in axis:
            axis_prefixes[axis["name"]] = axis["prefix"]
 
+    archNames = getArch()
+    arch = ','.join(archNames)
     combinations = generate_option_list(axis_prefixes, toml_dict, "axis", "values")
 
     for suite in toml_dict["suite"]:
@@ -121,6 +136,8 @@ if __name__ == '__main__':
             for opt in combinations:
                 # Only generate i8 data type for fwd convolutions
                 if len(opt) >= 3 and "i8" in opt[2] and ("conv2d_bwd_data" in opt[0] or "conv2d_bwd_weight" in opt[0]):
+                    continue
+                if len(opt) >= 3 and "bf16" in opt[2] and "gfx11" in arch:
                     continue
                 opt_idx = opt_idx + 1
                 config = prefix + ' ' +test["config"]
