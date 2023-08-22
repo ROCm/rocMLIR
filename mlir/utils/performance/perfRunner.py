@@ -813,6 +813,14 @@ def getFusionTestInfo(filename, paths: Paths):
         # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
+    elif "migraphx" in firstCommand:
+        rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx', filename]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
+        # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
+        p1 = subprocess.Popen(rocmlirMigraphxCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p1.stdout.close()
     else:
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip(), filename]
         # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
@@ -836,6 +844,14 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p1.stdout.close()
+    elif "migraphx" in firstCommand:
+        rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx', filename]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'partition,highlevel', '-targets', getChip()]
+        # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
+        p1 = subprocess.Popen(rocmlirMigraphxCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()

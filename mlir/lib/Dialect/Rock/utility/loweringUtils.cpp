@@ -31,6 +31,21 @@ bool mlir::rock::isAccel(GemmFeatures features) {
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
+bool mlir::rock::is4GBMemoryType(ShapedType type) {
+  if (!type.hasStaticShape())
+    return true;
+  int64_t elemBytes;
+  if (auto shapedElemTy = dyn_cast<ShapedType>(type.getElementType()))
+    elemBytes = (shapedElemTy.getNumElements() *
+                 shapedElemTy.getElementTypeBitWidth()) /
+                8;
+  else
+    elemBytes = type.getElementTypeBitWidth() / 8;
+
+  return (type.getNumElements() * elemBytes) >
+         (int64_t)std::numeric_limits<uint32_t>::max();
+}
+
 LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
                                              const GemmSize &gemmSize,
                                              int64_t MPerBlock,
@@ -330,9 +345,9 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
   return gpuViews;
 }
 
-Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b,
-                      Location loc, bool doTranspose, StringRef firstDim,
-                      StringRef secondDim) {
+Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
+                                  bool doTranspose, StringRef firstDim,
+                                  StringRef secondDim) {
   auto matrixType = matrix.getType().cast<MemRefType>();
   bool addGroup = matrixType.getShape().size() != 3;
   if (!addGroup && !doTranspose)
@@ -357,8 +372,8 @@ Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b,
 }
 
 Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
-                       StringRef firstDim, int64_t firstDimPad,
-                       StringRef secondDim, int64_t secondDimPad) {
+                            StringRef firstDim, int64_t firstDimPad,
+                            StringRef secondDim, int64_t secondDimPad) {
   if (firstDimPad == 0 && secondDimPad == 0)
     return matrix;
   ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();

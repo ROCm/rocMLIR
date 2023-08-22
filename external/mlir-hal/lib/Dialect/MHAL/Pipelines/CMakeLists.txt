@@ -1,29 +1,47 @@
-add_mlir_dialect_library(MLIRMHALPipeline
-  Pipelines.cpp
-
-  LINK_LIBS PUBLIC
-  MLIRDialect
-  MLIRFuncDialect
-  MLIRTensorToLinalg
+if (MHAL_ENABLE_HOST_RUNNER)
+  set(host_runner_libs
   MLIRAsyncTransforms
   MLIRGPUTransforms
-  MLIRTosaToLinalg
-  MLIRTosaToSCF
-  MLIRTosaToArith
   MLIRLinalgToLLVM
   MLIRMathToLLVM
   MLIRMathToLibm
   MLIRGPUToROCDLTransforms
   MLIRReconcileUnrealizedCasts
-  MLIRMHALTransforms
+  MLIRVectorToLLVMPass
+
   MLIRMHALToGPU
   MLIRMHALToCPU
+  MLIRAffineToStandard
+  MLIRSCFToControlFlow
+  )
+else()
+  set(host_runner_libs)
+endif()
+
+add_mlir_dialect_library(MLIRMHALPipeline
+  Pipelines.cpp
+
+  DEPENDS
+  MHALConversionPassIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRDialect
+  MLIRFuncDialect
+  MLIRTensorToLinalg
+  MLIRTosaToLinalg
+  MLIRMHALTransforms
   MLIRIR
   MLIRPass
   MLIRLLVMDialect
-  MLIRAffineToStandard
-  MLIRSCFToControlFlow
   MLIRSupport
   MLIRTransforms
   MLIRTransformUtils
+
+  ${host_runner_libs}
 )
+
+if (MHAL_ENABLE_HOST_RUNNER)
+  target_compile_definitions(obj.MLIRMHALPipeline
+    PRIVATE
+    MHAL_ENABLE_HOST_RUNNER=1)
+endif()

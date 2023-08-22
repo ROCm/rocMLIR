@@ -149,7 +149,10 @@ public:
   void print(AsmPrinter &printer) const;
   void dump() const;
 };
-static_assert(IsZeroCostAbstraction<Var>);
+// HACK: Some old C++ runtimes that MIGraphX builds (SLES 15, for example)
+// fail this static assert due to older C++ libraries. We comment it out to make
+// builds pass. Investigate removing a few releases from now.
+// static_assert(IsZeroCostAbstraction<Var>);
 
 class SymVar final : public Var {
 public:
@@ -160,7 +163,10 @@ public:
   constexpr SymVar(Num sym) : Var(Kind, sym) {}
   SymVar(AffineSymbolExpr symExpr) : Var(symExpr) {}
 };
-static_assert(IsZeroCostAbstraction<SymVar>);
+// HACK: Some old C++ runtimes that MIGraphX builds (SLES 15, for example)
+// fail this static assert due to older C++ libraries. We comment it out to make
+// builds pass. Investigate removing a few releases from now.
+// static_assert(IsZeroCostAbstraction<SymVar>);
 
 class DimVar final : public Var {
 public:

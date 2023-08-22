@@ -119,7 +119,7 @@ bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
                         Type elementType) {
   Value tensor;
   ArrayAttr transforms;
-  std::tie(tensor, transforms) = untransform(b, matrix);
+  std::tie(tensor, transforms, std::ignore) = untransform(b, matrix);
   ArrayRef<int64_t> tensorShape =
       tensor.getType().cast<MemRefType>().getShape();
   int64_t kVectorLen = getMaxVectorizationForDatatype(
@@ -253,13 +253,18 @@ TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
 
   Value rawLoadBuffer;
   ArrayAttr loadBufferView;
-  std::tie(rawLoadBuffer, loadBufferView) = untransform(b, loadBuffer);
+  bool needs64BitIdx;
+  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
+      untransform(b, loadBuffer);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
   ArrayRef<int64_t> rawLoadBufferShape =
       rawLoadBuffer.getType().cast<ShapedType>().getShape();
 
   Value rawStoreBuffer;
   ArrayAttr storeBufferView;
-  std::tie(rawStoreBuffer, storeBufferView) = untransform(b, storeBuffer);
+  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
+      untransform(b, storeBuffer);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
   ArrayRef<int64_t> rawStoreBufferShape =
       rawStoreBuffer.getType().cast<ShapedType>().getShape();
 
@@ -1078,13 +1083,15 @@ struct GridwiseAttentionAccelRewritePattern
                                  Value gemm1OutThreadwiseView,
                                  Value attentionOutAccBufferView,
                                  Value maxRowBuffer, Value sumRowBuffer) const {
-    auto [gemm0OutBufferMax, gemm0OutBufferMaxTrs] =
+    Value gemm0OutBufferMax, gemm0OutBufferSum, gemm1Out, attentionOutAccBuffer;
+    ArrayAttr gemm0OutBufferMaxTrs, gemm0OutBufferSumTrs, gemm1OutTrs, attentionOutAccBufferTrs;
+    std::tie(gemm0OutBufferMax, gemm0OutBufferMaxTrs, std::ignore) =
         untransform(rewriter, gemm0OutBufferMaxView);
-    auto [gemm0OutBufferSum, gemm0OutBufferSumTrs] =
+    std::tie(gemm0OutBufferSum, gemm0OutBufferSumTrs, std::ignore) =
         untransform(rewriter, gemm0OutBufferSumView);
-    auto [gemm1Out, gemm1OutTrs] =
+    std::tie(gemm1Out, gemm1OutTrs, std::ignore) =
         untransform(rewriter, gemm1OutThreadwiseView);
-    auto [attentionOutAccBuffer, attentionOutAccBufferTrs] =
+    std::tie(attentionOutAccBuffer, attentionOutAccBufferTrs, std::ignore) =
         untransform(rewriter, attentionOutAccBufferView);
 
     MemRefType attentionOutAccBufferType =

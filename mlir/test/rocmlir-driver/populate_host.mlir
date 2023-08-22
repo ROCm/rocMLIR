@@ -1,6 +1,6 @@
-// RUN: rocmlir-gen --arch %arch -p -ph | FileCheck %s
-// RUN: rocmlir-gen --arch %arch -p -ph -t f16 | FileCheck %s
-// RUN: rocmlir-gen --arch %arch -p -ph -t i8 | FileCheck %s
+// RUN: rocmlir-gen --arch %arch -p -ph --apply-bufferization-pipeline=false | FileCheck %s
+// RUN: rocmlir-gen --arch %arch -p -ph -t f16 --apply-bufferization-pipeline=false | FileCheck %s
+// RUN: rocmlir-gen --arch %arch -p -ph -t i8 --apply-bufferization-pipeline=false | FileCheck %s
 
 // CHECK-LABEL: func.func @main()
 // CHECK-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>

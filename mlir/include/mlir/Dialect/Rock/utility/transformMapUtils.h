@@ -30,11 +30,18 @@ class TransformOp;
 /// this method will return %v0 and an ArrayAttr equal to [#transform2,
 /// #transform1]. If `existing` is passed in, it must be an array of
 /// `TransformMapAttr`s which will be prepended to the returned `ArrayAttr`.
+/// The third return value indicates whether evaluating these maps will impose
+/// 64-bit indexing requirements - that is, if any coordinate could overflow
+/// a signed 32-bit integer during the computation or if the underlying value
+/// is a memref that points to more than 4 GB of data.
+std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
+                                               ArrayAttr existing = nullptr);
+std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
+                                               ArrayRef<Attribute> existing);
 
-std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
-                                         ArrayAttr existing = nullptr);
-std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
-                                         ArrayRef<Attribute> existing);
+/// Returns true if a given transform map has inputs or outputs that could
+/// overflow a signed 32-bit integer.
+bool needs64BitIndices(TransformMapAttr map);
 
 /// Apply a chain of transforms on a memref and return the final view
 Value transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms);

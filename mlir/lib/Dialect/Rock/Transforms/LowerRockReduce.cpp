@@ -125,7 +125,8 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
       createThreadViewMaps(op.getIn(), blockSize, gridSize, loc, rewriter);
   ArrayAttr sourceTransformsFromOp;
   Value source;
-  std::tie(source, sourceTransformsFromOp) =
+  bool needs64BitIdx;
+  std::tie(source, sourceTransformsFromOp, needs64BitIdx) =
       untransform(rewriter, op.getIn(), trMaps);
 
   Type elementType = source.getType().cast<MemRefType>().getElementType();
@@ -163,7 +164,7 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     Block::BlockArgListType loadCoords = outLoop.getLowerCoords(/*domain=*/0);
     Value isValid = outLoop.getValidity(/*domain=*/0);
     GlobalLoadOp loadVal = rewriter.create<GlobalLoadOp>(
-        loc, vectorType, op.getIn(), isValid, loadCoords);
+        loc, vectorType, op.getIn(), isValid, loadCoords, needs64BitIdx);
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     Value loadedReg = rewriter.create<GpuAllocOp>(
@@ -192,7 +193,8 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
         loc, loadedReg, op.getOut(), rewriter.getIndexAttr(vectorLength),
         op.getFeaturesAttr(),
         StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
-        isValid, storeCoords);
+        isValid, storeCoords, needs64BitIdx ? rewriter.getUnitAttr() : nullptr,
+        /*canStoreOffEnd=*/nullptr);
   }
   rewriter.eraseOp(op);
   return success();

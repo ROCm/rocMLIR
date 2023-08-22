@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -num_heads 32 --with-attn-scale -t f32 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_SCALE
-// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -num_heads 32 -t f32 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -num_heads 32 --with-attn-scale -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_SCALE
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -num_heads 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
 
 // CHECK_SCALE: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
@@ -14,6 +14,22 @@
 // CHECK_SCALE-NEXT: rock.attention(%[[queries]], %[[keys]], %[[values]], %[[scale]], %[[output]])
 // CHECK_SCALE: return
 
+// CHECK_SCALE-LABEL: func.func @host_naive_attention
+// CHECK_SCALE: %[[qkTensor:.*]] = "tosa.matmul"(%[[queriesTensor:.*]], %[[keysTensor:.*]]) : ([[queriesShape:tensor<.*>]], [[keysShape:tensor<.*>]]) -> [[squareShape:tensor<.*>]]
+// CHECK_SCALE-DAG: %[[sqkTensor:.*]] = "tosa.mul"(%[[qkTensor]], %[[scaleTensor:.*]]) <{{.*}}> : ([[squareShape]], [[squareShape]]) -> [[squareShape]]
+// CHECK_SCALE-DAG: %[[sqkMaxs:.*]] = "tosa.reduce_max"(%[[sqkTensor]]) <{{.*}}> : ([[squareShape]]) -> [[reducedShape:tensor<.*>]]
+// CHECK_SCALE-DAG: %[[normilizedSqkTensor:.*]] = "tosa.sub"(%[[sqkTensor]], %[[sqkMaxs]]) : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
+// CHECK_SCALE-DAG: %[[expsTensor:.*]] = "tosa.exp"(%[[normilizedSqkTensor]]) : ([[squareShape]]) -> [[squareShape]]
+// CHECK_SCALE-DAG: %[[expsSumsTensor:.*]] = "tosa.reduce_sum"(%[[expsTensor]]) <{{.*}}> : ([[squareShape]]) -> [[reducedShape]]
+// CHECK_SCALE-DAG: %[[invExpsSums:.*]] = "tosa.reciprocal"(%[[expsSumsTensor]]) : ([[reducedShape]]) -> [[reducedShape]]
+// CHECK_SCALE-DAG: %[[softmaxTensor:.*]] = "tosa.mul"(%[[expsTensor]], %[[invExpsSums]]) <{{.*}}> : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
+// CHECK_SCALE-DAG: %[[resultTensor:.*]] = "tosa.matmul"(%[[softmaxTensor]], %[[valuesTensor:.*]]) : ([[squareShape]], [[valuesShape:tensor<.*>]]) -> [[valuesShape]]
+// CHECK_SCALE: return
+
+// ----
+
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -num_heads 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
+
 // CHECK_NO_SCALE: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
 // CHECK_NO_SCALE-LABEL: func.func @rock_attention
@@ -24,4 +40,15 @@
 // CHECK_NO_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 
 // CHECK_NO_SCALE-NEXT: rock.attention(%[[queries]], %[[keys]], %[[values]], %[[output]])
+// CHECK_NO_SCALE: return
+
+// CHECK_NO_SCALE-LABEL: func.func @host_naive_attention
+// CHECK_NO_SCALE: %[[qkTensor:.*]] = "tosa.matmul"(%[[queriesTensor:.*]], %[[keysTensor:.*]]) : ([[queriesShape:tensor<.*>]], [[keysShape:tensor<.*>]]) -> [[squareShape:tensor<.*>]]
+// CHECK_NO_SCALE-DAG: %[[sqkMaxs:.*]] = "tosa.reduce_max"(%[[qkTensor]]) <{{.*}}> : ([[squareShape]]) -> [[reducedShape:tensor<.*>]]
+// CHECK_NO_SCALE-DAG: %[[normilizedQkTensor:.*]] = "tosa.sub"(%[[qkTensor]], %[[sqkMaxs]]) : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
+// CHECK_NO_SCALE-DAG: %[[expsTensor:.*]] = "tosa.exp"(%[[normilizedQkTensor]]) : ([[squareShape]]) -> [[squareShape]]
+// CHECK_NO_SCALE-DAG: %[[expsSumsTensor:.*]] = "tosa.reduce_sum"(%[[expsTensor]]) <{{.*}}> : ([[squareShape]]) -> [[reducedShape]]
+// CHECK_NO_SCALE-DAG: %[[invExpsSums:.*]] = "tosa.reciprocal"(%[[expsSumsTensor]]) : ([[reducedShape]]) -> [[reducedShape]]
+// CHECK_NO_SCALE-DAG: %[[softmaxTensor:.*]] = "tosa.mul"(%[[expsTensor]], %[[invExpsSums]]) <{{.*}}> : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
+// CHECK_NO_SCALE-DAG: %[[resultTensor:.*]] = "tosa.matmul"(%[[softmaxTensor]], %[[valuesTensor:.*]]) : ([[squareShape]], [[valuesShape:tensor<.*>]]) -> [[valuesShape]]
 // CHECK_NO_SCALE: return

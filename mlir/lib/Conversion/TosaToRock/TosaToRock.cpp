@@ -712,12 +712,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         scaleInput, output,
-        //TODO(implement transpose fusion support here)
+        // TODO(implement transpose fusion support here)
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr,
-        arch,
+        /*oTransposed=*/nullptr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features),
         /*params=*/nullptr);
     rewriter.replaceOp(op, attnOp.getResult());

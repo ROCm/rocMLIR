@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
 #include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
+#include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
@@ -201,7 +202,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
+      options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
+      /*useBarePtrCallConv=*/true));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(

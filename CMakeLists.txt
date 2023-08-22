@@ -57,6 +57,7 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+  set(MHAL_ENABLE_HOST_RUNNER OFF CACHE BOOL "Enable MHAL host runner")
   if(NOT WIN32)
     set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
     # Note, this is a hack to ignore Pytorch added conda path

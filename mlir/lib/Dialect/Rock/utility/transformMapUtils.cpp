@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
@@ -36,7 +37,8 @@ using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
 // General utilities.
 //===----------------------------------------------------------------------===//
-std::tuple<Value, ArrayAttr>
+
+std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   SmallVector<Attribute> transformList;
   if (existing)
@@ -46,10 +48,16 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
     transformList.push_back(transform.getTransform());
     ret = transform.getInput();
   }
-  return {ret, b.getArrayAttr(transformList)};
+
+  bool isBig = llvm::any_of(transformList, [](Attribute a) {
+    return needs64BitIndices(cast<TransformMapAttr>(a));
+  });
+  auto bufferType = cast<ShapedType>(ret.getType());
+  isBig |= is4GBMemoryType(bufferType);
+  return {ret, b.getArrayAttr(transformList), isBig};
 }
 
-std::tuple<Value, ArrayAttr>
+std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {
   return untransform(b, transformed, b.getArrayAttr(existing));
@@ -66,6 +74,15 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
     ret = b.create<TransformOp>(loc, ret, trMap);
   }
   return ret;
+}
+
+bool mlir::rock::needs64BitIndices(TransformMapAttr map) {
+  // Negative lengths are some form of dynamic index and therefore big.
+  auto isBig = [](int64_t l) -> bool {
+    return l < 0 || l > (int64_t)(std::numeric_limits<int32_t>::max());
+  };
+  return llvm::any_of(map.getUpperBounds().asArrayRef(), isBig) ||
+         llvm::any_of(map.getLowerBounds().asArrayRef(), isBig);
 }
 
 TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,

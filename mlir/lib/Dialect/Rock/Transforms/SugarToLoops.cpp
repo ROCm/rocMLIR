@@ -16,8 +16,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
@@ -33,6 +35,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -42,6 +45,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 #include <numeric>
 
 namespace mlir {
@@ -834,7 +838,7 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// BufferLoad lowering.
+// GlobalLoad lowering.
 //===----------------------------------------------------------------------===//
 
 /// Return the number of elements in `memref`, accounting for the possibility
@@ -853,223 +857,333 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
   return result;
 }
 
-struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
-  using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(BufferLoadOp op,
+/// Call builder(int64_t base, Type thisElem) repeatedly, advancing `base` by
+/// the length of `thisElem` each time, where `thisElem` is a scalar or vector
+/// less than 128 bits long. This is temporary and needed for the buffer
+/// operations - once address space works in the backend, we'll just be able to
+/// global_load.
+static void perHardwareOp(Type realType,
+                          llvm::function_ref<void(int64_t, Type)> builder) {
+  Type elemType = getElementTypeOrSelf(realType);
+  int64_t numElems = 1;
+  if (auto vecTy = dyn_cast<VectorType>(realType))
+    numElems = vecTy.getNumElements();
+  int64_t maxElemsPerOp = (4 * elemType.getIntOrFloatBitWidth()) / 32;
+  int64_t offset = 0;
+  while (offset < numElems) {
+    int64_t thisOpNumElems = std::min(numElems - offset, maxElemsPerOp);
+    // The ops only work on powers of two so correct this here.
+    thisOpNumElems = (int64_t)1 << llvm::Log2_64(thisOpNumElems);
+    Type thisOpType = vectorTypeOrSelf(elemType, thisOpNumElems);
+    builder(offset, thisOpType);
+    offset += thisOpNumElems;
+  }
+}
+
+static Value asGlobal(PatternRewriter &b, Value memref) {
+  auto type = cast<MemRefType>(memref.getType());
+  auto globalType = MemRefType::get(
+      type.getShape(), type.getElementType(), type.getLayout(),
+      b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Global));
+  return b.createOrFold<memref::MemorySpaceCastOp>(memref.getLoc(), globalType,
+                                                   memref);
+}
+
+struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
+  using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalLoadOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value source = op.getSource();
     Value valid = op.getValid();
 
     Type loadedType = op.getResult().getType();
-    SmallVector<Value, 5> coords(op.getCoords());
+    SmallVector<Value, 5> coords(op.getSourceCoord());
 
     llvm::APInt validConst = APInt::getZero(1);
-    bool needOobChecks =
-        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
-                            validConst.isZero());
-    if (needOobChecks) {
-      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-      Value numElements = computeMemRefNumElements(b, loc, source);
-      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
-        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+    bool hasI64Idx = op.getNeeds64BitIdx();
+    bool isAlwaysValid =
+        matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
+    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
+                         (hasI64Idx && op.getCanReadOffEnd());
+    Value numElems = computeMemRefNumElements(b, loc, source);
+    APInt numElemsConst(64, 0);
+    matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    APInt numBytes =
+        numElemsConst *
+        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    // In cases where we need more than 2 GB of offset to index but are still
+    // using 32-bit indexing, we'll need to use buffer operations. In the
+    // dymanic shape case, we'll already be in the i64 case, so we don't set
+    // this.
+    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
+                                       emitOobChecks || op.getCanReadOffEnd());
+
+    if (!useBufferOps)
+      source = asGlobal(b, source);
+    PatternRewriter::InsertionGuard insertGuard(b);
+    if (emitOobChecks && hasI64Idx) {
+      Value cond = valid;
+      if (op.getCanReadOffEnd()) {
+        Value fallsOffEnd = b.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
       }
-      Value &lastCoord = coords.back();
-      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
+      auto guard = b.create<scf::IfOp>(loc, loadedType, cond, true, true);
+      b.replaceOp(op, guard);
+
+      b.setInsertionPointToEnd(guard.getBody(1));
+      Value zeroes = createZeroConstantOp(b, loc, loadedType);
+      b.create<scf::YieldOp>(loc, zeroes);
+      b.setInsertionPointToEnd(guard.getBody(0));
     }
 
-    // Emit load instruction
-    // use buffer load since the source memref is on address space 0
-    SmallVector<Value, 5> coordsI32;
-    for (auto v : coords)
-      coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
-    IntegerAttr indexOffset =
-        llvm::transformOptional(op.getOffset(),
-                                [&b](const APInt &offset) -> IntegerAttr {
-                                  return b.getI32IntegerAttr(
-                                      offset.getZExtValue());
-                                })
-            .value_or(IntegerAttr());
-    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
-    b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source, coordsI32, /*boundsCheck=*/needHardwareOob,
-        indexOffset,
-        /*sgprOffset=*/nullptr);
+    if (useBufferOps) {
+      // Implement bounds checks for buffer ops by sending any out of bounds
+      // write off the end of the buffer, causing the hardware to return 0
+      // if the write is out of bounds.
+      if (emitOobChecks) {
+        Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+        for (Value &c : MutableArrayRef<Value>(coords).drop_back())
+          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+        if (!coords.empty()) {
+          Value &lastCoord = coords.back();
+          lastCoord =
+              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+        }
+      }
+      for (Value &c : MutableArrayRef<Value>(coords))
+        c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
+      Value origLastCoord = coords.empty() ? nullptr : coords.back();
+      Value loaded = createZeroConstantOp(b, loc, loadedType);
+      perHardwareOp(loadedType, [&](int64_t offset, Type thisOpTy) {
+        Value offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, offset);
+        if (offset != 0) {
+          Value offsetI32Const =
+              b.createOrFold<arith::ConstantIntOp>(loc, offset, 32);
+          coords.back() =
+              b.create<arith::AddIOp>(loc, origLastCoord, offsetI32Const);
+        }
+        Value thisLoad = b.create<amdgpu::RawBufferLoadOp>(
+            loc, thisOpTy, source, coords,
+            /*boundsCheck=*/(emitOobChecks || op.getCanReadOffEnd()), nullptr,
+            nullptr);
+        if (isa<VectorType>(loadedType))
+          loaded = b.createOrFold<InsertSliceOp>(loc, loadedType, thisLoad,
+                                                 loaded, offsetConst);
+        else
+          loaded = thisLoad;
+      });
+      b.replaceOp(op, loaded);
+    } else {
+      Value loaded;
+      if (isa<VectorType>(loadedType))
+        loaded = b.create<vector::LoadOp>(loc, loadedType, source, coords);
+      else
+        loaded = b.create<memref::LoadOp>(loc, loadedType, source, coords);
+      if (emitOobChecks)
+        b.create<scf::YieldOp>(loc, loaded);
+      else
+        b.replaceOp(op, loaded);
+    }
     return success();
   }
 };
 
 //===----------------------------------------------------------------------===//
-// BufferStore lowering.
+// GlobalStore lowering.
 //===----------------------------------------------------------------------===//
-struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
-  using OpRewritePattern<BufferStoreOp>::OpRewritePattern;
 
-  // This function creates integer buffer atomic max ops that is numerically
-  // identical to floating point integer buffer atomic max ops via controlled
-  // type punning. This is done mainly because gfx9 GPUs lack buffer.atomic.fmax
-  // intrinsic support.
-  LogicalResult createAtomicFMaxUsingIntegerAtomics(
-      BufferStoreOp op, Value stVal, Value destMemRef,
-      SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
-      IntegerAttr indexOffset, PatternRewriter &b) const {
-    if (!stVal.getType().isF32()) {
-      return op.emitError(
-          "for atomic fmax we only currently support f32 types");
-    }
-    Location loc = op.getLoc();
-    auto stValIntCasted = b.create<LLVM::BitcastOp>(loc, b.getI32Type(), stVal);
-    Value zeroConstantOp = b.createOrFold<ConstantIntOp>(loc, 0, 32);
-    Value signbitConstantOp =
-        b.createOrFold<ConstantIntOp>(loc, 0x80000000, 32);
-    Value sign =
-        b.create<arith::AndIOp>(loc, signbitConstantOp, stValIntCasted);
-    auto isPos = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                         zeroConstantOp, sign);
-
-    scf::IfOp ifb = b.create<scf::IfOp>(loc, isPos, /*withElseRegion=*/true);
-    {
-      OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
-      // If the current value is positive doing a signed max integer comparison
-      // will be equivalent to a floating point max comparison.
-      thenb.create<amdgpu::RawBufferAtomicSmaxOp>(
-          loc, stValIntCasted, destMemRef, coordsI32,
-          /*boundsCheck=*/needHWBoundsCheck,
-          /*indexOffset=*/indexOffset,
-          /*sgprOffset=*/nullptr);
-    }
-    {
-      OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
-      // If the current value is negative doing a unsigned min integer
-      // comparison will be equivalent to a floating point max comparison
-      // because signed bit will always make negative number larger. Moreover,
-      // if both are negative, then smaller of those unsigend integers should be
-      // the larger floating point value.
-      elseb.create<amdgpu::RawBufferAtomicUminOp>(
-          loc, stValIntCasted, destMemRef, coordsI32,
-          /*boundsCheck=*/needHWBoundsCheck,
-          /*indexOffset=*/indexOffset,
-          /*sgprOffset=*/nullptr);
-    }
-    return success();
+// Implement atomic floating point max.
+//
+// This _used_ to implement a clever hack for gfx9xx that used a type pun
+// to integer and then did an atomic signed_max/unsigned_min for
+// positive/negative floats, but, with large tensors, we can't do that
+// because upstream doesn't have the ability to do type puns on a memref.
+// We don't know if the smax/umin trick is faster than a CAS loop,
+// so we're keeping it around in the comments below for performance evaluation
+// once we have a reduction-utilizing client.
+//
+// Returns the operation that the underlying global_store could be replaced
+// with.
+static Operation *makeAtomicFmax(PatternRewriter &b, Location loc, Value data,
+                                 Value dest, ArrayRef<Value> coords,
+                                 bool useBufferOps, bool useBufferOobChecks) {
+  // if (bitEnumContainsAll(features, GemmFeatures::atomic_fmax_f32)) {
+  if (useBufferOps)
+    return b.create<amdgpu::RawBufferAtomicFmaxOp>(
+        loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
+  return b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maxf, data, dest,
+                                       coords);
+// Disabled because we can't make this hack work in general.
+#if 0
   }
+  Value dataAsInt = b.create<arith::BitcastOp>(loc, b.getI32Type(), data);
+  // Note: this doesn't work, and you'd need to add an upstream op which does
+  // this.
+  Value destAsInt = b.createOrFold<memref::CastOp>(
+      loc, cast<MemRefType>(dest.getType()).clone(b.getI32Type()), dest);
+  Value zeroConstantOp = b.createOrFold<ConstantIntOp>(loc, 0, 32);
+  Value signbitConstantOp = b.createOrFold<ConstantIntOp>(loc, 0x80000000, 32);
+  Value sign = b.create<arith::AndIOp>(loc, signbitConstantOp, dataAsInt);
+  auto isPos = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                       zeroConstantOp, sign);
+  auto ret = b.create<scf::IfOp>(
+      loc, isPos,
+      [&](OpBuilder &b, Location loc) {
+        if (useBuffers)
+          b.create<amdgpu::RawBufferAtomicSmaxOp>(loc, dataAsInt, destAsInt,
+                                                  coords, useBufferOobChecks,
+                                                  nullptr, nullptr);
+        else
+          b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maxs, dataAsInt,
+                                        destAsInt, coords);
+      },
+      [&](OpBuilder &b, Location loc) {
+        if (useBuffers)
+          b.create<amdgpu::RawBufferAtomicUminOp>(loc, dataAsInt, destAsInt,
+                                                  coords, useBufferOobChecks,
+                                                  nullptr, nullptr);
+        else
+          b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::minu, dataAsInt,
+                                        destAsInt, coords);
+      });
+  return ret;
+#endif
+}
 
-  LogicalResult
-  createAtomicFMax(BufferStoreOp op, Value stVal, Value destMemRef,
-                   SmallVectorImpl<Value> &coordsI32, bool needHWBoundsCheck,
-                   IntegerAttr indexOffset, PatternRewriter &b) const {
-    Location loc = op.getLoc();
-    bool hasAtomicFmaxF32 =
-        bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_fmax_f32);
-    if (hasAtomicFmaxF32) {
-      b.create<amdgpu::RawBufferAtomicFmaxOp>(loc, stVal, destMemRef, coordsI32,
-                                              /*boundsCheck=*/needHWBoundsCheck,
-                                              /*indexOffset=*/indexOffset,
-                                              /*sgprOffset=*/nullptr);
-    } else {
-      LogicalResult result = createAtomicFMaxUsingIntegerAtomics(
-          op, stVal, destMemRef, coordsI32, needHWBoundsCheck, indexOffset, b);
-      if (failed(result)) {
-        return result;
-      }
-    }
-    return success();
-  }
+struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
+  using OpRewritePattern<GlobalStoreOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(BufferStoreOp op,
+  LogicalResult matchAndRewrite(GlobalStoreOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    Value data = op.getData();
     Value dest = op.getDest();
     Value valid = op.getValid();
+    Type elemTy = cast<MemRefType>(dest.getType()).getElementType();
+    int64_t len = op.getLength().getZExtValue();
+    Type storeTy = vectorTypeOrSelf(elemTy, len);
 
-    SmallVector<Value, 5> coords(op.getCoords());
+    SmallVector<Value, 5> coords(op.getDestCoord());
+    Value sourceStart = op.getSourceCoord();
 
     llvm::APInt validConst = APInt::getZero(1);
-    bool needOobChecks =
-        !coords.empty() && (!matchPattern(valid, m_ConstantInt(&validConst)) ||
-                            validConst.isZero());
-    if (needOobChecks) {
-      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-      Value numElements = computeMemRefNumElements(b, loc, dest);
-      for (Value &c : MutableArrayRef<Value>(coords).drop_back()) {
-        c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
-      }
-      Value &lastCoord = coords.back();
-      lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElements);
-    }
+    bool hasI64Idx = op.getNeeds64BitIdx();
+    bool isAlwaysValid =
+        matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
+    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
+                         (hasI64Idx && op.getCanStoreOffEnd());
+    Value numElems = computeMemRefNumElements(b, loc, dest);
+    APInt numElemsConst(64, 0);
+    matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    APInt numBytes =
+        numElemsConst *
+        (cast<ShapedType>(dest.getType()).getElementTypeBitWidth() / 8);
+    // In cases where we need more than 2 GB of offset to index but are still
+    // using 32-bit indexing, we'll need to use buffer operations. In the
+    // dymanic shape case, we'll already be in the i64 case, so we don't set
+    // this.
+    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
+                                       emitOobChecks || op.getCanStoreOffEnd());
+    bool useBufferOobChecks =
+        useBufferOps && (emitOobChecks || op.getCanStoreOffEnd());
 
     StoreMethod memoryOp = op.getStoreMethod();
-    SmallVector<Value, 5> coordsI32;
-    for (Value v : coords)
-      coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
-    IntegerAttr indexOffset =
-        llvm::transformOptional(op.getOffset(),
-                                [&b](const APInt &offset) -> IntegerAttr {
-                                  return b.getI32IntegerAttr(
-                                      offset.getZExtValue());
-                                })
-            .value_or(IntegerAttr());
+    bool isAtomic = memoryOp != StoreMethod::Set;
 
-    bool needHardwareOob = needOobChecks || op.getOobIsOverflow();
-    if (memoryOp == StoreMethod::AtomicAdd) {
-      // TODO: test padding in atomic add kernels now that we can oob with them
-      if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
-        int32_t nAtomics = dataVector.getNumElements();
-        int32_t offset = llvm::transformOptional(op.getOffset(),
-                                                 [](const APInt &v) -> int32_t {
-                                                   return v.getZExtValue();
-                                                 })
-                             .value_or(0);
-        for (int32_t i = 0; i < nAtomics; ++i) {
-          Value item = b.create<vector::ExtractElementOp>(
-              loc, data, b.create<ConstantIndexOp>(loc, i));
-          b.create<amdgpu::RawBufferAtomicFaddOp>(
-              loc, item, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
-              /*indexOffset=*/b.getI32IntegerAttr(i + offset),
-              /*sgprOffset=*/nullptr);
-        }
-        b.eraseOp(op);
-      } else {
-        b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
-            indexOffset,
-            /*sgprOffset=*/nullptr);
+    if (!useBufferOps)
+      dest = asGlobal(b, dest);
+    PatternRewriter::InsertionGuard insertGuard(b);
+    if (emitOobChecks && hasI64Idx) {
+      Value cond = valid;
+      if (op.getCanStoreOffEnd()) {
+        Value fallsOffEnd = b.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
       }
-    } else if (memoryOp == StoreMethod::AtomicMax) {
-      if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
-        int32_t nAtomics = dataVector.getNumElements();
-        int32_t offset = llvm::transformOptional(op.getOffset(),
-                                                 [](const APInt &v) -> int32_t {
-                                                   return v.getZExtValue();
-                                                 })
-                             .value_or(0);
-        for (int32_t i = 0; i < nAtomics; ++i) {
-          Value item = b.create<vector::ExtractElementOp>(
-              loc, data, b.create<ConstantIndexOp>(loc, i));
-          LogicalResult result =
-              createAtomicFMax(op, item, dest, coordsI32, needHardwareOob,
-                               b.getI32IntegerAttr(i + offset), b);
-          if (failed(result)) {
-            return result;
-          }
-        }
-        b.eraseOp(op);
-      } else {
-        LogicalResult result = createAtomicFMax(
-            op, data, dest, coordsI32, needHardwareOob, indexOffset, b);
-        if (failed(result)) {
-          return result;
-        }
-        b.eraseOp(op);
-      }
-    } else {
-      b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest, coordsI32, /*boundsCheck=*/needHardwareOob,
-          indexOffset,
-          /*sgprOffset=*/nullptr);
+      auto guard = b.create<scf::IfOp>(loc, cond, false);
+      // This goes to the start because there's alread a terminator.
+      b.setInsertionPointToStart(guard.getBody(0));
     }
+
+    if (useBufferOps) {
+      if (emitOobChecks) {
+        Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+        for (Value &c : MutableArrayRef<Value>(coords).drop_back())
+          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+        if (!coords.empty()) {
+          Value &lastCoord = coords.back();
+          lastCoord =
+              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+        }
+      }
+      for (Value &c : MutableArrayRef<Value>(coords))
+        c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
+    }
+    Value origLastCoord = coords.empty() ? nullptr : coords.back();
+
+    if (isAtomic) {
+      for (int64_t i = 0; i < len; ++i) {
+        Value thisSrc = sourceStart;
+        if (i > 0)
+          thisSrc = b.createOrFold<arith::AddIOp>(
+              loc, thisSrc, b.createOrFold<arith::ConstantIndexOp>(loc, i));
+        Value data =
+            b.create<memref::LoadOp>(loc, elemTy, op.getSource(), thisSrc);
+        if (i > 0) {
+          Value offsetConst;
+          if (useBufferOps)
+            offsetConst = b.createOrFold<arith::ConstantIntOp>(loc, i, 32);
+          else
+            offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, i);
+          coords.back() =
+              b.createOrFold<arith::AddIOp>(loc, origLastCoord, offsetConst);
+        }
+        if (memoryOp == StoreMethod::AtomicAdd) {
+          if (useBufferOps)
+            b.create<amdgpu::RawBufferAtomicFaddOp>(
+                loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
+          else
+            b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
+                                          coords);
+        } else if (memoryOp == StoreMethod::AtomicMax) {
+          makeAtomicFmax(b, loc, data, dest, coords, useBufferOps,
+                         useBufferOobChecks);
+        } else {
+          llvm_unreachable("We don't support this atomic type");
+        }
+      }
+      b.eraseOp(op);
+      return success();
+    }
+    Value data =
+        b.create<InBoundsLoadOp>(loc, storeTy, op.getSource(), sourceStart);
+    if (!useBufferOps) {
+      if (isa<VectorType>(storeTy))
+        b.create<vector::StoreOp>(loc, data, dest, coords);
+      else
+        b.create<memref::StoreOp>(loc, data, dest, coords);
+    } else {
+      perHardwareOp(storeTy, [&](int64_t offset, Type thisStoreTy) {
+        Value offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, offset);
+        if (offset != 0) {
+          Value offsetI32Const =
+              b.createOrFold<arith::ConstantIntOp>(loc, offset, 32);
+          coords.back() =
+              b.create<arith::AddIOp>(loc, origLastCoord, offsetI32Const);
+        }
+        Value thisData = data;
+        if (isa<VectorType>(data.getType()))
+          thisData =
+              b.create<ExtractSliceOp>(loc, thisStoreTy, data, offsetConst);
+        b.create<amdgpu::RawBufferStoreOp>(
+            loc, thisData, dest, coords,
+            /*boundsCheck=*/(emitOobChecks || op.getCanStoreOffEnd()), nullptr,
+            nullptr);
+      });
+    }
+    b.eraseOp(op);
     return success();
   }
 };
@@ -1450,7 +1564,7 @@ void RockSugarToLoopsPass::runOnOperation() {
 
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
-               BufferLoadRewritePattern, BufferStoreRewritePattern,
+               GlobalLoadRewritePattern, GlobalStoreRewritePattern,
                InBoundsLoadRewritePattern, InBoundsStoreRewritePattern,
                InWarpTransposeRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))

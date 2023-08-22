@@ -66,6 +66,10 @@ bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
 
 bool isAccel(GemmFeatures features);
 
+// Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
+// in memory.
+bool is4GBMemoryType(ShapedType type);
+
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
 //
@@ -105,9 +109,8 @@ backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
 Type vectorTypeOrSelf(Type elementType, int64_t len);
 
 /// Apply padding to a matrix in its `firstDim` and `secondDim` if applicable.
-Value padMatrix(Value matrix, OpBuilder &b, Location loc,
-                       StringRef firstDim, int64_t firstDimPad,
-                       StringRef secondDim, int64_t secondDimPad);
+Value padMatrix(Value matrix, OpBuilder &b, Location loc, StringRef firstDim,
+                int64_t firstDimPad, StringRef secondDim, int64_t secondDimPad);
 
 /// Normalize the argument into the form requested.
 /// If a group dimension is not present, add one.
@@ -115,9 +118,9 @@ Value padMatrix(Value matrix, OpBuilder &b, Location loc,
 /// what the underlying gridwise gemm expects, transpose the matrix to match,
 /// using firstDim as the name of the first dimension in the new value and
 /// secondDim as the name of the second dimesion.
-Value normalizeMatrix(Value matrix, OpBuilder &b,
-                      Location loc, bool doTranspose, StringRef firstDim,
-                      StringRef secondDim);                      
+Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
+                      bool doTranspose, StringRef firstDim,
+                      StringRef secondDim);
 
 } // end namespace rock
 } // end namespace mlir

@@ -15,6 +15,7 @@
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -22,11 +23,13 @@
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -456,26 +459,33 @@ static llvm::cl::opt<int64_t>
              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
-    hasAttnScale("with-attn-scale", llvm::cl::desc("Generate an attention kernel that is using a scaling input for the first gemm"), llvm::cl::init(false));
+    hasAttnScale("with-attn-scale",
+                 llvm::cl::desc("Generate an attention kernel that is using a "
+                                "scaling input for the first gemm"),
+                 llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeQ("transQ",
-               llvm::cl::desc("whether matrix Q of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::desc("whether matrix Q of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeK("transK",
-               llvm::cl::desc("whether matrix K of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::desc("whether matrix K of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeV("transV",
-               llvm::cl::desc("whether matrix V of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::desc("whether matrix V of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeO("transO",
-               llvm::cl::desc("whether matrix O of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::desc("whether matrix O of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
                llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
@@ -680,6 +690,11 @@ static llvm::cl::opt<int> kernelRepeats(
     llvm::cl::desc("Number of times to repeat the kernel invocation"),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
+static llvm::cl::opt<bool> applyBufferizationPipeline(
+    "apply-bufferization-pipeline",
+    llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
+    llvm::cl::init(true));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -707,7 +722,7 @@ struct KernelIF {
 
 struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
-  SmallVector<Type, 3> types;
+  SmallVector<Type, 5> types;
   rock::GemmFeatures features = rock::GemmFeatures::none;
   std::optional<const rock::Conv2dGenerator::Config *> convConfig =
       std::nullopt;
@@ -2171,28 +2186,31 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 }
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
-                              const Type &elemTypes) {
+                              ArrayRef<Type> elemTypes) {
   SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
   SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
 
-  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims, elemTypes),
-             kType = MemRefType::get(transposeK ? dims : transposedDims, elemTypes),
-             vType = MemRefType::get(transposeV ? transposedDims : dims, elemTypes),
-             outType = MemRefType::get(transposeO ? transposedDims : dims, elemTypes);
+  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
+                                     elemTypes[0]),
+             kType = MemRefType::get(transposeK ? dims : transposedDims,
+                                     elemTypes[1]),
+             vType = MemRefType::get(transposeV ? transposedDims : dims,
+                                     elemTypes[2]);
 
   result.push_back(qType);
   result.push_back(kType);
   result.push_back(vType);
-  if(hasAttnScale){
+  if (hasAttnScale) {
     SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
-    MemRefType sType = MemRefType::get(scaleDims, elemTypes);
+    MemRefType sType = MemRefType::get(scaleDims, elemTypes[3]);
     result.push_back(sType);
   }
+  MemRefType outType =
+      MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
   result.push_back(outType);
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
-                                             const Type &elemTypes,
                                              const GenParams &params) {
   MLIRContext *ctx = module.getContext();
   Location loc = module->getLoc();
@@ -2204,7 +2222,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     module->setAttr("mhal.arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
-  getAttentionTypes(argTypes, elemTypes);
+  getAttentionTypes(argTypes, params.types);
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
@@ -2222,18 +2240,17 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   Value scale;
   Value output;
-  if(hasAttnScale){
+  if (hasAttnScale) {
     scale = block->getArgument(3);
     output = block->getArgument(4);
-  }
-  else{
+  } else {
     output = block->getArgument(3);
   }
 
   auto attention = builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, output,
-      transposeQ, transposeK, transposeV, transposeO, archAttr,
-      params.features, /*params=*/nullptr);
+      loc, TypeRange{}, queries, keys, values, scale, output, transposeQ,
+      transposeK, transposeV, transposeO, archAttr, params.features,
+      /*params=*/nullptr);
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
@@ -2248,7 +2265,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   OpBuilder b(ctx);
   Location loc = module->getLoc();
 
-  SmallVector<Type, 3> cpuTypes = params.types;
+  auto cpuTypes = params.types;
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
 
@@ -2317,6 +2334,100 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   }
 
   b.create<func::ReturnOp>(loc);
+  return func;
+}
+
+static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
+                                                     const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  OpBuilder builder(ctx);
+  Location loc = module->getLoc();
+
+  SmallVector<Type, 5> argTypes;
+  getAttentionTypes(argTypes, params.types);
+
+  constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
+  auto func = builder.create<func::FuncOp>(
+      loc, cpuKernName, builder.getFunctionType(argTypes, {}));
+
+  Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+
+  auto getAsTensor = [&builder, &loc](mlir::Value value,
+                                      bool isWritable = false) {
+    constexpr bool isRestrict{true};
+    Value origTensor = builder.create<bufferization::ToTensorOp>(
+        loc, value, isRestrict, isWritable);
+    auto origShape = origTensor.getType().cast<ShapedType>().getShape();
+
+    if (origShape.size() == 2) {
+      std::vector<int64_t> expShape(origShape.size() + 1);
+      std::copy(origShape.begin(), origShape.end(), expShape.begin() + 1);
+      expShape[0] = 1;
+      Value reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, origTensor, expShape);
+      return reshapedTensor;
+    }
+    return origTensor;
+  };
+
+  auto queriesTensor = getAsTensor(block->getArgument(0));
+  ArrayRef<int64_t> qShape =
+      queriesTensor.getType().cast<ShapedType>().getShape();
+  auto keysTensor = getAsTensor(block->getArgument(1));
+  ArrayRef<int64_t> kShape = keysTensor.getType().cast<ShapedType>().getShape();
+  auto valuesTensor = getAsTensor(block->getArgument(2));
+  auto intermediateTensorType = mlir::RankedTensorType::get(
+      {qShape[0], qShape[1], kShape[2]}, params.types[0]);
+
+  Value qkTensor = builder.create<tosa::MatMulOp>(loc, intermediateTensorType,
+                                                  queriesTensor, keysTensor);
+  if (hasAttnScale) {
+    auto scaleTensor = getAsTensor(block->getArgument(3));
+    qkTensor = builder.create<tosa::MulOp>(loc, intermediateTensorType,
+                                           qkTensor, scaleTensor, /*shift=*/0);
+  }
+  // compute type of the reduced tensor
+  auto intermediateTensorShape = intermediateTensorType.getShape();
+  SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
+  std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
+            reducedTensorShape.begin());
+  constexpr int64_t reductionAxis{2};
+  assert(intermediateTensorShape.size() >= reductionAxis);
+  reducedTensorShape[reductionAxis] = 1;
+
+  auto reducedTensorType = mlir::RankedTensorType::get(
+      reducedTensorShape, intermediateTensorType.getElementType());
+
+  auto qkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
+                                                  qkTensor, reductionAxis);
+  auto normilizedQkTensor = builder.create<tosa::SubOp>(
+      loc, intermediateTensorType, qkTensor, qkMaxs);
+  auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
+                                                normilizedQkTensor);
+
+  auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
+                                                    expsTensor, reductionAxis);
+  auto invExpsSums =
+      builder.create<tosa::ReciprocalOp>(loc, reducedTensorType, expsSums);
+  auto softmaxTensor = builder.create<tosa::MulOp>(
+      loc, intermediateTensorType, expsTensor, invExpsSums, /*shift=*/0);
+  auto resultTensor = builder.create<tosa::MatMulOp>(
+      loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
+
+  auto outputTensor = getAsTensor(block->getArguments().back(), true);
+  auto type = outputTensor.getType().cast<mlir::RankedTensorType>();
+  auto memrefType = MemRefType::get(type.getShape(), type.getElementType());
+
+  auto outputMemref =
+      builder.create<bufferization::ToMemrefOp>(loc, memrefType, outputTensor);
+  auto resultMemref =
+      builder.create<bufferization::ToMemrefOp>(loc, memrefType, resultTensor);
+
+  builder.create<memref::CopyOp>(loc, resultMemref, outputMemref);
+
+  builder.create<func::ReturnOp>(loc);
+  module.push_back(func);
   return func;
 }
 
@@ -2461,7 +2572,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   bool isTestAndValSameType =
       (testElemType.isIntOrIndex() || testElemType.isF32());
 
-  Value testResult, valResult; // Values passed to the verify function
+  Value testResult, valResult;       // Values passed to the verify function
   Value testResultNew, valResultNew; // Values used for type conversion
   if (!isTestAndValSameType) {
     // When gpu kernel output data type = f16 | bf16, type conversions
@@ -2744,6 +2855,14 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto cpuGemmFunc = createCpuGemmKernelWithMlir(module, genParams);
       b.create<func::CallOp>(loc, cpuGemmFunc, valVars);
+    } else if (genParams.operation == rock::KernelType::Attention) {
+      if (validationType == "cpp") {
+        llvm::errs() << "External attention validator is not available\n";
+        exit(1);
+      }
+      auto cpuAttentionFunc =
+          createCpuAttentionKernelWithMlir(module, genParams);
+      b.create<func::CallOp>(loc, cpuAttentionFunc, valVars);
     } else {
       llvm::errs()
           << "Validation generation requested, but no operation specified\n";
@@ -2852,10 +2971,9 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      if(hasAttnScale){
+      if (hasAttnScale) {
         outIndices.push_back(4);
-      }
-      else{
+      } else {
         outIndices.push_back(3);
       }
     }
@@ -3156,8 +3274,12 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       // Note: In the current implementaiton, all operands have the same type.
       // This behaviour enforced by `-t`. See, detectMissingArguments()
       auto elemTypes = typeFromString(inputDataType.getValue(), context);
+      constexpr size_t maxNumArgs{5};
+      for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
+        genParams.types.push_back(elemTypes);
+      }
       genParams.convConfig = std::nullopt;
-      (void)createGpuAttentionKernel(module, elemTypes, genParams);
+      (void)createGpuAttentionKernel(module, genParams);
     } else {
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
@@ -3231,12 +3353,14 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
+  mlir::registerPassManagerCLOptions();
   MLIRContext context(registry);
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
-                      linalg::LinalgDialect>();
+                      linalg::LinalgDialect,
+                      bufferization::BufferizationDialect, tosa::TosaDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
@@ -3335,6 +3459,19 @@ int main(int argc, char **argv) {
     if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
+    }
+
+    if (applyBufferizationPipeline.getValue()) {
+      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+
+      rock::BufferizeOptions bufferizeOptions;
+      bufferizeOptions.disableRock = true;
+      rock::buildBufferizePipeline(pm, bufferizeOptions);
+
+      if (failed(pm.run(module))) {
+        llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
+        exit(1);
+      }
     }
   }
 

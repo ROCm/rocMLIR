@@ -22,6 +22,22 @@
 
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 
+#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MHAL/Transforms/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
+#include "mlir/Dialect/Tosa/Transforms/Passes.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
+#include "mlir/Transforms/Passes.h"
+
+#ifdef MHAL_ENABLE_HOST_RUNNER
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
@@ -34,25 +50,12 @@
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
-#include "mlir/Dialect/Affine/Passes.h"
-#include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
-#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
-#include "mlir/Dialect/Linalg/Passes.h"
-#include "mlir/Dialect/MHAL/Transforms/Passes.h"
-#include "mlir/Dialect/MemRef/Transforms/Passes.h"
-#include "mlir/Dialect/SCF/Transforms/Passes.h"
-#include "mlir/Dialect/Tosa/Transforms/Passes.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassRegistry.h"
-#include "mlir/Transforms/Passes.h"
 
 #include "llvm/Support/TargetSelect.h"
+#endif
 
 using namespace mlir;
 
@@ -104,6 +107,7 @@ void mhal::buildPackagePipeline(OpPassManager &pm,
 // to generate X86 binary and runs it.
 void mhal::buildRunnerPipeline(OpPassManager &pm,
                                const mhal::RunnerOptions &options) {
+#ifdef MHAL_ENABLE_HOST_RUNNER
   // Select targets
   MHALSelectTargetsPassOptions targetOpts;
   targetOpts.targetTypes = options.targetTypes;
@@ -147,6 +151,10 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
+#else
+  (void)pm;
+  (void)options;
+#endif
 }
 
 //===----------------------------------------------------------------------===//

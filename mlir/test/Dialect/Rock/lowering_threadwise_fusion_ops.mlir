@@ -48,7 +48,7 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
   // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.buffer_load [[source]][[[args]]] if [[valid]]
+  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][[[args]]] if [[valid]]
   // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
 
   %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
@@ -73,7 +73,7 @@ func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest
   // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
   // CHECK-SAME: bounds [1, 1, 1, 32]
   // CHECK-SAME: strides [1, 1, 1, 2]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.buffer_load [[source]][[[args]]] if [[valid]]
+  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][[[args]]] if [[valid]]
   // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
 
   %view = rock.transform %source by #transform_map3 : memref<3x2x64x30xf32> to memref<3x2x64x32xf32>
@@ -99,8 +99,7 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
   // CHECK-SAME: ({{%.*}}, [[valid:%.+]]) = validity
   // CHECK-SAME: bounds [1, 1, 32]
   // CHECK-SAME: strides [1, 1, 2]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.in_bounds_load [[source]][[[i]]]
-  // CHECK-NEXT: rock.buffer_store set [[tmp]] -> [[dest]][[[args]]] if [[valid]]
+  // CHECK-NEXT: rock.global_store set [[source]][[[i]]] -> [[dest]][[[args]]] if [[valid]]
 
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   %bid = rock.workgroup_id : index
@@ -124,8 +123,7 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
   // CHECK-SAME: ({{%.*}}, [[valid:%.+]]) = validity
   // CHECK-SAME: bounds [1, 1, 1, 32]
   // CHECK-SAME: strides [1, 1, 1, 2]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.in_bounds_load [[source]][[[i]]]
-  // CHECK-NEXT: rock.buffer_store set [[tmp]] -> [[dest]][[[args]]] if [[valid]]
+  // CHECK-NEXT: rock.global_store set [[source]][[[i]]] -> [[dest]][[[args]]] if [[valid]]
 
   %view = rock.transform %dest by #transform_map3 : memref<3x2x64x30xf32> to memref<3x2x64x32xf32>
   %extra_idx = arith.constant 2 : index
