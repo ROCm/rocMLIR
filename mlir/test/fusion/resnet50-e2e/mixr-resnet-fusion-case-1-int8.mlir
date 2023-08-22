@@ -3,9 +3,9 @@
 // CLONE: [1 1 1]
 
 module {
-  func.func @test(%arg0: tensor<1x128x1x1xi32>, %arg1: tensor<1x128x56x56xi8>, %arg2: tensor<128x128x3x3xi8>) -> tensor<1x128x28x28xi32> {
-    %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x128x56x56xi8>, tensor<128x128x3x3xi8>) -> tensor<1x128x28x28xi32>
-    %2 = migraphx.add(%1, %arg0) : (tensor<1x128x28x28xi32>, tensor<1x128x1x1xi32>) -> tensor<1x128x28x28xi32>
-    return %2 : tensor<1x128x28x28xi32>
+  func.func @test(%arg0: !migraphx.shaped<1x128x1x1xi32, 128x1x1x1>, %arg1: !migraphx.shaped<1x128x56x56xi8, 401408x3136x56x1>, %arg2: !migraphx.shaped<128x128x3x3xi8, 1152x9x3x1>) -> !migraphx.shaped<1x128x28x28xi32, 100352x784x28x1> {
+    %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : (!migraphx.shaped<1x128x56x56xi8, 401408x3136x56x1>, !migraphx.shaped<128x128x3x3xi8, 1152x9x3x1>) -> !migraphx.shaped<1x128x28x28xi32, 100352x784x28x1>
+    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<1x128x28x28xi32, 100352x784x28x1>, !migraphx.shaped<1x128x1x1xi32, 128x1x1x1> -> !migraphx.shaped<1x128x28x28xi32, 100352x784x28x1>
+    return %2 : !migraphx.shaped<1x128x28x28xi32, 100352x784x28x1>
   }
 }

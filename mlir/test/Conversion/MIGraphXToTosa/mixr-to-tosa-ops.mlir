@@ -5,27 +5,27 @@ module  {
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.cast
   // CHECK: tosa.mul
-  func.func @dequantize_scale(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
-    %1 = "migraphx.dequantizelinear"(%arg, %scale) : (tensor<1x112x112x64xi32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
-    return %1 : tensor<1x112x112x64xf32>
+  func.func @dequantize_scale(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale : !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1> -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @dequantize_scale_f16
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.cast{{.*}}f16
   // CHECK: tosa.mul
-  func.func @dequantize_scale_f16(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf16>) -> tensor<1x112x112x64xf16> attributes {kernel = "mixr"} {
-    %1 = "migraphx.dequantizelinear"(%arg, %scale) : (tensor<1x112x112x64xi32>, tensor<64xf16>) -> tensor<1x112x112x64xf16>
-    return %1 : tensor<1x112x112x64xf16>
+  func.func @dequantize_scale_f16(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 =  migraphx.dequantizelinear %arg, %scale : !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, !migraphx.shaped<64xf16, 1> -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @dequantize_scale_bias
   // CHECK: tosa.sub
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_scale_bias(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
-    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi32>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xf32>
-    return %1 : tensor<1x112x112x64xf32>
+  func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1>, !migraphx.shaped<64xi32, 1> -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @dequantize_wide_bias
@@ -33,9 +33,9 @@ module  {
   // CHECK: tosa.sub{{.*}}i32
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_bias(%arg: tensor<1x112x112x64xi8>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
-    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi8>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xf32>
-    return %1 : tensor<1x112x112x64xf32>
+  func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1>, !migraphx.shaped<64xi32, 1> -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @dequantize_wide_input
@@ -43,9 +43,9 @@ module  {
   // CHECK: tosa.sub{{.*}}i32
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_input(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>, %bias: tensor<64xi8>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
-    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi32>, tensor<64xf32>, tensor<64xi8>) -> tensor<1x112x112x64xf32>
-    return %1 : tensor<1x112x112x64xf32>
+  func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1>, !migraphx.shaped<64xi8, 1> -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @quantize_scale
@@ -53,9 +53,9 @@ module  {
   // CHECK: tosa.mul
   // CHECK: tosa.cast{{.*}}i8
   // CHECK-NOT: tosa.add
-  func.func @quantize_scale(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %1 = "migraphx.quantizelinear"(%arg, %scale) : (tensor<1x112x112x64xf32>, tensor<64xf32>) -> tensor<1x112x112x64xi8>
-    return %1 : tensor<1x112x112x64xi8>
+  func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1> -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
 }
 
   // CHECK-LABEL: func @quantize_scale_bias
@@ -68,9 +68,9 @@ module  {
   // CHECK-SAME: max_int = 127
   // CHECK-SAME: min_int = -128
   // CHECK: tosa.cast{{.*}}i8
-  func.func @quantize_scale_bias(%arg: tensor<1x112x112x64xf32>, %scale: tensor<64xf32>, %bias: tensor<64xi8>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf32>, tensor<64xf32>, tensor<64xi8>) -> tensor<1x112x112x64xi8>
-    return %1 : tensor<1x112x112x64xi8>
+  func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1>, !migraphx.shaped<64xi8, 1> -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @quantize_scale_bias_f16
@@ -81,9 +81,9 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @quantize_scale_bias_f16(%arg: tensor<1x112x112x64xf16>, %scale: tensor<64xf16>, %bias: tensor<64xi8>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf16>, tensor<64xf16>, tensor<64xi8>) -> tensor<1x112x112x64xi8>
-    return %1 : tensor<1x112x112x64xi8>
+  func.func @quantize_scale_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, !migraphx.shaped<64xf16, 1>, !migraphx.shaped<64xi8, 1> -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @quantize_scale_i32_bias_f16
@@ -93,9 +93,9 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @quantize_scale_i32_bias_f16(%arg: tensor<1x112x112x64xf16>, %scale: tensor<64xf16>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xi8> attributes {kernel = "mixr"} {
-    %1 = "migraphx.quantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xf16>, tensor<64xf16>, tensor<64xi32>) -> tensor<1x112x112x64xi8>
-    return %1 : tensor<1x112x112x64xi8>
+  func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, !migraphx.shaped<64xf16, 1>, !migraphx.shaped<64xi32, 1> -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @conv_with_quant
@@ -110,120 +110,120 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @conv_with_quant(%arg1: tensor<1x3x224x224xi8>, %arg2: tensor<64x3x7x7xi8>, %scale: tensor<1x64x1x1xf32>, %bias: tensor<1x64x1x1xi32>, %bias2: tensor<1x64x1x1xi8>) -> tensor<1x64x112x112xi8> attributes {kernel = "mixr"} {
-    %1 = migraphx.quant_convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xi8>, tensor<64x3x7x7xi8>) -> tensor<1x64x112x112xi32>
-    %2 = "migraphx.dequantizelinear"(%1, %scale, %bias) : (tensor<1x64x112x112xi32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xf32>
-    %3 = "migraphx.quantizelinear"(%2, %scale, %bias2) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>, tensor<1x64x1x1xi8>) -> tensor<1x64x112x112xi8>
-    return %3 : tensor<1x64x112x112xi8>
+  func.func @conv_with_quant(%arg1: !migraphx.shaped<1x3x224x224xi8, 150528x50176x224x1>, %arg2: !migraphx.shaped<64x3x7x7xi8, 147x49x7x1>, %scale: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %bias: !migraphx.shaped<1x64x1x1xi32, 64x1x1x1>, %bias2: !migraphx.shaped<1x64x1x1xi8, 64x1x1x1>) -> !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quant_convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : !migraphx.shaped<1x3x224x224xi8, 150528x50176x224x1>, !migraphx.shaped<64x3x7x7xi8, 147x49x7x1> -> !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>
+    %2 = migraphx.dequantizelinear %1, %scale, %bias : !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>, !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, !migraphx.shaped<1x64x1x1xi32, 64x1x1x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %3 = migraphx.quantizelinear %2, %scale, %bias2 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>, !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, !migraphx.shaped<1x64x1x1xi8, 64x1x1x1> -> !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>
+    return %3 : !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>
   }
 
   // CHECK-LABEL: func.func @matmul
   // CHECK-NOT: tosa.reshape
   // CHECK: tosa.matmul
   // CHECK-NOT: tosa.reshape
-  func.func @matmul(%arg0: tensor<2x256x384xf32>, %arg1: tensor<2x384x768xf32>) -> tensor<2x256x768xf32> {
-    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x256x384xf32>, tensor<2x384x768xf32>) -> tensor<2x256x768xf32>
-     return %0 : tensor<2x256x768xf32>
+  func.func @matmul(%arg0: !migraphx.shaped<2x256x384xf32, 98304x384x1>, %arg1: !migraphx.shaped<2x384x768xf32, 294912x768x1>) -> !migraphx.shaped<2x256x768xf32, 196608x768x1> {
+    %0 = migraphx.dot %arg0, %arg1 : !migraphx.shaped<2x256x384xf32, 98304x384x1>, !migraphx.shaped<2x384x768xf32, 294912x768x1> -> !migraphx.shaped<2x256x768xf32, 196608x768x1>
+     return %0 : !migraphx.shaped<2x256x768xf32, 196608x768x1>
   }
 
   // CHECK-LABEL: func.func @quant_matmul
   // CHECK: tosa.matmul
-  func.func @quant_matmul(%arg0: tensor<2x256x384xi8>, %arg1: tensor<2x384x768xi8>) -> tensor<2x256x768xi32> {
-    %0 = migraphx.quant_dot(%arg0, %arg1) : (tensor<2x256x384xi8>, tensor<2x384x768xi8>) -> tensor<2x256x768xi32>
-     return %0 : tensor<2x256x768xi32>
+  func.func @quant_matmul(%arg0: !migraphx.shaped<2x256x384xi8, 98304x384x1>, %arg1: !migraphx.shaped<2x384x768xi8, 294912x768x1>) -> !migraphx.shaped<2x256x768xi32, 196608x768x1> {
+    %0 = migraphx.quant_dot %arg0, %arg1 : !migraphx.shaped<2x256x384xi8, 98304x384x1>, !migraphx.shaped<2x384x768xi8, 294912x768x1> -> !migraphx.shaped<2x256x768xi32, 196608x768x1>
+     return %0 : !migraphx.shaped<2x256x768xi32, 196608x768x1>
   }
 
   // CHECK-LABEL: func.func @matmul_larger_batch
   // CHECK: tosa.matmul
-  func.func @matmul_larger_batch(%arg0: tensor<2x16x256x384xf32>, %arg1: tensor<2x16x384x768xf32>) -> tensor<2x16x256x768xf32> {
-    %0 = migraphx.dot(%arg0, %arg1) : (tensor<2x16x256x384xf32>, tensor<2x16x384x768xf32>) -> tensor<2x16x256x768xf32>
-     return %0 : tensor<2x16x256x768xf32>
+  func.func @matmul_larger_batch(%arg0: !migraphx.shaped<2x16x256x384xf32, 1572864x98304x384x1>, %arg1: !migraphx.shaped<2x16x384x768xf32, 4718592x294912x768x1>) -> !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1> {
+    %0 = migraphx.dot %arg0, %arg1 : !migraphx.shaped<2x16x256x384xf32, 1572864x98304x384x1>, !migraphx.shaped<2x16x384x768xf32, 4718592x294912x768x1> -> !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1>
+     return %0 : !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1>
   }
 
   // CHECK-LABEL: func.func @matmul_rank2
   // CHECK: tosa.matmul
-  func.func @matmul_rank2(%arg0: tensor<32x72xf32>, %arg1: tensor<72x64xf32>) -> tensor<32x64xf32> {
-    %0 = migraphx.dot(%arg0, %arg1) : (tensor<32x72xf32>, tensor<72x64xf32>) -> tensor<32x64xf32>
-     return %0 : tensor<32x64xf32>
+  func.func @matmul_rank2(%arg0: !migraphx.shaped<32x72xf32, 72x1>, %arg1: !migraphx.shaped<72x64xf32, 64x1>) -> !migraphx.shaped<32x64xf32, 64x1> {
+    %0 = migraphx.dot %arg0, %arg1 : !migraphx.shaped<32x72xf32, 72x1>, !migraphx.shaped<72x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
+     return %0 : !migraphx.shaped<32x64xf32, 64x1>
   }
 
   // CHECK-LABEL: func.func @matmul_broadcast
-  func.func @matmul_broadcast(%arg0: tensor<64x64x2304xf16>, %arg1: tensor<64x64x768xf16>, %arg2: tensor<1x768x2304xf16>) -> tensor<64x64x2304xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 768, 2304]} : (tensor<1x768x2304xf16>) -> tensor<64x768x2304xf16>
-    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<64x768x2304xf16>
+  func.func @matmul_broadcast(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 768, 2304]} : !migraphx.shaped<1x768x2304xf16, 1769472x2304x1> -> !migraphx.shaped<64x768x2304xf16, 1769472x2304x1>
+    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
-    %1 = migraphx.dot(%arg1, %0) : (tensor<64x64x768xf16>, tensor<64x768x2304xf16>) -> tensor<64x64x2304xf16>
+    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<64x64x768xf16, 49152x768x1>, !migraphx.shaped<64x768x2304xf16, 1769472x2304x1> -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%arg1, %[[ADD]]
-    %2 = migraphx.add(%1, %arg0) : (tensor<64x64x2304xf16>, tensor<64x64x2304xf16>) -> tensor<64x64x2304xf16>
-    return %2 : tensor<64x64x2304xf16>
+    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, !migraphx.shaped<64x64x2304xf16, 147456x2304x1> -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
+    return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
   }
 
   // CHECK-LABEL: func.func @matmul_broadcast_R5
-  func.func @matmul_broadcast_R5(%arg0: tensor<2x4x8x64x2304xf16>, %arg1: tensor<2x4x8x64x768xf16>, %arg2: tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x64x2304xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : (tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x768x2304xf16>
+  func.func @matmul_broadcast_R5(%arg0: !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, %arg1: !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, %arg2: !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1>) -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1> -> !migraphx.shaped<2x4x8x768x2304xf16, 56623104x14155776x1769472x2304x1>
     // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) <{new_shape = array<i64: 64, 64, 768>}>
-    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>
+    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>}> : () -> tensor<2x4x8x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
     // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%[[ADD]]) <{new_shape = array<i64: 64, 768, 2304>}>
-    %1 = migraphx.dot(%arg1, %0) : (tensor<2x4x8x64x768xf16>, tensor<2x4x8x768x2304xf16>) -> tensor<2x4x8x64x2304xf16>
+    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, !migraphx.shaped<2x4x8x768x2304xf16, 56623104x14155776x1769472x2304x1> -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) <{new_shape = array<i64: 2, 4, 8, 64, 2304>}>
-    %2 = migraphx.add(%1, %arg0) : (tensor<2x4x8x64x2304xf16>, tensor<2x4x8x64x2304xf16>) -> tensor<2x4x8x64x2304xf16>
-    return %2 : tensor<2x4x8x64x2304xf16>
+    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
+    return %2 : !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
   }
 
 
   // broadcast ops will be lowered as implicit broadcast in tosa, passes if they're converted and legalize tosa.
   // CHECK-LABEL: func @func_mbcast
-  func.func @func_mbcast(%arg0: tensor<1x64x1x1xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {kernel = "mixr"} {
-    %0 = migraphx.multibroadcast(%arg0) {out_lens = [1, 64, 112, 112]} : (tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
-    %1 = migraphx.convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
-    %2 = migraphx.add(%1, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
-    %3 = migraphx.relu(%2) : (tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
-    return %3 : tensor<1x64x112x112xf32>
+  func.func @func_mbcast(%arg0: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %arg1: !migraphx.shaped<1x3x224x224xf32, 150528x50176x224x1>, %arg2: !migraphx.shaped<64x3x7x7xf32, 147x49x7x1>) -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> attributes {kernel = "mixr"} {
+    %0 = migraphx.multibroadcast %arg0 {out_lens = [1, 64, 112, 112]} : !migraphx.shaped<1x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : !migraphx.shaped<1x3x224x224xf32, 150528x50176x224x1>, !migraphx.shaped<64x3x7x7xf32, 147x49x7x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %2 = migraphx.add %1, %0 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>, !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %3 = migraphx.relu %2 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    return %3 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
   }
 
   // CHECK-LABEL: func.func @clip_i32
-  func.func @clip_i32(%arg0: tensor<64x64xi32>, %arg1: tensor<64x64xi32>, %arg2: tensor<64x64xi32>) -> tensor<64x64xi32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @clip_i32(%arg0: !migraphx.shaped<64x64xi32, 64x1>, %arg1: !migraphx.shaped<64x64xi32, 64x1>, %arg2: !migraphx.shaped<64x64xi32, 64x1>) -> !migraphx.shaped<64x64xi32, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %arg1)
     // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %arg2)
     // CHECK: return %[[MIN]]
-    %0 = migraphx.clip(%arg0, %arg1, %arg2) : (tensor<64x64xi32>, tensor<64x64xi32>, tensor<64x64xi32>) -> tensor<64x64xi32>
-    return %0 : tensor<64x64xi32>
+    %0 = migraphx.clip %arg0, %arg1, %arg2 : !migraphx.shaped<64x64xi32, 64x1>, !migraphx.shaped<64x64xi32, 64x1>, !migraphx.shaped<64x64xi32, 64x1> -> !migraphx.shaped<64x64xi32, 64x1>
+    return %0 : !migraphx.shaped<64x64xi32, 64x1>
   }
 
   // CHECK-LABEL: func.func @clip_broadcast
-  func.func @clip_broadcast(%arg0: tensor<64x64xf16>, %arg1: tensor<1x64xf16>, %arg2: tensor<1xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<64x64xf16>
+  func.func @clip_broadcast(%arg0: !migraphx.shaped<64x64xf16, 64x1>, %arg1: !migraphx.shaped<1x64xf16, 64x1>, %arg2: !migraphx.shaped<1xf16, 1>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x64xf16>}> : () -> tensor<64x64xf16>
     // CHECK-DAG: %[[ADD0:.*]] = "tosa.add"(%[[CST0]], %arg1
     // CHECK-DAG: %[[RESHAPE:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 1>}>
     // CHECK-DAG: %[[ADD1:.*]] = "tosa.add"(%[[CST0]], %[[RESHAPE]])
     // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %[[ADD0]])
     // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %[[ADD1]])
     // CHECK: return %[[MIN]]
-    %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1x64xf16>) -> tensor<64x64xf16>
-    %1 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1xf16>) -> tensor<64x64xf16>
-    %2 = migraphx.clip(%arg0, %0, %1) : (tensor<64x64xf16>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
-    return %2 : tensor<64x64xf16>
+    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
+    %1 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1xf16, 1> -> !migraphx.shaped<64x64xf16, 64x1>
+    %2 = migraphx.clip %arg0, %0, %1 : !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
+    return %2 : !migraphx.shaped<64x64xf16, 64x1>
   }
 
   // CHECK-LABEL: func.func @where
-  func.func @where_f32(%arg0: tensor<64x64xi8>, %arg1: tensor<64x64xf32>, %arg2: tensor<64x64xf32>) -> tensor<64x64xf32> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @where_f32(%arg0: !migraphx.shaped<64x64xi8, 64x1>, %arg1: !migraphx.shaped<64x64xf32, 64x1>, %arg2: !migraphx.shaped<64x64xf32, 64x1>) -> !migraphx.shaped<64x64xf32, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     // CHECK: tosa.cast
     // CHECK: tosa.select
-    %0 = migraphx.where(%arg0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %0 : tensor<64x64xf32>
+    %0 = migraphx.where %arg0, %arg1, %arg2 : !migraphx.shaped<64x64xi8, 64x1>, !migraphx.shaped<64x64xf32, 64x1>, !migraphx.shaped<64x64xf32, 64x1> -> !migraphx.shaped<64x64xf32, 64x1>
+    return %0 : !migraphx.shaped<64x64xf32, 64x1>
   }
 
   // CHECK-LABEL: func.func @where_broadcast
-  func.func @where_broadcast(%arg0: tensor<64x1xi8>, %arg1: tensor<64x64xf16>, %arg2: tensor<64x64xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0> : tensor<64x64xi8>
+  func.func @where_broadcast(%arg0: !migraphx.shaped<64x1xi8, 1x1>, %arg1: !migraphx.shaped<64x64xf16, 64x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0> : tensor<64x64xi8>}> : () -> tensor<64x64xi8>
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg0
     // CHECK-DAG: %[[CAST:.*]] = "tosa.cast"(%[[ADD]])
     // CHECK-DAG: "tosa.select"(%[[CAST]], %arg1, %arg2)
-    %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<64x1xi8>) -> tensor<64x64xi8>
-    %1 = migraphx.where(%0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
-    return %1 : tensor<64x64xf16>
+    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<64x1xi8, 1x1> -> !migraphx.shaped<64x64xi8, 64x1>
+    %1 = migraphx.where %0, %arg1, %arg2 : !migraphx.shaped<64x64xi8, 64x1>, !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
+    return %1 : !migraphx.shaped<64x64xf16, 64x1>
   }
 
   // CHECK-LABEL: func.func @func_reduce_mean_f32
@@ -233,9 +233,9 @@ module  {
   // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xf32>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
-  func.func @func_reduce_mean_f32(%arg0: tensor<1x64x112x112xf32>) -> tensor<1x64x1x112xf32> {
-    %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xf32>) -> tensor<1x64x1x112xf32>
-    return %0 : tensor<1x64x1x112xf32>
+  func.func @func_reduce_mean_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1>
   }
 
   // CHECK-LABEL: func.func @func_reduce_mean_f16
@@ -245,9 +245,9 @@ module  {
   // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xf16>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
-  func.func @func_reduce_mean_f16(%arg0: tensor<1x64x112x112xf16>) -> tensor<1x64x1x112xf16> {
-    %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xf16>) -> tensor<1x64x1x112xf16>
-    return %0 : tensor<1x64x1x112xf16>
+  func.func @func_reduce_mean_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1> -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1>
   }
 
   // CHECK-LABEL: func.func @func_reduce_mean_i32
@@ -257,9 +257,9 @@ module  {
   // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi32>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
-  func.func @func_reduce_mean_i32(%arg0: tensor<1x64x112x112xi32>) -> tensor<1x64x1x112xi32> {
-    %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xi32>) -> tensor<1x64x1x112xi32>
-    return %0 : tensor<1x64x1x112xi32>
+  func.func @func_reduce_mean_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1> -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1>
   }
 
   // CHECK-LABEL: func.func @func_reduce_mean_i16
@@ -269,9 +269,9 @@ module  {
   // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi16>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
-  func.func @func_reduce_mean_i16(%arg0: tensor<1x64x112x112xi16>) -> tensor<1x64x1x112xi16> {
-    %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xi16>) -> tensor<1x64x1x112xi16>
-    return %0 : tensor<1x64x1x112xi16>
+  func.func @func_reduce_mean_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1> -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1>
   }
 
   // CHECK-LABEL: func.func @func_reduce_mean_i8
@@ -281,32 +281,32 @@ module  {
   // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
-  func.func @func_reduce_mean_i8(%arg0: tensor<1x64x112x112xi8>) -> tensor<1x64x1x112xi8> {
-    %0 = "migraphx.reduce_mean"(%arg0) {axes = [2 : i64]} : (tensor<1x64x112x112xi8>) -> tensor<1x64x1x112xi8>
-    return %0 : tensor<1x64x1x112xi8>
+  func.func @func_reduce_mean_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1> -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
   }
 
   // CHECK-LABEL: func.func @func_dot_mul
   // CHECK: tosa.matmul
   // CHECK: tosa.mul
-  func.func @func_dot_mul(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<1x5x3xf32>) -> tensor<1x5x3xf32> attributes{kernel, arch = ""} {
-    %0 = migraphx.dot(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
-    %2 = "migraphx.mul"(%0, %arg2) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
-    return %2 : tensor<1x5x3xf32>
+  func.func @func_dot_mul(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf32, 15x3x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.dot %arg0, %arg1 : !migraphx.shaped<1x5x4xf32, 20x4x1>, !migraphx.shaped<1x4x3xf32, 12x3x1> -> !migraphx.shaped<1x5x3xf32, 15x3x1>
+    %2 = migraphx.mul %0, %arg2 {} : !migraphx.shaped<1x5x3xf32, 15x3x1>, !migraphx.shaped<1x5x3xf32, 15x3x1> -> !migraphx.shaped<1x5x3xf32, 15x3x1>
+    return %2 : !migraphx.shaped<1x5x3xf32, 15x3x1>
   }
 
   // CHECK-LABEL: func.func @func_slice1
   // CHECK: tosa.slice
-  func.func @func_slice1(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.slice"(%arg0) {axes = [1], ends = [12], starts = [0]} : (tensor<1x36x384x64xf32>) -> tensor<1x12x384x64xf32>
-    return %0 : tensor<1x12x384x64xf32>
+  func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.slice %arg0 {axes = [1], ends = [12], starts = [0]} : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
+    return %0 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_slice2
   // CHECK: tosa.slice
-  func.func @func_slice2(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x12x100x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.slice"(%arg0) {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : (tensor<1x36x384x64xf32>) -> tensor<1x12x100x64xf32>
-    return %0 : tensor<1x12x100x64xf32>
+  func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
+    return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
   }
 }
 
@@ -317,147 +317,147 @@ module  {
 module {
   // CHECK-LABEL: func.func @func_abs
   // CHECK: tosa.abs
-  func.func @func_abs(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.abs"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_abs(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.abs %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_ceil
   // CHECK: tosa.ceil
-  func.func @func_ceil(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.ceil"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_ceil(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.ceil %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_convert
   // CHECK: tosa.cast
-  func.func @func_convert(%arg0: tensor<16xf16>) -> tensor<16xf32> {
-    %0 = "migraphx.convert"(%arg0) : (tensor<16xf16>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_convert(%arg0: !migraphx.shaped<16xf16, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.convert %arg0 : !migraphx.shaped<16xf16, 1> to !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_div_f32
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
-  func.func @func_div_f32(%arg0: tensor<1x36x384x64xf32>, %arg1: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.div"(%arg0, %arg1) : (tensor<1x36x384x64xf32>, tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
-    return %0 : tensor<1x36x384x64xf32>
+  func.func @func_div_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.div %arg0, %arg1 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>, !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_div_f16
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
-  func.func @func_div_f16(%arg0: tensor<1x36x384x64xf16>, %arg1: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.div"(%arg0, %arg1) : (tensor<1x36x384x64xf16>, tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
-    return %0 : tensor<1x36x384x64xf16>
+  func.func @func_div_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.div %arg0, %arg1 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>, !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_div_i32
   // CHECK: tosa.div
-  func.func @func_div_i32(%arg0: tensor<1x36x384x64xi32>, %arg1: tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.div"(%arg0, %arg1) : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
-    return %0 : tensor<1x36x384x64xi32>
+  func.func @func_div_i32(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.div %arg0, %arg1 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>, !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_erf_f32
   // CHECK: tosa.erf
-  func.func @func_erf_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.erf"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
-    return %0 : tensor<1x36x384x64xf32>
+  func.func @func_erf_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.erf %arg0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_erf_f16
   // CHECK: tosa.erf
-  func.func @func_erf_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.erf"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
-    return %0 : tensor<1x36x384x64xf16>
+  func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.erf %arg0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_exp_f32
   // CHECK: tosa.exp
-  func.func @func_exp_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.exp"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
-    return %0 : tensor<1x36x384x64xf32>
+  func.func @func_exp_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.exp %arg0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_exp_f16
   // CHECK: tosa.exp
-  func.func @func_exp_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.exp"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
-    return %0 : tensor<1x36x384x64xf16>
+  func.func @func_exp_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.exp %arg0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_floor
   // CHECK: tosa.floor
-  func.func @func_floor(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.floor"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_floor(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.floor %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_log_f32
   // CHECK: tosa.log
-  func.func @func_log_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.log"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
-    return %0 : tensor<1x36x384x64xf32>
+  func.func @func_log_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.log %arg0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_log_f16
   // CHECK: tosa.log
-  func.func @func_log_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.log"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
-    return %0 : tensor<1x36x384x64xf16>
+  func.func @func_log_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.log %arg0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_neg_f32
   // CHECK: tosa.negate
-  func.func @func_neg_f32(%arg0: tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32> attributes{kernel, arch = ""} {
-    %0 = "migraphx.neg"(%arg0) : (tensor<1x36x384x64xf32>) -> tensor<1x36x384x64xf32>
-    return %0 : tensor<1x36x384x64xf32>
+  func.func @func_neg_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.neg %arg0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_neg_f16
   // CHECK: tosa.negate
-  func.func @func_neg_f16(%arg0: tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.neg"(%arg0) : (tensor<1x36x384x64xf16>) -> tensor<1x36x384x64xf16>
-    return %0 : tensor<1x36x384x64xf16>
+  func.func @func_neg_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.neg %arg0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
   }
 
   // CHECK-LABEL: func.func @func_power
   // CHECK: tosa.pow
-  func.func @func_power(%arg0: tensor<16xf32>, %arg1: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.pow"(%arg0, %arg1) : (tensor<16xf32>, tensor<16xf32>) -> tensor<16xf32>
-    return %0 : tensor<16xf32>
+  func.func @func_power(%arg0: !migraphx.shaped<16xf32, 1>, %arg1: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.pow %arg0, %arg1 : !migraphx.shaped<16xf32, 1>, !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+    return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_recip
   // CHECK: tosa.recip
-  func.func @func_recip(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.recip"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_recip(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.recip %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_rsqrt
   // CHECK: tosa.rsqrt
-  func.func @func_rsqrt(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.rsqrt"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_rsqrt(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.rsqrt %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_sigmoid
   // CHECK: tosa.sigmoid
-  func.func @func_sigmoid(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.sigmoid"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_sigmoid(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.sigmoid %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
 
   // CHECK-LABEL: func.func @func_rsqrt_opt
   // CHECK: tosa.rsqrt
   // CHECK-NOT: tosa.reciprocal
-  func.func @func_rsqrt_opt(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.sqrt"(%arg0) : (tensor<16xf32>) -> tensor<16xf32>
-    %1 = "migraphx.recip"(%0) : (tensor<16xf32>) -> tensor<16xf32>
-     return %1 : tensor<16xf32>
+  func.func @func_rsqrt_opt(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.sqrt %arg0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+    %1 = migraphx.recip %0 : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %1 : !migraphx.shaped<16xf32, 1>
   }
 }
 
@@ -472,9 +472,9 @@ module {
   // CHECK-DAG: [[REDUCE_SUM:%[a-z0-9]+]] = "tosa.reduce_sum"([[EXP]])
   // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = "tosa.reciprocal"([[REDUCE_SUM]])
   // CHECK-DAG: "tosa.mul"([[EXP]], [[RECIPROCAL]])
-  func.func @func_softmax_1d(%arg0: tensor<16xf32>) -> tensor<16xf32> {
-    %0 = "migraphx.softmax"(%arg0) {axis = 0 : i64} : (tensor<16xf32>) -> tensor<16xf32>
-     return %0 : tensor<16xf32>
+  func.func @func_softmax_1d(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : !migraphx.shaped<16xf32, 1> -> !migraphx.shaped<16xf32, 1>
+     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
   // CHECK-LABEL: func.func @func_softmax_4d
@@ -484,8 +484,8 @@ module {
   // CHECK-DAG: [[REDUCE_SUM:%[a-z0-9]+]] = "tosa.reduce_sum"([[EXP]])
   // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = "tosa.reciprocal"([[REDUCE_SUM]])
   // CHECK-DAG: "tosa.mul"([[EXP]], [[RECIPROCAL]])
-  func.func @func_softmax_4d(%arg0: tensor<16x16x16x16xf32>) -> tensor<16x16x16x16xf32> {
-    %0 = "migraphx.softmax"(%arg0) {axis = 1 : i64} : (tensor<16x16x16x16xf32>) -> tensor<16x16x16x16xf32>
-     return %0 : tensor<16x16x16x16xf32>
+  func.func @func_softmax_4d(%arg0: !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>) -> !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1> {
+    %0 = migraphx.softmax %arg0 {axis = 1 : i64} : !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1> -> !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>
+     return %0 : !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>
   }
 }

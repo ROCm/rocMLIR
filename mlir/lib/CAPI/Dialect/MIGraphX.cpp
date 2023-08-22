@@ -13,8 +13,8 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/MIGraphX/Pipeline.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -26,6 +26,22 @@
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
+
+MlirTypeID rocmlirMIXRShapedTypeGetTypeId() {
+  return wrap(mlir::migraphx::MIXRShapedType::getTypeID());
+}
+
+bool rocmlirIsAMIXRShapedType(MlirType type) {
+  return llvm::isa<mlir::migraphx::MIXRShapedType>(unwrap(type));
+}
+
+MlirType rocmlirMIXRShapedTypeGet(intptr_t rank, const int64_t *shape,
+                                  const int64_t *strides,
+                                  MlirType elementType) {
+  return wrap(mlir::migraphx::MIXRShapedType::get(
+      llvm::ArrayRef(shape, static_cast<size_t>(rank)),
+      llvm::ArrayRef(strides, static_cast<size_t>(rank)), unwrap(elementType)));
+}
 
 // Returns the required buffer size if called with null buffer
 // and fill information in the passed ptr when provided.

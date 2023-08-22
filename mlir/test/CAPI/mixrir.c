@@ -31,8 +31,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
-  MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx),
-                                            mlirAttributeGetNull());
+  int64_t inStrides[] = {200704, 3136, 56, 1};
+  MlirType inType =
+      rocmlirMIXRShapedTypeGet(4, inDims, inStrides, mlirF32TypeGet(ctx));
   MlirType funcBodyArgTypes[] = {inType};
   MlirLocation funcBodyLocations[] = {location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
@@ -46,7 +47,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   // Set func attributes
   MlirAttribute funcTypeAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString(
-               "(tensor<1x64x56x56xf32>) -> (tensor<1x64x56x56xf32>)"));
+               "(!migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> "
+               "(!migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>)"));
   MlirAttribute funcNameAttr =
       mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("\"main\""));
   MlirNamedAttribute funcAttrs[] = {
@@ -66,10 +68,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation func = mlirOperationCreate(&funcState);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  //-------------- filter0 = migraphx.constant
+  //-------------- filter0 = migraphx.literal
 
   // Set constant attributes
   int64_t filter0Dims[] = {64, 64, 1, 1};
+  int64_t filter0Strides[] = {64, 1, 1, 1};
   float f32Filter0[4096];
   for (int i = 0; i < 4096; i++) {
     f32Filter0[i] = 1.0f;
@@ -84,10 +87,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       filter0ValueAttr)};
 
   // Set constant op
-  MlirType filter0Type = mlirRankedTensorTypeGet(
-      4, filter0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType filter0Type = rocmlirMIXRShapedTypeGet(
+      4, filter0Dims, filter0Strides, mlirF32TypeGet(ctx));
   MlirOperationState filter0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.constant"), location);
+      mlirStringRefCreateFromCString("migraphx.literal"), location);
   mlirOperationStateAddResults(&filter0State, 1, &filter0Type);
   mlirOperationStateAddAttributes(&filter0State, 1, filter0Attrs);
 
@@ -133,8 +136,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set output shape
   int64_t conv0Dims[] = {1, 64, 56, 56};
-  MlirType conv0Type = mlirRankedTensorTypeGet(
-      4, conv0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  int64_t conv0Strides[] = {200704, 3136, 56, 1};
+  MlirType conv0Type =
+      rocmlirMIXRShapedTypeGet(4, conv0Dims, conv0Strides, mlirF32TypeGet(ctx));
 
   // Set convolution op
   MlirOperationState conv0OpState = mlirOperationStateGet(
@@ -150,6 +154,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set constant attributes
   int64_t bias0Dims[] = {1, 64, 1, 1};
+  int64_t bias0Strides[] = {64, 1, 1, 1};
   float f32Bias[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -164,10 +169,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       bias0ValueAttr)};
 
   // Set constant op
-  MlirType bias0Type = mlirRankedTensorTypeGet(
-      4, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType bias0Type =
+      rocmlirMIXRShapedTypeGet(4, bias0Dims, bias0Strides, mlirF32TypeGet(ctx));
   MlirOperationState bias0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.constant"), location);
+      mlirStringRefCreateFromCString("migraphx.literal"), location);
   mlirOperationStateAddResults(&bias0State, 1, &bias0Type);
   mlirOperationStateAddAttributes(&bias0State, 1, bias0Attrs);
 
@@ -182,8 +187,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set add op
   int64_t add0Dims[] = {1, 64, 56, 56};
-  MlirType add0Type = mlirRankedTensorTypeGet(4, add0Dims, mlirF32TypeGet(ctx),
-                                              mlirAttributeGetNull());
+  int64_t add0Strides[] = {200704, 3136, 56, 1};
+  MlirType add0Type =
+      rocmlirMIXRShapedTypeGet(4, add0Dims, add0Strides, mlirF32TypeGet(ctx));
+
   MlirOperationState add0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.add"), location);
   mlirOperationStateAddResults(&add0State, 1, &add0Type);
@@ -200,8 +207,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set relu op
   int64_t relu0Dims[] = {1, 64, 56, 56};
-  MlirType relu0Type = mlirRankedTensorTypeGet(
-      4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  int64_t relu0Strides[] = {200704, 3136, 56, 1};
+  MlirType relu0Type =
+      rocmlirMIXRShapedTypeGet(4, relu0Dims, relu0Strides, mlirF32TypeGet(ctx));
   MlirOperationState relu0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.relu"), location);
   mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
@@ -224,20 +232,26 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirOperationDump(module);
   // CHECK-LABEL: func @main
 
-  // module  {
-  //  func @main(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {
-  //    %0 = "migraphx.constant"() {shape = [64, 64, 1, 1], type = f32} : () ->
-  //    tensor<64x64x1x1xf32> %1 = "migraphx.convolution"(%arg0, %0) {dilation =
-  //    [1, 1], group = 1 : i64, padding = [0, 0], padding_mode = 0 : i64,
-  //    stride = [1, 1]} : (tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>) ->
-  //    tensor<1x64x56x56xf32> %2 = "migraphx.constant"() {shape = [1, 64, 1,
-  //    1], type = f32} : () -> tensor<1x64x1x1xf32> %3 = "migraphx.add"(%1, %2)
-  //    : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) ->
-  //    tensor<1x64x56x56xf32> %4 = "migraphx.relu"(%3) :
-  //    (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> return %4 :
-  //    tensor<1x64x56x56xf32>
+  //  module {
+  //    func.func @main(%arg0: !migraphx.shaped<1x64x56x56xf32,
+  //    200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+  //    {
+  //      %0 = migraphx.literal(dense<1.000000e+00> : tensor<64x64x1x1xf32>) :
+  //      <64x64x1x1xf32, 64x1x1x1> %1 = migraphx.convolution %arg0, %0
+  //      {dilation = [1, 1], group = 1 : i64, padding = [0, 0], padding_mode =
+  //      0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32,
+  //      200704x3136x56x1>, !migraphx.shaped<64x64x1x1xf32, 64x1x1x1> ->
+  //      !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> %2 =
+  //      migraphx.literal(dense<1.000000e+00> : tensor<1x64x1x1xf32>) :
+  //      <1x64x1x1xf32, 64x1x1x1> %3 = migraphx.add %1, %2 :
+  //      !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>,
+  //      !migraphx.shaped<1x64x1x1xf32, 64x1x1x1> ->
+  //      !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> %4 = migraphx.relu
+  //      %3 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> ->
+  //      !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> return %4 :
+  //      !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+  //    }
   //  }
-  //}
 
   return moduleOp;
 }

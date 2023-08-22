@@ -6,9 +6,9 @@ module {
   // CHECK:  [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
-  func.func @quant_dot(%arg0: tensor<1x5x4xi8>, %arg1: tensor<1x4x3xi8>) -> tensor<1x15xi32> attributes{kernel, arch = ""} {
-    %0 = migraphx.quant_dot(%arg0, %arg1) : (tensor<1x5x4xi8>, tensor<1x4x3xi8>) -> tensor<1x5x3xi32>
-    %1 = migraphx.reshape(%0) {dims = [1:i64, 15:i64]} : (tensor<1x5x3xi32>)-> tensor<1x15xi32>
-    return %1 : tensor<1x15xi32>
+  func.func @quant_dot(%arg0: !migraphx.shaped<1x5x4xi8, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xi8, 12x3x1>) -> !migraphx.shaped<1x15xi32, 15x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.quant_dot %arg0, %arg1 : !migraphx.shaped<1x5x4xi8, 20x4x1>, !migraphx.shaped<1x4x3xi8, 12x3x1> -> !migraphx.shaped<1x5x3xi32, 15x3x1>
+    %1 = migraphx.reshape %0 {dims = [1:i64, 15:i64]} : !migraphx.shaped<1x5x3xi32, 15x3x1> -> !migraphx.shaped<1x15xi32, 15x1>
+    return %1 : !migraphx.shaped<1x15xi32, 15x1>
   }
 }

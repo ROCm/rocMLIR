@@ -4,7 +4,8 @@ add_rocmlir_public_c_api_library(MLIRCAPIMIGraphX
   PARTIAL_SOURCES_INTENDED
   LINK_LIBS PUBLIC
   MLIRCAPIIR
-  MLIRMIGraphX
+  MLIRMIGraphXDialect
+  MLIRMIGraphXTransforms
   MLIRMIGraphXPipeline
   MLIRRockPipeline
 )

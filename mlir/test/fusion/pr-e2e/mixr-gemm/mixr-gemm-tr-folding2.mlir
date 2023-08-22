@@ -2,23 +2,23 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func @mlir_transpose_reshape_dot(%arg0: tensor<1x2x1x3xf32> {func.read_access}, %arg1: tensor<6x6xf32> {func.read_access}) -> (tensor<1x6xf32> {func.write_access}) {
-    %0 = migraphx.transpose(%arg0) {permutation = [0, 2, 1, 3]} : (tensor<1x2x1x3xf32>) -> tensor<1x1x2x3xf32>
-    %1 = migraphx.reshape(%0) {dims = [1, 6]} : (tensor<1x1x2x3xf32>) -> tensor<1x6xf32>
-    %2 = migraphx.dot(%1, %arg1) : (tensor<1x6xf32>, tensor<6x6xf32>) -> tensor<1x6xf32>
-    return %2 : tensor<1x6xf32>
+  func.func @mlir_transpose_reshape_dot(%arg0: !migraphx.shaped<1x2x1x3xf32, 6x3x3x1> {func.read_access}, %arg1: !migraphx.shaped<6x6xf32, 6x1> {func.read_access}) -> (!migraphx.shaped<1x6xf32, 6x1> {func.write_access}) {
+    %0 = migraphx.transpose %arg0 {permutation = [0, 2, 1, 3]} : !migraphx.shaped<1x2x1x3xf32, 6x3x3x1> -> !migraphx.shaped<1x1x2x3xf32, 6x6x3x1>
+    %1 = migraphx.reshape %0 {dims = [1, 6]} : !migraphx.shaped<1x1x2x3xf32, 6x6x3x1> -> !migraphx.shaped<1x6xf32, 6x1>
+    %2 = migraphx.dot %1, %arg1 : !migraphx.shaped<1x6xf32, 6x1>, !migraphx.shaped<6x6xf32, 6x1> -> !migraphx.shaped<1x6xf32, 6x1>
+    return %2 : !migraphx.shaped<1x6xf32, 6x1>
   }
-  func.func @mlir_transpose_reshape_dot_wrapper(%arg0: tensor<1x2x1x3xf32>, %arg1: tensor<6x6xf32>) -> tensor<1x6xf32> {
-    %token, %results = mhal.launch @mlir_transpose_reshape_dot (%arg0, %arg1) : (tensor<1x2x1x3xf32>, tensor<6x6xf32>) -> tensor<1x6xf32>
+  func.func @mlir_transpose_reshape_dot_wrapper(%arg0: !migraphx.shaped<1x2x1x3xf32, 6x3x3x1>, %arg1: !migraphx.shaped<6x6xf32, 6x1>) -> !migraphx.shaped<1x6xf32, 6x1> {
+    %token, %results = mhal.launch @mlir_transpose_reshape_dot (%arg0, %arg1) : (!migraphx.shaped<1x2x1x3xf32, 6x3x3x1>, !migraphx.shaped<6x6xf32, 6x1>) -> !migraphx.shaped<1x6xf32, 6x1>
     mhal.await %token : !mhal.token
-    return %results : tensor<1x6xf32>
+    return %results : !migraphx.shaped<1x6xf32, 6x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func @mlir_transpose_reshape_dot(%arg0: tensor<1x2x1x3xf32> {func.read_access}, %arg1: tensor<6x6xf32> {func.read_access}) -> (tensor<1x6xf32> {func.write_access}) attributes {kernel, original_func = @mlir_transpose_reshape_dot} {
-      %0 = migraphx.transpose(%arg0) {permutation = [0, 2, 1, 3]} : (tensor<1x2x1x3xf32>) -> tensor<1x1x2x3xf32>
-      %1 = migraphx.reshape(%0) {dims = [1, 6]} : (tensor<1x1x2x3xf32>) -> tensor<1x6xf32>
-      %2 = migraphx.dot(%1, %arg1) : (tensor<1x6xf32>, tensor<6x6xf32>) -> tensor<1x6xf32>
-      return %2 : tensor<1x6xf32>
+    func.func @mlir_transpose_reshape_dot(%arg0: !migraphx.shaped<1x2x1x3xf32, 6x3x3x1> {func.read_access}, %arg1: !migraphx.shaped<6x6xf32, 6x1> {func.read_access}) -> (!migraphx.shaped<1x6xf32, 6x1> {func.write_access}) attributes {kernel, original_func = @mlir_transpose_reshape_dot} {
+      %0 = migraphx.transpose %arg0 {permutation = [0, 2, 1, 3]} : !migraphx.shaped<1x2x1x3xf32, 6x3x3x1> -> !migraphx.shaped<1x1x2x3xf32, 6x6x3x1>
+      %1 = migraphx.reshape %0 {dims = [1, 6]} : !migraphx.shaped<1x1x2x3xf32, 6x6x3x1> -> !migraphx.shaped<1x6xf32, 6x1>
+      %2 = migraphx.dot %1, %arg1 : !migraphx.shaped<1x6xf32, 6x1>, !migraphx.shaped<6x6xf32, 6x1> -> !migraphx.shaped<1x6xf32, 6x1>
+      return %2 : !migraphx.shaped<1x6xf32, 6x1>
     }
   }
 }

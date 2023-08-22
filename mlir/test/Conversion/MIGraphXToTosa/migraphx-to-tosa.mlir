@@ -1,22 +1,38 @@
-// RUN: rocmlir-opt --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt -split-input-file --migraphx-to-tosa %s | FileCheck %s
 
 module  {
   // CHECK-LABEL: func.func @ConvBias
-  func.func @ConvBias(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {
-    %0 = "migraphx.constant"() {value = dense<1.000000e+00> : tensor<64x64x1x1xf32>} : () -> tensor<64x64x1x1xf32>
-    %1 = "migraphx.convolution"(%arg0, %0) {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-    %2 = "migraphx.constant"() {value = dense<2.000000e+00> : tensor<1x64x56x56xf32>} : () -> tensor<1x64x56x56xf32>
-    %3 = "migraphx.add"(%1, %2) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
-     return %3 : tensor<1x64x56x56xf32>
+  func.func @ConvBias(%arg0: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
+    %0 = migraphx.literal (dense<1.000000e+00> : tensor<64x64x1x1xf32>) : !migraphx.shaped<64x64x1x1xf32, 64x1x1x1>
+    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<64x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %2 = migraphx.literal (dense<2.000000e+00> : tensor<1x64x56x56xf32>) : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %3 = migraphx.add %1, %2 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+     return %3 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }
   // CHECK-LABEL: func.func @ConvNoBias
-  func.func @ConvNoBias(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {
-    %0 = "migraphx.constant"() {value = dense<3.000000e+00> : tensor<64x64x1x1xf32>} : () -> tensor<64x64x1x1xf32>
-    %1 = "migraphx.convolution"(%arg0, %0) {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-     return %1 : tensor<1x64x56x56xf32>
+  // CHECK-SAME: ([[arg0:%.+]]: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
+  func.func @ConvNoBias(%arg0: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
+    %0 = migraphx.literal (dense<3.000000e+00> : tensor<64x64x1x1xf32>) : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    // CHECK: [[trIn:%.+]] = "tosa.transpose"{{.*}}[[arg0]]{{.*}} : (tensor<1x64x56x56xf32>, tensor<4xi64>) -> tensor<1x56x56x64xf32>
+    // CHECK: [[conv:%.+]] = "tosa.conv2d"{{.*}}[[trIn]]
+    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    // CHECK: [[trOut:%.+]] = "tosa.transpose"{{.*}}[[conv]]
+     return %1 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }
 
 }
 
 // -----
 
+// Note: if we start running constant folding for transposes in migraphx-to-tosa
+// all the transposes should go away
+// CHECK-LABEL: @convNHWC
+// CHECK-SAME: (%{{.*}}: tensor<1x5x5x4xf32>, %{{.*}}: tensor<7x3x3x4xf32>) -> tensor<1x3x3x7xf32>
+func.func @convNHWC(%in: !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, %fil: !migraphx.shaped<7x4x3x3xf32, 36x1x12x4>) -> !migraphx.shaped<1x7x3x3xf32, 63x1x21x7> {
+  // CHECK-4 tosa.transpose
+  // CHECK: tosa.conv2d
+  // CHECK-SAME: (tensor<1x5x5x4xf32>, tensor<7x3x3x4xf32>, tensor<7xf32>) -> tensor<1x3x3x7xf32>
+  // CHECK-2: tosa.transpose
+  %out = migraphx.convolution %in, %fil {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, !migraphx.shaped<7x4x3x3xf32, 36x1x12x4> -> !migraphx.shaped<1x7x3x3xf32, 63x1x21x7>
+  func.return %out : !migraphx.shaped<1x7x3x3xf32, 63x1x21x7>
+}
