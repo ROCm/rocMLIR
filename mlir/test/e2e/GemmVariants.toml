@@ -41,4 +41,8 @@ config = "-g 1 -m 32768 -k 1 -n 32769"
 
 # Large gemm, no padding.
 [[suite.test]]
-config = "-g 1 -m 64 -k 32768 -n 32768"
+config = "-g 1 -m 64 -k 65536 -n 65536"
+# Only test i8 here, f32 is covered by PR tests
+[[suite.test.exclude]]
+name = "data type"
+values = ["f32", "f16", "fp8_fp8", "fp8_bf8", "bf8_fp8", "bf8_bf8"]
