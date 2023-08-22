@@ -256,15 +256,6 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
-static llvm::cl::opt<int64_t>
-    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
-
-static llvm::cl::opt<int64_t>
-    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
-             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
-
 static llvm::cl::opt<bool>
     transposeA("transA",
                llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
@@ -451,6 +442,41 @@ static llvm::cl::opt<bool> emitTuningKey(
     llvm::cl::value_desc(
         "String formatted fields of the problem which is going to be tuned."),
     llvm::cl::init(false));
+
+// Attention related args
+// ----------------------
+
+static llvm::cl::opt<int64_t>
+    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
+                   llvm::cl::value_desc("positive integer"),
+                   llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
+             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<bool>
+    hasAttnScale("with-attn-scale", llvm::cl::desc("Generate an attention kernel that is using a scaling input for the first gemm"), llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeQ("transQ",
+               llvm::cl::desc("whether matrix Q of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeK("transK",
+               llvm::cl::desc("whether matrix K of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeV("transV",
+               llvm::cl::desc("whether matrix V of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeO("transO",
+               llvm::cl::desc("whether matrix O of attention op is Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -2146,20 +2172,22 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               const Type &elemTypes) {
-  SmallVector<int64_t> dims{sequenceLength, headDims};
-  SmallVector<int64_t> transposedDims{headDims, sequenceLength};
-  SmallVector<int64_t> scaleDims{sequenceLength, sequenceLength};
+  SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
+  SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
 
-  MemRefType qType = MemRefType::get(dims, elemTypes),
-             kType = MemRefType::get(transposedDims, elemTypes),
-             vType = MemRefType::get(dims, elemTypes),
-             sType = MemRefType::get(scaleDims, elemTypes),
-             outType = MemRefType::get(dims, elemTypes);
+  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims, elemTypes),
+             kType = MemRefType::get(transposeK ? dims : transposedDims, elemTypes),
+             vType = MemRefType::get(transposeV ? transposedDims : dims, elemTypes),
+             outType = MemRefType::get(transposeO ? transposedDims : dims, elemTypes);
 
   result.push_back(qType);
   result.push_back(kType);
   result.push_back(vType);
-  result.push_back(sType);
+  if(hasAttnScale){
+    SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
+    MemRefType sType = MemRefType::get(scaleDims, elemTypes);
+    result.push_back(sType);
+  }
   result.push_back(outType);
 }
 
@@ -2191,12 +2219,23 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value queries = block->getArgument(0);
   Value keys = block->getArgument(1);
   Value values = block->getArgument(2);
-  Value scale = block->getArgument(3);
-  Value output = block->getArgument(4);
 
-  builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, output, params.features,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr);
+  Value scale;
+  Value output;
+  if(hasAttnScale){
+    scale = block->getArgument(3);
+    output = block->getArgument(4);
+  }
+  else{
+    output = block->getArgument(3);
+  }
+
+  auto attention = builder.create<rock::AttentionOp>(
+      loc, TypeRange{}, queries, keys, values, scale, output,
+      transposeQ, transposeK, transposeV, transposeO, archAttr,
+      params.features, /*params=*/nullptr);
+  if (!params.perfConfig.empty())
+    attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
   builder.create<func::ReturnOp>(loc);
   module.push_back(func);
@@ -2813,7 +2852,12 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      outIndices.push_back(4);
+      if(hasAttnScale){
+        outIndices.push_back(4);
+      }
+      else{
+        outIndices.push_back(3);
+      }
     }
   } else {
     outIndices = root0.outIndices;

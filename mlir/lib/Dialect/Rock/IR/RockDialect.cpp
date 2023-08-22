@@ -1758,22 +1758,35 @@ LogicalResult BlockwiseFillOp::verify() {
 
 LogicalResult AttentionOp::verify() {
   ShapedType qType = getQueries().getType();
+  int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
+  auto [queryM, queryK] = getQTransposed() ? std::tuple{qLastDims[1], qLastDims[0]} : std::tuple{qLastDims[0], qLastDims[1]};
+
   ShapedType kType = getKeys().getType();
+  int64_t kBatchDim = kType.getShape().size() == 3 ? kType.getShape()[0] : 1;
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
+  auto [keyK, keyN] = getKTransposed() ? std::tuple{kLastDims[1], kLastDims[0]} : std::tuple{kLastDims[0], kLastDims[1]};
+
   ShapedType vType = getValues().getType();
+  int64_t vBatchDim = vType.getShape().size() == 3 ? vType.getShape()[0] : 1;
   ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
+  auto [valueK, valueN] = getVTransposed() ? std::tuple{vLastDims[1], vLastDims[0]} : std::tuple{vLastDims[0], vLastDims[1]};
 
-  ShapedType scaleType = getScale().getType();
+  if(qBatchDim != kBatchDim || kBatchDim != vBatchDim){
+    return emitError ("Batch dimensions do not match");
+  }
+  if (queryK != keyK) {
+    return emitError("reduction dimensions of first gemm do not match");
+  }
+  if (keyN != valueK) {
+    return emitError("reduction dimensions of second gemm do not match");
+  }
 
-  if (qLastDims[1] != kLastDims[0]) {
-    return emitError("Q.K requires second dim sizes to match");
-  }
-  if (kLastDims[1] != vLastDims[0]) {
-    return emitError("(Q.K).V requires second dim sizes to match");
-  }
-  if (vType.getRank() != scaleType.getRank()) {
-    return emitError("scale needs to be of same rank to other inputs");
+  if(TypedValue<ShapedType> scale = getScale()){  
+    ShapedType scaleType = scale.getType();
+    if (vType.getRank() != scaleType.getRank()) {
+      return emitError("scale needs to be of same rank to other inputs");
+    }
   }
   return success();
 }
