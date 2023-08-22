@@ -130,6 +130,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                                  options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
   funcPm.addPass(rock::createRockGemmToGridwisePass());
+  funcPm.addPass(rock::createRockAttentionToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
 

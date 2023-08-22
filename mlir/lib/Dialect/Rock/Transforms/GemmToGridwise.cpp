@@ -60,65 +60,6 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
 };
 } // end namespace
 
-/// Normalize the argument into the form requested.
-/// If a group dimension is not present, add one.
-/// If doTranspose is true, meaning the user's transpose requests don't match
-/// what the underlying gridwise gemm expects, transpose the matrix to match,
-/// using firstDim as the name of the first dimension in the new value and
-/// secondDim as the name of the second dimesion.
-static Value normalizeMatrix(Value matrix, ConversionPatternRewriter &b,
-                             Location loc, bool doTranspose, StringRef firstDim,
-                             StringRef secondDim) {
-  auto matrixType = matrix.getType().cast<MemRefType>();
-  bool addGroup = matrixType.getShape().size() != 3;
-  if (!addGroup && !doTranspose)
-    return matrix;
-  SmallVector<StringRef, 3> bottomNames;
-  if (!addGroup)
-    bottomNames.push_back("gemmG");
-  if (doTranspose)
-    bottomNames.append({secondDim, firstDim});
-  else
-    bottomNames.append({firstDim, secondDim});
-  BottomUpTMBuilder normalizer(b, bottomNames, matrixType.getShape(), loc);
-
-  if (addGroup)
-    normalizer.addDim("gemmG", 0, 1);
-  else
-    normalizer.passThrough(normalizer.startName(0));
-
-  normalizer.passThrough({firstDim, secondDim}, {1, 2}, {firstDim, secondDim});
-  TransformMapAttr normalizeAttr = normalizer.get();
-  return b.create<TransformOp>(loc, matrix, normalizeAttr);
-}
-
-/// Apply padding to a matrix in its `firstDim` and `secondDim` if applicable.
-static Value padMatrix(Value matrix, ConversionPatternRewriter &b, Location loc,
-                       StringRef firstDim, int64_t firstDimPad,
-                       StringRef secondDim, int64_t secondDimPad) {
-  if (firstDimPad == 0 && secondDimPad == 0)
-    return matrix;
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
-  BottomUpTMBuilder padder(b, {"gemmG", firstDim, secondDim}, shape, loc);
-  padder.passThrough("gemmG");
-  if (firstDimPad == 0) {
-    padder.passThrough(firstDim);
-  } else {
-    SmallString<8> paddedName;
-    (firstDim + Twine("Pad")).toVector(paddedName);
-    padder.pad(paddedName, firstDim, 0, firstDimPad);
-  }
-  if (secondDimPad == 0) {
-    padder.passThrough(secondDim);
-  } else {
-    SmallString<8> paddedName;
-    (secondDim + Twine("Pad")).toVector(paddedName);
-    padder.pad(paddedName, secondDim, 0, secondDimPad);
-  }
-  TransformMapAttr padAttr = padder.get();
-  return b.create<TransformOp>(loc, matrix, padAttr);
-}
-
 LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {

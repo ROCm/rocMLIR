@@ -206,11 +206,15 @@ def Rock_AttentionOp :
     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "scale", [MemRead]>:$scale,
+    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
+    UnitAttr:$qTransposed,
+    UnitAttr:$kTransposed,
+    UnitAttr:$vTransposed,
+    UnitAttr:$oTransposed,
+    StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
-    OptionalAttr<I32Attr>:$blockSize,
-    OptionalAttr<I32Attr>:$gridSize
+    OptionalAttr<RockTuningParamAttrInterface>:$params
   )>,
   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
   let summary = "Attention operation of transformer models";
@@ -409,6 +413,28 @@ def Rock_GridwiseGemmAccelOp :
     `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
+}
+
+// gridwise_attention_accel
+def Rock_GridwiseAttentionAccelOp :
+    Rock_Op<"gridwise_attention_accel">,
+    Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
+                   MemRefRankOf<[F32, F16], [3]>:$keys,
+                   MemRefRankOf<[F32, F16], [3]>:$values,
+                   Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
+                   MemRefRankOf<[F32, F16], [3]>:$out,
+                   StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   RockAccelTuningParamAttrInterface:$params)> {
+  let summary = "Gridwise attention accelerated version";
+  let description = [{
+    The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
 }
 
 // Memory allocation on GPU memory hierachy.

@@ -259,15 +259,6 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
-static llvm::cl::opt<int64_t>
-    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
-
-static llvm::cl::opt<int64_t>
-    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
-             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
-
 static llvm::cl::opt<bool>
     transposeA("transA",
                llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
@@ -454,6 +445,48 @@ static llvm::cl::opt<bool> emitTuningKey(
     llvm::cl::value_desc(
         "String formatted fields of the problem which is going to be tuned."),
     llvm::cl::init(false));
+
+// Attention related args
+// ----------------------
+
+static llvm::cl::opt<int64_t>
+    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
+                   llvm::cl::value_desc("positive integer"),
+                   llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
+             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<bool>
+    hasAttnScale("with-attn-scale",
+                 llvm::cl::desc("Generate an attention kernel that is using a "
+                                "scaling input for the first gemm"),
+                 llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeQ("transQ",
+               llvm::cl::desc("whether matrix Q of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeK("transK",
+               llvm::cl::desc("whether matrix K of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeV("transV",
+               llvm::cl::desc("whether matrix V of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeO("transO",
+               llvm::cl::desc("whether matrix O of attention op is "
+                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
+               llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -2154,21 +2187,26 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               ArrayRef<Type> elemTypes) {
-  SmallVector<int64_t> dims{sequenceLength, headDims};
-  SmallVector<int64_t> transposedDims{headDims, sequenceLength};
-  SmallVector<int64_t> scaleDims{sequenceLength, sequenceLength};
+  SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
+  SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
 
-  assert(elemTypes.size() == 5 && "expect 5 type elements");
-  MemRefType qType = MemRefType::get(dims, elemTypes[0]),
-             kType = MemRefType::get(transposedDims, elemTypes[1]),
-             vType = MemRefType::get(dims, elemTypes[2]),
-             sType = MemRefType::get(scaleDims, elemTypes[3]),
-             outType = MemRefType::get(dims, elemTypes[4]);
+  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
+                                     elemTypes[0]),
+             kType = MemRefType::get(transposeK ? dims : transposedDims,
+                                     elemTypes[1]),
+             vType = MemRefType::get(transposeV ? transposedDims : dims,
+                                     elemTypes[2]);
 
   result.push_back(qType);
   result.push_back(kType);
   result.push_back(vType);
-  result.push_back(sType);
+  if (hasAttnScale) {
+    SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
+    MemRefType sType = MemRefType::get(scaleDims, elemTypes[3]);
+    result.push_back(sType);
+  }
+  MemRefType outType =
+      MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
   result.push_back(outType);
 }
 
@@ -2199,12 +2237,22 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value queries = block->getArgument(0);
   Value keys = block->getArgument(1);
   Value values = block->getArgument(2);
-  Value scale = block->getArgument(3);
-  Value output = block->getArgument(4);
 
-  builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, output, params.features,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr);
+  Value scale;
+  Value output;
+  if (hasAttnScale) {
+    scale = block->getArgument(3);
+    output = block->getArgument(4);
+  } else {
+    output = block->getArgument(3);
+  }
+
+  auto attention = builder.create<rock::AttentionOp>(
+      loc, TypeRange{}, queries, keys, values, scale, output, transposeQ,
+      transposeK, transposeV, transposeO, archAttr, params.features,
+      /*params=*/nullptr);
+  if (!params.perfConfig.empty())
+    attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
   builder.create<func::ReturnOp>(loc);
   module.push_back(func);
@@ -2295,7 +2343,6 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   OpBuilder builder(ctx);
   Location loc = module->getLoc();
 
-  // auto elemTypes = typeFromString(inputDataType.getValue(), ctx);
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
 
@@ -2309,32 +2356,39 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto getAsTensor = [&builder, &loc](mlir::Value value,
                                       bool isWritable = false) {
     constexpr bool isRestrict{true};
-    auto origTensor = builder.create<bufferization::ToTensorOp>(
+    Value origTensor = builder.create<bufferization::ToTensorOp>(
         loc, value, isRestrict, isWritable);
-    auto origShape = origTensor.getType().getShape();
+    auto origShape = origTensor.getType().cast<ShapedType>().getShape();
 
-    std::vector<int64_t> expShape(origShape.size() + 1);
-    std::copy(origShape.begin(), origShape.end(), expShape.begin() + 1);
-    expShape[0] = 1;
-
-    return builder.create<tosa::ReshapeOp>(loc, origTensor, expShape);
+    if (origShape.size() == 2) {
+      std::vector<int64_t> expShape(origShape.size() + 1);
+      std::copy(origShape.begin(), origShape.end(), expShape.begin() + 1);
+      expShape[0] = 1;
+      Value reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, origTensor, expShape);
+      return reshapedTensor;
+    }
+    return origTensor;
   };
 
   auto queriesTensor = getAsTensor(block->getArgument(0));
+  ArrayRef<int64_t> qShape =
+      queriesTensor.getType().cast<ShapedType>().getShape();
   auto keysTensor = getAsTensor(block->getArgument(1));
+  ArrayRef<int64_t> kShape = keysTensor.getType().cast<ShapedType>().getShape();
   auto valuesTensor = getAsTensor(block->getArgument(2));
-  auto scaleTensor = getAsTensor(block->getArgument(3));
+  auto intermediateTensorType = mlir::RankedTensorType::get(
+      {qShape[0], qShape[1], kShape[2]}, params.types[0]);
 
-  auto qkTensor = builder.create<tosa::MatMulOp>(loc, scaleTensor.getType(),
-                                                 queriesTensor, keysTensor);
-
-  auto intermediateTensorType = scaleTensor.getType();
-  auto sqkTensor = builder.create<tosa::MulOp>(
-      loc, intermediateTensorType, qkTensor, scaleTensor, /*shift=*/0);
-
+  Value qkTensor = builder.create<tosa::MatMulOp>(loc, intermediateTensorType,
+                                                  queriesTensor, keysTensor);
+  if (hasAttnScale) {
+    auto scaleTensor = getAsTensor(block->getArgument(3));
+    qkTensor = builder.create<tosa::MulOp>(loc, intermediateTensorType,
+                                           qkTensor, scaleTensor, /*shift=*/0);
+  }
   // compute type of the reduced tensor
   auto intermediateTensorShape = intermediateTensorType.getShape();
-
   SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
   std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
             reducedTensorShape.begin());
@@ -2345,12 +2399,12 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto reducedTensorType = mlir::RankedTensorType::get(
       reducedTensorShape, intermediateTensorType.getElementType());
 
-  auto sqkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
-                                                   sqkTensor, reductionAxis);
-  auto normilizedSqkTensor = builder.create<tosa::SubOp>(
-      loc, intermediateTensorType, sqkTensor, sqkMaxs);
+  auto qkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
+                                                  qkTensor, reductionAxis);
+  auto normilizedQkTensor = builder.create<tosa::SubOp>(
+      loc, intermediateTensorType, qkTensor, qkMaxs);
   auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
-                                                normilizedSqkTensor);
+                                                normilizedQkTensor);
 
   auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
                                                     expsTensor, reductionAxis);
@@ -2361,8 +2415,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto resultTensor = builder.create<tosa::MatMulOp>(
       loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
 
-  auto outputTensor = getAsTensor(block->getArgument(4), true);
-  auto type = outputTensor.getType();
+  auto outputTensor = getAsTensor(block->getArguments().back(), true);
+  auto type = outputTensor.getType().cast<mlir::RankedTensorType>();
   auto memrefType = MemRefType::get(type.getShape(), type.getElementType());
 
   auto outputMemref =
@@ -2917,7 +2971,11 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      outIndices.push_back(4);
+      if (hasAttnScale) {
+        outIndices.push_back(4);
+      } else {
+        outIndices.push_back(3);
+      }
     }
   } else {
     outIndices = root0.outIndices;

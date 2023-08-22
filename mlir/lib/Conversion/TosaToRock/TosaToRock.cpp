@@ -711,9 +711,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        scaleInput, output, rewriter.getAttr<rock::GemmFeaturesAttr>(features),
-        /*blockSize=*/nullptr,
-        /*gridSize=*/nullptr);
+        scaleInput, output,
+        // TODO(implement transpose fusion support here)
+        /*qTransposed=*/nullptr,
+        /*kTransposed=*/nullptr,
+        /*vTransposed=*/nullptr,
+        /*oTransposed=*/nullptr, arch,
+        rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        /*params=*/nullptr);
     rewriter.replaceOp(op, attnOp.getResult());
   }
 };
