@@ -19,14 +19,6 @@ include "mlir/Pass/PassBase.td"
 def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
   let summary = "Lower the operations from the Rock dialect into the GPU "
                 "dialect";
-  let options = [
-    Option<"kernelName", "kernel-name", "std::string",
-           "\"rock_conv2d_kcyx_nchw_nkhw\"",
-           "kernel name to be lowered">,
-    Option<"gpuModuleName", "gpu-module-name", "std::string",
-           "\"rock_kernel_module\"",
-           "GPU kernel module name to be lowered">,
-  ];
   let dependentDialects = [
     "rock::RockDialect",
     "amdgpu::AMDGPUDialect",

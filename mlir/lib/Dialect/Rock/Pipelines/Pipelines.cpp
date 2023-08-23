@@ -55,14 +55,15 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
 
+  auto &funcPm = pm.nest<func::FuncOp>();
   // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
-    pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
-    pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
-    pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
+    funcPm.addPass(tosa::createTosaToTensor());
+    funcPm.addPass(createTosaToRockPass());
+    funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
   // use tosa conversion pipeline
@@ -72,16 +73,17 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
    */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToTensor());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToSCF());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaToArith());
+  auto &funcPm2 = pm.nest<func::FuncOp>();
+  funcPm2.addPass(tosa::createTosaToTensor());
+  funcPm2.addPass(tosa::createTosaToSCF());
+  funcPm2.addPass(tosa::createTosaToArith());
 
   // linalg tensor opts
   /* rocmlir-opt --linalg-fuse-elementwise-ops --linalg-fold-unit-extent-dims
    */
-  pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
-  pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
-  pm.addNestedPass<func::FuncOp>(rock::createRockViewToTransformPass());
+  funcPm2.addPass(createLinalgElementwiseOpFusionPass());
+  funcPm2.addPass(createLinalgFoldUnitExtentDimsPass());
+  funcPm2.addPass(rock::createRockViewToTransformPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
@@ -91,13 +93,13 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
      function-boundary-type-conversion=identity-layout-map"
         --buffer-results-to-out-params
    */
-  pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-  pm.addNestedPass<func::FuncOp>(createCSEPass());
+  funcPm2.addPass(createCanonicalizerPass());
+  funcPm2.addPass(createCSEPass());
 
   pm.addPass(createConvertTensorToLinalgPass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createEmptyTensorToAllocTensorPass());
-  pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
+  auto &funcPm3 = pm.nest<func::FuncOp>();
+  funcPm3.addPass(bufferization::createEmptyTensorToAllocTensorPass());
+  funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
   bufOpts.allowReturnAllocs = true;
@@ -164,15 +166,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
-
-    // lowering linalg to cf
-    /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine
-     * --expand-stride-metadata --convert-scf-to-cf
-     */
-    pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
-    pm.addPass(memref::createExpandStridedMetadataPass());
-    pm.addPass(createLowerAffinePass());
-    pm.addPass(createConvertSCFToCFPass());
   }
 }
 
@@ -200,6 +193,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
+  gpuPm.addPass(memref::createExpandStridedMetadataPass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true));
