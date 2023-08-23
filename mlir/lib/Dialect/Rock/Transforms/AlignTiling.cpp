@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -87,15 +88,55 @@ struct ReduceRewritePattern : public OpRewritePattern<rock::ReduceOp> {
 };
 } // end anonymous namespace
 
+// Returns, if it exists, the linalg.generic that initilizes this linalg.generic
+// with some value that does not depend on any inputs, or the null operation
+// if there is none such.
+static linalg::GenericOp getConstInitLaGeneric(rock::GpuAllocOp alloc) {
+  linalg::GenericOp ret;
+  for (Operation *user : alloc->getUsers()) {
+    if (auto generic = dyn_cast<linalg::GenericOp>(user)) {
+      if (!generic.getInputs().empty())
+        continue;
+      if (generic.getOutputs().size() != 1)
+        continue;
+      if (generic.getOutputs().front() == alloc) {
+        if (ret) {
+          LLVM_DEBUG(llvm::dbgs() << "Multiple writers to constant, wtf?\n");
+          return linalg::GenericOp();
+        }
+        ret = generic;
+      }
+    }
+  }
+  return ret;
+}
+
 static void moveTransformsBefore(PatternRewriter &b, Value val) {
-  if (auto defOp = val.getDefiningOp()) {
+  if (auto *defOp = val.getDefiningOp()) {
     if (auto rtop = dyn_cast<TransformOp>(defOp)) {
       moveTransformsBefore(b, rtop.getOperand());
+      defOp->moveBefore(b.getBlock(), b.getInsertionPoint());
+      b.setInsertionPointAfter(defOp);
+    } else if (isa<memref::GetGlobalOp, memref::AllocOp, rock::GpuAllocOp>(
+                   defOp)) {
+      if (b.getInsertionPoint()->isBeforeInBlock(defOp)) {
+        defOp->moveBefore(b.getBlock(), b.getInsertionPoint());
+        b.setInsertionPointAfter(defOp);
+      }
 
-      defOp->remove();
-      b.insert(defOp);
+      if (auto zeroArgConst = dyn_cast<rock::GpuAllocOp>(defOp)) {
+        linalg::GenericOp initLago = getConstInitLaGeneric(zeroArgConst);
+        if (!initLago)
+          llvm_unreachable(
+              "Sanity checks earlier in the pattern will have rejected this");
+        if (b.getInsertionPoint()->isBeforeInBlock(initLago)) {
+          initLago->moveBefore(b.getBlock(), b.getInsertionPoint());
+          b.setInsertionPointAfter(initLago);
+        }
+      }
     } else {
-      llvm_unreachable("must trace to func.arg");
+      llvm_unreachable("Cannot trace non-gemm input to known initilizer or "
+                       "function argument");
     }
   }
 }
@@ -370,12 +411,50 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return laGeneric.emitError("only 1 output supported");
   Value out = *laGeneric.getOutputs().begin();
 
-  // 0.2. Sanity check, skip already fused.
+  // 0.2. Sanity check, skip already fused, except for the initilizer case.
   for (auto inp : laGeneric.getInputs()) {
     if (auto fusedAlloc = inp.getDefiningOp<GpuAllocOp>()) {
+      linalg::GenericOp maybeConstInit = getConstInitLaGeneric(fusedAlloc);
+      if (maybeConstInit) {
+        LLVM_DEBUG(llvm::dbgs() << "Found initializer linalg.generic that's "
+                                   "already been handled\n");
+        continue;
+      }
       LLVM_DEBUG(llvm::dbgs() << "Found existing fusion, bailing\n");
       return failure();
     }
+  }
+
+  // Diversion to handle the uniform-initilizer case.
+  // The linalg.generic that does this initilization will be moved before
+  // any relevant threadwise_write_all's later in the pass. For now,
+  // since we don't know where in the function we should put the block,
+  // we leave it where it is and trust that later movements up the block
+  // won't cause any issues for the contents of the block. The scenerio
+  // where this is possible is something like:
+  //
+  //   rock.gemm %c = ...
+  //   memref.alloc %val
+  //   %f = [some function of the environment]
+  //   la.generic ins(), outs(%val) {
+  //     linalg.yield %f
+  //   }
+  //   la.generic ins(%c, %val) outs(...) { ... }
+  //
+  // We explicitly do not handle this case, and require %f to be defined before
+  // the gemm. This is not expected to pose an issue in practice
+  if (laGeneric.getInputs().empty()) {
+    if (out.getDefiningOp<GpuAllocOp>())
+      return b.notifyMatchFailure(loc,
+                                  "already handled this constant initilizer");
+    auto outTy = cast<MemRefType>(out.getType());
+    MemRefType::Builder regType(outTy);
+    Attribute privateSpace =
+        b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Private);
+    regType.setMemorySpace(privateSpace);
+    Value regs = makeRegs(b, regType, loc, outTy);
+    b.replaceAllUsesWith(out, regs);
+    return success();
   }
 
   // 1. Trace input to global_store.
