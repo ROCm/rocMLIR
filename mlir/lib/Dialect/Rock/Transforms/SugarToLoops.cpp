@@ -918,11 +918,13 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool hasI64Idx = op.getNeeds64BitIdx();
     bool isAlwaysValid =
         matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
-    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
-                         (hasI64Idx && op.getCanReadOffEnd());
     Value numElems = computeMemRefNumElements(b, loc, source);
     APInt numElemsConst(64, 0);
-    matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isScalar = isStaticSize && numElemsConst.isOne();
+    bool emitOobChecks =
+        (!isScalar && !isAlwaysValid) || (hasI64Idx && op.getCanReadOffEnd());
+
     APInt numBytes =
         numElemsConst *
         (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
@@ -936,7 +938,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     if (!useBufferOps)
       source = asGlobal(b, source);
     PatternRewriter::InsertionGuard insertGuard(b);
-    if (emitOobChecks && hasI64Idx) {
+    if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanReadOffEnd()) {
         Value fallsOffEnd = b.create<arith::CmpIOp>(
@@ -1086,11 +1088,14 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     bool hasI64Idx = op.getNeeds64BitIdx();
     bool isAlwaysValid =
         matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
-    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
-                         (hasI64Idx && op.getCanStoreOffEnd());
     Value numElems = computeMemRefNumElements(b, loc, dest);
     APInt numElemsConst(64, 0);
     matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isScalar = isStaticSize && numElemsConst.isOne();
+    bool emitOobChecks =
+        (!isScalar && !isAlwaysValid) || (hasI64Idx && op.getCanStoreOffEnd());
+
     APInt numBytes =
         numElemsConst *
         (cast<ShapedType>(dest.getType()).getElementTypeBitWidth() / 8);
@@ -1106,10 +1111,21 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
 
+    // The buffer paths's "send the last coordinate out of bounds" trick
+    // won't work with conditionally-valid atomic writes becasue there's
+    // no coordinate to adjust. Conditional stores are uniform across
+    // all executions on pain of bad things happening, though, so we can
+    // elide the bound checks instead.
+    if (isAtomic && coords.empty() &&
+        (!isAlwaysValid || op.getCanStoreOffEnd())) {
+      useBufferOps = false;
+      emitOobChecks = true;
+    }
+
     if (!useBufferOps)
       dest = asGlobal(b, dest);
     PatternRewriter::InsertionGuard insertGuard(b);
-    if (emitOobChecks && hasI64Idx) {
+    if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanStoreOffEnd()) {
         Value fallsOffEnd = b.create<arith::CmpIOp>(
