@@ -149,7 +149,11 @@ public:
   void print(AsmPrinter &printer) const;
   void dump() const;
 };
-static_assert(IsZeroCostAbstraction<Var>);
+static_assert(std::is_trivially_copyable_v<Var>);
+static_assert(std::is_trivially_destructible_v<Var>);
+static_assert(std::is_standard_layout_v<Var>);
+static_assert(llvm::is_trivially_copy_constructible<Var>::value);
+static_assert(llvm::is_trivially_move_constructible<Var>::value);
 
 class SymVar final : public Var {
 public:
@@ -160,7 +164,11 @@ public:
   constexpr SymVar(Num sym) : Var(Kind, sym) {}
   SymVar(AffineSymbolExpr symExpr) : Var(symExpr) {}
 };
-static_assert(IsZeroCostAbstraction<SymVar>);
+static_assert(std::is_trivially_copyable_v<SymVar>);
+static_assert(std::is_trivially_destructible_v<SymVar>);
+static_assert(std::is_standard_layout_v<SymVar>);
+static_assert(llvm::is_trivially_copy_constructible<SymVar>::value);
+static_assert(llvm::is_trivially_move_constructible<SymVar>::value);
 
 class DimVar final : public Var {
 public:
@@ -171,7 +179,11 @@ public:
   constexpr DimVar(Num dim) : Var(Kind, dim) {}
   DimVar(AffineDimExpr dimExpr) : Var(Kind, dimExpr) {}
 };
-static_assert(IsZeroCostAbstraction<DimVar>);
+static_assert(std::is_trivially_copyable_v<DimVar>);
+static_assert(std::is_trivially_destructible_v<DimVar>);
+static_assert(std::is_standard_layout_v<DimVar>);
+static_assert(llvm::is_trivially_copy_constructible<DimVar>::value);
+static_assert(llvm::is_trivially_move_constructible<DimVar>::value);
 
 class LvlVar final : public Var {
 public:
@@ -182,7 +194,11 @@ public:
   constexpr LvlVar(Num lvl) : Var(Kind, lvl) {}
   LvlVar(AffineDimExpr lvlExpr) : Var(Kind, lvlExpr) {}
 };
-static_assert(IsZeroCostAbstraction<LvlVar>);
+static_assert(std::is_trivially_copyable_v<LvlVar>);
+static_assert(std::is_trivially_destructible_v<LvlVar>);
+static_assert(std::is_standard_layout_v<LvlVar>);
+static_assert(llvm::is_trivially_copy_constructible<LvlVar>::value);
+static_assert(llvm::is_trivially_move_constructible<LvlVar>::value);
 
 template <typename U>
 constexpr bool Var::isa() const {
@@ -246,7 +262,11 @@ public:
   }
   bool isValid(DimLvlExpr expr) const;
 };
-static_assert(IsZeroCostAbstraction<Ranks>);
+static_assert(std::is_trivially_copyable_v<Ranks>);
+static_assert(std::is_trivially_destructible_v<Ranks>);
+static_assert(std::is_standard_layout_v<Ranks>);
+static_assert(llvm::is_trivially_copy_constructible<Ranks>::value);
+static_assert(llvm::is_trivially_move_constructible<Ranks>::value);
 
 //===----------------------------------------------------------------------===//
 class VarSet final {
@@ -327,7 +347,11 @@ public:
 };
 // We don't actually require this, since `VarInfo` is a proper struct
 // rather than a newtype.  But it passes, so for now we'll keep it around.
-static_assert(IsZeroCostAbstraction<VarInfo>);
+static_assert(std::is_trivially_copyable_v<VarInfo>);
+static_assert(std::is_trivially_destructible_v<VarInfo>);
+static_assert(std::is_standard_layout_v<VarInfo>);
+static_assert(llvm::is_trivially_copy_constructible<VarInfo>::value);
+static_assert(llvm::is_trivially_move_constructible<VarInfo>::value);
 
 //===----------------------------------------------------------------------===//
 enum class CreationPolicy { MustNot, May, Must };
