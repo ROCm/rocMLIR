@@ -285,30 +285,29 @@ def MIGraphX_TanhOp :
 // Quantization operations.
 
 def MIGraphX_QuantizeLinearOp :
-    MIGraphX_Op<"quantizelinear">,
-    Arguments<(ins TensorOf<[F32, F16]>:$input,
-                   TensorOf<[F32]>:$scale,
+    MIGraphX_Op<"quantizelinear", [AllElementTypesMatch<["input", "scale"]>]>,
+    Arguments<(ins TensorOf<[AnyFloat]>:$input,
+                   TensorOf<[AnyFloat]>:$scale,
                    Optional<TensorOf<[AnyInteger]>>:$bias)>,
 	  Results<(outs TensorOf<[AnyInteger]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
     Quantization tensor channelwise. It computes the following:
-    tensor[n,c,h,w] = tensor[n,c,h,w] / quantScale[c] + quantBias[c]
+    tensor[n,c,h,w] = clamping_truncate(round(tensor[n,c,h,w] / quantScale[c]) + quantBias[c])
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
-  let hasVerifier = 1;
 }
 
 def MIGraphX_DeQuantizeLinearOp :
-    MIGraphX_Op<"dequantizelinear">,
+    MIGraphX_Op<"dequantizelinear", [AllElementTypesMatch<["scale", "output"]>]>,
     Arguments<(ins TensorOf<[AnyInteger]>:$input,
-                   TensorOf<[F32]>:$scale,
+                   TensorOf<[AnyFloat]>:$scale,
                    Optional<TensorOf<[AnyInteger]>>:$bias)>,
-	  Results<(outs TensorOf<[F32, F16]>:$output)> {
+	  Results<(outs TensorOf<[AnyFloat]>:$output)> {
   let summary = "Channelwise dequantization";
   let description = [{
     De-Quantization tensor channelwise. It computes the following:
-    tensor[n,c,h,w] = (tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
+    tensor[n,c,h,w] = to_float(tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
   let hasVerifier = 1;

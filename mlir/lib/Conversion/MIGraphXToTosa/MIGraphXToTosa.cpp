@@ -552,28 +552,52 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Value input = op.getInput();
     Value scale = op.getScale();
+    Value bias = op.getBias();
     Value output = op.getOutput();
     Location loc = op->getLoc();
 
     Type elementType = getShapedElementTy(input);
     Value inverseScale =
         createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType, scale);
-    if (getShapedElementTy(inverseScale) != getShapedElementTy(input)) {
-      inverseScale = createCastOp(rewriter, loc, elementType, inverseScale);
-    }
     Value scaled = createOpAndInfer<tosa::MulOp>(
         rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
 
-    Value shifted = scaled;
-    if (auto bias = op.getBias()) {
-      Value biasCast = createCastOp(rewriter, loc, elementType, bias);
-      shifted = createOpAndInfer<tosa::AddOp>(rewriter, loc, elementType,
-                                              scaled, biasCast);
-    }
-
     Type outputType = getShapedElementTy(output);
-    Value downCast = createCastOp(rewriter, loc, outputType, shifted);
-    rewriter.replaceOp(op, downCast);
+    // If there is a bias, we upcast to the larger of the bias type and int32_t
+    // (which is what the bias type is in dequantize, the MLIR quantization
+    // implementation, and other ML frameworks) and then do a clamping
+    // truncation to the output type so that adding a bias saturates
+    // instead of overflowing.
+    Type biasType = outputType;
+    if (bias) {
+      biasType = getShapedElementTy(bias);
+      if (biasType.getIntOrFloatBitWidth() < 32) {
+        biasType = rewriter.getI32Type();
+        bias = createCastOp(rewriter, loc, biasType, bias);
+      }
+    }
+    Value asInt = createCastOp(rewriter, loc, biasType, scaled);
+    Value biased = asInt;
+    if (bias)
+      biased =
+          createOpAndInfer<tosa::AddOp>(rewriter, loc, biasType, asInt, bias);
+
+    Value result = biased;
+    if (biasType != outputType) {
+      unsigned width = outputType.getIntOrFloatBitWidth();
+      auto min = APInt::getSignedMinValue(width);
+      auto max = APInt::getSignedMaxValue(width);
+      APFloat minF(0.0f), maxF(0.0f);
+      minF.convertFromAPInt(min, /*IsSigned=*/true,
+                            APFloat::rmNearestTiesToEven);
+      maxF.convertFromAPInt(max, /*IsSigned=*/true,
+                            APFloat::rmNearestTiesToEven);
+      result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
+                                               min.getSExtValue(),
+                                               max.getSExtValue(), minF, maxF);
+      result = createCastOp(rewriter, loc, outputType, result);
+    }
+    rewriter.replaceOp(op, result);
 
     return success();
   }
@@ -585,7 +609,7 @@ public:
   using OpConversionPattern<migraphx::DeQuantizeLinearOp>::OpConversionPattern;
 
   // MIGraphX pseudo code:
-  // output[i] = static_cast<fp32>(input[i] - zero_pts[i]) * scales[i];
+  // output[i] = static_cast<T>(input[i] - zero_pts[i]) * scales[i];
   LogicalResult
   matchAndRewrite(migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -604,9 +628,6 @@ public:
     Type outputType = getShapedElementTy(output);
     Value upCast = createCastOp(rewriter, loc, outputType, shifted);
 
-    if (getShapedElementTy(scale) != getShapedElementTy(output)) {
-      scale = createCastOp(rewriter, loc, outputType, scale);
-    }
     Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
                                                  upCast, scale, /*shift=*/0);
 
