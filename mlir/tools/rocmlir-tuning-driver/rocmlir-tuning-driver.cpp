@@ -147,14 +147,15 @@ static FailureOr<double> benchmarkKernels(
         func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
         argPointers.data(), nullptr, startEvent, stopEvent))
     HIPCHECK(hipStreamSynchronize(stream))
-    HIPCHECK(hipEventElapsedTime(&milliseconds, startEvent, stopEvent))
+    float currentMilliseconds = 0.0;
+    HIPCHECK(hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent))
 
     HIPCHECK(hipEventDestroy(stopEvent))
     HIPCHECK(hipEventDestroy(startEvent))
 
     HIPCHECK(hipModuleUnload(mod))
 
-    milliseconds += milliseconds;
+    milliseconds += currentMilliseconds;
   }
 
   double ret = msToNs * static_cast<double>(milliseconds);
