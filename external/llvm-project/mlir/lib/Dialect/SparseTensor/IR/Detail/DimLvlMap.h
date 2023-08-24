@@ -136,11 +136,7 @@ protected:
     printAffineExprInternal(os, BindingStrength::Weak);
   }
 };
-static_assert(std::is_trivially_copyable_v<DimLvlExpr>);
-static_assert(std::is_trivially_destructible_v<DimLvlExpr>);
-static_assert(std::is_standard_layout_v<DimLvlExpr>);
-static_assert(llvm::is_trivially_copy_constructible<DimLvlExpr>::value);
-static_assert(llvm::is_trivially_move_constructible<DimLvlExpr>::value);
+static_assert(IsZeroCostAbstraction<DimLvlExpr>);
 
 // FUTURE_CL(wrengr): It would be nice to have the subclasses override
 // `getRHS`, `getLHS`, `unpackBinop`, and `castDimLvlVar` to give them
@@ -158,11 +154,7 @@ public:
   }
   constexpr explicit DimExpr(AffineExpr expr) : DimLvlExpr(Kind, expr) {}
 };
-static_assert(std::is_trivially_copyable_v<DimExpr>);
-static_assert(std::is_trivially_destructible_v<DimExpr>);
-static_assert(std::is_standard_layout_v<DimExpr>);
-static_assert(llvm::is_trivially_copy_constructible<DimExpr>::value);
-static_assert(llvm::is_trivially_move_constructible<DimExpr>::value);
+static_assert(IsZeroCostAbstraction<DimExpr>);
 
 class LvlExpr final : public DimLvlExpr {
   // FIXME(wrengr): These two are needed for the current RTTI implementation.
@@ -176,11 +168,7 @@ public:
   }
   constexpr explicit LvlExpr(AffineExpr expr) : DimLvlExpr(Kind, expr) {}
 };
-static_assert(std::is_trivially_copyable_v<LvlExpr>);
-static_assert(std::is_trivially_destructible_v<LvlExpr>);
-static_assert(std::is_standard_layout_v<LvlExpr>);
-static_assert(llvm::is_trivially_copy_constructible<LvlExpr>::value);
-static_assert(llvm::is_trivially_move_constructible<LvlExpr>::value);
+static_assert(IsZeroCostAbstraction<LvlExpr>);
 
 // FIXME(wrengr): See comments elsewhere re RTTI implementation issues/questions
 template <typename U>
@@ -247,11 +235,7 @@ public:
 };
 // Although this class is more than just a newtype/wrapper, we do want
 // to ensure that storing them into `SmallVector` is efficient.
-static_assert(std::is_trivially_copyable_v<DimSpec>);
-static_assert(std::is_trivially_destructible_v<DimSpec>);
-static_assert(std::is_standard_layout_v<DimSpec>);
-static_assert(llvm::is_trivially_copy_constructible<DimSpec>::value);
-static_assert(llvm::is_trivially_move_constructible<DimSpec>::value);
+static_assert(IsZeroCostAbstraction<DimSpec>);
 
 //===----------------------------------------------------------------------===//
 /// The full `lvlVar = lvlExpr : lvlType` specification for a given level.
@@ -300,11 +284,7 @@ public:
 };
 // Although this class is more than just a newtype/wrapper, we do want
 // to ensure that storing them into `SmallVector` is efficient.
-static_assert(std::is_trivially_copyable_v<LvlSpec>);
-static_assert(std::is_trivially_destructible_v<LvlSpec>);
-static_assert(std::is_standard_layout_v<LvlSpec>);
-static_assert(llvm::is_trivially_copy_constructible<LvlSpec>::value);
-static_assert(llvm::is_trivially_move_constructible<LvlSpec>::value);
+static_assert(IsZeroCostAbstraction<LvlSpec>);
 
 //===----------------------------------------------------------------------===//
 class DimLvlMap final {
