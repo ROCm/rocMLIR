@@ -244,8 +244,8 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
         return true
     }
-    // Run navi3x on private PR CI
-    if (params.canXdlops && (params.nightly == false) && (params.weekly == false) && (codepath == "navi3x")) {
+    // Run navi3x on private PR CI if it is not disabled
+    if (params.canXdlops && (params.nightly == false) && (params.weekly == false) && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
     return false
@@ -316,6 +316,10 @@ pipeline {
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: false,
                      description: 'Disable testing on Navi21')
+        // option to disable navi3x cells in case nodes are offline
+        booleanParam(name: 'disableNavi3x', defaultValue: false,
+                     description: 'Disable testing on Navi3x')
+
 
         // option only to be used with upstream merges
         booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
@@ -365,8 +369,8 @@ pipeline {
                 when {
                     beforeAgent true
                     anyOf {
-                        // When default codepath is selected, we test mfma and navi21 on private CI
-                        // and vanilla on public CI
+                        // When default codepath is selected, we test mfma, navi21 and navi3x on
+                        // private CI and vanilla on public CI
                         allOf {
                             equals expected: "default", actual: params.codepath;
                             expression { return shouldRunFromCodepath("$CODEPATH")}
@@ -381,7 +385,10 @@ pipeline {
                                     equals expected: false, actual: params.disableNavi21;
                                 }
                                 equals expected: "vanilla", actual: params.codepath;
-                                equals expected: "navi3x", actual: params.codepath;
+                                allOf {
+                                    equals expected: "navi3x", actual: params.codepath;
+                                    equals expected: false, actual: params.disableNavi3x;
+                                }
                             }
                             equals expected: "${CODEPATH}", actual: params.codepath;
                             equals expected: true, actual: params.canXdlops;
