@@ -156,12 +156,11 @@ struct MfmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, bool isKContiguousDimA,
-                          bool isKContiguousDimB, int64_t computeMPerThread,
-                          int64_t computeNPerThread, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) override;
+  RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN,
+      int64_t computeMPerThread, int64_t computeNPerThread, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths) override;
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -188,12 +187,11 @@ struct WmmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, bool isKContiguousDimA,
-                          bool isKContiguousDimB, int64_t computeMPerThread,
-                          int64_t computeNPerThread, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) override;
+  RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN,
+      int64_t computeMPerThread, int64_t computeNPerThread, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths) override;
 
 private:
   /// Initialize the emitter parameters for wmma

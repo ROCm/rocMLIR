@@ -6,6 +6,8 @@ func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x12
   rock.blockwise_gemm %C += %A * %B {
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.general_gemm_params<
       blockSize = 256,
       kPerBlock = 8,
@@ -80,6 +82,8 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
     blockSize = 256 : i32,
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -106,6 +110,8 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
     blockSize = 256 : i32,
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,

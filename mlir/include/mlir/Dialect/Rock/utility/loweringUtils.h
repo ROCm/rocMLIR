@@ -109,12 +109,6 @@ backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
 /// return `type`.
 Type vectorTypeOrSelf(Type elementType, int64_t len);
 
-/// Compute a thread copy layout, i.e., how many elements a single thread (or
-/// workitem) reads along K and M (independently on how we vectorize the reads)
-FailureOr<std::pair<int64_t, int64_t>>
-computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
-                     int64_t dPerBlock, int64_t kpack, Location loc);
-
 // if K is not the contiguous dimension, we swapped (on each axis) the thread id
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions
@@ -122,7 +116,8 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 TopDownTMBuilder swapThreadIdAndIteration(
     TopDownTMBuilder &toMatrixC, ArrayRef<int64_t> bidGridLengths,
     int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
-    int64_t nPerBlock, bool isKContiguousDimA, bool isKContiguousDimB,
+    int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN, bool isBlockwise,
     SmallVector<Attribute> &transformAttrs);
 
 } // end namespace rock

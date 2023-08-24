@@ -242,27 +242,8 @@ struct BlockwiseGemmRewritePattern
       return splitTidForLDS;
     };
 
-    int64_t aCopyPerThread = (k * m) / blockSize;
-    int64_t bCopyPerThread = (k * n) / blockSize;
-
-    Type elementTypeA = blockAType.getElementType();
-    if (auto vectorDataType = elementTypeA.dyn_cast<VectorType>())
-      elementTypeA = vectorDataType.getElementType();
-
-    auto maybeCopyAPerThread = computeCopyPerThread(
-        elementTypeA, aCopyPerThread, k * kPack, m, kPack, loc);
-    if (failed(maybeCopyAPerThread))
-      return maybeCopyAPerThread;
-    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    Type elementTypeB = blockBType.getElementType();
-    if (auto vectorDataType = elementTypeB.dyn_cast<VectorType>())
-      elementTypeB = vectorDataType.getElementType();
-    auto maybeCopyBPerThread = computeCopyPerThread(
-        elementTypeB, bCopyPerThread, k * kPack, n, kPack, loc);
-    if (failed(maybeCopyBPerThread))
-      return maybeCopyBPerThread;
-    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+    int64_t copyMPerThread = op.getCopyMPerThread();
+    int64_t copyNPerThread = op.getCopyNPerThread();
 
     TopDownTMBuilder splitTidA =
         ldsTidSplitter("m_repeat", mRepeat, "m_thread", mPerThread);
@@ -279,7 +260,10 @@ struct BlockwiseGemmRewritePattern
     SmallVector<Attribute, 4> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
 
     // Since the LDS layout is `kOuter x rotate(m) x kpack` we want to rotate
-    // the dimension `m` before reading from LDS
+    // the dimension `n` before reading from LDS. This rotation happens in
+    // `wrapLDSforStore` from
+    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
+    // to be kept in sync with this function
     int64_t strideA = (kPack == 1 ? copyMPerThread : 1);
     rotateIf(op.getIsKContiguousDimA(), toLdsIndexA, toLdsIndexAAttr, strideA,
              "m", m, 1, "k", k, {"k"}, {"kpack"}, transformAttrsA);
@@ -298,8 +282,11 @@ struct BlockwiseGemmRewritePattern
     TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
     SmallVector<Attribute, 4> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
 
-    // Since the LDS layou is `kOuter x rotate(m) x kpack` we want to rotate
-    // the dimension `n` before reading from LDS
+    // Since the LDS layout is `kOuter x rotate(m) x kpack` we want to rotate
+    // the dimension `n` before reading from LDS. This rotation happens in
+    // `wrapLDSforStore` from
+    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
+    // to be kept in sync with this function
     int64_t strideB = (kPack == 1 ? copyNPerThread : 1);
     rotateIf(op.getIsKContiguousDimB(), toLdsIndexB, toLdsIndexBAttr, strideB,
              "n", n, 1, "k", k, {"k"}, {"kpack"}, transformAttrsB);
@@ -456,21 +443,8 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerThread = params.kpackPerThread;
     Value mWavesConstantOp = b.create<ConstantIndexOp>(loc, mWaves);
     Value nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
-
-    int64_t aCopyPerThread = (K * M * KPack) / op.getBlockSize();
-    int64_t bCopyPerThread = (K * N * KPack) / op.getBlockSize();
-
-    auto maybeCopyAPerThread = computeCopyPerThread(dataTypeA, aCopyPerThread,
-                                                    K * KPack, M, KPack, loc);
-    if (failed(maybeCopyAPerThread))
-      return maybeCopyAPerThread;
-    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    auto maybeCopyBPerThread = computeCopyPerThread(dataTypeB, bCopyPerThread,
-                                                    K * KPack, N, KPack, loc);
-    if (failed(maybeCopyBPerThread))
-      return maybeCopyBPerThread;
-    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
+    int64_t copyMPerThread = op.getCopyMPerThread();
+    int64_t copyNPerThread = op.getCopyNPerThread();
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
@@ -514,6 +488,9 @@ struct BlockwiseGemmAccelRewritePattern
       // Since the LDS layou is `k0 x rotate(m) x kpack` we want to rotate
       // the dimension `n` before reading from LDS. Since we don't use
       // any transform here, this is done by hand with rem/div operators
+      // This rotation happens in `wrapLDSforStore` from
+      // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp
+      // which needs to be kept in sync with this function
       if (isKContiguousDim) {
         Value col = kb.create<arith::RemUIOp>(loc, sourceOffset, MN);
         Value row = kb.create<arith::DivUIOp>(loc, sourceOffset, MN);

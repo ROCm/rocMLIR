@@ -1050,6 +1050,8 @@ def Rock_BlockwiseGemmOp:
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
                    BoolAttr : $isKContiguousDimB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
+                   I32Attr:$copyMPerThread,
+                   I32Attr:$copyNPerThread,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non accelerated version";
@@ -1089,6 +1091,8 @@ def Rock_BlockwiseGemmAccelOp:
                    BoolAttr:$isKContiguousDimA,
                    MemRefOf<LdsBufferTypes>:$matrixB,
                    BoolAttr:$isKContiguousDimB,
+                   I32Attr:$copyMPerThread,
+                   I32Attr:$copyNPerThread,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<AccelArgTypes>:$bufferA,

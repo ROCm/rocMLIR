@@ -23,6 +23,8 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<16xf16>, #
     blockSize = 32 : i32,
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 16,
@@ -62,6 +64,8 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
     blockSize = 128 : i32,
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
@@ -95,6 +99,8 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
     blockSize = 128 : i32,
     isKContiguousDimA = true,
     isKContiguousDimB = false,
+    copyMPerThread = 2 : i32,
+    copyNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,

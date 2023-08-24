@@ -353,57 +353,30 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
   return gpuViews;
 }
 
-/// Compute a thread copy layout, i.e., how many elements a single thread (or
-/// workitem) reads along K and M (independently on how we vectorize the reads)
-FailureOr<std::pair<int64_t, int64_t>>
-mlir::rock::computeCopyPerThread(Type elementType, int64_t copyPerThread,
-                                 int64_t kPerBlock, int64_t dPerBlock,
-                                 int64_t kpack, Location loc) {
-
-  // By default, we try to maximize the LDS store vectorization. So we will try
-  // to read as many elements as possible along the contiguous dimension in LDS
-  // and `copyPerThread/elements` in the other dimension
-  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
-  int64_t copyKPerThread = 0;
-  int64_t copyDPerThread = 0;
-
-  if (kpack == 1) {
-    copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
-    copyKPerThread = copyPerThread / copyDPerThread;
-  } else {
-    copyKPerThread =
-        math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread));
-    copyDPerThread = copyPerThread / copyKPerThread;
-  }
-
-  if (copyKPerThread == 0 || copyDPerThread == 0) {
-    return emitError(loc) << "gemmA copy size too small,"
-                          << " copyKPerThread: " << copyKPerThread
-                          << " copyDPerThread: " << copyDPerThread << "\n";
-  }
-  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
-    return mlir::emitError(loc)
-           << "gemmA per thread copy smaller than per"
-           << " block copy, incohereant tuning parameters\n";
-  }
-  return std::make_pair(copyKPerThread, copyDPerThread);
-}
-
 TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
     TopDownTMBuilder &toMatrixC, ArrayRef<int64_t> bidGridLengths,
     int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
-    int64_t nPerBlock, bool isKContiguousDimA, bool isKContiguousDimB,
+    int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN, bool isBlockwise,
     SmallVector<Attribute> &transformAttr) {
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   transformAttr.push_back(toMatrixCAttr);
 
   auto splitAgain = TopDownTMBuilder::below(toMatrixC, toMatrixCAttr);
   {
-    splitAgain.passThrough("gemmG");
-    unsigned int idx = 1;
-    if (isKContiguousDimA) {
+    unsigned int idx = 0;
+    if (!isBlockwise) {
+      splitAgain.passThrough("gemmG");
+      idx += 1;
+    }
+
+    if (!doSwapThreadIterSubDimsForM) {
       splitAgain.passThrough({"gemmM"}, {idx}, {"gemmM"});
       idx += 1;
+    } else if (isBlockwise) {
+      splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmM",
+                       {copyMPerThread, mPerBlock / copyMPerThread});
+      idx += 2;
     } else {
       splitAgain.merge(
           {"m_block", "m_iter", "m_tid"}, {idx, idx + 1, idx + 2}, "gemmM",
@@ -411,8 +384,11 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
       idx += 3;
     }
 
-    if (isKContiguousDimB)
+    if (!doSwapThreadIterSubDimsForN)
       splitAgain.passThrough({"gemmN"}, {idx}, {"gemmN"});
+    else if (isBlockwise)
+      splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmN",
+                       {copyNPerThread, nPerBlock / copyNPerThread});
     else
       splitAgain.merge(
           {"n_block", "n_iter", "n_tid"}, {idx, idx + 1, idx + 2}, "gemmN",
@@ -423,19 +399,30 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
 
   auto swapBack = TopDownTMBuilder::below(splitAgain, splitAgainAttr);
   {
-    swapBack.passThrough("gemmG");
-    if (isKContiguousDimA)
-      swapBack.passThrough({"gemmM"}, {1}, {"gemmM"});
+    unsigned int idx = 0;
+    if (!isBlockwise) {
+      swapBack.passThrough("gemmG");
+      idx = 1;
+    }
+
+    if (!doSwapThreadIterSubDimsForM)
+      swapBack.passThrough({"gemmM"}, {idx}, {"gemmM"});
+    else if (isBlockwise)
+      swapBack.unmerge("gemmM", idx, {"m_tid", "m_iter"},
+                       {mPerBlock / copyMPerThread, copyMPerThread});
     else
       swapBack.unmerge(
-          "gemmM", 1, {"m_block", "m_tid", "m_iter"},
+          "gemmM", idx, {"m_block", "m_tid", "m_iter"},
           {bidGridLengths[1], mPerBlock / copyMPerThread, copyMPerThread});
 
-    if (isKContiguousDimB)
-      swapBack.passThrough({"gemmN"}, {2}, {"gemmN"});
+    if (!doSwapThreadIterSubDimsForN)
+      swapBack.passThrough({"gemmN"}, {idx + 1}, {"gemmN"});
+    else if (isBlockwise)
+      swapBack.unmerge("gemmN", idx + 1, {"n_tid", "n_iter"},
+                       {nPerBlock / copyNPerThread, copyNPerThread});
     else
       swapBack.unmerge(
-          "gemmN", 2, {"n_block", "n_tid", "n_iter"},
+          "gemmN", idx + 1, {"n_block", "n_tid", "n_iter"},
           {bidGridLengths[2], nPerBlock / copyNPerThread, copyNPerThread});
   }
   TransformMapAttr swapBackAttr = swapBack.get();
