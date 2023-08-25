@@ -1046,12 +1046,12 @@ defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputType
 def Rock_BlockwiseGemmOp:
     Rock_Op<"blockwise_gemm">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
-                   BoolAttr : $isKContiguousDimA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
-                   BoolAttr : $isKContiguousDimB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
-                   I32Attr:$copyMPerThread,
-                   I32Attr:$copyNPerThread,
+                   I32Attr:$inMPerThread,
+                   I32Attr:$inNPerThread,
+                   UnitAttr:$rotateMWithK,
+                   UnitAttr:$rotateNWithK,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non accelerated version";
@@ -1088,11 +1088,11 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 def Rock_BlockwiseGemmAccelOp:
     Rock_Op<"blockwise_gemm_accel">,
     Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-                   BoolAttr:$isKContiguousDimA,
                    MemRefOf<LdsBufferTypes>:$matrixB,
-                   BoolAttr:$isKContiguousDimB,
-                   I32Attr:$copyMPerThread,
-                   I32Attr:$copyNPerThread,
+                   I32Attr:$inMPerThread,
+                   I32Attr:$inNPerThread,
+                   UnitAttr:$rotateMWithK,
+                   UnitAttr:$rotateNWithK,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<AccelArgTypes>:$bufferA,

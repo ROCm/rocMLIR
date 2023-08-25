@@ -112,12 +112,11 @@ struct AccelEmitter {
 
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
-  virtual RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, bool isKContiguousDimA,
-                          bool isKContiguousDimB, int64_t computeMPerThread,
-                          int64_t computeNPerThread, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) = 0;
+  virtual RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN,
+      int64_t computeMPerThread, int64_t computeNPerThread, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type

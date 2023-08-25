@@ -685,12 +685,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);
 
+      // LDS bank-conflicts parameters
+      UnitAttr rotateMWithK = (isKContiguousDimA ? b.getUnitAttr() : nullptr);
+      UnitAttr rotateNWithK = (isKContiguousDimB ? b.getUnitAttr() : nullptr);
+
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
-          loc, ldsMatrixA, b.getBoolAttr(isKContiguousDimA), ldsMatrixB,
-          b.getBoolAttr(isKContiguousDimB), registerMatrixCViewOp,
+          loc, ldsMatrixA, ldsMatrixB, registerMatrixCViewOp,
           b.getI32IntegerAttr(copyMPerThread),
-          b.getI32IntegerAttr(copyNPerThread), op.getParamsAttr());
+          b.getI32IntegerAttr(copyNPerThread), rotateMWithK, rotateNWithK,
+          op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -1076,7 +1080,7 @@ struct GridwiseGemmAccelRewritePattern
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
         b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        aCopyKPerThread, copyMPerThread, isKContiguousDimA);
+        aCopyKPerThread, copyMPerThread, /*rotateDWithK=*/isKContiguousDimA);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     // This is KxD view of the flat LDS buffer
@@ -1087,7 +1091,7 @@ struct GridwiseGemmAccelRewritePattern
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
         b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        bCopyKPerThread, copyNPerThread, isKContiguousDimB);
+        bCopyKPerThread, copyNPerThread, /*rotateDWithK=*/isKContiguousDimB);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     // This is KxD view of the flat LDS buffer
@@ -1179,14 +1183,18 @@ struct GridwiseGemmAccelRewritePattern
       // LDS barrier.
       b.create<LDSBarrierOp>(loc);
 
+      // LDS bank-conflicts parameters
+      UnitAttr rotateMWithK = (isKContiguousDimA ? b.getUnitAttr() : nullptr);
+      UnitAttr rotateNWithK = (isKContiguousDimB ? b.getUnitAttr() : nullptr);
+
       // Emit blockwise GEMM.
       blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
-          loc, ldsViewForGemmA, b.getBoolAttr(isKContiguousDimA),
-          ldsViewForGemmB, b.getBoolAttr(isKContiguousDimB),
+          loc, ldsViewForGemmA, ldsViewForGemmB,
           b.getI32IntegerAttr(copyMPerThread),
-          b.getI32IntegerAttr(copyNPerThread), mMyWaveOffsetA, mMyWaveOffsetB,
-          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
-          op.getBlockSizeAttr(), op.getParamsAttr());
+          b.getI32IntegerAttr(copyNPerThread), rotateMWithK, rotateNWithK,
+          mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, regCAllocOp,
+          op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
+          op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -1225,11 +1233,14 @@ struct GridwiseGemmAccelRewritePattern
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
 
+    bool doSwapThreadIterSubDimsForM = !isKContiguousDimA;
+    bool doSwapThreadIterSubDimsForN = !isKContiguousDimB;
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
-            ->computeOutputTransforms(b, loc, M, N, !isKContiguousDimA,
-                                      !isKContiguousDimB, copyMPerThread,
-                                      copyNPerThread, blockSize, bidGridLengths)
+            ->computeOutputTransforms(b, loc, M, N, doSwapThreadIterSubDimsForM,
+                                      doSwapThreadIterSubDimsForN,
+                                      copyMPerThread, copyNPerThread, blockSize,
+                                      bidGridLengths)
             .gridSubTile;
 
     Value registerC = accelEmitterPtr->computeOutputConversion(

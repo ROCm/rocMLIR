@@ -357,7 +357,6 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesM}.slice(1));
     toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
