@@ -161,7 +161,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else if (codepath == "navi3x") {
-        label = 'mlir && ( gfx1100 || gfx1101 )'
+        label = 'mlir && gfx1101'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -192,7 +192,7 @@ def rebootNode() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21 codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
-    // Filter out dense_output_bf16.mlir for navi32 codepath as a workaround for issue#1023
+    // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
     filter_out_tests = false
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
