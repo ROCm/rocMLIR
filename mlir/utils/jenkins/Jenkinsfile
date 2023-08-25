@@ -874,7 +874,7 @@ pipeline {
                                         sh 'make -j$(nproc) driver test_gpu_mlir'
                                         sh 'ctest -R test_gpu_mlir'
                                         // Verify ResNet50
-                                        sh './bin/driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                     }
                                 }
                             }
