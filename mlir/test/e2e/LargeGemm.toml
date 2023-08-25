@@ -1,0 +1,20 @@
+directory = "LargeGemm"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+# Note: Just f32 for ensuring lower machine load
+[[axis]]
+name = "data type"
+values = ["f32"]
+prefix = "-t "
+
+## Gemm variants
+[[suite]]
+name = "large_gemm"
+
+# Large gemm, input padding
+[[suite.test]]
+config = "-g 1 -m 1 -k 32768 -n 32769"
+# Large gemm, no padding.
+[[suite.test]]
+config = "-g 1 -m 64 -k 32768 -n 32768"
