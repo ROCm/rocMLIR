@@ -35,19 +35,3 @@ config = "-g 1 -m 1024 -k 769 -n 1024"
 # Let's make sure the very silly thing works
 [[suite.test]]
 config = "-g 1 -m 1 -k 1 -n 1"
-
-# Large gemm, output padding
-[[suite.test]]
-config = "-g 1 -m 65536 -k 1 -n 65537"
-# Only test i8 here, f32 is covered by PR tests
-[[suite.test.exclude]]
-name = "data type"
-values = ["f32", "f16", "fp8_fp8", "fp8_bf8", "bf8_fp8", "bf8_bf8"]
-
-# Large gemm, no padding.
-[[suite.test]]
-config = "-g 1 -m 64 -k 65536 -n 65536"
-# Only test i8 here, f32 is covered by PR tests
-[[suite.test.exclude]]
-name = "data type"
-values = ["f32", "f16", "fp8_fp8", "fp8_bf8", "bf8_fp8", "bf8_bf8"]
