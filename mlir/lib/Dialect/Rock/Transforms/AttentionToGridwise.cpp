@@ -110,7 +110,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                             "gemm0M");
   keys =
       normalizeMatrix(keys, rw, loc, op.getKTransposed(), "gemm0K", "gemm0N");
-  values = normalizeMatrix(values, rw, loc, !op.getVTransposed(), "gemm1K",
+  values = normalizeMatrix(values, rw, loc, op.getVTransposed(), "gemm1K",
                            "gemm1N");
   out = normalizeMatrix(out, rw, loc, op.getOTransposed(), "gemm1M", "gemm1N");
 
