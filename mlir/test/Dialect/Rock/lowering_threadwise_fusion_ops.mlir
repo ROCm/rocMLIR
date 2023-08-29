@@ -1,35 +1,21 @@
 // Note: this should be in a post-fusion pass
 // RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise --canonicalize %s | FileCheck --enable-var-scope %s
 
-// CHECK-DAG: #[[$ON_OP:transform_map]] = #rock.transform_map
-// CHECK-DAG-SAME: PassThrough
-// CHECK-DAG-SAME: [0, 1, 2]
-// CHECK-DAG-SAME: [0, 1, 2]
+// CHECK-DAG: #[[$ON_OP:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
   by [<PassThrough ["x", "y", "z"] at [0, 1, 2] -> ["x", "y", "z"] at [0, 1, 2]>]
   bounds = [2, 64, 32] -> [2, 64, 32]>
-// CHECK-DAG: #[[$IN_FUNC:transform_map.+]] = #rock.transform_map
-// CHECK-DAG-SAME: PassThrough
-// CHECK-DAG-SAME: [0, 1]
-// CHECK-DAG-SAME: [0, 1]
-// CHECK-DAG-SAME: Pad{2, 0}
+// CHECK-DAG: #[[$IN_FUNC:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1]{{.*}}[0, 1]{{.*}}Pad{2, 0}
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
   by [<PassThrough ["x", "y"] at [0, 1]  -> ["x", "y"] at [0, 1]>,
     <Pad{2, 0} ["z"] at [2] -> ["z"] at [2]>]
   bounds = [2, 64, 32] -> [2, 64, 30]>
 
-// CHECK-DAG: #[[$ON_OP_IDX:transform_map.+]] = #rock.transform_map
-// CHECK-DAG-SAME: PassThrough
-// CHECK-DAG-SAME: [0, 1, 2, 3]
-// CHECK-DAG-SAME: [0, 1, 2, 3]
+// CHECK-DAG: #[[$ON_OP_IDX:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2, 3]{{.*}}[0, 1, 2, 3]
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
   by [<PassThrough ["w", "x", "y", "z"] at [0, 1, 2, 3] -> ["w", "x", "y", "z"] at [0, 1, 2, 3]>]
   bounds = [3, 2, 64, 32] -> [3, 2, 64, 32]>
-// CHECK-DAG: #[[$IN_FUNC_IDX:transform_map.+]] = #rock.transform_map
-// CHECK-DAG-SAME: PassThrough
-// CHECK-DAG-SAME: [0, 1, 2]
-// CHECK-DAG-SAME: [0, 1, 2]
-// CHECK-DAG-SAME: Pad{2, 0}
+// CHECK-DAG: #[[$IN_FUNC_IDX:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]{{.*}}Pad{2, 0}
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3 - 2)>
   by [<PassThrough ["w", "x", "y"] at [0, 1, 2]  -> ["w", "x", "y"] at [0, 1, 2]>,
     <Pad{2, 0} ["z"] at [3] -> ["z"] at [3]>]
@@ -59,6 +45,25 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
     : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>
   func.return
 }
+
+// CHECK-LABEL: func @threadwise_read_into_scalar
+// CHECK-SAME: [[source:%.+]]: memref<f32>, [[dest:%.+]]: memref<1xf32, #gpu.address_space<private>>
+func.func @threadwise_read_into_scalar(%source: memref<f32>, %dest: memref<1xf32, #gpu.address_space<private>>) {
+  // CHECK-DAG: [[zero:%.+]] = arith.constant 0
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
+  // CHECK-SAME: () = [#transform_map{{[0-9]*}}]([[zero]])
+  // CHECK-SAME: ([[i:%.+]]) = []([[zero]])
+  // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
+  // CHECK-SAME: bounds [1]
+  // CHECK-SAME: strides [1]
+  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][] if [[valid]]
+  // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs}
+    [](%source)[] -> %dest
+    : memref<f32> -> memref<1xf32, #gpu.address_space<private>>
+  func.return
+}
+
 
 // CHECK-LABEL: func @threadwise_read_into_extra_idx
 // CHECK-SAME: [[source:%.+]]: memref<3x2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
@@ -107,6 +112,24 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
   rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
     %source -> [#transform_map0](%view)[%bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<2x64x32xf32>
+  func.return
+}
+
+// CHECK-LABEL: func @threadwise_write_all_scalar
+// CHECK-SAME: [[source:%.+]]: memref<1xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<f32>
+func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space<private>>, %dest: memref<f32>) {
+  // CHECK-DAG: [[zero:%.+]] = arith.constant 0
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
+  // CHECK-SAME: ([[i:%.+]]) = []([[zero]])
+  // CHECK-SAME: () = [#{{.*}}]([[zero]])
+  // CHECK-SAME: ({{%.*}}, [[valid:%.+]]) = validity
+  // CHECK-SAME: bounds [1]
+  // CHECK-SAME: strides [1]
+  // CHECK-NEXT: rock.global_store set [[source]][[[i]]] -> [[dest]][] if [[valid]]
+
+  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
+    %source -> [](%dest)[] by set
+    : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
   func.return
 }
 
