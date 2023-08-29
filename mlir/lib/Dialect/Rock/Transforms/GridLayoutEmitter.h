@@ -56,8 +56,12 @@ struct GridLayoutInfo {
 GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
                                       Value bid, GridLayoutInfo info);
 
-GridCoordinates makeMMajorGxMGridLayout(PatternRewriter &b, Location loc,
+GridCoordinates makeGMajorGxMGridLayout(PatternRewriter &b, Location loc,
                                         Value bid, Value nIter,
+                                        GridLayoutInfo info);
+
+GridCoordinates makeGMajorGxNGridLayout(PatternRewriter &b, Location loc,
+                                        Value bid, Value mIter,
                                         GridLayoutInfo info);
 
 } // namespace layout

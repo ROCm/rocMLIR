@@ -848,7 +848,7 @@ struct GridwiseAttentionAccelRewritePattern
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
   LogicalResult loadAndStoreGemmInputTile(
-      Location loc, TypedValue<MemRefType> in, Value nIter, Value kIter,
+      Location loc, TypedValue<MemRefType> in, Value kIter,
       rock::layout::GridCoordinates gridCoords, Value fromGlobalRegBuffer,
       Value toLDSRegBuffer, Value ldsTileByteBuffer, StringRef nonKDimName,
       int64_t kpack, int64_t kpacksPerBlock, int64_t dPerBlock,
@@ -953,6 +953,12 @@ struct GridwiseAttentionAccelRewritePattern
     return {fromGlobalRegBuffer, toLDSRegBuffer, ldsByteBuffer};
   }
 
+  void zeroAccBuffer(PatternRewriter &rewriter, Location loc, Value accBuffer) const {
+    MemRefType accBufferType = accBuffer.getType().cast<MemRefType>();
+    Value zeroConstantCOp = createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
+    rewriter.create<FillOp>(loc, accBuffer, zeroConstantCOp);
+  }
+
   // This function creates the accumulator register buffer
   Value createBufferForAccelGemmOut(Location loc,
                                     rock::accel::AccelEmitterParams params,
@@ -968,8 +974,6 @@ struct GridwiseAttentionAccelRewritePattern
         MemRefType::get(nOutputVectors, accVectorType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     Value regCAllocOp = rewriter.create<rock::GpuAllocOp>(loc, regCAllocType);
-    Value zeroConstantCOp = createZeroConstantOp(rewriter, loc, accVectorType);
-    rewriter.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
     return regCAllocOp;
   }
 
@@ -1243,7 +1247,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                             RockAccelTuningParamAttrInterface gemm0TuningParams, 
                                                             int64_t gemm1NPerBlock) const {
     return rewriter.getAttr<XdlopsGemmParamsAttr>(
-      /*gemmKPerBlock=*/gemm0TuningParams.getNPerBlock(), 
+      /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() / gemm0TuningParams.getKpack(), 
       /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
       /*gemmNPerBlock=*/gemm1NPerBlock, 
       /*gemmKPack=*/gemm0TuningParams.getKpack(),
@@ -1353,6 +1357,8 @@ struct GridwiseAttentionAccelRewritePattern
     llvm::errs() << "gemm0N = " << gemm0N << "\n";
     llvm::errs() << "gemm0MPerBlock = " << gemm0MPerBlock << "\n";
     llvm::errs() << "gemm0NPerBlock = " << gemm0NPerBlock << "\n";
+    llvm::errs() << "gemm0KpacksPerBlock = " << gemm0KpacksPerBlock << "\n";
+    llvm::errs() << "gemm0kpack = " << gemm0kpack << "\n";
 
     RockAccelTuningParamAttrInterface gemm1TuningParams = deriveGemm1TuningParams(rewriter, gemm0TuningParams, gemm1NPerBlock);
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
@@ -1479,10 +1485,11 @@ struct GridwiseAttentionAccelRewritePattern
     rewriter.create<FillOp>(loc, sumRowBuffer, zeroF32);
 
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    auto gridCoordsGemm1 = layout::makeMMajorGxMGridLayout(
+    auto gridCoordsGemm1 = layout::makeGMajorGxMGridLayout(
         rewriter, loc, bid, zero,
         {gemm1MBlocks, 1, /*op.getNumCU()=*/20, elemTypeV, elemTypeOut});
 
+    zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
     affine::AffineForOp nLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0NBlocks, 1);
     {
@@ -1490,19 +1497,20 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.setInsertionPointToStart(nLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value nLoopIV = nLoopOp.getInductionVar();
+      zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         // Compute grid coordinates
-        auto gridCoords = layout::makeMMajorGxMGridLayout(
+        auto gridCoords = layout::makeGMajorGxMGridLayout(
             rewriter, loc, bid, nLoopIV,
             {gemm0MBlocks, gemm0NBlocks, /*op.getNumCU()=*/20, elemTypeQ,
              elemTypeQxK});
         Value kLoopIV = kLoopOp.getInductionVar();
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            loc, inQ, nLoopIV, kLoopIV, gridCoords, fromGlobalRegBufferQ,
+            loc, inQ, kLoopIV, gridCoords, fromGlobalRegBufferQ,
             toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack, gemm0KpacksPerBlock,
             gemm0MPerBlock, blockSize, gridSize, bidGridOrder, gemm0BidGridLengths,
             forceUnroll, rewriter);
@@ -1512,7 +1520,7 @@ struct GridwiseAttentionAccelRewritePattern
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
-            loc, inK, nLoopIV, kLoopIV, gridCoords, fromGlobalRegBufferK,
+            loc, inK, kLoopIV, gridCoords, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "n", gemm0kpack, gemm0KpacksPerBlock,
             gemm0NPerBlock, blockSize, gridSize, bidGridOrder, gemm0BidGridLengths,
             forceUnroll, rewriter);
@@ -1584,10 +1592,10 @@ struct GridwiseAttentionAccelRewritePattern
         TypedValue<MemRefType> gemm1LDSBufferA = viewBufferAs(
             rewriter, gemm1LDSByteBufferA, vectorTypeOrSelf(elemTypeQ, gemm1kpack));
         Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+
         LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
             loc, inV,
-            /*nIter=*/zero,
-            /*kIter=*/zero, gridCoordsGemm1, fromGlobalRegBufferV,
+            /*kIter=*/nLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
             toLDSRegBufferV, ldsByteBufferV, "n", gemm1kpack, gemm1KpacksPerBlock,
             gemm1NPerBlock, blockSize, gridSize, bidGridOrder, gemm1BidGridLengths,
             forceUnroll, rewriter);
@@ -1627,7 +1635,7 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
     // Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    auto gridCoordsGemm0 = layout::makeMMajorGxMGridLayout(
+    auto gridCoordsGemm0 = layout::makeGMajorGxMGridLayout(
             rewriter, loc, bid, zero,
             {gemm0MBlocks, gemm0NBlocks, /*op.getNumCU()=*/20, elemTypeQ,
              elemTypeQxK});
