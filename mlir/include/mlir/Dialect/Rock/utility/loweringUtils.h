@@ -113,12 +113,13 @@ Type vectorTypeOrSelf(Type elementType, int64_t len);
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions
 // back before producing the final output view
-TopDownTMBuilder swapThreadIdAndIteration(
-    TopDownTMBuilder &toMatrixC, ArrayRef<int64_t> bidGridLengths,
-    int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
-    int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
-    bool doSwapThreadIterSubDimsForN, bool isBlockwise,
-    SmallVector<Attribute> &transformAttrs);
+TopDownTMBuilder
+swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
+                         int64_t nBlocks, int64_t copyMPerThread,
+                         int64_t copyNPerThread, int64_t mPerBlock,
+                         int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
+                         bool doSwapThreadIterSubDimsForN, bool isBlockwise,
+                         SmallVector<Attribute> &transformAttrs);
 
 } // end namespace rock
 } // end namespace mlir

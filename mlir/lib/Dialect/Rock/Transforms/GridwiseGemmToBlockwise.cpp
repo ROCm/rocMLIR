@@ -753,7 +753,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
          nPerThread});
 
-    swapThreadIdAndIteration(toMatrixC, bidGridLengths, copyMPerThread,
+    swapThreadIdAndIteration(toMatrixC, /*mBlocks=*/bidGridLengths[1],
+                             /*nBlocks=*/bidGridLengths[2], copyMPerThread,
                              copyNPerThread, mPerBlock, nPerBlock,
                              !isKContiguousDimA, !isKContiguousDimB,
                              /*isBlockwise=*/false, transformAttrs);

@@ -314,9 +314,10 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
                                           toRowsAndColsAttr};
     mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, bidGridLengths, computeMPerThread, computeNPerThread,
-        mPerBlock, nPerBlock, doSwapThreadIterSubDimsForM,
-        doSwapThreadIterSubDimsForN, /*isBlockwise=*/false, transformAttrs);
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /*isBlockwise=*/false, transformAttrs);
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -363,9 +364,10 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
                                           toRowsAndColsAttr};
     mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, bidGridLengths, computeMPerThread, computeNPerThread,
-        mPerBlock, nPerBlock, doSwapThreadIterSubDimsForM,
-        doSwapThreadIterSubDimsForN, /*isBlockwise=*/true, transformAttrs);
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /*isBlockwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
   }
 
@@ -625,9 +627,10 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
     mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, bidGridLengths, computeMPerThread, computeNPerThread,
-        mPerBlock, nPerBlock, doSwapThreadIterSubDimsForM,
-        doSwapThreadIterSubDimsForN, /**isBlockwise=*/false, transformAttrs);
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /**isBlockwise=*/false, transformAttrs);
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -653,9 +656,10 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
     mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, bidGridLengths, computeMPerThread, computeNPerThread,
-        mPerBlock, nPerBlock, doSwapThreadIterSubDimsForM,
-        doSwapThreadIterSubDimsForN, /**isBlocwise=*/true, transformAttrs);
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /**isBlocwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
   }
 

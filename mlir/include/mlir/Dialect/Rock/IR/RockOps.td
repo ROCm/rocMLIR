@@ -1067,6 +1067,11 @@ def Rock_BlockwiseGemmOp:
     Each {m,n}PerThread group of elements (which may themselves be kPacks)
     is read from LDS by a given thread, then the next mPerThread group is
     mRepeatStride elements later in the buffer.
+
+    `rotate{M,N}PerThread` is used to rotate the access to LDS to avoid bank-conflicts in cases
+    where subsequent threads try to write data in the same column of the output matrix. If `kpack>1`
+    the rotation is simply the row index. If `kpack==1` the rotation takes into account the number of
+    elements reads by a thread along the `M` and/or `N` dimension, namely `in{M,N}PerThread`
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
