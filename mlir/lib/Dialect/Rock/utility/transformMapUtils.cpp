@@ -1364,11 +1364,13 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   return transform.get();
 }
 
-TopDownTMBuilder mlir::rock::rotateIf(
-    bool condition, TopDownTMBuilder &builder, TransformMapAttr &attr,
-    int64_t stride, StringRef dName, int64_t d, int64_t dPos, StringRef kName,
-    int64_t kOuter, ArrayRef<StringRef> beforeDims,
-    ArrayRef<StringRef> afterDims, SmallVector<Attribute, 4> &transformAttrs) {
+TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
+                                      TransformMapAttr &attr, int64_t stride,
+                                      StringRef dName, int64_t d, int64_t dPos,
+                                      StringRef kName, int64_t kOuter,
+                                      ArrayRef<StringRef> beforeDims,
+                                      ArrayRef<StringRef> afterDims,
+                                      SmallVector<Attribute> &transformAttrs) {
   if (condition) {
     // d = (d+k_outer)
     TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);

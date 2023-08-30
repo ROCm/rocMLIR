@@ -143,9 +143,9 @@ bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
 
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
 /// workitem) reads along K and M (independently on how we vectorize the reads)
-FailureOr<std::pair<int64_t, int64_t>> static computeCopyPerThread(
-    Type elementType, int64_t copyPerThread, int64_t kPerBlock,
-    int64_t dPerBlock, int64_t kpack, Location loc) {
+static FailureOr<std::pair<int64_t, int64_t>>
+computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
+                     int64_t dPerBlock, int64_t kpack, Location loc) {
 
   // By default, we try to maximize the LDS store vectorization. So we will try
   // to read as many elements as possible along the contiguous dimension in LDS
@@ -176,13 +176,15 @@ FailureOr<std::pair<int64_t, int64_t>> static computeCopyPerThread(
   return std::make_pair(copyKPerThread, copyDPerThread);
 }
 
-/// Wraps the LDS buffer "buffer", which is <kOuter * rotate(d) * kpack *
-/// sizeof(T) x i8 into a tid x iter view, where `iter` iterates over nominal
+/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
+/// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
 /// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
 /// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
 /// 1 meaning just T). The resulting view must be iterated over with a stride of
 /// no less than min(kPerThread, kpack). Also note that the `d` dimension
-/// has been rotated to minimize bank conflicts
+/// might be rotated to minimize bank conflicts (i.e., depending on
+/// `rotateDWithK`
+// we can apply a transformation similar to `d=(d+kOuter)%D`)
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, Type ldsReadType,
                                               int64_t kOuter, StringRef dName,
@@ -218,7 +220,7 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   mergeKpack.merge({dName}, {1}, "d", {d});
 
   TransformMapAttr mergeKpackAttr = mergeKpack.get();
-  SmallVector<Attribute, 4> transformAttrs{mergeKpackAttr};
+  SmallVector<Attribute> transformAttrs{mergeKpackAttr};
 
   // Rotate the buffer if necessary to minimize bank conflicts. Rotating the
   // buffer has the benefit of minimizing bank conflicts when we are transposing

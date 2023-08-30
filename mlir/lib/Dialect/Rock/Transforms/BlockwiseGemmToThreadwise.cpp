@@ -257,10 +257,10 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexA.ignore("n_cuwave");
     toLdsIndexA.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexAAttr = toLdsIndexA.get();
-    SmallVector<Attribute, 4> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
+    SmallVector<Attribute> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
 
-    // Since the LDS layout is `kOuter x rotate(m) x kpack` we want to rotate
-    // the dimension `n` before reading from LDS. This rotation happens in
+    // If the dimension `m` has been rotated to minimize bank conflicts we want
+    // to apply the same rotation reading from LDS. This rotation happens in
     // `wrapLDSforStore` from
     // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
     // to be kept in sync with this function
@@ -280,10 +280,10 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexB.ignore("m_cuwave");
     toLdsIndexB.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
-    SmallVector<Attribute, 4> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
+    SmallVector<Attribute> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
 
-    // Since the LDS layout is `kOuter x rotate(m) x kpack` we want to rotate
-    // the dimension `n` before reading from LDS. This rotation happens in
+    // If the dimension `d` has been rotated to minimize bank conflicts we want
+    // to apply the same rotation reading from LDS. This rotation happens in
     // `wrapLDSforStore` from
     // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
     // to be kept in sync with this function
@@ -484,12 +484,11 @@ struct BlockwiseGemmAccelRewritePattern
       Value sourceOffset = accelEmitterPtr->computeLdsSourceOffset(
           kb, k_i, mnb, mn_i, b, MN, loc, sourceBase, mnWaves, laneId);
 
-      // Since the LDS layou is `k0 x rotate(m) x kpack` we want to rotate
-      // the dimension `n` before reading from LDS. Since we don't use
-      // any transform here, this is done by hand with rem/div operators
-      // This rotation happens in `wrapLDSforStore` from
-      // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp
-      // which needs to be kept in sync with this function
+      // If the dimension `d` has been rotated to minimize bank conflicts we
+      // want to apply the same rotation reading from LDS. This rotation happens
+      // in `wrapLDSforStore` from
+      // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which
+      // needs to be kept in sync with this function
       if (rotateDWithK) {
         Value col = kb.create<arith::RemUIOp>(loc, sourceOffset, MN);
         Value row = kb.create<arith::DivUIOp>(loc, sourceOffset, MN);
