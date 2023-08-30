@@ -2382,41 +2382,41 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   Value qkTensor = builder.create<tosa::MatMulOp>(loc, intermediateTensorType,
                                                   queriesTensor, keysTensor);
-  // if (hasAttnScale) {
-  //   auto scaleTensor = getAsTensor(block->getArgument(3));
-  //   qkTensor = builder.create<tosa::MulOp>(loc, intermediateTensorType,
-  //                                          qkTensor, scaleTensor, /*shift=*/0);
-  // }
-  // // compute type of the reduced tensor
-  // auto intermediateTensorShape = intermediateTensorType.getShape();
-  // SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
-  // std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
-  //           reducedTensorShape.begin());
-  // constexpr int64_t reductionAxis{2};
-  // assert(intermediateTensorShape.size() >= reductionAxis);
-  // reducedTensorShape[reductionAxis] = 1;
+  if (hasAttnScale) {
+    auto scaleTensor = getAsTensor(block->getArgument(3));
+    qkTensor = builder.create<tosa::MulOp>(loc, intermediateTensorType,
+                                           qkTensor, scaleTensor, /*shift=*/0);
+  }
+  // compute type of the reduced tensor
+  auto intermediateTensorShape = intermediateTensorType.getShape();
+  SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
+  std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
+            reducedTensorShape.begin());
+  constexpr int64_t reductionAxis{2};
+  assert(intermediateTensorShape.size() >= reductionAxis);
+  reducedTensorShape[reductionAxis] = 1;
 
-  // auto reducedTensorType = mlir::RankedTensorType::get(
-  //     reducedTensorShape, intermediateTensorType.getElementType());
+  auto reducedTensorType = mlir::RankedTensorType::get(
+      reducedTensorShape, intermediateTensorType.getElementType());
 
-  // auto qkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
-  //                                                 qkTensor, reductionAxis);
-  // auto normilizedQkTensor = builder.create<tosa::SubOp>(
-  //     loc, intermediateTensorType, qkTensor, qkMaxs);
-  // auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
-  //                                               normilizedQkTensor);
+  auto qkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
+                                                  qkTensor, reductionAxis);
+  auto normilizedQkTensor = builder.create<tosa::SubOp>(
+      loc, intermediateTensorType, qkTensor, qkMaxs);
+  auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
+                                                normilizedQkTensor);
 
-  // auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
-  //                                                   expsTensor, reductionAxis);
-  // auto invExpsSums =
-  //     builder.create<tosa::ReciprocalOp>(loc, reducedTensorType, expsSums);
-  // auto softmaxTensor = builder.create<tosa::MulOp>(
-  //     loc, intermediateTensorType, expsTensor, invExpsSums, /*shift=*/0);
-  // auto resultTensor = builder.create<tosa::MatMulOp>(
-  //     loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
-
+  auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
+                                                    expsTensor, reductionAxis);
+  auto invExpsSums =
+      builder.create<tosa::ReciprocalOp>(loc, reducedTensorType, expsSums);
+  auto softmaxTensor = builder.create<tosa::MulOp>(
+      loc, intermediateTensorType, expsTensor, invExpsSums, /*shift=*/0);
   auto resultTensor = builder.create<tosa::MatMulOp>(
-      loc, valuesTensor.getType(), qkTensor, valuesTensor);
+      loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
+
+  // auto resultTensor = builder.create<tosa::MatMulOp>(
+  //     loc, valuesTensor.getType(), qkTensor, valuesTensor);
   // auto resultTensor = qkTensor;
 
   auto outputTensor = getAsTensor(block->getArguments().back(), true);
