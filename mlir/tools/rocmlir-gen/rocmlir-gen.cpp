@@ -245,17 +245,17 @@ static llvm::cl::opt<int>
 
 /// Matrix options
 static llvm::cl::opt<int64_t> gemmM("m",
-                                    llvm::cl::desc("M dimennsion of gemm()"),
+                                    llvm::cl::desc("M dimension of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t> gemmK("k",
-                                    llvm::cl::desc("K dimennsion of gemm()"),
+                                    llvm::cl::desc("K dimension of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t> gemmN("n",
-                                    llvm::cl::desc("N dimennsion of gemm()"),
+                                    llvm::cl::desc("N dimension of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
@@ -3296,7 +3296,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
     } else if (isAttention) {
-      // Note: In the current implementaiton, all operands have the same type.
+      // Note: In the current implementation, all operands have the same type.
       // This behaviour enforced by `-t`. See, detectMissingArguments()
       auto elemTypes = typeFromString(inputDataType.getValue(), context);
       constexpr size_t maxNumArgs{5};
