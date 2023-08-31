@@ -320,10 +320,10 @@ def main(args=None):
 
     # Note, appending results here to allow multiple config sets
     with open(parsed_args.output, 'a') as outFile:
-        print("# arch\ttestVector\tperfConfig", file=outFile)
+        print("# arch\tnumCUs\ttestVector\tperfConfig", file=outFile)
         for testVector, perfConfig in winners.items():
             print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', perfConfig = {perfConfig}")
-            print(f"{arch}\t{testVector}\t{perfConfig}", file=outFile)
+            print(f"{arch}\t{numCU}\t{testVector}\t{perfConfig}", file=outFile)
 
 if __name__ == '__main__':
     sys.exit(main())
