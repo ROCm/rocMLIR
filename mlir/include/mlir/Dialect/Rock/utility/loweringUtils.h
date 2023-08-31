@@ -60,7 +60,8 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim);
+    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    bool doSwapThreadIterSubDimsForD);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);

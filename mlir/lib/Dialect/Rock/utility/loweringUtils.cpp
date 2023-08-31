@@ -258,7 +258,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim) {
+    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    bool doSwapThreadIterSubDimsForD) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -327,7 +328,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
                         {kThreads, kOuterPerThread, kpackPerThread});
     // if the matrix is KxD swap the iter/thread dimension. This is so that
     // each thread writes in LDS contiguously, minimizing bank conflicts
-    if (isKContigousDim)
+    if (!doSwapThreadIterSubDimsForD)
       toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
                           {dThreads, dPerThread});
     else
