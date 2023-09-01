@@ -1108,19 +1108,19 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t g0Npt =
         gemm0OutBufferMaxView.getType().cast<MemRefType>().getShape()[1];
 
-    TopDownTMBuilder sliceViewBuilder{
-        rewriter, {"g1Mpt", "g1Npt"}, {g1Mpt, g1Npt}, loc};
-    sliceViewBuilder.passThrough("g1Mpt");
-    sliceViewBuilder.constDim("g0Npt", 1, 0, g0Npt);
-    TransformMapAttr sliceViewTrMap = sliceViewBuilder.get();
-    // gemm0OutBufferMaxView[:,0]
-    gemm0OutBufferMaxTrs =
-        prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
-                          gemm0OutBufferMaxTrs);
-    // gemm0OutBufferSumView[:,0]
-    gemm0OutBufferSumTrs =
-        prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
-                          gemm0OutBufferSumTrs);
+    // TopDownTMBuilder sliceViewBuilder{
+    //     rewriter, {"g1Mpt", "g1Npt"}, {g1Mpt, g1Npt}, loc};
+    // sliceViewBuilder.passThrough("g1Mpt");
+    // sliceViewBuilder.constDim("g0Npt", 1, 0, g0Npt);
+    // TransformMapAttr sliceViewTrMap = sliceViewBuilder.get();
+    // // gemm0OutBufferMaxView[:,0]
+    // gemm0OutBufferMaxTrs =
+    //     prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
+    //                       gemm0OutBufferMaxTrs);
+    // // gemm0OutBufferSumView[:,0]
+    // gemm0OutBufferSumTrs =
+    //     prependUpperViews(rewriter, rewriter.getArrayAttr({sliceViewTrMap}),
+    //                       gemm0OutBufferSumTrs);
 
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     Value lastNptIdx = rewriter.createOrFold<ConstantIndexOp>(loc, g1Npt - 1);
@@ -1302,6 +1302,55 @@ struct GridwiseAttentionAccelRewritePattern
     };
   }
 
+  ArrayAttr createNZeroBroadcastView(PatternRewriter &rewriter, Location loc, ArrayAttr subTileView, int64_t zeroNDimSize) const {
+    ArrayRef<int64_t> lowerShape = getLowerShape(subTileView);
+    bool hasGDim = lowerShape.size() == 3;
+    SmallVector<StringRef> topNames {"m", "n"};
+    int nDimIdx = 1;
+    if(hasGDim){
+        topNames.insert(topNames.begin(), "g");
+        nDimIdx = 2;
+    }
+    TopDownTMBuilder dropNTop(rewriter, topNames, lowerShape, loc);
+    if(hasGDim){
+        dropNTop.passThrough("g");
+    }
+    dropNTop.passThrough("m");
+    // dropNTop.ignore("n");
+    dropNTop.constDim("nzero", nDimIdx, 0, zeroNDimSize);
+    TransformMapAttr mOnlyViewMap = dropNTop.get();
+    // auto addNBelow = TopDownTMBuilder::below(dropNTop, mOnlyViewMap);
+    // if(hasGDim){
+    //     addNBelow.passThrough("g");
+    // }
+    // addNBelow.passThrough("m");
+    // addNBelow.constDim("nzero", nDimIdx, 0, zeroNDimSize);
+    // TransformMapAttr bottomNZeroViewMap = addNBelow.get();
+    return prependUpperViews(rewriter, subTileView, rewriter.getArrayAttr({mOnlyViewMap}));
+  }
+
+//   ArrayAttr createNZeroBroadcastViewInverse(PatternRewriter &rewriter, Location loc, ArrayAttr invertedSubTileView, int64_t zeroNDimSize) const {
+//     ArrayRef<int64_t> upperShape = invertedSubTileView[0].cast<TransformMapAttr>().getUpperBounds();
+//     TopDownTMBuilder dropNTop(rewriter, {"m", "nzero"}, {upperShape[0], zeroNDimSize}, loc);
+//     dropNTop.passThrough("m");
+//     dropNTop.ignore("nzero");
+//     TransformMapAttr mOnlyViewMap = dropNTop.get();
+//     auto addNBelow = TopDownTMBuilder::below(dropNTop, mOnlyViewMap);
+//     addNBelow.passThrough("m");
+//     addNBelow.constDim("n", 1, 0, upperShape[1]);
+//     TransformMapAttr bottomNZeroViewMap = addNBelow.get();
+//     return prependUpperViews(rewriter, rewriter.getArrayAttr({mOnlyViewMap, bottomNZeroViewMap}), invertedSubTileView);
+//   }
+
+  RegsAsMatrixSubTiles makeNZeroSubTile(PatternRewriter &rewriter, Location loc, RegsAsMatrixSubTiles subTileViews, int64_t nLen, int64_t nPerBlock, int64_t nPerThread) const {
+    RegsAsMatrixSubTiles ret;
+    ret.gridSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.gridSubTile, nLen);
+    ret.blockSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.blockSubTile, nPerBlock);
+    ret.threadSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.threadSubTile, nPerThread);
+    llvm::errs() << "ret.threadSubTile = " << ret.threadSubTile << "\n";
+    return ret;
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1420,12 +1469,18 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.create<GpuAllocOp>(loc, ldsWorkspaceBufferType);
     Value gemm0OutBufferMax = createBufferForGemmOut(
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
+    // This is same (maybe sparse) version of gemm0OutBufferMax but in the layout of gemm1
+    Value gemm1OutBufferMax =
+        createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter);
     Value gemm0OutBufferSub = createBufferForGemmOut(
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
     Value gemm0OutBufferExp = createBufferForGemmOut(
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
     Value gemm0OutBufferSum = createBufferForGemmOut(
         loc, rewriter.getF32Type(), accelParamsGemm0, rewriter);
+    // This is same (maybe sparse) version of gemm0OutBufferSum but in the layout of gemm1
+    Value gemm1OutBufferSum =
+        createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter);
 
     // Buffers for gemm 1
     Value gemm0ExpOutBufferToLDS =
@@ -1456,9 +1511,14 @@ struct GridwiseAttentionAccelRewritePattern
 
     int64_t gemm0MPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
     int64_t gemm0NPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
-    int64_t gemm1MPerThread = gemm0MPerThread;
+    int64_t gemm1InMPerThread = gemm0MPerThread;
     int64_t gemm1KPerThread = gemm0NPerThread;
+    int64_t gemm1MPerThread = getLowerShape(gemm1OutSubTileViews.threadSubTile)[0];
     int64_t gemm1NPerThread = getLowerShape(gemm1OutSubTileViews.threadSubTile)[1];
+
+    // llvm::errs() << "gemm0MPerThread = " << gemm0MPerThread << "\n";
+    // llvm::errs() << "gemm1InMPerThread = " << gemm1InMPerThread << "\n";
+    // llvm::errs() << "gemm1MPerThread = " << gemm1MPerThread << "\n";
     
     // Buffers for running row state
 
@@ -1471,7 +1531,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value attentionOutAccBufferView = transform(rewriter, attentionOutAccBuffer, attentionOutAccBufferThreadSubTileViewMaps);
     // m buffer; this only contains a reduced single value per row
     auto reducedBufferType =
-        MemRefType::get({gemm0MPerThread}, rewriter.getF32Type(), AffineMap{},
+        MemRefType::get({gemm1MPerThread}, rewriter.getF32Type(), AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
     auto negInfSumTyped =
         createConstantFloatOp(rewriter, loc, reducedBufferType.getElementType(),
@@ -1491,7 +1551,6 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc, bid, zero,
         {gemm1MBlocks, 1, /*op.getNumCU()=*/20, elemTypeV, elemTypeOut});
 
-    zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
     affine::AffineForOp nLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0NBlocks, 1);
@@ -1501,6 +1560,7 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value nLoopIV = nLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
+      zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
@@ -1547,10 +1607,15 @@ struct GridwiseAttentionAccelRewritePattern
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBufferF32, forceUnroll);
       APInt reductionAxis = APInt(64, 1);
+
+      int64_t reductionOutNLen = getLowerShape(gemm0OutSubTileViews.gridSubTile)[2];
+      int64_t reductionOutNPerBlock = getLowerShape(gemm0OutSubTileViews.blockSubTile)[1];
+      int64_t reductionOutNPerThread = getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
+      RegsAsMatrixSubTiles reductionOutSubTilesViews = makeNZeroSubTile(rewriter, loc, gemm1OutSubTileViews, reductionOutNLen, reductionOutNPerBlock, reductionOutNPerThread);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferF32, ldsReductionWorkspaceBuffer,
-          gemm0OutBufferMax, reductionAxis, rock::ReduceMethod::Max,
-          gemm0OutSubTileViews.blockSubTile, blockSize);
+          gemm0OutBufferMax, gemm1OutBufferMax, reductionAxis, rock::ReduceMethod::Max,
+          gemm0OutSubTileViews.blockSubTile, reductionOutSubTilesViews.blockSubTile, blockSize);
       // softmax normalization.
       rewriter.create<linalg::ElemwiseBinaryOp>(
           loc,
@@ -1569,8 +1634,8 @@ struct GridwiseAttentionAccelRewritePattern
           });
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
-          gemm0OutBufferSum, reductionAxis, rock::ReduceMethod::Sum,
-          gemm0OutSubTileViews.blockSubTile, blockSize);
+          gemm0OutBufferSum, gemm1OutBufferSum, reductionAxis, rock::ReduceMethod::Sum,
+          gemm0OutSubTileViews.blockSubTile, reductionOutSubTilesViews.blockSubTile, blockSize);
 
       // Emit blockwise GEMM 1.
       {
@@ -1588,7 +1653,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView, gemm0OutSubTileNxMViews,
             gemm0ExpOutBufferToLDS, gemm1LDSByteBufferA, gemm1KpacksPerBlock,
             "m", gemm1KPerBlock, gemm1MPerBlock, gemm1KPerThread,
-            gemm1MPerThread, forceUnroll);
+            gemm1InMPerThread, forceUnroll);
         if (failed(storeGemm1ATileStatus)) {
           return failure();
         }
@@ -1623,14 +1688,14 @@ struct GridwiseAttentionAccelRewritePattern
         accelEmitterPtrGemm1->computeOutputConversion(
             rewriter, loc, accRegBufferGemm1, gemm1OutBuffer, forceUnroll);
 
-            
+        ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(rewriter, loc, gemm1OutSubTileViews.threadSubTile);
         Value gemm1MNThreadwiseView =
-            transform(rewriter, gemm1OutBuffer, invertTransforms(rewriter, loc, gemm1OutSubTileViews.threadSubTile));
+            transform(rewriter, gemm1OutBuffer, invertedGemm1threadSubTileMaps);
         // Rescale/correct output, rowMax and rowSums
         Value gemm0MaxMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferMax, invertTransforms(rewriter, loc, gemm0OutSubTileViews.threadSubTile));
+            transform(rewriter, gemm1OutBufferMax, invertedGemm1threadSubTileMaps);
         Value gemm0SumMNThreadwiseView =
-            transform(rewriter, gemm0OutBufferSum, invertTransforms(rewriter, loc, gemm0OutSubTileViews.threadSubTile));
+            transform(rewriter, gemm1OutBufferSum, invertedGemm1threadSubTileMaps);
         createRowStateCorrections(
             rewriter, loc, gemm0MaxMNThreadwiseView, gemm0SumMNThreadwiseView,
             gemm1MNThreadwiseView, attentionOutAccBufferView, maxRowBuffer,

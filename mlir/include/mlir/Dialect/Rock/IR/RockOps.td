@@ -1191,9 +1191,11 @@ def Rock_BlockwiseBroadcastReduceOp:
     Arguments<(ins MemRefOf<GemmOutputTypes>:$input,
                    MemRefOf<LdsBufferTypes>:$workspace_buffer,
                    MemRefOf<GemmOutputTypes>:$output,
+                   Optional<MemRefOf<GemmOutputTypes>>:$additionalOut,
                    IndexAttr:$axis,
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
+                   OptionalAttr<TransformMapArrayAttr>:$outputRegView,
                    I32Attr:$blockSize
                    )> {
   let summary = "Blockwise reduce operation with output broadcasting";
@@ -1219,7 +1221,7 @@ def Rock_BlockwiseBroadcastReduceOp:
     number of elements in the input tensor.
   }];
   let assemblyFormat = [{
-    $reduceMethod $inputRegView $input `into` $output `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)
+    $reduceMethod $inputRegView $input `into` $output`,`($additionalOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($additionalOut)^)?
   }];
 
   let hasVerifier = 1;
