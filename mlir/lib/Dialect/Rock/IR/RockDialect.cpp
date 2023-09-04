@@ -457,6 +457,9 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   case KernelType::Gemm:
     llvm_unreachable(
         "Gemm ops shouldn't be in convolution-specific lowering passes");
+  case KernelType::Attention:
+    llvm_unreachable(
+        "Attention ops shouldn't be in convolution-specific lowering passes");
   }
   llvm_unreachable("Unsuppported KernelType");
 }
@@ -1518,7 +1521,43 @@ LogicalResult AccelGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
-LogicalResult GridwiseAttentionAccelOp::verify() { return success(); }
+LogicalResult GridwiseAttentionAccelOp::verify() {
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams();
+  int64_t gemm0kpack = gemm0TuningParams.getKpack();
+  int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
+  int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
+  int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
+  int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+  if(gemm0NPerBlock % gemm0kpack != 0){
+    return emitError("NPerBlock should be divisble by kpack.");
+  }
+
+  //Calculate LDS requirement
+  MemRefType typeQ = getQueries().getType();
+  Type elemTypeQ = typeQ.getElementType();
+  MemRefType typeK = getKeys().getType();
+  Type elemTypeK = typeK.getElementType();
+  MemRefType typeV = getValues().getType();
+  Type elemTypeV = typeV.getElementType(); 
+  MemRefType typeO = getOut().getType();
+  ArrayRef<int64_t> outShape = typeO.getShape();
+  int64_t gemm1N = outShape[2];
+
+  //TODO: we can definitely improve re-use of LDS buffers 
+  //through further refactors to blockwise gemm to accept
+  //LDS buffers that are larger than required -- Hence
+  //we can overlap following buffers between gemms.
+  int64_t gemm0ALdsSizeBytes = (gemm0KPerBlock * gemm0MPerBlock) * (elemTypeQ.getIntOrFloatBitWidth() / 8);
+  int64_t gemm0BLdsSizeBytes = (gemm0KPerBlock * gemm0NPerBlock) * (elemTypeK.getIntOrFloatBitWidth() / 8);
+  // Current implementation does the second gemm using the type of V input.
+  int64_t gemm1ALdsSizeBytes = (gemm0NPerBlock * gemm0MPerBlock) * (elemTypeV.getIntOrFloatBitWidth() / 8);
+  int64_t gemm1BLdsSizeBytes = (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
+  int64_t totalLDSSize = gemm0ALdsSizeBytes + gemm0BLdsSizeBytes + gemm1ALdsSizeBytes + gemm1BLdsSizeBytes;
+  if(totalLDSSize > 64 * 1024){
+    return emitError() << "totalLDSSize (" << totalLDSSize << ") exceeds 64KB\n";
+  }
+  return success(); 
+}
 
 //===----------------------------------------------------------------------===//
 // InWarpTransposeOp
@@ -1767,6 +1806,7 @@ LogicalResult AttentionOp::verify() {
       return emitError("scale needs to be of same rank to other inputs");
     }
   }
+
   return success();
 }
 
