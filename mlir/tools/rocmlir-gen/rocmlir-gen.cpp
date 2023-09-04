@@ -2338,8 +2338,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 }
 
 template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(OpBuilder &builder, Location loc,
-                               Type elemType, Args &&...args) {
+static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
+                               Args &&...args) {
   auto op =
       builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -2355,13 +2355,16 @@ static TosaOp createOpAndInfer(OpBuilder &builder, Location loc,
   return op;
 }
 
-static Value transposeMatrix(OpBuilder &builder, Location loc, Value src, ArrayRef<int64_t> perm){
+static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
+                             ArrayRef<int64_t> perm) {
   auto elemType = src.getType().cast<RankedTensorType>().getElementType();
   auto permutationAttr = DenseIntElementsAttr::get(
-        RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()), perm);
+      RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()),
+      perm);
   Value permutationValue =
-        builder.create<arith::ConstantOp>(loc, permutationAttr);
-  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, permutationValue);
+      builder.create<arith::ConstantOp>(loc, permutationAttr);
+  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src,
+                                             permutationValue);
 }
 
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
@@ -2399,32 +2402,41 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   };
 
   auto queriesTensor = getAsTensor(block->getArgument(0));
-  if(transposeQ){
+  if (transposeQ) {
     queriesTensor = transposeMatrix(builder, loc, queriesTensor, {0, 2, 1});
   }
   auto keysTensor = getAsTensor(block->getArgument(1));
-  if(transposeK){
+  if (transposeK) {
     keysTensor = transposeMatrix(builder, loc, keysTensor, {0, 2, 1});
   }
   auto valuesTensor = getAsTensor(block->getArgument(2));
-  if(transposeV){
+  if (transposeV) {
     valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
   }
   Type elemType = params.types[0];
-  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType, queriesTensor, keysTensor);
+  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType,
+                                                    queriesTensor, keysTensor);
   if (hasAttnScale) {
     auto scaleTensor = getAsTensor(block->getArgument(3));
-    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, qkTensor, scaleTensor, /*shift=*/0);
+    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, qkTensor,
+                                             scaleTensor, /*shift=*/0);
   }
   constexpr int64_t reductionAxis{2};
-  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, elemType, qkTensor, reductionAxis);
-  auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(builder, loc, elemType, qkTensor, qkMaxs);
-  auto expsTensor = createOpAndInfer<tosa::ExpOp>(builder, loc, elemType, normilizedQkTensor);
-  auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(builder, loc, elemType, expsTensor, reductionAxis);
-  auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(builder, loc, elemType, expsSums);
-  auto softmaxTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, expsTensor, invExpsSums, /*shift=*/0);
-  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType, softmaxTensor, valuesTensor);
-  if(transposeO){
+  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, elemType,
+                                                    qkTensor, reductionAxis);
+  auto normilizedQkTensor =
+      createOpAndInfer<tosa::SubOp>(builder, loc, elemType, qkTensor, qkMaxs);
+  auto expsTensor =
+      createOpAndInfer<tosa::ExpOp>(builder, loc, elemType, normilizedQkTensor);
+  auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
+      builder, loc, elemType, expsTensor, reductionAxis);
+  auto invExpsSums =
+      createOpAndInfer<tosa::ReciprocalOp>(builder, loc, elemType, expsSums);
+  auto softmaxTensor = createOpAndInfer<tosa::MulOp>(
+      builder, loc, elemType, expsTensor, invExpsSums, /*shift=*/0);
+  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, elemType, softmaxTensor, valuesTensor);
+  if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
 

@@ -1397,6 +1397,8 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
   return b.getArrayAttr(invertedTrs);
 }
 
-ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack){
-  return transformStack[transformStack.size() - 1].cast<TransformMapAttr>().getLowerBounds();
+ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
+  return transformStack[transformStack.size() - 1]
+      .cast<TransformMapAttr>()
+      .getLowerBounds();
 }

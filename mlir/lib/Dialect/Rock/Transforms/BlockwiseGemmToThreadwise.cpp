@@ -1172,12 +1172,13 @@ struct BlockwiseReduceRewritePattern
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
             /*extraIndices=*/ValueRange{tid}, true, false);
-        if(ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()){
+        if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
-            loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+              loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
           rewriter.create<ThreadwiseReadIntoOp>(
-            loc, workspaceLDSBuffer, op.getExtraOut(), reducedldsViewArrayAttr2,
-            /*extraIndices=*/ValueRange{tid}, true, false);
+              loc, workspaceLDSBuffer, op.getExtraOut(),
+              reducedldsViewArrayAttr2,
+              /*extraIndices=*/ValueRange{tid}, true, false);
         }
       } else {
         // This means there are more threads than elements to be reduced.
@@ -1334,12 +1335,14 @@ struct BlockwiseReduceRewritePattern
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
               /*extraIndices=*/ValueRange{tid}, true, false);
-          if(ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()){
-            ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
-              loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+          if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
+            ArrayAttr reducedldsViewArrayAttr2 =
+                createLDSWorkspaceView(loc, rewriter, outputViewArrayAttr, axis,
+                                       /*makeRDimZero-*/ true);
             rewriter.create<ThreadwiseReadIntoOp>(
-              loc, workspaceLDSBuffer, op.getExtraOut(), reducedldsViewArrayAttr2,
-              /*extraIndices=*/ValueRange{tid}, true, false);
+                loc, workspaceLDSBuffer, op.getExtraOut(),
+                reducedldsViewArrayAttr2,
+                /*extraIndices=*/ValueRange{tid}, true, false);
           }
         }
       }

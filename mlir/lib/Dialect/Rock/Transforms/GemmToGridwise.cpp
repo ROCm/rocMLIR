@@ -141,7 +141,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     return op.emitError("Currently, attention op is only supported on GPUs "
                         "with matrix accelerator extentions");
   }
-  RockAccelTuningParamAttrInterface params = op.getParamsAttr().cast<RockAccelTuningParamAttrInterface>();
+  RockAccelTuningParamAttrInterface params =
+      op.getParamsAttr().cast<RockAccelTuningParamAttrInterface>();
 
   Value queries = adaptor.getQueries();
   Value keys = adaptor.getKeys();
@@ -153,8 +154,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                             "gemm0M");
   keys =
       normalizeMatrix(keys, rw, loc, op.getKTransposed(), "gemm0K", "gemm0N");
-  values = normalizeMatrix(values, rw, loc, op.getVTransposed(), "gemm1K",
-                           "gemm1N");
+  values =
+      normalizeMatrix(values, rw, loc, op.getVTransposed(), "gemm1K", "gemm1N");
   out = normalizeMatrix(out, rw, loc, op.getOTransposed(), "gemm1M", "gemm1N");
 
   // Note, matrix dimension correctness is handled in the verifier
@@ -201,8 +202,9 @@ void RockGemmToGridwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp>();
-  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                    rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp>();
+  target
+      .addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
+                  rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GemmRewritePattern, AttentionRewritePattern>(ctx);
