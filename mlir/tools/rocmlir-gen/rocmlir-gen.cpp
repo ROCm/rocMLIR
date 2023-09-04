@@ -2337,6 +2337,33 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   return func;
 }
 
+template <typename TosaOp, typename... Args>
+static TosaOp createOpAndInfer(OpBuilder &builder, Location loc,
+                               Type elemType, Args &&...args) {
+  auto op =
+      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
+  InferShapedTypeOpInterface shapeInterface =
+      cast<InferShapedTypeOpInterface>(op.getOperation());
+  SmallVector<ShapedTypeComponents> returnShape;
+  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
+      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
+      op->getPropertiesStorage(), op->getRegions(), returnShape);
+  assert(shapeInferenceStatus.succeeded());
+  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
+  auto result = op->getResult(0);
+  result.setType(newOutTy);
+  return op;
+}
+
+static Value transposeMatrix(OpBuilder &builder, Location loc, Value src, ArrayRef<int64_t> perm){
+  auto elemType = src.getType().cast<RankedTensorType>().getElementType();
+  auto permutationAttr = DenseIntElementsAttr::get(
+        RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()), perm);
+  Value permutationValue =
+        builder.create<arith::ConstantOp>(loc, permutationAttr);
+  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, permutationValue);
+}
+
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                                      const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -2372,52 +2399,34 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   };
 
   auto queriesTensor = getAsTensor(block->getArgument(0));
-  ArrayRef<int64_t> qShape =
-      queriesTensor.getType().cast<ShapedType>().getShape();
+  if(transposeQ){
+    queriesTensor = transposeMatrix(builder, loc, queriesTensor, {0, 2, 1});
+  }
   auto keysTensor = getAsTensor(block->getArgument(1));
-  ArrayRef<int64_t> kShape = keysTensor.getType().cast<ShapedType>().getShape();
+  if(transposeK){
+    keysTensor = transposeMatrix(builder, loc, keysTensor, {0, 2, 1});
+  }
   auto valuesTensor = getAsTensor(block->getArgument(2));
-  auto intermediateTensorType = mlir::RankedTensorType::get(
-      {qShape[0], qShape[1], kShape[2]}, params.types[0]);
-
-  Value qkTensor = builder.create<tosa::MatMulOp>(loc, intermediateTensorType,
-                                                  queriesTensor, keysTensor);
+  if(transposeV){
+    valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
+  }
+  Type elemType = params.types[0];
+  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType, queriesTensor, keysTensor);
   if (hasAttnScale) {
     auto scaleTensor = getAsTensor(block->getArgument(3));
-    qkTensor = builder.create<tosa::MulOp>(loc, intermediateTensorType,
-                                           qkTensor, scaleTensor, /*shift=*/0);
+    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, qkTensor, scaleTensor, /*shift=*/0);
   }
-  // compute type of the reduced tensor
-  auto intermediateTensorShape = intermediateTensorType.getShape();
-  SmallVector<int64_t, 5> reducedTensorShape(intermediateTensorShape.size());
-  std::copy(intermediateTensorShape.begin(), intermediateTensorShape.end(),
-            reducedTensorShape.begin());
   constexpr int64_t reductionAxis{2};
-  assert(intermediateTensorShape.size() >= reductionAxis);
-  reducedTensorShape[reductionAxis] = 1;
-
-  auto reducedTensorType = mlir::RankedTensorType::get(
-      reducedTensorShape, intermediateTensorType.getElementType());
-
-  auto qkMaxs = builder.create<tosa::ReduceMaxOp>(loc, reducedTensorType,
-                                                  qkTensor, reductionAxis);
-  auto normilizedQkTensor = builder.create<tosa::SubOp>(
-      loc, intermediateTensorType, qkTensor, qkMaxs);
-  auto expsTensor = builder.create<tosa::ExpOp>(loc, intermediateTensorType,
-                                                normilizedQkTensor);
-
-  auto expsSums = builder.create<tosa::ReduceSumOp>(loc, reducedTensorType,
-                                                    expsTensor, reductionAxis);
-  auto invExpsSums =
-      builder.create<tosa::ReciprocalOp>(loc, reducedTensorType, expsSums);
-  auto softmaxTensor = builder.create<tosa::MulOp>(
-      loc, intermediateTensorType, expsTensor, invExpsSums, /*shift=*/0);
-  auto resultTensor = builder.create<tosa::MatMulOp>(
-      loc, valuesTensor.getType(), softmaxTensor, valuesTensor);
-
-  // auto resultTensor = builder.create<tosa::MatMulOp>(
-  //     loc, valuesTensor.getType(), qkTensor, valuesTensor);
-  // auto resultTensor = qkTensor;
+  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, elemType, qkTensor, reductionAxis);
+  auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(builder, loc, elemType, qkTensor, qkMaxs);
+  auto expsTensor = createOpAndInfer<tosa::ExpOp>(builder, loc, elemType, normilizedQkTensor);
+  auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(builder, loc, elemType, expsTensor, reductionAxis);
+  auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(builder, loc, elemType, expsSums);
+  auto softmaxTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, expsTensor, invExpsSums, /*shift=*/0);
+  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType, softmaxTensor, valuesTensor);
+  if(transposeO){
+    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
+  }
 
   auto outputTensor = getAsTensor(block->getArguments().back(), true);
   auto type = outputTensor.getType().cast<mlir::RankedTensorType>();
