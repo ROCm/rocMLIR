@@ -43,11 +43,6 @@ def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
-def RockAttentionToGridwisePass : Pass<"rock-attention-to-gridwise", "::mlir::func::FuncOp"> {
-  let summary = "convert attention to gridwise attention, adding padding";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
-}
-
 def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
   let summary = "convert linalg.generic to regular form to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
