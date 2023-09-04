@@ -61,29 +61,6 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
 };
 } // end namespace
 
-static Attribute getTuningParams(ConversionPatternRewriter &rw,
-                                 AttentionOp op) {
-  Attribute params = op.getParams().value_or(nullptr);
-  if (!params) {
-    if (StringAttr perfConfigStrAttr =
-            dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
-      InitParamsAccel accelParams;
-      if (accelParams.deserialize(perfConfigStrAttr.str())) {
-        GemmFeatures features = op.getFeatures();
-        auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-        params = populateParamsAccelPtr->getGemmParamsAttr(rw, accelParams);
-        return params;
-      }
-    }
-    // set a default one for now until the tuning flow is set up properly.
-    params = rw.getAttr<XdlopsGemmParamsAttr>(
-        /*kpackPerBlock=*/8, /*mPerBlock=*/32,
-        /*nPerBlock=*/32, /*kpack=*/8,
-        /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true);
-  }
-  return params;
-}
-
 LogicalResult
 AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                                          AttentionOpAdaptor adaptor,
@@ -98,7 +75,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     return op.emitError("Currently, attention op is only supported on GPUs "
                         "with matrix accelerator extentions");
   }
-  Attribute params = getTuningParams(rw, op);
+  RockAccelTuningParamAttrInterface params = op.getParamsAttr().cast<RockAccelTuningParamAttrInterface>();
 
   Value queries = adaptor.getQueries();
   Value keys = adaptor.getKeys();
@@ -140,24 +117,15 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   out = padMatrix(out, rw, loc, "gemm1M", gemm1ExtraPad.m, "gemm1N",
                   gemm1ExtraPad.n);
 
-  auto accelParams = params.cast<RockAccelTuningParamAttrInterface>();
-  int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
-  int64_t blockSize = waveSize * accelParams.getNPerBlock() *
-                      accelParams.getMPerBlock() /
-                      (accelParams.getMPerWave() * accelParams.getNPerWave());
-  IntegerAttr blockSizeAttr = rw.getI32IntegerAttr(blockSize);
-  int64_t gridSize = (gemm0Size.m / accelParams.getMPerBlock()) * gemm0Size.g;
-  IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
-
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  func->setAttr("block_size", blockSizeAttr);
-  func->setAttr("grid_size", gridSizeAttr);
+  IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
+  IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
 
   rw.create<GridwiseAttentionAccelOp>(
       loc, queries, keys, values,
       /*TODO(enable scale here once implemented)*/ nullptr, out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
-      accelParams);
+      params);
   rw.eraseOp(op);
   return success();
 }

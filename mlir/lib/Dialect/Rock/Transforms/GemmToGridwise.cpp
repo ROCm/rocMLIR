@@ -58,6 +58,12 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
 };
+
+struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
+  using OpConversionPattern<AttentionOp>::OpConversionPattern;
+  LogicalResult matchAndRewrite(AttentionOp op, AttentionOpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override;
+};
 } // end namespace
 
 LogicalResult
@@ -121,16 +127,85 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   return success();
 }
 
+LogicalResult
+AttentionRewritePattern::matchAndRewrite(AttentionOp op,
+                                         AttentionOpAdaptor adaptor,
+                                         ConversionPatternRewriter &rw) const {
+  Location loc = op->getLoc();
+
+  if (!adaptor.getQueries().getType().isa<MemRefType>())
+    return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
+
+  bool isAccel = rock::isAccel(op.getFeatures());
+  if (!isAccel) {
+    return op.emitError("Currently, attention op is only supported on GPUs "
+                        "with matrix accelerator extentions");
+  }
+  RockAccelTuningParamAttrInterface params = op.getParamsAttr().cast<RockAccelTuningParamAttrInterface>();
+
+  Value queries = adaptor.getQueries();
+  Value keys = adaptor.getKeys();
+  Value values = adaptor.getValues();
+  Value out = adaptor.getOut();
+  // Note: the gridwise ops take K x M and K x N, so A must be transposed if
+  // it's in the natural M x K form
+  queries = normalizeMatrix(queries, rw, loc, !op.getQTransposed(), "gemm0K",
+                            "gemm0M");
+  keys =
+      normalizeMatrix(keys, rw, loc, op.getKTransposed(), "gemm0K", "gemm0N");
+  values = normalizeMatrix(values, rw, loc, op.getVTransposed(), "gemm1K",
+                           "gemm1N");
+  out = normalizeMatrix(out, rw, loc, op.getOTransposed(), "gemm1M", "gemm1N");
+
+  // Note, matrix dimension correctness is handled in the verifier
+  ArrayRef<int64_t> queriesShape =
+      queries.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> keysShape = keys.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> valuesShape =
+      values.getType().cast<MemRefType>().getShape();
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+                     /*k=*/queriesShape[1],
+                     /*n=*/keysShape[2]);
+  GemmSize gemm0ExtraPad =
+      requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+                     /*k=*/valuesShape[1],
+                     /*n=*/valuesShape[2]);
+  GemmSize gemm1ExtraPad =
+      requiredPadding(params, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
+
+  queries = padMatrix(queries, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
+                      gemm0ExtraPad.m);
+  keys = padMatrix(keys, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
+                   gemm0ExtraPad.n);
+  values = padMatrix(values, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1N",
+                     gemm1ExtraPad.n);
+  out = padMatrix(out, rw, loc, "gemm1M", gemm1ExtraPad.m, "gemm1N",
+                  gemm1ExtraPad.n);
+
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
+  IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
+
+  rw.create<GridwiseAttentionAccelOp>(
+      loc, queries, keys, values,
+      /*TODO(enable scale here once implemented)*/ nullptr, out,
+      op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
+      params);
+  rw.eraseOp(op);
+  return success();
+}
+
 void RockGemmToGridwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
-  target.addIllegalOp<rock::GemmOp>();
+  target.addIllegalOp<rock::GemmOp, rock::AttentionOp>();
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                    rock::GridwiseGemmAccelOp>();
+                    rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<GemmRewritePattern>(ctx);
+  patterns.add<GemmRewritePattern, AttentionRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
