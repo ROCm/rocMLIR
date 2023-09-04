@@ -207,8 +207,6 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
            << kOuter * d * kpack * getByteWidth(dataType)
            << " elements but has " << bufferShape[0];
   }
-  llvm::errs() << "wrapLDSBufferForStore::kPerThread = " << kPerThread << "\n";
-  llvm::errs() << "wrapLDSBufferForStore::kpack = " << kpack << "\n";
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   int64_t threadsPerKpack = kpack / kpackPerThread;
 
@@ -1317,38 +1315,16 @@ struct GridwiseAttentionAccelRewritePattern
         dropNTop.passThrough("g");
     }
     dropNTop.passThrough("m");
-    // dropNTop.ignore("n");
     dropNTop.constDim("nzero", nDimIdx, 0, zeroNDimSize);
     TransformMapAttr mOnlyViewMap = dropNTop.get();
-    // auto addNBelow = TopDownTMBuilder::below(dropNTop, mOnlyViewMap);
-    // if(hasGDim){
-    //     addNBelow.passThrough("g");
-    // }
-    // addNBelow.passThrough("m");
-    // addNBelow.constDim("nzero", nDimIdx, 0, zeroNDimSize);
-    // TransformMapAttr bottomNZeroViewMap = addNBelow.get();
     return prependUpperViews(rewriter, subTileView, rewriter.getArrayAttr({mOnlyViewMap}));
   }
-
-//   ArrayAttr createNZeroBroadcastViewInverse(PatternRewriter &rewriter, Location loc, ArrayAttr invertedSubTileView, int64_t zeroNDimSize) const {
-//     ArrayRef<int64_t> upperShape = invertedSubTileView[0].cast<TransformMapAttr>().getUpperBounds();
-//     TopDownTMBuilder dropNTop(rewriter, {"m", "nzero"}, {upperShape[0], zeroNDimSize}, loc);
-//     dropNTop.passThrough("m");
-//     dropNTop.ignore("nzero");
-//     TransformMapAttr mOnlyViewMap = dropNTop.get();
-//     auto addNBelow = TopDownTMBuilder::below(dropNTop, mOnlyViewMap);
-//     addNBelow.passThrough("m");
-//     addNBelow.constDim("n", 1, 0, upperShape[1]);
-//     TransformMapAttr bottomNZeroViewMap = addNBelow.get();
-//     return prependUpperViews(rewriter, rewriter.getArrayAttr({mOnlyViewMap, bottomNZeroViewMap}), invertedSubTileView);
-//   }
 
   RegsAsMatrixSubTiles makeNZeroSubTile(PatternRewriter &rewriter, Location loc, RegsAsMatrixSubTiles subTileViews, int64_t nLen, int64_t nPerBlock, int64_t nPerThread) const {
     RegsAsMatrixSubTiles ret;
     ret.gridSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.gridSubTile, nLen);
     ret.blockSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.blockSubTile, nPerBlock);
     ret.threadSubTile = createNZeroBroadcastView(rewriter, loc, subTileViews.threadSubTile, nPerThread);
-    llvm::errs() << "ret.threadSubTile = " << ret.threadSubTile << "\n";
     return ret;
   }
 
@@ -1415,15 +1391,6 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
     int64_t gemm1NPerBlock = gemm1N;
-
-    // llvm::errs() << "gemm0G = " << gemm0G << "\n";
-    // llvm::errs() << "gemm0M = " << gemm0M << "\n";
-    // llvm::errs() << "gemm0K = " << gemm0K << "\n";
-    // llvm::errs() << "gemm0N = " << gemm0N << "\n";
-    // llvm::errs() << "gemm0MPerBlock = " << gemm0MPerBlock << "\n";
-    // llvm::errs() << "gemm0NPerBlock = " << gemm0NPerBlock << "\n";
-    // llvm::errs() << "gemm0KpacksPerBlock = " << gemm0KpacksPerBlock << "\n";
-    // llvm::errs() << "gemm0kpack = " << gemm0kpack << "\n";
 
     RockAccelTuningParamAttrInterface gemm1TuningParams = deriveGemm1TuningParams(rewriter, gemm0TuningParams, gemm1NPerBlock);
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
@@ -1534,10 +1501,6 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KPerThread = gemm0NPerThread;
     int64_t gemm1MPerThread = getLowerShape(gemm1OutSubTileViews.threadSubTile)[0];
     int64_t gemm1NPerThread = getLowerShape(gemm1OutSubTileViews.threadSubTile)[1];
-
-    // llvm::errs() << "gemm0MPerThread = " << gemm0MPerThread << "\n";
-    // llvm::errs() << "gemm1InMPerThread = " << gemm1InMPerThread << "\n";
-    // llvm::errs() << "gemm1MPerThread = " << gemm1MPerThread << "\n";
     
     // Buffers for running row state
 
@@ -1595,7 +1558,6 @@ struct GridwiseAttentionAccelRewritePattern
             {gemm0MBlocks, gemm0NBlocks, /*op.getNumCU()=*/20, elemTypeQ,
              elemTypeQxK});
         Value kLoopIV = kLoopOp.getInductionVar();
-        llvm::errs() << "attention::gemm0_A load...\n";
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, kLoopIV, gridCoords, fromGlobalRegBufferQ,
             toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack, gemm0KpacksPerBlock,
@@ -1606,7 +1568,6 @@ struct GridwiseAttentionAccelRewritePattern
         }
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
-        llvm::errs() << "attention::gemm0_B load...\n";
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
             loc, inK, kLoopIV, gridCoords, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "n", gemm0kpack, gemm0KpacksPerBlock,
@@ -1677,9 +1638,6 @@ struct GridwiseAttentionAccelRewritePattern
             transform(rewriter, gemm1RegBufferA, gemm0ThreadwiseSubtileViewNxMMaps);
         // Correct the below toLDSViews to be max LDS vectorizable
         // (For now just hacked in the existing view)
-        llvm::errs() << "attention::gemm1_A store...\n";
-        llvm::errs() << "gemm0ExpNMThreadwiseView = " << gemm0ExpNMThreadwiseView << "\n";
-        llvm::errs() << "gemm0ExpOutBufferToLDS = " << gemm0ExpOutBufferToLDS << "\n";
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
             rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView, gemm0OutSubTileNxMViews,
             gemm0ExpOutBufferToLDS, gemm1LDSByteBufferA, gemm1KpacksPerBlock,
@@ -1692,7 +1650,6 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, gemm1LDSByteBufferA, vectorTypeOrSelf(elemTypeQ, gemm1kpack));
         Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-        llvm::errs() << "attention::gemm1_B store...\n";
         LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
             loc, inV,
             /*kIter=*/nLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
