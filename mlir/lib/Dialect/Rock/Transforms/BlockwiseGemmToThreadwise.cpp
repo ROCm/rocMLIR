@@ -1172,11 +1172,11 @@ struct BlockwiseReduceRewritePattern
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
             /*extraIndices=*/ValueRange{tid}, true, false);
-        if(ArrayAttr outputViewArrayAttr = op.getOutputRegViewAttr()){
+        if(ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()){
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
             loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
           rewriter.create<ThreadwiseReadIntoOp>(
-            loc, workspaceLDSBuffer, op.getAdditionalOut(), reducedldsViewArrayAttr2,
+            loc, workspaceLDSBuffer, op.getExtraOut(), reducedldsViewArrayAttr2,
             /*extraIndices=*/ValueRange{tid}, true, false);
         }
       } else {
@@ -1334,11 +1334,11 @@ struct BlockwiseReduceRewritePattern
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
               /*extraIndices=*/ValueRange{tid}, true, false);
-          if(ArrayAttr outputViewArrayAttr = op.getOutputRegViewAttr()){
+          if(ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()){
             ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
               loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
             rewriter.create<ThreadwiseReadIntoOp>(
-              loc, workspaceLDSBuffer, op.getAdditionalOut(), reducedldsViewArrayAttr2,
+              loc, workspaceLDSBuffer, op.getExtraOut(), reducedldsViewArrayAttr2,
               /*extraIndices=*/ValueRange{tid}, true, false);
           }
         }

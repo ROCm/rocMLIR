@@ -1191,11 +1191,11 @@ def Rock_BlockwiseBroadcastReduceOp:
     Arguments<(ins MemRefOf<GemmOutputTypes>:$input,
                    MemRefOf<LdsBufferTypes>:$workspace_buffer,
                    MemRefOf<GemmOutputTypes>:$output,
-                   Optional<MemRefOf<GemmOutputTypes>>:$additionalOut,
+                   Optional<MemRefOf<GemmOutputTypes>>:$extraOut,
                    IndexAttr:$axis,
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
-                   OptionalAttr<TransformMapArrayAttr>:$outputRegView,
+                   OptionalAttr<TransformMapArrayAttr>:$extraOutView,
                    I32Attr:$blockSize
                    )> {
   let summary = "Blockwise reduce operation with output broadcasting";
@@ -1219,9 +1219,13 @@ def Rock_BlockwiseBroadcastReduceOp:
 
     $workspace_buffer resides in LDS. This should be a flat tensor with at least
     number of elements in the input tensor.
+
+    $extraOut and $extraOutView are an optional argument and a view stack that still
+    needs to be viewed with dimensions equal to input. However, the actual composition
+    of the view stack could be used to lay things out differently to the input.
   }];
   let assemblyFormat = [{
-    $reduceMethod $inputRegView $input `into` $output`,`($additionalOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($additionalOut)^)?
+    $reduceMethod $inputRegView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?
   }];
 
   let hasVerifier = 1;
