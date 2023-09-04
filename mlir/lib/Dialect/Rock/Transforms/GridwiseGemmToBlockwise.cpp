@@ -829,21 +829,6 @@ struct GridwiseAttentionAccelRewritePattern
     return success();
   }
 
-  Value flattenGNAndPassMBlocks(PatternRewriter &rewriter, Location loc,
-                                Value block3DView) const {
-    SmallVector<StringRef, 4> startNames{"k_loop",  "g_block", "m_block",
-                                         "n_block", "tid",     "iter"};
-    ArrayRef<int64_t> startShapes =
-        block3DView.getType().cast<ShapedType>().getShape();
-    BottomUpTMBuilder flatViewBuilder(rewriter, startNames, startShapes, loc);
-    flatViewBuilder.passThrough({"k_loop", "n_loop"}, {0, 1},
-                                {"k_loop", "n_block"});
-    flatViewBuilder.merge("bid", 2, {"g_block", "m_block"});
-    flatViewBuilder.passThrough({"tid", "iter"}, {3, 4}, {"tid", "iter"});
-    return rewriter.create<TransformOp>(loc, block3DView,
-                                        flatViewBuilder.get());
-  }
-
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
   LogicalResult loadAndStoreGemmInputTile(
@@ -1756,8 +1741,6 @@ struct GridwiseAttentionAccelRewritePattern
         op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
         /*useIndexDiffs=*/true);
     rewriter.eraseOp(op);
-    (void)mlir::runRegionDCE(rewriter,
-                             op->getParentOfType<func::FuncOp>()->getRegions());
     return success();
   }
 };
