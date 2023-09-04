@@ -577,14 +577,6 @@ struct ThreadwiseWriteAllRewritePattern
 };
 } // end anonymous namespace
 
-static size_t getIterDim(gpu::AddressSpace addrSpace, size_t extraIdxCount) {
-  const llvm::SmallDenseMap<gpu::AddressSpace, size_t> iterDim{
-      {gpu::AddressSpace::Workgroup, 1},
-      {gpu::AddressSpace::Global, 2},
-  };
-  return iterDim.lookup(addrSpace) + extraIdxCount;
-}
-
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
