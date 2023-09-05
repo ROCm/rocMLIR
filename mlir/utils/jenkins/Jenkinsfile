@@ -194,7 +194,7 @@ void build_fixedE2ETests(String codepath) {
     limit_lit_workers = false
     // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
     filter_out_tests = false
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
+    if ( ((codepath == 'navi21') || (codepath == 'navi3x')) && (params.nightly == true) ) {
         limit_lit_workers = true
     }
     if ( codepath == 'navi3x') {
@@ -211,14 +211,18 @@ void build_fixedE2ETests(String codepath) {
 }
 
 void check_randomE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21 codepath on nightly CI as a workaround for issue#702
+    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
+    limit_lit_workers = false
+    if ( ((codepath == 'navi21') || (codepath == 'navi3x')) && (params.nightly == true) ) {
+        limit_lit_workers = true
+    }
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests ${ codepath == 'navi21' ? '-j 8' : ' ' }'
+              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
