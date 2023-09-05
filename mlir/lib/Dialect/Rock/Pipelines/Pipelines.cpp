@@ -196,7 +196,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true));
+      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::Unknown));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(

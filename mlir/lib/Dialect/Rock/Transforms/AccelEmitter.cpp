@@ -392,58 +392,132 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   return ret;
 }
 
-Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                                          OpBuilder &dBuilder, Value d_i,
-                                          OpBuilder &builder, Value dPerBlock,
-                                          Location loc, Value sourceBase,
-                                          Value dWaves, Value laneId) {
+Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
+                                        Value buffer, int64_t blockSize,
+                                        int64_t dInCopyPerThread,
+                                        StringRef dName, bool rotateDWithK) {
+
+  StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
+  StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
+
+  // Extract relevant tuning parameters
+  int64_t mPerWave = tuningParams.getMPerWave();
+  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t kPerBlock = tuningParams.getKpackPerBlock();
+  int64_t mPerBlock = tuningParams.getMPerBlock();
+  int64_t nPerBlock = tuningParams.getNPerBlock();
+  int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
+  int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
-  Value inputSpanLenConstantOp =
-      builder.create<ConstantIndexOp>(loc, inputSpanLen);
 
-  Value sourceOffset = sourceBase;
+  // Extract relevant derived parameters
+  int64_t mWaves = mPerBlock / mPerWave;
+  int64_t nWaves = nPerBlock / nPerWave;
+  int64_t dWaves = (dName == "m" ? mPerBlock / mPerWave : nPerBlock / nPerWave);
+  int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
+                                   : accelEmitterParams.nRepeats);
+  int64_t dPerAccel = (dName == "m" ? accelEmitterParams.mPerAccel
+                                    : accelEmitterParams.nPerAccel);
+  int64_t dPerBlock = (dName == "m" ? mPerBlock : nPerBlock);
+
+  SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
-    // Compute source offset as
-    // sourceOffset = k_i * MN + laneId + waveOffset * d_i;
-    sourceOffset = builder.create<AddIOp>(loc, sourceOffset, laneId);
+    TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
+                              {blockSize, dPerBlock, kpackPerThread});
+    splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+                   {blockSize / waveSize, waveSize});
 
-    Value waveOffset =
-        builder.create<MulIOp>(loc, dWaves, inputSpanLenConstantOp);
+    splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+    TransformMapAttr splitTidAttr = splitTid.get();
+    transformAttrs.push_back(splitTidAttr);
 
-    sourceOffset = dBuilder.create<AddIOp>(
-        loc, sourceOffset, dBuilder.create<MulIOp>(loc, waveOffset, d_i));
-    sourceOffset = kBuilder.create<AddIOp>(
-        loc, sourceOffset, kBuilder.create<MulIOp>(loc, dPerBlock, k_i));
+    TopDownTMBuilder splitWaveId =
+        TopDownTMBuilder::below(splitTid, splitTidAttr);
+    splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
+                      {mWaves, nWaves});
+    splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
+                            {"lane_id", "d_iter", "k_iter"});
+    TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+    transformAttrs.push_back(splitWaveIdAttr);
+
+    TopDownTMBuilder toLDSRowCol =
+        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+
+    // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
+    toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "lane_id"},
+                        {dRepeats, dWaves, dPerAccel});
+
+    // k = k_i
+    toLDSRowCol.passThrough({"k"}, 1, {"k_iter"});
+    toLDSRowCol.ignore(otherWaveDim);
+
+    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+
+    transformAttrs.push_back(toLDSRowColAttr);
+
+    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    auto offset =
+        rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+                 dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
+
+    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+
+    TransformMapAttr offsetAttr = offset.get();
+    transformAttrs.push_back(offsetAttr);
+
   } else {
-    Value inputSpanLenConstantOp =
-        builder.create<ConstantIndexOp>(loc, inputSpanLen);
-    Value kpackPerThreadConstantOp =
-        builder.create<ConstantIndexOp>(loc, accelEmitterParams.kpackPerThread);
+    TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
+                              {blockSize, dPerBlock, kpackPerThread});
+    splitTid.merge(
+        {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
+        {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
 
-    Value blk_id = builder.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
-    Value blk_td = builder.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
-    Value waveOffset =
-        builder.create<MulIOp>(loc, dWaves, inputSpanLenConstantOp);
+    splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"d_iter", "k_iter"});
+    TransformMapAttr splitTidAttr = splitTid.get();
+    transformAttrs.push_back(splitTidAttr);
 
-    // rowOffset = (k_i + kpackPerBlock * blk_id)
-    Value rowOffset = kBuilder.create<AddIOp>(
-        loc, kBuilder.create<MulIOp>(loc, blk_id, kpackPerThreadConstantOp),
-        k_i);
+    TopDownTMBuilder splitWaveId =
+        TopDownTMBuilder::below(splitTid, splitTidAttr);
+    splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
+                      {mWaves, nWaves});
+    splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"},
+                            {2, 3, 4, 5},
+                            {"blk_id", "blk_td", "d_iter", "k_iter"});
+    TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+    transformAttrs.push_back(splitWaveIdAttr);
 
-    // Compute source offset as
-    // sourceOffset =  rowOffset * MN + blk_td + d_i * waveOffset;
-    sourceOffset = builder.create<AddIOp>(loc, sourceOffset, blk_td);
-    sourceOffset = dBuilder.create<AddIOp>(
-        loc, sourceOffset, dBuilder.create<MulIOp>(loc, waveOffset, d_i));
+    TopDownTMBuilder toLDSRowCol =
+        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
 
-    sourceOffset = kBuilder.create<AddIOp>(
-        loc, sourceOffset, kBuilder.create<MulIOp>(loc, rowOffset, dPerBlock));
+    // d = blk_td + d_i * waveOffset
+    toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
+                        {dRepeats, dWaves, inputSpanLen});
+    // k = k_i + kpackPerBlock * blk_id
+    toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
+                        {waveSize / inputSpanLen, kpackPerThread});
+
+    toLDSRowCol.ignore(otherWaveDim);
+
+    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+    transformAttrs.push_back(toLDSRowColAttr);
+
+    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    auto offset =
+        rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+                 dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
+
+    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+
+    TransformMapAttr offsetAttr = offset.get();
+    transformAttrs.push_back(offsetAttr);
   }
-  return sourceOffset;
+
+  ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
+  return transform(b, buffer, ldsRead);
 }
 
 LogicalResult MfmaEmitter::validateAcceleratorProperties() {
@@ -493,26 +567,90 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-Value WmmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                                          OpBuilder &dBuilder, Value d_i,
-                                          OpBuilder &builder, Value dPerBlock,
-                                          Location loc, Value sourceBase,
-                                          Value dWaves, Value laneId) {
+Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
+                                        Value buffer, int64_t blockSize,
+                                        int64_t dInCopyPerThread,
+                                        StringRef dName, bool rotateDWithK) {
 
-  Value mPerAccel =
-      builder.create<ConstantIndexOp>(loc, accelEmitterParams.mPerAccel);
-  Value waveOffset = builder.create<MulIOp>(loc, dWaves, mPerAccel);
+  // Extract relevant tuning parameters
+  int64_t mPerBlock = tuningParams.getMPerBlock();
+  int64_t nPerBlock = tuningParams.getNPerBlock();
+  int64_t kPerBlock = tuningParams.getKpackPerBlock();
+  int64_t mPerWave = tuningParams.getMPerWave();
+  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t kPack = tuningParams.getKpack();
+
+  // Extract relevant emitter parameters
+  int64_t inputLen = wmmaInsn.inputLen;
+  int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
+                                   : accelEmitterParams.nRepeats);
+  int64_t dPerAccel = (dName == "m" ? accelEmitterParams.mPerAccel
+                                    : accelEmitterParams.nPerAccel);
+
+  // Extract relevant derived parameters
+  StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
+  StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
+  int64_t dWaves = (dName == "m" ? mPerBlock / mPerWave : nPerBlock / nPerWave);
+  int64_t dPerBlock = (dName == "m" ? mPerBlock : nPerBlock);
+  int64_t mWaves = mPerBlock / mPerWave;
+  int64_t nWaves = nPerBlock / nPerWave;
+
+  SmallVector<Attribute> transformAttrs;
 
   // Compute source offset as
   // sourceOffset = k_i * MN + (laneId % wmmaInputLen) + waveOffset * mn_i;
-  Value inputLen = builder.create<ConstantIndexOp>(loc, wmmaInsn.inputLen);
-  Value sourceOffset = builder.create<AddIOp>(
-      loc, sourceBase, builder.create<RemUIOp>(loc, laneId, inputLen));
-  sourceOffset = dBuilder.create<AddIOp>(
-      loc, sourceOffset, dBuilder.create<MulIOp>(loc, waveOffset, d_i));
-  sourceOffset = kBuilder.create<AddIOp>(
-      loc, sourceOffset, kBuilder.create<MulIOp>(loc, dPerBlock, k_i));
-  return sourceOffset;
+  TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
+                            {blockSize, dPerBlock, kpackPerThread});
+  splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+                 {blockSize / waveSize, waveSize});
+
+  splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+  TransformMapAttr splitTidAttr = splitTid.get();
+  transformAttrs.push_back(splitTidAttr);
+
+  TopDownTMBuilder splitWaveId =
+      TopDownTMBuilder::below(splitTid, splitTidAttr);
+  splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id", {mWaves, nWaves});
+  splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
+                          {"lane_id", "d_iter", "k_iter"});
+  TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+  transformAttrs.push_back(splitWaveIdAttr);
+
+  TopDownTMBuilder replicateLanes =
+      TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+  replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
+                             {0, 1, 4, 5},
+                             {"wave_m", "wave_n", "d_iter", "k_iter"});
+
+  replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
+                       {waveSize / inputLen, inputLen});
+  TransformMapAttr replicateLanesAttr = replicateLanes.get();
+  transformAttrs.push_back(replicateLanesAttr);
+
+  TopDownTMBuilder toLDSRowCol =
+      TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
+  toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
+  toLDSRowCol.ignore("block_id");
+  toLDSRowCol.ignore(otherWaveDim);
+  toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
+                      {dRepeats, dWaves, dPerAccel});
+
+  TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+  transformAttrs.push_back(toLDSRowColAttr);
+
+  int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+  auto offset =
+      rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+               dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
+
+  offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+
+  TransformMapAttr offsetAttr = offset.get();
+  transformAttrs.push_back(offsetAttr);
+
+  ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
+  return transform(b, buffer, ldsRead);
 }
 
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,

@@ -1,5 +1,5 @@
 // Note: this should be in a post-fusion pass
-// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise --canonicalize %s | FileCheck --enable-var-scope %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering --canonicalize %s | FileCheck --enable-var-scope %s
 
 // CHECK-DAG: #[[$ON_OP:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
