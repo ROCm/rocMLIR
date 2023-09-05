@@ -29,9 +29,11 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -61,6 +63,30 @@ struct RockThreadwiseGemmLoweringPass
     : public rock::impl::RockThreadwiseGemmLoweringPassBase<
           RockThreadwiseGemmLoweringPass> {
   void runOnOperation() override;
+};
+
+struct ThreadwiseTransposeRewritePattern
+    : public OpConversionPattern<ThreadwiseTransposeOp> {
+  using OpConversionPattern<ThreadwiseTransposeOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseTransposeOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
+struct ThreadwiseWriteAllRewritePattern
+    : public OpConversionPattern<ThreadwiseWriteAllOp> {
+  using OpConversionPattern<ThreadwiseWriteAllOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
+struct ThreadwiseReadIntoRewritePattern
+    : public OpConversionPattern<ThreadwiseReadIntoOp> {
+  using OpConversionPattern<ThreadwiseReadIntoOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseReadIntoOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
 };
 
 //===----------------------------------------------------------------------===//
@@ -256,9 +282,426 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
   }
 };
 
+/// Amend the operation chain (and computed shape) for a read/write to add a
+/// length-1 iteration index to 0-dimensional (scalar) buffers.
+static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
+                                      ArrayRef<int64_t> &shape,
+                                      ArrayAttr &extraViews) {
+  if (!shape.empty())
+    return;
+  TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
+  addZero.ignore("zero");
+  TransformMapAttr addZeroAttr = addZero.get();
+  shape = addZeroAttr.getUpperBounds().asArrayRef();
+  SmallVector<Attribute, 4> views = {addZeroAttr};
+  if (extraViews)
+    views.append(extraViews.begin(), extraViews.end());
+  extraViews = b.getArrayAttr(views);
+}
+
+LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
+    ThreadwiseReadIntoOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  ArrayAttr extraViews = op.getExtraViews();
+  auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = sourceView.getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+  addIterationIndexIfScalar(b, loc, inputShape, extraViews);
+
+  auto [buffer, transforms, needs64BitIdx] =
+      untransform(b, sourceView, extraViews);
+
+  int64_t numValues = dest.getType().getNumElements();
+  MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
+  MemRefType dstBufferType = dest.getType().cast<MemRefType>();
+
+  bool isSrcVectorBuffer = srcBufferType.getElementType().isa<VectorType>();
+  bool isDstVectorBuffer = dstBufferType.getElementType().isa<VectorType>();
+  ArrayRef<int64_t> bufferShape = srcBufferType.getShape();
+  size_t extraIdxCount = op.getExtraIndices().size();
+
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        srcBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
+  }
+
+  // We are vectorizing in the iter dimension, not block ID or thread ID
+  auto elementType = sourceView.getType().getElementType();
+  Type loadType;
+  int64_t vectorSrcLen, vectorDstLen;
+  int64_t srcStride;
+  VectorType dstVectorType;
+
+  if (isSrcVectorBuffer) {
+    loadType = elementType;
+    vectorSrcLen = elementType.dyn_cast<VectorType>().getNumElements();
+    srcStride = 1;
+  } else {
+    vectorSrcLen = getMaxVectorizationForDatatype(
+        transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
+    // In the future, this might get merged into the vectorizer.
+    transforms = collapseContiguousMerges(transforms, bufferShape);
+    srcStride = vectorSrcLen;
+    loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
+  }
+
+  if (isDstVectorBuffer) {
+    dstVectorType = dstBufferType.getElementType().dyn_cast<VectorType>();
+    vectorDstLen = dstVectorType.dyn_cast<VectorType>().getNumElements();
+    numValues = (numValues * vectorDstLen) / vectorSrcLen;
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
+                          << vectorSrcLen << "\n");
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  // Constant / consistent arguments
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+
+  SmallVector<Value, 3> readStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  readStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
+  strides.push_back(srcStride);
+
+  SmallVector<Attribute> transformAttrs;
+
+  auto loadLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
+      ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
+      forceUnroll, useIndexDiffs);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loadLoop.getBody());
+    if (srcAddrSpace == gpu::AddressSpace::Global) {
+      Value loaded = b.create<GlobalLoadOp>(
+          loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
+          loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
+      b.create<InBoundsStoreOp>(loc, loaded, dest,
+                                loadLoop.getLowerCoords(
+                                    /*domain=*/1)[extraIdxCount]);
+    } else {
+      if (needs64BitIdx)
+        return b.notifyMatchFailure(
+            loc, "non-global address spaces must have 32-bit pointers");
+      TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
+      scf::IfOp ifb =
+          b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
+      {
+        OpBuilder thenb = ifb.getThenBodyBuilder();
+        Value loaded;
+        if (!isSrcVectorBuffer)
+          loaded = thenb.create<InBoundsLoadOp>(
+              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+        else
+          loaded = thenb.create<memref::LoadOp>(
+              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+        thenb.create<scf::YieldOp>(loc, loaded);
+      }
+      {
+        OpBuilder elseb = ifb.getElseBodyBuilder();
+        Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
+        elseb.create<scf::YieldOp>(loc, zeroVal);
+      }
+
+      Value destOffset = loadLoop.getLowerCoords(1)[extraIdxCount];
+      if (!isDstVectorBuffer && !isSrcVectorBuffer) {
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+      } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
+        destOffset = b.create<arith::MulIOp>(
+            loc, destOffset, b.create<ConstantIndexOp>(loc, vectorSrcLen));
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+      } else {
+        // Destination is a vector buffer
+        // Value tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+        // b.create<gpu::PrintfOp>(loc, "thread id %d : %d\n", ValueRange{tid,
+        // loadLoop.getLowerCoords(0)[0]});
+
+        if (vectorSrcLen == vectorDstLen) {
+          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest,
+                                    loadLoop.getLowerCoords(
+                                        /*domain=*/1)[extraIdxCount]);
+        } else if (vectorSrcLen > vectorDstLen) {
+          int64_t numStores = vectorSrcLen / vectorDstLen;
+          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
+          Value value = ifb.getResult(0);
+
+          Value baseDestOffset = b.createOrFold<arith::MulIOp>(
+              loc, idx, b.createOrFold<arith::ConstantIndexOp>(loc, numStores));
+          for (int64_t i = 0; i < numStores; ++i) {
+            Value sliceStart =
+                b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen * i);
+            Value slice =
+                b.create<ExtractSliceOp>(loc, dstVectorType, value, sliceStart);
+            Value destOffset = b.createOrFold<arith::AddIOp>(
+                loc, baseDestOffset,
+                b.createOrFold<arith::ConstantIndexOp>(loc, i));
+            b.create<memref::StoreOp>(loc, slice, dest, ValueRange{destOffset});
+          }
+        } else { // srcVecLen < dstVecLen
+          // Here we are gathering loaded values into vectors for passing into
+          // MFMAs.
+          Value value = ifb.getResult(0);
+          Value destValsPerKpack = b.createOrFold<arith::ConstantIndexOp>(
+              loc, vectorDstLen / vectorSrcLen);
+          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
+
+          Value destOffset =
+              b.createOrFold<arith::DivUIOp>(loc, idx, destValsPerKpack);
+          Value destVecPart =
+              b.createOrFold<arith::RemUIOp>(loc, idx, destValsPerKpack);
+          Value destSlicePos = b.createOrFold<arith::MulIOp>(
+              loc, destVecPart,
+              b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen));
+          Value destVec = b.create<memref::LoadOp>(loc, dstVectorType, dest,
+                                                   ValueRange{destOffset});
+          Value newDestVec = b.create<InsertSliceOp>(loc, dstVectorType, value,
+                                                     destVec, destSlicePos);
+          b.create<memref::StoreOp>(loc, newDestVec, dest,
+                                    ValueRange{destOffset});
+        }
+      }
+    }
+  }
+  b.eraseOp(op);
+  return success();
+}
+
+LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
+    ThreadwiseWriteAllOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+
+  auto source = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+
+  ArrayAttr extraViews = op.getExtraViews();
+  ArrayRef<int64_t> outputShape;
+  if (extraViews.empty())
+    outputShape = destView.getType().getShape();
+  else
+    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+  addIterationIndexIfScalar(b, loc, outputShape, extraViews);
+
+  auto [buffer, transforms, needs64BitIdx] =
+      untransform(b, destView, extraViews);
+
+  MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> bufferShape = dstBufferType.getShape();
+  size_t extraIdxCount = op.getExtraIndices().size();
+
+  // Unless specified it is assumed to be global
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Global;
+  if (dstBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
+  }
+  int64_t iterLen = outputShape[extraIdxCount];
+  auto destElemType = buffer.getType().cast<MemRefType>().getElementType();
+  // We are vectorizing in the iter dimension, not block ID or thread ID
+  int64_t maxVecLen = iterLen;
+  Type elementType = destElemType;
+  int64_t implicitStride = 1;
+  // If the dest is already being viewed as vector-typed, there's no good
+  // mechanism to, for example, store a vector<8xf32> as two consecutive
+  // vector<4xf32>s, and there's unlikely to be any performance benefit from
+  // doing so. Therefore, don't bother.
+  if (auto elemVecType = destElemType.dyn_cast<VectorType>()) {
+    implicitStride = elemVecType.getNumElements();
+    maxVecLen = elemVecType.getNumElements();
+    elementType = elemVecType.getElementType();
+  }
+  int64_t vectorLen = getMaxVectorizationForDatatype(
+      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType,
+      implicitStride);
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
+                          << "\n");
+
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  transforms = collapseContiguousMerges(transforms, bufferShape);
+
+  // Constant / consistent arguments
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+
+  SmallVector<Value, 3> writeStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  writeStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(writeStartCoords.size() - 1, 1);
+  bounds.push_back(iterLen);
+  SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
+  strides.push_back(vectorLen);
+
+  auto outLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+      ArrayRef<Attribute>{b.getArrayAttr({}), transforms}, bounds, strides,
+      forceUnroll, useIndexDiffs);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(outLoop.getBody());
+    if (dstAddrSpace == gpu::AddressSpace::Global) {
+      b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
+                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              outLoop.getLowerCoords(
+                                  /*domain=*/0)[extraIdxCount],
+                              outLoop.getValidity(/*domain=*/1),
+                              outLoop.getLowerCoords(/*domain=*/1),
+                              needs64BitIdx ? b.getUnitAttr() : nullptr,
+                              /*canStoreOffEnd=*/nullptr);
+    } else {
+      if (needs64BitIdx)
+        return b.notifyMatchFailure(
+            loc, "non-global address spaces must have 32-bit pointers");
+      Type loadType = vectorTypeOrSelf(elementType, vectorLen);
+      TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
+      scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
+      {
+        OpBuilder thenb = ifb.getThenBodyBuilder();
+        Value loaded =
+            thenb.create<InBoundsLoadOp>(loc, loadType, source,
+                                         outLoop.getLowerCoords(
+                                             /*domain=*/0)[extraIdxCount]);
+        if (!destElemType.isa<VectorType>()) {
+          thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
+                                        outLoop.getLowerCoords(/*domain=*/1));
+        } else {
+          thenb.create<memref::StoreOp>(loc, loaded, buffer,
+                                        outLoop.getLowerCoords(/*domain=*/1));
+        }
+      }
+    }
+  }
+  b.eraseOp(op);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Threadwise transpose lowering
+//===----------------------------------------------------------------------===//
+LogicalResult ThreadwiseTransposeRewritePattern::matchAndRewrite(
+    ThreadwiseTransposeOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+
+  ArrayRef<int64_t> loadShape =
+      sourceView.getType().cast<ShapedType>().getShape();
+  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
+  int64_t copyDPerThread = loadShape[1];
+  int64_t copyKPerThread = loadShape[0];
+  int64_t kpack = op.getKpack();
+
+  // We use kpackPerThread instead of kpack to cover edge cases where
+  // copyKPerThread is smaller than kpack
+  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
+
+  Value rawLoadBuffer;
+  ArrayAttr loadBufferView;
+  bool needs64BitIdx;
+  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
+      untransform(b, sourceView);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
+  ArrayRef<int64_t> rawLoadBufferShape =
+      rawLoadBuffer.getType().cast<ShapedType>().getShape();
+
+  Value rawStoreBuffer;
+  ArrayAttr storeBufferView;
+  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
+      untransform(b, destView);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
+  ArrayRef<int64_t> rawStoreBufferShape =
+      rawStoreBuffer.getType().cast<ShapedType>().getShape();
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 2> start(2, zero);
+  SmallVector<int64_t, 2> strides(2, 1);
+  int64_t vecLen = 1;
+  // The store buffer is a flattened < kouter x dPerThread x kpack >.
+  if (kpackPerThread == 1) {
+    // if kpack == 1, then we can do vectorized loads across d dimension from/to
+    // load/store buffer
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
+                                            copyDPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(copyDPerThread, vecLen);
+    strides[1] = vecLen;
+  } else {
+    // if kpack > 1, then we are limited by vectorization in k dimension and it
+    // could be at most kpack.
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
+                                            copyKPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(vecLen, kpackPerThread);
+    strides[0] = vecLen;
+  }
+  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
+  storeBufferView =
+      collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
+
+  // Run the packing loop
+  auto packLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{start, start},
+      ArrayRef<Attribute>{loadBufferView, storeBufferView},
+      /*bounds=*/loadShape,
+      /*strides=*/strides, false,
+      /*useIndexDiffs=*/false);
+  {
+    PatternRewriter::InsertionGuard outerGuard(b);
+    b.setInsertionPointToStart(packLoop.getBody());
+    Type loadType = vectorTypeOrSelf(elemType, vecLen);
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
+                                        packLoop.getLowerCoords(0));
+
+    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
+                              packLoop.getLowerCoords(1));
+  }
+  b.eraseOp(op);
+  return success();
+}
+
 void RockThreadwiseGemmLoweringPass::runOnOperation() {
   func::FuncOp op = getOperation();
   MLIRContext *ctx = &getContext();
+  {
+    ConversionTarget writeAllTarget(*ctx);
+    writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
+                                ThreadwiseTransposeOp>();
+    writeAllTarget.addLegalDialect<
+        arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
+        scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
+    writeAllTarget.addLegalOp<gpu::PrintfOp>();
+    RewritePatternSet writeAllPatterns(ctx);
+    writeAllPatterns
+        .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
+             ThreadwiseTransposeRewritePattern>(ctx);
+    if (failed(applyPartialConversion(getOperation(), writeAllTarget,
+                                      std::move(writeAllPatterns))))
+      signalPassFailure();
+  }
+  WalkResult kernelNeeds64Bit = getOperation().walk([](Operation *op) {
+    if (auto globalLoad = dyn_cast<GlobalLoadOp>(op))
+      return globalLoad.getNeeds64BitIdx() ? WalkResult::interrupt()
+                                           : WalkResult::advance();
+    if (auto globalStore = dyn_cast<GlobalStoreOp>(op))
+      return globalStore.getNeeds64BitIdx() ? WalkResult::interrupt()
+                                            : WalkResult::advance();
+    return WalkResult::advance();
+  });
+  if (kernelNeeds64Bit.wasInterrupted())
+    getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
+
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,

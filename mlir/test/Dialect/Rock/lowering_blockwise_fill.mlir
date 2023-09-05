@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -split-input-file %s | FileCheck %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -split-input-file %s | FileCheck %s
 
 // CHECK-DAG: [[MAP:.*]] = affine_map<(d0, d1) -> (d0 + d1)>
 // CHECK-DAG: [[TMAP:.*]] = #rock.transform_map<[[MAP]]{{.*}}

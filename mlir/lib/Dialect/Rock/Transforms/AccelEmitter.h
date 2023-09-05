@@ -104,11 +104,10 @@ struct AccelEmitter {
   ///       baseOffset)
   ///       ...
   /// In the above loop `d` can be either `m` or `n`.
-  virtual Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                                       OpBuilder &dBuilder, Value d_i,
-                                       OpBuilder &builder, Value dPerBlock,
-                                       Location loc, Value baseOffset,
-                                       Value dWaves, Value laneId) = 0;
+  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -146,11 +145,10 @@ struct MfmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, Value regCOffset) override;
 
-  Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                               OpBuilder &dBuilder, Value d_i,
-                               OpBuilder &builder, Value dPerBlock,
-                               Location loc, Value baseOffset, Value dWaves,
-                               Value laneId) override;
+  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
@@ -178,11 +176,10 @@ struct WmmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, Value regCOffset) override;
 
-  Value computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
-                               OpBuilder &dBuilder, Value d_i,
-                               OpBuilder &builder, Value dPerBlock,
-                               Location loc, Value baseOffset, Value dWaves,
-                               Value laneId) override;
+  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,

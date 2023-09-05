@@ -1420,7 +1420,8 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
   if (condition) {
     // d = (d+k_outer)
     TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);
-    rotateD0.passThrough(beforeDims);
+    if (!beforeDims.empty())
+      rotateD0.passThrough(beforeDims);
     rotateD0.embed(dName, dPos, d * kOuter, {kName, dName}, {stride, 1});
     if (!afterDims.empty())
       rotateD0.passThrough(afterDims);
@@ -1431,7 +1432,8 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
     unsigned int numBeforeDims = beforeDims.size();
     unsigned int idx = numBeforeDims;
     TopDownTMBuilder rotateD1 = TopDownTMBuilder::below(rotateD0, rotateD0Attr);
-    rotateD1.passThrough(beforeDims);
+    if (!beforeDims.empty())
+      rotateD1.passThrough(beforeDims);
     rotateD1.merge({"to_discard", dName}, {idx, ++idx}, dName, {kOuter, d});
     for (auto dim : afterDims)
       rotateD1.passThrough({dim}, ++idx, {dim});
@@ -1441,7 +1443,8 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
     // discard the additional dimension
     TopDownTMBuilder rotateD2 = TopDownTMBuilder::below(rotateD1, rotateD1Attr);
     idx = numBeforeDims;
-    rotateD2.passThrough(beforeDims);
+    if (!beforeDims.empty())
+      rotateD2.passThrough(beforeDims);
     rotateD2.ignore("to_discard");
     rotateD2.passThrough({dName}, {idx++}, {dName});
     for (auto dim : afterDims)
