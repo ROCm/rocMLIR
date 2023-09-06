@@ -226,89 +226,6 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   return asMatrix;
 }
 
-/// This function pack the load buffer into a store buffer ready to be copied
-/// into LDS:
-///  - The load buffer is (viewed as) a KPerThread x DPerThread
-///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
-///  kpackPerThread]
-///    buffer
-TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
-                                              Type elementType, int64_t kpack,
-                                              Value loadBuffer,
-                                              Value storeBuffer) {
-  ArrayRef<int64_t> loadShape =
-      loadBuffer.getType().cast<ShapedType>().getShape();
-  Type elemType = loadBuffer.getType().cast<MemRefType>().getElementType();
-  int64_t copyDPerThread = loadShape[1];
-  int64_t copyKPerThread = loadShape[0];
-
-  // We use kpackPerThread instead of kpack to cover edge cases where
-  // copyKPerThread is smaller than kpack
-  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
-
-  Value rawLoadBuffer;
-  ArrayAttr loadBufferView;
-  bool needs64BitIdx;
-  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
-      untransform(b, loadBuffer);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
-  ArrayRef<int64_t> rawLoadBufferShape =
-      rawLoadBuffer.getType().cast<ShapedType>().getShape();
-
-  Value rawStoreBuffer;
-  ArrayAttr storeBufferView;
-  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
-      untransform(b, storeBuffer);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
-  ArrayRef<int64_t> rawStoreBufferShape =
-      rawStoreBuffer.getType().cast<ShapedType>().getShape();
-
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  SmallVector<Value, 2> start(2, zero);
-  SmallVector<int64_t, 2> strides(2, 1);
-  int64_t vecLen = 1;
-  // The store buffer is a flattened < kouter x dPerThread x kpack >.
-  if (kpackPerThread == 1) {
-    // if kpack == 1, then we can do vectorized loads across d dimension from/to
-    // load/store buffer
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
-                                            copyDPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(copyDPerThread, vecLen);
-    strides[1] = vecLen;
-  } else {
-    // if kpack > 1, then we are limited by vectorization in k dimension and it
-    // could be at most kpack.
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
-                                            copyKPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(vecLen, kpackPerThread);
-    strides[0] = vecLen;
-  }
-  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
-  storeBufferView =
-      collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
-
-  // Run the packing loop
-  auto packLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{start, start},
-      ArrayRef<Attribute>{loadBufferView, storeBufferView},
-      /*bounds=*/loadShape,
-      /*strides=*/strides, false,
-      /*useIndexDiffs=*/false);
-  {
-    PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(packLoop.getBody());
-    Type loadType = vectorTypeOrSelf(elementType, vecLen);
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        packLoop.getLowerCoords(0));
-
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              packLoop.getLowerCoords(1));
-  }
-  return packLoop;
-}
-
 template <typename OpT>
 static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
@@ -578,8 +495,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
+    auto packALoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferA, viewStoreBufferA, kpack, useIndexDiffs, true);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -597,8 +514,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
+    auto packBLoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferB, viewStoreBufferB, kpack, useIndexDiffs, true);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA =
@@ -955,8 +872,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
+    auto packALoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferA, viewStoreBufferA, kpack, false, false);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -974,9 +891,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
-
+    auto packBLoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferB, viewStoreBufferB, kpack, false, false);
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
