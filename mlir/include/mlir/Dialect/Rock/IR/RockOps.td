@@ -1260,7 +1260,7 @@ def Rock_ThreadwiseTransposeOp :
     Rock_Op<"threadwise_transpose">,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
-      Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemWrite]>:$source,
+      Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
       Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
       I64Attr : $kpack,
       UnitAttr:$forceUnroll,
