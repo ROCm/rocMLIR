@@ -16,7 +16,6 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
