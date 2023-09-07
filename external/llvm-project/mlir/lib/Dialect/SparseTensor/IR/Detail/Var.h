@@ -149,10 +149,7 @@ public:
   void print(AsmPrinter &printer) const;
   void dump() const;
 };
-// HACK: Some old C++ runtimes that MIGraphX builds (SLES 15, for example)
-// fail this static assert due to older C++ libraries. We comment it out to make
-// builds pass. Investigate removing a few releases from now.
-// static_assert(IsZeroCostAbstraction<Var>);
+static_assert(IsZeroCostAbstraction<Var>);
 
 class SymVar final : public Var {
 public:
@@ -163,10 +160,7 @@ public:
   constexpr SymVar(Num sym) : Var(Kind, sym) {}
   SymVar(AffineSymbolExpr symExpr) : Var(symExpr) {}
 };
-// HACK: Some old C++ runtimes that MIGraphX builds (SLES 15, for example)
-// fail this static assert due to older C++ libraries. We comment it out to make
-// builds pass. Investigate removing a few releases from now.
-// static_assert(IsZeroCostAbstraction<SymVar>);
+static_assert(IsZeroCostAbstraction<SymVar>);
 
 class DimVar final : public Var {
 public:
@@ -333,7 +327,8 @@ public:
 };
 // We don't actually require this, since `VarInfo` is a proper struct
 // rather than a newtype.  But it passes, so for now we'll keep it around.
-static_assert(IsZeroCostAbstraction<VarInfo>);
+// TODO: Uncomment the static assert, it fails the build with gcc7 right now.
+// static_assert(IsZeroCostAbstraction<VarInfo>);
 
 //===----------------------------------------------------------------------===//
 enum class CreationPolicy { MustNot, May, Must };

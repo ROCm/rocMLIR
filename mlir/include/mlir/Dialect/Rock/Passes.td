@@ -88,7 +88,7 @@ def RockTransformToMemrefPass : Pass<"rock-transform-to-memref", "::mlir::func::
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
-def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
+def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "::mlir::func::FuncOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
   let dependentDialects = ["scf::SCFDialect","cf::ControlFlowDialect"];
 }

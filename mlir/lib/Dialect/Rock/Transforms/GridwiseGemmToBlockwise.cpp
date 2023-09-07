@@ -181,16 +181,21 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
   return std::make_pair(copyKPerThread, copyDPerThread);
 }
 
-/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack * sizeof(T) x i8
-/// into a tid x iter view, where `iter` iterates over nominal scalar indices
-/// into a buffer of type T. `buffer` will be reinterpreted as a buffer with
-/// element type vector<kpackPerThread x T> (with kpackPerThread == 1 meaning
-/// just T). The resulting view must be iterated over with a stride of no less
-/// than min(kPerThread, kpack).
+/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
+/// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
+/// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
+/// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
+/// 1 meaning just T). The resulting view must be iterated over with a stride of
+/// no less than min(kPerThread, kpack). Also note that the `d` dimension
+/// might be rotated to minimize bank conflicts (i.e., depending on
+/// `rotateDWithK`
+// we can apply a transformation similar to `d=(d+kOuter)%D`)
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, Type ldsReadType,
                                               int64_t kOuter, StringRef dName,
-                                              int64_t d, int64_t kPerThread) {
+                                              int64_t d, int64_t kPerThread,
+                                              int64_t dPerThread,
+                                              bool rotateDWithK = false) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   Type dataType = ldsReadType;
@@ -212,117 +217,33 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 
   Type ldsWriteType = vectorTypeOrSelf(dataType, kpackPerThread);
   auto typedBuffer = viewBufferAs(b, buffer, ldsWriteType);
-  BottomUpTMBuilder reshapeBuf(b, {"raw"}, typedBuffer.getType().getShape(),
-                               loc);
-  reshapeBuf.unmerge({"k_outer", dName, "kpack_idx"}, {0, 1, 2}, "raw",
-                     {kOuter, d, threadsPerKpack});
-  // Add this throwaway dimension so that when we're iterating the scalar
-  // packing buffer in a vectorized way, the always-zero index gets thrown on
-  // the floor.
-  reshapeBuf.addDim("kpack_vec", 3, kpackPerThread);
-  TransformMapAttr reshapeBufAttr = reshapeBuf.get();
-  Value reshaped = b.create<TransformOp>(loc, typedBuffer, reshapeBufAttr);
 
-  auto mergeKpack = BottomUpTMBuilder::above(reshapeBuf, reshapeBufAttr);
-  mergeKpack.merge("k", 0, {"k_outer", "kpack_idx", "kpack_vec"});
-  mergeKpack.merge("d", 1, {dName});
+  TopDownTMBuilder mergeKpack{
+      b, {"k", "d"}, {kOuter * threadsPerKpack * kpackPerThread, d}};
+  mergeKpack.merge({"k_outer", "kpack_idx", "kpack_vec"}, {0, 2, 3}, "k",
+                   {kOuter, threadsPerKpack, kpackPerThread});
+  mergeKpack.merge({dName}, {1}, "d", {d});
+
   TransformMapAttr mergeKpackAttr = mergeKpack.get();
-  Value asMatrix = b.create<TransformOp>(loc, reshaped, mergeKpackAttr);
-  return asMatrix;
-}
+  SmallVector<Attribute> transformAttrs{mergeKpackAttr};
 
-/// This function pack the load buffer into a store buffer ready to be copied
-/// into LDS:
-///  - The load buffer is (viewed as) a KPerThread x DPerThread
-///  - The store buffer needs to be packed as a [KOuterPerThread, dPerThread,
-///  kpackPerThread]
-///    buffer
-TransformingForOp packLoadBufferToStoreBuffer(PatternRewriter &b, Location loc,
-                                              Type elementType, int64_t kpack,
-                                              Value loadBuffer,
-                                              Value storeBuffer) {
-  ArrayRef<int64_t> loadShape =
-      loadBuffer.getType().cast<ShapedType>().getShape();
-  Type elemType = loadBuffer.getType().cast<MemRefType>().getElementType();
-  int64_t copyDPerThread = loadShape[1];
-  int64_t copyKPerThread = loadShape[0];
+  // Rotate the buffer if necessary to minimize bank conflicts. Rotating the
+  // buffer has the benefit of minimizing bank conflicts when we are transposing
+  // the matrix from global to LDS. I.e., instead of storing different items in
+  // position (0,0), (1,0), (2,0), ... we store it in (0,0), (1,1), (2, 2), ...
+  int64_t stride = (kpack == 1 ? dPerThread : 1);
+  TopDownTMBuilder reshapeBuf = rotateIf(
+      rotateDWithK, mergeKpack, mergeKpackAttr, stride, dName, d, 1, "k_outer",
+      kOuter, {"k_outer"}, {"kpack_idx", "kpack_vec"}, transformAttrs);
 
-  // We use kpackPerThread instead of kpack to cover edge cases where
-  // copyKPerThread is smaller than kpack
-  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
+  reshapeBuf.unmerge("raw", 0, {"k_outer", dName, "kpack_idx"},
+                     {kOuter, d, threadsPerKpack});
+  reshapeBuf.ignore("kpack_vec");
+  TransformMapAttr reshapeBufAttr = reshapeBuf.get();
+  transformAttrs.push_back(reshapeBufAttr);
 
-  Value rawLoadBuffer;
-  ArrayAttr loadBufferView;
-  bool needs64BitIdx;
-  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
-      untransform(b, loadBuffer);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
-  ArrayRef<int64_t> rawLoadBufferShape =
-      rawLoadBuffer.getType().cast<ShapedType>().getShape();
-
-  Value rawStoreBuffer;
-  ArrayAttr storeBufferView;
-  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
-      untransform(b, storeBuffer);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
-  ArrayRef<int64_t> rawStoreBufferShape =
-      rawStoreBuffer.getType().cast<ShapedType>().getShape();
-
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  SmallVector<Value, 2> start(2, zero);
-  SmallVector<int64_t, 2> strides(2, 1);
-  int64_t vecLen = 1;
-  // The store buffer is a flattened < kouter x dPerThread x kpack >.
-  if (kpackPerThread == 1) {
-    // if kpack == 1, then we can do vectorized loads across d dimension from/to
-    // load/store buffer
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
-                                            copyDPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(copyDPerThread, vecLen);
-    strides[1] = vecLen;
-  } else {
-    // if kpack > 1, then we are limited by vectorization in k dimension and it
-    // could be at most kpack.
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
-                                            copyKPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(vecLen, kpackPerThread);
-    strides[0] = vecLen;
-  }
-  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
-  storeBufferView =
-      collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
-
-  Type storeElemType = getElementTypeOrSelf(storeBuffer.getType());
-  // Run the packing loop
-  auto packLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{start, start},
-      ArrayRef<Attribute>{loadBufferView, storeBufferView},
-      /*bounds=*/loadShape,
-      /*strides=*/strides, false,
-      /*useIndexDiffs=*/false);
-  {
-    PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(packLoop.getBody());
-    Type loadType = vectorTypeOrSelf(elementType, vecLen);
-    Type loadElemType = getElementTypeOrSelf(loadType);
-    auto loaded = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                           packLoop.getLowerCoords(0));
-    Value cast = loaded;
-    if (storeElemType != loadElemType) {
-      Type storeType;
-      if (VectorType loadVecType = dyn_cast<VectorType>(loadType)) {
-        storeType = loadVecType.clone(storeElemType);
-      } else {
-        storeType = storeElemType;
-      }
-      cast = createTypeConversionOp(b, loc, loaded, storeType);
-    }
-    b.create<InBoundsStoreOp>(loc, cast, rawStoreBuffer,
-                              packLoop.getLowerCoords(1));
-  }
-  return packLoop;
+  ArrayAttr asMatrix = b.getArrayAttr(transformAttrs);
+  return transform(b, typedBuffer, asMatrix);
 }
 
 template <typename OpT>
@@ -575,6 +496,32 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
+    bool isKContiguousDimA = (aVectorDim == GemmDimension::K);
+    bool isKContiguousDimB = (bVectorDim == GemmDimension::K);
+
+    // LDS bank conflicts parameters
+    int64_t maxVlenA = 128 / elementTypeA.getIntOrFloatBitWidth();
+    int64_t maxVlenB = 128 / elementTypeB.getIntOrFloatBitWidth();
+    // If kpack is less than the hardware max vector length, and we are
+    // writing more contiguous kpack elements, there is a possibility to
+    // vectorize that we want to preserve (i.e., we favour vectorization over
+    // bank conflicts resolution)
+    bool isPossibleToVectorizeA = (kpack < maxVlenA && copyMPerThread > 1);
+    bool isPossibleToVectorizeB = (kpack < maxVlenB && copyNPerThread > 1);
+    bool rotateMWithK = isKContiguousDimA && !isPossibleToVectorizeA;
+    bool rotateNWithK = isKContiguousDimB && !isPossibleToVectorizeB;
+    bool doSwapThreadIterSubDimsForM =
+        !isKContiguousDimA && !isPossibleToVectorizeA;
+    bool doSwapThreadIterSubDimsForN =
+        !isKContiguousDimB && !isPossibleToVectorizeB;
+    LLVM_DEBUG(llvm::dbgs()
+               << "rotateMWithK: " << rotateMWithK << "\n"
+               << "rotateNWithK: " << rotateNWithK << "\n"
+               << "doSwapThreadIterSubDimsForM: " << doSwapThreadIterSubDimsForM
+               << "\n"
+               << "doSwapThreadIterSubDimsForN: " << doSwapThreadIterSubDimsForN
+               << "\n");
+
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
@@ -584,18 +531,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
-        getPackedRegsAsTileViews(b, loc, op.getA(), "m", bidGridOrder,
-                                 bidGridLengths, blockSize, kPerBlock,
-                                 mPerBlock, aCopyKPerThread, copyMPerThread,
-                                 kpack, aVectorDim == GemmDimension::K);
+        getPackedRegsAsTileViews(
+            b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+            kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, kpack,
+            isKContiguousDimA, doSwapThreadIterSubDimsForM);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
+    auto packALoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferA, viewStoreBufferA, kpack, useIndexDiffs, true);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -603,23 +550,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
-        getPackedRegsAsTileViews(b, loc, op.getB(), "n", bidGridOrder,
-                                 bidGridLengths, blockSize, kPerBlock,
-                                 nPerBlock, bCopyKPerThread, copyNPerThread,
-                                 kpack, bVectorDim == GemmDimension::K);
+        getPackedRegsAsTileViews(
+            b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+            kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, kpack,
+            isKContiguousDimB, doSwapThreadIterSubDimsForN);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
+    auto packBLoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferB, viewStoreBufferB, kpack, useIndexDiffs, true);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
-    FailureOr<Value> maybeWrappedLdsA =
-        wrapLDSBufferForStore(b, loc, ldsByteBufferA, ldsReadTypeA,
-                              kpacksPerBlock, "m", mPerBlock, aCopyKPerThread);
+    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
+        b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
+        aCopyKPerThread, copyMPerThread, rotateMWithK);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     // This is KxD view of the flat LDS buffer
@@ -628,9 +575,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
 
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
-    FailureOr<Value> maybeWrappedLdsB =
-        wrapLDSBufferForStore(b, loc, ldsByteBufferB, ldsReadTypeB,
-                              kpacksPerBlock, "n", nPerBlock, bCopyKPerThread);
+    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
+        b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
+        bCopyKPerThread, copyNPerThread, rotateNWithK);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     // This is KxD view of the flat LDS buffer
@@ -686,9 +633,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise GEMM.
-      blockwiseGemmOp =
-          b.create<BlockwiseGemmOp>(loc, ldsMatrixA, ldsMatrixB,
-                                    registerMatrixCViewOp, op.getParamsAttr());
+      blockwiseGemmOp = b.create<BlockwiseGemmOp>(
+          loc, ldsMatrixA, ldsMatrixB, registerMatrixCViewOp,
+          b.getI32IntegerAttr(copyMPerThread),
+          b.getI32IntegerAttr(copyNPerThread),
+          rotateMWithK ? b.getUnitAttr() : nullptr,
+          rotateNWithK ? b.getUnitAttr() : nullptr, op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -716,6 +666,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (nIterations <= 1)
       b.eraseOp(loopOp);
 
+    SmallVector<Attribute> transformAttrs;
+
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
         b, {"g_block", "m_block", "n_block", "tid", "iter"},
@@ -729,6 +681,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                             {7, 8, 9, 10}, "iter",
                             {gemmMRepeat, mPerThread, gemmNRepeat, nPerThread});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    transformAttrs.push_back(splitMemoryCoordsAttr);
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
@@ -744,7 +697,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
          nPerThread});
 
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
+    swapThreadIdAndIteration(toMatrixC, /*mBlocks=*/bidGridLengths[1],
+                             /*nBlocks=*/bidGridLengths[2], copyMPerThread,
+                             copyNPerThread, mPerBlock, nPerBlock,
+                             doSwapThreadIterSubDimsForM,
+                             doSwapThreadIterSubDimsForN,
+                             /*isBlockwise=*/false, transformAttrs);
 
     Value registerC = registerMatrixCAllocOp;
     // If we need to type-convert the accumulator (currently this is only
@@ -772,8 +730,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       registerC = convertedC;
     }
 
-    ArrayAttr idToMatrixCMaps =
-        b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
+    ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrs);
+
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
                                    /*extraIndices=*/
                                    ValueRange{gridCoords.g_block,
@@ -808,12 +766,12 @@ struct GridwiseAttentionAccelRewritePattern
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
-    (void)packLoadBufferToStoreBuffer(rewriter, loc, elemType, kpack, regBuffer,
-                                      viewStoreBuffer);
+    rewriter.create<ThreadwiseTransposeOp>(
+        loc, regBuffer, viewStoreBuffer, kpack, false, false);
     Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
     FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
         rewriter, loc, ldsTileByteBuffer, ldsReadType, kpacksPerBlock,
-        nonKDimName, dPerBlock, copyKPerThread);
+        nonKDimName, dPerBlock, copyKPerThread, copyDPerThread);
     if (failed(maybeWrappedLds)) {
       return failure();
     }
@@ -1450,10 +1408,6 @@ struct GridwiseAttentionAccelRewritePattern
     // m_block would be otherDim that is ignored; putting 0 as it is not
     // used.
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm0MBlocks, 1};
-    RegsAsMatrixSubTiles gemm0OutSubTileViews =
-        accelEmitterPtrGemm0->computeOutputTransforms(
-            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
-            gemm0BidGridLengths);
 
     Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
         rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
@@ -1503,19 +1457,25 @@ struct GridwiseAttentionAccelRewritePattern
     assert(gemm0NPerBlock % gemm0kpack == 0 &&
            "nPerBlock should be divisible by kpack");
     int64_t gemm1KpacksPerBlock = gemm1KPerBlock / gemm1kpack;
-    RegsAsMatrixSubTiles gemm1OutSubTileViews =
-        accelEmitterPtrGemm1->computeOutputTransforms(
-            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
-            gemm1BidGridLengths);
-    auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
-        createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
-                               gemm1NPerBlock, rewriter);
-
+    int64_t gemm0InMPerThread = gemm0MPerBlock / blockSize;
+    int64_t gemm0InNPerThread = gemm0NPerBlock / blockSize;
+    RegsAsMatrixSubTiles gemm0OutSubTileViews =
+        accelEmitterPtrGemm0->computeOutputTransforms(
+            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
+            gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread);
     int64_t gemm0MPerThread =
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
     int64_t gemm0NPerThread =
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
     int64_t gemm1InMPerThread = gemm0MPerThread;
+    int64_t gemm1InNPerThread = gemm0NPerThread;
+    RegsAsMatrixSubTiles gemm1OutSubTileViews =
+        accelEmitterPtrGemm1->computeOutputTransforms(
+            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
+            gemm1BidGridLengths, gemm1InMPerThread, gemm1InNPerThread);
+    auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
+        createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
+                               gemm1NPerBlock, rewriter);
     int64_t gemm1KPerThread = gemm0NPerThread;
     int64_t gemm1MPerThread =
         getLowerShape(gemm1OutSubTileViews.threadSubTile)[0];
@@ -1606,7 +1566,12 @@ struct GridwiseAttentionAccelRewritePattern
             createWaveOffsets(loc, waveSize, gemm0TuningParams.getNPerWave(),
                               gemm0NPerBlock, accelParamsGemm0, tid, rewriter);
         rewriter.create<BlockwiseGemmAccelOp>(
-            loc, ldsTileBufferQ, ldsTileBufferK, mMyWaveOffsetQ, mMyWaveOffsetK,
+            loc, ldsTileBufferQ, ldsTileBufferK,
+            rewriter.getI32IntegerAttr(gemm0InMPerThread),
+            rewriter.getI32IntegerAttr(gemm0InNPerThread),
+            /*rotateMWithK=*/nullptr,
+            /*rotateNWithK=*/nullptr,
+            mMyWaveOffsetQ, mMyWaveOffsetK,
             preAccelRegBufferQ, preAccelRegBufferK, accRegBufferGemm0,
             op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
             op.getParamsAttr());
@@ -1702,8 +1667,12 @@ struct GridwiseAttentionAccelRewritePattern
             createWaveOffsets(loc, waveSize, gemm1TuningParams.getNPerWave(),
                               gemm1NPerBlock, accelParamsGemm1, tid, rewriter);
         rewriter.create<BlockwiseGemmAccelOp>(
-            loc, gemm1LDSBufferA, ldsTileBufferV, mMyWaveOffsetQxK,
-            mMyWaveOffsetV, preAccelRegBufferQxK, preAccelRegBufferV,
+            loc, gemm1LDSBufferA, ldsTileBufferV, 
+            rewriter.getI32IntegerAttr(gemm1InMPerThread),
+            rewriter.getI32IntegerAttr(gemm1InNPerThread),
+            /*rotateMWithK=*/nullptr,
+            /*rotateNWithK=*/nullptr,
+            mMyWaveOffsetQxK, mMyWaveOffsetV, preAccelRegBufferQxK, preAccelRegBufferV,
             accRegBufferGemm1, op.getArchAttr(), op.getFeaturesAttr(),
             op.getBlockSizeAttr(), gemm1TuningParams);
         // There is no second k-loop
@@ -1909,6 +1878,32 @@ struct GridwiseGemmAccelRewritePattern
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
+    bool isKContiguousDimA = aVectorDim == GemmDimension::K;
+    bool isKContiguousDimB = bVectorDim == GemmDimension::K;
+
+    // LDS bank conflicts parameters
+    int64_t maxVlenA = 128 / elementTypeA.getIntOrFloatBitWidth();
+    int64_t maxVlenB = 128 / elementTypeB.getIntOrFloatBitWidth();
+    // If kpack is less than the hardware max vector length, and we are
+    // writing more contiguous kpack elements, there is a possibility to
+    // vectorize that we want to preserve (i.e., we favour vectorization over
+    // bank conflicts resolution)
+    bool isPossibleToVectorizeA = (kpack < maxVlenA && copyMPerThread > 1);
+    bool isPossibleToVectorizeB = (kpack < maxVlenB && copyNPerThread > 1);
+    bool rotateMWithK = isKContiguousDimA && !isPossibleToVectorizeA;
+    bool rotateNWithK = isKContiguousDimB && !isPossibleToVectorizeB;
+    bool doSwapThreadIterSubDimsForM =
+        !isKContiguousDimA && !isPossibleToVectorizeA;
+    bool doSwapThreadIterSubDimsForN =
+        !isKContiguousDimB && !isPossibleToVectorizeB;
+    LLVM_DEBUG(llvm::dbgs()
+               << "rotateMWithK: " << rotateMWithK << "\n"
+               << "rotateNWithK: " << rotateNWithK << "\n"
+               << "doSwapThreadIterSubDimsForM: " << doSwapThreadIterSubDimsForM
+               << "\n"
+               << "doSwapThreadIterSubDimsForN: " << doSwapThreadIterSubDimsForN
+               << "\n");
+
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
@@ -1918,18 +1913,18 @@ struct GridwiseGemmAccelRewritePattern
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
-        getPackedRegsAsTileViews(b, loc, op.getA(), "m", bidGridOrder,
-                                 bidGridLengths, blockSize, kPerBlock,
-                                 mPerBlock, aCopyKPerThread, copyMPerThread,
-                                 kpack, aVectorDim == GemmDimension::K);
+        getPackedRegsAsTileViews(
+            b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+            kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, kpack,
+            isKContiguousDimA, doSwapThreadIterSubDimsForM);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeA, kpack, viewLoadBufferA, viewStoreBufferA);
+    auto packALoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferA, viewStoreBufferA, kpack, false, false);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -1937,19 +1932,18 @@ struct GridwiseGemmAccelRewritePattern
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
-        getPackedRegsAsTileViews(b, loc, op.getB(), "n", bidGridOrder,
-                                 bidGridLengths, blockSize, kPerBlock,
-                                 nPerBlock, bCopyKPerThread, copyNPerThread,
-                                 kpack, bVectorDim == GemmDimension::K);
+        getPackedRegsAsTileViews(
+            b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+            kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, kpack,
+            isKContiguousDimB, doSwapThreadIterSubDimsForN);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = packLoadBufferToStoreBuffer(
-        b, loc, elementTypeB, kpack, viewLoadBufferB, viewStoreBufferB);
-
+    auto packBLoop = b.create<ThreadwiseTransposeOp>(
+        loc, viewLoadBufferB, viewStoreBufferB, kpack, false, false);
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
@@ -2021,9 +2015,9 @@ struct GridwiseGemmAccelRewritePattern
     auto ldsByteBufferB = b.create<GpuAllocOp>(loc, ldsMemRefBType);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
-    FailureOr<Value> maybeWrappedLdsA =
-        wrapLDSBufferForStore(b, loc, ldsByteBufferA, ldsReadTypeA,
-                              kpacksPerBlock, "m", mPerBlock, aCopyKPerThread);
+    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
+        b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
+        aCopyKPerThread, copyMPerThread, rotateMWithK);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     // This is KxD view of the flat LDS buffer
@@ -2032,9 +2026,9 @@ struct GridwiseGemmAccelRewritePattern
     wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
 
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
-    FailureOr<Value> maybeWrappedLdsB =
-        wrapLDSBufferForStore(b, loc, ldsByteBufferB, ldsReadTypeB,
-                              kpacksPerBlock, "n", nPerBlock, bCopyKPerThread);
+    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
+        b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
+        bCopyKPerThread, copyNPerThread, rotateNWithK);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     // This is KxD view of the flat LDS buffer
@@ -2128,9 +2122,13 @@ struct GridwiseGemmAccelRewritePattern
 
       // Emit blockwise GEMM.
       blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
-          loc, ldsViewForGemmA, ldsViewForGemmB, mMyWaveOffsetA, mMyWaveOffsetB,
-          arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
-          op.getBlockSizeAttr(), op.getParamsAttr());
+          loc, ldsViewForGemmA, ldsViewForGemmB,
+          b.getI32IntegerAttr(copyMPerThread),
+          b.getI32IntegerAttr(copyNPerThread),
+          (rotateMWithK ? b.getUnitAttr() : nullptr),
+          (rotateNWithK ? b.getUnitAttr() : nullptr), mMyWaveOffsetA,
+          mMyWaveOffsetB, arrayA, arrayB, regCAllocOp, op.getArchAttr(),
+          op.getFeaturesAttr(), op.getBlockSizeAttr(), op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -2171,7 +2169,12 @@ struct GridwiseGemmAccelRewritePattern
 
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
-            ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths)
+            ->computeOutputTransforms(b, loc, M, N, blockSize,
+                                      bidGridLengths,
+                                      copyMPerThread,
+                                      copyNPerThread, 
+                                      doSwapThreadIterSubDimsForM,
+                                      doSwapThreadIterSubDimsForN)
             .gridSubTile;
 
     accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,

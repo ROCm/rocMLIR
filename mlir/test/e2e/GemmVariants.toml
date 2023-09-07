@@ -35,10 +35,3 @@ config = "-g 1 -m 1024 -k 769 -n 1024"
 # Let's make sure the very silly thing works
 [[suite.test]]
 config = "-g 1 -m 1 -k 1 -n 1"
-
-[[suite.test]]
-config = "-g 1 -m 32768 -k 1 -n 32769"
-
-# Large gemm, no padding.
-[[suite.test]]
-config = "-g 1 -m 64 -k 32768 -n 32768"

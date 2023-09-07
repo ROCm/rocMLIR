@@ -69,6 +69,14 @@ static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
                                           }
                                         }));
 
+static cl::opt<bool> verifyPasses(
+    "verify-passes", cl::init(false),
+    cl::desc("Have the pass manager(s) run verification after each pass"));
+
+static cl::opt<bool> dumpPipelines(
+    "dump-pipelines", cl::init(false),
+    cl::desc("Print out a textual form of the requested pipelines"));
+
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
 static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
@@ -138,6 +146,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   PassManager pm(kmod->getName(), PassManager::Nesting::Implicit);
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
+  pm.enableVerifier(verifyPasses);
   bool needArch = kernelPipelineSet.contains("rocdl") ||
                   kernelPipelineSet.contains("binary");
   RocmDeviceName devName;
@@ -190,6 +199,11 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     rock::buildBackendPipeline(pm, opts);
   }
 
+  if (dumpPipelines) {
+    llvm::errs() << "Kernel pipeline:\n";
+    pm.printAsTextualPipeline(llvm::errs());
+    llvm::errs() << "\n";
+  }
   return pm.run(kmod);
 }
 
@@ -256,10 +270,16 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
+    pm.enableVerifier(verifyPasses);
     mhal::GraphOptions opts;
     opts.targets = targetList;
     mhal::buildGraphPipeline(pm, opts);
 
+    if (dumpPipelines) {
+      llvm::errs() << "Partitioner pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module))) {
       return failure();
     }
@@ -307,6 +327,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
+    pm.enableVerifier(verifyPasses);
     auto errorHandler = [&](const Twine &msg) {
       emitError(UnknownLoc::get(module.getContext())) << msg;
       return failure();
@@ -315,6 +336,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // Use lowering pipeline specified at command line.
     if (failed(passPipeline.addToPipeline(pm, errorHandler))) {
       return failure();
+    }
+    if (dumpPipelines) {
+      llvm::errs() << "Custom pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
     }
     if (failed(pm.run(module))) {
       return failure();
@@ -326,10 +352,16 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
+    pm.enableVerifier(verifyPasses);
     rock::BufferizeOptions opts;
     opts.disableRock = true;
     rock::buildBufferizePipeline(pm, opts);
 
+    if (dumpPipelines) {
+      llvm::errs() << "Bufferization pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module))) {
       return failure();
     }
@@ -340,7 +372,13 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module.getContext());
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
+    pm.enableVerifier(verifyPasses);
     mhal::buildPackagePipeline(pm);
+    if (dumpPipelines) {
+      llvm::errs() << "MHAL package pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module))) {
       return failure();
     }
@@ -358,6 +396,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
+    pm.enableVerifier(verifyPasses);
     mhal::RunnerOptions runnerOptions;
     runnerOptions.barePtrMemrefs = barePointers.getValue();
     runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
@@ -367,6 +406,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     runnerOptions.targetTypes = targetTypes;
     runnerOptions.targetArchs = targetArchs;
     mhal::buildRunnerPipeline(pm, runnerOptions);
+    if (dumpPipelines) {
+      llvm::errs() << "Host runner pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module)))
       return failure();
   }

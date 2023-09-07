@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -242,6 +243,9 @@ struct BlockwiseGemmRewritePattern
       return splitTidForLDS;
     };
 
+    int64_t copyMPerThread = op.getInMPerThread();
+    int64_t copyNPerThread = op.getInNPerThread();
+
     TopDownTMBuilder splitTidA =
         ldsTidSplitter("m_repeat", mRepeat, "m_thread", mPerThread);
     TransformMapAttr splitTidAAttr = splitTidA.get();
@@ -254,6 +258,16 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexA.ignore("n_cuwave");
     toLdsIndexA.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexAAttr = toLdsIndexA.get();
+    SmallVector<Attribute> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
+
+    // If the dimension `m` has been rotated to minimize bank conflicts we want
+    // to apply the same rotation reading from LDS. This rotation happens in
+    // `wrapLDSforStore` from
+    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
+    // to be kept in sync with this function
+    int64_t strideA = (kPack == 1 ? copyMPerThread : 1);
+    rotateIf(op.getRotateMWithK(), toLdsIndexA, toLdsIndexAAttr, strideA, "m",
+             m, 1, "k", k, {"k"}, {"kpack"}, transformAttrsA);
 
     TopDownTMBuilder splitTidB =
         ldsTidSplitter("n_repeat", nRepeat, "n_thread", nPerThread);
@@ -267,16 +281,24 @@ struct BlockwiseGemmRewritePattern
     toLdsIndexB.ignore("m_cuwave");
     toLdsIndexB.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
+    SmallVector<Attribute> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
+
+    // If the dimension `d` has been rotated to minimize bank conflicts we want
+    // to apply the same rotation reading from LDS. This rotation happens in
+    // `wrapLDSforStore` from
+    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
+    // to be kept in sync with this function
+    int64_t strideB = (kPack == 1 ? copyNPerThread : 1);
+    rotateIf(op.getRotateNWithK(), toLdsIndexB, toLdsIndexBAttr, strideB, "n",
+             n, 1, "k", k, {"k"}, {"kpack"}, transformAttrsB);
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
     bool ldsANeedsi64, ldsBNeedsi64;
     std::tie(matrixA, transformsA, ldsANeedsi64) =
-        untransform(b, adaptor.getMatrixA(),
-                    b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
+        untransform(b, adaptor.getMatrixA(), b.getArrayAttr(transformAttrsA));
     std::tie(matrixB, transformsB, ldsBNeedsi64) =
-        untransform(b, adaptor.getMatrixB(),
-                    b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
+        untransform(b, adaptor.getMatrixB(), b.getArrayAttr(transformAttrsB));
     if (ldsANeedsi64 || ldsBNeedsi64)
       return b.notifyMatchFailure(loc, "LDS map can't need 64-bit indexing");
 
@@ -422,6 +444,8 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerThread = params.kpackPerThread;
     Value mWavesConstantOp = b.create<ConstantIndexOp>(loc, mWaves);
     Value nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
+    int64_t copyMPerThread = op.getInMPerThread();
+    int64_t copyNPerThread = op.getInNPerThread();
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
@@ -455,10 +479,31 @@ struct BlockwiseGemmAccelRewritePattern
                                  Value sourceBase, Value mn_i, Value MN,
                                  Value k_i, Value K, Value mnPerMfmaGroup,
                                  Value mnWaves, Type ldsBufferElemType,
-                                 Type dataType, Value ldsOrig, Value regDest) {
+                                 Type dataType, Value ldsOrig, Value regDest,
+                                 bool rotateDWithK, int64_t copyMNPerThread) {
       // Compute source offset
       Value sourceOffset = accelEmitterPtr->computeLdsSourceOffset(
           kb, k_i, mnb, mn_i, b, MN, loc, sourceBase, mnWaves, laneId);
+
+      // If the dimension `d` has been rotated to minimize bank conflicts we
+      // want to apply the same rotation reading from LDS. This rotation happens
+      // in `wrapLDSforStore` from
+      // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which
+      // needs to be kept in sync with this function
+      if (rotateDWithK) {
+        Value col = kb.create<arith::RemUIOp>(loc, sourceOffset, MN);
+        Value row = kb.create<arith::DivUIOp>(loc, sourceOffset, MN);
+        Value offset = row;
+        if (KPack == 1) {
+          Value stride =
+              kb.create<arith::ConstantIndexOp>(loc, copyMNPerThread);
+          offset = kb.create<arith::MulIOp>(loc, row, stride);
+        }
+        col = kb.create<arith::AddIOp>(loc, col, offset);
+        col = kb.create<arith::RemUIOp>(loc, col, MN);
+        sourceOffset = kb.create<arith::AddIOp>(
+            loc, kb.create<arith::MulIOp>(loc, row, MN), col);
+      }
 
       Value value = kb.create<memref::LoadOp>(loc, ldsBufferElemType, ldsOrig,
                                               sourceOffset);
@@ -508,27 +553,28 @@ struct BlockwiseGemmAccelRewritePattern
       }
     };
 
-    auto ldsToRegisterCopyKdim = [&](OpBuilder outerLoopB,
-                                     affine::AffineForOp outerLoopBodyOp,
-                                     Value sourceBase, Value MN,
-                                     Value mnPerMfmaGroup, Value mnWaves,
-                                     Type ldsBufferElemType, Type dataType,
-                                     Value ldsOrig, Value regDest) {
-      auto innerLoopK =
-          outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
-      auto ilkb = ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPoint(outerLoopBodyOp);
-        OpBuilder::InsertionGuard guardBody(outerLoopB);
-        outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
-        ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
-                          outerLoopBodyOp.getInductionVar(), MN,
-                          innerLoopK.getInductionVar(), KPerThreadConstantOp,
-                          mnPerMfmaGroup, mnWaves, ldsBufferElemType, dataType,
-                          ldsOrig, regDest);
-      }
-    };
+    auto ldsToRegisterCopyKdim =
+        [&](OpBuilder outerLoopB, affine::AffineForOp outerLoopBodyOp,
+            Value sourceBase, Value MN, Value mnPerMfmaGroup, Value mnWaves,
+            Type ldsBufferElemType, Type dataType, Value ldsOrig, Value regDest,
+            bool rotateDWithK, int64_t copyMNPerThread) {
+          auto innerLoopK =
+              outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
+          auto ilkb =
+              ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
+          {
+            OpBuilder::InsertionGuard guard(b);
+            b.setInsertionPoint(outerLoopBodyOp);
+            OpBuilder::InsertionGuard guardBody(outerLoopB);
+            outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
+            ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
+                              outerLoopBodyOp.getInductionVar(), MN,
+                              innerLoopK.getInductionVar(),
+                              KPerThreadConstantOp, mnPerMfmaGroup, mnWaves,
+                              ldsBufferElemType, dataType, ldsOrig, regDest,
+                              rotateDWithK, copyMNPerThread);
+          }
+        };
 
     // load A from LDS into registers
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
@@ -538,7 +584,8 @@ struct BlockwiseGemmAccelRewritePattern
     auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody());
     ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
                           mPerAccelConstantOp, mWavesConstantOp,
-                          bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA);
+                          bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA,
+                          op.getRotateMWithK(), copyMPerThread);
 
     // load B from LDS into registers
     // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
@@ -548,7 +595,8 @@ struct BlockwiseGemmAccelRewritePattern
     auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody());
     ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
                           nPerAccelConstantOp, nWavesConstantOp,
-                          bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB);
+                          bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB,
+                          op.getRotateNWithK(), copyNPerThread);
 
     b.eraseOp(op);
     olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),
@@ -575,7 +623,97 @@ struct ThreadwiseWriteAllRewritePattern
   LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final;
 };
+
+struct ThreadwiseTransposeRewritePattern
+    : public OpConversionPattern<ThreadwiseTransposeOp> {
+  using OpConversionPattern<ThreadwiseTransposeOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwiseTransposeOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
 } // end anonymous namespace
+
+LogicalResult ThreadwiseTransposeRewritePattern::matchAndRewrite(
+    ThreadwiseTransposeOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+
+  ArrayRef<int64_t> loadShape =
+      sourceView.getType().cast<ShapedType>().getShape();
+  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
+  int64_t copyDPerThread = loadShape[1];
+  int64_t copyKPerThread = loadShape[0];
+  int64_t kpack = op.getKpack();
+
+  // We use kpackPerThread instead of kpack to cover edge cases where
+  // copyKPerThread is smaller than kpack
+  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
+
+  Value rawLoadBuffer;
+  ArrayAttr loadBufferView;
+  bool needs64BitIdx;
+  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
+      untransform(b, sourceView);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
+  ArrayRef<int64_t> rawLoadBufferShape =
+      rawLoadBuffer.getType().cast<ShapedType>().getShape();
+
+  Value rawStoreBuffer;
+  ArrayAttr storeBufferView;
+  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
+      untransform(b, destView);
+  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
+  ArrayRef<int64_t> rawStoreBufferShape =
+      rawStoreBuffer.getType().cast<ShapedType>().getShape();
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 2> start(2, zero);
+  SmallVector<int64_t, 2> strides(2, 1);
+  int64_t vecLen = 1;
+  // The store buffer is a flattened < kouter x dPerThread x kpack >.
+  if (kpackPerThread == 1) {
+    // if kpack == 1, then we can do vectorized loads across d dimension from/to
+    // load/store buffer
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
+                                            copyDPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(copyDPerThread, vecLen);
+    strides[1] = vecLen;
+  } else {
+    // if kpack > 1, then we are limited by vectorization in k dimension and it
+    // could be at most kpack.
+    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
+                                            copyKPerThread, rawLoadBufferShape,
+                                            elemType);
+    vecLen = math_util::gcd(vecLen, kpackPerThread);
+    strides[0] = vecLen;
+  }
+  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
+  storeBufferView =
+      collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
+
+  // Run the packing loop
+  auto packLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{start, start},
+      ArrayRef<Attribute>{loadBufferView, storeBufferView},
+      /*bounds=*/loadShape,
+      /*strides=*/strides, false,
+      /*useIndexDiffs=*/false);
+  {
+    PatternRewriter::InsertionGuard outerGuard(b);
+    b.setInsertionPointToStart(packLoop.getBody());
+    Type loadType = vectorTypeOrSelf(elemType, vecLen);
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
+                                        packLoop.getLowerCoords(0));
+
+    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
+                              packLoop.getLowerCoords(1));
+  }
+  b.eraseOp(op);
+  return success();
+}
 
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
@@ -1349,6 +1487,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
+                                ThreadwiseTransposeOp,
                                 BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
     writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                                    memref::MemRefDialect, scf::SCFDialect,
@@ -1357,7 +1496,8 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             BlockwiseReduceRewritePattern, BlockwiseFillRewritePattern>(ctx);
+             ThreadwiseTransposeRewritePattern, BlockwiseReduceRewritePattern,
+             BlockwiseFillRewritePattern>(ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();

@@ -1075,6 +1075,10 @@ def Rock_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
+                   I32Attr:$inMPerThread,
+                   I32Attr:$inNPerThread,
+                   UnitAttr:$rotateMWithK,
+                   UnitAttr:$rotateNWithK,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non accelerated version";
@@ -1090,6 +1094,11 @@ def Rock_BlockwiseGemmOp:
     Each {m,n}PerThread group of elements (which may themselves be kPacks)
     is read from LDS by a given thread, then the next mPerThread group is
     mRepeatStride elements later in the buffer.
+
+    `rotate{M,N}PerThread` is used to rotate the access to LDS to avoid bank-conflicts in cases
+    where subsequent threads try to write data in the same column of the output matrix. If `kpack>1`
+    the rotation is simply the row index. If `kpack==1` the rotation takes into account the number of
+    elements reads by a thread along the `M` and/or `N` dimension, namely `in{M,N}PerThread`
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
@@ -1112,6 +1121,10 @@ def Rock_BlockwiseGemmAccelOp:
     Rock_Op<"blockwise_gemm_accel">,
     Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
                    MemRefOf<LdsBufferTypes>:$matrixB,
+                   I32Attr:$inMPerThread,
+                   I32Attr:$inNPerThread,
+                   UnitAttr:$rotateMWithK,
+                   UnitAttr:$rotateNWithK,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<AccelArgTypes>:$bufferA,
@@ -1287,6 +1300,29 @@ def Rock_InWarpTransposeOp :
 
   let extraClassDeclaration = "static constexpr size_t swizzleGroupSize = "
     # !cast<string>(swizzleGroupSize) # ";\n";
+}
+
+def Rock_ThreadwiseTransposeOp :
+    Rock_Op<"threadwise_transpose">,
+    AllElementTypesMatch<["source", "dest"]>,
+    Arguments<(ins
+      Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
+      Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
+      I64Attr : $kpack,
+      UnitAttr:$forceUnroll,
+      UnitAttr:$useIndexDiffs
+    )> {
+  let summary = "Threadwise register-to-register transpose";
+
+  let description = [{
+    `rock.threadwise_transpose` accepts a source view and a destination view and copy
+    data from source to destination.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source  `->` $dest `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 0;
 }
 
 #endif // ROCK_OPS

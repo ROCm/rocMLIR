@@ -2,39 +2,15 @@
 // and LLVM IR.
 
 // fp16 tests.
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t f16 | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t f16 | rocmlir-driver -kernel-pipeline=gpu --verify-passes | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t f16 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx1100 | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t f16 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx1100 | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx1100
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t f16 | rocmlir-driver -kernel-pipeline=gpu,binary --verify-passes --arch=gfx1100 | rocmlir-opt
 
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu "-convert-gpu-to-rocdl=chipset=gfx1100 index-bitwidth=32" | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu "-convert-gpu-to-rocdl=chipset=gfx1100 index-bitwidth=32" | rocmlir-translate -gpu-module-to-rocdlir
-// RUN: rocmlir-gen --arch gfx1100 -p -t f16 -wmma=on | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx1100 | rocmlir-translate -gpu-module-to-rocdlir
-
-// i8 tests.
-
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu "-convert-gpu-to-rocdl=chipset=gfx1100 index-bitwidth=32" | rocmlir-opt
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-buffer-load-merge -rock-loops-to-cf -convert-rock-to-gpu "-convert-gpu-to-rocdl=chipset=gfx1100 index-bitwidth=32" | rocmlir-translate -gpu-module-to-rocdlir
-// RUN: rocmlir-gen --arch gfx1100 -p -t i8 -wmma=on | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx1100 | rocmlir-translate -gpu-module-to-rocdlir
+// i8 tests
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t i8 | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu --verify-passes | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx1100 | rocmlir-opt
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx1100 | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx1100
+// RUN: rocmlir-gen --arch gfx1100 -wmma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,binary --verify-passes --arch=gfx1100 | rocmlir-opt

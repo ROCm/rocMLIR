@@ -10,7 +10,6 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -218,8 +217,10 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
+
     toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
                         {dGlobal / dPerBlock, dThreads, dPerThread});
+
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
@@ -257,7 +258,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim) {
+    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    bool doSwapThreadIterSubDimsForD) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -324,8 +326,15 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     toGlobalIdx.unmerge("k", 0,
                         {"k_thread", "kouterPerThread", "kpackPerThread"},
                         {kThreads, kOuterPerThread, kpackPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                        {dThreads, dPerThread});
+    // if the matrix is KxD swap the iter/thread dimension. This is so that
+    // each thread writes in LDS contiguously, minimizing bank conflicts
+    if (!doSwapThreadIterSubDimsForD)
+      toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
+                          {dThreads, dPerThread});
+    else
+      toGlobalIdx.unmerge(dName, 1, {dIterName, dThreadName},
+                          {dPerThread, dThreads});
+
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
@@ -395,4 +404,80 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
   }
   TransformMapAttr padAttr = padder.get();
   return b.create<TransformOp>(loc, matrix, padAttr);
+}
+
+TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
+    TopDownTMBuilder &toMatrixC, int64_t mBlocks, int64_t nBlocks,
+    int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
+    int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN, bool isBlockwise,
+    SmallVector<Attribute> &transformAttr) {
+  TransformMapAttr toMatrixCAttr = toMatrixC.get();
+  transformAttr.push_back(toMatrixCAttr);
+
+  auto splitAgain = TopDownTMBuilder::below(toMatrixC, toMatrixCAttr);
+  {
+    unsigned int idx = 0;
+    if (!isBlockwise) {
+      splitAgain.passThrough("gemmG");
+      idx += 1;
+    }
+
+    if (!doSwapThreadIterSubDimsForM) {
+      splitAgain.passThrough({"gemmM"}, {idx}, {"gemmM"});
+      idx += 1;
+    } else if (isBlockwise) {
+      splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmM",
+                       {copyMPerThread, mPerBlock / copyMPerThread});
+      idx += 2;
+    } else {
+      splitAgain.merge({"m_block", "m_iter", "m_tid"}, {idx, idx + 1, idx + 2},
+                       "gemmM",
+                       {mBlocks, copyMPerThread, mPerBlock / copyMPerThread});
+      idx += 3;
+    }
+
+    if (!doSwapThreadIterSubDimsForN)
+      splitAgain.passThrough({"gemmN"}, {idx}, {"gemmN"});
+    else if (isBlockwise)
+      splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmN",
+                       {copyNPerThread, nPerBlock / copyNPerThread});
+    else
+      splitAgain.merge({"n_block", "n_iter", "n_tid"}, {idx, idx + 1, idx + 2},
+                       "gemmN",
+                       {nBlocks, copyNPerThread, nPerBlock / copyNPerThread});
+  }
+  TransformMapAttr splitAgainAttr = splitAgain.get();
+  transformAttr.push_back(splitAgainAttr);
+
+  auto swapBack = TopDownTMBuilder::below(splitAgain, splitAgainAttr);
+  {
+    unsigned int idx = 0;
+    if (!isBlockwise) {
+      swapBack.passThrough("gemmG");
+      idx = 1;
+    }
+
+    if (!doSwapThreadIterSubDimsForM)
+      swapBack.passThrough({"gemmM"}, {idx}, {"gemmM"});
+    else if (isBlockwise)
+      swapBack.unmerge("gemmM", idx, {"m_tid", "m_iter"},
+                       {mPerBlock / copyMPerThread, copyMPerThread});
+    else
+      swapBack.unmerge("gemmM", idx, {"m_block", "m_tid", "m_iter"},
+                       {mBlocks, mPerBlock / copyMPerThread, copyMPerThread});
+
+    if (!doSwapThreadIterSubDimsForN)
+      swapBack.passThrough({"gemmN"}, {idx + 1}, {"gemmN"});
+    else if (isBlockwise)
+      swapBack.unmerge("gemmN", idx + 1, {"n_tid", "n_iter"},
+                       {nPerBlock / copyNPerThread, copyNPerThread});
+    else
+      swapBack.unmerge("gemmN", idx + 1, {"n_block", "n_tid", "n_iter"},
+                       {nBlocks, nPerBlock / copyNPerThread, copyNPerThread});
+  }
+  TransformMapAttr swapBackAttr = swapBack.get();
+  transformAttr.push_back(swapBackAttr);
+
+  return swapBack;
 }

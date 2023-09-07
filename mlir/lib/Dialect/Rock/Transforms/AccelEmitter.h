@@ -112,10 +112,11 @@ struct AccelEmitter {
 
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
-  virtual RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) = 0;
+  virtual RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      int64_t blockSize, ArrayRef<int64_t> bidGridLengths,
+      int64_t inMPerThread, int64_t inNPerThread,
+      bool doSwapThreadIterSubDimsForM = false, bool doSwapThreadIterSubDimsForN = false) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
@@ -151,10 +152,11 @@ struct MfmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) override;
+  RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      int64_t blockSize, ArrayRef<int64_t> bidGridLengths, 
+      int64_t inMPerThread, int64_t inNPerThread,
+      bool doSwapThreadIterSubDimsForM = false, bool doSwapThreadIterSubDimsForN = false) override;
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -180,10 +182,11 @@ struct WmmaEmitter : public AccelEmitter {
                                Location loc, Value baseOffset, Value dWaves,
                                Value laneId) override;
 
-  RegsAsMatrixSubTiles
-  computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen,
-                          int64_t nLen, int64_t blockSize,
-                          ArrayRef<int64_t> bidGridLengths) override;
+  RegsAsMatrixSubTiles computeOutputTransforms(
+      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      int64_t blockSize, ArrayRef<int64_t> bidGridLengths, 
+      int64_t inMPerThread, int64_t inNPerThread,
+      bool doSwapThreadIterSubDimsForM = false, bool doSwapThreadIterSubDimsForN = false) override;
 
 private:
   /// Initialize the emitter parameters for wmma

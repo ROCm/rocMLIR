@@ -69,6 +69,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     endforeach()
 
     foreach(__library ${__rocmlir_libs})
+      list(APPEND __rocmlir_libraries ${ROCMLIR_LIB_DIR}/${__library}.lib)
       target_link_libraries(${LIBRARY_NAME}
           INTERFACE
               $<BUILD_INTERFACE:${__library}>
@@ -78,9 +79,10 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     rocm_install(FILES ${__mlir_libraries}
             DESTINATION lib/llvm)
 
-    rocm_install(FILES ${ROCMLIR_LIB_DIR}/MLIRRockThin.lib
+    rocm_install(FILES ${__rocmlir_libraries}
             DESTINATION lib)
 
+    unset(__rocmlir_libraries)
     unset(__mlir_libraries)
 
     # Linux compatibility custom target
