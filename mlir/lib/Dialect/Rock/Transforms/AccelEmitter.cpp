@@ -189,10 +189,11 @@ makeViewsForRowsAndCols(TopDownTMBuilder &viewBuilder, int64_t mPerRepeat,
       {"vec_group", "vec_item"});
 }
 
-RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      int64_t blockSize, ArrayRef<int64_t> bidGridLengths,
-      int64_t inMPerThread, int64_t inNPerThread, 
-      bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN) {
+RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
+    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+    int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -528,10 +529,11 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
 }
 
-RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      int64_t blockSize, ArrayRef<int64_t> bidGridLengths,
-      int64_t inMPerThread, int64_t inNPerThread,
-      bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN) {
+RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
+    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+    int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -597,7 +599,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(PatternRewriter &b, Lo
   SmallVector<int64_t, 7> dimSizesN;
   convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
 
-  RegsAsMatrixSubTiles ret; 
+  RegsAsMatrixSubTiles ret;
   {
     // Create views as gridwise sub-tile of C
     TopDownTMBuilder splitMemoryCoords(

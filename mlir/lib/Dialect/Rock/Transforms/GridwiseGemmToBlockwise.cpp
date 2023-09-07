@@ -766,8 +766,8 @@ struct GridwiseAttentionAccelRewritePattern
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
-    rewriter.create<ThreadwiseTransposeOp>(
-        loc, regBuffer, viewStoreBuffer, kpack, false, false);
+    rewriter.create<ThreadwiseTransposeOp>(loc, regBuffer, viewStoreBuffer,
+                                           kpack, false, false);
     Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
     FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
         rewriter, loc, ldsTileByteBuffer, ldsReadType, kpacksPerBlock,
@@ -1570,8 +1570,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
             /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr,
-            mMyWaveOffsetQ, mMyWaveOffsetK,
+            /*rotateNWithK=*/nullptr, mMyWaveOffsetQ, mMyWaveOffsetK,
             preAccelRegBufferQ, preAccelRegBufferK, accRegBufferGemm0,
             op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
             op.getParamsAttr());
@@ -1667,14 +1666,14 @@ struct GridwiseAttentionAccelRewritePattern
             createWaveOffsets(loc, waveSize, gemm1TuningParams.getNPerWave(),
                               gemm1NPerBlock, accelParamsGemm1, tid, rewriter);
         rewriter.create<BlockwiseGemmAccelOp>(
-            loc, gemm1LDSBufferA, ldsTileBufferV, 
+            loc, gemm1LDSBufferA, ldsTileBufferV,
             rewriter.getI32IntegerAttr(gemm1InMPerThread),
             rewriter.getI32IntegerAttr(gemm1InNPerThread),
             /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr,
-            mMyWaveOffsetQxK, mMyWaveOffsetV, preAccelRegBufferQxK, preAccelRegBufferV,
-            accRegBufferGemm1, op.getArchAttr(), op.getFeaturesAttr(),
-            op.getBlockSizeAttr(), gemm1TuningParams);
+            /*rotateNWithK=*/nullptr, mMyWaveOffsetQxK, mMyWaveOffsetV,
+            preAccelRegBufferQxK, preAccelRegBufferV, accRegBufferGemm1,
+            op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
+            gemm1TuningParams);
         // There is no second k-loop
         // Therefore can get the output straight away
         accelEmitterPtrGemm1->computeOutputConversion(
@@ -2169,10 +2168,8 @@ struct GridwiseGemmAccelRewritePattern
 
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
-            ->computeOutputTransforms(b, loc, M, N, blockSize,
-                                      bidGridLengths,
-                                      copyMPerThread,
-                                      copyNPerThread, 
+            ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
+                                      copyMPerThread, copyNPerThread,
                                       doSwapThreadIterSubDimsForM,
                                       doSwapThreadIterSubDimsForN)
             .gridSubTile;
