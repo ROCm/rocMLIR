@@ -188,12 +188,11 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
 
-  rw.create<GridwiseAttentionAccelOp>(
-      loc, queries, keys, values,
+  rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
+      op, queries, keys, values,
       /*TODO(enable scale here once implemented)*/ nullptr, out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       params);
-  rw.eraseOp(op);
   return success();
 }
 

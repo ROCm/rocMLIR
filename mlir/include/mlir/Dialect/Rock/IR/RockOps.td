@@ -1233,9 +1233,10 @@ def Rock_BlockwiseBroadcastReduceOp:
     $workspace_buffer resides in LDS. This should be a flat tensor with at least
     number of elements in the input tensor.
 
-    $extraOut and $extraOutView are an optional argument and a view stack that still
-    needs to be viewed with dimensions equal to input. However, the actual composition
-    of the view stack could be used to lay things out differently to the input.
+    {$extraOut,$extraOutView} optionally be used to broadcast the output in a different
+    layout that is different to the input layout.
+    $extraOut and $extraOutView are an optional argument and a view stack, respectively,
+    that still needs to have upper dimensions equal to the input.
   }];
   let assemblyFormat = [{
     $reduceMethod $inputRegView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?

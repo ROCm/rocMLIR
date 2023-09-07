@@ -1029,12 +1029,11 @@ struct GridwiseAttentionAccelRewritePattern
   // [STORE] maxRowBuffer = maxRowBufferNew
   //
   // [STORE] sumRowBuffer = sumRowBufferNew
-  void createRowStateCorrections(PatternRewriter &rewriter, Location loc,
-                                 Value gemm0OutBufferMaxView,
-                                 Value gemm0OutBufferSumView,
-                                 Value gemm1OutThreadwiseView,
-                                 Value attentionOutAccBufferView,
-                                 Value maxRowBuffer, Value sumRowBuffer) const {
+  void createAttentionRowStateCorrections(
+      PatternRewriter &rewriter, Location loc, Value gemm0OutBufferMaxView,
+      Value gemm0OutBufferSumView, Value gemm1OutThreadwiseView,
+      Value attentionOutAccBufferView, Value maxRowBuffer,
+      Value sumRowBuffer) const {
     Value gemm0OutBufferMax, gemm0OutBufferSum, gemm1Out, attentionOutAccBuffer;
     ArrayAttr gemm0OutBufferMaxTrs, gemm0OutBufferSumTrs, gemm1OutTrs,
         attentionOutAccBufferTrs;
@@ -1095,7 +1094,6 @@ struct GridwiseAttentionAccelRewritePattern
           loop.getLowerCoords(4);
 
       // maxRowBufferNew = max(maxRowBuffer, gemm0OutBufferMaxView[:,0])
-      // ---------------------------------------------------------------------
       Type maxRowBufferElemType = getElementTypeOrSelf(maxRowBuffer.getType());
       Value ldMaxRowBuffer = rewriter.create<InBoundsLoadOp>(
           loc, maxRowBufferElemType, maxRowBuffer, ValueRange{upperCoords[0]});
@@ -1108,7 +1106,6 @@ struct GridwiseAttentionAccelRewritePattern
       // sumRowBufferNew = exp(maxRowBuffer - maxRowBufferNew) * sumRowBuffer +
       // exp(gemm0OutBufferMaxView[:,0] - maxRowBufferNew) *
       // gemm0OutBufferSumView[:,0]
-      // ---------------------------------------------------------------------
       Type sumRowBufferElemType = getElementTypeOrSelf(sumRowBuffer.getType());
       Value ldSumRowBuffer = rewriter.create<InBoundsLoadOp>(
           loc, sumRowBufferElemType, sumRowBuffer, ValueRange{upperCoords[0]});
@@ -1134,7 +1131,6 @@ struct GridwiseAttentionAccelRewritePattern
 
       // attentionOutAccBufferMaxScaled = exp(maxRowBuffer - maxRowBufferNew) *
       // attentionOutAccBuffer
-      // --------------------------------------------------------------------
       Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, attentionOutAccBuffer, attentionOutAccBufferCoords);
       Value attentionOutAccBufferMaxScaled =
@@ -1146,14 +1142,12 @@ struct GridwiseAttentionAccelRewritePattern
 
       // attentionOutAccBufferMaxScaledNoSumDiv = attentionOutAccBufferMaxScaled
       // * sumRowBuffer
-      // --------------------------------------------------------------------
       Value attentionOutAccBufferMaxScaledNoSumDiv =
           rewriter.create<arith::MulFOp>(loc, attentionOutAccBufferMaxScaled,
                                          ldSumRowBuffer);
 
       // gemm1OutThreadwiseViewMaxScaled  = exp(gemm0OutBufferMaxView[:,0] -
       // maxRowBufferNew) * gemm1OutThreadwiseView
-      // --------------------------------------------------------------------
       Value gemm1OutThreadwiseViewMaxScaled = rewriter.create<arith::SubFOp>(
           loc, ldgemm0OutBufferMax, maxRowBufferNew);
       gemm1OutThreadwiseViewMaxScaled =
@@ -1165,7 +1159,6 @@ struct GridwiseAttentionAccelRewritePattern
 
       // [STORE] attentionOutAccBuffer = (attentionOutAccBufferMaxScaledNoSumDiv
       // + gemm1OutThreadwiseViewMaxScaled ) / sumRowBufferNew
-      // --------------------------------------------------------------------
       Value stAttentionOutAccBuffer = rewriter.create<arith::AddFOp>(
           loc, attentionOutAccBufferMaxScaledNoSumDiv,
           gemm1OutThreadwiseViewMaxScaled);
@@ -1177,7 +1170,6 @@ struct GridwiseAttentionAccelRewritePattern
 
       // [STORE] maxRowBuffer = maxRowBufferNew
       // [STORE] sumRowBuffer = sumRowBufferNew
-      // --------------------------------------------------------------------
       // We only need to do with once per row
       Value isNptLastIdx = rewriter.create<arith::CmpIOp>(
           loc, arith::CmpIPredicate::eq, upperCoords[1], lastNptIdx);
@@ -1690,7 +1682,7 @@ struct GridwiseAttentionAccelRewritePattern
         Value gemm0SumMNThreadwiseView =
             transform(rewriter, gemm0OutBufferSumInGemm1Layout,
                       invertedGemm1threadSubTileMaps);
-        createRowStateCorrections(
+        createAttentionRowStateCorrections(
             rewriter, loc, gemm0MaxMNThreadwiseView, gemm0SumMNThreadwiseView,
             gemm1MNThreadwiseView, attentionOutAccBufferView, maxRowBuffer,
             sumRowBuffer);
