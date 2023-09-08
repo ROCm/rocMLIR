@@ -49,6 +49,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ScopedPrinter.h"
 
+#include <deque>
 #include <numeric>
 
 namespace mlir {
@@ -91,14 +92,12 @@ protected:
   llvm::ScopedPrinter logger{llvm::dbgs()};
 #endif
 
-  // Ensure we completely process one generation of operations before moving
-  // to the next one by keeping two worklists that we copy into.
-  SmallVector<Operation *, 0> nextWorklist;
-  // Our patterns aren't stable under repetade application (ex. fuling an
+  std::deque<Operation *> worklist;
+  // Our patterns aren't stable under repeated application (ex. fuling an
   // already fused op) but we can have cases where an operation is marked for
   // multiple visits (ex. two arguments to a linalg.generic reading from
   // the same source linalg.generic), so we need to prevent duplicate
-  // scheduling within a generation.
+  // scheduling.
   llvm::SmallPtrSet<Operation *, 4> scheduledOps;
 
   SmallPtrSet<Operation *, 2> opsExpectingRevisit;
@@ -112,8 +111,7 @@ protected:
 public:
   LinalgAlignRewriter(MLIRContext *ctx);
 
-  /// Schedule the given operation for processing in a future iteration
-  /// through the patterns.
+  /// Schedule the given operation for processing.
   void scheduleVisit(Operation *op);
 
   /// Inform the pattern rewriter that this operation will need to be revisited
@@ -122,9 +120,9 @@ public:
   /// is never revisited, then fail.
   LogicalResult needsRevisit(Operation *op);
 
-  /// Match all worklist itemis against the patterns in `matcher`, repetaing
+  /// Match all worklist itemis against the patterns in `matcher`, repeating
   /// this procedure until all scheduled visits are complete, including those
-  /// added during a pattern match. Fails if any pattern applicatino fails.
+  /// added during a pattern match. Fails if any pattern application fails.
   /// or if an operation that is marked as needing revisiting is not visited
   /// after it is so marked.
   LogicalResult drainWorklist(PatternApplicator &matcher);
@@ -225,7 +223,7 @@ void LinalgAlignRewriter::scheduleVisit(Operation *op) {
   constexpr llvm::StringLiteral dupePrefix("** Duplicate:  ");
   if (scheduledOps.insert(op).second) {
     logOpActivity(prefix, op);
-    nextWorklist.push_back(op);
+    worklist.push_back(op);
   } else {
     logOpActivity(dupePrefix, op);
   }
@@ -239,54 +237,48 @@ LogicalResult LinalgAlignRewriter::needsRevisit(Operation *op) {
 }
 
 LogicalResult LinalgAlignRewriter::drainWorklist(PatternApplicator &matcher) {
-  SmallVector<Operation *, 0> currentWorklist;
-  while (!nextWorklist.empty()) {
-    // Copy the operations to be visited out of the way so we don't have
-    // iterator invalidation.
-    currentWorklist.append(nextWorklist);
-    nextWorklist.clear();
-    scheduledOps.clear();
-    for (Operation *op : currentWorklist) {
+  while (!worklist.empty()) {
+    Operation *op = worklist.front();
+    worklist.pop_front();
 #ifndef NDEBUG
-      auto canApply = [&](const Pattern &pattern) -> bool {
-        LLVM_DEBUG({
-          logger.startLine() << "Applying pattern " << pattern.getDebugName()
-                             << " (matches" << *pattern.getRootKind() << ")"
-                             << " on " << op->getName() << "\n";
-          logger.indent();
-        });
-        return true;
-      };
-      auto onFailure = [&](const Pattern &pattern) {
-        LLVM_DEBUG({
-          logger.unindent();
-          logger.startLine() << "Failed to match the " << pattern.getDebugName()
-                             << " pattern (matches " << *pattern.getRootKind()
-                             << ") on " << op->getName() << "\n";
-        });
-      };
-      auto onSuccess = [&](const Pattern &pattern) -> LogicalResult {
-        LLVM_DEBUG({
-          logger.unindent();
-          logger.startLine() << "Matched " << pattern.getDebugName()
-                             << " pattern on " << op->getName() << "\n";
-        });
-        return success();
-      };
+    auto canApply = [&](const Pattern &pattern) -> bool {
+      LLVM_DEBUG({
+        logger.startLine() << "Applying pattern " << pattern.getDebugName()
+                           << " (matches" << *pattern.getRootKind() << ")"
+                           << " on " << op->getName() << "\n";
+        logger.indent();
+      });
+      return true;
+    };
+    auto onFailure = [&](const Pattern &pattern) {
+      LLVM_DEBUG({
+        logger.unindent();
+        logger.startLine() << "Failed to match the " << pattern.getDebugName()
+                           << " pattern (matches " << *pattern.getRootKind()
+                           << ") on " << op->getName() << "\n";
+      });
+    };
+    auto onSuccess = [&](const Pattern &pattern) -> LogicalResult {
+      LLVM_DEBUG({
+        logger.unindent();
+        logger.startLine() << "Matched " << pattern.getDebugName()
+                           << " pattern on " << op->getName() << "\n";
+      });
+      return success();
+    };
 #else
-      function_ref<bool(const Pattern &)> canApply = {};
-      function_ref<void(const Pattern &)> onFailure = {};
-      function_ref<LogicalResult(const Pattern &)> onSuccess = {};
+    function_ref<bool(const Pattern &)> canApply = {};
+    function_ref<void(const Pattern &)> onFailure = {};
+    function_ref<LogicalResult(const Pattern &)> onSuccess = {};
 #endif
-      opsExpectingRevisit.erase(op);
-      LogicalResult matchResult =
-          matcher.matchAndRewrite(op, *this, canApply, onFailure, onSuccess);
-      if (failed(matchResult)) {
-        LLVM_DEBUG(llvm::dbgs() << "Pattern match failed\n");
-        return failure();
-      }
+    scheduledOps.erase(op);
+    opsExpectingRevisit.erase(op);
+    LogicalResult matchResult =
+        matcher.matchAndRewrite(op, *this, canApply, onFailure, onSuccess);
+    if (failed(matchResult)) {
+      LLVM_DEBUG(llvm::dbgs() << "Pattern match failed\n");
+      return failure();
     }
-    currentWorklist.clear();
   }
   if (!opsExpectingRevisit.empty()) {
 #ifndef NDEBUG
