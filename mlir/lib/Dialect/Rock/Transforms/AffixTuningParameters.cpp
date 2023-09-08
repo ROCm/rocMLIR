@@ -206,8 +206,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     } else {
       // set a default one for now until the tuning flow is set up properly.
       params = builder.getAttr<XdlopsGemmParamsAttr>(
-          /*kpackPerBlock=*/8, /*mPerBlock=*/32,
-          /*nPerBlock=*/32, /*kpack=*/8,
+          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+          /*nPerBlock=*/32, /*kpack=*/1,
           /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true);
     }
   }
