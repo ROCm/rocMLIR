@@ -362,6 +362,8 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
     SmallVector<Attribute> &transformAttr) {
   TransformMapAttr toMatrixCAttr = toMatrixC.get();
   transformAttr.push_back(toMatrixCAttr);
+  int64_t mThreads = mPerBlock / copyMPerThread;
+  int64_t nThreads = nPerBlock / copyNPerThread;
 
   auto splitAgain = TopDownTMBuilder::below(toMatrixC, toMatrixCAttr);
   {
@@ -376,12 +378,11 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
       idx += 1;
     } else if (isBlockwise) {
       splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmM",
-                       {copyMPerThread, mPerBlock / copyMPerThread});
+                       {copyMPerThread, mThreads});
       idx += 2;
     } else {
       splitAgain.merge({"m_block", "m_iter", "m_tid"}, {idx, idx + 1, idx + 2},
-                       "gemmM",
-                       {mBlocks, copyMPerThread, mPerBlock / copyMPerThread});
+                       "gemmM", {mBlocks, copyMPerThread, mThreads});
       idx += 3;
     }
 
@@ -392,8 +393,7 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
                        {copyNPerThread, nPerBlock / copyNPerThread});
     else
       splitAgain.merge({"n_block", "n_iter", "n_tid"}, {idx, idx + 1, idx + 2},
-                       "gemmN",
-                       {nBlocks, copyNPerThread, nPerBlock / copyNPerThread});
+                       "gemmN", {nBlocks, copyNPerThread, nThreads});
   }
   TransformMapAttr splitAgainAttr = splitAgain.get();
   transformAttr.push_back(splitAgainAttr);
@@ -409,20 +409,22 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
     if (!doSwapThreadIterSubDimsForM)
       swapBack.passThrough({"gemmM"}, {idx}, {"gemmM"});
     else if (isBlockwise)
-      swapBack.unmerge("gemmM", idx, {"m_tid", "m_iter"},
-                       {mPerBlock / copyMPerThread, copyMPerThread});
+      swapBack.embed("gemmM", idx, mPerBlock, {"m_tid", "m_iter"},
+                     {copyMPerThread, 1});
     else
-      swapBack.unmerge("gemmM", idx, {"m_block", "m_tid", "m_iter"},
-                       {mBlocks, mPerBlock / copyMPerThread, copyMPerThread});
+      swapBack.embed("gemmM", idx, mBlocks * mPerBlock,
+                     {"m_block", "m_tid", "m_iter"},
+                     {mThreads * copyMPerThread, copyMPerThread, 1});
 
     if (!doSwapThreadIterSubDimsForN)
       swapBack.passThrough({"gemmN"}, {idx + 1}, {"gemmN"});
     else if (isBlockwise)
-      swapBack.unmerge("gemmN", idx + 1, {"n_tid", "n_iter"},
-                       {nPerBlock / copyNPerThread, copyNPerThread});
+      swapBack.embed("gemmN", idx + 1, mPerBlock, {"n_tid", "n_iter"},
+                     {copyNPerThread, 1});
     else
-      swapBack.unmerge("gemmN", idx + 1, {"n_block", "n_tid", "n_iter"},
-                       {nBlocks, nPerBlock / copyNPerThread, copyNPerThread});
+      swapBack.embed("gemmN", idx + 1, nBlocks * nPerBlock,
+                     {"n_block", "n_tid", "n_iter"},
+                     {nThreads * copyNPerThread, copyNPerThread, 1});
   }
   TransformMapAttr swapBackAttr = swapBack.get();
   transformAttr.push_back(swapBackAttr);
