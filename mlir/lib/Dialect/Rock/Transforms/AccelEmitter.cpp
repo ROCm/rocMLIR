@@ -629,7 +629,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
-        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForM,
         /**isBlockwise=*/false, transformAttrs);
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
