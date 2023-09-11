@@ -195,11 +195,6 @@ by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>,
      <PassThrough ["gemmM"] at [1] -> ["gemmM"] at [1]>,
      <Unmerge{48, 1, 16} ["n_block", "n_tid", "n_iter"] at [2, 4, 3] -> ["gemmN"] at [2]>] bounds = [1, 16, 48, 16, 1] -> [1, 16, 768]>
 
-#transform_map_pad_gemm =  #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>,
-    <Pad{0, 15} ["gemmMPad"] at [1] -> ["gemmM"] at [1]>,
-    <PassThrough ["gemmN"] at [2] -> ["gemmN"] at [2]>] bounds = [1, 16, 768] -> [1, 1, 768]>
-
 // iso-coefficient embed alignment checks
 #transform_map_over_vec_top1 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 4, d4 mod 4, d5 floordiv 4, d5 mod 4)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{16, 4} ["tid"] at [4] -> ["n_thread", "k_thread"] at [4, 5]>, <Merge{4, 4} ["iter"] at [5] -> ["n_iter", "k_iter"] at [6, 7]>] bounds = [16, 1, 2, 45, 64, 16] -> [16, 1, 2, 45, 16, 4, 4, 4]>
 #transform_map_over_vec_top2 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 4 + d5) * 4 + d7, (d3 * 16 + d4) * 4 + d6)> by [<PassThrough ["g_block"] at [1] -> ["g"] at [0]>, <Unmerge{16, 4, 4} ["k_loop", "k_thread", "k_iter"] at [0, 5, 7] -> ["k"] at [1]>, <Unmerge{45, 16, 4} ["n_block", "n_thread", "n_iter"] at [3, 4, 6] -> ["n"] at [2]>, <AddDim{2} ["m_block"] at [2] -> [] at []>] bounds = [16, 1, 2, 45, 16, 4, 4, 4] -> [1, 256, 2880]>
@@ -338,9 +333,10 @@ func.func @test_vectorization() {
   %43 = "get_length"() {transforms = [#transform_map_over_vec_top1, #transform_map_over_vec_top2, #transform_map_over_vec_bottom1, #transform_map_over_vec_bottom2, #transform_map_over_vec_bottom3], in_dim = 5 : index, max_len = 16 : index} : () -> (memref<64x1x64x4x4xf32>)
 
   // Unit dimension gets swapped during Merge/Unmerge
-  // TODO: we should make sure that this test passes for the right reason. Indeed, the reason why we can vectorize this transformation is because the singleton dimension, for vectorization
-  // purposes, can be ignored. However, we need to make sure that the engine does not signal that `{d0, d1, d2}` are contiguous, because they aren't.
-  // Signalling them as contiguous leads to a flattening of the Merge dimension space when `collapseContiguousMerges` is called.
+  // TODO: we should make sure that this test passes for the right reason. Indeed, the reason why we can vectorize this
+  // transformation is because the singleton dimension, for vectorization purposes, can be ignored.
+  // However, we need to make sure that the engine does not signal that `{d0, d1, d2}` are contiguous
+  // because it would lead to a flattening of the Merge dimension space when `collapseContiguousMerges` is called.
   // CHECK-NEXT: result = 4
   %44 = "get_length"() {transforms = [#transform_map_merge_gemm, #transform_map_unmerge_gemm], in_dim = 2 : index, max_len = 4 : index} : () -> (memref<1x16x768xf32>)
   func.return
