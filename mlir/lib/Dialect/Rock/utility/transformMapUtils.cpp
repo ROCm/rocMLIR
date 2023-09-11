@@ -281,25 +281,34 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
     SmallVector<size_t> dimPosition;
     for (size_t j = i; j < upperDims.size(); j++) {
 
-      // Unit lengths don't affect the mergeability logic
-      if (params[j] == 1)
-        continue;
-
       auto keyJ = dimToMerge[upperDims[j]];
 
-      if (!keyJ.transform) {
+      // Unit lengths don't affect the mergeability logic, if they come from
+      // another transform. If the unit length is in the Merge, this can
+      // be swapped during the Unmerge, e.g., Merge{2,16,1}->Unmerge{2,1,16}.
+      // In this case we want to carry on the usual checks
+      if (params[j] == 1 && !keyJ.transform)
+        continue;
+
+      if (!keyJ.transform)
         break;
-      }
+
       auto mergeJParams = keyJ.transform.getParams();
       auto mergeJDims = keyJ.transform.getLowerDims();
       size_t posJ = keyJ.positionInMerge;
 
       // a) Dimensions need to come from the same merge
-      // b) Unmerge parameters need to match merge parameters
-      if (keyJ.transformPair() != keyI.transformPair() ||
-          params[j] != mergeJParams[posJ]) {
+      if (keyJ.transformPair() != keyI.transformPair())
         break;
-      }
+
+      // b) Unmerge parameters need to match merge parameters. Note that if
+      // the merge dimension goes through a Broadcast (before getting unmerged),
+      // this should be taken into account (i.e., the new parameter should be 1)
+      int64_t dimJ = mergeJDims[posJ];
+      int64_t paramOrBroadcast =
+          dimToMerge[dimJ].isBroadcast ? 1 : mergeJParams[posJ];
+      if (params[j] != paramOrBroadcast)
+        break;
 
       groupCandidate.push_back(mergeJDims[posJ]);
       dimPosition.push_back(posJ);
