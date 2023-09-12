@@ -1440,7 +1440,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm1NBlocks};
     RegsAsMatrixSubTiles gemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
-            rewriter, loc, gemm1MPerBlock, gemm1N, blockSize,
+            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
             gemm1BidGridLengths, gemm1InMPerThread, gemm1InNPerThread);
     auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
         createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
