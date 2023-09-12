@@ -69,3 +69,23 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
       loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
   return {g_block, m_block, n_block};
 }
+
+GridCoordinates rock::layout::makeGMajorGxMGridLayout(PatternRewriter &b,
+                                                      Location loc, Value bid,
+                                                      Value nIter,
+                                                      GridLayoutInfo info) {
+  Value g1MBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
+  auto gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MBlockCountVal);
+  auto mBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MBlockCountVal);
+  return {gBlockIdx, mBlockIdx, nIter};
+}
+
+GridCoordinates rock::layout::makeGMajorGxNGridLayout(PatternRewriter &b,
+                                                      Location loc, Value bid,
+                                                      Value mIter,
+                                                      GridLayoutInfo info) {
+  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
+  auto gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
+  auto nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
+  return {gBlockIdx, mIter, nBlockIdx};
+}

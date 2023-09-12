@@ -49,6 +49,7 @@ private:
 
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
+  void affixTuningParametersImpl(AttentionOp op);
 
   template <typename T> void setUtilityKernelSizes(Value arg, T utilityOp);
 };
@@ -59,6 +60,7 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
+  func.walk([&](AttentionOp op) { affixTuningParametersImpl(op); });
   func.walk([&](ReduceOp op) {
     func::FuncOp funcOp = getOperation();
     if (!funcOp->hasAttr("block_size")) {
@@ -180,4 +182,68 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
+}
+
+void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
+  OpBuilder builder(op.getContext());
+  bool isAccel = rock::isAccel(op.getFeatures());
+  if (!isAccel) {
+    op.emitError("Currently, attention op is only supported on GPUs "
+                 "with matrix accelerator extentions");
+    signalPassFailure();
+  }
+  Attribute params = op.getParams().value_or(nullptr);
+  if (!params) {
+    if (StringAttr perfConfigStrAttr =
+            dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
+      InitParamsAccel accelParams;
+      if (accelParams.deserialize(perfConfigStrAttr.str())) {
+        GemmFeatures features = op.getFeatures();
+        auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+        params =
+            populateParamsAccelPtr->getGemmParamsAttr(builder, accelParams);
+      }
+    } else {
+      // set a default one for now until the tuning flow is set up properly.
+      params = builder.getAttr<XdlopsGemmParamsAttr>(
+          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+          /*nPerBlock=*/32, /*kpack=*/1,
+          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true);
+    }
+  }
+  auto accelParams = params.cast<RockAccelTuningParamAttrInterface>();
+  op.setParamsAttr(accelParams);
+  int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
+  int64_t blockSize = waveSize * accelParams.getNPerBlock() *
+                      accelParams.getMPerBlock() /
+                      (accelParams.getMPerWave() * accelParams.getNPerWave());
+
+  // Calculate (padded) grid size
+  Value queries = op.getQueries();
+  Value keys = op.getKeys();
+  SmallVector<int64_t, 3> queriesShape =
+      llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
+  // Note: the gridwise ops take K x M and K x N, so Q must be transposed if
+  // it's in the natural M x K form
+  if (!op.getQTransposed()) {
+    std::iter_swap(queriesShape.rbegin(), queriesShape.rbegin() + 1);
+  }
+  SmallVector<int64_t, 3> keysShape =
+      llvm::to_vector<3>(keys.getType().cast<MemRefType>().getShape());
+  if (op.getKTransposed()) {
+    std::iter_swap(keysShape.rbegin(), keysShape.rbegin() + 1);
+  }
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+                     /*k=*/queriesShape[1],
+                     /*n=*/keysShape[2]);
+  GemmSize gemm0ExtraPad =
+      requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
+  int64_t gridSize =
+      ((gemm0Size.m + gemm0ExtraPad.m) / accelParams.getMPerBlock()) *
+      gemm0Size.g;
+  IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
+  IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);
+  func::FuncOp funcOp = getOperation();
+  funcOp->setAttr("block_size", blockSizeAttr);
+  funcOp->setAttr("grid_size", gridSizeAttr);
 }

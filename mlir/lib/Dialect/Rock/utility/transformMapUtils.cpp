@@ -1442,6 +1442,15 @@ void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
   }
 }
 
+ArrayAttr mlir::rock::prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
+                                        ArrayAttr existingViews) {
+  SmallVector<Attribute, 4> views =
+      llvm::to_vector<4>(viewsToPrepend.getAsRange<Attribute>());
+  views.append(existingViews.getAsRange<Attribute>().begin(),
+               existingViews.getAsRange<Attribute>().end());
+  return b.getArrayAttr(views);
+}
+
 ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
                                        ArrayAttr transforms) {
   SmallVector<Attribute, 4> invertedTrs;
@@ -1450,4 +1459,10 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
     invertedTrs.push_back(invertTransformMap(b, trMap, loc));
   }
   return b.getArrayAttr(invertedTrs);
+}
+
+ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
+  return transformStack[transformStack.size() - 1]
+      .cast<TransformMapAttr>()
+      .getLowerBounds();
 }

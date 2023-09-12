@@ -50,7 +50,7 @@ def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
 
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];
 }
 
 def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {

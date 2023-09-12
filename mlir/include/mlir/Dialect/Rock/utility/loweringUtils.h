@@ -61,7 +61,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
     int64_t dPerThread, int64_t kpack, bool isKContigousDim,
-    bool doSwapThreadIterSubDimsForD);
+    bool doSwapThreadIterSubDimsForD = false);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
@@ -110,6 +110,19 @@ backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
 /// return `type`.
 Type vectorTypeOrSelf(Type elementType, int64_t len);
 
+/// Apply padding to a matrix in its `firstDim` and `secondDim` if applicable.
+Value padMatrix(Value matrix, OpBuilder &b, Location loc, StringRef firstDim,
+                int64_t firstDimPad, StringRef secondDim, int64_t secondDimPad);
+
+/// Normalize the argument into the form requested.
+/// If a group dimension is not present, add one.
+/// If doTranspose is true, meaning the user's transpose requests don't match
+/// what the underlying gridwise gemm expects, transpose the matrix to match,
+/// using firstDim as the name of the first dimension in the new value and
+/// secondDim as the name of the second dimesion.
+Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
+                      bool doTranspose, StringRef firstDim,
+                      StringRef secondDim);
 // if K is not the contiguous dimension, we swapped (on each axis) the thread id
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions

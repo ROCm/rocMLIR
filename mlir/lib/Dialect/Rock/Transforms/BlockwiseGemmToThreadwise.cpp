@@ -1327,7 +1327,15 @@ struct BlockwiseReduceRewritePattern
         rewriter.create<LDSBarrierOp>(loc);
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-            /*extraIndices=*/ValueRange{tid}, true, true);
+            /*extraIndices=*/ValueRange{tid}, true, false);
+        if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
+          ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
+              loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+          rewriter.create<ThreadwiseReadIntoOp>(
+              loc, workspaceLDSBuffer, op.getExtraOut(),
+              reducedldsViewArrayAttr2,
+              /*extraIndices=*/ValueRange{tid}, true, false);
+        }
       } else {
         // This means there are more threads than elements to be reduced.
         ArrayAttr threadToTensorViewTrs =
@@ -1482,7 +1490,16 @@ struct BlockwiseReduceRewritePattern
               loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-              /*extraIndices=*/ValueRange{tid}, true, true);
+              /*extraIndices=*/ValueRange{tid}, true, false);
+          if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
+            ArrayAttr reducedldsViewArrayAttr2 =
+                createLDSWorkspaceView(loc, rewriter, outputViewArrayAttr, axis,
+                                       /*makeRDimZero-*/ true);
+            rewriter.create<ThreadwiseReadIntoOp>(
+                loc, workspaceLDSBuffer, op.getExtraOut(),
+                reducedldsViewArrayAttr2,
+                /*extraIndices=*/ValueRange{tid}, true, false);
+          }
         }
       }
       rewriter.eraseOp(op);

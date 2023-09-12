@@ -27,6 +27,8 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
     PrGemm
     PrResnet50
+    PrAttentionF32
+    PrAttentionF16
   )
   set(GEN_MODE "")
 endif()

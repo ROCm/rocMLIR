@@ -457,6 +457,9 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   case KernelType::Gemm:
     llvm_unreachable(
         "Gemm ops shouldn't be in convolution-specific lowering passes");
+  case KernelType::Attention:
+    llvm_unreachable(
+        "Attention ops shouldn't be in convolution-specific lowering passes");
   }
   llvm_unreachable("Unsuppported KernelType");
 }
@@ -1520,6 +1523,54 @@ LogicalResult AccelGemmOp::verify() {
     return emitOpError("K dimensions don't match");
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// GridwiseAttentionAccelOp
+//===----------------------------------------------------------------------===//
+LogicalResult GridwiseAttentionAccelOp::verify() {
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams();
+  int64_t gemm0kpack = gemm0TuningParams.getKpack();
+  int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
+  int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
+  int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
+  int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+  if (gemm0NPerBlock % gemm0kpack != 0) {
+    return emitError("NPerBlock should be divisble by kpack.");
+  }
+
+  // Calculate LDS requirement
+  MemRefType typeQ = getQueries().getType();
+  Type elemTypeQ = typeQ.getElementType();
+  MemRefType typeK = getKeys().getType();
+  Type elemTypeK = typeK.getElementType();
+  MemRefType typeV = getValues().getType();
+  Type elemTypeV = typeV.getElementType();
+  MemRefType typeO = getOut().getType();
+  ArrayRef<int64_t> outShape = typeO.getShape();
+  int64_t gemm1N = outShape[2];
+
+  // TODO: we can definitely improve re-use of LDS buffers
+  // through further refactors to blockwise gemm to accept
+  // LDS buffers that are larger than required -- Hence
+  // we can overlap following buffers between gemms.
+  int64_t gemm0ALdsSizeBytes = (gemm0KPerBlock * gemm0MPerBlock) *
+                               (elemTypeQ.getIntOrFloatBitWidth() / 8);
+  int64_t gemm0BLdsSizeBytes = (gemm0KPerBlock * gemm0NPerBlock) *
+                               (elemTypeK.getIntOrFloatBitWidth() / 8);
+  // Current implementation does the second gemm using the type of V input.
+  int64_t gemm1ALdsSizeBytes = (gemm0NPerBlock * gemm0MPerBlock) *
+                               (elemTypeV.getIntOrFloatBitWidth() / 8);
+  int64_t gemm1BLdsSizeBytes =
+      (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
+  int64_t totalLDSSize = gemm0ALdsSizeBytes + gemm0BLdsSizeBytes +
+                         gemm1ALdsSizeBytes + gemm1BLdsSizeBytes;
+  if (totalLDSSize > 64 * 1024) {
+    return emitError() << "totalLDSSize (" << totalLDSSize
+                       << ") exceeds 64KB\n";
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // InWarpTransposeOp
 //===----------------------------------------------------------------------===//
@@ -1732,23 +1783,42 @@ LogicalResult BlockwiseFillOp::verify() {
 
 LogicalResult AttentionOp::verify() {
   ShapedType qType = getQueries().getType();
+  int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
+  auto [queryM, queryK] = getQTransposed()
+                              ? std::tuple{qLastDims[1], qLastDims[0]}
+                              : std::tuple{qLastDims[0], qLastDims[1]};
+
   ShapedType kType = getKeys().getType();
+  int64_t kBatchDim = kType.getShape().size() == 3 ? kType.getShape()[0] : 1;
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
+  auto [keyK, keyN] = getKTransposed() ? std::tuple{kLastDims[1], kLastDims[0]}
+                                       : std::tuple{kLastDims[0], kLastDims[1]};
+
   ShapedType vType = getValues().getType();
+  int64_t vBatchDim = vType.getShape().size() == 3 ? vType.getShape()[0] : 1;
   ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
+  auto [valueK, valueN] = getVTransposed()
+                              ? std::tuple{vLastDims[1], vLastDims[0]}
+                              : std::tuple{vLastDims[0], vLastDims[1]};
 
-  ShapedType scaleType = getScale().getType();
+  if (qBatchDim != kBatchDim || kBatchDim != vBatchDim) {
+    return emitError("Batch dimensions do not match");
+  }
+  if (queryK != keyK) {
+    return emitError("reduction dimensions of first gemm do not match");
+  }
+  if (keyN != valueK) {
+    return emitError("reduction dimensions of second gemm do not match");
+  }
 
-  if (qLastDims[1] != kLastDims[0]) {
-    return emitError("Q.K requires second dim sizes to match");
+  if (TypedValue<ShapedType> scale = getScale()) {
+    ShapedType scaleType = scale.getType();
+    if (vType.getRank() != scaleType.getRank()) {
+      return emitError("scale needs to be of same rank to other inputs");
+    }
   }
-  if (kLastDims[1] != vLastDims[0]) {
-    return emitError("(Q.K).V requires second dim sizes to match");
-  }
-  if (vType.getRank() != scaleType.getRank()) {
-    return emitError("scale needs to be of same rank to other inputs");
-  }
+
   return success();
 }
 
