@@ -286,11 +286,13 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       // Unit lengths don't affect the mergeability logic, if they come from
       // another transform. If the unit length is in the Merge, this can
       // be swapped during the Unmerge, e.g., Merge{2,16,1}->Unmerge{2,1,16}.
-      // In this case we want to carry on the usual checks, since we want to prevent
-      // the dimensions to be collapsed. Indeed, if collapsing happens we would end up
-      // with a Merge{1,1,...,C} transform which would be uncorrectly scaled in the Unmerge
+      // In this case we want to carry on the usual checks, since we want to
+      // prevent the dimensions to be collapsed. Indeed, if collapsing happens
+      // we would end up with a Merge{1,1,...,C} transform which would be
+      // uncorrectly scaled in the Unmerge
       //
-      // TODO: fix the `collapseContiguousDims` function to properly handle this case
+      // TODO: fix the `collapseContiguousDims` function to properly handle this
+      // case
       if (params[j] == 1 && !keyJ.transform)
         continue;
 
