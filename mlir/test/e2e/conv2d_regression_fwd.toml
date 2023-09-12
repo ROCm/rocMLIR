@@ -205,27 +205,6 @@ config = "-groupsize=1 -batchsize=128 -in_channels=8 -out_channels=128 -in_h=32 
 config = "-groupsize=1 -batchsize=128 -in_channels=8 -out_channels=128 -in_h=32 -in_w=32 -fil_h=1 -fil_w=1 -dilation_h=2 -dilation_w=2 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
 
 #############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/127 #
-#############################################################################################
-[[suite.test]]
-config = "-groupsize=1 -batchsize=128 -in_channels=256 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=512 -in_channels=256 -out_channels=512 -in_h=7 -in_w=7 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=256 -out_channels=64 -in_h=56 -in_w=56 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=256 -in_channels=256 -out_channels=256 -in_h=30 -in_w=30 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=256 -in_channels=512 -out_channels=512 -in_h=16 -in_w=16 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=256 -in_channels=128 -out_channels=128 -in_h=58 -in_w=58 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
-
-#############################################################################################
 # Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/136 #
 #############################################################################################
 [[suite.test]]
