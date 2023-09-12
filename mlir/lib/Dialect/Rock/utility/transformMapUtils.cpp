@@ -38,6 +38,16 @@ using namespace mlir::rock;
 // General utilities.
 //===----------------------------------------------------------------------===//
 
+template <typename AttrT>
+static bool hasBigTransforms(ArrayRef<AttrT> transformList, Value ret) {
+  bool isBig = llvm::any_of(transformList, [](Attribute a) {
+    return needs64BitIndices(cast<TransformMapAttr>(a));
+  });
+  auto bufferType = cast<ShapedType>(ret.getType());
+  isBig |= is4GBMemoryType(bufferType);
+  return isBig;
+}
+
 std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   SmallVector<Attribute> transformList;
@@ -48,12 +58,7 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
     transformList.push_back(transform.getTransform());
     ret = transform.getInput();
   }
-
-  bool isBig = llvm::any_of(transformList, [](Attribute a) {
-    return needs64BitIndices(cast<TransformMapAttr>(a));
-  });
-  auto bufferType = cast<ShapedType>(ret.getType());
-  isBig |= is4GBMemoryType(bufferType);
+  bool isBig = hasBigTransforms(ArrayRef<Attribute>(transformList), ret);
   return {ret, b.getArrayAttr(transformList), isBig};
 }
 
@@ -61,6 +66,18 @@ std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {
   return untransform(b, transformed, b.getArrayAttr(existing));
+}
+
+std::tuple<Value, bool>
+mlir::rock::untransform(Value transformed,
+                        SmallVectorImpl<TransformMapAttr> &transforms) {
+  Value ret = transformed;
+  while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
+    transforms.push_back(transform.getTransform());
+    ret = transform.getInput();
+  }
+  bool isBig = hasBigTransforms(ArrayRef<TransformMapAttr>(transforms), ret);
+  return {ret, isBig};
 }
 
 Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,

@@ -1438,7 +1438,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
     inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
   size_t extraIdxCount = getExtraIndices().size();
-  if (inputShape.size() != extraIdxCount + 1) {
+  if (inputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("read from a scalar value cannot have coordinates");
+  } else if (inputShape.size() != extraIdxCount + 1) {
     return emitOpError("source view must be extraIndices + 1");
   }
   return success();
@@ -1462,7 +1465,10 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
     outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
 
   size_t extraIdxCount = getExtraIndices().size();
-  if (outputShape.size() != extraIdxCount + 1) {
+  if (outputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("write to a scalar must have no coordinates");
+  } else if (outputShape.size() != extraIdxCount + 1) {
     return emitOpError("dest view must be extraIndices + 1");
   }
   return success();

@@ -17,6 +17,7 @@ def Rock_Dialect : Dialect {
   let cppNamespace = "::mlir::rock";
 
   let useDefaultAttributePrinterParser = 1;
+  let usePropertiesForAttributes = 1;
 
   let extraClassDeclaration = [{
     /// Global name for Rock Kernel Module

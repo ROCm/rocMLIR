@@ -55,7 +55,7 @@ def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", ":
 
 def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
   let summary = "expand linalg ops aligned with threadwise copy";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect", "gpu::GPUDialect"];
 }
 
 def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {

@@ -39,6 +39,10 @@ std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayAttr existing = nullptr);
 std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayRef<Attribute> existing);
+/// As above, but return the values into a vector of TransformMapAttr's.
+/// Appends to the existing vector.
+std::tuple<Value, bool>
+untransform(Value transformed, SmallVectorImpl<TransformMapAttr> &transforms);
 
 /// Returns true if a given transform map has inputs or outputs that could
 /// overflow a signed 32-bit integer.

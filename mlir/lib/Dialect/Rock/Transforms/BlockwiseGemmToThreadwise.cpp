@@ -715,15 +715,39 @@ LogicalResult ThreadwiseTransposeRewritePattern::matchAndRewrite(
   return success();
 }
 
+/// Amend the operation chain (and computed shape) for a read/write to add a
+/// length-1 iteration index to 0-dimensional (scalar) buffers.
+static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
+                                      ArrayRef<int64_t> &shape,
+                                      ArrayAttr &extraViews) {
+  if (!shape.empty())
+    return;
+  TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
+  addZero.ignore("zero");
+  TransformMapAttr addZeroAttr = addZero.get();
+  shape = addZeroAttr.getUpperBounds().asArrayRef();
+  SmallVector<Attribute, 4> views = {addZeroAttr};
+  if (extraViews)
+    views.append(extraViews.begin(), extraViews.end());
+  extraViews = b.getArrayAttr(views);
+}
+
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  ArrayAttr extraViews = op.getExtraViews();
   auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = sourceView.getType().getShape();
+  else
+    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+  addIterationIndexIfScalar(b, loc, inputShape, extraViews);
 
   auto [buffer, transforms, needs64BitIdx] =
-      untransform(b, sourceView, op.getExtraViews());
+      untransform(b, sourceView, extraViews);
 
   int64_t numValues = dest.getType().getNumElements();
   MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
@@ -817,6 +841,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     outputShape = destView.getType().getShape();
   else
     outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+  addIterationIndexIfScalar(b, loc, outputShape, extraViews);
+
   auto [buffer, transforms, needs64BitIdx] =
       untransform(b, destView, extraViews);
 
