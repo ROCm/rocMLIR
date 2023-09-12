@@ -161,7 +161,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else if (codepath == "navi3x") {
-        label = 'mlir && gfx1101'
+        label = 'mlir && ( gfx1100 || gfx1101 )'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -874,7 +874,7 @@ pipeline {
                                         sh 'make -j$(nproc) driver test_gpu_mlir'
                                         sh 'ctest -R test_gpu_mlir'
                                         // Verify ResNet50
-                                        sh './bin/driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                     }
                                 }
                             }

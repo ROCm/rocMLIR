@@ -38,6 +38,16 @@ using namespace mlir::rock;
 // General utilities.
 //===----------------------------------------------------------------------===//
 
+template <typename AttrT>
+static bool hasBigTransforms(ArrayRef<AttrT> transformList, Value ret) {
+  bool isBig = llvm::any_of(transformList, [](Attribute a) {
+    return needs64BitIndices(cast<TransformMapAttr>(a));
+  });
+  auto bufferType = cast<ShapedType>(ret.getType());
+  isBig |= is4GBMemoryType(bufferType);
+  return isBig;
+}
+
 std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   SmallVector<Attribute> transformList;
@@ -48,12 +58,7 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
     transformList.push_back(transform.getTransform());
     ret = transform.getInput();
   }
-
-  bool isBig = llvm::any_of(transformList, [](Attribute a) {
-    return needs64BitIndices(cast<TransformMapAttr>(a));
-  });
-  auto bufferType = cast<ShapedType>(ret.getType());
-  isBig |= is4GBMemoryType(bufferType);
+  bool isBig = hasBigTransforms(ArrayRef<Attribute>(transformList), ret);
   return {ret, b.getArrayAttr(transformList), isBig};
 }
 
@@ -61,6 +66,18 @@ std::tuple<Value, ArrayAttr, bool>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
                         ArrayRef<Attribute> existing) {
   return untransform(b, transformed, b.getArrayAttr(existing));
+}
+
+std::tuple<Value, bool>
+mlir::rock::untransform(Value transformed,
+                        SmallVectorImpl<TransformMapAttr> &transforms) {
+  Value ret = transformed;
+  while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
+    transforms.push_back(transform.getTransform());
+    ret = transform.getInput();
+  }
+  bool isBig = hasBigTransforms(ArrayRef<TransformMapAttr>(transforms), ret);
+  return {ret, isBig};
 }
 
 Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
@@ -1362,6 +1379,53 @@ TransformMapAttr mlir::rock::transformExtractSlice(OpBuilder &b, Location loc,
   }
   transform.slice(upperNameRefs, lowerNameRefs, offsets, ends);
   return transform.get();
+}
+
+TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
+                                      TransformMapAttr &attr, int64_t stride,
+                                      StringRef dName, int64_t d, int64_t dPos,
+                                      StringRef kName, int64_t kOuter,
+                                      ArrayRef<StringRef> beforeDims,
+                                      ArrayRef<StringRef> afterDims,
+                                      SmallVector<Attribute> &transformAttrs) {
+  if (condition) {
+    // d = (d+k_outer)
+    TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);
+    rotateD0.passThrough(beforeDims);
+    rotateD0.embed(dName, dPos, d * kOuter, {kName, dName}, {stride, 1});
+    if (!afterDims.empty())
+      rotateD0.passThrough(afterDims);
+    TransformMapAttr rotateD0Attr = rotateD0.get();
+    transformAttrs.push_back(rotateD0Attr);
+
+    // d = (d+k_outer) % d
+    unsigned int numBeforeDims = beforeDims.size();
+    unsigned int idx = numBeforeDims;
+    TopDownTMBuilder rotateD1 = TopDownTMBuilder::below(rotateD0, rotateD0Attr);
+    rotateD1.passThrough(beforeDims);
+    rotateD1.merge({"to_discard", dName}, {idx, ++idx}, dName, {kOuter, d});
+    for (auto dim : afterDims)
+      rotateD1.passThrough({dim}, ++idx, {dim});
+    TransformMapAttr rotateD1Attr = rotateD1.get();
+    transformAttrs.push_back(rotateD1Attr);
+
+    // discard the additional dimension
+    TopDownTMBuilder rotateD2 = TopDownTMBuilder::below(rotateD1, rotateD1Attr);
+    idx = numBeforeDims;
+    rotateD2.passThrough(beforeDims);
+    rotateD2.ignore("to_discard");
+    rotateD2.passThrough({dName}, {idx++}, {dName});
+    for (auto dim : afterDims)
+      rotateD2.passThrough({dim}, idx++, {dim});
+    TransformMapAttr rotateD2Attr = rotateD2.get();
+    transformAttrs.push_back(rotateD2Attr);
+
+    TopDownTMBuilder rotated = TopDownTMBuilder::below(rotateD2, rotateD2Attr);
+    return rotated;
+  } else {
+    TopDownTMBuilder unrotated = TopDownTMBuilder::below(builder, attr);
+    return unrotated;
+  }
 }
 
 void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,

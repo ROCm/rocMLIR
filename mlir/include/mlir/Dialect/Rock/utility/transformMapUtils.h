@@ -9,6 +9,7 @@
 #define ROCK_UTILITY_TRANSFORMMAPUTILS_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 
 namespace mlir {
@@ -38,6 +39,10 @@ std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayAttr existing = nullptr);
 std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayRef<Attribute> existing);
+/// As above, but return the values into a vector of TransformMapAttr's.
+/// Appends to the existing vector.
+std::tuple<Value, bool>
+untransform(Value transformed, SmallVectorImpl<TransformMapAttr> &transforms);
 
 /// Returns true if a given transform map has inputs or outputs that could
 /// overflow a signed 32-bit integer.
@@ -135,6 +140,14 @@ TransformMapAttr transformExtractSlice(OpBuilder &b, Location loc,
                                        ArrayRef<int64_t> outShape,
                                        ArrayRef<int64_t> offsets,
                                        ArrayRef<int64_t> sizes);
+
+// If the condition is satified, rotate the dimension `d` by `k` using
+// `d = (d+k*stride) % len(d)`
+rock::TopDownTMBuilder
+rotateIf(bool condition, TopDownTMBuilder &builder, TransformMapAttr &attr,
+         int64_t stride, StringRef dName, int64_t d, int64_t dPos,
+         StringRef kName, int64_t k, ArrayRef<StringRef> beforeDims,
+         ArrayRef<StringRef> afterDims, SmallVector<Attribute> &transformAttrs);
 
 // This utility function will take an ordered decreasing dimension strides and
 // total number of elements to produce an array of dimension sizes. This

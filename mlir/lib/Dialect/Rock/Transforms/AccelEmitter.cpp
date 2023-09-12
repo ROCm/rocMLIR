@@ -25,6 +25,7 @@
 #include "AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 using namespace mlir;
@@ -193,7 +194,9 @@ makeViewsForRowsAndCols(TopDownTMBuilder &viewBuilder, int64_t mPerRepeat,
 
 RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    int64_t blockSize, ArrayRef<int64_t> bidGridLengths) {
+    bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN,
+    int64_t computeMPerThread, int64_t computeNPerThread, int64_t blockSize,
+    ArrayRef<int64_t> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -305,9 +308,18 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
     toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
     toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.gridSubTile = b.getArrayAttr(
-        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+
+    // Before returning the output view, if necessary, swap back the
+    // threadid/iter dimensions on both the M/N axis.
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+                                          toRowsAndColsAttr};
+    mlir::rock::swapThreadIdAndIteration(
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /*isBlockwise=*/false, transformAttrs);
+
+    ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
 
   {
@@ -346,9 +358,17 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesM}.slice(1));
     toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.blockSubTile = b.getArrayAttr(
-        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+
+    // Before returning the output view, if necessary, swap back the
+    // threadid/iter dimensions on both the M/N axis.
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+                                          toRowsAndColsAttr};
+    mlir::rock::swapThreadIdAndIteration(
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /*isBlockwise=*/true, transformAttrs);
+    ret.blockSubTile = b.getArrayAttr(transformAttrs);
   }
 
   {
@@ -514,7 +534,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
 RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-    int64_t blockSize, ArrayRef<int64_t> bidGridLengths) {
+    bool doSwapThreadIterSubDimsForM, bool doSwapThreadIterSubDimsForN,
+    int64_t computeMPerThread, int64_t computeNPerThread, int64_t blockSize,
+    ArrayRef<int64_t> bidGridLengths) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -529,6 +551,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
   int64_t nWaves = nPerBlock / nPerWave;
   int64_t mWaves = mPerBlock / mPerWave;
+  SmallVector<Attribute> transformAttrs;
 
   // High level code for this loop
   // source: https://gpuopen.com/learn/wmma_on_rdna3/
@@ -602,8 +625,14 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
     toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
     toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.gridSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
+    mlir::rock::swapThreadIdAndIteration(
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /**isBlockwise=*/false, transformAttrs);
+
+    ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
 
   {
@@ -625,8 +654,13 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesM}.slice(1));
     toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.blockSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
+    mlir::rock::swapThreadIdAndIteration(
+        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
+        computeMPerThread, computeNPerThread, mPerBlock, nPerBlock,
+        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+        /**isBlocwise=*/true, transformAttrs);
+    ret.blockSubTile = b.getArrayAttr(transformAttrs);
   }
 
   {
