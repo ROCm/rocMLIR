@@ -475,7 +475,7 @@ LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
     return failure();
   }
 
-  if (out.back() == sep) {
+  while (out.back() == sep) {
     // remove trailing whitespace
     out.pop_back();
   }
