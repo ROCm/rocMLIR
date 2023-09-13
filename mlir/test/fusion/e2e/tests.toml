@@ -1,5 +1,6 @@
 [[suite]]
 name = "type-only tests"
+kind = "type-only"
 
 [[suite.axis]]
 name = "data type"
@@ -21,6 +22,7 @@ values = ["mixr-bcast-add",
 
 [[suite]]
 name = "tosa-to-rock tests"
+kind = "op-variants"
 
 [[suite.axis]]
 name = "data type"

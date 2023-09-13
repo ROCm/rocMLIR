@@ -25,7 +25,7 @@ def generate_option_list(table, key1, key2):
         combinations.append(opt);
     return combinations
 
-def generate_tosa_to_rock_test(indir, outdir, type, file, opspec):
+def generate_op_variants_test(indir, outdir, type, file, opspec):
     opname,op = opspec
     with open(f"{indir}/{file}.e2e.template") as f:
         template = f.read()
@@ -56,9 +56,9 @@ def toml_loop(toml, indir, outdir):
     for suite in toml['suite']:
         combinations = generate_option_list(suite, 'axis', 'values')
         for test in combinations:
-            if suite['name'] == "tosa-to-rock tests":
-                generate_tosa_to_rock_test(indir, outdir, *test)
-            elif suite['name'] == "type-only tests":
+            if suite['kind'] == "op-variants":
+                generate_op_variants_test(indir, outdir, *test)
+            elif suite['kind'] == "type-only":
                 generate_type_only_test(indir, outdir, *test)
             else:
                 raise Exception("unknown test suite")
