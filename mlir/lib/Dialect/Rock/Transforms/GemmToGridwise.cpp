@@ -28,7 +28,10 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -64,6 +67,51 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
   LogicalResult matchAndRewrite(AttentionOp op, AttentionOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
 };
+
+static Type getSmallestType(Type type1, Type type2) {
+  return (type1.getIntOrFloatBitWidth() > type2.getIntOrFloatBitWidth())
+             ? type2
+             : type1;
+}
+
+static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
+                                         Type elementTypeC,
+                                         OpBuilder &builder) {
+  // Determine the type used on VGPR to act as accumulator.
+  // f32: f32.
+  // f16, bf16: f32 to prevent overflow from happening.
+  // i16 : i16.
+  // fp8 (any combo) : f32.
+  // i8: i32, since we have an i32 output
+  auto type = getSmallestType(elementTypeA, elementTypeB);
+  if (type.isa<FloatType>() && type.getIntOrFloatBitWidth() < 32) {
+    return builder.getF32Type();
+  } else if (type.isInteger(8)) {
+    return builder.getI32Type();
+  }
+  return elementTypeC;
+}
+
+static auto getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
+                           Location &loc) {
+  auto aElementType = a.getType().cast<MemRefType>().getElementType();
+  auto bElementType = b.getType().cast<MemRefType>().getElementType();
+  auto cElementType = c.getType().cast<MemRefType>().getElementType();
+
+  auto accumulatorElementType = deduceAccumulatorElementType(
+      aElementType, bElementType, cElementType, builder);
+
+  if (accumulatorElementType != cElementType) {
+    auto accumulatorShape = c.getType().cast<MemRefType>().getShape();
+    auto accumulatorType =
+        MemRefType::get(accumulatorShape, accumulatorElementType);
+    Value accumulator = builder.create<memref::AllocOp>(loc, accumulatorType);
+    return std::make_pair(accumulator, true);
+  } else {
+    return std::make_pair(c, false);
+  }
+}
+
 } // end namespace
 
 LogicalResult
@@ -113,17 +161,42 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   if (!gridSize)
     return op.emitOpError("grid size must be set at lowering");
 
+  auto [accumulator, conversionRequired] = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, c, op.getArchAttr(), numCUAttr, op.getFeaturesAttr(),
-        op.getStoreMethodAttr(), blockSize, gridSize,
+        loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
+        op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
         params.cast<RockAccelTuningParamAttrInterface>());
-    rw.eraseOp(op);
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getFeaturesAttr(), numCUAttr,
-                              gridSize, params.cast<GeneralGemmParamsAttr>());
-    rw.eraseOp(op);
+    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
+                              numCUAttr, gridSize,
+                              params.cast<GeneralGemmParamsAttr>());
   }
+
+  if (conversionRequired) {
+    auto map = rw.getMultiDimIdentityMap(3);
+    rw.create<linalg::GenericOp>(
+        loc, ValueRange{accumulator}, ValueRange{c},
+        ArrayRef<AffineMap>{map, map},
+        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value accumulator = elems[0], c = elems[1];
+          Type cType = c.getType();
+          if (cType.isa<IntegerType>()) {
+            Value cElement =
+                builder.create<arith::TruncIOp>(loc, cType, accumulator);
+            builder.create<linalg::YieldOp>(loc, cElement);
+          } else {
+            Value cElement =
+                builder.create<arith::TruncFOp>(loc, cType, accumulator);
+            builder.create<linalg::YieldOp>(loc, cElement);
+          }
+        });
+  }
+  rw.eraseOp(op);
   return success();
 }
 
@@ -201,9 +274,12 @@ void RockGemmToGridwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp>();
-  target
-      .addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                  rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp>();
+  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
+                    rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
+                    memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
+                    arith::TruncFOp>();
+
+  target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GemmRewritePattern, AttentionRewritePattern>(ctx);
