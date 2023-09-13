@@ -120,7 +120,7 @@ def printBanks(config, wavesToOffset):
                 address = wavesToOffset[waveid][m][k]
                 print("k:", k)
 
-                for l in range(0, 64, 16):
+                for l in range(0, config.waveSize, 16):
                     banks = []
                     conflicts = 32 * [0]
                     for lane in range(16):
@@ -136,7 +136,7 @@ def printBanks(config, wavesToOffset):
 def computeWriteBankConflicts(config, isKMajor, disableShuffle):
     # Each wave will write `copyDPerThread` data from global to LDS
     wavesToBanks = {}
-    for wave in range(0, config.blockSize // 64):
+    for wave in range(0, config.blockSize // config.waveSize):
         wavesToBanks[wave] = {}
         for m in range(0, config.copyDPerThread):
             wavesToBanks[wave][m] = {}
@@ -149,7 +149,7 @@ def computeWriteBankConflicts(config, isKMajor, disableShuffle):
     if isKMajor:
         for tid in range(0, config.blockSize):
             for m in range(0, config.copyDPerThread):
-                waveid = tid // 64
+                waveid = tid // config.waveSize
                 tidKpack = tid * config.Kpack
 
                 # Compute global row/col and offset
@@ -159,6 +159,7 @@ def computeWriteBankConflicts(config, isKMajor, disableShuffle):
 
                 # Compute LDS row/col and offset (note that we are transposing)
                 lrow = (gcol // config.Kpack) % config.Kouter
+                lcol = grow
                 if not disableShuffle:
                     lcol = rotate(config, lrow, lcol)
                 loffset = lrow * config.D * config.Kpack + lcol
@@ -169,29 +170,28 @@ def computeWriteBankConflicts(config, isKMajor, disableShuffle):
     else:
         for tid in range(0, config.blockSize):
             for m in range(0, config.copyDPerThread):
-                waveid = tid // 64
+                waveid = tid // config.waveSize
 
                 # Compute global row/col and offset
-                if disableShuffle:
-                    tidDPerThread = tid * config.copyDPerThread
-                    gcol = (m + tidDPerThread) % config.D
-                    grow = ((m + tidDPerThread) // config.D) * config.Kpack
-                else:
-                    dThreads = config.D // config.copyDPerThread
-                    gcol = (m * dThreads + tid) % config.D
-                    grow = ((m * dThreads + tid) // config.D) * config.Kpack
-
+                tidDPerThread = tid * config.copyDPerThread
+                grow = (tidDPerThread // config.D) * config.Kpack
+                gcol = (m + tidDPerThread) % config.D
                 goffset = grow * config.D + gcol
 
                 # Compute LDS row/col and offset (note that we are transposing)
                 lrow = (grow // config.Kpack) % config.Kouter
-                lcol = gcol * config.Kpack
+                if disableShuffle:
+                    lcol = gcol * config.Kpack
+                else:
+                    dThreads = config.D // config.copyDPerThread
+                    lcol = ((m * dThreads + tid) % config.D) * config.Kpack
+
                 loffset = lrow * config.D * config.Kpack + lcol
 
                 # Fill data structures for analysis
                 ldsToOffset[lrow, lcol // config.Kpack] = goffset
                 wavesToBanks[waveid][m][0].append(loffset)
-    return wavesToBanks
+    return (wavesToBanks, ldsToOffset)
 
 
 # This function is computing the read bank conflicts in LDS. The layout rocMLIR uses for LDS is the following: Kouter x MPerBLock x Kpack
@@ -202,7 +202,7 @@ def computeReadBankConflicts(config, isKMajor, disableShuffle):
     dRepeats = config.DPerWave // config.mfma.mfmaD
 
     wavesToBanks = {}
-    for wave in range(0, config.blockSize // 64):
+    for wave in range(0, config.blockSize // config.waveSize):
         wavesToBanks[wave] = {}
         for m in range(0, dRepeats):
             wavesToBanks[wave][m] = {}
@@ -212,8 +212,8 @@ def computeReadBankConflicts(config, isKMajor, disableShuffle):
     # This is taking into account the MFMA layout. We consider only
     # reductions.
     for tid in range(0, config.blockSize):
-        waveid = tid // 64
-        laneid = tid % 64
+        waveid = tid // config.waveSize
+        laneid = tid % config.waveSize
         for m in range(0, dRepeats):
             for k in range(0, kpackpermfma):
                 loffset = laneid % config.mfma.mfmaD  # mOffset
@@ -286,7 +286,7 @@ def main(args=None):
     )
 
     parsed_args = parser.parse_args(args)
-    if parsed_args.show_offsets and parsed_args.read_conflits:
+    if parsed_args.show_offsets and parsed_args.read_conflicts:
         raise ValueError(
             "Offset can be only printed when evaluating the write-conflicts"
         )
@@ -301,11 +301,11 @@ def main(args=None):
         print(config)
 
     if parsed_args.read_conflicts:
-        wavesToOffset = computeReadBankConflicts(
+        (wavesToOffset, _) = computeReadBankConflicts(
             config, parsed_args.kmajor, parsed_args.no_shuffle
         )
     else:
-        wavesToOffset = computeWriteBankConflicts(
+        (wavesToOffset, _) = computeWriteBankConflicts(
             config, parsed_args.kmajor, parsed_args.no_shuffle
         )
 
