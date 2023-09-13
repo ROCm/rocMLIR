@@ -1,6 +1,6 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
-    timeout(time: 60, activity: true, unit: 'MINUTES') {
+    timeout(time: 120, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
