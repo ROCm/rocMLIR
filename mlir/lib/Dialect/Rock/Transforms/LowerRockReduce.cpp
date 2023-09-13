@@ -194,7 +194,7 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
         op.getFeaturesAttr(),
         StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
         isValid, storeCoords, needs64BitIdx ? rewriter.getUnitAttr() : nullptr,
-        /*canStoreOffEnd=*/nullptr);
+        /*canStoreOffEnd=*/nullptr, /*nontemporal=*/nullptr);
   }
   rewriter.eraseOp(op);
   return success();

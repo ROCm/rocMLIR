@@ -68,6 +68,11 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
   let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect"];
 }
 
+def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
+  let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
+}
+
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
   let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
@@ -107,8 +112,9 @@ def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
-def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", ""> {
+def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> {
   let summary = "prepare the generated code for llvm";
+  let dependentDialects = ["ROCDL::ROCDLDialect"];
 }
 
 def RockCheckResidencyPass : Pass<"rock-check-residency", "::mlir::gpu::GPUModuleOp"> {
