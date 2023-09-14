@@ -92,8 +92,8 @@ static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
   return elementTypeC;
 }
 
-static auto getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
-                           Location &loc) {
+static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
+                            Location loc) {
   auto aElementType = a.getType().cast<MemRefType>().getElementType();
   auto bElementType = b.getType().cast<MemRefType>().getElementType();
   auto cElementType = c.getType().cast<MemRefType>().getElementType();
@@ -105,13 +105,10 @@ static auto getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
     auto accumulatorShape = c.getType().cast<MemRefType>().getShape();
     auto accumulatorType =
         MemRefType::get(accumulatorShape, accumulatorElementType);
-    Value accumulator = builder.create<memref::AllocOp>(loc, accumulatorType);
-    return std::make_pair(accumulator, true);
-  } else {
-    return std::make_pair(c, false);
+    return builder.create<memref::AllocOp>(loc, accumulatorType);
   }
+  return c;
 }
-
 } // end namespace
 
 LogicalResult
@@ -161,7 +158,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   if (!gridSize)
     return op.emitOpError("grid size must be set at lowering");
 
-  auto [accumulator, conversionRequired] = getAccumulator(a, b, c, rw, loc);
+  auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
         loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
@@ -173,7 +170,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                               params.cast<GeneralGemmParamsAttr>());
   }
 
-  if (conversionRequired) {
+  if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
     rw.create<linalg::GenericOp>(
         loc, ValueRange{accumulator}, ValueRange{c},
