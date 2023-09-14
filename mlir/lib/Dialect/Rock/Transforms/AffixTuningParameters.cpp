@@ -221,6 +221,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   // Calculate (padded) grid size
   Value queries = op.getQueries();
   Value keys = op.getKeys();
+  Value values = op.getValues();
   SmallVector<int64_t, 3> queriesShape =
       llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
   // Note: the gridwise ops take K x M and K x N, so Q must be transposed if
@@ -233,13 +234,25 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   if (op.getKTransposed()) {
     std::iter_swap(keysShape.rbegin(), keysShape.rbegin() + 1);
   }
+  SmallVector<int64_t, 3> valuesShape =
+      llvm::to_vector<3>(values.getType().cast<MemRefType>().getShape());
+  if (op.getVTransposed()) {
+    std::iter_swap(valuesShape.rbegin(), valuesShape.rbegin() + 1);
+  }
   GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
                      /*k=*/queriesShape[1],
                      /*n=*/keysShape[2]);
   GemmSize gemm0ExtraPad =
       requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+                     /*k=*/valuesShape[1],
+                     /*n=*/valuesShape[2]);
+  GemmSize gemm1ExtraPad =
+      requiredPadding(params, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
+
   int64_t gridSize =
       ((gemm0Size.m + gemm0ExtraPad.m) / accelParams.getMPerBlock()) *
+      ((gemm1Size.n + gemm1ExtraPad.n) / accelParams.getNPerBlock()) *
       gemm0Size.g;
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
   IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);

@@ -13,7 +13,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
   // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsG1A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWS:.+]] = memref.view %[[ldsG1A]][
-  // CHECK: %[[ldsG1B:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ldsG1B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // init maxRow buffer
   // CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])
@@ -132,7 +132,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: rock.threadwise_transpose {{.*}} %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
 
     // Viewing G1 LDS B tile buffer
-    // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG1B]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<2048xf32, #gpu.address_space<workgroup>>
+    // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG1B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK-DAG: %[[viewG1BStoreTr0:.+]] = rock.transform %[[viewG1BStore]]
     // CHECK-DAG: %[[viewG1BStoreTr1:.+]] = rock.transform %[[viewG1BStoreTr0]]
     // CHECK-DAG: %[[viewG1BStoreTr2:.+]] = rock.transform %[[viewG1BStoreTr1]]
@@ -140,7 +140,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
     // Store to LDS G1B tile buffer
     // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr3]])
-    // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG1B]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<2048xf32, #gpu.address_space<workgroup>>
+    // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG1B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
     // Gemm1
     // CHECK-DAG: rock.lds_barrier
@@ -183,12 +183,12 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
   // CHECK : }
   // CHECK : rock.threadwise_write_all {{.*}} %[[attnOutBuf]] -> {{.*}}(%[[O]])
  
-  func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 12 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
     %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
     rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
       arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", 
       blockSize = 64 : i32, 
-      gridSize = 12 : i32, 
+      gridSize = 24 : i32, 
       params = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
     } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
     return
