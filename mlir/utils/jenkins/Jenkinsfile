@@ -418,8 +418,11 @@ pipeline {
                         steps {
                             build_fixedE2ETests("${CODEPATH}")
                             preMergeCheck("${CODEPATH}")
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                             timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                sh 'exit 1'
                                 sh 'cd build; ninja check-mlir check-rocmlir'
+                            }
                             }
                         }
                     }
@@ -432,7 +435,9 @@ pipeline {
                             }
                         }
                         steps {
-                            check_randomE2ETests("${CODEPATH}")
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                check_randomE2ETests("${CODEPATH}")
+                            }
                         }
                     }
                     stage("Tune selected rocmlir configs") {
