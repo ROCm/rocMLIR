@@ -331,6 +331,7 @@ def LLVM_LoadOp : LLVM_MemAccessOpBase<"load",
               OptionalAttr<I64Attr>:$alignment,
               UnitAttr:$volatile_,
               UnitAttr:$nontemporal,
+              UnitAttr:$invariantLoad,
               DefaultValuedAttr<
                 AtomicOrdering, "AtomicOrdering::not_atomic">:$ordering,
               OptionalAttr<StrAttr>:$syncscope);
@@ -374,6 +375,7 @@ def LLVM_LoadOp : LLVM_MemAccessOpBase<"load",
      # setSyncScopeCode
      # setAlignmentCode
      # setNonTemporalMetadataCode
+     # setInvariantLoadMetedataCode
      # setAccessGroupsMetadataCode
      # setAliasAnalysisMetadataCode;
   string mlirBuilder = [{
@@ -382,15 +384,17 @@ def LLVM_LoadOp : LLVM_MemAccessOpBase<"load",
     $res = $_builder.create<LLVM::LoadOp>($_location, $_resultType, $addr,
         alignment, loadInst->isVolatile(),
         loadInst->hasMetadata(llvm::LLVMContext::MD_nontemporal),
+        loadInst->hasMetadata(llvm::LLVMContext::MD_invariant_load),
         convertAtomicOrderingFromLLVM(loadInst->getOrdering()),
         getLLVMSyncScope(loadInst));
   }];
   let builders = [
     OpBuilder<(ins "Value":$addr, CArg<"unsigned", "0">:$alignment,
-      CArg<"bool", "false">:$isVolatile, CArg<"bool", "false">:$isNonTemporal)>,
+      CArg<"bool", "false">:$isVolatile, CArg<"bool", "false">:$isNonTemporal,
+      CArg<"bool", "false">:$isInvariantLoad)>,
     OpBuilder<(ins "Type":$type, "Value":$addr,
       CArg<"unsigned", "0">:$alignment, CArg<"bool", "false">:$isVolatile,
-      CArg<"bool", "false">:$isNonTemporal,
+      CArg<"bool", "false">:$isNonTemporal, CArg<"bool", "false">:$isInvariantLoad,
       CArg<"AtomicOrdering", "AtomicOrdering::not_atomic">:$ordering,
       CArg<"StringRef", "StringRef()">:$syncscope)>
   ];
