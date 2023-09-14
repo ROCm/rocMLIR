@@ -1,6 +1,6 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
-    timeout(time: 120, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
@@ -192,7 +192,7 @@ def rebootNode() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
-    if ( ((codepath == 'navi21') || (codepath == 'navi3x')) && (params.nightly == true) ) {
+    if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
     // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
@@ -213,7 +213,7 @@ void build_fixedE2ETests(String codepath) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
-    if ( ((codepath == 'navi21') || (codepath == 'navi3x')) && (params.nightly == true) ) {
+    if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
     buildProject('check-rocmlir', """
