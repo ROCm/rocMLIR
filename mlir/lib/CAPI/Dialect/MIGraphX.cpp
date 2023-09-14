@@ -134,7 +134,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   auto *passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions kOpts;
-  kOpts.tuningFallback = true;
+  kOpts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   llvm::StringRef archStr(arch);
   mlir::RocmDeviceName devName;
