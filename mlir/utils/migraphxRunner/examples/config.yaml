@@ -2,7 +2,7 @@ migraphx_path: "~/work/migraphx/migraphx/build"
 rocmlir_path: "~/work/migraphx/rocMLIR/build-non-static"
 workdir_path: "~/workdir"
 
-tunung_config_name: "cfg"
+tuning_config_name: "cfg"
 tuning_db_name: "bt"
 
 all_types: &all_types ["--int8", "--fp16", ""]
