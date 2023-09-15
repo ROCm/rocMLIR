@@ -72,6 +72,18 @@ using namespace mlir;
 llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
 
+static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
+    "tuning-space", llvm::cl::desc("Tuning space to use for this run"),
+    llvm::cl::values(
+        clEnumValN(rock::TuningParamSetKind::Quick, "quick",
+                   "Quick tuning space"),
+        clEnumValN(rock::TuningParamSetKind::Full, "full",
+                   "Full tuning space, excluding known-bad configurations"),
+        clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
+                   "All tuning space combinations, even inapplicable ones")),
+    llvm::cl::value_desc("tuning space to use"),
+    llvm::cl::init(rock::TuningParamSetKind::Exhaustive));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -284,8 +296,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // 4. Actually tune
-  rock::TuningParamSet *tuningSpace = rock::createTunableParamSpace(
-      source, rock::TuningParamSetKind::Exhaustive);
+  rock::TuningParamSet *tuningSpace =
+      rock::createTunableParamSpace(source, tuningSpaceKind);
   for (rock::RockTuningParamAttrInterface tuningAttr :
        tuningSpace->tuningRange) {
     ModuleOp tuneCopy = cast<ModuleOp>(source->clone());

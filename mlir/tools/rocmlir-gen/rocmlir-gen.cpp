@@ -434,7 +434,7 @@ static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
                    "Full tuning space, excluding known-bad configurations"),
         clEnumValN(
             rock::TuningParamSetKind::Exhaustive, "exhaustive",
-            "All tuning space combinatinos that could apply to a kernel")),
+            "All tuning space combinations, including inapplicable ones")),
     llvm::cl::value_desc("tuning space kind to emit"),
     llvm::cl::init(rock::TuningParamSetKind::Full));
 

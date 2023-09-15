@@ -28,6 +28,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class Options:
     debug: bool
+    tuningSpaceKind: str
     arch: str
     numCU: int
     rocmlir_gen_flags: str
@@ -123,7 +124,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
         # Note, we don't need the -ph, this goes to the tuning driver
         kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
         kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path],
+        tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
             stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         kernelGen.stdout.close()
 
@@ -189,7 +190,7 @@ def main(args=None):
 
     python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/toy-gemm-configs --output=tuning_db.tsv
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
-    python3 tuningRunner.py --op conv --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
+    python3 tuningRunner.py --op conv --tuning-space=quick --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
     python3 tuningRunner.py --op fusion -test_dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
 
     """
@@ -251,6 +252,13 @@ def main(args=None):
         default=False,
         help="Print debug messages on failure or inapplicability")
 
+    parser.add_argument(
+        "--tuning-space",
+        default="exhaustive",
+        choices=["quick", "full", "exhaustive"],
+        help="Which space of tuning configs should be used while tuning"
+    )
+
     parser.add_argument("--verify-mode",
         default="gpu",
         choices=["none", "cpu", "gpu"],
@@ -286,6 +294,7 @@ def main(args=None):
         raise RuntimeError("MLIR build dir was not provided/found")
 
     options = Options(arch=arch, numCU=numCU, debug=parsed_args.debug,
+        tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode)
 
@@ -320,7 +329,7 @@ def main(args=None):
 
     # Note, appending results here to allow multiple config sets
     with open(parsed_args.output, 'a') as outFile:
-        print("# arch\tnumCUs\ttestVector\tperfConfig", file=outFile)
+        print(f"# arch\tnumCUs\ttestVector\tperfConfig ({options.tuningSpaceKind})", file=outFile)
         for testVector, perfConfig in winners.items():
             print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', perfConfig = {perfConfig}")
             print(f"{arch}\t{numCU}\t{testVector}\t{perfConfig}", file=outFile)
