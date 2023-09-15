@@ -1,0 +1,18 @@
+migraphx_path: "~/work/migraphx/build"
+rocmlir_path: "~/work/rocMLIR/build-non-static"
+workdir_path: "~/workdir"
+
+tunung_config_name: "model"
+tuning_db_name: "bt"
+
+all_types: &all_types ["--int8", "--fp16", ""]
+
+models:
+  - name: "resent50"
+    path: "/MIGraphXDeps/resnet50-v1-7.onnx"
+    params: ""
+    types: *all_types
+  - name: "berd"
+    path: "/MIGraphXDeps/resnet50-v1-7.onnx"
+    params: ""
+    types: *all_types

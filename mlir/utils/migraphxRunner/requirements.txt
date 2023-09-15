@@ -1,0 +1,2 @@
+setuptools
+PyYAML==5.4
