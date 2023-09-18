@@ -57,7 +57,6 @@ def collect_tuning_config(model, config, dirs):
 def read_files(files):
   context = []
   for filepath in files:
-    filepath = files[0]
     with open(filepath, 'r') as file:
       context.extend(file.readlines())
 
@@ -97,6 +96,9 @@ def run_tunner(config, dirs):
   conv_file, gemm_file = dirs.get_tuning_config_files(config)
   tuning_db = dirs.get_tuning_db_path(config)
 
+  if os.path.exists(tuning_db):
+    os.remove(tuning_db)
+
   cmd = f'./bin/tuningRunner.py --op=gemm --configs_file=\"{gemm_file}\" --output=\"{tuning_db}\" --verify-mode=none'
   subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
@@ -109,7 +111,7 @@ def evaluate_performance(model, config, dirs):
   os.chdir(dirs.migraphx)
   tuning_db = dirs.get_tuning_db_path(config)
   if not os.path.exists(tuning_db):
-    print(f'cannot open tuning db: {tuning_db}')
+    print(f'cannot find tuning db: {tuning_db}')
     sys.exit(-1)
 
   test_envs = []
