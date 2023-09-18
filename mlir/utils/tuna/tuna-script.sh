@@ -71,8 +71,8 @@ function tuning_run
     cat initlog
     ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id $session --config_type $kind
     (cd ${ROCMLIR_DIR}/build/ ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id $session --config_type $kind)
-    arch=`rocm_agent_enumerator  -name | awk -F: '{print $1;}'`
-    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --config_type $kind -a -f mlir_tuning_${arch}.tsv
+    arch=`rocm_agent_enumerator  -name | tail -1l | awk -F: '{print $1;}'`
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --config_type $kind --append -f mlir_tuning_${arch}.tsv
 }
 
 function tuna_run
