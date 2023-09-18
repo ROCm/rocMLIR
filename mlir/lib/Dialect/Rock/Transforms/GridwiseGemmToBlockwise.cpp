@@ -72,24 +72,6 @@ struct RockGridwiseGemmToBlockwisePass
   void runOnOperation() override;
 };
 
-static Type obtainAccumulatorType(OpBuilder &b, Type elementTypeA,
-                                  Type elementTypeB, Type destType) {
-  // Determine the type used on VGPR to act as accumulator.
-  // f32: f32.
-  // f16, bf16: f32 to prevent overflow from happening.
-  // i16 : i16.
-  // fp8 (any combo) : f32.
-  // i8: i32, since we have an i32 output
-  Type accumulatorType = destType;
-  if (elementTypeA.isF16() || elementTypeA.isBF16() ||
-      elementTypeA.isFloat8E5M2FNUZ() || elementTypeA.isFloat8E4M3FNUZ()) {
-    accumulatorType = b.getF32Type();
-  } else if (elementTypeA.isInteger(8)) {
-    accumulatorType = b.getI32Type();
-  }
-  return accumulatorType;
-}
-
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
 static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
@@ -269,11 +251,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Type elementTypeA = op.getA().getType().getElementType();
     Type elementTypeB = op.getB().getType().getElementType();
     Type destType = op.getC().getType().getElementType();
-    Type accumulatorType =
-        obtainAccumulatorType(b, elementTypeA, elementTypeB, destType);
 
     // Prepare some useful constants.
-    Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
+    Value zeroConstantFloatOp = createZeroConstantOp(b, loc, destType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     ArrayRef<int64_t> aShape, bShape, cShape;
@@ -395,7 +375,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     auto threadCRegisterMemRefType =
-        MemRefType::get({threadCNumRegisters}, accumulatorType, AffineMap{},
+        MemRefType::get({threadCNumRegisters}, destType, AffineMap{},
                         privateMemoryAddressSpace);
     Value registerMatrixCAllocOp =
         b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
@@ -705,33 +685,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                              /*isBlockwise=*/false, transformAttrs);
 
     Value registerC = registerMatrixCAllocOp;
-    // If we need to type-convert the accumulator (currently this is only
-    // fp32->f16) then we must do so before the writeback loop in which fusion
-    // takes places at this time, since the fusion pass as currently written
-    // can't interceps the type conversions.
-    if (destType != accumulatorType) {
-      auto convertedCType =
-          threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
-      Value convertedC = b.create<rock::GpuAllocOp>(loc, convertedCType);
-      auto convertLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-          ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/convertedCType.getShape(), /*strides=*/std::nullopt,
-          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(convertLoop.getBody());
-        Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
-        Value loaded =
-            b.create<InBoundsLoadOp>(loc, accumulatorType, registerC, coord);
-        Value cast = createTypeConversionOp(b, loc, loaded, destType);
-        b.create<InBoundsStoreOp>(loc, cast, convertedC, coord);
-      }
-      registerC = convertedC;
-    }
-
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrs);
-
     b.create<ThreadwiseWriteAllOp>(loc, registerC, op.getC(), idToMatrixCMaps,
                                    /*extraIndices=*/
                                    ValueRange{gridCoords.g_block,
