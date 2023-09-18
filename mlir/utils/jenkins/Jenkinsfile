@@ -442,8 +442,8 @@ pipeline {
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
-                                    sh """../mlir/utils/tuna/tuna-script.sh
-                                          [ -f mlir_tuning_${ARCH} ]"""
+                                    sh "../mlir/utils/tuna/tuna-script.sh"
+                                    sh "[ -f mlir_tuning_${CODEPATH} ]"
                                 }
                             }
                         }
