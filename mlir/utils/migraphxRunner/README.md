@@ -35,7 +35,11 @@ migraphRunner -c ./examples/config.yaml -a join
 
 ## Tune
 
-TODO
+The runner executes `tuningRunner.py` with all tuning configs collected in the previous step (see `Join`)
+
+```bash
+migraphRunner -c ./examples/config.yaml -a tune
+```
 
 ## Perf
 

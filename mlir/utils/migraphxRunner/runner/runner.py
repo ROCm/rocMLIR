@@ -1,8 +1,10 @@
 from .directories import Directories
 from .report import make_report_page, process_migraphx_output
 from collections import OrderedDict
+from datetime import datetime
 import argparse
 import subprocess
+import shlex
 import yaml
 import os
 import sys
@@ -91,7 +93,7 @@ def join_tuning_config(config, dirs):
   print(f'\t{gemm_file}')
 
 
-def run_tunner(config, dirs):
+def run_tunner(config, dirs, verbose):
   os.chdir(dirs.rocmlir)
   conv_file, gemm_file = dirs.get_tuning_config_files(config)
   tuning_db = dirs.get_tuning_db_path(config)
@@ -99,11 +101,35 @@ def run_tunner(config, dirs):
   if os.path.exists(tuning_db):
     os.remove(tuning_db)
 
+  def run_process(cmd):
+    start_time = datetime.now()
+    last_time = start_time
+    process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
+    print('| Time since start | Time in between | Tuned configs |')
+    print('| ---------------- | --------------- | ------------- |')
+    while process.poll() is None:
+      output = process.stdout.readline().decode("utf-8")
+      output = output.strip()
+      if output:
+        header = 'Tuned :'
+        if output.startswith(header):
+          current_time = datetime.now()
+          time_since_beginning = current_time - start_time
+          time_between_tunes = current_time - last_time
+          print(f'| {time_since_beginning} | {time_between_tunes} | {output[len(header):]} |')
+          last_time = current_time
+        elif verbose:
+          print(output)
+    return process.poll()
+
   cmd = f'./bin/tuningRunner.py --op=gemm --configs_file=\"{gemm_file}\" --output=\"{tuning_db}\" --verify-mode=none'
-  subprocess.run(cmd, shell=True, capture_output=True, text=True)
+  print(f'execute: {cmd}')
+  run_process(cmd)
 
   cmd = f'./bin/tuningRunner.py --op=conv --configs_file=\"{conv_file}\" --output=\"{tuning_db}\" --verify-mode=none'
-  subprocess.run(cmd, shell=True, capture_output=True, text=True)
+  print(f'execute: {cmd}')
+  run_process(cmd)
+
   os.chdir(dirs.current_workdir)
 
 
@@ -188,6 +214,7 @@ def main():
   parser = argparse.ArgumentParser(prog='migraphx runner for rocMLIR')
   parser.add_argument('-c','--config')
   parser.add_argument('-a','--action', choices=['collect', 'join', 'tune', 'perf', "report"])
+  parser.add_argument('-v', '--verbose', action='store_true')
   args = parser.parse_args()
 
   try:
@@ -210,7 +237,7 @@ def main():
     join_tuning_config(config, dirs)
 
   if args.action == 'tune':
-    run_tunner(config, dirs)
+    run_tunner(config, dirs, args.verbose)
   
   if args.action == 'perf':
     #for model in models:
