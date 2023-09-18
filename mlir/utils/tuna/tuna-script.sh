@@ -10,17 +10,17 @@ function mysql_setup
 
     # Install.  The .deb sets up the apt paths.
     export DEBIAN_FRONTEND=noninteractive
-    dpkg -i ./mysql-apt-config_0.8.26-1_all.deb
-    apt update
+    sudo dpkg -i ./mysql-apt-config_0.8.26-1_all.deb
+    sudo apt update
     # set +e
-    apt install -y mysql-community-server
+    sudo apt install -y mysql-community-server
     if [ `/sbin/runlevel` = 'unknown' ]; then
         sudo -u mysql mysqld -D  # -P 13306        # Specific to under docker.
     fi
 
     # Initial mysql has no root password.  One must be root to run it.  Make a root
     # password and allow password logins, and create our tuna database.
-    mysql <<FOO
+    sudo mysql <<FOO
 alter user 'root'@'localhost' identified with mysql_native_password by 'TunaTest';
 flush privileges;
 create database tuna;
