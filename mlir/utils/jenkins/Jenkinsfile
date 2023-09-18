@@ -269,10 +269,10 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
+        unstash name: "MLIR-Tuna-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+        unstash name: "MLIR-Tuna-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
         if (params.disableNavi21 == false)
-            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+            unstash name: "MLIR-Tuna-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
     archiveArtifacts artifacts: 'build/perfDB/**',\
@@ -624,7 +624,7 @@ pipeline {
                         steps {
                             // Save user database for nightly jobs
                             dir ('build') {
-                                stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
+                                stash name: "MLIR-Tuna-PerfDB-${ARCH}", includes: "*.tsv"
                             }
                         }
                     }
