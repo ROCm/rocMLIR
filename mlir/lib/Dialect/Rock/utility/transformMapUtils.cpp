@@ -249,6 +249,7 @@ struct DimInfo {
   TransformAttr transform;       // Transform to which the dimension belongs
   size_t positionInMerge; // Position of the dimension inside the transform
   bool isBroadcast;       // Is this a broadcast dimension?
+  bool isPadded;          // Is this a padded dimension?
 
   // Utility function to return a transform pair <map,transform>
   std::pair<TransformMapAttr, TransformAttr> transformPair() {
@@ -310,9 +311,14 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       // b) Unmerge parameters need to match merge parameters. Note that if
       // the merge dimension goes through a Broadcast (before getting unmerged),
       // this should be taken into account (i.e., the new parameter should be 1)
+      // However, if its padded, we should not be using 1 as the actual length
+      // becomes important.
       int64_t dimJ = mergeJDims[posJ];
       int64_t paramOrBroadcast =
-          dimToMerge[dimJ].isBroadcast ? 1 : mergeJParams[posJ];
+          (dimToMerge[dimJ].isBroadcast && !dimToMerge[dimJ].isPadded)
+              ? 1
+              : mergeJParams[posJ];
+
       if (params[j] != paramOrBroadcast)
         break;
 
@@ -373,7 +379,8 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
       switch (transformType) {
       case TransformType::Merge:
         for (size_t i = 0; i < lowerDims.size(); i++) {
-          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false};
+          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false,
+                                          dimToMerge[upperDims[0]].isPadded};
         }
         break;
       // AddDim drops dimensions down a hole, while ConstDim conjures them
@@ -436,8 +443,15 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         break;
       }
 
-      case TransformType::PassThrough:
       case TransformType::Pad:
+        for (auto pair : llvm::zip(upperDims, lowerDims)) {
+          uint32_t u = std::get<0>(pair);
+          uint32_t l = std::get<1>(pair);
+          thisDimToMerge[l] = dimToMerge[u];
+          thisDimToMerge[l].isPadded = true;
+        }
+        break;
+      case TransformType::PassThrough:
       case TransformType::Slice:
         // We only care about how these transformations shuffle
         // the dimensions

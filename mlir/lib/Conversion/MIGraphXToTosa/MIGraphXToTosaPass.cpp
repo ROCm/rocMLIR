@@ -14,6 +14,7 @@
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Quant/QuantOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
@@ -44,7 +45,8 @@ public:
     auto &ctx = getContext();
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
+    target.addLegalDialect<tosa::TosaDialect, func::FuncDialect,
+                           mhal::MHALDialect>();
     target.addIllegalDialect<migraphx::MIGraphXDialect>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
