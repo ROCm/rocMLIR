@@ -3,9 +3,9 @@ rocmlir_path: "~/work/migraphx/rocMLIR/build-non-static"
 workdir_path: "~/workdir"
 
 tuning_config_name: "cfg"
-tuning_db_name: "bt"
+tuning_db_name: "bt.tsv"
 
-all_types: &all_types ["--int8", "--fp16", ""]
+all_types: &all_types ["", "--fp16", "--int8"]
 
 models:
   - name: "resent50"

@@ -1,44 +1,12 @@
+from .directories import Directories
+from .report import make_report_page, process_migraphx_output
+from collections import OrderedDict
 import argparse
 import subprocess
 import yaml
 import os
 import sys
 import shutil
-import hashlib
-
-
-class Directories:
-  def __init__(self, config):
-    try:
-      self.current_workdir = os.getcwd()
-      self.migraphx = os.path.expanduser(config['migraphx_path'])
-      self.rocmlir = os.path.expanduser(config['rocmlir_path'])
-      self.hiputils = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, 'hiputils'))
-      self.workdir = os.path.expanduser(config['workdir_path'])
-      self.tuning_config_dir = os.path.join(self.workdir, 'tuning_configs')
-      self.results_dirs = os.path.join(self.workdir, 'results')
-      self.__check_paths()
-    except KeyError as err:
-      print(f'yaml config error: {err}')
-      sys.exit(-1)
-
-  def __check_paths(self):
-    if not os.path.isdir(self.migraphx):
-      raise RuntimeError('could not find `migraphx` dir')
-    if not os.path.isdir(self.rocmlir):
-      raise RuntimeError('could not find `rocmlir` dir')
-    if not os.path.isdir(self.hiputils):
-      raise RuntimeError('could not find `hiputils` dir')
-    os.makedirs(self.workdir, exist_ok=True)
-    os.makedirs(self.tuning_config_dir, exist_ok=True)
-    os.makedirs(self.results_dirs, exist_ok=True)
-  
-  def __str__(self):
-    return f'current_workdir: {self.current_workdir}' \
-           f'\nmigraphx: {self.migraphx}' \
-           f'\nrocmlir: {self.rocmlir}' \
-           f'\nhiputils: {self.hiputils}' \
-           f'\nworkdir: {self.workdir}'
 
 
 def check_model(models):
@@ -96,11 +64,6 @@ def read_files(files):
   return list(set(context))
 
 
-def get_tuning_config_files(dirs, config):
-  output = os.path.join(dirs.tuning_config_dir, config['tuning_config_name'])
-  return f'{output}.conv', f'{output}.gemm'
-
-
 def join_tuning_config(config, dirs):
   print(f'processing all tuning configs from: {dirs.tuning_config_dir}')
   conv_files = []; gemm_files = []
@@ -113,7 +76,7 @@ def join_tuning_config(config, dirs):
       if suffix == 'gemm':
         gemm_files.append(db_file)
 
-  conv_file, gemm_file = get_tuning_config_files(dirs, config)
+  conv_file, gemm_file = dirs.get_tuning_config_files(config)
   conv_configs = read_files(conv_files)
   with open(conv_file, 'w') as file:
     for line in conv_configs:
@@ -129,14 +92,10 @@ def join_tuning_config(config, dirs):
   print(f'\t{gemm_file}')
 
 
-def get_tuning_db_path(dirs, config):
-  return os.path.join(dirs.tuning_config_dir, config['tuning_db_name'])
-
-
 def run_tunner(config, dirs):
   os.chdir(dirs.rocmlir)
-  conv_file, gemm_file = get_tuning_config_files(dirs, config)
-  tuning_db = get_tuning_db_path(dirs, config)
+  conv_file, gemm_file = dirs.get_tuning_config_files(config)
+  tuning_db = dirs.get_tuning_db_path(config)
 
   cmd = f'./bin/tuningRunner.py --op=gemm --configs_file=\"{gemm_file}\" --output=\"{tuning_db}\" --verify-mode=none'
   subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -146,18 +105,9 @@ def run_tunner(config, dirs):
   os.chdir(dirs.current_workdir)
 
 
-def get_config_result_dir(model_name, type, params):
-  name = f'{model_name}{type}'
-  if params:
-    if type(params) == list:
-      text = ' '.join(params)
-      sha = hashlib.sha256(text.encode('UTF-8'))
-      name += sha.hexdigest()[:8]
-  return name
-
 def evaluate_performance(model, config, dirs):
   os.chdir(dirs.migraphx)
-  tuning_db = get_tuning_db_path(dirs, config)
+  tuning_db = dirs.get_tuning_db_path(config)
   if not os.path.exists(tuning_db):
     print(f'cannot open tuning db: {tuning_db}')
     sys.exit(-1)
@@ -165,7 +115,7 @@ def evaluate_performance(model, config, dirs):
   test_envs = []
   env_copy = os.environ.copy()
   env_copy['MIGRAPHX_ENABLE_MLIR'] = '1'
-  env_copy['MIGRAPHX_MLIR_TUNING_CFG'] = tuning_db
+  env_copy['MIGRAPHX_MLIR_TUNING_DB'] = f'\"{tuning_db}\"'
   test_envs.append(('mlir_on_tb_on', env_copy))
 
   env_copy = os.environ.copy()
@@ -186,12 +136,19 @@ def evaluate_performance(model, config, dirs):
       args.append(model['params'])
     cmd = ' '.join(args)
 
-    config_name = get_config_result_dir(model['name'], test_type, model['params'])
+    config_name = Directories.get_config_result_dir(model['name'], test_type, model['params'])
     config_dir = os.path.join(dirs.results_dirs, config_name)
     os.makedirs(config_dir, exist_ok=True)  
 
     print(f'executing: {cmd}')
     for (env_name, curr_env) in test_envs:
+      info = ''
+      keys = ['MIGRAPHX_MLIR_TUNING_DB', 'MIGRAPHX_ENABLE_MLIR']
+      for key in keys:
+        if key in curr_env.keys():
+          info += f'{key}={curr_env[key]} '
+
+      print(f'\t{env_name}: {info}')
       result = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=curr_env)
       output_file = os.path.join(config_dir, f'{env_name}.out')
       with open(output_file, 'w') as file:
@@ -200,13 +157,35 @@ def evaluate_performance(model, config, dirs):
       with open(err_file, 'w') as file:
         file.write(result.stderr)
 
+  print(f'results are written: {dirs.results_dirs}')
   os.chdir(dirs.current_workdir)
+
+
+def collect_output_data(model, config, dirs):
+  data = OrderedDict()
+  for test_type in model['types']:
+    config_name = Directories.get_config_result_dir(model['name'], test_type, model['params'])
+    config_dir = os.path.join(dirs.results_dirs, config_name)
+    configs = ['mlir_on_tb_on', 'mlir_on_tb_off', 'mlir_off']
+
+    data[test_type] = OrderedDict()
+    entry = data[test_type]
+    for config in configs:
+      entry[config] = OrderedDict()
+      filename = os.path.join(config_dir, f'{config}.out')
+      if os.path.exists(filename):
+        statistics, summary = process_migraphx_output(filename)
+        entry[config]['statistics'] = statistics
+        entry[config]['summary'] = summary
+      else:
+        print(f'cannot open: {filename}')
+  return data
 
 
 def main():
   parser = argparse.ArgumentParser(prog='migraphx runner for rocMLIR')
   parser.add_argument('-c','--config')
-  parser.add_argument('-a','--action', choices=['collect', 'join', 'run-tunner', 'perf'])
+  parser.add_argument('-a','--action', choices=['collect', 'join', 'tune', 'perf', "report"])
   args = parser.parse_args()
 
   try:
@@ -228,13 +207,19 @@ def main():
   if args.action == 'join':
     join_tuning_config(config, dirs)
 
-  if args.action == 'run-tunner':
+  if args.action == 'tune':
     run_tunner(config, dirs)
   
   if args.action == 'perf':
     #for model in models:
     model = models[0]
     evaluate_performance(model, config, dirs)
+
+  if args.action == 'report':
+    #for model in models:
+    model = models[0]
+    data = collect_output_data(model, config, dirs)
+    make_report_page(model, data)
 
 if __name__ == '__main__':
   main()

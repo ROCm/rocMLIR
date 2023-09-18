@@ -32,3 +32,25 @@ In this mode, the runner removes duplicated op, making the `tuningRunner.py` per
 ```bash
 migraphRunner -c ./examples/config.yaml -a join
 ```
+
+## Tune
+
+TODO
+
+## Perf
+
+The runner performs 3 runs for each model and stores outputs to dedicated files within the working directory, specified in the `yaml`-file.
+
+The first run enables rocMLIR and supplies the tuning data base obtained in the previous step (see `Tune`). The second run enables only rocMLIR. The tuning data base is not used during this run. The third run disables rocMLIR completely.
+
+```bash
+migraphRunner -c ./examples/config.yaml -a perf
+```
+
+## Report
+
+The runner collects output data from the previous action (see `Perf`) and builds a markdown file for each model.
+
+```bash
+migraphRunner -c ./examples/config.yaml -a report
+```
