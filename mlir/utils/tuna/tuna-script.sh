@@ -71,6 +71,8 @@ function tuning_run
     cat initlog
     ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id $session --config_type $kind
     (cd ${ROCMLIR_DIR}/build/ ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id $session --config_type $kind)
+    arch=`rocm_agent_enumerator  -name | awk -F: '{print $1;}'`
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py  --session_id $session --config_type $kind -a -f mlir_tuning_${arch}.tsv
 }
 
 function tuna_run
@@ -80,15 +82,6 @@ function tuna_run
 }
 
 
-
-
-# if [ "$TUNA_DIR" = "" ]; then
-#     tuna_setup
-# fi
-#
-# if [ "$VIRTUAL_ENV" = "" ]; then
-#     source ${TUNA_DIR}/myvenv/bin/activate
-# fi
 
 export TUNA_DB_USER_NAME=root
 export TUNA_DB_USER_PASSWORD=TunaTest
