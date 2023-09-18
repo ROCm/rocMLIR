@@ -72,7 +72,7 @@ function tuning_run
     ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id $session --config_type $kind
     (cd ${ROCMLIR_DIR}/build/ ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id $session --config_type $kind)
     arch=`rocm_agent_enumerator  -name | awk -F: '{print $1;}'`
-    ${TUNA_DIR}/tuna/rocmlir/export_configs.py  --session_id $session --config_type $kind -a -f mlir_tuning_${arch}.tsv
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --config_type $kind -a -f mlir_tuning_${arch}.tsv
 }
 
 function tuna_run
@@ -91,7 +91,7 @@ export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
 # First argument is rocMLIR directory;  if absent, assume we're in build.
 if [ $# = 0 ]; then
-    export ROCMLIR_DIR="$PWD/../.."
+    export ROCMLIR_DIR="$PWD/.."
 else
     export ROCMLIR_DIR=$1
 fi
