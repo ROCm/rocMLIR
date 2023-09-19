@@ -257,12 +257,20 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
-                                                     "mhal", "runner"};
+  llvm::SmallDenseSet<StringRef> hostPipelineOptions{
+      "migraphx", "partition", "highlevel", "mhal", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
     return failure();
+  }
+
+  if (hostPipelineSet.contains("migraphx")) {
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    migraphx::addHighLevelPipeline(pm);
+    if (failed(pm.run(module))) {
+      return failure();
+    }
   }
 
   // Run partitioning pipeline.

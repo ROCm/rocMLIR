@@ -41,6 +41,8 @@ static bool isZeroAttribute(Attribute value) {
     return isZeroAttribute(splatValue.getSplatValue<Attribute>());
   if (auto elementsValue = value.dyn_cast<ElementsAttr>())
     return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+  if (auto elementsValue = value.dyn_cast<DenseElementsAttr>())
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
   if (auto arrayValue = value.dyn_cast<ArrayAttr>())
     return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
   return false;
@@ -254,6 +256,25 @@ public:
   }
 };
 
+static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
+                             Location loc, OpBuilder &b) {
+  ArrayRef<int64_t> inpShape = inp.getType().cast<ShapedType>().getShape();
+  bool broadcastDone = false;
+  rock::BottomUpTMBuilder broadcastDims(b, inpShape, loc);
+  for (unsigned int i = 0; i < outShape.size(); i++) {
+    if (inpShape[i] == 1 && outShape[i] != 1) {
+      broadcastDims.broadcast({i}, {outShape[i]});
+      broadcastDone = true;
+    } else {
+      broadcastDims.passThrough({i}, {i});
+    }
+  }
+  if (!broadcastDone) {
+    return inp;
+  }
+  return b.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+}
+
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -264,25 +285,6 @@ public:
         return UnitAttr::get(op->getContext());
     }
     return nullptr;
-  }
-
-  Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape, Location loc,
-                        ConversionPatternRewriter &rw) const {
-    ArrayRef<int64_t> inpShape = inp.getType().cast<ShapedType>().getShape();
-    bool broadcastDone = false;
-    rock::BottomUpTMBuilder broadcastDims(rw, inpShape, loc);
-    for (unsigned int i = 0; i < outShape.size(); i++) {
-      if (inpShape[i] == 1 && outShape[i] != 1) {
-        broadcastDims.broadcast({i}, {outShape[i]});
-        broadcastDone = true;
-      } else {
-        broadcastDims.passThrough({i}, {i});
-      }
-    }
-    if (!broadcastDone) {
-      return inp;
-    }
-    return rw.create<rock::TransformOp>(loc, inp, broadcastDims.get());
   }
 
   std::tuple<int64_t, int64_t> getLastDims(UnitAttr transposed,
@@ -831,6 +833,42 @@ public:
   }
 };
 
+// We identify the pattern dummy add with implicit broadcasting
+// and rewrite it to be rock.transform broadcast
+class AddSplatZeroRewritePattern final : public OpRewritePattern<tosa::AddOp> {
+public:
+  using OpRewritePattern<tosa::AddOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::AddOp op,
+                                PatternRewriter &rw) const final {
+    Location loc = op.getLoc();
+    TypedValue<TensorType> inp1 = op.getInput1();
+    TypedValue<TensorType> inp2 = op.getInput2();
+    TypedValue<TensorType> out = op.getOutput();
+
+    TypedValue<TensorType> bcastInput;
+    if (arith::ConstantOp maybeZero = inp1.getDefiningOp<arith::ConstantOp>()) {
+      if (isZeroAttribute(maybeZero.getValue())) {
+        bcastInput = inp2;
+      }
+    }
+    if (arith::ConstantOp maybeZero = inp2.getDefiningOp<arith::ConstantOp>()) {
+      if (isZeroAttribute(maybeZero.getValue())) {
+        if (bcastInput) {
+          return rw.notifyMatchFailure(op, "both inputs are splat zeros");
+        }
+        bcastInput = inp1;
+      }
+    }
+    if (bcastInput) {
+      Value bcast =
+          insertBroadcast(bcastInput, out.getType().getShape(), loc, rw);
+      rw.replaceOp(op, bcast);
+      return success();
+    }
+    return rw.notifyMatchFailure(op, "none of the inputs are splat zeros");
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
@@ -842,5 +880,6 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<AttentionRewritePattern, TransposeRewritePattern,
-               CollapseExpandRewritePattern>(context);
+               CollapseExpandRewritePattern, AddSplatZeroRewritePattern>(
+      context);
 }
