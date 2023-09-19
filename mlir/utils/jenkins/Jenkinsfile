@@ -446,7 +446,7 @@ pipeline {
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                             -f tuning_gemm.tsv
-                                          [ -f tuning_gemm.gsv ]"""
+                                          [ -f tuning_gemm.tsv ]"""
                                     sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                             -f tuning_conv.tsv
