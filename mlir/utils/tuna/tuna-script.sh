@@ -98,7 +98,7 @@ fi
 
 
 if ! pgrep mysqld ; then
-    mysql_setup
+    mysqld -D
 fi
 tuna_setup
 PYTHONPATH=$TUNA_DIR:$PYTHONPATH
