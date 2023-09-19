@@ -26,22 +26,12 @@ static Type getRetType(Type inputType) {
 }
 
 bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  if (kpack > 1) {
-    if (kpack < inputLen) {
-      LLVM_DEBUG(llvm::dbgs() << "Should pack at least " << inputLen
-                              << " elements and avoid waste "
-                                 "wmma cycles\n");
-      return false;
-    }
-    return true;
-  } else {
-    if (kPerBlock < inputLen) {
-      LLVM_DEBUG(llvm::dbgs() << "When KPack is 1, KPerBlock must be at least "
-                              << inputLen << "\n");
-      return false;
-    }
-    return true;
+  if (kpack == 1 && kPerBlock < inputLen) {
+    LLVM_DEBUG(llvm::dbgs() << "When KPack is 1, KPerBlock must be at least "
+                            << inputLen << "\n");
+    return false;
   }
+  return true;
 }
 
 FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,

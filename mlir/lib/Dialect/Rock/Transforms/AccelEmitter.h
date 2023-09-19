@@ -110,6 +110,9 @@ struct AccelEmitter {
                                        Location loc, Value baseOffset,
                                        Value dWaves, Value laneId) = 0;
 
+  /// Validate the accelerator structure
+  virtual void validateAcceleratorProperties(){};
+
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
   virtual RegsAsMatrixSubTiles computeOutputTransforms(
@@ -122,9 +125,6 @@ struct AccelEmitter {
   /// is the accumulator type and D is the destination type
   void computeOutputConversion(PatternRewriter &b, Location loc, Value regDest,
                                Value convertedC, bool forceUnroll);
-
-  /// Validate the accelerator structure
-  void validateAcceleratorProperties();
 
   /// Return the accelerator parameters
   AccelEmitterParams getParams() const { return accelEmitterParams; }
@@ -157,6 +157,8 @@ struct MfmaEmitter : public AccelEmitter {
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
+
+  void validateAcceleratorProperties() override;
 
 private:
   /// Initialize the emitter parameters for mfma

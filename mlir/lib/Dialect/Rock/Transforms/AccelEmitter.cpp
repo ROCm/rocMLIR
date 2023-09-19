@@ -37,20 +37,6 @@ using namespace mlir::rock::accel;
 // Generic helper functions
 // ************************
 
-void AccelEmitter::validateAcceleratorProperties() {
-  // Extract relevant tuning parameters
-  int64_t kPack = tuningParams.getKpack();
-
-  // Extract relevant emitter parameters
-  int64_t kBase = accelEmitterParams.kBase;
-
-  if (kPack > 1 && (kPack < kBase || kPack % kBase != 0)) {
-    llvm_unreachable(
-        "Tuning parameter selection guarantees kPack is multiple of k_base,"
-        "this should never happen");
-  }
-}
-
 AccelEmitter::AccelEmitter(StringRef arch,
                            RockAccelTuningParamAttrInterface tuningParams,
                            AccelEmitterParams accelEmitterParams)
@@ -457,6 +443,20 @@ Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
         loc, sourceOffset, kBuilder.create<MulIOp>(loc, rowOffset, dPerBlock));
   }
   return sourceOffset;
+}
+
+void MfmaEmitter::validateAcceleratorProperties() {
+  // Extract relevant tuning parameters
+  int64_t kPack = tuningParams.getKpack();
+
+  // Extract relevant emitter parameters
+  int64_t kBase = accelEmitterParams.kBase;
+
+  if (kPack > 1 && (kPack < kBase || kPack % kBase != 0)) {
+    llvm_unreachable(
+        "Tuning parameter selection guarantees kPack is multiple of k_base,"
+        "this should never happen");
+  }
 }
 
 // **************************

@@ -710,50 +710,18 @@ const InitParamsAccel
 PopulateParamsWmma::initParametersFp16[PopulateParamsWmma::nInitParametersFp16] = {
   // M/block N/block K/block M/wave N/wave kPack forceUnroll bCopyMore
   {128, 128, 4, 64, 64, 16, true, true},
-  {64, 64, 16, 64, 64, 16, true, true},
-  {64, 64, 16, 32, 64, 16, true, true},
-  {64, 64, 16, 32, 32, 16, true, true},
-  {64, 64, 16, 16, 64, 16, true, true},
   {32, 128, 4, 32, 32, 16, true, true},
-  {32, 64, 16, 32, 32, 16, true, true},
-  {32, 64, 16, 16, 64, 16, true, true},
-  {32, 64, 16, 16, 32, 16, true, true},
   {32, 64, 4, 32, 64, 16, true, true},
-  {32, 32, 32, 16, 32, 16, true, true},
-  {32, 32, 16, 32, 32, 16, true, true},
-  {32, 32, 16, 16, 16, 16, true, true},
-  {32, 32, 16, 16, 32, 16, true, true},
-  {16, 64, 16, 16, 64, 16, true, true},
-  {16, 64, 16, 16, 32, 16, true, true},
-  {16, 64, 16, 16, 16, 16, true, true},
-  {16, 32, 16, 16, 32, 16, true, true},
-  {16, 32, 16, 16, 16, 16, true, true},
-  {16, 16, 16, 16, 16, 16, true, true},
 };
 
 const InitParamsAccel
 PopulateParamsWmma::initParametersForward8Bit[
   PopulateParamsWmma::nInitParametersForward8Bit] = {
   {128, 128, 8, 64, 64, 16, true, true},
-  {128, 128, 16, 64, 64, 16, true, true},
-  {64, 128, 16, 64, 64, 16, true, true},
-  {64, 128, 16, 32, 64, 16, true, true},
-  {64, 64, 16, 32, 64, 16, true, true},
-  {64, 64, 16, 32, 32, 16, true, true},
-  {64, 64, 16, 16, 64, 16, true, true},
   {64, 64, 8, 32, 32, 16, true, true},
   {64, 64, 4, 32, 32, 16, true, true},
-  {32, 128, 16, 32, 64, 16, true, true},
-  {32, 128, 16, 32, 32, 16, true, true},
-  {32, 128, 16, 16, 64, 16, true, true},
-  {32, 64, 16, 32, 32, 16, true, true},
-  {32, 64, 16, 16, 32, 16, true, true},
-  {32, 32, 16, 16, 32, 16, true, true},
-  {32, 32, 16, 16, 16, 16, true, true},
   {32, 32, 8, 16, 16, 16, true, true},
   {32, 32, 4, 16, 16, 16, true, true},
-  {16, 64, 16, 16, 16, 16, true, true},
-  {16, 32, 16, 16, 32, 16, true, true},
 };
 // clang-format on
 
