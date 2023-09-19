@@ -114,8 +114,10 @@ def run_tunner(config, dirs, verbose):
     process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
     print('| Time since start | Time in between | Tuned configs |')
     print('| ---------------- | --------------- | ------------- |')
+    entire_output = []
     while process.poll() is None:
       output = process.stdout.readline().decode("utf-8")
+      entire_output.append(output)
       output = output.strip()
       if output:
         header = 'Tuned :'
@@ -127,15 +129,21 @@ def run_tunner(config, dirs, verbose):
           last_time = current_time
         elif verbose:
           print(output)
-    return process.poll()
+    return process.poll(), entire_output
 
   cmd = f'./bin/tuningRunner.py --op=gemm --configs_file=\"{gemm_file}\" --output=\"{tuning_db}\" --verify-mode=none'
   print(f'execute: {cmd}')
-  run_process(cmd)
+  _, captured_output = run_process(cmd)
+  with open(f'{dirs.tuner_output_file}.gemm', 'w') as file:
+    for line in captured_output:
+      file.write(line)
 
   cmd = f'./bin/tuningRunner.py --op=conv --configs_file=\"{conv_file}\" --output=\"{tuning_db}\" --verify-mode=none'
   print(f'execute: {cmd}')
-  run_process(cmd)
+  _, captured_output = run_process(cmd)
+  with open(f'{dirs.tuner_output_file}.conv', 'w') as file:
+    for line in captured_output:
+      file.write(line)
 
   os.chdir(dirs.current_workdir)
 

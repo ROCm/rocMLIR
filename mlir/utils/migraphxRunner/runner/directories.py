@@ -12,6 +12,7 @@ class Directories:
       self.workdir = os.path.expanduser(config['workdir_path'])
       self.tuning_config_dir = os.path.join(self.workdir, 'tuning_configs')
       self.results_dirs = os.path.join(self.workdir, 'results')
+      self.tuner_output_file = os.path.join(self.workdir, 'tuner_output')
       self.__check_paths()
     except KeyError as err:
       print(f'yaml config error: {err}')
