@@ -694,14 +694,26 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return success();
       }
     }
+    // Scale is optional
+    if (softmaxInput.value().getDefiningOp<tosa::MatMulOp>()) {
+      return success();
+    }
     return failure();
   }
 
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value softmaxInput = maybeSoftmax(op.getA()).value();
-    tosa::MulOp scale = softmaxInput.getDefiningOp<tosa::MulOp>();
-    auto [firstMatMulOp, scaleInput] = getMatMulAndScaleInputs(scale).value();
+    tosa::MatMulOp firstMatMulOp;
+    TypedValue<TensorType> scaleInput = nullptr;
+    if(tosa::MulOp scale = softmaxInput.getDefiningOp<tosa::MulOp>()){
+      std::tie(firstMatMulOp, scaleInput) = getMatMulAndScaleInputs(scale).value();
+    }
+    else{
+      // it has either to be a scaling mul or a matmul
+      // as guranteed by the match() above
+      firstMatMulOp = softmaxInput.getDefiningOp<tosa::MatMulOp>();
+    }
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});

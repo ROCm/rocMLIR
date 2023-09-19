@@ -229,6 +229,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
         *ctx);
     ConvertingCopyKernelOp::attachInterface<
         GemmLikeInterface<ConvertingCopyKernelOp>>(*ctx);
+    AttentionOp::attachInterface<GemmLikeInterface<AttentionOp>>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(

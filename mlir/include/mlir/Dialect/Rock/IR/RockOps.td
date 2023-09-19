@@ -237,7 +237,7 @@ def Rock_AttentionOp :
     `:` type(operands) (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
   }];
 }
 
