@@ -235,6 +235,11 @@ def evaluate_performance(group, config, dirs):
       with open(err_file, 'w') as file:
         file.write(result.stderr)
 
+      if env_name == 'mlir_on_tb_on' and result.stderr:
+        print('-' * 80)
+        print(f'{result.stderr}')
+        print('-' * 80)
+
   print(f'results are written: {dirs.results_dirs}')
   os.chdir(dirs.current_workdir)
 
