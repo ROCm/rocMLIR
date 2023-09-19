@@ -605,7 +605,7 @@ pipeline {
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                         -c ../mlir/utils/performance/conv-configs \
-                                        -f mlir_tuning_${ARCH}.tsv
+                                        -f mlir_tuning_${ARCH}.tsv"""
                             }
                         }
                     }
