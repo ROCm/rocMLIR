@@ -42,7 +42,8 @@ AccelEmitter::AccelEmitter(StringRef arch,
                            AccelEmitterParams accelEmitterParams)
     : tuningParams(tuningParams), accelEmitterParams(accelEmitterParams),
       waveSize(rock::lookupArchInfo(arch).waveSize) {
-  validateAcceleratorProperties();
+  if (failed(validateAcceleratorProperties()))
+    llvm_unreachable("Accelerator parameters validation failed");
 }
 
 void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
@@ -445,18 +446,17 @@ Value MfmaEmitter::computeLdsSourceOffset(OpBuilder &kBuilder, Value k_i,
   return sourceOffset;
 }
 
-void MfmaEmitter::validateAcceleratorProperties() {
+LogicalResult MfmaEmitter::validateAcceleratorProperties() {
   // Extract relevant tuning parameters
   int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
   int64_t kBase = accelEmitterParams.kBase;
 
-  if (kPack > 1 && (kPack < kBase || kPack % kBase != 0)) {
-    llvm_unreachable(
-        "Tuning parameter selection guarantees kPack is multiple of k_base,"
-        "this should never happen");
-  }
+  if (kPack > 1 && (kPack < kBase || kPack % kBase != 0))
+    return failure();
+
+  return success();
 }
 
 // **************************

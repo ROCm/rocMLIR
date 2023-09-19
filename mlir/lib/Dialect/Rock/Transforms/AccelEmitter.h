@@ -111,7 +111,7 @@ struct AccelEmitter {
                                        Value dWaves, Value laneId) = 0;
 
   /// Validate the accelerator structure
-  virtual void validateAcceleratorProperties(){};
+  virtual LogicalResult validateAcceleratorProperties() { return success(); };
 
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
@@ -158,7 +158,7 @@ struct MfmaEmitter : public AccelEmitter {
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
 
-  void validateAcceleratorProperties() override;
+  LogicalResult validateAcceleratorProperties() override;
 
 private:
   /// Initialize the emitter parameters for mfma
