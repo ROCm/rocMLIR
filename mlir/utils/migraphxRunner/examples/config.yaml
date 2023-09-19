@@ -6,13 +6,21 @@ tuning_config_name: "cfg"
 tuning_db_name: "bt.tsv"
 
 all_types: &all_types ["", "--fp16", "--int8"]
+all_batch_sizes: &all_batch_sizes [2, 64]
 
 models:
   - name: "resent50"
     path: "/MIGraphXDeps/resnet50-v1-7.onnx"
-    params: ""
     types: *all_types
-  - name: "berd"
-    path: "/MIGraphXDeps/resnet50-v1-7.onnx"
-    params: ""
-    types: *all_types
+
+  - name: "bert_base_cased_1"
+    path: "/home/ravil/private-models/bert_base_cased_1.onnx"
+    params: "--fill1 input_ids --input-dim @input_ids <batch_size> 384 --batch <batch_size>"
+    batch_size: *all_batch_sizes
+    types: [""]
+
+  - name: "distilgpt2_1_fp16_gpu"
+    path: "/home/ravil/private-models/distilgpt2_1_fp16_gpu.onnx"
+    params: "--fill1 input_ids --input-dim @input_ids <batch_size> 384 --batch <batch_size>"
+    batch_size: *all_batch_sizes
+    types: ["--fp16"]

@@ -1,4 +1,5 @@
 from .directories import Directories
+from .model import Group, build_groups
 from .report import make_report_page, process_migraphx_output
 from collections import OrderedDict
 from datetime import datetime
@@ -21,26 +22,31 @@ def check_model(models):
     raise err
 
 
-def collect_tuning_config(model, config, dirs):
+def collect_tuning_config(group, config, dirs):
   os.chdir(dirs.migraphx)
 
-  for test_type in model['types']: 
-    tunung_config_file = f'{model["name"]}{test_type}.cfg'
+  for model in group.models: 
+    tunung_config_file = f'{model.name}{model.type}.cfg'
     env = os.environ.copy()
     env['MIGRAPHX_ENABLE_MLIR'] = '1'
     env['MIGRAPHX_MLIR_TUNING_CFG'] = tunung_config_file
 
     migraphx_exe = os.path.join(dirs.migraphx, 'bin', 'migraphx-driver')
     args = [migraphx_exe, 'compile']
-    if test_type:
-      args.append(test_type)
-    args.extend(['--onnx', model['path']])
-    if 'params' in model:
-      args.append(model['params'])
+    if model.type:
+      args.append(model.type)
+    args.extend(['--onnx', model.path])
+    if not model.is_static():
+      args.append(model.params)
 
     cmd = ' '.join(args)
     print(f'executing: {cmd}')
-    subprocess.run(cmd, shell=True, capture_output=True, text=True, env=env)
+    try:
+      result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True, env=env)
+    except subprocess.CalledProcessError as err:
+      print(f'failed during the execution:')
+      print(result.stderr)
+      print(err)
 
     gemm_file = f'{tunung_config_file}.gemm'
     if os.path.exists(gemm_file):
@@ -68,7 +74,7 @@ def read_files(files):
 def join_tuning_config(config, dirs):
   print(f'processing all tuning configs from: {dirs.tuning_config_dir}')
   conv_files = []; gemm_files = []
-  for (dirpath, dirnames, filenames) in os.walk(dirs.tuning_config_dir):
+  for (dirpath, _, filenames) in os.walk(dirs.tuning_config_dir):
     for filename in filenames:
       db_file = os.path.join(dirpath, filename)
       suffix = db_file[-4:]
@@ -133,7 +139,7 @@ def run_tunner(config, dirs, verbose):
   os.chdir(dirs.current_workdir)
 
 
-def evaluate_performance(model, config, dirs):
+def evaluate_performance(group, config, dirs):
   os.chdir(dirs.migraphx)
   tuning_db = dirs.get_tuning_db_path(config)
   if not os.path.exists(tuning_db):
@@ -155,16 +161,16 @@ def evaluate_performance(model, config, dirs):
   test_envs.append(('mlir_off', env_copy))
 
   migraphx_exe = os.path.join(dirs.migraphx, 'bin', 'migraphx-driver')  
-  for test_type in model['types']: 
+  for model in group.models:
     args = [migraphx_exe, 'perf']
-    if test_type:
-      args.append(test_type)
-    args.extend(['--onnx', model['path']])
-    if 'params' in model:
-      args.append(model['params'])
+    if model.type:
+      args.append(model.type)
+    args.extend(['--onnx', model.path])
+    if not model.is_static():
+      args.append(model.params)
     cmd = ' '.join(args)
 
-    config_name = Directories.get_config_result_dir(model['name'], test_type, model['params'])
+    config_name = model.gen_config_result_dir_name()
     config_dir = os.path.join(dirs.results_dirs, config_name)
     os.makedirs(config_dir, exist_ok=True)  
 
@@ -189,15 +195,15 @@ def evaluate_performance(model, config, dirs):
   os.chdir(dirs.current_workdir)
 
 
-def collect_output_data(model, config, dirs):
+def collect_output_data(group, config, dirs):
   data = OrderedDict()
-  for test_type in model['types']:
-    config_name = Directories.get_config_result_dir(model['name'], test_type, model['params'])
+  for model in group.models:
+    config_name = model.gen_config_result_dir_name()
     config_dir = os.path.join(dirs.results_dirs, config_name)
     configs = ['mlir_on_tb_on', 'mlir_on_tb_off', 'mlir_off']
 
-    data[test_type] = OrderedDict()
-    entry = data[test_type]
+    data[model.type] = OrderedDict()
+    entry = data[model.type]
     for config in configs:
       entry[config] = OrderedDict()
       filename = os.path.join(config_dir, f'{config}.out')
@@ -213,7 +219,7 @@ def collect_output_data(model, config, dirs):
 def main():
   parser = argparse.ArgumentParser(prog='migraphx runner for rocMLIR')
   parser.add_argument('-c','--config')
-  parser.add_argument('-a','--action', choices=['collect', 'join', 'tune', 'perf', "report"])
+  parser.add_argument('-a','--action', choices=['show', 'clean-workdir', 'collect', 'join', 'tune', 'perf', 'report'])
   parser.add_argument('-v', '--verbose', action='store_true')
   args = parser.parse_args()
 
@@ -226,29 +232,36 @@ def main():
     sys.exit(-1)
 
   dirs = Directories(config)
-  models = config['models']
-  check_model(models)
+  groups = build_groups(config['models'])
+
+  if args.action == 'show':
+    for group in groups:
+      print(group)
+
+  if args.action == 'clean-workdir':
+    if os.path.isdir(dirs.workdir):
+      shutil.rmtree(dirs.workdir)
 
   if args.action == 'collect':
-    for model in models:
-      collect_tuning_config(model, config, dirs)
+    for group in groups:
+      collect_tuning_config(group, config, dirs)
 
   if args.action == 'join':
     join_tuning_config(config, dirs)
 
   if args.action == 'tune':
     run_tunner(config, dirs, args.verbose)
-  
+
   if args.action == 'perf':
-    #for model in models:
-    model = models[0]
-    evaluate_performance(model, config, dirs)
+    for group in groups:
+      evaluate_performance(group, config, dirs)
 
   if args.action == 'report':
-    #for model in models:
-    model = models[0]
-    data = collect_output_data(model, config, dirs)
-    make_report_page(model, data)
+    for group in groups:
+      data = collect_output_data(group, config, dirs)
+      make_report_page(group, data)
+
+
 
 if __name__ == '__main__':
   main()

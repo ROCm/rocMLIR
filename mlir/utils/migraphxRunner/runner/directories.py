@@ -41,13 +41,3 @@ class Directories:
 
   def get_tuning_db_path(self, config):
     return os.path.join(self.tuning_config_dir, config['tuning_db_name'])
-
-  @classmethod
-  def get_config_result_dir(cls, model_name, type, params):
-    name = f'{model_name}{type}'
-    if params:
-      if type(params) == list:
-        text = ' '.join(params)
-        sha = hashlib.sha256(text.encode('UTF-8'))
-        name += sha.hexdigest()[:8]
-    return name

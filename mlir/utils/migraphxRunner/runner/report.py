@@ -11,13 +11,13 @@ def process_migraphx_output(filename):
           summary.append(line)
         if 'Summary:' in line:
           is_record = True 
-  
+
   counter = 0
   for line in summary:
     if 'Batch size:' in line:
       break
     counter += 1
-  
+
   statistics = summary[counter:]
   summary = summary[:counter]
 
@@ -32,22 +32,22 @@ def process_migraphx_output(filename):
   return data, summary
 
 
-def make_report_page(model, data):
+def make_report_page(group, data):
   file = StringIO()
-  file.write(f'## Model: {model["name"]}\n\n')
+  file.write(f'## Model: {group.name}\n\n')
 
-  params = model['params']
-  if params:
-    file.write(f'**Params** : {params}\n\n')
-  else:
+  first_model = group.models[0]
+  if first_model.is_static():
     file.write(f'**Params** : None\n\n')
+  else:
+    file.write(f'**Params** : {first_model.params}\n\n')
 
   for test_type in data.keys():
     if test_type:
       file.write(f'### {test_type.upper()}\n\n')
     else:
       file.write(f'### Native\n\n')
-    
+
     file.write("| mode | rate | Total time | Total instructions time |\n")
     file.write("| ---- | ---- | ---------- | ----------------------- |\n")
     configs = data[test_type]
@@ -65,6 +65,6 @@ def make_report_page(model, data):
         file.write(line)
       file.write('```\n\n')
       file.write('</details>\n\n')
-  
+
   file.seek(0)
   print(file.read())
