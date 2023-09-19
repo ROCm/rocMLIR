@@ -13,17 +13,7 @@ import shutil
 import re
 
 
-def check_model(models):
-  try:
-    for model in models:
-      if not os.path.exists(model['path']):
-        raise RuntimeError(f'could not find: `{model["path"]}`')
-  except KeyError as err:
-    print(f'yaml config error: {err}')
-    raise err
-
-
-def collect_tuning_config(group, config, dirs):
+def collect_tuning_config(group, dirs):
   os.chdir(dirs.migraphx)
 
   for model in group.models: 
@@ -293,7 +283,7 @@ def main():
 
   if args.action == 'collect':
     for group in groups:
-      collect_tuning_config(group, config, dirs)
+      collect_tuning_config(group, dirs)
 
   if args.action == 'join':
     join_tuning_config(config, dirs)
