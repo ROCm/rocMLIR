@@ -28,6 +28,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class Options:
     debug: bool
+    quiet: bool
     arch: str
     numCU: int
     rocmlir_gen_flags: str
@@ -90,7 +91,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
-        if i > 0 and i % 100 == 0:
+        if not options.quiet and i > 0 and i % 100 == 0:
             print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}",
                   file=sys.stderr)
         if options.debug:
@@ -257,6 +258,12 @@ def main(args=None):
         default=False,
         help="Print debug messages on failure or inapplicability")
 
+    parser.add_argument(
+        "--quiet", "-q",
+        action='store_true',
+        default=False,
+        help="Quiet mode (don't output each test result)")
+
     parser.add_argument("--verify-mode",
         default="gpu",
         choices=["none", "cpu", "gpu"],
@@ -298,6 +305,7 @@ def main(args=None):
         raise RuntimeError("MLIR build dir was not provided/found")
 
     options = Options(arch=arch, numCU=numCU, debug=parsed_args.debug,
+                      quiet=parsed_args.quiet,
                       rocmlir_gen_flags=rocmlir_gen_flags,
                       verifyMode=parsed_args.verify_mode,
                       tflops=parsed_args.tflops)

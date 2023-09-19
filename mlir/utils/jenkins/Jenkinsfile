@@ -226,7 +226,7 @@ void check_randomE2ETests(String codepath) {
 void parameterSweep(String CONFIG, String codepath) {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
+            sh """python3 ./bin/parameterSweeps.py -q -j 5 ${CONFIG}"""
         }
     }
 }
@@ -442,8 +442,15 @@ pipeline {
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
-                                    sh "../mlir/utils/tuna/tuna-script.sh"
-                                    sh "[ -f mlir_tuning_${CODEPATH} ]"
+                                    // Tune gemms, fail if the DB is not created
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -f tuning_gemm.tsv
+                                          [ -f tuning_gemm.gsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -f tuning_conv.tsv
+                                          [ -f tuning_conv.tsv} ]"""
                                 }
                             }
                         }

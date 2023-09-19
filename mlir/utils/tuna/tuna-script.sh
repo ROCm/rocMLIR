@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -x
-
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup
 {
@@ -48,40 +46,73 @@ function tuna_setup
     # --ignore-installed because of problems upgrading PyYAML.  See also -U.
     python3 -m pip install -r requirements.txt --ignore-installed
     python3 -m pip install scipy pandas
+
+    if pgrep mysqld ; then
+        ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
+    fi
+
+    export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 }
 
 
-function tuna_populate
-{
-    ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
-    ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${ROCMLIR_DIR}/mlir/utils/jenkins/ci-configs/selected-conv-configs
-                                                           #${ROCMLIR_DIR}/mlir/utils/performance/conv-configs
-    ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${ROCMLIR_DIR}/mlir/utils/jenkins/ci-configs/selected-gemm-configs --config_type gemm
-                                                           #${ROCMLIR_DIR}/mlir/utils/performance/gemm-configs --config_type gemm
-}
-
-
-function tuning_run
+function tuna_run
 {
     kind=$1
     baselabel=`date --iso-8601=minutes`
 
+    ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${CONFIGS_FILE} --config_type $kind
     ${TUNA_DIR}/tuna/go_fish.py rocmlir --init_session -l "$baselabel $kind" --config_type $kind 2> initlog
     session=`perl -n -e'/Added new session_id: (\d+)/ && print $1' < initlog`
     cat initlog
     ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id $session --config_type $kind
     (cd ${ROCMLIR_DIR}/build/ ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id $session --config_type $kind)
-    arch=`rocm_agent_enumerator  -name | tail -1l | awk -F: '{print $1;}'`
-    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --config_type $kind --append -f mlir_tuning_${arch}.tsv
-}
-
-function tuna_run
-{
-    tuning_run convolution
-    tuning_run gemm
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --config_type $kind --append -f "$OUT_FILE"
 }
 
 
+
+usage() { echo "$0 usage:" && grep " .)\ #" $0; exit 0; }
+[ $# -eq 0 ] && usage
+
+export CONFIGS_FILE=
+export TUNA_DIR=`pwd`/MITuna      # Assumes we're in the build directory
+export ROCMLIR_DIR=`pwd`/..       # Assumes we're in the build directory
+export OUT_FILE=results.tsv
+export OP=convolution
+
+# -c configs
+# -t tunadir
+# -r rocmlirdir
+# -f outfile
+# -o operation
+while getopts ":hc:t:r:f:o:" arg; do
+  case $arg in
+    o) # Operation (convolution or gemm [default convolution])
+      OP=${OPTARG}
+      [ "$OP" = "convolution" -o "$OP" = "gemm" ] \
+        || echo "Operation needs to be either 'convolution' or 'gemm'."
+      ;;
+    c) # Configs file
+      CONFIGS_FILE="${OPTARG}"
+      ;;
+#     t) # Location of existing Tuna installation
+#       TUNA_DIR="${OPTARG}"
+#       ;;
+    r) # Location of rocMLIR
+      ROCMLIR_DIR="${OPTARG}"
+      ;;
+    f) # File to write tuning results to.
+      OUT_FILE="${OPTARG}"
+      ;;
+    h | *) # Display help.
+      usage
+      exit 0
+      ;;
+  esac
+done
+
+
+set -x
 
 export TUNA_DB_USER_NAME=root
 export TUNA_DB_USER_PASSWORD=TunaTest
@@ -89,18 +120,11 @@ export TUNA_DB_HOSTNAME=localhost
 export TUNA_DB_NAME=tuna
 export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
-# First argument is rocMLIR directory;  if absent, assume we're in build.
-if [ $# = 0 ]; then
-    export ROCMLIR_DIR="$PWD/.."
-else
-    export ROCMLIR_DIR=$1
-fi
-
 
 if ! pgrep mysqld ; then
     mysqld -D
+    tuna_setup
 fi
-tuna_setup
-PYTHONPATH=$TUNA_DIR:$PYTHONPATH
-tuna_populate
-tuna_run
+
+source ${TUNA_DIR}/myvenv/bin/activate
+tuna_run $OP
