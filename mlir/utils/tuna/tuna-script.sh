@@ -34,6 +34,7 @@ EOF
 
 function tuna_setup
 {
+    startdir=`pwd`
     git clone --branch pf-tuna-rocmlir-2 https://github.com/ROCmSoftwarePlatform/MITuna.git
     cd MITuna
     export TUNA_DIR=`pwd`
@@ -43,9 +44,12 @@ function tuna_setup
         python3 -m venv myvenv
         source myvenv/bin/activate
     #fi
+
     # --ignore-installed because of problems upgrading PyYAML.  See also -U.
     python3 -m pip install -r requirements.txt --ignore-installed
     python3 -m pip install scipy pandas
+
+    cd $startdir
 
     if pgrep mysqld ; then
         ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
@@ -126,5 +130,7 @@ if ! pgrep mysqld ; then
     tuna_setup
 fi
 
-source ${TUNA_DIR}/myvenv/bin/activate
+if [ "$VIRTUAL_ENV" = "" ]; then
+    source ${TUNA_DIR}/myvenv/bin/activate
+fi
 tuna_run $OP
