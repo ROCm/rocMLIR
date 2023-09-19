@@ -18,9 +18,9 @@ def collect_tuning_config(group, dirs):
 
   for model in group.models: 
     tunung_config_file = f'{model.name}{model.type}.cfg'
-    env = os.environ.copy()
-    env['MIGRAPHX_ENABLE_MLIR'] = '1'
-    env['MIGRAPHX_MLIR_TUNING_CFG'] = tunung_config_file
+    curr_env = os.environ.copy()
+    curr_env['MIGRAPHX_ENABLE_MLIR'] = '1'
+    curr_env['MIGRAPHX_MLIR_TUNING_CFG'] = tunung_config_file
 
     migraphx_exe = os.path.join(dirs.migraphx, 'bin', 'migraphx-driver')
     args = [migraphx_exe, 'compile']
@@ -33,7 +33,7 @@ def collect_tuning_config(group, dirs):
     cmd = ' '.join(args)
     print(f'executing: {cmd}')
     try:
-      result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True, env=env)
+      result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True, env=curr_env)
     except subprocess.CalledProcessError as err:
       print(f'failed during the execution:')
       print(result.stderr)
@@ -183,7 +183,7 @@ def evaluate_performance(group, config, dirs):
   test_envs = []
   env_copy = os.environ.copy()
   env_copy['MIGRAPHX_ENABLE_MLIR'] = '1'
-  env_copy['MIGRAPHX_MLIR_TUNING_DB'] = f'\"{tuning_db}\"'
+  env_copy['MIGRAPHX_MLIR_TUNING_DB'] = f'{tuning_db}'
   test_envs.append(('mlir_on_tb_on', env_copy))
 
   env_copy = os.environ.copy()
