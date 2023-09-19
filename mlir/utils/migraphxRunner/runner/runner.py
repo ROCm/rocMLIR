@@ -10,6 +10,7 @@ import yaml
 import os
 import sys
 import shutil
+import re
 
 
 def check_model(models):
@@ -62,7 +63,7 @@ def collect_tuning_config(group, config, dirs):
   os.chdir(dirs.current_workdir)
 
 
-def read_files(files):
+def remove_duplicates_from_files(files):
   context = []
   for filepath in files:
     with open(filepath, 'r') as file:
@@ -84,12 +85,12 @@ def join_tuning_config(config, dirs):
         gemm_files.append(db_file)
 
   conv_file, gemm_file = dirs.get_tuning_config_files(config)
-  conv_configs = read_files(conv_files)
+  conv_configs = remove_duplicates_from_files(conv_files)
   with open(conv_file, 'w') as file:
     for line in conv_configs:
       file.write(line)
 
-  gemm_configs = read_files(gemm_files)
+  gemm_configs = remove_duplicates_from_files(gemm_files)
   with open(gemm_file, 'w') as file:
     for line in gemm_configs:
       file.write(line)
@@ -137,6 +138,41 @@ def run_tunner(config, dirs, verbose):
   run_process(cmd)
 
   os.chdir(dirs.current_workdir)
+
+
+def adjust_tuning_db(config, dirs):
+  tuning_db = dirs.get_tuning_db_path(config)
+  if not os.path.exists(tuning_db):
+    print(f'cannot open tuning db: {tuning_db}')
+    sys.exit(-1)
+
+  tuning_db_backup = f'{tuning_db}.bkp'
+  if not os.path.exists(tuning_db_backup):
+    shutil.copyfile(tuning_db, tuning_db_backup)
+  print(f'\tbackup db file: {tuning_db_backup}')
+
+  hipinfo = os.path.join(dirs.hiputils, 'hipinfo')
+  if not os.path.exists(hipinfo):
+    print(f'cannot find hipinfo at: {hipinfo}')
+    sys.exit(-1)
+
+  result = subprocess.run(f'{hipinfo}', shell=True, capture_output=True, text=True)
+  match = re.search(r'numCU:\s+(\d+)', result.stdout)
+  if match and match.group(1) is not None:
+    num_cu = match.group(1)
+  else:
+    print(f'failed to get/process output from: {hipinfo}')
+    sys.exit(-1)
+
+  with open(tuning_db_backup, 'r') as file:
+    content = file.readlines()
+
+  with open(tuning_db, 'w') as file:
+    for line in content:
+      adjusted_line = re.sub(r'\t\d+\t', f'\t{num_cu}\t', line)
+      file.write(adjusted_line)
+
+  print(f'\ttuning db adjusted. See: {tuning_db}')
 
 
 def evaluate_performance(group, config, dirs):
@@ -219,7 +255,7 @@ def collect_output_data(group, config, dirs):
 def main():
   parser = argparse.ArgumentParser(prog='migraphx runner for rocMLIR')
   parser.add_argument('-c','--config')
-  parser.add_argument('-a','--action', choices=['show', 'clean-workdir', 'collect', 'join', 'tune', 'perf', 'report'])
+  parser.add_argument('-a','--action', choices=['show', 'clean-workdir', 'collect', 'join', 'tune', 'adjust', 'perf', 'report'])
   parser.add_argument('-v', '--verbose', action='store_true')
   args = parser.parse_args()
 
@@ -252,6 +288,10 @@ def main():
   if args.action == 'tune':
     run_tunner(config, dirs, args.verbose)
 
+  if args.action == 'adjust':
+    for group in groups:
+      adjust_tuning_db(config, dirs)
+
   if args.action == 'perf':
     for group in groups:
       evaluate_performance(group, config, dirs)
@@ -260,7 +300,6 @@ def main():
     for group in groups:
       data = collect_output_data(group, config, dirs)
       make_report_page(group, data)
-
 
 
 if __name__ == '__main__':

@@ -41,11 +41,25 @@ The runner executes `tuningRunner.py` with all tuning configs collected in the p
 migraphRunner -c ./examples/config.yaml -a tune
 ```
 
+## Adjust
+
+`rocMLIR` and `MIGraphX` rely on different mechanisms to query the number of CUs. It can lead to some difference
+on Navi cards. Therefore, the tuning dabase, obtained in the previous step (see `Tune`), may need to be adjusted.
+
+`Adjust` action will make a backup copy of the tuning database, query the number of CUs using HIP API and make
+an adjusted copy of it, which can be used in subsequent steps.
+
+```bash
+migraphRunner -c ./examples/config.yaml -a adjust
+```
+
+
 ## Perf
 
 The runner performs 3 runs for each model and stores outputs to dedicated files within the working directory, specified in the `yaml`-file.
 
-The first run enables rocMLIR and supplies the tuning data base obtained in the previous step (see `Tune`). The second run enables only rocMLIR. The tuning data base is not used during this run. The third run disables rocMLIR completely.
+The first run enables rocMLIR and supplies the tuning data base obtained in the previous step (see `Tune`). The second run enables only rocMLIR.
+The tuning data base is not used during this run. The third run disables rocMLIR completely.
 
 ```bash
 migraphRunner -c ./examples/config.yaml -a perf
