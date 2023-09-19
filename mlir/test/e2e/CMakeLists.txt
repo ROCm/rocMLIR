@@ -33,19 +33,33 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
-  list(APPEND CONFIGS
+  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part1")
+    list(APPEND CONFIGS
     GemmVariants
     MixedConvLayouts
+    )
+  endif()
+  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part2")
+    list(APPEND CONFIGS
     Resnet50Config
+    )
+  endif()
+  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part3")
+    list(APPEND CONFIGS
     Resnext101Config
     PaddedGemmConfig
+    )
+  endif()
+  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part4")
+    list(APPEND CONFIGS
     conv2d_regression_fwd
     conv2d_regression_fwd_nonNavi3x
     conv2d_regression_fwd_navi3x
     conv2d_regression_bwd
     conv2d_wrw_perf_config
     Resnet101Config
-  )
+    )
+   endif()
 endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
