@@ -450,7 +450,7 @@ pipeline {
                                     sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                             -f tuning_conv.tsv
-                                          [ -f tuning_conv.tsv} ]"""
+                                          [ -f tuning_conv.tsv ]"""
                                 }
                             }
                         }
