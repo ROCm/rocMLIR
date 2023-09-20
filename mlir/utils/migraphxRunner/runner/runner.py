@@ -16,8 +16,9 @@ import re
 def collect_tuning_config(group, dirs):
   os.chdir(dirs.migraphx)
 
-  for model in group.models: 
-    tunung_config_file = f'{model.name}{model.type}.cfg'
+  for model in group.models:
+    module_full_name = model.get_full_name()
+    tunung_config_file = f'{module_full_name}.cfg'
     curr_env = os.environ.copy()
     curr_env['MIGRAPHX_ENABLE_MLIR'] = '1'
     curr_env['MIGRAPHX_MLIR_TUNING_CFG'] = tunung_config_file
@@ -203,7 +204,7 @@ def evaluate_performance(group, config, dirs):
       args.append(model.params)
     cmd = ' '.join(args)
 
-    config_name = model.gen_config_result_dir_name()
+    config_name = model.get_full_name()
     config_dir = os.path.join(dirs.results_dirs, config_name)
     os.makedirs(config_dir, exist_ok=True)  
 
@@ -236,7 +237,7 @@ def evaluate_performance(group, config, dirs):
 def collect_output_data(group, config, dirs):
   data = OrderedDict()
   for model in group.models:
-    config_name = model.gen_config_result_dir_name()
+    config_name = model.get_full_name()
     config_dir = os.path.join(dirs.results_dirs, config_name)
     configs = ['mlir_on_tb_on', 'mlir_on_tb_off', 'mlir_off']
 

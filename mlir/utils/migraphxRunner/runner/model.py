@@ -75,7 +75,7 @@ class Model:
     pass
 
   @abstractmethod
-  def gen_config_result_dir_name(self):
+  def get_full_name(self):
     pass
 
 
@@ -86,7 +86,7 @@ class Static(Model):
   def is_static(self):
     return True
 
-  def gen_config_result_dir_name(self):
+  def get_full_name(self):
     return f'{self.name}{self.type}'
 
   def __str__(self):
@@ -108,12 +108,14 @@ class Dynamic(Model):
   def is_static(self):
     return False
 
-  def gen_config_result_dir_name(self):
-    dir_name = f'{self.name}{self.type}'
+  def get_full_name(self):
+    full_name = f'{self.name}{self.type}'
+    if self.batch_size:
+      full_name += f'-b{self.batch_size}'
     text = ' '.join(self.params)
     sha = hashlib.sha256(text.encode('UTF-8'))
-    dir_name += '-' + sha.hexdigest()[:8]
-    return dir_name
+    full_name += '-' + sha.hexdigest()[:8]
+    return full_name
 
   def __str__(self):
     text = f'model: {self.name}'
