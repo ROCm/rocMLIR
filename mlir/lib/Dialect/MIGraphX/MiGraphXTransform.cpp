@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -63,7 +64,7 @@ struct MIGraphXTransforms
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
-                           tosa::TosaDialect>();
+                           tosa::TosaDialect, mhal::MHALDialect>();
     target.addIllegalOp<migraphx::SqrtOp>();
     auto func = getOperation();
 

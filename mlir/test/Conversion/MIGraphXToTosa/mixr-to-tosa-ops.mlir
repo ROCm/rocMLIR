@@ -130,11 +130,10 @@ module  {
   // CHECK-LABEL: func.func @matmul_broadcast
   func.func @matmul_broadcast(%arg0: tensor<64x64x2304xf16>, %arg1: tensor<64x64x768xf16>, %arg2: tensor<1x768x2304xf16>) -> tensor<64x64x2304xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 768, 2304]} : (tensor<1x768x2304xf16>) -> tensor<64x768x2304xf16>
-    // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) <{new_shape = array<i64: 1, 4096, 768>}>
-    // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 768, 2304>}>
+    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<64x768x2304xf16>
+    // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
     %1 = migraphx.dot(%arg1, %0) : (tensor<64x64x768xf16>, tensor<64x768x2304xf16>) -> tensor<64x64x2304xf16>
-    // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
-    // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) <{new_shape = array<i64: 64, 64, 2304>}>
+    // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%arg1, %[[ADD]]
     %2 = migraphx.add(%1, %arg0) : (tensor<64x64x2304xf16>, tensor<64x64x2304xf16>) -> tensor<64x64x2304xf16>
     return %2 : tensor<64x64x2304xf16>
   }
@@ -142,8 +141,10 @@ module  {
   // CHECK-LABEL: func.func @matmul_broadcast_R5
   func.func @matmul_broadcast_R5(%arg0: tensor<2x4x8x64x2304xf16>, %arg1: tensor<2x4x8x64x768xf16>, %arg2: tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x64x2304xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     %0 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : (tensor<1x1x1x768x2304xf16>) -> tensor<2x4x8x768x2304xf16>
-    // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) <{new_shape = array<i64: 1, 4096, 768>}>
-    // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 768, 2304>}>
+    // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) <{new_shape = array<i64: 64, 64, 768>}>
+    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>
+    // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
+    // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%[[ADD]]) <{new_shape = array<i64: 64, 768, 2304>}>
     %1 = migraphx.dot(%arg1, %0) : (tensor<2x4x8x64x768xf16>, tensor<2x4x8x768x2304xf16>) -> tensor<2x4x8x64x2304xf16>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) <{new_shape = array<i64: 2, 4, 8, 64, 2304>}>
@@ -173,9 +174,12 @@ module  {
 
   // CHECK-LABEL: func.func @clip_broadcast
   func.func @clip_broadcast(%arg0: tensor<64x64xf16>, %arg1: tensor<1x64xf16>, %arg2: tensor<1xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK: %[[BCAST2:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 1>}>
-    // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %arg1)
-    // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %[[BCAST2]])
+    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0.000000e+00> : tensor<64x64xf16>
+    // CHECK-DAG: %[[ADD0:.*]] = "tosa.add"(%[[CST0]], %arg1
+    // CHECK-DAG: %[[RESHAPE:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 1>}>
+    // CHECK-DAG: %[[ADD1:.*]] = "tosa.add"(%[[CST0]], %[[RESHAPE]])
+    // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %[[ADD0]])
+    // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %[[ADD1]])
     // CHECK: return %[[MIN]]
     %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1x64xf16>) -> tensor<64x64xf16>
     %1 = migraphx.multibroadcast(%arg2) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<1xf16>) -> tensor<64x64xf16>
@@ -193,8 +197,10 @@ module  {
 
   // CHECK-LABEL: func.func @where_broadcast
   func.func @where_broadcast(%arg0: tensor<64x1xi8>, %arg1: tensor<64x64xf16>, %arg2: tensor<64x64xf16>) -> tensor<64x64xf16> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK: %[[CAST:.*]] = "tosa.cast"(%arg0)
-    // CHECK: "tosa.select"(%[[CAST]], %arg1, %arg2)
+    // CHECK-DAG: %[[CST0:.*]] = arith.constant dense<0> : tensor<64x64xi8>
+    // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg0
+    // CHECK-DAG: %[[CAST:.*]] = "tosa.cast"(%[[ADD]])
+    // CHECK-DAG: "tosa.select"(%[[CAST]], %arg1, %arg2)
     %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [64, 64]} : (tensor<64x1xi8>) -> tensor<64x64xi8>
     %1 = migraphx.where(%0, %arg1, %arg2) : (tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) -> tensor<64x64xf16>
     return %1 : tensor<64x64xf16>

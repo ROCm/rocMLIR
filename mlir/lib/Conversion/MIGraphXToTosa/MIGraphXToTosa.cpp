@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
@@ -43,27 +44,6 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
   auto result = op->getResult(0);
   result.setType(newOutTy);
   return op;
-}
-
-static bool assignExpandedShapeVal(Operation *use, Operation *originalOp,
-                                   Value maybeExpandedVal) {
-  // Tosa only broadcast implicitly on the second input of the binary
-  // elementwise operators. Try to swap the operands if trying to broadcast on
-  // the first input.
-  if (use->hasTrait<OpTrait::IsCommutative>() && use->getNumOperands() == 2) {
-    if (use->getOperand(0) == originalOp->getResult(0)) {
-      use->setOperand(0, use->getOperand(1));
-      use->setOperand(1, maybeExpandedVal);
-    } else {
-      use->setOperand(1, maybeExpandedVal);
-    }
-    return true;
-  }
-
-  // Do the in place broadcast replacement as-is, assuming it will work.
-  // If not, it will fail the Tosa lowering.
-  use->replaceUsesOfWith(originalOp->getResult(0), maybeExpandedVal);
-  return true;
 }
 
 static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
@@ -215,6 +195,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     ArrayRef<int64_t> inShape = op.getInput().getType().getShape();
+    ArrayRef<int64_t> outShape = op.getOutput().getType().getShape();
     uint32_t outRank = op.getOutput().getType().getRank();
     Type elemType = op.getOutput().getType().getElementType();
     int64_t axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
@@ -230,15 +211,15 @@ public:
     tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
         rewriter, loc, elemType, op.getInput(),
         rewriter.getDenseI64ArrayAttr(newShape));
-    SmallVector<Operation *, 4> users =
-        llvm::to_vector<4>(op.getOutput().getUsers());
-    for (Operation *use : users) {
-      if (!assignExpandedShapeVal(use, op, sameRankReshapedOp.getResult())) {
-        return op.emitError() << use << " does not support broadcasting\n";
-      }
-    }
 
-    rewriter.eraseOp(op);
+    RankedTensorType outType = RankedTensorType::get(outShape, elemType);
+    // We create a dummy zero addition with implicit broadcasting
+    // because tosa does not have an explicit broadcast op
+    auto zeroTensor = rock::createZeroConstantOp(rewriter, loc, outType);
+    auto addWithZero = createOpAndInfer<tosa::AddOp>(
+        rewriter, loc, elemType, zeroTensor, sameRankReshapedOp);
+
+    rewriter.replaceOp(op, addWithZero);
     return success();
   }
 };
@@ -253,6 +234,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     ArrayRef<int64_t> inShape = op.getInput().getType().getShape();
+    ArrayRef<int64_t> outShape = op.getOutput().getType().getShape();
     uint32_t inRank = op.getInput().getType().getRank();
     uint32_t outRank = op.getOutput().getType().getRank();
     Type elemType = op.getOutput().getType().getElementType();
@@ -273,15 +255,15 @@ public:
       replacingValue = sameRankReshapedOp.getResult();
     }
 
-    SmallVector<Operation *, 4> users =
-        llvm::to_vector<4>(op.getOutput().getUsers());
-    for (Operation *use : users) {
-      if (!assignExpandedShapeVal(use, op, replacingValue) && use != op) {
-        return op.emitError() << use << " does not support broadcasting\n";
-      }
-    }
+    RankedTensorType outType = RankedTensorType::get(outShape, elemType);
+    // We create a dummy zero addition with implicit broadcasting
+    // because tosa does not have an explicit broadcast op
+    auto zeroTensor = rock::createZeroConstantOp(rewriter, loc, outType);
+    auto addWithZero = createOpAndInfer<tosa::AddOp>(
+        rewriter, loc, elemType, zeroTensor, replacingValue);
 
-    rewriter.eraseOp(op);
+    // rewriter.eraseOp(op);
+    rewriter.replaceOp(op, addWithZero);
     return success();
   }
 };
