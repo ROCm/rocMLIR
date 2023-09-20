@@ -418,6 +418,7 @@ pipeline {
                         steps {
                             build_fixedE2ETests("${CODEPATH}")
                             preMergeCheck("${CODEPATH}")
+                            script {
                             if ( "${CODEPATH}" == 'navi3x') {
                                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -430,6 +431,7 @@ pipeline {
                                     sh 'cd build; ninja check-mlir check-rocmlir'
                                 }
                             }
+                            }
                         }
                     }
                     stage("Shared Library: random E2E tests") {
@@ -441,6 +443,7 @@ pipeline {
                             }
                         }
                         steps {
+                            script {
                             if ( "${CODEPATH}" == 'navi3x') {
                                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                     check_randomE2ETests("${CODEPATH}")
@@ -448,6 +451,7 @@ pipeline {
                             }
                             else
                                 check_randomE2ETests("${CODEPATH}")
+                            }
                         }
                     }
                     stage("Tune selected rocmlir configs") {
