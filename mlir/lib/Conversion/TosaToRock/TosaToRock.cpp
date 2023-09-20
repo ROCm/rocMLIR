@@ -439,13 +439,17 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
             op.getReassociationIndices();
+        // This is to capture new reassociations above the transpose
+        llvm::SmallDenseMap<int32_t, ReassociationIndices> newReassocIdxMap;
         ArrayRef<int64_t> inShape = op.getSrcType().getShape();
 
         // This loops maps reassociated dims back to pre transposed dims.
         SmallVector<int32_t, 4> newDims;
         for (ReassociationIndices indices : reassocIndices) {
           int32_t minIdx = dims[indices[0]];
+          ReassociationIndices newReassocIdx;
           for (size_t i = 0; i < indices.size(); i++) {
+            newReassocIdx.push_back(dims[indices[i]]);
             // We can ignore unit dim collapses
             if (inShape[indices[i]] == 1) {
               continue;
@@ -461,14 +465,24 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
             minIdx = std::min(minIdx, dims[indices[i]]);
           }
           newDims.push_back(minIdx);
+          // minIdx is the representative of a group that is
+          // being collapsed. For e.g. for a collapse of [3,4,5] is assigned
+          // with 3 as the representative. I also note that we only allow
+          // collapsing of contigous pre-transpose dims.
+          newReassocIdxMap[minIdx] = newReassocIdx;
         }
 
         // Assign the ordering index of reassociated dims as the dim index
         SmallVector<int32_t, 4> newDimsSorted = newDims;
         llvm::sort(newDimsSorted);
+        SmallVector<ReassociationIndices, 4> newReassocIndicesSorted;
         DenseMap<int32_t, int32_t> dimMap;
+        // The vector of newDims (may) contain a discontinous
+        // a range of representative minIdxs. Here we make
+        // it contigous by assigning order idx.
         for (size_t i = 0; i < newDimsSorted.size(); i++) {
           dimMap[newDimsSorted[i]] = i;
+          newReassocIndicesSorted.push_back(newReassocIdxMap[newDimsSorted[i]]);
         }
         for (size_t i = 0; i < newDims.size(); i++) {
           newDims[i] = dimMap[newDims[i]];
@@ -476,7 +490,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
         tensor::CollapseShapeOp newCollapseShapeOp =
             rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
-                                                     reassocIndices);
+                                                     newReassocIndicesSorted);
 
         if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
                                          newCollapseShapeOp.getResult())
