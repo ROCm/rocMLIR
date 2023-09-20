@@ -843,6 +843,7 @@ pipeline {
                 }
                 environment {
                     HOME="${WORKSPACE}"
+                    PYTHONPATH="${WORKSPACE}/MIGraphX/build/lib:$PYTHONPATH"
                 }
                 stages {
                     stage('Environment') {
@@ -877,6 +878,12 @@ pipeline {
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                     }
                                 }
+                            }
+                            //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
+                            dir('MIGraphX/tools/accuracy') {
+                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
                             }
                         }
                     }
