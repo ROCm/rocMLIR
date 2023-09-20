@@ -36,7 +36,6 @@ def collect_tuning_config(group, dirs):
       result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True, env=curr_env)
     except subprocess.CalledProcessError as err:
       print(f'failed during the execution:')
-      print(result.stderr)
       print(err)
 
     gemm_file = f'{tunung_config_file}.gemm'
@@ -276,6 +275,10 @@ def main():
   if args.action == 'show':
     for group in groups:
       print(group)
+      model = group.models[0]
+      if not os.path.exists(model.path):
+        print(f'Warning: cannot file model file for `{model.name}`')
+        print(f'         Check: {model.path}')
 
   if args.action == 'clean-workdir':
     if os.path.isdir(dirs.workdir):
