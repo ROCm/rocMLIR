@@ -26,9 +26,10 @@ static Type getRetType(Type inputType) {
 }
 
 bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  if (kpack == 1 && kPerBlock < inputLen) {
-    LLVM_DEBUG(llvm::dbgs() << "When KPack is 1, KPerBlock must be at least "
-                            << inputLen << "\n");
+  if (kPerBlock * kpack < inputLen) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "kPerBlock*kpack needs to be a multiple of inputLen "
+               << inputLen << "\n");
     return false;
   }
   return true;
