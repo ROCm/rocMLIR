@@ -210,6 +210,85 @@ void build_fixedE2ETests(String codepath) {
              """)
 }
 
+void check_RockE2ETests_Navi3x(boolean fixed) {
+    // Run PR CI tests; Skip Static Test on Novi3x
+    if ( params.nightly == false ) {
+        buildProject('check-mlir check-rocmlir', """
+                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
+                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+                 -DROCK_E2E_TEST_ENABLED=0
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir'
+                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+         """)
+         echo "Static Test step skipped"
+    }
+    // Run nightly E2E tests in multiple smaller batches
+    else {
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-mlir check-rocmlir', """
+                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+                 -DROCK_E2E_TEST_ENABLED=1
+                 -DROCK_E2E_TEST_SUITES="part1"
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+         """)
+
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-rocmlir', """
+                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+                 -DROCK_E2E_TEST_ENABLED=1
+                 -DROCK_E2E_TEST_SUITES="part2"
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DLLVM_LIT_ARGS='-v --time-tests -j 8'
+                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+        """)
+
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-rocmlir', """
+                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+                 -DROCK_E2E_TEST_ENABLED=1
+                 -DROCK_E2E_TEST_SUITES="part3"
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DLLVM_LIT_ARGS='-v --time-tests -j 8'
+                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+        """)
+
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-rocmlir', """
+                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+                 -DROCK_E2E_TEST_ENABLED=1
+                 -DROCK_E2E_TEST_SUITES="part4"
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DLLVM_LIT_ARGS='-v --time-tests -j 8'
+                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+        """)
+    }
+}
+
+void check_fixedE2ETests(String codepath) {
+    if ( codepath == 'navi3x' ) {
+        check_RockE2ETests_Navi3x(true)
+    }
+    else {
+        build_fixedE2ETests(codepath)
+        preMergeCheck(codepath)
+        timeout(time: 60, activity: true, unit: 'MINUTES') {
+            sh 'cd build; ninja check-mlir check-rocmlir'
+        }
+    }
+}
+
+
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
@@ -416,21 +495,8 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }
                         steps {
-                            build_fixedE2ETests("${CODEPATH}")
-                            preMergeCheck("${CODEPATH}")
-                            script {
-                            if ( "${CODEPATH}" == 'navi3x') {
-                                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        sh 'cd build; ninja check-mlir check-rocmlir'
-                                    }
-                                }
-                            }
-                            else {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    sh 'cd build; ninja check-mlir check-rocmlir'
-                                }
-                            }
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                check_fixedE2ETests("${CODEPATH}")
                             }
                         }
                     }
@@ -446,7 +512,7 @@ pipeline {
                             script {
                             if ( "${CODEPATH}" == 'navi3x') {
                                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                    check_randomE2ETests("${CODEPATH}")
+                                    check_RockE2ETests_Navi3x(false)
                                 }
                             }
                             else
