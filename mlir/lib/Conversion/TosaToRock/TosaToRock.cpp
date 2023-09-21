@@ -445,31 +445,44 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
         // This loops maps reassociated dims back to pre transposed dims.
         SmallVector<int32_t, 4> newDims;
+
+        llvm::SmallDenseSet<int64_t> preTpUnitDims;
         for (ReassociationIndices indices : reassocIndices) {
-          int32_t minIdx = dims[indices[0]];
           ReassociationIndices newReassocIdx;
           for (size_t i = 0; i < indices.size(); i++) {
-            newReassocIdx.push_back(dims[indices[i]]);
-            // We can ignore unit dim collapses
             if (inShape[indices[i]] == 1) {
-              continue;
+              preTpUnitDims.insert(dims[indices[i]]);
             }
-            int32_t transposedDim = dims[indices[i]];
-            if (std::abs(minIdx - transposedDim) > 1) {
-              return rewriter.notifyMatchFailure(
-                  op, "CollapseShape op following transpose collapses "
-                      "non-contigous pre-transpose dims.");
-            }
-            // Where dims are collapsed, we take the minimum as a
-            // representative.
-            minIdx = std::min(minIdx, dims[indices[i]]);
+            newReassocIdx.push_back(dims[indices[i]]);
           }
-          newDims.push_back(minIdx);
+          if (newReassocIdx.size() > 1) {
+            llvm::sort(newReassocIdx);
+            // Remove unit dims from larger end of reassociation indices
+            while (preTpUnitDims.contains(newReassocIdx.back())) {
+              newReassocIdx.pop_back();
+            }
+            // Remove unit dims from smaller end of reassociation indices
+            // does so by reversing it.
+            llvm::reverse(newReassocIdx);
+            while (preTpUnitDims.contains(newReassocIdx.back())) {
+              newReassocIdx.pop_back();
+            }
+            // Needs to re-reverse it.
+            llvm::reverse(newReassocIdx);
+            for (size_t i = 1; i < newReassocIdx.size(); i++) {
+              if (newReassocIdx[i] - newReassocIdx[i - 1] != 1) {
+                return rewriter.notifyMatchFailure(
+                    op, "CollapseShape op following transpose collapses "
+                        "non-contigous pre-transpose dims.");
+              }
+            }
+          }
+          newDims.push_back(newReassocIdx[0]);
           // minIdx is the representative of a group that is
           // being collapsed. For e.g. for a collapse of [3,4,5] is assigned
           // with 3 as the representative. I also note that we only allow
           // collapsing of contigous pre-transpose dims.
-          newReassocIdxMap[minIdx] = newReassocIdx;
+          newReassocIdxMap[newReassocIdx[0]] = newReassocIdx;
         }
 
         // Assign the ordering index of reassociated dims as the dim index
