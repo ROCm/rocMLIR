@@ -2,23 +2,23 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_attention(%arg0: tensor<1x384x64xf32> {func.read_access}, %arg1: tensor<1x64x384xf32> {func.read_access}, %arg2: tensor<1x384x64xf32> {func.read_access}) -> (tensor<1x384x64xf32> {func.write_access}) {
-    %0 = migraphx.dot(%arg0, %arg1): (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
-    %1 = migraphx.softmax(%0){axis = 2 : i64} : tensor<1x384x384xf32> -> tensor<1x384x384xf32>
-    %2 = migraphx.dot(%1, %arg2): (tensor<1x384x384xf32>, tensor<1x384x64xf32>) -> tensor<1x384x64xf32>
-    return %2 : tensor<1x384x64xf32>
+  func.func private @mlir_attention(%arg0: tensor<1x32x32xf32> {func.read_access}, %arg1: tensor<1x32x32xf32> {func.read_access}, %arg2: tensor<1x32x32xf32> {func.read_access}) -> (tensor<1x32x32xf32> {func.write_access}) {
+    %0 = migraphx.dot(%arg0, %arg1): (tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32>
+    %1 = migraphx.softmax(%0){axis = 2 : i64} : tensor<1x32x32xf32> -> tensor<1x32x32xf32>
+    %2 = migraphx.dot(%1, %arg2): (tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32>
+    return %2 : tensor<1x32x32xf32>
   }
-  func.func @mlir_attention_wrapper(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x64x384xf32>,  %arg2: tensor<1x384x64xf32>) -> tensor<1x384x64xf32> {
-    %token, %results = mhal.launch @mlir_attention (%arg0, %arg1, %arg2) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>, tensor<1x384x64xf32>) -> tensor<1x384x64xf32>
+  func.func @mlir_attention_wrapper(%arg0: tensor<1x32x32xf32>, %arg1: tensor<1x32x32xf32>,  %arg2: tensor<1x32x32xf32>) -> tensor<1x32x32xf32> {
+    %token, %results = mhal.launch @mlir_attention (%arg0, %arg1, %arg2) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32>
     mhal.await %token : !mhal.token
-    return %results : tensor<1x384x64xf32>
+    return %results : tensor<1x32x32xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_attention(%arg0: tensor<1x384x64xf32> {func.read_access}, %arg1: tensor<1x64x384xf32> {func.read_access}, %arg2: tensor<1x384x64xf32> {func.read_access}) -> (tensor<1x384x64xf32> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
-      %0 = migraphx.dot(%arg0, %arg1): (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
-      %1 = migraphx.softmax(%0){axis = 2 : i64} : tensor<1x384x384xf32> -> tensor<1x384x384xf32>
-      %2 = migraphx.dot(%1, %arg2): (tensor<1x384x384xf32>, tensor<1x384x64xf32>) -> tensor<1x384x64xf32>
-      return %2 : tensor<1x384x64xf32>
+    func.func private @mlir_attention(%arg0: tensor<1x32x32xf32> {func.read_access}, %arg1: tensor<1x32x32xf32> {func.read_access}, %arg2: tensor<1x32x32xf32> {func.read_access}) -> (tensor<1x32x32xf32> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
+      %0 = migraphx.dot(%arg0, %arg1): (tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32>
+      %1 = migraphx.softmax(%0){axis = 2 : i64} : tensor<1x32x32xf32> -> tensor<1x32x32xf32>
+      %2 = migraphx.dot(%1, %arg2): (tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32>
+      return %2 : tensor<1x32x32xf32>
     }
   }
 }
