@@ -630,16 +630,24 @@ struct CollapseExpandRewritePattern
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
+  template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOp(Value val) const {
+    while(val.getDefiningOp<tensor::CollapseShapeOp>() || val.getDefiningOp<tensor::ExpandShapeOp>()){
+      val = val.getDefiningOp()->getOperand(0);
+    }
+    return val.getDefiningOp<TosaOp>();
+  }
+
   FailureOr<Value> maybeSoftmaxNumerator(Value val) const {
-    tosa::ExpOp exp = val.getDefiningOp<tosa::ExpOp>();
+    tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
     if (!exp) {
       return failure();
     }
-    tosa::SubOp sub = exp.getInput1().getDefiningOp<tosa::SubOp>();
+    tosa::SubOp sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
     if (!sub) {
       return failure();
     }
-    tosa::ReduceMaxOp rmax = sub.getInput2().getDefiningOp<tosa::ReduceMaxOp>();
+    tosa::ReduceMaxOp rmax = getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
     if (!rmax) {
       return failure();
     }
@@ -650,7 +658,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> maybeSoftmaxDenominator(Value val) const {
-    tosa::ReduceSumOp rsum = val.getDefiningOp<tosa::ReduceSumOp>();
+    tosa::ReduceSumOp rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
     if (!rsum) {
       return failure();
     }
@@ -658,15 +666,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> maybeSoftmax(Value val) const {
-    tosa::MulOp mul = val.getDefiningOp<tosa::MulOp>();
+    tosa::MulOp mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
     }
     if (tosa::ReciprocalOp rec =
-            mul.getInput1().getDefiningOp<tosa::ReciprocalOp>()) {
+            getDefiningNonReshapeOp<tosa::ReciprocalOp>(mul.getInput1())) {
       return maybeSoftmaxDenominator(rec.getInput1());
     } else if (tosa::ReciprocalOp rec =
-                   mul.getInput2().getDefiningOp<tosa::ReciprocalOp>()) {
+                   getDefiningNonReshapeOp<tosa::ReciprocalOp>(mul.getInput2())) {
       return maybeSoftmaxDenominator(rec.getInput1());
     } else {
       return failure();
@@ -675,10 +683,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
   getMatMulAndScaleInputs(tosa::MulOp scale) const {
-    if (tosa::MatMulOp mm = scale.getInput1().getDefiningOp<tosa::MatMulOp>()) {
+    if (tosa::MatMulOp mm = getDefiningNonReshapeOp<tosa::MatMulOp>(scale.getInput1())) {
       return std::make_tuple(mm, scale.getInput2());
     }
-    if (tosa::MatMulOp mm = scale.getInput2().getDefiningOp<tosa::MatMulOp>()) {
+    if (tosa::MatMulOp mm = getDefiningNonReshapeOp<tosa::MatMulOp>(scale.getInput2())) {
       return std::make_tuple(mm, scale.getInput1());
     }
     return failure();
@@ -689,7 +697,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(softmaxInput)) {
       return failure();
     }
-    if (tosa::MulOp scale = softmaxInput.value().getDefiningOp<tosa::MulOp>()) {
+    if (tosa::MulOp scale = getDefiningNonReshapeOp<tosa::MulOp>(softmaxInput.value())) {
       FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
           scaledMatMul = getMatMulAndScaleInputs(scale);
       if (succeeded(scaledMatMul)) {
@@ -697,7 +705,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       }
     }
     // Scale is optional
-    if (softmaxInput.value().getDefiningOp<tosa::MatMulOp>()) {
+    if (getDefiningNonReshapeOp<tosa::MatMulOp>(softmaxInput.value())) {
       return success();
     }
     return failure();
@@ -708,13 +716,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value softmaxInput = maybeSoftmax(op.getA()).value();
     tosa::MatMulOp firstMatMulOp;
     TypedValue<TensorType> scaleInput = nullptr;
-    if(tosa::MulOp scale = softmaxInput.getDefiningOp<tosa::MulOp>()){
+    if(tosa::MulOp scale = getDefiningNonReshapeOp<tosa::MulOp>(softmaxInput)){
       std::tie(firstMatMulOp, scaleInput) = getMatMulAndScaleInputs(scale).value();
     }
     else{
       // it has either to be a scaling mul or a matmul
       // as guranteed by the match() above
-      firstMatMulOp = softmaxInput.getDefiningOp<tosa::MatMulOp>();
+      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(softmaxInput);
     }
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(

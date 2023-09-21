@@ -214,6 +214,8 @@ struct PushTransformsUpRewritePattern
       return rgop.getC() == result;
     } else if (auto rgop = dyn_cast<rock::GridwiseGemmAccelOp>(forwOp)) {
       return rgop.getC() == result;
+    } else if (auto rgop = dyn_cast<rock::GridwiseAttentionAccelOp>(forwOp)) {
+      return rgop.getOut() == result;
     } else if (auto rgop = dyn_cast<rock::ThreadwiseWriteAllOp>(forwOp)) {
       return rgop.getDest() == result;
     }
