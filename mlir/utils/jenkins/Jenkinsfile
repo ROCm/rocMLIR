@@ -231,8 +231,8 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
                  -DROCK_E2E_TEST_ENABLED=1
                  -DROCK_E2E_TEST_SUITES="part1"
-                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
-                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
                  -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
          """)
@@ -243,8 +243,8 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=1
                  -DROCK_E2E_TEST_SUITES="part2"
-                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
-                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
                  -DLLVM_LIT_ARGS='-v --time-tests -j 8'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
@@ -255,8 +255,8 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=1
                  -DROCK_E2E_TEST_SUITES="part3"
-                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
-                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
                  -DLLVM_LIT_ARGS='-v --time-tests -j 8'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
@@ -267,8 +267,8 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=1
                  -DROCK_E2E_TEST_SUITES="part4"
-                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED= ${fixed ? 'none' : '1'}
-                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION= ${fixed ? 1 : 0}
+                 -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
                  -DLLVM_LIT_ARGS='-v --time-tests -j 8'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
