@@ -14,4 +14,6 @@ RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/AMDMIGraphX ${M
 RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++ --cc=/opt/rocm/llvm/bin/clang
 # Download models for testing
 RUN wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea9e02/vision/classification/resnet/model/resnet50-v1-7.onnx
+RUN wget https://github.com/stefankoncarevic/Onnx_models/raw/master/bert_base_cased_1.onnx
+RUN wget https://github.com/stefankoncarevic/Onnx_models/raw/master/distilgpt2_1.onnx
 WORKDIR /
