@@ -458,13 +458,17 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           if (newReassocIdx.size() > 1) {
             llvm::sort(newReassocIdx);
             // Remove unit dims from larger end of reassociation indices
-            while (preTpUnitDims.contains(newReassocIdx.back())) {
+            // but we need at least one for the reassociation
+            while (newReassocIdx.size() > 1 &&
+                   preTpUnitDims.contains(newReassocIdx.back())) {
               newReassocIdx.pop_back();
             }
             // Remove unit dims from smaller end of reassociation indices
+            // but we need at least one for the reassociation
             // does so by reversing it.
             llvm::reverse(newReassocIdx);
-            while (preTpUnitDims.contains(newReassocIdx.back())) {
+            while (newReassocIdx.size() > 1 &&
+                   preTpUnitDims.contains(newReassocIdx.back())) {
               newReassocIdx.pop_back();
             }
             // Needs to re-reverse it.
