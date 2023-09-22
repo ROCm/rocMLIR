@@ -873,8 +873,13 @@ pipeline {
                                         // Verify MLIR unit tests
                                         sh 'make -j$(nproc) driver test_gpu_mlir'
                                         sh 'ctest -R test_gpu_mlir'
-                                        // Verify ResNet50
+                                        // Verify ResNet50, Bert, Gpt2
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                     }
                                 }
                             }
