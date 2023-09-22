@@ -40,23 +40,10 @@ void MIGraphXDialect::initialize() {
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.cpp.inc"
 
-static Type getShapedElementTy(Value v) {
-  return v.getType().cast<ShapedType>().getElementType();
-}
-
 OpFoldResult RecipOp::fold(FoldAdaptor operands) {
   // 1/(1/x) = x
   if (auto parentRecip = getInA().getDefiningOp<RecipOp>()) {
     return parentRecip.getInA();
   }
   return {};
-}
-
-LogicalResult DeQuantizeLinearOp::verify() {
-  if (auto bias = getBias()) {
-    auto input = getInput();
-    if (getShapedElementTy(bias) != getShapedElementTy(input))
-      return emitOpError() << "element type for bias and input doesn't match";
-  }
-  return success();
 }

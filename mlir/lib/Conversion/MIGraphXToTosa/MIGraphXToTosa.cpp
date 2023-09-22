@@ -617,7 +617,16 @@ public:
 
     Value shifted = input;
     if (auto bias = op.getBias()) {
-      Type elementType = getShapedElementTy(input);
+      Type inElemTy = getShapedElementTy(input);
+      Type biasElemTy = getShapedElementTy(bias);
+      Type elementType =
+          inElemTy.getIntOrFloatBitWidth() <= biasElemTy.getIntOrFloatBitWidth()
+              ? biasElemTy
+              : inElemTy;
+      if (inElemTy != elementType)
+        input = createCastOp(rewriter, loc, elementType, shifted);
+      if (biasElemTy != elementType)
+        bias = createCastOp(rewriter, loc, elementType, bias);
       shifted = createOpAndInfer<tosa::SubOp>(rewriter, loc, elementType, input,
                                               bias);
     }

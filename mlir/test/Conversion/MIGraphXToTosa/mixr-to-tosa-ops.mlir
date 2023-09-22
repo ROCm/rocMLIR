@@ -28,6 +28,26 @@ module  {
     return %1 : tensor<1x112x112x64xf32>
   }
 
+  // CHECK-LABEL: func @dequantize_wide_bias
+  // CHECK: tosa.cast{{.*}}i32
+  // CHECK: tosa.sub{{.*}}i32
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.mul
+  func.func @dequantize_wide_bias(%arg: tensor<1x112x112x64xi8>, %scale: tensor<64xf32>, %bias: tensor<64xi32>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
+    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi8>, tensor<64xf32>, tensor<64xi32>) -> tensor<1x112x112x64xf32>
+    return %1 : tensor<1x112x112x64xf32>
+  }
+
+  // CHECK-LABEL: func @dequantize_wide_input
+  // CHECK: tosa.cast{{.*}}i32
+  // CHECK: tosa.sub{{.*}}i32
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.mul
+  func.func @dequantize_wide_input(%arg: tensor<1x112x112x64xi32>, %scale: tensor<64xf32>, %bias: tensor<64xi8>) -> tensor<1x112x112x64xf32> attributes {kernel = "mixr"} {
+    %1 = "migraphx.dequantizelinear"(%arg, %scale, %bias) : (tensor<1x112x112x64xi32>, tensor<64xf32>, tensor<64xi8>) -> tensor<1x112x112x64xf32>
+    return %1 : tensor<1x112x112x64xf32>
+  }
+
   // CHECK-LABEL: func @quantize_scale
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
