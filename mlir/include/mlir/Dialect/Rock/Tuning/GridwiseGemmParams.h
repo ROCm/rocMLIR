@@ -412,11 +412,11 @@ protected:
 //
 class PopulateParamsWmma : public PopulateParamsAccel {
 private:
-  static constexpr size_t nInitParametersFp16 = 3;
+  static constexpr size_t nInitParametersFp16 = 20;
   // Tuning parameters for fp16/bf16 convolutions.
   static const InitParamsAccel initParametersFp16[nInitParametersFp16];
 
-  static constexpr size_t nInitParametersForward8Bit = 5;
+  static constexpr size_t nInitParametersForward8Bit = 20;
   // Tuning parameters for i8 convolutions.
   static const InitParamsAccel
       initParametersForward8Bit[nInitParametersForward8Bit];
