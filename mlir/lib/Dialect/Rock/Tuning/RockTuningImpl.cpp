@@ -57,10 +57,10 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
-      {16, 32},
+      {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
-      {16},
+      {4, 8, 16},
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
@@ -113,7 +113,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                 for (uint32_t forceUnroll : wmmaParams[6]) {
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                      gemmNPerWave, gemmKPack, forceUnroll, false);
+                      gemmNPerWave, gemmKPack, forceUnroll, true);
                   if (succeeded(
                           tuningInfo.paramsProbablyValid(info, gemmParams)) &&
                       (kind == TuningParamSetKind::Exhaustive ||
