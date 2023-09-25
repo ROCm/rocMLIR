@@ -159,6 +159,10 @@ void SerializeToHsacoPass::getDependentDialects(
   gpu::SerializeToBlobPass::getDependentDialects(registry);
 }
 
+#ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
+#include "Transforms/AmdDeviceLibs.cpp.inc"
+#endif
+
 std::optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
 SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
                                     SmallVectorImpl<StringRef> &libraries,
@@ -166,19 +170,36 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
   SmallVector<std::unique_ptr<llvm::Module>, 3> ret;
   size_t dirLength = path.size();
 
+#ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
+  const llvm::StringMap<StringRef> &packagedLibs = getDeviceLibraries();
+#else
   if (!llvm::sys::fs::is_directory(path)) {
     getOperation().emitRemark() << "Bitcode path: " << path
                                 << " does not exist or is not a directory\n";
     return std::nullopt;
   }
+#endif
 
   for (const StringRef file : libraries) {
     llvm::SMDiagnostic error;
-    llvm::sys::path::append(path, file);
-    llvm::StringRef pathRef(path.data(), path.size());
-    std::unique_ptr<llvm::Module> library =
-        llvm::getLazyIRFileModule(pathRef, error, context);
-    path.truncate(dirLength);
+    std::unique_ptr<llvm::Module> library;
+#ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
+    if (packagedLibs.contains(file)) {
+      std::unique_ptr<llvm::MemoryBuffer> fileBc =
+          llvm::MemoryBuffer::getMemBuffer(packagedLibs.at(file), file);
+      library = llvm::getLazyIRModule(std::move(fileBc), error, context);
+    }
+#endif
+    if (!library) {
+#ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
+      getOperation().emitWarning("Trying to find " + Twine(file) +
+                                 " at runtime since it wasn't packaged");
+#endif
+      llvm::sys::path::append(path, file);
+      llvm::StringRef pathRef(path.data(), path.size());
+      library = llvm::getLazyIRFileModule(pathRef, error, context);
+      path.truncate(dirLength);
+    }
     if (!library) {
       getOperation().emitError() << "Failed to load library " << file
                                  << " from " << path << error.getMessage();

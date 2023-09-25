@@ -141,6 +141,56 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
       "LLD is not enabled, please reconfigure llvm build")
   endif()
 
+  ### rocMLIR-specific incantations to embed device libraries statically.
+  ### This is menat to let us embed the device libraries into a static library.
+  if (NOT DEFINED ROCM_PATH)
+    if (NOT DEFINED ENV{ROCM_PATH})
+      set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+    else()
+      set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
+    endif()
+  endif()
+  # A lot of the ROCm CMake files expect to find their own dependencies in
+  # CMAKE_PREFIX_PATH and don't respect PATHS or HINTS :( .
+  # Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
+  # find the device libraries, then remove it
+  set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
+  list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
+  find_package(AMDDeviceLibs CONFIG)
+  set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
+  if(AMDDeviceLibs_FOUND)
+    set(device_lib_targets ${AMD_DEVICE_LIBS_TARGETS})
+    # Filter out control constants, since we set those inline
+    list(FILTER device_lib_targets EXCLUDE REGEX "^oclc_")
+    # None of our stuff uses opencl functions or functionality during
+    # compilation, and the only time that device library gets pulled in is for
+    # printf(), which we use the hip version of anyway.
+    list(REMOVE_ITEM device_lib_targets "opencl")
+    add_custom_command(OUTPUT Transforms/AmdDeviceLibs.cpp.inc
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/AmdDeviceLibsIncGen.py
+      ARGS
+        ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc
+        ${AMD_DEVICE_LIBS_PREFIX}
+        ${device_lib_targets}
+      DEPENDS
+        AmdDeviceLibsIncGen.py
+        ${AMD_DEVICE_LIBS_TARGETS}
+      COMMENT "Generating device libraries include package"
+    )
+    set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES Transforms/AmdDeviceLibs.cpp.inc)
+    add_custom_target(AmdDeviceLibsIncGen DEPENDS Transforms/AmdDeviceLibs.cpp.inc)
+    set_property(SOURCE Transforms/SerializeToHsaco.cpp APPEND
+      PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc)
+    add_dependencies(obj.MLIRGPUTransforms AmdDeviceLibsIncGen)
+    target_compile_definitions(obj.MLIRGPUTransforms
+      PRIVATE
+      ROCMLIR_DEVICE_LIBS_PACKAGED=1
+    )
+
+  else()
+    message(NOTICE "Device libraries not found during builds, assuming we can find them at runtime")
+  endif()
+  ### End rocMLIR-specific hackery
   set(DEFAULT_ROCM_PATH "/opt/rocm" CACHE PATH "Fallback path to search for ROCm installs")
   target_compile_definitions(obj.MLIRGPUTransforms
     PRIVATE
