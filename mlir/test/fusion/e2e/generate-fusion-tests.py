@@ -6,12 +6,24 @@ import shutil
 import glob
 import itertools
 import tomli
+import subprocess
 
 RANDTYPE = {'f32' : 'float',
             'f16' : 'float',
             'bf16' : 'float',
             'i32' : 'int',
             'i8' : 'int'}
+def getArch():
+    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
+                       stdout=subprocess.PIPE)
+    agents = set(x.decode("utf-8") for x in p.stdout.split())
+    if not agents:
+        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
+                              check=True, stdout=subprocess.PIPE)
+        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+    return agents
 
 def generate_option_list(table, key1, key2):
     options_list=[]
@@ -26,6 +38,10 @@ def generate_option_list(table, key1, key2):
     return combinations
 
 def generate_op_variants_test(indir, outdir, type, file, opspec):
+    archNames = getArch()
+    arch = ','.join(archNames)
+    if "bf16" in type and "gfx11" in arch:
+        return
     opname,op = opspec
     with open(f"{indir}/{file}.e2e.template") as f:
         template = f.read()
@@ -44,6 +60,10 @@ def generate_op_variants_test(indir, outdir, type, file, opspec):
                                 disablep='-DISABLE' if type != 'f32' or opname == 'tanh' else ''))
 
 def generate_type_only_test(indir, outdir, type, file):
+    archNames = getArch()
+    arch = ','.join(archNames)
+    if "bf16" in type and "gfx11" in arch:
+        return
     with open(f"{indir}/{file}.e2e.template") as f:
         template = f.read()
     outfile = f"{outdir}/{file}-{type}.e2e.mlir"
