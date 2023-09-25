@@ -1126,8 +1126,6 @@ def Rock_BlockwiseGemmAccelOp:
                    I32Attr:$inNPerThread,
                    UnitAttr:$rotateMWithK,
                    UnitAttr:$rotateNWithK,
-                   Index:$waveOffsetA,
-                   Index:$waveOffsetB,
                    MemRefOf<AccelArgTypes>:$bufferA,
                    MemRefOf<AccelArgTypes>:$bufferB,
                    MemRefOf<AccelResTypes>:$matrixC,
@@ -1145,8 +1143,8 @@ def Rock_BlockwiseGemmAccelOp:
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
-                        $bufferB `from` $matrixB `[` $waveOffsetB `]` `features` `=` $features attr-dict
+    $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
+                        $bufferB `from` $matrixB `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];

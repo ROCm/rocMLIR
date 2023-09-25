@@ -408,7 +408,6 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-    int64_t KPack = tuningParams.getKpack();
 
     Type bufferElemTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -419,11 +418,6 @@ struct BlockwiseGemmAccelRewritePattern
       dataTypeA = bufferVecTypeA.getElementType();
     if (auto bufferVecTypeB = bufferElemTypeB.dyn_cast<VectorType>())
       dataTypeB = bufferVecTypeB.getElementType();
-
-    Value sourceOffsetA = adaptor.getWaveOffsetA();
-    Value sourceOffsetB = adaptor.getWaveOffsetB();
-    int64_t mWaves = mPerBlock / mPerWave;
-    int64_t nWaves = nPerBlock / nPerWave;
 
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
         op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
@@ -437,14 +431,7 @@ struct BlockwiseGemmAccelRewritePattern
     Type argTypeB = params.argTypeB;
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
-    int64_t mPerAccel = params.mPerAccel;
-    int64_t nPerAccel = params.nPerAccel;
     int64_t kBase = params.kBase;
-    int64_t kpackPerThread = params.kpackPerThread;
-    Value mWavesConstantOp = b.create<ConstantIndexOp>(loc, mWaves);
-    Value nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
-    int64_t copyMPerThread = op.getInMPerThread();
-    int64_t copyNPerThread = op.getInNPerThread();
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
