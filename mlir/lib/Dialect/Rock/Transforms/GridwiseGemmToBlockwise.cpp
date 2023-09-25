@@ -892,41 +892,6 @@ struct GridwiseAttentionAccelRewritePattern
     return gemmOutScalarBuffer;
   }
 
-  // Logic to setup blockwise_gemm_accel parameters.
-  //
-  // Original C++ logic:
-  // index_t mMyWaveOffsetA;
-  // index_t mMyWaveOffsetB;
-  // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
-  // const index_t waveId_m = waveId / GemmNWaves;
-  // const index_t waveId_n = waveId % GemmNWaves;
-  // mMyWaveOffsetA = waveId_m * GemmMPerWave;
-  // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-  std::tuple<Value, Value>
-  createWaveOffsets(Location loc, const int64_t waveSize, int64_t nPerWave,
-                    int64_t nPerBlock,
-                    rock::accel::AccelEmitterParams accelParams, Value tid,
-                    PatternRewriter &rewriter) const {
-    ConstantIndexOp waveSizeConstantOp =
-        rewriter.create<ConstantIndexOp>(loc, waveSize);
-    int64_t nWaves = nPerBlock / nPerWave;
-    auto nWavesConstantOp = rewriter.create<ConstantIndexOp>(loc, nWaves);
-    auto waveId = rewriter.create<DivUIOp>(loc, tid, waveSizeConstantOp);
-    auto waveId_m = rewriter.create<DivUIOp>(loc, waveId, nWavesConstantOp);
-    auto waveId_n = rewriter.create<RemUIOp>(loc, waveId, nWavesConstantOp);
-
-    Value mMyWaveOffsetA, mMyWaveOffsetB;
-    Value waveOffsetAConstantOp =
-        rewriter.create<ConstantIndexOp>(loc, accelParams.mPerAccel);
-    Value waveOffsetBConstantOp =
-        rewriter.create<ConstantIndexOp>(loc, accelParams.nPerAccel);
-    mMyWaveOffsetA =
-        rewriter.create<MulIOp>(loc, waveId_m, waveOffsetAConstantOp);
-    mMyWaveOffsetB =
-        rewriter.create<MulIOp>(loc, waveId_n, waveOffsetBConstantOp);
-    return {mMyWaveOffsetA, mMyWaveOffsetB};
-  }
-
   // This fuction creates interrim register buffers to store data in once
   // loaded from the LDS before accelerator intrinsics are called
   std::tuple<Value, Value>
@@ -1243,7 +1208,6 @@ struct GridwiseAttentionAccelRewritePattern
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = inQ.getType().getShape();
@@ -1486,18 +1450,14 @@ struct GridwiseAttentionAccelRewritePattern
         // LDS barrier.
         rewriter.create<LDSBarrierOp>(loc);
         // Emit blockwise GEMM 0.
-        auto [mMyWaveOffsetQ, mMyWaveOffsetK] =
-            createWaveOffsets(loc, waveSize, gemm0TuningParams.getNPerWave(),
-                              gemm0NPerBlock, accelParamsGemm0, tid, rewriter);
         rewriter.create<BlockwiseGemmAccelOp>(
             loc, ldsTileBufferQ, ldsTileBufferK,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
             /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr, mMyWaveOffsetQ, mMyWaveOffsetK,
-            preAccelRegBufferQ, preAccelRegBufferK, accRegBufferGemm0,
-            op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
-            op.getParamsAttr());
+            /*rotateNWithK=*/nullptr, preAccelRegBufferQ, preAccelRegBufferK,
+            accRegBufferGemm0, op.getArchAttr(), op.getFeaturesAttr(),
+            op.getBlockSizeAttr(), op.getParamsAttr());
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
@@ -1586,18 +1546,14 @@ struct GridwiseAttentionAccelRewritePattern
         // LDS barrier.
         rewriter.create<LDSBarrierOp>(loc);
         // Emit blockwise GEMM 1.
-        auto [mMyWaveOffsetQxK, mMyWaveOffsetV] =
-            createWaveOffsets(loc, waveSize, gemm1TuningParams.getNPerWave(),
-                              gemm1NPerBlock, accelParamsGemm1, tid, rewriter);
         rewriter.create<BlockwiseGemmAccelOp>(
             loc, gemm1LDSBufferA, ldsTileBufferV,
             rewriter.getI32IntegerAttr(gemm1InMPerThread),
             rewriter.getI32IntegerAttr(gemm1InNPerThread),
             /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr, mMyWaveOffsetQxK, mMyWaveOffsetV,
-            preAccelRegBufferQxK, preAccelRegBufferV, accRegBufferGemm1,
-            op.getArchAttr(), op.getFeaturesAttr(), op.getBlockSizeAttr(),
-            gemm1TuningParams);
+            /*rotateNWithK=*/nullptr, preAccelRegBufferQxK, preAccelRegBufferV,
+            accRegBufferGemm1, op.getArchAttr(), op.getFeaturesAttr(),
+            op.getBlockSizeAttr(), gemm1TuningParams);
         // There is no second k-loop
         // Therefore can get the output straight away
         accelEmitterPtrGemm1->computeOutputConversion(
@@ -1870,9 +1826,6 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-    int64_t nWaves = nPerBlock / nPerWave;
-
-    auto nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
         op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
@@ -1890,10 +1843,6 @@ struct GridwiseGemmAccelRewritePattern
     Type argTypeB = params.argTypeB;
     VectorType accVectorType = params.accVectorType;
     int64_t numOutputVectorElements = params.numOutputVectorElements();
-
-    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, waveSize);
-
     bool useIndexDiffs = true;
 
     LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
@@ -1974,28 +1923,6 @@ struct GridwiseGemmAccelRewritePattern
     Value ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
 
-    // Logic to setup blockwise_gemm_accel parameters.
-    //
-    // Original C++ logic:
-    // index_t mMyWaveOffsetA;
-    // index_t mMyWaveOffsetB;
-    // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
-    // const index_t waveId_m = waveId / GemmNWaves;
-    // const index_t waveId_n = waveId % GemmNWaves;
-    // mMyWaveOffsetA = waveId_m * GemmMPerWave;
-    // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-    auto waveId = b.create<DivUIOp>(loc, tid, waveSizeConstantOp);
-    auto waveId_m = b.create<DivUIOp>(loc, waveId, nWavesConstantOp);
-    auto waveId_n = b.create<RemUIOp>(loc, waveId, nWavesConstantOp);
-
-    Value mMyWaveOffsetA, mMyWaveOffsetB;
-    Value waveOffsetAConstantOp =
-        b.create<ConstantIndexOp>(loc, params.mPerAccel);
-    Value waveOffsetBConstantOp =
-        b.create<ConstantIndexOp>(loc, params.nPerAccel);
-    mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, waveOffsetAConstantOp);
-    mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, waveOffsetBConstantOp);
-
     // Logic to setup buffers for blockwise_gemm_accel.
 
     Type arrayAType, arrayBType;
@@ -2049,9 +1976,9 @@ struct GridwiseGemmAccelRewritePattern
           b.getI32IntegerAttr(copyMPerThread),
           b.getI32IntegerAttr(copyNPerThread),
           (rotateMWithK ? b.getUnitAttr() : nullptr),
-          (rotateNWithK ? b.getUnitAttr() : nullptr), mMyWaveOffsetA,
-          mMyWaveOffsetB, arrayA, arrayB, regCAllocOp, op.getArchAttr(),
-          op.getFeaturesAttr(), op.getBlockSizeAttr(), op.getParamsAttr());
+          (rotateNWithK ? b.getUnitAttr() : nullptr), arrayA, arrayB,
+          regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
+          op.getBlockSizeAttr(), op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.

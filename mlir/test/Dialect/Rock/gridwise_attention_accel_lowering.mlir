@@ -79,7 +79,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
       // CHECK: rock.lds_barrier
-      // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += {{.*}} from %[[view2G0AStore]]{{.*}} * {{.*}} from %[[view2G0BStore]]{{.*}}
+      // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += {{.*}} from %[[view2G0AStore]] * {{.*}} from %[[view2G0BStore]]
     // End of inner gemm0 KpacksPerBlock loop
     // CHECK: }
     // CHECK: rock.transforming_for
@@ -144,7 +144,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
     // Gemm1
     // CHECK-DAG: rock.lds_barrier
-    // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += {{.*}} from %[[view2G1AStore]]{{.*}} * {{.*}} from %[[view2G1BStore]]{{.*}}
+    // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += {{.*}} from %[[view2G1AStore]] * {{.*}} from %[[view2G1BStore]]
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
       // CHECK: rock.in_bounds_store %[[tmp1]] -> %[[gemm1AccBufScalar:.+]][
@@ -182,13 +182,13 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK : }
   // CHECK : }
   // CHECK : rock.threadwise_write_all {{.*}} %[[attnOutBuf]] -> {{.*}}(%[[O]])
- 
+
   func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
     %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
     rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
-      arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", 
-      blockSize = 64 : i32, 
-      gridSize = 24 : i32, 
+      arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+      blockSize = 64 : i32,
+      gridSize = 24 : i32,
       params = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
     } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
     return
