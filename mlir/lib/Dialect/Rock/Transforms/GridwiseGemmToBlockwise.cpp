@@ -1237,6 +1237,67 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
+  // If padding is used in the kernel, this means the first gemm
+  // will be done in a larger matrix. In typical, gemm kernels
+  // the padded region in the output will just contain zeros. However,
+  // attention kernel will perform softmax normalization on rows.
+  // Therefore, having zeros -- zero not being the minimum representable
+  // value in the element type -- going to affect all the values
+  // post normalization. Therefore, this function creates a trasnforming
+  // for loop that overwrites out of bounds values of first gemm output
+  // to be negative infinity.
+  void createFirstGemmNegInfPadding(PatternRewriter &rewriter, Location loc,
+                                    layout::GridCoordinates gridCoords,
+                                    Value gemm0OutBuffer,
+                                    RegsAsMatrixSubTiles gemm0OutSubTileViews,
+                                    int64_t prePadGemmM,
+                                    int64_t prePadGemmN) const {
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+    Value prePadGemmMVal =
+        rewriter.createOrFold<ConstantIndexOp>(loc, prePadGemmM);
+    Value prePadGemmNVal =
+        rewriter.createOrFold<ConstantIndexOp>(loc, prePadGemmN);
+    MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
+    auto negInfTyped = createConstantFloatOp(
+        rewriter, loc, gemm0OutBufferType.getElementType(),
+        gemm0OutBufferType.getElementType(),
+        -std::numeric_limits<float>::infinity());
+    // Get current workitem ID.
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
+
+    auto loop = rewriter.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
+                              gridCoords.n_block, tid, zero},
+                             {zero, zero, zero, zero, zero}},
+        ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile,
+                            rewriter.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
+        /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
+        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+
+      Block::BlockArgListType gemm0OutCoords = loop.getLowerCoords(0);
+      Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
+      auto isLargerThanM = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::sge, gemm0OutCoords[1], prePadGemmMVal);
+      auto isLargerThanN = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::sge, gemm0OutCoords[2], prePadGemmNVal);
+      auto isLargerThanMorN =
+          rewriter.create<arith::OrIOp>(loc, isLargerThanM, isLargerThanN);
+      scf::IfOp ifb = rewriter.create<scf::IfOp>(loc, isLargerThanMorN,
+                                                 /*withElseRegion=*/false);
+      {
+        OpBuilder thenb = ifb.getThenBodyBuilder();
+        thenb.create<InBoundsStoreOp>(loc, negInfTyped, gemm0OutBuffer,
+                                      ValueRange{upperCoords[4]});
+      }
+    }
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1451,20 +1512,20 @@ struct GridwiseAttentionAccelRewritePattern
       Value nLoopIV = nLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
+      // The grid coordinates for gemm0 is almost simliar
+      // to gemm1 except the n_block should be read iteratively
+      // from gemm0's N axis. Hence, the replacement is done as
+      // follows:
+      layout::GridCoordinates gridCoordsGemm0 = gridCoordsGemm1;
+      gridCoordsGemm0.n_block = nLoopIV;
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
-        // The grid coordinates for gemm0 is almost simliar
-        // to gemm1 except the n_block should be read iteratively
-        // from gemm0's N axis. Hence, the replacement is done as
-        // follows:
-        layout::GridCoordinates gridCoords = gridCoordsGemm1;
-        gridCoords.n_block = nLoopIV;
         Value kLoopIV = kLoopOp.getInductionVar();
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            loc, inQ, kLoopIV, gridCoords, fromGlobalRegBufferQ,
+            loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
             toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
             gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
             bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
@@ -1474,7 +1535,7 @@ struct GridwiseAttentionAccelRewritePattern
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
-            loc, inK, kLoopIV, gridCoords, fromGlobalRegBufferK,
+            loc, inK, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "n", gemm0kpack,
             gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
             bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
@@ -1501,8 +1562,23 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
-      APInt reductionAxis = APInt(64, 1);
+      bool hasPadding =
+          op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
+      if (hasPadding) {
+        int64_t prePadG0M = gemm0M;
+        if (op.getPrePadG0M().has_value()) {
+          prePadG0M = op.getPrePadG0M().value();
+        }
+        int64_t prePadG0N = gemm0N;
+        if (op.getPrePadG0N().has_value()) {
+          prePadG0N = op.getPrePadG0N().value();
+        }
+        createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
+                                     gemm0OutBuffer, gemm0OutSubTileViews,
+                                     prePadG0M, prePadG0N);
+      }
 
+      APInt reductionAxis = APInt(64, 1);
       int64_t reductionOutNLen =
           getLowerShape(gemm0OutSubTileViews.gridSubTile)[2];
       int64_t reductionOutNPerBlock =
