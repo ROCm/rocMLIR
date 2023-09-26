@@ -14,6 +14,8 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Mutex.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -433,10 +435,12 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
     return {};
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
+  // Close here to prevent weird behaviors when LLD opens this file.
+  llvm::sys::fs::closeFile(tempHsacoFD);
 
+  static llvm::sys::Mutex mutex;
   {
-    static std::mutex mutex;
-    const std::lock_guard<std::mutex> lock(mutex);
+    const llvm::sys::ScopedLock lock(mutex);
     // Invoke lld. Expect a true return value from lld.
     if (!lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
                          "-o", tempHsacoFilename.c_str()},
@@ -448,13 +452,14 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   }
 
   // Load the HSA code object.
-  auto hsacoFile = openInputFile(tempHsacoFilename);
+  auto hsacoFile =
+      llvm::MemoryBuffer::getFile(tempHsacoFilename, /*IsText=*/false);
   if (!hsacoFile) {
     emitError(loc, "read HSA code object from temp file error");
     return {};
   }
 
-  StringRef buffer = hsacoFile->getBuffer();
+  StringRef buffer = (*hsacoFile)->getBuffer();
   return std::make_unique<std::vector<char>>(buffer.begin(), buffer.end());
 }
 
