@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15.1)
 
 # Allow VERSION for projects, as expected in CMake 3.0+
 cmake_policy(SET CMP0048 NEW)
-project(rocMLIR VERSION 1.1.0 LANGUAGES CXX C)
+project(rocMLIR VERSION 2.0.0 LANGUAGES CXX C)
 
 # New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
 if(POLICY CMP0116)
