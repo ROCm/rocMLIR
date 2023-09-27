@@ -403,8 +403,6 @@ struct BlockwiseGemmAccelRewritePattern
 
     StringAttr arch = op.getArchAttr();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-    int64_t mPerBlock = tuningParams.getMPerBlock();
-    int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();

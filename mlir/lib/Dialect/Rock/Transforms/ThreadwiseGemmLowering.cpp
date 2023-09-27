@@ -373,7 +373,7 @@ static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
 
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
+    ConversionPatternRewriter &b) const{
   Location loc = op.getLoc();
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   ArrayAttr extraViews = op.getExtraViews();
@@ -390,6 +390,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   int64_t numValues = dest.getType().getNumElements();
   MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
+  MemRefType dstBufferType = dest.getType().cast<MemRefType>();
+
+  bool isSrcVectorBuffer = srcBufferType.getElementType().isa<VectorType>();
+  bool isDstVectorBuffer = dstBufferType.getElementType().isa<VectorType>();
   ArrayRef<int64_t> bufferShape = srcBufferType.getShape();
   size_t extraIdxCount = op.getExtraIndices().size();
 
@@ -402,17 +406,34 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   // We are vectorizing in the iter dimension, not block ID or thread ID
   auto elementType = sourceView.getType().getElementType();
-  int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
-                          << "\n");
+  Type loadType;
+  int64_t vectorSrcLen, vectorDstLen;
+  int64_t srcStride;
+  VectorType dstVectorType;
 
-  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
+  if (isSrcVectorBuffer) {
+    loadType = elementType;
+    vectorSrcLen = elementType.dyn_cast<VectorType>().getNumElements();
+    srcStride = 1;
+  } else {
+    vectorSrcLen = getMaxVectorizationForDatatype(
+        transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
+    // In the future, this might get merged into the vectorizer.
+    transforms = collapseContiguousMerges(transforms, bufferShape);
+    srcStride = vectorSrcLen;
+    loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
+  }
+
+  if (isDstVectorBuffer) {
+    dstVectorType = dstBufferType.getElementType().dyn_cast<VectorType>();
+    vectorDstLen = dstVectorType.dyn_cast<VectorType>().getNumElements();
+    numValues = (numValues * vectorDstLen) / vectorSrcLen;
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
+                          << vectorSrcLen << "\n");
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // In the future, this might get merged into the vectorizer.
-  transforms = collapseContiguousMerges(transforms, bufferShape);
 
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
@@ -423,7 +444,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
   bounds.push_back(numValues);
   SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
-  strides.push_back(vectorLen);
+  strides.push_back(srcStride);
+
+  SmallVector<Attribute> transformAttrs;
 
   auto loadLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
@@ -448,8 +471,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded = thenb.create<InBoundsLoadOp>(
-            loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+        Value loaded;
+        if (!isSrcVectorBuffer)
+          loaded = thenb.create<InBoundsLoadOp>(
+              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+        else
+          loaded = thenb.create<memref::LoadOp>(
+              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
         thenb.create<scf::YieldOp>(loc, loaded);
       }
       {
@@ -457,14 +485,65 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
         elseb.create<scf::YieldOp>(loc, zeroVal);
       }
-      b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest,
-                                loadLoop.getLowerCoords(
-                                    /*domain=*/1)[extraIdxCount]);
+
+      Value destOffset = loadLoop.getLowerCoords(1)[extraIdxCount];
+      if (!isDstVectorBuffer && !isSrcVectorBuffer) {
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+      } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
+        destOffset = b.create<arith::MulIOp>(
+            loc, destOffset, b.create<ConstantIndexOp>(loc, vectorSrcLen));
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+      } else {
+        // Destination is a vector buffer
+        if (vectorSrcLen == vectorDstLen) {
+          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest,
+                                    loadLoop.getLowerCoords(
+                                        /*domain=*/1)[extraIdxCount]);
+        } else if (vectorSrcLen > vectorDstLen) {
+          int64_t numStores = vectorSrcLen / vectorDstLen;
+          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
+          Value value = ifb.getResult(0);
+
+          Value baseDestOffset = b.createOrFold<arith::MulIOp>(
+              loc, idx, b.createOrFold<arith::ConstantIndexOp>(loc, numStores));
+          for (int64_t i = 0; i < numStores; ++i) {
+            Value sliceStart =
+                b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen * i);
+            Value slice =
+                b.create<ExtractSliceOp>(loc, dstVectorType, value, sliceStart);
+            Value destOffset = b.createOrFold<arith::AddIOp>(
+                loc, baseDestOffset,
+                b.createOrFold<arith::ConstantIndexOp>(loc, i));
+            b.create<memref::StoreOp>(loc, slice, dest, ValueRange{destOffset});
+          }
+        } else { // srcVecLen < dstVecLen
+          // Here we are gathering loaded values into vectors for passing into
+          // MFMAs.
+          Value value = ifb.getResult(0);
+          Value destValsPerKpack = b.createOrFold<arith::ConstantIndexOp>(
+              loc, vectorDstLen / vectorSrcLen);
+          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
+
+          Value destOffset =
+              b.createOrFold<arith::DivUIOp>(loc, idx, destValsPerKpack);
+          Value destVecPart =
+              b.createOrFold<arith::RemUIOp>(loc, idx, destValsPerKpack);
+          Value destSlicePos = b.createOrFold<arith::MulIOp>(
+              loc, destVecPart,
+              b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen));
+          Value destVec = b.create<memref::LoadOp>(loc, dstVectorType, dest,
+                                                   ValueRange{destOffset});
+          Value newDestVec = b.create<InsertSliceOp>(loc, dstVectorType, value,
+                                                     destVec, destSlicePos);
+          b.create<memref::StoreOp>(loc, newDestVec, dest,
+                                    ValueRange{destOffset});
+        }
+      }
     }
   }
   b.eraseOp(op);
   return success();
-}
+    }
 
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
@@ -589,7 +668,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseTransposeRewritePattern>(ctx);
+             ThreadwiseCopyRewritePattern>(ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();
