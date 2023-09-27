@@ -469,6 +469,8 @@ struct BlockwiseGemmAccelRewritePattern
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
         op.getRotateNWithK());
 
+    Value wrappedRegsC;
+
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
       OpBuilder::InsertionGuard guard(b);
@@ -492,9 +494,8 @@ struct BlockwiseGemmAccelRewritePattern
                                        ValueRange{tid, n_i}, true, true);
 
         // regsC += regsA * regsB
-        b.create<AccelGemmOp>(loc, mLoop.getInductionVar(),
-                              nLoop.getInductionVar(), adaptor.getBufferA(),
-                              adaptor.getBufferB(), adaptor.getMatrixC(), arch,
+        b.create<ThreadwiseAccelGemmOp>(loc, adaptor.getMatrixA(), adaptor.getMatrixB(), adaptor.getMatrixC(),
+                              ValueRange{m_i, n_i}, arch,
                               op.getFeaturesAttr(), tuningParams);
       }
     }

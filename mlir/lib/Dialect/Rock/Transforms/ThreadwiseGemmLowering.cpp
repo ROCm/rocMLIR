@@ -201,81 +201,117 @@ struct ThreadwiseGemmRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// AccelGemm lowering.
+// ThreadwiseAccelGemm lowering.
 //===----------------------------------------------------------------------===//
-struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
-  using OpConversionPattern<AccelGemmOp>::OpConversionPattern;
+struct ThreadwiseAccelGemmRewritePattern : public OpConversionPattern<ThreadwiseAccelGemmOp> {
+  using OpConversionPattern<ThreadwiseAccelGemmOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(AccelGemmOp op, AccelGemmOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ThreadwiseAccelGemmOp op, ThreadwiseAccelGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
 
-    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+  Location loc = op.getLoc();
+  auto sourceA = cast<TypedValue<MemRefType>>(adaptor.getSourceA());
+  auto sourceB = cast<TypedValue<MemRefType>>(adaptor.getSourceB());
+  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
-    auto dataTypeA =
-        adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
-    auto dataTypeB =
-        adaptor.getMatrixB().getType().cast<MemRefType>().getElementType();
-    if (dataTypeA.isa<VectorType>()) {
-      dataTypeA = dataTypeA.cast<VectorType>().getElementType();
-    }
-    if (dataTypeB.isa<VectorType>()) {
-      dataTypeB = dataTypeB.cast<VectorType>().getElementType();
-    }
+  // ArrayRef<int64_t> inputShapeA, inputShapeB;
+  // inputShapeA = sourceViewA.getType().getShape();
+  // inputShapeB = sourceViewB.getType().getShape();
 
-    Value bufferA = adaptor.getMatrixA();
-    Value bufferB = adaptor.getMatrixB();
-    Value bufferC = adaptor.getMatrixC();
+  auto [buffer, transforms, needs64BitIdxA] = untransform(b, destView);
 
-    auto emitter = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+  int64_t numValuesA = sourceA.getType().getNumElements();
+  int64_t numValuesB = sourceB.getType().getNumElements();
 
-    // Extract relevant accel emitter parameters
-    rock::accel::AccelEmitterParams params = emitter->getParams();
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-    int64_t nResultVectors = params.nResultVectors;
-    Type argTypeA = params.argTypeA;
-    Type argTypeB = params.argTypeB;
+  if (numValuesA != numValuesB){
+    return emitError(loc)<<"Values of the source buffers A and Bneed to be the same.\n";
+  }
 
-    if (!emitter)
-      return emitError(loc)
-             << "Failed to select any accelerator instruction.\n";
+  int64_t numValues = numValuesA;
 
-    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-    SmallVector<Value, 4> startCoords(4, zeroConstantOp);
+  // Types are supposed to be vector typed
+  VectorType argTypeA = sourceA.getType().cast<MemRefType>().getElementType().dyn_cast<VectorType>();
+  auto elementTypeA = argTypeA.getElementType();
 
-    auto generateAccelOnKDim = [&](Value regCOffset) {
-      auto accelLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-          ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
-          /*strides=*/ArrayRef<int64_t>{1},
-          /*forceUnroll=*/false, /*useIndexDiffs=*/false);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(accelLoop.getBody());
-        Value coord = accelLoop.getLowerCoords(/*domain=*/0)[0];
-        Value argA = b.create<memref::LoadOp>(loc, argTypeA, bufferA, coord);
-        Value argB = b.create<memref::LoadOp>(loc, argTypeB, bufferB, coord);
-        emitter->emitThreadwiseLoop(b, loc, argA, argB, bufferC, regCOffset);
-      }
-    };
+  VectorType argTypeB = sourceB.getType().cast<MemRefType>().getElementType().dyn_cast<VectorType>();
+  auto elementTypeB = argTypeB.getElementType();
 
-    auto mRepeat = op.getMRepeat();
-    auto nRepeat = op.getNRepeat();
+  RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+  StringRef arch = op.getArch();
 
-    Value nResultVectorsConstantOp =
-        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
-    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
+  Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 3> writeStartCoords = llvm::to_vector<3>(op.getExtraIndices());
+  writeStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(writeStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
+  strides.push_back(1);
+  size_t extraIdxCount = op.getExtraIndices().size();
 
-    Value regCOffset = b.create<MulIOp>(
-        loc,
-        b.create<AddIOp>(
-            loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
-        nResultVectorsConstantOp);
+  SmallVector<Attribute> transformAttrs;
+  auto emitter = rock::accel::AccelEmitter::select(
+      op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
 
-    generateAccelOnKDim(regCOffset);
+  if (!emitter)
+    return emitError(loc)
+            << "Failed to select any accelerator instruction.\n";
+
+  //  We should put this on the caller
+  // Value regCOffset = b.create<MulIOp>(
+  //     loc,
+  //     b.create<AddIOp>(
+  //         loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
+  //     nResultVectorsConstantOp);
+  auto computeLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+      ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr({}), transforms}, bounds, strides,
+      false, false);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(computeLoop.getBody());
+      Value argA = b.create<memref::LoadOp>(loc, argTypeA, sourceA, computeLoop.getLowerCoords(0)[extraIdxCount]);
+      Value argB = b.create<memref::LoadOp>(loc, argTypeB, sourceB, computeLoop.getLowerCoords(1)[extraIdxCount]);
+      emitter->emitThreadwiseLoop(b, loc, argA, argB, buffer, computeLoop.getLowerCoords(2)[0]);
+  }
+
+    // // Extract relevant accel emitter parameters
+    // rock::accel::AccelEmitterParams params = emitter->getParams();
+    // int64_t nRepeats = params.nRepeats;
+    // int64_t kBasePerThread = params.kBasePerThread;
+    // int64_t nResultVectors = params.nResultVectors;
+    // Type argTypeA = params.argTypeA;
+    // Type argTypeB = params.argTypeB;
+
+    // if (!emitter)
+    //   return emitError(loc)
+    //          << "Failed to select any accelerator instruction.\n";
+
+    // SmallVector<Value, 4> startCoords(4, zeroConstantOp);
+
+
+    // auto mRepeat = op.getMRepeat();
+    // auto nRepeat = op.getNRepeat();
+
+    // Value nResultVectorsConstantOp =
+    //     b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
+    // Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
+
+    // Value regCOffset = b.create<MulIOp>(
+    //     loc,
+    //     b.create<AddIOp>(
+    //         loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
+    //     nResultVectorsConstantOp);
+
+    // auto accelLoop = b.create<TransformingForOp>(
+    //     loc, ArrayRef<ValueRange>{{zeroConstantOp}},
+    //     ArrayRef<Attribute>{b.getArrayAttr({})},
+    //     /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
+    //     /*strides=*/ArrayRef<int64_t>{1},
+    //     /*forceUnroll=*/false, /*useIndexDiffs=*/false);
+    // {
+    //   OpBuilder::InsertionGuard guard(b);
+    //   b.setInsertionPointToStart(accelLoop.getBody());
+    // }
 
     b.eraseOp(op);
     return success();
@@ -703,14 +739,14 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, AccelGemmV2RewritePattern>(ctx);
+  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();
 }

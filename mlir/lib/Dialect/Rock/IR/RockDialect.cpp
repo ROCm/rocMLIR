@@ -1538,9 +1538,9 @@ LogicalResult ThreadwiseGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // AccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult AccelGemmOp::verify() {
-  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape();
+LogicalResult ThreadwiseAccelGemmOp::verify() {
+  ArrayRef<int64_t> aShape = getSourceA().getType().getShape(),
+                    bShape = getSourceB().getType().getShape();
 
   if (aShape != bShape)
     return emitOpError("K dimensions don't match");

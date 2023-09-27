@@ -94,7 +94,7 @@ struct AccelEmitter {
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
-                                  Value regCOffset) = 0;
+                                  ValueRange destOffset) = 0;
 
   /// Compute the correct lds source offset when loading data from shared memory
   /// into registers. The pseudo-code of the lds-to-register loops is as follows
@@ -143,7 +143,7 @@ struct MfmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange destOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
@@ -174,7 +174,7 @@ struct WmmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange destOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,

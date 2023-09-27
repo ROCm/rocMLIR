@@ -1170,27 +1170,26 @@ def Rock_ThreadwiseGemmOp:
   let hasVerifier = 1;
 }
 
-// accel_gemm
-def Rock_AccelGemmOp:
-    Rock_Op<"accel_gemm">,
-    Arguments<(ins Index:$mRepeat,
-                   Index:$nRepeat,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixA,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
-                   MemRefRankOf<AccelResTypes , [1]>:$matrixC,
+// threadwise_accel_gemm
+def Rock_ThreadwiseAccelGemmOp:
+    Rock_Op<"threadwise_accel_gemm">,
+    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source A", [MemRead]>:$sourceA,
+                   Arg<MemRefOf<NativeMemoryOpTypes>, "source B", [MemRead]>:$sourceB,
+                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest view", [MemWrite]>:$dest,
+                   Variadic<Index>:$extraIndices,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
-    The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
+    The `rock.threadwise_accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
     It would employ a series of accelerator (e.g., mfma or wmma) operations.
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA`[`$mRepeat`]` `*` $matrixB`[`$nRepeat`]` `features` `=` $features attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+    $dest (`[` $extraIndices^ `]`)?  `+` `` `=` $sourceA `*` $sourceB `features` `=` $features attr-dict
+    `:` type($dest) `+` `` `=` type($sourceA) `*` type($sourceB)
   }];
   let hasVerifier = 1;
 }
