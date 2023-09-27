@@ -44,7 +44,7 @@ cmake --install . --component librockCompiler --prefix [your MIOpen deps]
 For usage examples, see `mlir/test/rocmlir-driver`, especiallly the files
 `sanity.mlir` and the contents of the `e2e_for_pr` directory.
 
-This project also includes cod that translates from TOSA to kernels, see
+This project also includes code that translates from TOSA to kernels, see
 `mlir/test/fusion` for examples of how to invoke it.
 
 In general (with all invocations given from the build directory)
