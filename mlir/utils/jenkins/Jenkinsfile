@@ -468,7 +468,9 @@ pipeline {
                             script {
                                 if ( codepath == 'navi3x' ) {
                                     catchError(buildResult: 'SUCCESS', stageResult: null) {
+                                      timeout(time: 2, activity: true, unit: 'MINUTES') {
                                         check_RockE2ETests_Navi3x(true)
+                                      }
                                     }
                                 }
                                 else {
@@ -493,7 +495,9 @@ pipeline {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x') {
                                     catchError(buildResult: 'SUCCESS', stageResult: null) {
+                                      timeout(time: 2, activity: true, unit: 'MINUTES') {
                                         check_RockE2ETests_Navi3x(false)
+                                      }
                                     }
                                 }
                                 else
