@@ -239,6 +239,21 @@ public:
     uint32_t outRank = op.getOutput().getType().getRank();
     Type elemType = op.getOutput().getType().getElementType();
 
+    // If its a splat constant, we can broadcast it trivially
+    if (tosa::ConstOp constOp = op.getInput().getDefiningOp<tosa::ConstOp>()) {
+      if (constOp.getValueAttr().isSplat()) {
+        auto outTy = RankedTensorType::get(outShape, elemType);
+        auto bcastConstAttr =
+            DenseElementsAttr::get(outTy, constOp.getValueAttr()
+                                              .cast<DenseElementsAttr>()
+                                              .getSplatValue<Attribute>());
+        tosa::ConstOp newConstOp = rewriter.create<tosa::ConstOp>(
+            loc, op.getOutput().getType(), bcastConstAttr);
+        rewriter.replaceOp(op, newConstOp);
+        return success();
+      }
+    }
+
     if (outRank < inRank) {
       return op.emitError("MultiBroadcastOp shouldn't reduce rank.\n");
     }
