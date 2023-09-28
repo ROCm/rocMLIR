@@ -61,11 +61,11 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm5.6-latest'
+    return 'rocm/mlir:rocm5.7-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm5.6-latest'
+    return 'rocm/mlir-migraphx-ci:rocm5.7-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -930,10 +930,16 @@ pipeline {
                     }
                     stage("Build MIGraphX with MLIR") {
                         steps {
-                            sh 'rm -rf MIGraphX'
-                            dir('MIGraphX') {
-                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DMIGRAPHX_USE_HIPRTC=Off")
-                            }
+                                sh 'rm -rf MIGraphX'
+                                dir('MIGraphX') {
+                                    getAndBuildMIGraphX('''
+                                                    -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                    -DMIGRAPHX_ENABLE_MLIR=On
+                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DMIGRAPHX_USE_HIPRTC=Off
+                                                    -DGPU_TARGETS="gfx90a;gfx906;gfx908;gfx1030;gfx1100;gfx1101"
+                                                    ''')
+                                }
                         }
                     }
                     stage("Verify MIGraphX with MLIR") {
