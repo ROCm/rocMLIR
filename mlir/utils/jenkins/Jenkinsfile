@@ -6,7 +6,9 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "$cmakeOpts"
+            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+              ${cmakeOpts}"""
     }
 }
 
@@ -29,7 +31,10 @@ void buildMIGraphX(String cmakeOpts) {
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
-        cmakeArgs: "${cmakeOpts}"
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
     sh 'cd build; make -j $(nproc)'
 }
 
