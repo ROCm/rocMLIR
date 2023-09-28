@@ -466,14 +466,14 @@ pipeline {
                         }
                         steps {
                             script {
-                                if ( codepath == 'navi3x' ) {
+                                if ( "${CODEPATH}" == 'navi3x' ) {
                                     catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         check_RockE2ETests_Navi3x(true)
                                     }
                                 }
                                 else {
-                                    build_fixedE2ETests(codepath)
-                                    preMergeCheck(codepath)
+                                    build_fixedE2ETests("${CODEPATH}")
+                                    preMergeCheck("${CODEPATH}")
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
                                         sh 'cd build; ninja check-mlir check-rocmlir'
                                     }
@@ -543,7 +543,12 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rebootNode()
+                        script {
+                            // Ignore Navi3x failures
+                            if ( "${CODEPATH}" != 'navi3x') {
+                                rebootNode()
+                            }
+                        }
                     }
                     always {
                         cleanWs()
