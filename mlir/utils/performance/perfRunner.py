@@ -29,7 +29,7 @@ MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 #DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 # temporarily disable backward-data until rocmlir-tuning-driver can handle multi-kernel code
-DIRECTIONS = ['-F 1', '-F 4']
+DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
