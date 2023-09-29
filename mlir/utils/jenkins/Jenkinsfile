@@ -331,16 +331,28 @@ pipeline {
                description: 'Choose the weekly tasks')
     }
     stages {
-        stage("Set System Property") {
-            steps {
-                setHeartbeat()
-            }
-        }
+
+
         stage("Test ssh credentials") {
+            agent {
+                docker {
+                    image dockerImage()
+                    args dockerArgs()
+                    label getLabelFromCodepath("${CODEPATH}")
+                    alwaysPull true
+                }
+            }
             steps {
                 timeout(time: 5, activity: true, unit: 'MINUTES') {
                     sh 'ssh -p 20057 10.216.64.100 date'
                 }
+            }
+        }
+
+
+        stage("Set System Property") {
+            steps {
+                setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
