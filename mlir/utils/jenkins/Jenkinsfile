@@ -336,6 +336,13 @@ pipeline {
                 setHeartbeat()
             }
         }
+        stage("Test ssh credentials") {
+            steps {
+                timeout(time: 5, activity: true, unit: 'MINUTES') {
+                    sh 'ssh -p 20057 10.216.64.100 date'
+                }
+            }
+        }
         stage("Kill old PR builds") {
             when {
                 equals expected: false, actual: params.weekly;
