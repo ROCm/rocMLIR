@@ -343,6 +343,7 @@ pipeline {
                 }
             }
             steps {
+                sh 'ifconfig'
                 timeout(time: 5, activity: true, unit: 'MINUTES') {
                     sh 'ssh -p 20057 10.216.64.100 date'
                 }
