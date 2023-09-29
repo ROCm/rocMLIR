@@ -436,7 +436,22 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
   // Close here to prevent weird behaviors when LLD opens this file.
+  // file_t is an int on linux and void* on Windows so an explicit cast is
+  // needed. This casting may go from a 32-bit type to a 64-bit type on
+  // Windows which generates a warning so the approach is to just set the low
+  // bytes to the int value.
+  // Internal to closeFile it just uses it as an int again so it should
+  // function.
+  // A proper fix would be to change createTemporaryFile to close the file
+  // after it opens it or to change closeFile to accept an int. Both changes
+  // require changing core LLVM code so this workaround was done.
+#if _WIN32
+  llvm::sys::fs::file_t tempHscacoFilePtr = 0;
+  *reinterpret_cast<int*>(&tempHscacoFilePtr) = tempHsacoFD;
+  llvm::sys::fs::closeFile(tempHscacoFilePtr);
+#else
   llvm::sys::fs::closeFile(tempHsacoFD);
+#endif
 
   static llvm::sys::Mutex mutex;
   {
