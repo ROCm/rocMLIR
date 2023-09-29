@@ -69,9 +69,9 @@ function clear_tables
 
     # config table has foreign keys from job and results tables.  however,
     # config table doesn't have a session column so we must delete them all.
-    mysql --database tuna -e "delete from rocmlir_${tablekind}_results;"
-    mysql --database tuna -e "delete from rocmlir_${tablekind}_job;"
-    mysql --database tuna -e "delete from rocmlir_${tablekind}_config;"
+    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_results;"
+    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_job;"
+    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_config;"
 }
 
 function tuna_run
