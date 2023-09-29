@@ -445,7 +445,7 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   // A proper fix would be to change createTemporaryFile to close the file
   // after it opens it or to change closeFile to accept an int. Both changes
   // require changing core LLVM code so this workaround was done.
-#if _WIN32
+#ifdef _WIN32
   llvm::sys::fs::file_t tempHscacoFilePtr = 0;
   *reinterpret_cast<int*>(&tempHscacoFilePtr) = tempHsacoFD;
   llvm::sys::fs::closeFile(tempHscacoFilePtr);
