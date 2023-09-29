@@ -333,22 +333,22 @@ pipeline {
     stages {
 
 
-        stage("Test ssh credentials") {
-            agent {
-                docker {
-                    image dockerImage()
-                    args dockerArgs()
-                    label getLabelFromCodepath("${CODEPATH}")
-                    alwaysPull true
-                }
-            }
-            steps {
-                sh 'ip addr'
-                timeout(time: 5, activity: true, unit: 'MINUTES') {
-                    sh 'ssh -p 20057 10.216.64.100 date'
-                }
-            }
-        }
+//        stage("Test ssh credentials") {
+//            agent {
+//                docker {
+//                    image dockerImage()
+//                    args dockerArgs()
+//                    label getLabelFromCodepath("${CODEPATH}")
+//                    alwaysPull true
+//                }
+//            }
+//            steps {
+//                sh 'ip addr'
+//                timeout(time: 5, activity: true, unit: 'MINUTES') {
+//                    sh 'ssh -p 20057 10.216.64.100 date'
+//                }
+//            }
+//        }
 
 
         stage("Set System Property") {
