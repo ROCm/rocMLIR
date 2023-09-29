@@ -427,16 +427,13 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   tempIsaBinaryOs.close();
 
   // Create a temp file for HSA code object.
-  int tempHsacoFD = -1;
   SmallString<128> tempHsacoFilename;
-  if (llvm::sys::fs::createTemporaryFile("kernel", "hsaco", tempHsacoFD,
+  if (llvm::sys::fs::createTemporaryFile("kernel", "hsaco",
                                          tempHsacoFilename)) {
     emitError(loc, "temporary file for HSA code object creation error");
     return {};
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
-  // Close here to prevent weird behaviors when LLD opens this file.
-  llvm::sys::fs::closeFile(tempHsacoFD);
 
   static llvm::sys::Mutex mutex;
   {
