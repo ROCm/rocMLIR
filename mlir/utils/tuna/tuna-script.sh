@@ -59,11 +59,27 @@ function tuna_setup
 }
 
 
+function clear_tables
+{
+    tablekind=$1
+
+    if [ "$tablekind" = "convolution" ]; then
+        tablekind="conv"
+    fi
+
+    # config table has foreign keys from job and results tables.  however,
+    # config table doesn't have a session column so we must delete them all.
+    mysql --database tuna -e "delete from rocmlir_${tablekind}_results;"
+    mysql --database tuna -e "delete from rocmlir_${tablekind}_job;"
+    mysql --database tuna -e "delete from rocmlir_${tablekind}_config;"
+}
+
 function tuna_run
 {
     kind=$1
     baselabel=`date --iso-8601=minutes`
 
+    clear_tables $kind
     ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${CONFIGS_FILE} --config_type $kind
     ${TUNA_DIR}/tuna/go_fish.py rocmlir --init_session -l "$baselabel $kind" --config_type $kind 2> initlog
     session=`perl -n -e'/Added new session_id: (\d+)/ && print $1' < initlog`
@@ -89,7 +105,7 @@ export OP=convolution
 # -r rocmlirdir
 # -f outfile
 # -o operation
-while getopts ":hc:t:r:f:o:" arg; do
+while getopts ":hc:t:r:f:o:s" arg; do
   case $arg in
     o) # Operation (convolution or gemm [default convolution])
       OP=${OPTARG}
@@ -99,9 +115,9 @@ while getopts ":hc:t:r:f:o:" arg; do
     c) # Configs file
       CONFIGS_FILE="${OPTARG}"
       ;;
-#     t) # Location of existing Tuna installation
-#       TUNA_DIR="${OPTARG}"
-#       ;;
+    t) # Location of existing Tuna installation
+      TUNA_DIR="${OPTARG}"
+      ;;
     r) # Location of rocMLIR
       ROCMLIR_DIR="${OPTARG}"
       ;;

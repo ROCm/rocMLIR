@@ -175,7 +175,7 @@ String getLabelFromChip(String chip) {
         case "gfx906":
             return getLabelFromCodepath("vanilla")
         case "gfx908":
-            return "mlir && gfx908"
+            return "mlir && gfx908 && multi_gpu"
         case "gfx90a":
             return "mlir && gfx90a"
         case "gfx1030":
@@ -441,7 +441,6 @@ pipeline {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    // Tune gemms, fail if the DB is not created
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
