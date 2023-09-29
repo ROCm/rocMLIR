@@ -262,7 +262,7 @@ CONV_STRUCTURE = itertools.product(
     # dtype
     # TODO(kdrewnia): add bf16 once we're confident in that support
     # and add int8 for fwd only
-    ['f16'],
+    ['f32', 'f16'],
     # Padding - hl, hr, wl, wr in [0, 3]
     # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
     range(0, 4),
@@ -447,7 +447,7 @@ def main() -> bool:
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
         elif 'gfx11' in arch:
             codepath = 'wmma'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=on']
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
         else:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
