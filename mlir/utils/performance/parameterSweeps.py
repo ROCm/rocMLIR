@@ -303,11 +303,11 @@ WMMA_PERF_CONFIG = itertools.product(
     # KPerBlock (exponent)
     range(0, 4),
     # MPerWave (exponent)
-    range(1, 8),
+    range(2, 8),
     # NPerWave (exponent)
-    range(4, 8),
+    range(2, 8),
     # KPack (exponent)
-    range(1, 4)
+    range(2, 5)
 )
 
 MFMA_PERF_CONFIG = itertools.product(
@@ -324,9 +324,9 @@ MFMA_PERF_CONFIG = itertools.product(
     # KPerBlock (exponent)
     range(0, 4),
     # MPerWave (exponent)
-    range(1, 8),
+    range(2, 8),
     # NPerWave (exponent)
-    range(4, 8),
+    range(2, 8),
     # KPack (exponent)
     range(1, 4)
 )
@@ -399,7 +399,7 @@ def main() -> bool:
             description='Sweep parameter values to check correctness of MLIR')
     parser.add_argument('config',
         help="The configuration to test",
-        choices=['conv_structure', 'mfma_perf_config', 'vanilla_perf_config', 'perf_config'])
+        choices=['conv_structure', 'mfma_perf_config', 'vanilla_perf_config', 'wmma_perf_config', 'perf_config'])
     parser.add_argument('--debug', '-d', action='store_true', default=False,
         help='Turn on debug output (print error messages on failure or inapplicability)')
     parser.add_argument('--no-debug', '-D', dest='debug', action='store_false',
