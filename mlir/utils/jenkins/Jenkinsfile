@@ -348,7 +348,7 @@ pipeline {
 //                }
 
                   sshagent (credentials: ['rocmlir-ixt-rack-15']) {
-                      sh 'ssh -p 20057 -J lockhart-login4.amd.com -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a'
+                      sh 'ssh -p 20057 -J lockhart-login3.amd.com -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a'
                   }
 
             }
