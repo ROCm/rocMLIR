@@ -343,9 +343,14 @@ pipeline {
                 }
             }
             steps {
-                timeout(time: 5, activity: true, unit: 'MINUTES') {
-                    sh 'ssh -p 20057 -J lockhart-login4.amd.com -i mlir/utils/tuna/ixt-rack-15.pem -oStrictHostKeyChecking=off -oUserKnownHostsFile=/tmp/known_hosts 10.216.64.100 date'
-                }
+//                timeout(time: 5, activity: true, unit: 'MINUTES') {
+//                    sh 'ssh -p 20057 -J lockhart-login4.amd.com -i mlir/utils/tuna/ixt-rack-15.pem -oStrictHostKeyChecking=off -oUserKnownHostsFile=/tmp/known_hosts 10.216.64.100 date'
+//                }
+
+                  sshagent (credentials: ['rocmlir-ixt-rack-15']) {
+                      sh 'ssh -p 20057 -J lockhart-login4.amd.com -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a'
+                  }
+
             }
         }
 
