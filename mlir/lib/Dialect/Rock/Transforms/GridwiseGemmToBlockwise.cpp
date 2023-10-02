@@ -1252,11 +1252,19 @@ struct GridwiseAttentionAccelRewritePattern
                                     RegsAsMatrixSubTiles gemm0OutSubTileViews,
                                     int64_t prePadGemmM,
                                     int64_t prePadGemmN) const {
-    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    Value prePadGemmMVal =
-        rewriter.createOrFold<ConstantIndexOp>(loc, prePadGemmM);
-    Value prePadGemmNVal =
-        rewriter.createOrFold<ConstantIndexOp>(loc, prePadGemmN);
+    // Append a pad rock.transform to be able query validity
+    // later to insert the special padded value
+    ArrayRef<int64_t> paddedShape =
+        getLowerShape(gemm0OutSubTileViews.gridSubTile);
+    TopDownTMBuilder viewBuilder{
+        rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
+    viewBuilder.passThrough("g");
+    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[0] - prePadGemmM, 0,
+                                             paddedShape[1] - prePadGemmN});
+    ArrayAttr transforms =
+        prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
+                          rewriter.getArrayAttr({viewBuilder.get()}));
+
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
@@ -1265,14 +1273,13 @@ struct GridwiseAttentionAccelRewritePattern
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
-
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                               gridCoords.n_block, tid, zero},
                              {zero, zero, zero, zero, zero}},
-        ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile,
-                            rewriter.getArrayAttr({})},
+        ArrayRef<Attribute>{transforms, rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
@@ -1280,15 +1287,13 @@ struct GridwiseAttentionAccelRewritePattern
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
 
-      Block::BlockArgListType gemm0OutCoords = loop.getLowerCoords(0);
       Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
-      auto isLargerThanM = rewriter.create<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::sge, gemm0OutCoords[1], prePadGemmMVal);
-      auto isLargerThanN = rewriter.create<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::sge, gemm0OutCoords[2], prePadGemmNVal);
-      auto isLargerThanMorN =
-          rewriter.create<arith::OrIOp>(loc, isLargerThanM, isLargerThanN);
-      scf::IfOp ifb = rewriter.create<scf::IfOp>(loc, isLargerThanMorN,
+      TypedValue<IntegerType> isValid = loop.getValidity(0);
+      Value zeroBit = createConstantIntOp(rewriter, loc, isValid.getType(),
+                                          isValid.getType(), 0);
+      auto isInvalid = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::eq, isValid, zeroBit);
+      scf::IfOp ifb = rewriter.create<scf::IfOp>(loc, isInvalid,
                                                  /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
@@ -1567,11 +1572,11 @@ struct GridwiseAttentionAccelRewritePattern
       if (hasPadding) {
         int64_t prePadG0M = gemm0M;
         if (op.getPrePadG0M().has_value()) {
-          prePadG0M = op.getPrePadG0M().value();
+          prePadG0M = op.getPrePadG0M().value().getSExtValue();
         }
         int64_t prePadG0N = gemm0N;
         if (op.getPrePadG0N().has_value()) {
-          prePadG0N = op.getPrePadG0N().value();
+          prePadG0N = op.getPrePadG0N().value().getSExtValue();
         }
         createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
                                      gemm0OutBuffer, gemm0OutSubTileViews,

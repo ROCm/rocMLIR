@@ -427,8 +427,8 @@ def Rock_GridwiseAttentionAccelOp :
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   OptionalAttr<I32Attr>:$prePadG0M,
-                   OptionalAttr<I32Attr>:$prePadG0N,
+                   OptionalAttr<IndexAttr>:$prePadG0M,
+                   OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
