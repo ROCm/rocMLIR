@@ -259,11 +259,11 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
   IntegerAttr prePadG0MAttr;
   if (gemm0ExtraPad.m) {
-    prePadG0MAttr = rw.getI32IntegerAttr(gemm0Size.m);
+    prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
   }
   IntegerAttr prePadG0NAttr;
   if (gemm0ExtraPad.n) {
-    prePadG0NAttr = rw.getI32IntegerAttr(gemm0Size.n);
+    prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
       op, queries, keys, values,
