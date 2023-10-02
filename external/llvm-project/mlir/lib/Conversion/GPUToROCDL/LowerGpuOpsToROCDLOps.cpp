@@ -176,7 +176,7 @@ struct LowerGpuOpsToROCDLOpsPass
 
     // Manually rewrite known block size attributes so the LLVMIR translation
     // infrastructure can pick them up.
-    m.walk([ctx](LLVM::LLVMFuncOp op) {
+    m.walk([ctx, maybeChipset](LLVM::LLVMFuncOp op) {
       if (auto blockSizes = dyn_cast_or_null<DenseI32ArrayAttr>(
               op->removeAttr(gpu::GPUFuncOp::getKnownBlockSizeAttrName()))) {
         op->setAttr(ROCDL::ROCDLDialect::getReqdWorkGroupSizeAttrName(),
@@ -189,6 +189,12 @@ struct LowerGpuOpsToROCDLOpsPass
         }
         StringAttr flatSizeAttr =
             StringAttr::get(ctx, Twine(flatSize) + "," + Twine(flatSize));
+        /// WORKAROUND HACK rocMLIR-specific
+        /// For unknown reasons, using a non-default value for the flat
+        /// workgroup size attributes on gfx11 can cause hangs in some kernels.
+        if (maybeChipset->majorVersion == 11)
+          flatSizeAttr = StringAttr::get(ctx, "1,1024");
+        /// END WORKAROUND HACK
         op->setAttr(ROCDL::ROCDLDialect::getFlatWorkGroupSizeAttrName(),
                     flatSizeAttr);
       }
