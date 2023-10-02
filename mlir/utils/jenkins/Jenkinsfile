@@ -350,9 +350,9 @@ pipeline {
                   sshagent (credentials: ['rocmlir-ixt-rack-15']) {
                       sh """
                           if [ '$env.NODE_NAME' = 'lockhart-15' ]; then
-                              ssh -p 20057 -L3306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
+                              ssh -4 -p 20057 -L23306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
                           else
-                              ssh -p 20057 -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
+                              ssh -4 -p 20057 -L23306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
                           fi
                       """
                   }
