@@ -5,7 +5,9 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "$cmakeOpts"
+            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+              ${cmakeOpts}"""
     }
 }
 
