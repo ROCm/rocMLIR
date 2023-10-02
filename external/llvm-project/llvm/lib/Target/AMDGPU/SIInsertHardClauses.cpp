@@ -47,6 +47,9 @@ namespace {
 // instruction, but the hardware documentation (at least for GFX11) says that
 // 63 is the maximum allowed.
 constexpr unsigned MaxInstructionsInClause = 63;
+// There's some weird hardware behavior we've seen with large store clauses on
+// gfx11, try to work around this.
+constexpr unsigned MaxInstructionsInVmemStoreClause = 32;
 
 enum HardClauseType {
   // For GFX10:
@@ -224,6 +227,8 @@ public:
         }
 
         if (CI.Length == MaxInstructionsInClause ||
+            (CI.Type == HARDCLAUSE_VMEM_STORE &&
+             CI.Length == MaxInstructionsInVmemStoreClause) ||
             (CI.Length && Type != HARDCLAUSE_INTERNAL &&
              Type != HARDCLAUSE_IGNORE &&
              (Type != CI.Type ||
