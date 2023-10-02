@@ -100,6 +100,7 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
   // CHECK-DAG: %[[paddedV:.*]] = rock.transform %[[v]] by {{.*}} : memref<1x49x7xf32> to memref<1x52x8xf32>
   // CHECK-DAG: %[[paddedO:.*]] = rock.transform %[[o]] by {{.*}} : memref<1x49x7xf32> to memref<1x64x8xf32>
   // CHECK: rock.gridwise_attention_accel(%[[paddedTrQ]], %[[paddedK]], %[[paddedV]], %[[paddedO]])
+  // CHECK-SAME: prePadG0M = 49 : index, prePadG0N = 49 : index
   rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     params = #xldops_attn_params

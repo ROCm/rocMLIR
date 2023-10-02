@@ -257,12 +257,19 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
-
+  IntegerAttr prePadG0MAttr;
+  if (gemm0ExtraPad.m) {
+    prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
+  }
+  IntegerAttr prePadG0NAttr;
+  if (gemm0ExtraPad.n) {
+    prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
+  }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
       op, queries, keys, values,
       /*TODO(enable scale here once implemented)*/ nullptr, out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
-      params);
+      prePadG0MAttr, prePadG0NAttr, params);
   return success();
 }
 
