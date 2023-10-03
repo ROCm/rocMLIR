@@ -1303,27 +1303,27 @@ def Rock_InWarpTransposeOp :
     # !cast<string>(swizzleGroupSize) # ";\n";
 }
 
-def Rock_ThreadwiseTransposeOp :
-    Rock_Op<"threadwise_transpose">,
+def Rock_ThreadwiseCopyOp :
+    Rock_Op<"threadwise_copy">,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
       Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
       Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
-      I64Attr : $kpack,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
     )> {
-  let summary = "Threadwise register-to-register transpose";
+  let summary = "Threadwise register-to-register copy";
 
   let description = [{
-    `rock.threadwise_transpose` accepts a source view and a destination view and copy
-    data from source to destination.
+    `rock.threadwise_copy` accepts a source view and a destination view and copy
+    data from source to destination. The only requirements are that both `source` and
+    `dest` views have the same upper shape and that their transform stack lowers to a flat buffer
   }];
 
   let assemblyFormat = [{
     attr-dict $source  `->` $dest `:` type($source) `->` type($dest)
   }];
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 #endif // ROCK_OPS

@@ -624,92 +624,67 @@ struct ThreadwiseWriteAllRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 
-struct ThreadwiseTransposeRewritePattern
-    : public OpConversionPattern<ThreadwiseTransposeOp> {
-  using OpConversionPattern<ThreadwiseTransposeOp>::OpConversionPattern;
+struct ThreadwiseCopyRewritePattern
+    : public OpConversionPattern<ThreadwiseCopyOp> {
+  using OpConversionPattern<ThreadwiseCopyOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ThreadwiseTransposeOp op, OpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ThreadwiseCopyOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final;
 };
 } // end anonymous namespace
 
-LogicalResult ThreadwiseTransposeRewritePattern::matchAndRewrite(
-    ThreadwiseTransposeOp op, OpAdaptor adaptor,
+LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
+    ThreadwiseCopyOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
 
-  ArrayRef<int64_t> loadShape =
-      sourceView.getType().cast<ShapedType>().getShape();
-  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
-  int64_t copyDPerThread = loadShape[1];
-  int64_t copyKPerThread = loadShape[0];
-  int64_t kpack = op.getKpack();
-
-  // We use kpackPerThread instead of kpack to cover edge cases where
-  // copyKPerThread is smaller than kpack
-  int64_t kpackPerThread = std::min(copyKPerThread, kpack);
-
-  Value rawLoadBuffer;
-  ArrayAttr loadBufferView;
-  bool needs64BitIdx;
-  std::tie(rawLoadBuffer, loadBufferView, needs64BitIdx) =
+  auto [rawLoadBuffer, loadBufferView, sourceNeeds64BitIdx] =
       untransform(b, sourceView);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
+  auto [rawStoreBuffer, storeBufferView, dstNeeds64BitIdx] =
+      untransform(b, destView);
+
+  assert(!sourceNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+  assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
   ArrayRef<int64_t> rawLoadBufferShape =
       rawLoadBuffer.getType().cast<ShapedType>().getShape();
-
-  Value rawStoreBuffer;
-  ArrayAttr storeBufferView;
-  std::tie(rawStoreBuffer, storeBufferView, needs64BitIdx) =
-      untransform(b, destView);
-  assert(!needs64BitIdx && "Registers shouldn't need 64-bit indexing");
   ArrayRef<int64_t> rawStoreBufferShape =
       rawStoreBuffer.getType().cast<ShapedType>().getShape();
-
+  if (rawLoadBufferShape.size() != 1)
+    return op.emitOpError("Raw load buffers have to be flat.");
+  if (rawStoreBufferShape.size() != 1)
+    return op.emitOpError("Raw store buffers have to be flat.");
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  SmallVector<Value, 2> start(2, zero);
-  SmallVector<int64_t, 2> strides(2, 1);
-  int64_t vecLen = 1;
-  // The store buffer is a flattened < kouter x dPerThread x kpack >.
-  if (kpackPerThread == 1) {
-    // if kpack == 1, then we can do vectorized loads across d dimension from/to
-    // load/store buffer
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/1,
-                                            copyDPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(copyDPerThread, vecLen);
-    strides[1] = vecLen;
-  } else {
-    // if kpack > 1, then we are limited by vectorization in k dimension and it
-    // could be at most kpack.
-    vecLen = getMaxVectorizationForDatatype(loadBufferView, /*dim=*/0,
-                                            copyKPerThread, rawLoadBufferShape,
-                                            elemType);
-    vecLen = math_util::gcd(vecLen, kpackPerThread);
-    strides[0] = vecLen;
-  }
-  loadBufferView = collapseContiguousMerges(loadBufferView, rawLoadBufferShape);
-  storeBufferView =
-      collapseContiguousMerges(storeBufferView, rawStoreBufferShape);
+
+  auto storeBufferViewInverted = invertTransforms(b, loc, storeBufferView);
+  auto srcToDstView =
+      prependUpperViews(b, storeBufferViewInverted, loadBufferView);
+
+  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
+  int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
+  int64_t vecLen = getMaxVectorizationForDatatype(
+      srcToDstView, /*dim=*/0, maxVlen, rawStoreBufferShape, elemType);
+
+  srcToDstView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
 
   // Run the packing loop
-  auto packLoop = b.create<TransformingForOp>(
+  SmallVector<Value, 2> start{zero};
+  SmallVector<int64_t, 2> strides{vecLen};
+  auto copyLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{start, start},
-      ArrayRef<Attribute>{loadBufferView, storeBufferView},
-      /*bounds=*/loadShape,
+      ArrayRef<Attribute>{srcToDstView, b.getArrayAttr({})},
+      /*bounds=*/rawStoreBufferShape,
       /*strides=*/strides, false,
       /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(packLoop.getBody());
+    b.setInsertionPointToStart(copyLoop.getBody());
     Type loadType = vectorTypeOrSelf(elemType, vecLen);
     auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        packLoop.getLowerCoords(0));
-
+                                        copyLoop.getLowerCoords(0));
     b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              packLoop.getLowerCoords(1));
+                              copyLoop.getLowerCoords(1));
   }
   b.eraseOp(op);
   return success();
@@ -1513,8 +1488,8 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseTransposeOp,
-                                BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
+                                ThreadwiseCopyOp, BlockwiseBroadcastReduceOp,
+                                BlockwiseFillOp>();
     writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                                    memref::MemRefDialect, scf::SCFDialect,
                                    vector::VectorDialect, AffineDialect>();
@@ -1522,7 +1497,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseTransposeRewritePattern, BlockwiseReduceRewritePattern,
+             ThreadwiseCopyRewritePattern, BlockwiseReduceRewritePattern,
              BlockwiseFillRewritePattern>(ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
