@@ -39,11 +39,6 @@ EOF
 
 function remote_mysql_setup
 {
-    # Will need mysql client to probe for tables later.
-    export DEBIAN_FRONTEND=noninteractive
-    apt update
-    apt install -y mysql-client
-
     # Make ssh tunnel to ixt-rack-15.  Assumes an ssh agent.
     rack15addr=10.216.64.100
     rack15port=20057
@@ -79,14 +74,22 @@ function tuna_setup
 
     cd $startdir
 
-    tables=`mysql -h $TUNA_DB_HOSTNAME -u $TUNA_DB_USER_NAME -p${TUNA_DB_USER_PASSWORD} --database $TUNA_DB_NAME \
-                  -e 'show tables;' 2>/dev/null`
+    tables=`python3 <<foo
+import pymysql
+from sqlalchemy import create_engine, inspect
+e = create_engine(f"mysql+pymysql://${TUNA_DB_USER_NAME}:${TUNA_DB_USER_PASSWORD}@${TUNA_DB_HOSTNAME}:3306/${TUNA_DB_NAME}")
+i = inspect(e)
+print(i.get_table_names())
+foo
+`
+#     tables=`mysql -h $TUNA_DB_HOSTNAME -u $TUNA_DB_USER_NAME -p${TUNA_DB_USER_PASSWORD} --database $TUNA_DB_NAME \
+#                   -e 'show tables;' 2>/dev/null`
 
     if [ $? -ne 0 ] ; then
         echo Database table probe failed.
         exit 2
     fi
-    if [ "$tables" = "" ]; then
+    if [ "$tables" = "[]" ]; then
         ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
     fi
 

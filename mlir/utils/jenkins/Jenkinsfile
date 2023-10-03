@@ -61,7 +61,7 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'pcf0/rocm-mysql1'
+    return 'rocm/mlir:rocm5.6-latest'  // 'pcf0/rocm-mysql1'
 }
 
 String dockerImageCIMIGraphX() {
