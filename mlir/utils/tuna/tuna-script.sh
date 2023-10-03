@@ -119,7 +119,7 @@ function tuna_run
     kind=$1
     baselabel=`date --iso-8601=minutes`
 
-    clear_tables $kind
+#    clear_tables $kind
     ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${CONFIGS_FILE} --config_type $kind
     ${TUNA_DIR}/tuna/go_fish.py rocmlir --init_session -l "$baselabel $kind" --config_type $kind 2> initlog
     session=`perl -n -e'/Added new session_id: (\d+)/ && print $1' < initlog`
@@ -182,13 +182,14 @@ export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 #     tuna_setup
 # fi
 
-if [ "$VIRTUAL_ENV" = "" ]; then
-    source ${TUNA_DIR}/myvenv/bin/activate
-fi
+# if [ "$VIRTUAL_ENV" = "" ]; then
+#     source ${TUNA_DIR}/myvenv/bin/activate
+# fi
 
-if ! remote_mysql_setup ; then
-    echo Failed to connect to database.
-    exit 1
-fi
+# if ! remote_mysql_setup ; then
+#     echo Failed to connect to database.
+#     exit 1
+# fi
+
 tuna_setup
 tuna_run $OP
