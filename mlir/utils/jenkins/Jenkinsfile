@@ -343,22 +343,19 @@ pipeline {
                 }
             }
             steps {
-//                timeout(time: 5, activity: true, unit: 'MINUTES') {
-//                    sh 'ssh -p 20057 -J lockhart-login4.amd.com -i mlir/utils/tuna/ixt-rack-15.pem -oStrictHostKeyChecking=off -oUserKnownHostsFile=/tmp/known_hosts 10.216.64.100 date'
-//                }
-
                   sshagent (credentials: ['rocmlir-ixt-rack-15', 'rocmlir-proxy-1']) {
                       sh """
                           if [ '$env.NODE_NAME' = 'lockhart-15' ]; then
-                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100
+                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l rocmlir_user 10.216.64.100
                           elif [ '$env.NODE_NAME' = 'ixt-rack-159' ]; then
-                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100
+                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l rocmlir_user 10.216.64.100
                           else
-                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100
+                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l rocmlir_user 10.216.64.100
                           fi
                       """
-                      sh 'mysql -u rocmlir_user -p\'mlir<234\' -h 127.0.0.1 -P 23306 -e "show databases;"'
                   }
+
+                  sh 'mysql -u rocmlir_user -p\'mlir<234\' -h 127.0.0.1 -P 23306 -e "show databases;"'
 
             }
         }
