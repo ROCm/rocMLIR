@@ -1,5 +1,11 @@
 #!/bin/bash
 
+export TUNA_DB_USER_NAME=rocmlir_user
+export TUNA_DB_USER_PASSWORD="mlir<234"
+export TUNA_DB_HOSTNAME=127.0.0.1
+export TUNA_DB_NAME=rocmlir
+
+
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup
 {
@@ -31,6 +37,26 @@ password = TunaTest
 EOF
 }
 
+function remote_mysql_setup
+{
+    # Will need mysql client to probe for tables later.
+    export DEBIAN_FRONTEND=noninteractive
+    apt update
+    apt install -y mysql-client
+
+    # Make ssh tunnel to ixt-rack-15.  Assumes an ssh agent.
+    rack15addr=10.216.64.100
+    rack15port=20057
+    commonopts="-4 -f -N -p $rack15port -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l $TUNA_DB_USER_NAME"
+
+    # First case is simple hosts, second is lockhart, third is other 10.216.64.100 hosts.
+    status=`ssh $commonopts $rack15addr ||
+            ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
+            ssh $commonopts -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' $rack15addr`
+
+    return $status
+}
+
 
 function tuna_setup
 {
@@ -49,13 +75,21 @@ function tuna_setup
     python3 -m pip install -r requirements.txt --ignore-installed
     python3 -m pip install scipy pandas
 
+    export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
+
     cd $startdir
 
-    if pgrep mysqld ; then
+    tables=`mysql -h $TUNA_DB_HOSTNAME -u $TUNA_DB_USER_NAME -p${TUNA_DB_USER_PASSWORD} --database $TUNA_DB_NAME \
+                  -e 'show tables;' 2>/dev/null`
+
+    if [ $? -ne 0 ] ; then
+        echo Database table probe failed.
+        exit 2
+    fi
+    if [ "$tables" = "" ]; then
         ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
     fi
 
-    export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 }
 
 
@@ -69,9 +103,12 @@ function clear_tables
 
     # config table has foreign keys from job and results tables.  however,
     # config table doesn't have a session column so we must delete them all.
-    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_results;"
-    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_job;"
-    mysql --database tuna -u root -pTunaTest -e "delete from rocmlir_${tablekind}_config;"
+    mysql -h $TUNA_DB_HOSTNAME --database $TUNA_DB_NAME -u $TUNA_DB_USER_NAME -p$TUNA_DB_USER_PASSWORD \
+          -e "delete from rocmlir_${tablekind}_results;"
+    mysql -h $TUNA_DB_HOSTNAME --database $TUNA_DB_NAME -u $TUNA_DB_USER_NAME -p$TUNA_DB_USER_PASSWORD \
+          -e "delete from rocmlir_${tablekind}_job;"
+    mysql -h $TUNA_DB_HOSTNAME --database $TUNA_DB_NAME -u $TUNA_DB_USER_NAME -p$TUNA_DB_USER_PASSWORD \
+          -e "delete from rocmlir_${tablekind}_config;"
 }
 
 function tuna_run
@@ -134,19 +171,21 @@ done
 
 set -x
 
-export TUNA_DB_USER_NAME=root
-export TUNA_DB_USER_PASSWORD=TunaTest
-export TUNA_DB_HOSTNAME=localhost
-export TUNA_DB_NAME=tuna
 export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
 
-if ! pgrep mysqld ; then
-    mysqld -D
-    tuna_setup
-fi
+# if ! pgrep mysqld ; then
+#     mysqld -D
+#     tuna_setup
+# fi
 
 if [ "$VIRTUAL_ENV" = "" ]; then
     source ${TUNA_DIR}/myvenv/bin/activate
 fi
+
+if ! remote_mysql_setup ; then
+    echo Failed to connect to database.
+    exit 1
+fi
+tuna_setup
 tuna_run $OP
