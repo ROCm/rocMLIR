@@ -279,7 +279,7 @@ void archivePerfDB() {
     onlyIfSuccessful: true
 }
 
-# Make ssh tunnel to ixt-rack-15.
+// Make ssh tunnel to ixt-rack-15.
 void makeDatabaseTunnel(String username) {
     echo "Making tunnel from $env.NODE_NAME"
     sshagent (credentials: ['rocmlir-ixt-rack-15', 'rocmlir-proxy-1']) {
