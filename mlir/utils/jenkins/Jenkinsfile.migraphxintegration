@@ -1,0 +1,231 @@
+boolean shouldRunOnMachine(String machine){
+    switch (machine){
+        case "rocm-framework-38.amd.com":
+            return (params.MI200 == true)
+        case "aus-navi3x-13.amd.com":
+            return (params.Navi3x == true)
+    }
+}
+
+void clean() {
+sh """ #!/bin/bash -x
+
+if [ \$(docker ps -a -q -f name=migraphx) ]; then
+    docker stop migraphx
+    docker rm migraphx
+    echo "cleanup"
+fi
+"""
+}
+
+void buildAndTest(){
+    sh """#!/bin/bash -x
+# Make the script fail if there is a runtime error when executing piped commands
+# (e.g., if ./a.out fails, ./a.out | ./b.out also fails )
+set -e
+set -o pipefail
+
+# Print parameters
+echo "Parameters:"
+echo "fp32:$fp32"
+echo "fp16:$fp16"
+echo "int8:$int8"
+echo "checkFor:$checkFor"
+
+docker run -itd --device=/dev/kfd --device=/dev/dri  -v /nas/models:/models --group-add video --hostname migraphx --name migraphx rocm/mlir-migraphx-ci:latest
+docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCmSoftwarePlatform/rocMLIR.git"
+docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git"
+
+docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
+docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON .. && ninja package && cmake --install . --prefix /MIGraphXDeps"
+
+docker exec -w /AMDMIGraphX migraphx bash -c "cmake . -G 'Unix Makefiles' -B build -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_PREFIX_PATH=/MIGraphXDeps -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DGPU_TARGETS=$(/opt/rocm/bin/rocminfo | grep -o -m1 'gfx.*')"
+docker exec -w /AMDMIGraphX/build migraphx bash -c "make -j driver test_gpu_mlir"
+
+SUMMARY=summary.log
+LOGFILE=generic.log
+rm -f \$LOGFILE
+rm -f \$SUMMARY
+
+echo "###########################################" >>  \$LOGFILE
+echo "New Run \$(pwd)" >>  \$LOGFILE
+date >> \$LOGFILE
+echo "GPU: \$(docker exec migraphx rocminfo |grep -o -m 1 'gfx.*')" >> \$LOGFILE
+echo "MIGX: \$(docker exec migraphx /AMDMIGraphX/build/bin/migraphx-driver version)" >> \$LOGFILE
+echo "MIGX Commit: \$(docker exec migraphx git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> \$LOGFILE
+docker exec migraphx ls -l /etc/alternatives |grep "rocm ->" >> \$LOGFILE
+echo "###########################################" >>  \$LOGFILE
+
+datatypes=()
+if [ "$fp32" = "true" ]; then
+        datatypes+=(" ")
+fi
+if [ "$fp16" = "true" ]; then
+        datatypes+=("--fp16")
+fi
+if [ "$int8" = "true" ]; then
+        datatypes+=("--int8")
+fi
+
+echo "Data type flags:"
+printf -- '- %s\n' "\${datatypes[@]}"
+echo "$list_tier1_p0"
+echo "Collecting models:"
+tier1_p0_models=()
+tier1_p1_models=()
+other_models=()
+OLD_IFS="\$IFS"
+IFS=\$'\n'
+for model in "$list_tier1_p0"; do
+tier1_p0_models+=(\$model)
+done
+for model in "$list_tier1_p1"; do
+tier1_p1_models+=(\$model)
+done
+for model in "$list_others"; do
+other_models+=(\$model)
+done
+IFS="\$OLD_IFS"
+
+
+# Function to test different list of models
+function test_models(){
+  array_name=\$1[@]
+  models_to_test=("\${!array_name}")
+  out_log_file=\$2
+  for testcase in "\${models_to_test[@]}"; do
+      if [[ \$str =~ ^# ]]; then
+          continue;
+      fi
+
+      for datatype in "\${datatypes[@]}"; do
+          echo "Testing: \$testcase \$datatype" >> \$out_log_file
+          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver $checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout_status=\$?
+          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
+          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
+          result="DONE"
+          if [[ \$timeout_status -eq 124 ]]; then
+                  result="TIMEOUT"
+          fi
+          echo "\$result Testing: \$testcase \$datatype" >> \$out_log_file
+          echo "\$testcase \$datatype \$result" >> \$SUMMARY
+
+          echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
+          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout_status=\$?
+          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
+          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
+          result="DONE"
+          if [[ \$timeout_status -eq 124 ]]; then
+                  result="TIMEOUT"
+          fi
+          echo "\$result Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
+          echo "(MLIR ENABLED) \$testcase \$datatype \$result" >> \$SUMMARY
+      done
+  done
+}
+rm -f tier1_p0.log
+rm -f tier1_p1.log
+rm -f other_models.log
+
+if [ "$enable_tier1_p0" = "true" ]; then
+	test_models tier1_p0_models tier1_p0.log
+fi
+if [ "$enable_tier1_p1" = "true" ]; then
+    test_models tier1_p1_models tier1_p1.log
+fi
+
+if [ "$enable_others" = "true" ]; then
+    test_models other_models other_models.log
+fi
+"""
+}
+
+def list_tier1_p0_default='''\
+/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64
+/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/onnx-model-zoo/gpt2-10.onnx
+/models/mlperf/resnet50_v1.onnx
+'''
+
+def list_tier1_p1_default= '''\
+/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482
+/models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482
+/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
+/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384
+/models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024
+'''
+
+pipeline {
+    agent any
+    parameters{
+        booleanParam(name: 'fp32', defaultValue: true, description: 'No quantization')
+        booleanParam(name: 'fp16', defaultValue: true, description: 'Quantize for fp16')
+        booleanParam(name: 'int8', defaultValue: true, description: 'Quantize for int8')
+        choice(name: 'checkFor', choices:["perf", "verify"], description: 'Do a performance or verification run')
+        string(name: 'mlir_branch', defaultValue: 'develop', description: 'Mlir branch to clone.')
+        string(name: 'migraphx_branch', defaultValue: 'develop', description: 'MIGraphX branch to clone.')
+        booleanParam(name: 'enable_tier1_p0', defaultValue: true, description: 'Enable tests for tier1 P0 models')
+        booleanParam(name: 'enable_tier1_p1', defaultValue: true, description: 'Enable tests for tier1 P1 models')
+        booleanParam(name: 'enable_others', defaultValue: true, description: 'Enable testing for additional models')
+        booleanParam(name: 'MI200', defaultValue: true, description: 'Run the job on a MI210 machine')
+        booleanParam(name: 'Navi3x', defaultValue: true, description: 'Run the job on a Navi3x machine')
+        text(name: 'list_tier1_p0', defaultValue: list_tier1_p0_default, description: 'List of tier 1 models to test (P0)')
+        text(name: 'list_tier1_p1', defaultValue: list_tier1_p1_default, description: 'List of tier 1 models to test (P1)')
+        text(name: 'list_others', defaultValue: '', description: 'List of additional models to test')
+    }
+    stages {
+        stage('BuildAndTest') {
+            matrix {
+                agent any
+                axes {
+                    axis {
+                        name 'PLATFORM'
+                        values "rocm-framework-38.amd.com", "aus-navi3x-13.amd.com"
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunOnMachine("${PLATFORM}") }
+                }
+                stages {
+                    stage('BuildAndTest') {
+                        agent {label "${PLATFORM}" }
+                        steps {
+                            echo "Do Build And Test for ${PLATFORM}"
+                            clean()
+                            buildAndTest()
+                            archiveArtifacts allowEmptyArchive: false, artifacts: 'generic.log,tier1_p0.log,tier1_p1.log,other_models.log,summary.log', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            mail to: "giuseppe.rossini@amd.com,manupa.karunaratne@amd.com,krzysztof.drewniak@amd.com",
+             subject: "MIGraphX integration job passed!",
+             body: "Done"
+        }
+        failure {
+            mail to: "giuseppe.rossini@amd.com,manupa.karunaratne@amd.com,krzysztof.drewniak@amd.com",
+             subject: "Ouch! MIGraphX integration job failed!",
+             body: "Done"
+        }
+    }
+}
