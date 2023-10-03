@@ -283,7 +283,7 @@ void archivePerfDB() {
 void makeDatabaseTunnel(String username) {
     echo "Making tunnel from $env.NODE_NAME"
     sshagent (credentials: ['rocmlir-ixt-rack-15', 'rocmlir-proxy-1']) {
-        sh '''
+        sh """
            rack15addr=10.216.64.100
            rack15port=20057
            commonopts="-4 -f -N -p $rack15port -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l $username"
@@ -292,7 +292,7 @@ void makeDatabaseTunnel(String username) {
            ssh $commonopts $rack15addr ||
            ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
            ssh $commonopts -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' $rack15addr
-        '''
+        """
     }
 }
 
