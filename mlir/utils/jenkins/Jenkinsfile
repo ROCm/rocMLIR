@@ -350,11 +350,12 @@ pipeline {
                   sshagent (credentials: ['rocmlir-ixt-rack-15']) {
                       sh """
                           if [ '$env.NODE_NAME' = 'lockhart-15' ]; then
-                              ssh -4 -p 20057 -L23306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
+                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oProxyCommand=\'nc -X connect -x 172.23.0.23:3128 %h %p\' -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100
                           else
-                              ssh -4 -p 20057 -L23306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100 uname -a
+                              ssh -4 -f -N -p 20057 -L23306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/tmp/known_hosts -l rocmlir_user 10.216.64.100
                           fi
                       """
+                      sh 'mysql -u rocmlir_user -p\'mlir<234\' -h 127.0.0.1 -P 23306 -e "show databases;"'
                   }
 
             }
