@@ -428,7 +428,6 @@ def main() -> bool:
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
-    print(args)
     arch = ','.join(getArch())
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch
