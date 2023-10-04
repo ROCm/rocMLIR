@@ -186,10 +186,9 @@ export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 #     source ${TUNA_DIR}/myvenv/bin/activate
 # fi
 
-# if ! remote_mysql_setup ; then
-#     echo Failed to connect to database.
-#     exit 1
-# fi
-
+if ! remote_mysql_setup ; then
+    echo Failed to connect to database.
+    exit 1
+fi
 tuna_setup
 tuna_run $OP
