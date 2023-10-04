@@ -302,8 +302,8 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
         return true
     }
-    // Run navi3x on private PR CI if it is not disabled
-    if (params.canXdlops && (params.weekly == false) && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+    // Run navi3x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
     return false
@@ -472,8 +472,13 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x' ) {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                    try {
                                         check_RockE2ETests_Navi3x(true)
+                                    } catch (Exception e) {
+                                        if (params.nightly)
+                                            currentBuild.result = 'SUCCESS'
+                                        else
+                                            currentBuild.result = 'FAILURE'
                                     }
                                 }
                                 else {
@@ -497,15 +502,17 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x') {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                    try {
                                         check_RockE2ETests_Navi3x(false)
+                                    } catch (Exception e) {
+                                        currentBuild.result = 'SUCCESS'
                                     }
                                 }
                                 else
                                     check_randomE2ETests("${CODEPATH}")
-                                }
                             }
                         }
+                    }
                     stage("Tune selected rocmlir configs") {
                         when {
                             beforeAgent true;
@@ -549,10 +556,7 @@ pipeline {
                 post {
                     unsuccessful {
                         script {
-                            // Ignore Navi3x failures
-                            if ( "${CODEPATH}" != 'navi3x') {
                                 rebootNode()
-                            }
                         }
                     }
                     always {
