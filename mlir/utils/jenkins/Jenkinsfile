@@ -285,9 +285,7 @@ void makeDatabaseTunnel(String username) {
     sshagent (credentials: ['rocmlir-ixt-rack-15', 'rocmlir-proxy-1']) {
         sh """
            rack15addr=10.216.64.100
-           rack15port=20057
-           commonopts='-4 -f -N -p $rack15port -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l $username'
-
+           commonopts='-4 -f -N -p 20057 -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l $username'
            # First case is simple hosts, second is lockhart, third is other 10.216.64.100 hosts.
            ssh $commonopts $rack15addr ||
            ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
