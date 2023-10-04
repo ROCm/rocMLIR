@@ -442,7 +442,7 @@ pipeline {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
                               sshagent (credentials: ['rocmlir-ixt-rack-15', 'rocmlir-proxy-1']) {
-                                timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
