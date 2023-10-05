@@ -1303,6 +1303,59 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
+  void scaleFirstGemm(PatternRewriter &rewriter, 
+                      Location loc, 
+                      layout::GridCoordinates gridCoords,
+                      Value gemm0OutBuffer, 
+                      RegsAsMatrixSubTiles gemm0OutViews,
+                      Value scaleInBuffer, 
+                      Value scaleInput) const {
+    // Get current workitem ID.
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    rewriter.create<ThreadwiseReadIntoOp>(loc, 
+                                          scaleInput, 
+                                          scaleInBuffer, 
+                                          gemm0OutViews.gridSubTile,
+                                          ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block, tid},
+                                          true, true);
+    rewriter.create<linalg::ElemwiseBinaryOp>(
+          loc, ValueRange{gemm0OutBuffer, scaleInBuffer},
+          ValueRange{gemm0OutBuffer},
+          ArrayRef<NamedAttribute>{
+              rewriter.getNamedAttr("fun",
+                                    rewriter.getAttr<linalg::BinaryFnAttr>(
+                                        linalg::BinaryFn::mul)),
+              rewriter.getNamedAttr("cast",
+                                    rewriter.getAttr<linalg::TypeFnAttr>(
+                                        linalg::TypeFn::cast_signed))});
+  }
+
+   void scaleFirstGemmSplat(PatternRewriter &rewriter, 
+                            Location loc, 
+                            layout::GridCoordinates gridCoords,
+                            Value gemm0OutBuffer, 
+                            RegsAsMatrixSubTiles gemm0OutViews,
+                            TypedAttr splatVal) const {
+    MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+    SmallVector<AffineMap, 2> indexingMaps{
+        2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
+    SmallVector<utils::IteratorType> iteratorTypes(
+        bufType.getRank(), utils::IteratorType::parallel);
+    rewriter.create<linalg::GenericOp>(
+        loc, ValueRange(gemm0OutBuffer), ValueRange(gemm0OutBuffer), indexingMaps, iteratorTypes,
+        [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+          Value splatScalarConst = nestedBuilder.create<arith::ConstantOp>(loc, bufType.getElementType(), splatVal);
+          Value mul;
+          if(bufType.getElementType().isIntOrIndex()){
+            mul = nestedBuilder.create<arith::MulIOp>(loc, args[0], splatScalarConst);
+          }
+          else{
+            mul = nestedBuilder.create<arith::MulFOp>(loc, args[0], splatScalarConst);
+          }
+          nestedBuilder.create<linalg::YieldOp>(nestedLoc, mul);
+        });
+    }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1386,6 +1439,8 @@ struct GridwiseAttentionAccelRewritePattern
     // Currently, there is a working assumption that this kernel is meant
     // support fp32/fp16 This should be guranteed by op verifiers.
     Value gemm0OutBuffer =
+        createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+    Value scaleInBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
 
     // Buffers for reductions
@@ -1581,6 +1636,27 @@ struct GridwiseAttentionAccelRewritePattern
         createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
                                      gemm0OutBuffer, gemm0OutSubTileViews,
                                      prePadG0M, prePadG0N);
+        if(Value scaleIn = op.getScale()){
+            Value rawBuffer;
+            std::tie(rawBuffer, std::ignore, std::ignore) = untransform(rewriter, scaleIn);
+            if(arith::ConstantOp constScale = rawBuffer.getDefiningOp<arith::ConstantOp>()){
+                if(DenseElementsAttr constScaleAttr = dyn_cast_or_null<DenseElementsAttr>(constScale.getValueAttr())){
+                    if(constScaleAttr.isSplat()){
+                        scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, constScaleAttr.getSplatValue<TypedAttr>());
+                    }
+                    else{
+                        return op.emitError("Only splat scale constant input is supported.");
+                    }
+                }
+                else{
+                    // This is guranteed via the lowering of tosa.const
+                    return op.emitError("Constant scale input is only supported to be DenseElementsAttrs");
+                }
+            }
+            else{
+                scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, scaleInBuffer, scaleIn);
+            }
+        }
       }
 
       APInt reductionAxis = APInt(64, 1);
