@@ -45,10 +45,11 @@ function remote_mysql_setup
     commonopts="-4 -f -N -p $rack15port -L3306:localhost:3306 -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -l $TUNA_DB_USER_NAME"
 
     # First case is simple hosts, second is lockhart, third is other 10.216.64.100 hosts.
-    status=`ssh $commonopts $rack15addr ||
-            ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
-            ssh $commonopts -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' $rack15addr`
+    ssh $commonopts $rack15addr ||
+    ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
+    ssh $commonopts -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' $rack15addr
 
+    status = $?
     if [ $status -eq 0 ]; then
         echo Tunnel is up
     else
