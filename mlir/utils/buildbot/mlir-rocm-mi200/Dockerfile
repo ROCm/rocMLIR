@@ -12,7 +12,7 @@
 #===----------------------------------------------------------------------===//
 
 # Use the rocm/mlir image as base
-FROM rocm/mlir:rocm5.4-latest
+FROM rocm/mlir:rocm5.7-latest
 
 RUN apt-get update; \
     apt-get install -y dumb-init; \
@@ -22,7 +22,7 @@ RUN apt-get update; \
 
 # LTS releases often bundle obsolete pip versions that cannot access newest
 # Linux binary wheels.
-RUN rm /usr/local/bin/python3 && python3 -m pip install --upgrade pip && python3 -m pip install --ignore-installed PyYAML
+RUN python3 -m pip install --upgrade pip && python3 -m pip install --ignore-installed PyYAML
 
 # Refer to mlir/lib/Bindings/Python/requirements.txt. Listed explicitly here
 # and version pinned for consistency as this is a bot.
