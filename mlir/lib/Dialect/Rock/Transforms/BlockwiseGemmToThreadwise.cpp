@@ -655,28 +655,43 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     return op.emitOpError("Raw load buffers have to be flat.");
   if (rawStoreBufferShape.size() != 1)
     return op.emitOpError("Raw store buffers have to be flat.");
+
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
-  auto storeBufferViewInverted = invertTransforms(b, loc, storeBufferView);
-  auto srcToDstView =
-      prependUpperViews(b, storeBufferViewInverted, loadBufferView);
-
+  auto srcViewShape = op.getSource().getType().getShape();
   Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
-  int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
-  int64_t vecLen = getMaxVectorizationForDatatype(
-      srcToDstView, /*dim=*/0, maxVlen, rawStoreBufferShape, elemType);
 
-  srcToDstView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
+  // Basic copy loop. Copy element by element from src to dest view
+  ArrayAttr copyFromView = loadBufferView;
+  ArrayAttr copyToView = storeBufferView;
+  SmallVector<Value> start(srcViewShape.size(), zero);
+  SmallVector<int64_t> strides(srcViewShape.size(), 1);
+  SmallVector<int64_t> bounds = llvm::to_vector(srcViewShape);
+  int64_t vecLen = 1;
 
-  // Run the packing loop
-  SmallVector<Value, 2> start{zero};
-  SmallVector<int64_t, 2> strides{vecLen};
-  auto copyLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{start, start},
-      ArrayRef<Attribute>{srcToDstView, b.getArrayAttr({})},
-      /*bounds=*/rawStoreBufferShape,
-      /*strides=*/strides, false,
-      /*useIndexDiffs=*/false);
+  // If we can invert the store view, we can easily find out the common
+  // vectorization length
+  auto storeBufferViewInverted = invertTransforms(b, loc, storeBufferView);
+  if (storeBufferViewInverted) {
+    auto srcToDstView =
+        prependUpperViews(b, storeBufferViewInverted, loadBufferView);
+    int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
+    vecLen = getMaxVectorizationForDatatype(srcToDstView, /*dim=*/0, maxVlen,
+                                            rawStoreBufferShape, elemType);
+
+    copyFromView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
+    copyToView = b.getArrayAttr({});
+
+    start = SmallVector<Value>{zero};
+    strides = SmallVector<int64_t>{vecLen};
+    bounds = llvm::to_vector(rawStoreBufferShape);
+  }
+
+  auto copyLoop =
+      b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
+                                  ArrayRef<Attribute>{copyFromView, copyToView},
+                                  /*bounds=*/bounds,
+                                  /*strides=*/strides, false,
+                                  /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
