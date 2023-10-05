@@ -218,6 +218,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   Value keys = adaptor.getKeys();
   Value values = adaptor.getValues();
   Value out = adaptor.getOut();
+
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
   queries = normalizeMatrix(queries, rw, loc, !op.getQTransposed(), "gemm0K",
@@ -254,6 +255,10 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   out = padMatrix(out, rw, loc, "gemm1M", gemm1ExtraPad.m, "gemm1N",
                   gemm1ExtraPad.n);
 
+  Value scale = nullptr;
+  if(Value scaleUnpadded = adaptor.getScale()){
+    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1M", gemm0ExtraPad.m, "gemm1N", gemm0ExtraPad.n);
+  }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
@@ -267,7 +272,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
       op, queries, keys, values,
-      /*TODO(enable scale here once implemented)*/ nullptr, out,
+      scale, out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       prePadG0MAttr, prePadG0NAttr, params);
   return success();
