@@ -49,7 +49,7 @@ function remote_mysql_setup
     ssh $commonopts -oProxyCommand='nc -X connect -x 172.23.0.23:3128 %h %p' $rack15addr ||
     ssh $commonopts -oProxyCommand='ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -W %h:%p fpadmin@rocmhead.amd.com' $rack15addr
 
-    status = $?
+    status=$?
     if [ $status -eq 0 ]; then
         echo Tunnel is up
     else
