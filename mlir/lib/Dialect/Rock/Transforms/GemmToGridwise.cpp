@@ -256,8 +256,9 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                   gemm1ExtraPad.n);
 
   Value scale = nullptr;
-  if(Value scaleUnpadded = adaptor.getScale()){
-    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1M", gemm0ExtraPad.m, "gemm1N", gemm0ExtraPad.n);
+  if (Value scaleUnpadded = adaptor.getScale()) {
+    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1M", gemm0ExtraPad.m,
+                      "gemm1N", gemm0ExtraPad.n);
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
@@ -271,10 +272,9 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
-      op, queries, keys, values,
-      scale, out,
-      op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
-      prePadG0MAttr, prePadG0NAttr, params);
+      op, queries, keys, values, scale, out, op.getArchAttr(),
+      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr, prePadG0MAttr,
+      prePadG0NAttr, params);
   return success();
 }
 
