@@ -1384,6 +1384,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
+    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getWorkgroupAddressSpace());
 
     int64_t gemm0G = qShape[0];
     int64_t gemm0K = qShape[1];
@@ -1440,8 +1442,10 @@ struct GridwiseAttentionAccelRewritePattern
     // support fp32/fp16 This should be guranteed by op verifiers.
     Value gemm0OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
-    Value scaleInBuffer =
-        createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+    Value scaleInBuffer;
+    if(TypedValue<MemRefType> scaleIn = op.getScale()){
+        scaleInBuffer = createBufferForGemmOut(loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
+    }
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
@@ -1480,7 +1484,17 @@ struct GridwiseAttentionAccelRewritePattern
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
     // gemm1 will happen after reductions are done;
     // Therefore, we re-use that LDS buffer.
-    Value gemm1LDSByteBufferA = ldsReductionWorkspaceByteBuffer;
+    // The reduction buffer being larger is still
+    // acceptable; we just need a subview of that. 
+    int64_t gemm1LDSByteBufferSize = gemm0MPerBlock * gemm0NPerBlock * getByteWidth(elemTypeV);
+    if(ldsReductionWorkspaceByteBuffer.getType().cast<MemRefType>().getNumElements() < gemm1LDSByteBufferSize){
+        return op.emitError("ldsReductionWorkspaceByteBuffer should not be less than gemm1LDSByteBufferSize.");
+    }
+    auto gemm1LDSByteBufferAType =
+        MemRefType::get({gemm1LDSByteBufferSize}, rewriter.getI8Type(), AffineMap{},
+                        workgroupMemoryAddressSpace);
+    Value gemm1LDSByteBufferA = rewriter.create<memref::SubViewOp>(loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer, ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize}, ArrayRef<int64_t>{1});
+    // Value gemm1LDSByteBufferA = ldsReductionWorkspaceByteBuffer;
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
@@ -1636,6 +1650,7 @@ struct GridwiseAttentionAccelRewritePattern
         createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
                                      gemm0OutBuffer, gemm0OutSubTileViews,
                                      prePadG0M, prePadG0N);
+      }
         if(Value scaleIn = op.getScale()){
             Value rawBuffer;
             std::tie(rawBuffer, std::ignore, std::ignore) = untransform(rewriter, scaleIn);
@@ -1657,7 +1672,6 @@ struct GridwiseAttentionAccelRewritePattern
                 scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, scaleInBuffer, scaleIn);
             }
         }
-      }
 
       APInt reductionAxis = APInt(64, 1);
       int64_t reductionOutNLen =
