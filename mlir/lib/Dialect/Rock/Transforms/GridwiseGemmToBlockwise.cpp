@@ -1330,6 +1330,23 @@ struct GridwiseAttentionAccelRewritePattern
                                         linalg::TypeFn::cast_signed))});
   }
 
+  FailureOr<TypedAttr> getSplatGlobalConstant(memref::GetGlobalOp getGlobalOp) const {
+    auto *symbolTableOp = getGlobalOp->getParentWithTrait<OpTrait::SymbolTable>();
+    if (!symbolTableOp)
+        return failure();
+    auto global = dyn_cast_or_null<memref::GlobalOp>(
+        SymbolTable::lookupSymbolIn(symbolTableOp, getGlobalOp.getNameAttr()));
+    if (!global)
+        return failure();
+    auto cstAttr =
+        llvm::dyn_cast_or_null<DenseElementsAttr>(global.getConstantInitValue());
+    if (!cstAttr)
+        return failure();
+    if (auto splatAttr = llvm::dyn_cast<SplatElementsAttr>(cstAttr))
+        return splatAttr.getSplatValue<TypedAttr>();
+    return failure();
+  }
+
    void scaleFirstGemmSplat(PatternRewriter &rewriter, 
                             Location loc, 
                             layout::GridCoordinates gridCoords,
@@ -1654,19 +1671,12 @@ struct GridwiseAttentionAccelRewritePattern
         if(Value scaleIn = op.getScale()){
             Value rawBuffer;
             std::tie(rawBuffer, std::ignore, std::ignore) = untransform(rewriter, scaleIn);
-            if(arith::ConstantOp constScale = rawBuffer.getDefiningOp<arith::ConstantOp>()){
-                if(DenseElementsAttr constScaleAttr = dyn_cast_or_null<DenseElementsAttr>(constScale.getValueAttr())){
-                    if(constScaleAttr.isSplat()){
-                        scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, constScaleAttr.getSplatValue<TypedAttr>());
-                    }
-                    else{
-                        return op.emitError("Only splat scale constant input is supported.");
-                    }
+            if(memref::GetGlobalOp constScale = rawBuffer.getDefiningOp<memref::GetGlobalOp>()){
+                FailureOr<TypedAttr> maybeSplatAttr = getSplatGlobalConstant(constScale);
+                if(failed(maybeSplatAttr)){
+                    return op.emitError("Only splat scale constant input is supported."); 
                 }
-                else{
-                    // This is guranteed via the lowering of tosa.const
-                    return op.emitError("Constant scale input is only supported to be DenseElementsAttrs");
-                }
+                scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, maybeSplatAttr.value());
             }
             else{
                 scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, scaleInBuffer, scaleIn);
