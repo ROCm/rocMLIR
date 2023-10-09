@@ -310,7 +310,6 @@ def MIGraphX_DeQuantizeLinearOp :
     tensor[n,c,h,w] = to_float(tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` `(`type(operands)`)` `->` type(results)";
-  let hasVerifier = 1;
 }
 
 // Convolution operations
