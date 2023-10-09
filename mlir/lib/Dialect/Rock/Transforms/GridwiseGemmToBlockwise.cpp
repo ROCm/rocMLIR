@@ -1653,6 +1653,21 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
+        if(Value scaleIn = op.getScale()){
+            Value rawBuffer;
+            std::tie(rawBuffer, std::ignore, std::ignore) = untransform(rewriter, scaleIn);
+            if(memref::GetGlobalOp constScale = rawBuffer.getDefiningOp<memref::GetGlobalOp>()){
+                FailureOr<TypedAttr> maybeSplatAttr = getSplatGlobalConstant(constScale);
+                if(failed(maybeSplatAttr)){
+                    return op.emitError("Only splat scale constant input is supported."); 
+                }
+                scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, maybeSplatAttr.value());
+            }
+            else{
+                scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, scaleInBuffer, scaleIn);
+            }
+        }
+        
       bool hasPadding =
           op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
       if (hasPadding) {
@@ -1668,20 +1683,6 @@ struct GridwiseAttentionAccelRewritePattern
                                      gemm0OutBuffer, gemm0OutSubTileViews,
                                      prePadG0M, prePadG0N);
       }
-        if(Value scaleIn = op.getScale()){
-            Value rawBuffer;
-            std::tie(rawBuffer, std::ignore, std::ignore) = untransform(rewriter, scaleIn);
-            if(memref::GetGlobalOp constScale = rawBuffer.getDefiningOp<memref::GetGlobalOp>()){
-                FailureOr<TypedAttr> maybeSplatAttr = getSplatGlobalConstant(constScale);
-                if(failed(maybeSplatAttr)){
-                    return op.emitError("Only splat scale constant input is supported."); 
-                }
-                scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, maybeSplatAttr.value());
-            }
-            else{
-                scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews, scaleInBuffer, scaleIn);
-            }
-        }
 
       APInt reductionAxis = APInt(64, 1);
       int64_t reductionOutNLen =
