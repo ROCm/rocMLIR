@@ -2,7 +2,7 @@ boolean shouldRunOnMachine(String machine){
     switch (machine){
         case "rocm-framework-38.amd.com":
             return (params.MI200 == true)
-        case "aus-navi3x-13.amd.com":
+        case "aus-navi3x-07.amd.com":
             return (params.Navi3x == true)
     }
 }
@@ -10,7 +10,7 @@ boolean shouldRunOnMachine(String machine){
 void clean() {
 sh """ #!/bin/bash -x
 
-if [ \$(docker ps -a -q -f name=migraphx) ]; then
+if [ "\$(docker ps -a -q -f name='^migraphx\$')" ]; then
     docker stop migraphx
     docker rm migraphx
     echo "cleanup"
@@ -37,7 +37,7 @@ docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCmS
 docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git"
 
 docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
-docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON .. && ninja package && cmake --install . --prefix /MIGraphXDeps"
+docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang .. && ninja package && cmake --install . --prefix /MIGraphXDeps"
 
 docker exec -w /AMDMIGraphX migraphx bash -c "cmake . -G 'Unix Makefiles' -B build -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_PREFIX_PATH=/MIGraphXDeps -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DGPU_TARGETS=\$(/opt/rocm/bin/rocminfo | grep -o -m1 'gfx.*')"
 docker exec -w /AMDMIGraphX/build migraphx bash -c "make -j driver test_gpu_mlir"
@@ -142,7 +142,21 @@ fi
 """
 }
 
-def list_tier1_p0_default='''\
+pipeline {
+    agent any
+    parameters{
+        booleanParam(name: 'fp32', defaultValue: true, description: 'No quantization')
+        booleanParam(name: 'fp16', defaultValue: true, description: 'Quantize for fp16')
+        booleanParam(name: 'int8', defaultValue: true, description: 'Quantize for int8')
+        choice(name: 'checkFor', choices:["perf", "verify"], description: 'Do a performance or verification run')
+        string(name: 'mlir_branch', defaultValue: 'develop', description: 'Mlir branch to clone.')
+        string(name: 'migraphx_branch', defaultValue: 'develop', description: 'MIGraphX branch to clone.')
+        booleanParam(name: 'enable_tier1_p0', defaultValue: true, description: 'Enable tests for tier1 P0 models')
+        booleanParam(name: 'enable_tier1_p1', defaultValue: true, description: 'Enable tests for tier1 P1 models')
+        booleanParam(name: 'enable_others', defaultValue: true, description: 'Enable testing for additional models')
+        booleanParam(name: 'MI200', defaultValue: true, description: 'Run the job on a MI210 machine')
+        booleanParam(name: 'Navi3x', defaultValue: true, description: 'Run the job on a Navi3x machine')
+        text(name: 'list_tier1_p0', defaultValue: '''\
 /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
 /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
@@ -160,32 +174,14 @@ def list_tier1_p0_default='''\
 /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/onnx-model-zoo/gpt2-10.onnx
 /models/mlperf/resnet50_v1.onnx
-'''
-
-def list_tier1_p1_default= '''\
+''' , description: 'List of tier 1 models to test (P0)')
+        text(name: 'list_tier1_p1', defaultValue: '''\
 /models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482
 /models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482
 /models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
-/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384
+/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 32 384
 /models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024
-'''
-
-pipeline {
-    agent any
-    parameters{
-        booleanParam(name: 'fp32', defaultValue: true, description: 'No quantization')
-        booleanParam(name: 'fp16', defaultValue: true, description: 'Quantize for fp16')
-        booleanParam(name: 'int8', defaultValue: true, description: 'Quantize for int8')
-        choice(name: 'checkFor', choices:["perf", "verify"], description: 'Do a performance or verification run')
-        string(name: 'mlir_branch', defaultValue: 'develop', description: 'Mlir branch to clone.')
-        string(name: 'migraphx_branch', defaultValue: 'develop', description: 'MIGraphX branch to clone.')
-        booleanParam(name: 'enable_tier1_p0', defaultValue: true, description: 'Enable tests for tier1 P0 models')
-        booleanParam(name: 'enable_tier1_p1', defaultValue: true, description: 'Enable tests for tier1 P1 models')
-        booleanParam(name: 'enable_others', defaultValue: true, description: 'Enable testing for additional models')
-        booleanParam(name: 'MI200', defaultValue: true, description: 'Run the job on a MI210 machine')
-        booleanParam(name: 'Navi3x', defaultValue: true, description: 'Run the job on a Navi3x machine')
-        text(name: 'list_tier1_p0', defaultValue: list_tier1_p0_default, description: 'List of tier 1 models to test (P0)')
-        text(name: 'list_tier1_p1', defaultValue: list_tier1_p1_default, description: 'List of tier 1 models to test (P1)')
+''' , description: 'List of tier 1 models to test (P1)')
         text(name: 'list_others', defaultValue: '', description: 'List of additional models to test')
     }
     stages {
@@ -195,7 +191,7 @@ pipeline {
                 axes {
                     axis {
                         name 'PLATFORM'
-                        values "rocm-framework-38.amd.com", "aus-navi3x-13.amd.com"
+                        values "rocm-framework-38.amd.com", "aus-navi3x-07.amd.com"
                     }
                 }
                 when {
@@ -203,11 +199,16 @@ pipeline {
                     expression { return shouldRunOnMachine("${PLATFORM}") }
                 }
                 stages {
+                    stage('clean'){
+                        agent {label "${PLATFORM}" }
+                        steps {
+                            clean()
+                        }
+                    }
                     stage('BuildAndTest') {
                         agent {label "${PLATFORM}" }
                         steps {
                             echo "Do Build And Test for ${PLATFORM}"
-                            clean()
                             buildAndTest()
                             archiveArtifacts allowEmptyArchive: false, artifacts: 'generic.log,tier1_p0.log,tier1_p1.log,other_models.log,summary.log', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
                         }
