@@ -817,74 +817,29 @@ pipeline {
                     }
                     stage("Test MLIR vs MIOpen/rocBLAS") {
                         steps {
-                            script {
-                                dir('build') {
-                                    sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                    // Run MLIR vs MIOpend perf benchmarks.
-                                    try {
-                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                               --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
-                                               --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                        }
-                                    } catch (Exception e ){
-                                        if ( "${CHIP}" == 'gfx1100' )
-                                            currentBuild.result = 'SUCCESS'
-                                        else
-                                            currentBuild.result = 'FAILURE'
-                                    }
-                                    // Run MLIR vs rocBLAS perf benchmarks
-                                    try {
-                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                               --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
-                                               --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
-                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
-                                        }
-                                    } catch (Exception e ){
-                                        if ( "${CHIP}" == 'gfx1100' )
-                                            currentBuild.result = 'SUCCESS'
-                                        else
-                                            currentBuild.result = 'FAILURE'
-                                    }
-                                }
+                            dir('build') {
+                                sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                // Run MLIR vs MIOpend perf benchmarks.
+                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                // Run MLIR vs rocBLAS perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
                     }
                     stage("Test Fusion") {
                         steps {
-                            script {
-                                dir('build') {
-                                    // Run fusion resnet50 perf benchmarks
-                                    try {
-                                        timeout(time: 30, activity: true, unit: 'MINUTES') {
-                                            sh """python3 ./bin/perfRunner.py --op=fusion \
+                            dir('build') {
+                                // Run fusion resnet50 perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=fusion \
           --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
-                                        }
-                                    } catch (Exception e ) {
-                                        if ( "${CHIP}" == 'gfx1100' )
-                                            currentBuild.result = 'SUCCESS'
-                                        else
-                                            currentBuild.result = 'FAILURE'
-                                    }
-                                    // Run bert perf benchmarks
-                                   try {
-                                        timeout(time: 30, activity: true, unit: 'MINUTES') {
-                                            sh """python3 ./bin/perfRunner.py --op fusion \
+                                // Run bert perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op fusion \
           --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
-                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                        }
-                                  } catch (Exception e ) {
-                                      if ( "${CHIP}" == 'gfx1100' )
-                                          currentBuild.result = 'SUCCESS'
-                                      else
-                                            currentBuild.result = 'FAILURE'
-                                  }
-                              }
-                          }
+                            }
                         }
                     }
                     stage("Test MLIR vs CK") {
@@ -922,10 +877,15 @@ pipeline {
                             }
                         }
                     }
-                    stage("Publish performance reports") {
+                    stage("Create performance reports") {
                         steps {
                             dir('build') {
                                 sh 'ls -l'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
+                                sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                 sh 'mkdir -p reports && cp ./*.html reports'
                             }
                             postProcessPerfRes("${CHIP}")
