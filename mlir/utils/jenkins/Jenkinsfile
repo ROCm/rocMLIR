@@ -939,7 +939,7 @@ pipeline {
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On'
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
