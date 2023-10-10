@@ -120,22 +120,24 @@ void postProcessPerfRes(String chip) {
         reportName: "Performance report for ${chip}"
     ])
 
+  if (fileExists("build/${chip}_mlir_vs_miopen_perf_for_plot.csv")) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
-
+  }
+  if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
-
+  }
     // Save results for future comparison
-    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
 }
 
 //makes sure multiple builds are not triggered for branch indexing
@@ -187,6 +189,10 @@ String getLabelFromChip(String chip) {
             // For [Tune MLIR Kernels] and [Performance report] stages,
             // fix the vm-5 workstation for testing
             return "mlir && vm-5"
+        case "gfx1100":
+            return "mlir && gfx1100"
+        case "gfx1101":
+            return "mlir && gfx1101"
     }
 }
 
@@ -555,9 +561,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        script {
-                                rebootNode()
-                        }
+                        rebootNode()
                     }
                     always {
                         cleanWs()
@@ -751,7 +755,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
                     }
                 }
                 when {
