@@ -198,6 +198,29 @@ void createQuickTuningRange(TuningParamSet *newSpace,
   }
 }
 
+// This is temporary workaround to make MIGraphX integration
+// work until the tuning is setup properly.
+void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
+  OpBuilder b(attnOp.getContext());
+  GemmFeatures currentFeatures = attnOp.getFeatures();
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+    newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+      b.getAttr<XdlopsGemmParamsAttr>(
+          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+          /*nPerBlock=*/32, /*kpack=*/1,
+          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
+    ));
+  } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+          b.getAttr<WmmaGemmParamsAttr>(
+              /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+              /*nPerBlock=*/32, /*kpack=*/1,
+              /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
+        ));
+  }
+  // We only support GPUs with matrix accelerator extentions             
+}
+
 TuningParamSet *createTunableParamSpace(ModuleOp &mod,
                                         TuningParamSetKind kind) {
   struct TuningParamSet *newSpace;
@@ -217,7 +240,12 @@ TuningParamSet *createTunableParamSpace(ModuleOp &mod,
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
-  if (!findPrimary.wasInterrupted()) {
+  WalkResult findAttention =
+      mod->walk([&](rock::AttentionOp op) -> WalkResult {
+        createTuningRange(newSpace, op);
+        return WalkResult::interrupt();
+      });
+  if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
     delete newSpace;
   }
   return newSpace;
@@ -261,21 +289,70 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-// Suppose to return the structure of the given problem to tune, currently
-// combines the string representation of the selected field of the primary
-// operation. String format of the problem will not be required by the DB,
-// since it can store each field separately.
-// Currently serialize the problem in MIOpenDriver command friendly format
-LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
-  rock::RockGemmWrapperInterface gemmIF;
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        gemmIF = op;
-        return WalkResult::interrupt();
-      });
-  if (!findPrimary.wasInterrupted())
-    return failure();
-  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
+LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char> &out){
+  int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
+  constexpr char sep = ' ';
+  constexpr char tab = '\t';
+  int64_t numHeads;
+  int64_t seqLen;
+  llvm::raw_svector_ostream problemOS(out);
+  // ARCH string
+  problemOS << attnOp.getArch() << tab;
+  // Num of Compute Units
+  problemOS << numCU << tab;
+
+  TypedValue<ShapedType> queries = attnOp.getQueries();
+  ArrayRef<int64_t> qShape = queries.getType().getShape();
+
+  // TransQ
+  problemOS << "-transQ ";
+  if (attnOp.getQTransposed()){
+    seqLen = qShape[2];
+    numHeads = qShape[1];
+    problemOS << "true" << sep;
+  }
+  else{
+    seqLen = qShape[1];
+    numHeads = qShape[2];
+    problemOS << "false" << sep;
+  }
+
+  // TransK
+  problemOS << "-transK ";
+  if (attnOp.getKTransposed())
+    problemOS << "true" << sep;
+  else
+    problemOS << "false" << sep;
+
+  // TransV
+  problemOS << "-transV ";
+  if (attnOp.getVTransposed())
+    problemOS << "true" << sep;
+  else
+    problemOS << "false" << sep;
+
+  // TransO
+  problemOS << "-transO ";
+  if (attnOp.getOTransposed())
+    problemOS << "true" << sep;
+  else
+    problemOS << "false" << sep;
+
+  // scale
+  problemOS << "-with-attn-scale ";
+  if (attnOp.getScale()){
+    problemOS << "true" << sep;
+  }
+  else{
+    problemOS << "false" << sep;
+  }
+  problemOS << "-seq_len" << seqLen << sep;
+  problemOS << "-num_heads" << numHeads << tab;
+  return success();
+}
+
+LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF, SmallVectorImpl<char> &out) {
+int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
   if (gemmIF.getNumCU().has_value())
     numCU = gemmIF.getNumCU().value();
   constexpr char sep = ' ';
@@ -481,6 +558,35 @@ LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
   }
 
   return success();
+}
+
+// Suppose to return the structure of the given problem to tune, currently
+// combines the string representation of the selected field of the primary
+// operation. String format of the problem will not be required by the DB,
+// since it can store each field separately.
+// Currently serialize the problem in MIOpenDriver command friendly format
+LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
+  {
+    rock::RockGemmWrapperInterface gemmIF;
+    WalkResult findPrimary =
+        mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+          gemmIF = op;
+          return WalkResult::interrupt();
+        });
+    if (findPrimary.wasInterrupted())
+      return getTuningProblemStr(gemmIF, out);
+  }
+  {
+    rock::AttentionOp attnOp;
+    WalkResult findAttention =
+        mod->walk([&](rock::AttentionOp op) -> WalkResult {
+          attnOp = op;
+          return WalkResult::interrupt();
+        });
+    if (findAttention.wasInterrupted())
+      return getTuningProblemStr(attnOp, out);
+  }
+  return failure();
 }
 
 bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
