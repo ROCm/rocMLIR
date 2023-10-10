@@ -166,6 +166,7 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
     # compilation, and the only time that device library gets pulled in is for
     # printf(), which we use the hip version of anyway.
     list(REMOVE_ITEM device_lib_targets "opencl")
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Transforms)
     add_custom_command(OUTPUT Transforms/AmdDeviceLibs.cpp.inc
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/AmdDeviceLibsIncGen.py
       ARGS
