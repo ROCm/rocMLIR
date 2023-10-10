@@ -24,7 +24,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.6-latest'
+    return 'rocm/mlir:rocm5.7-latest'
 }
 
 
