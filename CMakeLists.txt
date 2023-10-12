@@ -74,6 +74,36 @@ else()
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
 endif()
 
+# Pointers to external llvm build, needed here to set up rpath project-wide
+set(LLVM_EXTERNAL_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project")
+set(LLVM_EXTERNAL_BIN_DIR "${LLVM_EXTERNAL_BUILD_DIR}/llvm/bin")
+set(LLVM_EXTERNAL_LIB_DIR "${LLVM_EXTERNAL_BUILD_DIR}/llvm/lib")
+
+message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
+message(STATUS "LLVM_EXTERNAL_LIB_DIR: ${LLVM_EXTERNAL_LIB_DIR}")
+list(PREPEND CMAKE_BUILD_RPATH "${LLVM_EXTERNAL_LIB_DIR}")
+### Workaround ROCm address sanitizer build not being able to propagate LD_LIBRARY_PATH
+### Remove when https://github.com/pfultz2/cget/issues/110 is fixed.
+if (ENV{ADDRESS_SANITIZER})
+  message("Address sanitizer workarounds")
+  execute_process(
+    COMMAND ${CMAKE_C_COMPILER} --print-file-name=libclang_rt.asan-x86_64.so
+    OUTPUT_VARIABLE clang_asan_lib_file
+    ERROR_VARIABLE clang_stderr
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE clang_exit_code)
+  if (NOT "${clang_exit_code}" STREQUAL "0")
+    message(FATAL_ERROR
+      "Unable to invoke clang to find asan lib dir: ${clang_stderr}")
+  endif()
+  file(TO_CMAKE_PATH "${clang_asan_lib_file}" clang_asan_lib_file)
+  get_filename_component(clang_asan_lib_dir "${clag_asan_lib_file}" DIRECTORY)
+  list(APPEND CMAKE_BUILD_RPATH "${clang_asan_lib_dir}")
+endif()
+### End workaround
+
+
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
 include(cmake/mlir-hal.cmake)

@@ -1,14 +1,7 @@
 message(STATUS "Adding LLVM git-submodule src dependency")
 
 set(LLVM_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project")
-set(LLVM_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project")
-
-# Pointers to: external LLVM bins/libs
-set(LLVM_EXTERNAL_BIN_DIR "${LLVM_BINARY_DIR}/llvm/bin" CACHE PATH "")
-set(LLVM_EXTERNAL_LIB_DIR "${LLVM_BINARY_DIR}/llvm/lib" CACHE PATH "")
-
-message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
-message(STATUS "LLVM_EXTERNAL_LIB_DIR: ${LLVM_EXTERNAL_LIB_DIR}")
+set(LLVM_BINARY_DIR "${LLVM_EXTERNAL_BUILD_DIR}")
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
 # can find MLIR's CMake configuration
@@ -68,32 +61,7 @@ list(APPEND LLVM_INCLUDE_DIRS
   ${LLVM_BINARY_DIR}/llvm/include
 )
 
-# Linker flags
-list(PREPEND CMAKE_BUILD_RPATH "${LLVM_EXTERNAL_LIB_DIR}")
-### Workaround ROCm address sanitizer build not being able to propagate LD_LIBRARY_PATH
-### Remove when https://github.com/pfultz2/cget/issues/110 is fixed.
-if (ENV{ADDRESS_SANITIZER})
-  execute_process(
-    COMMAND ${CMAKE_C_COMPILER} --print-file-name=libclang_rt.asan-x86_64.so
-    OUTPUT_VARIABLE clang_asan_lib_file
-    ERROR_VARIABLE clang_stderr
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE clang_exit_code)
-  if (NOT "${clang_exit_code}" STREQUAL "0")
-    message(FATAL_ERROR
-      "Unable to invoke clang to find asan lib dir: ${clang_stderr}")
-  endif()
-  file(TO_CMAKE_PATH "${clang_asan_lib_file}" clang_asan_lib_file)
-  get_filename_component(clang_asan_lib_dir "${clag_asan_lib_file}" DIRECTORY)
-  list(APPEND CMAKE_BUILD_RPATH "${clang_asan_lib_dir}")
-endif()
-### End workaround
-
 add_subdirectory("${LLVM_PROJECT_DIR}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
-
-# Propagate the RPATH settings up to rocMLIR, since we need them there too
-set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_RPATH} PARENT_SCOPE)
 
 function(add_rocmlir_dialect_library name)
   set_property(GLOBAL APPEND PROPERTY ROCMLIR_DIALECT_LIBS ${name})
