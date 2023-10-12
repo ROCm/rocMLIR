@@ -84,7 +84,7 @@ message(STATUS "LLVM_EXTERNAL_LIB_DIR: ${LLVM_EXTERNAL_LIB_DIR}")
 list(PREPEND CMAKE_BUILD_RPATH "${LLVM_EXTERNAL_LIB_DIR}")
 ### Workaround ROCm address sanitizer build not being able to propagate LD_LIBRARY_PATH
 ### Remove when https://github.com/pfultz2/cget/issues/110 is fixed.
-if (ENV{ADDRESS_SANITIZER})
+if ("$ENV{ADDRESS_SANITIZER}" STREQUAL "ON")
   message("Address sanitizer workarounds")
   execute_process(
     COMMAND ${CMAKE_C_COMPILER} --print-file-name=libclang_rt.asan-x86_64.so
