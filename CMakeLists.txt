@@ -84,25 +84,27 @@ message(STATUS "LLVM_EXTERNAL_LIB_DIR: ${LLVM_EXTERNAL_LIB_DIR}")
 list(PREPEND CMAKE_BUILD_RPATH "${LLVM_EXTERNAL_LIB_DIR}")
 ### Workaround ROCm address sanitizer build not being able to propagate LD_LIBRARY_PATH
 ### Remove when https://github.com/pfultz2/cget/issues/110 is fixed.
-if ("$ENV{ADDRESS_SANITIZER}" STREQUAL "ON")
-  message("Address sanitizer workarounds")
-  execute_process(
-    COMMAND ${CMAKE_C_COMPILER} --print-file-name=libclang_rt.asan-x86_64.so
-    OUTPUT_VARIABLE clang_asan_lib_file
-    ERROR_VARIABLE clang_stderr
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE clang_exit_code)
-  if (NOT "${clang_exit_code}" STREQUAL "0")
-    message(FATAL_ERROR
+if (DEFINED ENV{ADDRESS_SANITIZER})
+  if ($ENV{ADDRESS_SANITIZER} MATCHES "ON")
+    message("Address sanitizer workarounds")
+    execute_process(
+      COMMAND ${CMAKE_C_COMPILER} --print-file-name=libclang_rt.asan-x86_64.so
+      OUTPUT_VARIABLE clang_asan_lib_file
+      ERROR_VARIABLE clang_stderr
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE clang_exit_code)
+    if (NOT "${clang_exit_code}" STREQUAL "0")
+      message(FATAL_ERROR
       "Unable to invoke clang to find asan lib dir: ${clang_stderr}")
+    endif()
+    file(TO_CMAKE_PATH "${clang_asan_lib_file}" clang_asan_lib_file_cmake)
+    get_filename_component(clang_asan_lib_dir "${clang_asan_lib_file_cmake}" DIRECTORY)
+    message(STATUS "Asan lib directory ${clang_asan_lib_dir}")
+    list(APPEND CMAKE_BUILD_RPATH "${clang_asan_lib_dir}")
   endif()
-  file(TO_CMAKE_PATH "${clang_asan_lib_file}" clang_asan_lib_file)
-  get_filename_component(clang_asan_lib_dir "${clag_asan_lib_file}" DIRECTORY)
-  list(APPEND CMAKE_BUILD_RPATH "${clang_asan_lib_dir}")
 endif()
 ### End workaround
-
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
