@@ -80,8 +80,8 @@ include(cmake/mlir-hal.cmake)
 
 if(NOT WIN32)
     # Update the build-tree RPATH
-    set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
-    message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+    list(PREPEND CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR}")
+    message(STATUS "Final CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 endif()
 
 # Set up the build for the rocMLIR dialects
