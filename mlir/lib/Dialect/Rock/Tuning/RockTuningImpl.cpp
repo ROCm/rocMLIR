@@ -270,7 +270,16 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  return setPrimary.wasInterrupted();
+  WalkResult setAttn =
+      mod->walk([&](rock::AttentionOp op) -> WalkResult {
+        auto *ctx = op.getContext();
+        SmallString<64> perfConfig;
+        paramEntry->param.getPerfConfigStr(perfConfig);
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
 }
 
 bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
@@ -281,7 +290,14 @@ bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  return setPrimary.wasInterrupted();
+  WalkResult setAttn =
+      mod->walk([&](rock::AttentionOp op) -> WalkResult {
+        auto *ctx = op.getContext();
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
 }
 
 TuningTable *tuningTableCreate() {
@@ -346,8 +362,8 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char
   else{
     problemOS << "false" << sep;
   }
-  problemOS << "-seq_len" << seqLen << sep;
-  problemOS << "-num_heads" << numHeads << tab;
+  problemOS << "-seq_len " << seqLen << sep;
+  problemOS << "-num_heads " << numHeads;
   return success();
 }
 
