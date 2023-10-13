@@ -515,7 +515,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           rewriter.eraseOp(newCollapseShapeOp);
           return failure();
         }
-        rewriter.eraseOp(op);
+        if (op->use_empty())
+          rewriter.eraseOp(op);
       } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
         return rewriter.notifyMatchFailure(
             op, "We dont support expand shapes yet.");
@@ -585,7 +586,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       }
     }
 
-    b.eraseOp(top);
+    if (top.use_empty())
+      b.eraseOp(top);
     return success();
   }
 };
