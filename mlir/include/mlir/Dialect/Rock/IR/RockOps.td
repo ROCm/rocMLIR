@@ -16,6 +16,8 @@
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
+include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.td"
+include "mlir/Dialect/Rock/IR/RockWriterOpInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -457,6 +459,26 @@ def Rock_GpuAllocOp:
   }];
 }
 
+// Wrap an allocOp as a multibuffer, i.e., a buffer with #n copies
+def Rock_ReinterpretMultiBufferOp:
+    Rock_Op<"reinterpret_multibuffer", []>,
+    Arguments<(ins Arg<MemRefRankOf<[I8], [1]>, "raw allocation", [MemRead]>:$input,
+                   I32Attr:$multibufferFactor)>,
+    Results<(outs AnyMemRef:$output)> {
+  let summary = "Reinterpret raw memory as a multi-buffer";
+
+  let description = [{ Wraps a raw memory allocation as a multibuffer, i.e., a buffer with
+    multiple copies. The first dimension of the output type is the multi-buffering factor}];
+  let assemblyFormat = [{
+    $input attr-dict
+    `:` type($input) `->` type($output)
+  }];
+  let builders = [
+    OpBuilder<(ins "Value":$input, "MemRefType":$bufferType, "int64_t":$mulbibufferFactor)>
+  ];
+  let hasVerifier = 1;
+}
+
 // TBD: eventually replace this with linalg.fill?
 def Rock_FillOp:
     Rock_Op<"fill">,
@@ -599,6 +621,7 @@ def Rock_YieldOp :
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
+
 
 // Transforming for
 def Rock_TransformingForOp :
@@ -933,7 +956,9 @@ def Rock_GlobalStoreOp :
 
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp :
-    Rock_Op<"threadwise_read_into">,
+    Rock_Op<"threadwise_read_into",
+    [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+     DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view", [MemRead]>:$source,
       Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers", [MemWrite]>:$dest,
@@ -995,7 +1020,9 @@ def Rock_ThreadwiseReadIntoOp :
 
 // threadwise_write_all
 def Rock_ThreadwiseWriteAllOp :
-    Rock_Op<"threadwise_write_all">,
+    Rock_Op<"threadwise_write_all", [
+      DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+      DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
       "source registers", [MemRead]>:$source,
@@ -1072,7 +1099,7 @@ defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputType
 
 // blockwise_gemm
 def Rock_BlockwiseGemmOp:
-    Rock_Op<"blockwise_gemm">,
+    Rock_Op<"blockwise_gemm", [DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
                    MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,

@@ -21,12 +21,14 @@ using namespace mlir;
 namespace mlir {
 namespace rock {
 void registerVectorizationInferenceTestPass();
+void registerMultiBufferingTestPass();
 } // end namespace rock
 } // end namespace mlir
 
 #ifdef MLIR_INCLUDE_TESTS
 void registerRockTestPasses() {
   rock::registerVectorizationInferenceTestPass();
+  rock::registerMultiBufferingTestPass();
 }
 #endif
 
