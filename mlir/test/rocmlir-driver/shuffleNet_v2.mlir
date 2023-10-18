@@ -1,4 +1,4 @@
-// The test was ectracted from the ShuffleNet_V2 model of MIGraphX. https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/issues/2315
+// The test was extracted from the ShuffleNet_V2 model of MIGraphX. https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/issues/2315
 // RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-opt
 
 module {
