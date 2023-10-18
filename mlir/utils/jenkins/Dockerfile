@@ -117,6 +117,7 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   cmake=3.22.1-0kitware1ubuntu20.04.1 \
   kitware-archive-keyring \
   libsqlite3-dev \
-  parallel && \
+  parallel \
+  libaio1 && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
