@@ -199,24 +199,48 @@ void createQuickTuningRange(TuningParamSet *newSpace,
 }
 
 // This is temporary workaround to make MIGraphX integration
-// work until the tuning is setup properly.
+// work until the tuning is setup for attention ops properly.
 void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
+  Type elemType = attnOp.getQueries().getType().getElementType();
+  StringRef arch = attnOp.getArch();
   GemmFeatures currentFeatures = attnOp.getFeatures();
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+    PopulateParamsXDL tuningInfo;
+    // This is hack to obtain the same quick tuning list as if it were a gemm
+    // kernel. This should ideally be implemented as an interface fucntion of
+    // a rock tunable op to retrieve this range.
+    for (InitParamsAccel param : tuningInfo.getTuningParameters(rock::KernelType::Gemm, elemType,
+                                            elemType, arch)) {
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+    // backup universal config that is known to fit in LDS
     newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
       b.getAttr<XdlopsGemmParamsAttr>(
           /*kpackPerBlock=*/32, /*mPerBlock=*/32,
           /*nPerBlock=*/32, /*kpack=*/1,
           /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
     ));
+
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    // Wmma
+    PopulateParamsWmma tuningInfo;
+    // This is hack to obtain the same quick tuning list as if it were a gemm
+    // kernel. This should ideally be implemented as an interface fucntion of
+    // a rock tunable op to retrieve this range.
+    for (InitParamsAccel param : tuningInfo.getTuningParameters(rock::KernelType::Gemm, elemType,
+                                            elemType, arch)) {
+        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+            tuningInfo.getGemmParamsAttr(b, param)));
+    }
+    // backup universal config that is known to fit in LDS
     newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-          b.getAttr<WmmaGemmParamsAttr>(
-              /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-              /*nPerBlock=*/32, /*kpack=*/1,
-              /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
-        ));
+      b.getAttr<WmmaGemmParamsAttr>(
+          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+          /*nPerBlock=*/32, /*kpack=*/1,
+          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
+    ));
   }
   // We only support GPUs with matrix accelerator extentions             
 }
