@@ -1517,7 +1517,6 @@ struct GridwiseAttentionAccelRewritePattern
         loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
         ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
         ArrayRef<int64_t>{1});
-    // Value gemm1LDSByteBufferA = ldsReductionWorkspaceByteBuffer;
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
