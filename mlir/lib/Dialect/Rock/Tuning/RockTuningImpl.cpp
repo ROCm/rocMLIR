@@ -210,18 +210,17 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
     // This is hack to obtain the same quick tuning list as if it were a gemm
     // kernel. This should ideally be implemented as an interface fucntion of
     // a rock tunable op to retrieve this range.
-    for (InitParamsAccel param : tuningInfo.getTuningParameters(rock::KernelType::Gemm, elemType,
-                                            elemType, arch)) {
-        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-            tuningInfo.getGemmParamsAttr(b, param)));
+    for (InitParamsAccel param : tuningInfo.getTuningParameters(
+             rock::KernelType::Gemm, elemType, elemType, arch)) {
+      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+          tuningInfo.getGemmParamsAttr(b, param)));
     }
     // backup universal config that is known to fit in LDS
-    newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-      b.getAttr<XdlopsGemmParamsAttr>(
-          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-          /*nPerBlock=*/32, /*kpack=*/1,
-          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
-    ));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+            /*nPerBlock=*/32, /*kpack=*/1,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
 
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
@@ -229,20 +228,19 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
     // This is hack to obtain the same quick tuning list as if it were a gemm
     // kernel. This should ideally be implemented as an interface fucntion of
     // a rock tunable op to retrieve this range.
-    for (InitParamsAccel param : tuningInfo.getTuningParameters(rock::KernelType::Gemm, elemType,
-                                            elemType, arch)) {
-        newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-            tuningInfo.getGemmParamsAttr(b, param)));
+    for (InitParamsAccel param : tuningInfo.getTuningParameters(
+             rock::KernelType::Gemm, elemType, elemType, arch)) {
+      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
+          tuningInfo.getGemmParamsAttr(b, param)));
     }
     // backup universal config that is known to fit in LDS
-    newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-      b.getAttr<WmmaGemmParamsAttr>(
-          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-          /*nPerBlock=*/32, /*kpack=*/1,
-          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)
-    ));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<WmmaGemmParamsAttr>(
+            /*kpackPerBlock=*/32, /*mPerBlock=*/32,
+            /*nPerBlock=*/32, /*kpack=*/1,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
   }
-  // We only support GPUs with matrix accelerator extentions             
+  // We only support GPUs with matrix accelerator extentions
 }
 
 TuningParamSet *createTunableParamSpace(ModuleOp &mod,
@@ -264,11 +262,10 @@ TuningParamSet *createTunableParamSpace(ModuleOp &mod,
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
-  WalkResult findAttention =
-      mod->walk([&](rock::AttentionOp op) -> WalkResult {
-        createTuningRange(newSpace, op);
-        return WalkResult::interrupt();
-      });
+  WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
+    createTuningRange(newSpace, op);
+    return WalkResult::interrupt();
+  });
   if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
     delete newSpace;
   }
@@ -294,15 +291,14 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn =
-      mod->walk([&](rock::AttentionOp op) -> WalkResult {
-        auto *ctx = op.getContext();
-        SmallString<64> perfConfig;
-        paramEntry->param.getPerfConfigStr(perfConfig);
-        StringAttr attr = StringAttr::get(ctx, perfConfig);
-        op->setAttr("perf_config", attr);
-        return WalkResult::interrupt();
-      });
+  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
+    auto *ctx = op.getContext();
+    SmallString<64> perfConfig;
+    paramEntry->param.getPerfConfigStr(perfConfig);
+    StringAttr attr = StringAttr::get(ctx, perfConfig);
+    op->setAttr("perf_config", attr);
+    return WalkResult::interrupt();
+  });
   return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
 }
 
@@ -314,13 +310,12 @@ bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn =
-      mod->walk([&](rock::AttentionOp op) -> WalkResult {
-        auto *ctx = op.getContext();
-        StringAttr attr = StringAttr::get(ctx, perfConfig);
-        op->setAttr("perf_config", attr);
-        return WalkResult::interrupt();
-      });
+  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
+    auto *ctx = op.getContext();
+    StringAttr attr = StringAttr::get(ctx, perfConfig);
+    op->setAttr("perf_config", attr);
+    return WalkResult::interrupt();
+  });
   return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
 }
 
@@ -329,7 +324,8 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char> &out){
+LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
+                                  SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
   constexpr char sep = ' ';
   constexpr char tab = '\t';
@@ -346,12 +342,11 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char
 
   // TransQ
   problemOS << "-transQ ";
-  if (attnOp.getQTransposed()){
+  if (attnOp.getQTransposed()) {
     seqLen = qShape[2];
     numHeads = qShape[1];
     problemOS << "true" << sep;
-  }
-  else{
+  } else {
     seqLen = qShape[1];
     numHeads = qShape[2];
     problemOS << "false" << sep;
@@ -380,10 +375,9 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char
 
   // scale
   problemOS << "-with-attn-scale ";
-  if (attnOp.getScale()){
+  if (attnOp.getScale()) {
     problemOS << "true" << sep;
-  }
-  else{
+  } else {
     problemOS << "false" << sep;
   }
   problemOS << "-seq_len " << seqLen << sep;
@@ -391,8 +385,9 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp, SmallVectorImpl<char
   return success();
 }
 
-LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF, SmallVectorImpl<char> &out) {
-int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
+LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
+                                  SmallVectorImpl<char> &out) {
+  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
   if (gemmIF.getNumCU().has_value())
     numCU = gemmIF.getNumCU().value();
   constexpr char sep = ' ';
