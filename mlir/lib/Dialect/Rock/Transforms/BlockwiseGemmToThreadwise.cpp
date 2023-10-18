@@ -441,7 +441,7 @@ struct BlockwiseGemmAccelRewritePattern
                << "nPerWave: " << nPerWave << "\n"
                << "mRepeat: " << mRepeats << "\n"
                << "nRepeat: " << nRepeats << "\n"
-               << "K: " << kpackPerBlock << "\n"
+               << "kpackPerBlock: " << kpackPerBlock << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 

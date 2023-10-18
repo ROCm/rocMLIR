@@ -96,14 +96,10 @@ struct AccelEmitter {
                                   Value argB, Value bufferC,
                                   Value regCOffset) = 0;
 
-  /// Compute the correct lds source offset when loading data from shared memory
-  /// into registers. The pseudo-code of the lds-to-register loops is as follows
-  /// for(index_t m_i = 0; m_i < mRepeats; ++m_i)
-  ///   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
-  ///       sourceOffset = computeLdsSourceOffset(d_i, k_i, dPerBlock,
-  ///       baseOffset)
-  ///       ...
-  /// In the above loop `d` can be either `m` or `n`.
+  /// Return a wrapped view of the LDS buffer tailored for the accelerator
+  /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
+  /// in LDS follows a similar pattern among accelerators, loading from LDS
+  /// is dependent on the type of accelerator we are targeting
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,

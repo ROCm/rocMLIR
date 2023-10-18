@@ -373,7 +373,7 @@ static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
 
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const{
+    ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   ArrayAttr extraViews = op.getExtraViews();
@@ -543,7 +543,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   }
   b.eraseOp(op);
   return success();
-    }
+}
 
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
@@ -660,7 +660,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseTransposeOp>();
+                                ThreadwiseCopyOp>();
     writeAllTarget.addLegalDialect<
         arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
         scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
