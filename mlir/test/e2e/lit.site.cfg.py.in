@@ -53,9 +53,8 @@ if config.rocm_path:
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
         for x in agents:
-            if "gfx908" in x or ("gfx90a" in x and
-                                 not '-mfma=off' in config.rocmlir_gen_flags):
-                config.arch_support_mfma = True
+            if "gfx908" in x or "gfx90a" in x:
+                config.arch_support_mfma = not '-mfma=off' in config.rocmlir_gen_flags
             elif "gfx11" in x:
                 config.arch_support_wmma = True
             # Check other features here
