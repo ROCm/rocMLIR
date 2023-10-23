@@ -1474,6 +1474,15 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   return success();
 }
 
+LogicalResult ThreadwiseCopyOp::verify() {
+  auto srcShape = getSource().getType().getShape();
+  auto dstShape = getDest().getType().getShape();
+  if (dstShape != srcShape)
+    return emitOpError("Source and dest shape need to have the same shape.");
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//

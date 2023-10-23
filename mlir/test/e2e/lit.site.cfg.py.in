@@ -54,7 +54,7 @@ if config.rocm_path:
         config.arch = ','.join(agents)
         for x in agents:
             if "gfx908" in x or "gfx90a" in x:
-                config.arch_support_mfma = True
+                config.arch_support_mfma = not '-mfma=off' in config.rocmlir_gen_flags
             elif "gfx11" in x:
                 config.arch_support_wmma = True
             # Check other features here
