@@ -1326,12 +1326,8 @@ struct GridwiseAttentionAccelRewritePattern
 
   FailureOr<TypedAttr>
   getSplatGlobalConstant(memref::GetGlobalOp getGlobalOp) const {
-    auto *symbolTableOp =
-        getGlobalOp->getParentWithTrait<OpTrait::SymbolTable>();
-    if (!symbolTableOp)
-      return failure();
-    auto global = dyn_cast_or_null<memref::GlobalOp>(
-        SymbolTable::lookupSymbolIn(symbolTableOp, getGlobalOp.getNameAttr()));
+    auto global = SymbolTable::lookupNearestSymbolFrom<memref::GlobalOp>(
+        getGlobalOp, getGlobalOp.getNameAttr());
     if (!global)
       return failure();
     auto cstAttr = llvm::dyn_cast_or_null<DenseElementsAttr>(
