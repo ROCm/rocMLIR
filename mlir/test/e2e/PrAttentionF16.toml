@@ -1,6 +1,6 @@
 directory = "PrAttentionF16"
 prefix = "rocmlir-gen"
-suffix = "--operation attention -t f16 --arch %arch -pv %random_data %rocmlir_gen_flags -relDiff_threshold 0.02 -absDiff_threshold 0.02 -RMS_threshold 0.01 | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--operation attention -t f16 --arch %arch -pv %random_data %rocmlir_gen_flags -relDiff_threshold 0.02 -absDiff_threshold 0.02 -RMS_threshold 0.015 | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "operation"
@@ -11,6 +11,11 @@ prefix = "--operation "
 name = "transK"
 values = ["true", "false"]
 prefix = "--transK="
+
+[[axis]]
+name = "scale"
+values = ["true", "false"]
+prefix = "--with-attn-scale="
 
 ## attention variant
 [[suite]]

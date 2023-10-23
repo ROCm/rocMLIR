@@ -729,6 +729,30 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
+  Value normalizeScaleIn(PatternRewriter &rewriter, Location loc,
+                         TypedValue<TensorType> scaleIn) const {
+    if (!scaleIn) {
+      return scaleIn;
+    }
+    ArrayRef<int64_t> scaleShape = scaleIn.getType().getShape();
+    SmallVector<int64_t, 4> reverseScaleShape =
+        llvm::to_vector<4>(llvm::reverse(scaleShape));
+    SmallVector<int64_t, 4> normalizedShape;
+    int collapsedBatchLen = 1;
+    for (int64_t dimLen : ArrayRef<int64_t>{reverseScaleShape}.slice(2)) {
+      collapsedBatchLen *= dimLen;
+    }
+    normalizedShape.push_back(collapsedBatchLen);
+    normalizedShape.push_back(reverseScaleShape[1]);
+    normalizedShape.push_back(reverseScaleShape[0]);
+    auto normalizedType = RankedTensorType::get(
+        normalizedShape, scaleIn.getType().getElementType());
+    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
+        loc, normalizedType, scaleIn,
+        rewriter.getDenseI64ArrayAttr(normalizedShape));
+    return reshapeOp;
+  }
+
   LogicalResult match(tosa::MatMulOp op) const override {
     FailureOr<Value> softmaxInput = maybeSoftmax(op.getA());
     if (failed(softmaxInput)) {
@@ -772,7 +796,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        scaleInput, output,
+        normalizeScaleIn(rewriter, loc, scaleInput), output,
         // TODO(implement transpose fusion support here)
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
