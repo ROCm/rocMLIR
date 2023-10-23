@@ -517,6 +517,11 @@ static llvm::cl::opt<bool>
 static llvm::cl::alias aliasGenHostHarness("ph",
                                            llvm::cl::aliasopt(genHostHarness));
 
+// generate clone harness program.
+static llvm::cl::opt<bool> genCloneHarness(
+    "clone-harness", llvm::cl::desc("To generate clone harness"),
+    llvm::cl::value_desc("To generate clone harness"), llvm::cl::init(false));
+
 // print results
 static llvm::cl::opt<bool>
     printResults("print-results", llvm::cl::desc("To print result tensor"),
@@ -3373,6 +3378,51 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
   return module;
 }
 
+static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
+  if (arch.getValue().empty()) {
+    llvm::errs() << "--arch is not set\n";
+    exit(1);
+  }
+  func::FuncOp originalFunc = module.lookupSymbol<func::FuncOp>(testFuncName);
+  assert(originalFunc && "does -fut point to the wrong function?");
+
+  MLIRContext *context = module.getContext();
+  OpBuilder b(context);
+
+  originalFunc->removeAttr("kernel");
+  auto readAttr =
+      b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
+  auto writeAttr =
+      b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
+  for (size_t index = 0; index < originalFunc.getArguments().size(); index++)
+    originalFunc.setArgAttrs(index, readAttr);
+  for (size_t index = 0; index < originalFunc.getNumResults(); index++)
+    originalFunc.setResultAttrs(index, writeAttr);
+  auto loc = originalFunc->getLoc();
+  auto wrapperFunc = func::FuncOp::create(loc, testFuncName + "_wrapper",
+                                          originalFunc.getFunctionType());
+  Block *block = wrapperFunc.addEntryBlock();
+  b.setInsertionPointToStart(block);
+  auto launchOp = b.create<mhal::LaunchOp>(loc, originalFunc, ValueRange{},
+                                           block->getArguments());
+  auto results = launchOp->getResults();
+  b.create<mhal::AwaitOp>(loc, results.front());
+  b.create<func::ReturnOp>(loc, ValueRange{results.drop_front()});
+  module.push_back(wrapperFunc);
+
+  auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
+  StringAttr archAttr = b.getStringAttr(arch);
+  xmoduleOp->setAttr("mhal.arch", archAttr);
+  xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
+  auto *cloneFunc = originalFunc->clone();
+  auto cloneFuncOp = dyn_cast<func::FuncOp>(cloneFunc);
+  cloneFuncOp->setAttr("kernel", b.getUnitAttr());
+  cloneFuncOp->setAttr("original_func", SymbolRefAttr::get(originalFunc));
+  xmoduleOp.push_back(cloneFuncOp);
+  module.push_back(xmoduleOp);
+  return module;
+}
+
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
@@ -3384,7 +3434,7 @@ int main(int argc, char **argv) {
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
-                      linalg::LinalgDialect,
+                      linalg::LinalgDialect, mhal::MHALDialect,
                       bufferization::BufferizationDialect, tosa::TosaDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
@@ -3414,7 +3464,9 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
-  if (!hasUserKernel) {
+  if (genCloneHarness.getValue()) {
+    module = populateCloneHarnessLogic(module);
+  } else if (!hasUserKernel) {
     module = generateKernel(&context, genParams, module);
   }
 
@@ -3472,7 +3524,7 @@ int main(int argc, char **argv) {
       }
       return WalkResult::advance();
     });
-  } else {
+  } else if (!genCloneHarness.getValue()) {
     auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
     assert(func && "does -fut point to the wrong function?");
     kernels.emplace_back(func); // +++pf: should it be a kernel?
