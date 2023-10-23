@@ -17,7 +17,7 @@ prefix = "--transK="
 name = "pr_attention_f16"
 
 [[suite.test]]
-config = "-seq_len 384 -num_heads 64"
+config = "-seq_len 384 -head_dim 64"
 
 [[suite.test]]
-config = "-seq_len 64 -num_heads 64"
+config = "-seq_len 64 -head_dim 64"
