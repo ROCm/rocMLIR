@@ -42,7 +42,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[G0AregsTr1:.+]] = rock.transform %[[G0AregsTr0]] by
       // CHECK: %[[G0AregsKpackTr0:.+]] = rock.transform %[[G0AregsKpack:.+]] by
       // CHECK-DAG: %[[G0AregsKpackTr1:.+]] = rock.transform %[[G0AregsKpackTr0:.+]] by
-      // CHECK-DAG: rock.threadwise_transpose {{.*}} %[[G0AregsTr1]] -> %[[G0AregsKpackTr1]]
+      // CHECK-DAG: rock.threadwise_copy %[[G0AregsTr1]] -> %[[G0AregsKpackTr1]]
 
       // Viewing G0 LDS A tile buffer
       // CHECK-DAG: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -65,7 +65,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[G0BregsTr1:.+]] = rock.transform %[[G0BregsTr0]] by
       // CHECK: %[[G0BregsKpackTr0:.+]] = rock.transform %[[G0BregsKpack:.+]] by
       // CHECK-DAG: %[[G0BregsKpackTr1:.+]] = rock.transform %[[G0BregsKpackTr0:.+]] by
-      // CHECK-DAG: rock.threadwise_transpose {{.*}} %[[G0BregsTr1]] -> %[[G0BregsKpackTr1]]
+      // CHECK-DAG: rock.threadwise_copy %[[G0BregsTr1]] -> %[[G0BregsKpackTr1]]
 
       // Viewing G0 LDS B tile buffer
       // CHECK-DAG: %[[viewG0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -102,7 +102,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[G1AregsKpackTr2:.+]] = rock.transform %[[G1AregsKpackTr1]] by
     // CHECK-DAG: %[[G1AregsKpackTr3:.+]] = rock.transform %[[G1AregsKpackTr2]] by
 
-    // CHECK-DAG: rock.threadwise_transpose {{.*}} %[[gemm0NormExpTr3]] -> %[[G1AregsKpackTr3]]
+    // CHECK-DAG: rock.threadwise_copy %[[gemm0NormExpTr3]] -> %[[G1AregsKpackTr3]]
 
     // Viewing G1 LDS A tile buffer
     // CHECK-DAG: %[[viewG1AStore:.+]] = memref.view %[[ldsG1A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -129,7 +129,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[G1BregsTr1:.+]] = rock.transform %[[G1BregsTr0]] by
     // CHECK: %[[G1BregsKpackTr0:.+]] = rock.transform %[[G1BregsKpack:.+]] by
     // CHECK-DAG: %[[G1BregsKpackTr1:.+]] = rock.transform %[[G1BregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_transpose {{.*}} %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
+    // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
 
     // Viewing G1 LDS B tile buffer
     // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG1B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>

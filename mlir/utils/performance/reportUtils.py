@@ -27,7 +27,10 @@ ROUND_DIGITS = 2
 
 def geoMean(data):
     maskedData = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
-    means = scipy.stats.gmean(maskedData)
+    if maskedData.count() == 0:
+        means = 0
+    else:
+        means = scipy.stats.gmean(maskedData)
     return means
 
 def colorForSpeedups(value):

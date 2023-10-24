@@ -521,8 +521,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = b.create<ThreadwiseTransposeOp>(
-        loc, viewLoadBufferA, viewStoreBufferA, kpack, useIndexDiffs, true);
+    auto packALoop = b.create<ThreadwiseCopyOp>(
+        loc, viewLoadBufferA, viewStoreBufferA, useIndexDiffs, true);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -540,8 +540,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = b.create<ThreadwiseTransposeOp>(
-        loc, viewLoadBufferB, viewStoreBufferB, kpack, useIndexDiffs, true);
+    auto packBLoop = b.create<ThreadwiseCopyOp>(
+        loc, viewLoadBufferB, viewStoreBufferB, useIndexDiffs, true);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
@@ -720,8 +720,8 @@ struct GridwiseAttentionAccelRewritePattern
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
-    rewriter.create<ThreadwiseTransposeOp>(loc, regBuffer, viewStoreBuffer,
-                                           kpack, false, false);
+    rewriter.create<ThreadwiseCopyOp>(loc, regBuffer, viewStoreBuffer, false,
+                                      false);
     Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
     FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
         rewriter, loc, ldsTileByteBuffer, ldsReadType, kpacksPerBlock,
@@ -1326,12 +1326,8 @@ struct GridwiseAttentionAccelRewritePattern
 
   FailureOr<TypedAttr>
   getSplatGlobalConstant(memref::GetGlobalOp getGlobalOp) const {
-    auto *symbolTableOp =
-        getGlobalOp->getParentWithTrait<OpTrait::SymbolTable>();
-    if (!symbolTableOp)
-      return failure();
-    auto global = dyn_cast_or_null<memref::GlobalOp>(
-        SymbolTable::lookupSymbolIn(symbolTableOp, getGlobalOp.getNameAttr()));
+    auto global = SymbolTable::lookupNearestSymbolFrom<memref::GlobalOp>(
+        getGlobalOp, getGlobalOp.getNameAttr());
     if (!global)
       return failure();
     auto cstAttr = llvm::dyn_cast_or_null<DenseElementsAttr>(
@@ -1517,7 +1513,6 @@ struct GridwiseAttentionAccelRewritePattern
         loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
         ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
         ArrayRef<int64_t>{1});
-    // Value gemm1LDSByteBufferA = ldsReductionWorkspaceByteBuffer;
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
@@ -2040,8 +2035,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = b.create<ThreadwiseTransposeOp>(
-        loc, viewLoadBufferA, viewStoreBufferA, kpack, false, false);
+    auto packALoop = b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA,
+                                                viewStoreBufferA, false, false);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -2059,8 +2054,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = b.create<ThreadwiseTransposeOp>(
-        loc, viewLoadBufferB, viewStoreBufferB, kpack, false, false);
+    auto packBLoop = b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB,
+                                                viewStoreBufferB, false, false);
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
