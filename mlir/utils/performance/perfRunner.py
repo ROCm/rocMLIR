@@ -515,20 +515,14 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
     return configs
 
 def getAttentionConfigurations(fileName):
-    DATA_TYPE_STR = "-t "
-    TRANS_Q = "-transQ "
-    TRANS_K = "-transK "
-    TRANS_V = "-transV "
-    TRANS_O = "-transO "
-    WITH_ATTN_SCALE = "-with-attn-scale "
     bool_space = ['false', 'true']
     default_test_space = {
-        DATA_TYPE_STR: DATA_TYPES_ATTENTION,
-        TRANS_Q: bool_space,
-        TRANS_K: bool_space,
-        TRANS_V: bool_space,
-        TRANS_O: bool_space,
-        WITH_ATTN_SCALE: bool_space
+        "-t": DATA_TYPES_ATTENTION,
+        "-transQ": bool_space,
+        "-transK": bool_space,
+        "-transV": bool_space,
+        "-transO": bool_space,
+        "-with-attn-scale": bool_space
     }
     configs = []
     if fileName:
@@ -550,7 +544,7 @@ def getAttentionConfigurations(fileName):
                     # Strip to avoid spurious spaces
                     oneConfig = line.strip()
                     for arg, value in zip(args, test_vector):
-                        oneConfig = f"{arg}{value}{oneConfig}"
+                        oneConfig = f"{arg} {value} {oneConfig}"
                     if oneConfig not in configs:
                         configs.append(oneConfig)
     return configs
@@ -752,13 +746,20 @@ class AttentionConfiguration(PerfConfiguration):
 
     @classmethod
     def fromCommandLine(cls, argv, arch, numCU):
+        # optional defaults
+        perf_config = ''
+        transQ = False
+        transK = False
+        transV = False
+        transO = False
+        with_attn_scale = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
             val = argv[i + 1]
-            if opt == '-t':
+            if opt.endswith("-t"):
                 dtype = val
-            elif opt == '-g':
+            elif opt.endswith("-g"):
                 g = int(val)
             elif opt.endswith("-seq_len"):
                 seq_len = int(val)
@@ -859,7 +860,6 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
-    print(rocmlirGenCommand)
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
@@ -1393,7 +1393,7 @@ def main(args=None):
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)
-    configs = []
+    configs = None
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
@@ -1435,7 +1435,10 @@ def main(args=None):
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
             else:
-                df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)])
+                if parsed_args.config:
+                    df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)])
+                else:
+                    df = pd.DataFrame([benchmarkMLIR(config.split(), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for config in configs])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
