@@ -780,7 +780,7 @@ class AttentionConfiguration(PerfConfiguration):
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
         for v in [dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO]:
             if v is None:
-                raise ValueError("Incomplete GEMM configuration")
+                raise ValueError("Incomplete Attention configuration")
 
         return cls(dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
 
