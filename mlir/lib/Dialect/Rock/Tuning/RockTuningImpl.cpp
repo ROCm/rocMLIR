@@ -381,7 +381,7 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
     problemOS << "false" << sep;
   }
   problemOS << "-seq_len " << seqLen << sep;
-  problemOS << "-num_heads " << numHeads;
+  problemOS << "-head_dim " << numHeads;
   return success();
 }
 

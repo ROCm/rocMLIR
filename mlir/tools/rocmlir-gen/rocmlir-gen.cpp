@@ -455,7 +455,7 @@ static llvm::cl::opt<int64_t>
                    llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
-    headDims("num_heads", llvm::cl::desc("head dimension of attention()"),
+    headDims("head_dim", llvm::cl::desc("head dimension of attention()"),
              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
