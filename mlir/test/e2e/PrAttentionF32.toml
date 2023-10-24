@@ -12,6 +12,11 @@ name = "transK"
 values = ["true", "false"]
 prefix = "--transK="
 
+[[axis]]
+name = "scale"
+values = ["true", "false"]
+prefix = "--with-attn-scale="
+
 ## attention variant
 [[suite]]
 name = "pr_attention_f32"

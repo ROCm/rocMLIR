@@ -1303,6 +1303,70 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
+  void scaleFirstGemm(PatternRewriter &rewriter, Location loc,
+                      layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
+                      RegsAsMatrixSubTiles gemm0OutViews, Value scaleInBuffer,
+                      Value scaleInput) const {
+    // Get current workitem ID.
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    rewriter.create<ThreadwiseReadIntoOp>(
+        loc, scaleInput, scaleInBuffer, gemm0OutViews.gridSubTile,
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                   tid},
+        true, true);
+    rewriter.create<linalg::ElemwiseBinaryOp>(
+        loc, ValueRange{gemm0OutBuffer, scaleInBuffer},
+        ValueRange{gemm0OutBuffer},
+        ArrayRef<NamedAttribute>{
+            rewriter.getNamedAttr("fun", rewriter.getAttr<linalg::BinaryFnAttr>(
+                                             linalg::BinaryFn::mul)),
+            rewriter.getNamedAttr("cast", rewriter.getAttr<linalg::TypeFnAttr>(
+                                              linalg::TypeFn::cast_signed))});
+  }
+
+  FailureOr<TypedAttr>
+  getSplatGlobalConstant(memref::GetGlobalOp getGlobalOp) const {
+    auto global = SymbolTable::lookupNearestSymbolFrom<memref::GlobalOp>(
+        getGlobalOp, getGlobalOp.getNameAttr());
+    if (!global)
+      return failure();
+    auto cstAttr = llvm::dyn_cast_or_null<DenseElementsAttr>(
+        global.getConstantInitValue());
+    if (!cstAttr)
+      return failure();
+    if (auto splatAttr = llvm::dyn_cast<SplatElementsAttr>(cstAttr))
+      return splatAttr.getSplatValue<TypedAttr>();
+    return failure();
+  }
+
+  void scaleFirstGemmSplat(PatternRewriter &rewriter, Location loc,
+                           layout::GridCoordinates gridCoords,
+                           Value gemm0OutBuffer,
+                           RegsAsMatrixSubTiles gemm0OutViews,
+                           TypedAttr splatVal) const {
+    MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+    SmallVector<AffineMap, 2> indexingMaps{
+        2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
+    SmallVector<utils::IteratorType> iteratorTypes(
+        bufType.getRank(), utils::IteratorType::parallel);
+    rewriter.create<linalg::GenericOp>(
+        loc, ValueRange(gemm0OutBuffer), ValueRange(gemm0OutBuffer),
+        indexingMaps, iteratorTypes,
+        [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+          Value splatScalarConst = nestedBuilder.create<arith::ConstantOp>(
+              loc, bufType.getElementType(), splatVal);
+          Value mul;
+          if (bufType.getElementType().isIntOrIndex()) {
+            mul = nestedBuilder.create<arith::MulIOp>(loc, args[0],
+                                                      splatScalarConst);
+          } else {
+            mul = nestedBuilder.create<arith::MulFOp>(loc, args[0],
+                                                      splatScalarConst);
+          }
+          nestedBuilder.create<linalg::YieldOp>(nestedLoc, mul);
+        });
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1331,6 +1395,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
+    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getWorkgroupAddressSpace());
 
     int64_t gemm0G = qShape[0];
     int64_t gemm0K = qShape[1];
@@ -1387,6 +1453,11 @@ struct GridwiseAttentionAccelRewritePattern
     // support fp32/fp16 This should be guranteed by op verifiers.
     Value gemm0OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+    Value scaleInBuffer;
+    if (TypedValue<MemRefType> scaleIn = op.getScale()) {
+      scaleInBuffer = createBufferForGemmOut(
+          loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
+    }
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
@@ -1425,7 +1496,23 @@ struct GridwiseAttentionAccelRewritePattern
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
     // gemm1 will happen after reductions are done;
     // Therefore, we re-use that LDS buffer.
-    Value gemm1LDSByteBufferA = ldsReductionWorkspaceByteBuffer;
+    // The reduction buffer being larger is still
+    // acceptable; we just need a subview of that.
+    int64_t gemm1LDSByteBufferSize =
+        gemm0MPerBlock * gemm0NPerBlock * getByteWidth(elemTypeV);
+    if (ldsReductionWorkspaceByteBuffer.getType()
+            .cast<MemRefType>()
+            .getNumElements() < gemm1LDSByteBufferSize) {
+      return op.emitError("ldsReductionWorkspaceByteBuffer should not be less "
+                          "than gemm1LDSByteBufferSize.");
+    }
+    auto gemm1LDSByteBufferAType =
+        MemRefType::get({gemm1LDSByteBufferSize}, rewriter.getI8Type(),
+                        AffineMap{}, workgroupMemoryAddressSpace);
+    Value gemm1LDSByteBufferA = rewriter.create<memref::SubViewOp>(
+        loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
+        ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
+        ArrayRef<int64_t>{1});
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
@@ -1567,6 +1654,27 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
+      // Handle the first gemm scaling if present
+      if (Value scaleIn = op.getScale()) {
+        Value rawBuffer;
+        std::tie(rawBuffer, std::ignore, std::ignore) =
+            untransform(rewriter, scaleIn);
+        if (memref::GetGlobalOp constScale =
+                rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
+          FailureOr<TypedAttr> maybeSplatAttr =
+              getSplatGlobalConstant(constScale);
+          if (failed(maybeSplatAttr)) {
+            return op.emitError(
+                "Only splat scale constant input is supported.");
+          }
+          scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+                              gemm0OutSubTileViews, maybeSplatAttr.value());
+        } else {
+          scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+                         gemm0OutSubTileViews, scaleInBuffer, scaleIn);
+        }
+      }
+      // Handle padding
       bool hasPadding =
           op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
       if (hasPadding) {

@@ -539,7 +539,6 @@ def getAttentionConfigurations(fileName):
                     if arg not in line:
                         test_space.append(default_test_space[arg])
                         args.append(arg)
-                
                 for test_vector in itertools.product(*test_space):
                     # Strip to avoid spurious spaces
                     oneConfig = line.strip()
@@ -683,7 +682,7 @@ class AttentionConfiguration(PerfConfiguration):
         softmax_flops = 5.0 * self.g * self.seq_len * self.seq_len
         second_matmul_flops = 2.0 * self.g * self.seq_len * self.seq_len * self.head_dim
         total_flops = first_matmul_flops + second_matmul_flops
-        # Weirdly, triton does not account for flops coming from 
+        # Weirdly, triton does not account for flops coming from
         # non matmul operations as per FA2 paper. Hence not including
         # by default
         # References:
@@ -698,10 +697,10 @@ class AttentionConfiguration(PerfConfiguration):
     def tableEntry(self, nanoSeconds):
         result = dict()
         values = [
-            self.dataType, 
-            self.chip, 
-            self.numCU, 
-            self.transQ, 
+            self.dataType,
+            self.chip,
+            self.numCU,
+            self.transQ,
             self.transK,
             self.transV,
             self.transO,
@@ -709,7 +708,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.g,
             self.seq_len,
             self.head_dim,
-            self.perfConfig, 
+            self.perfConfig,
             self.computeTFlops(nanoSeconds)
         ]
         assert(len(self.TABLE_COLUMNS) == len(values))
