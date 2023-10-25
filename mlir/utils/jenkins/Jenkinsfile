@@ -140,6 +140,22 @@ void postProcessPerfRes(String chip) {
     archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
 }
 
+//Get the GPU name of architecture
+def get_gpu_architecture() {
+    try {
+        def result = sh(script: 'rocminfo', returnStdout: true).trim()
+        def arch_pattern = /gfx\d+\w*/
+        def matches = (result =~ arch_pattern)
+        if (matches) {
+            return matches[0]
+        }
+        return 'N/A'
+    } catch (Exception e) {
+        echo "Error getting GPU architecture name: ${e}"
+        return 'N/A'
+    }
+}
+
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
     if (currentBuild.getPreviousBuild() == null
@@ -948,16 +964,19 @@ pipeline {
                     }
                     stage("Build MIGraphX with MLIR") {
                         steps {
+                            script {
+                                def gpu_arch = get_gpu_architecture()
                                 sh 'rm -rf MIGraphX'
                                 dir('MIGraphX') {
-                                    getAndBuildMIGraphX('''
+                                    getAndBuildMIGraphX("""
                                                     -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
                                                     -DMIGRAPHX_ENABLE_MLIR=On
                                                     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                     -DMIGRAPHX_USE_HIPRTC=Off
-                                                    -DGPU_TARGETS="gfx90a;gfx906;gfx908;gfx1030;gfx1100;gfx1101"
-                                                    ''')
+                                                    -DGPU_TARGETS="${gpu_arch}"
+                                                    """)
                                 }
+                            }
                         }
                     }
                     stage("Verify MIGraphX with MLIR") {
