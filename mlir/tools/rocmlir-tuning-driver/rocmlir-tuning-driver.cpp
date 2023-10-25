@@ -183,21 +183,26 @@ static int toKernelOrder(Attribute attr) {
   return -1;
 }
 
-static FailureOr<rock::RockGemmWrapperInterface>
-extractKernels(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
+static FailureOr<Type>
+extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
         "no architecture set, set mhal.arch on the input module");
   }
-  rock::RockGemmWrapperInterface toTune;
-  op.walk([&toTune, &kernels](func::FuncOp f) {
+  Type toTuneType;
+  op.walk([&toTuneType, &kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");
     if (!kernel)
       return;
     kernels.push_back(f);
-    if (!toTune) {
-      f.walk([&toTune](rock::RockGemmWrapperInterface gemmLike) {
-        toTune = gemmLike;
+    if (!toTuneType) {
+      f.walk([&toTuneType](rock::RockGemmWrapperInterface gemmLike) {
+        toTuneType = gemmLike.getAType();
+      });
+    }
+    if (!toTuneType) {
+      f.walk([&toTuneType](rock::AttentionOp attnOp) {
+        toTuneType = attnOp.getQueries().getType().getElementType();
       });
     }
   });
@@ -209,23 +214,23 @@ extractKernels(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
               return kernelA < kernelB;
             });
 
-  if (!toTune) {
+  if (!toTuneType) {
     return op.emitError("could not find a tunable kernel in the input");
   }
-  return toTune;
+  return toTuneType;
 }
 
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
-  FailureOr<rock::RockGemmWrapperInterface> maybeToTune =
-      extractKernels(source, funcs);
-  if (failed(maybeToTune))
+  FailureOr<Type> maybeToTuneType =
+      extractKernelDataType(source, funcs);
+  if (failed(maybeToTuneType))
     return failure();
-  rock::RockGemmWrapperInterface toTune = std::move(*maybeToTune);
+  Type toTuneType = maybeToTuneType.value();
   // Provisionally use the type of input A to set up the init value - this
   // should be a per-buffer value in the futurue.
-  benchmark::DataType dataType = getDataType(toTune.getAType());
+  benchmark::DataType dataType = getDataType(toTuneType);
 
   // We need a copy since HIP'll want a C string
   SmallVector<std::string> kernelFuncNames;
@@ -306,6 +311,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     tuningAttr.getPerfConfigStr(perfConfig);
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
     tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
+      op->setAttr("perf_config", perfConfigAttr);
+    });
+    tuneCopy->walk([&perfConfigAttr](rock::AttentionOp op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
     if (failed(applicability.run(tuneCopy))) {

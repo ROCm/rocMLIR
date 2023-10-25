@@ -17,6 +17,7 @@ import perfRunner
 from perfRunner import PerfConfiguration
 from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
+from perfRunner import AttentionConfiguration
 from perfRunner import Paths
 from perfRunner import getChip
 from perfCommonUtils import CORRECT_RESULT_RE
@@ -123,6 +124,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
         commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
         # Note, we don't need the -ph, this goes to the tuning driver
         kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
+        print(kernelGenCommand)
         kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
             stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -209,7 +211,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention'],
         default='conv',
         help="Operation for tuning")
 
@@ -306,6 +308,8 @@ def main(args=None):
         confClass = ConvConfiguration
     elif opType == Operation.GEMM:
         confClass = GemmConfiguration
+    elif opType == Operation.ATTENTION:
+        confClass = AttentionConfiguration
     else:
         raise RuntimeError("Tuning operation was not provided/found")
 
@@ -316,6 +320,8 @@ def main(args=None):
     elif opType == Operation.GEMM:
         datatypes, outputMap = perfRunner.parseDataTypes(parsed_args.data_type)
         configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, datatypes, outputMap)
+    elif opType == Operation.ATTENTION:
+        configs = perfRunner.getAttentionConfigurations(paths.configuration_file_path)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 
