@@ -1571,8 +1571,7 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
                                (elemTypeV.getIntOrFloatBitWidth() / 8);
   int64_t gemm1BLdsSizeBytes =
       (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t totalLDSSize = gemm0ALdsSizeBytes + gemm0BLdsSizeBytes +
-                         gemm1ALdsSizeBytes + gemm1BLdsSizeBytes;
+  int64_t totalLDSSize = std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes) + std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
   if (totalLDSSize > 64 * 1024) {
     return emitError() << "totalLDSSize (" << totalLDSSize
                        << ") exceeds 64KB\n";
