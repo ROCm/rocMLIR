@@ -832,41 +832,40 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  SmallVector<Value> createSharedLDSByteBufferRefs(
-    PatternRewriter &rewriter, 
-    Location loc, 
-    ArrayRef<int64_t> numElementsArr,
-    ArrayRef<Type> elemTypeArr) const {
-        auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+  SmallVector<Value>
+  createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
+                                ArrayRef<int64_t> numElementsArr,
+                                ArrayRef<Type> elemTypeArr) const {
+    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
-        int64_t maxSizeBytes = 0;
-        SmallVector<int64_t, 4> byteSizes;
-        for (auto [numElements, elemType] : llvm::zip(numElementsArr, elemTypeArr)){
-            int64_t sizeBytes = numElements * getByteWidth(elemType);
-            if(sizeBytes > maxSizeBytes){
-                maxSizeBytes = sizeBytes;
-            }
-            byteSizes.push_back(sizeBytes);
-        }
+    int64_t maxSizeBytes = 0;
+    SmallVector<int64_t, 4> byteSizes;
+    for (auto [numElements, elemType] :
+         llvm::zip(numElementsArr, elemTypeArr)) {
+      int64_t sizeBytes = numElements * getByteWidth(elemType);
+      if (sizeBytes > maxSizeBytes) {
+        maxSizeBytes = sizeBytes;
+      }
+      byteSizes.push_back(sizeBytes);
+    }
     auto ldsMemRefType =
         MemRefType::get({maxSizeBytes}, rewriter.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
     Value ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefType);
-    
+
     SmallVector<Value> ret;
-    for(int64_t byteSize : byteSizes){
-        if(byteSize == maxSizeBytes){
-            ret.push_back(ldsByteBuffer);
-            continue;
-        }
-        auto byteBufferType =
-        MemRefType::get({byteSize}, rewriter.getI8Type(),
-                        AffineMap{}, workgroupMemoryAddressSpace);
-        Value ldsByteBufferSubView = rewriter.create<memref::SubViewOp>(
-        loc, byteBufferType, ldsByteBuffer,
-        ArrayRef<int64_t>{0}, ArrayRef<int64_t>{byteSize},
-        ArrayRef<int64_t>{1});
-        ret.push_back(ldsByteBufferSubView);
+    for (int64_t byteSize : byteSizes) {
+      if (byteSize == maxSizeBytes) {
+        ret.push_back(ldsByteBuffer);
+        continue;
+      }
+      auto byteBufferType =
+          MemRefType::get({byteSize}, rewriter.getI8Type(), AffineMap{},
+                          workgroupMemoryAddressSpace);
+      Value ldsByteBufferSubView = rewriter.create<memref::SubViewOp>(
+          loc, byteBufferType, ldsByteBuffer, ArrayRef<int64_t>{0},
+          ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
+      ret.push_back(ldsByteBufferSubView);
     }
     return ret;
   }
@@ -875,8 +874,8 @@ struct GridwiseAttentionAccelRewritePattern
   // ldsTileBuffer for a gemm input
   std::tuple<Value, Value>
   createRegBuffersForGemmIn(Location loc, int64_t kPerBlock, int64_t blockSize,
-                         Type elemType, int64_t dPerBlock,
-                         PatternRewriter &rewriter) const {
+                            Type elemType, int64_t dPerBlock,
+                            PatternRewriter &rewriter) const {
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
@@ -1479,30 +1478,25 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KPerBlock = gemm0NPerBlock;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
     SmallVector<Value> sharedBuffersGemmsA = createSharedLDSByteBufferRefs(
-        rewriter, 
-        loc, 
-        {gemm0KPerBlock * gemm0MPerBlock, gemm0MPerBlock * gemm0NPerBlock, gemm0MPerBlock * gemm0NPerBlock},
-        {elemTypeQ, elemTypeQxK, elemTypeQxK}
-    );
+        rewriter, loc,
+        {gemm0KPerBlock * gemm0MPerBlock, gemm0MPerBlock * gemm0NPerBlock,
+         gemm0MPerBlock * gemm0NPerBlock},
+        {elemTypeQ, elemTypeQxK, elemTypeQxK});
     Value ldsByteBufferQ = sharedBuffersGemmsA[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsA[1];
     Value gemm1LDSByteBufferA = sharedBuffersGemmsA[2];
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
-        rewriter, 
-        loc, 
+        rewriter, loc,
         {gemm0KPerBlock * gemm0NPerBlock, gemm1KPerBlock * gemm1NPerBlock},
-        {elemTypeK, elemTypeV}
-    );
+        {elemTypeK, elemTypeV});
     Value ldsByteBufferK = sharedBuffersGemmsB[0];
     Value ldsByteBufferV = sharedBuffersGemmsB[1];
 
     // Bufers for Gemm0
-    auto [fromGlobalRegBufferQ, toLDSRegBufferQ] =
-        createRegBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeQ,
-                               gemm0MPerBlock, rewriter);
-    auto [fromGlobalRegBufferK, toLDSRegBufferK] =
-        createRegBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeK,
-                               gemm0NPerBlock, rewriter);
+    auto [fromGlobalRegBufferQ, toLDSRegBufferQ] = createRegBuffersForGemmIn(
+        loc, gemm0KPerBlock, blockSize, elemTypeQ, gemm0MPerBlock, rewriter);
+    auto [fromGlobalRegBufferK, toLDSRegBufferK] = createRegBuffersForGemmIn(
+        loc, gemm0KPerBlock, blockSize, elemTypeK, gemm0NPerBlock, rewriter);
     auto [preAccelRegBufferQ, preAccelRegBufferK] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm0, rewriter);
     Value accRegBufferGemm0 =
@@ -1561,7 +1555,8 @@ struct GridwiseAttentionAccelRewritePattern
     // if (ldsReductionWorkspaceByteBuffer.getType()
     //         .cast<MemRefType>()
     //         .getNumElements() < gemm1LDSByteBufferSize) {
-    //   return op.emitError("ldsReductionWorkspaceByteBuffer should not be less "
+    //   return op.emitError("ldsReductionWorkspaceByteBuffer should not be less
+    //   "
     //                       "than gemm1LDSByteBufferSize.");
     // }
     // auto gemm1LDSByteBufferAType =
@@ -1605,9 +1600,8 @@ struct GridwiseAttentionAccelRewritePattern
         accelEmitterPtrGemm1->computeOutputTransforms(
             rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
             gemm1BidGridLengths, gemm1InMPerThread, gemm1InNPerThread);
-    auto [fromGlobalRegBufferV, toLDSRegBufferV] =
-        createRegBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
-                               gemm1NPerBlock, rewriter);
+    auto [fromGlobalRegBufferV, toLDSRegBufferV] = createRegBuffersForGemmIn(
+        loc, gemm1KPerBlock, blockSize, elemTypeV, gemm1NPerBlock, rewriter);
     int64_t gemm1KPerThread = gemm0NPerThread;
     int64_t gemm1MPerThread =
         getLowerShape(gemm1OutSubTileViews.threadSubTile)[0];
