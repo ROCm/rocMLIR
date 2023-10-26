@@ -1516,8 +1516,6 @@ struct GridwiseAttentionAccelRewritePattern
     SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
                                                    gemm0NBlocks};
 
-    // Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-    //     rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
     TypedValue<MemRefType> ldsReductionWorkspaceBuffer =
         viewBufferAs(rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
 
@@ -1546,26 +1544,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Value gemm0ExpOutBufferToLDS =
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
-    // // gemm1 will happen after reductions are done;
-    // // Therefore, we re-use that LDS buffer.
-    // // The reduction buffer being larger is still
-    // // acceptable; we just need a subview of that.
-    // int64_t gemm1LDSByteBufferSize =
-    //     gemm0MPerBlock * gemm0NPerBlock * getByteWidth(elemTypeV);
-    // if (ldsReductionWorkspaceByteBuffer.getType()
-    //         .cast<MemRefType>()
-    //         .getNumElements() < gemm1LDSByteBufferSize) {
-    //   return op.emitError("ldsReductionWorkspaceByteBuffer should not be less
-    //   "
-    //                       "than gemm1LDSByteBufferSize.");
-    // }
-    // auto gemm1LDSByteBufferAType =
-    //     MemRefType::get({gemm1LDSByteBufferSize}, rewriter.getI8Type(),
-    //                     AffineMap{}, workgroupMemoryAddressSpace);
-    // Value gemm1LDSByteBufferA = rewriter.create<memref::SubViewOp>(
-    //     loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
-    //     ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
-    //     ArrayRef<int64_t>{1});
+
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
