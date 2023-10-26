@@ -28,3 +28,4 @@
 // RUN: rocmlir-gen --arch gfx908 -mfma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx908 | rocmlir-opt
 // RUN: rocmlir-gen --arch gfx908 -mfma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,rocdl --verify-passes --arch=gfx908 | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx908
 // RUN: rocmlir-gen --arch gfx908 -mfma=on -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,binary --verify-passes --arch=gfx908 | rocmlir-opt
+
