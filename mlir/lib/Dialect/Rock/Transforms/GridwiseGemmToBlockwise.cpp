@@ -832,10 +832,49 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
+  SmallVector<Value> createSharedLDSByteBufferRefs(
+    PatternRewriter &rewriter, 
+    Location loc, 
+    ArrayRef<int64_t> numElementsArr,
+    ArrayRef<Type> elemTypeArr) const {
+        auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getWorkgroupAddressSpace());
+        int64_t maxSizeBytes = 0;
+        SmallVector<int64_t, 4> byteSizes;
+        for (auto [numElements, elemType] : llvm::zip(numElementsArr, elemTypeArr)){
+            int64_t sizeBytes = numElements * getByteWidth(elemType);
+            if(sizeBytes > maxSizeBytes){
+                maxSizeBytes = sizeBytes;
+            }
+            byteSizes.push_back(sizeBytes);
+        }
+    auto ldsMemRefType =
+        MemRefType::get({maxSizeBytes}, rewriter.getI8Type(), AffineMap{},
+                        workgroupMemoryAddressSpace);
+    Value ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefType);
+    
+    SmallVector<Value> ret;
+    for(int64_t byteSize : byteSizes){
+        if(byteSize == maxSizeBytes){
+            ret.push_back(ldsByteBuffer);
+            continue;
+        }
+        auto byteBufferType =
+        MemRefType::get({byteSize}, rewriter.getI8Type(),
+                        AffineMap{}, workgroupMemoryAddressSpace);
+        Value ldsByteBufferSubView = rewriter.create<memref::SubViewOp>(
+        loc, byteBufferType, ldsByteBuffer,
+        ArrayRef<int64_t>{0}, ArrayRef<int64_t>{byteSize},
+        ArrayRef<int64_t>{1});
+        ret.push_back(ldsByteBufferSubView);
+    }
+    return ret;
+  }
+
   // This function will create fromGlobalRegsBuffer, toLDSRegBuffer and
   // ldsTileBuffer for a gemm input
-  std::tuple<Value, Value, Value>
-  createBuffersForGemmIn(Location loc, int64_t kPerBlock, int64_t blockSize,
+  std::tuple<Value, Value>
+  createRegBuffersForGemmIn(Location loc, int64_t kPerBlock, int64_t blockSize,
                          Type elemType, int64_t dPerBlock,
                          PatternRewriter &rewriter) const {
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
@@ -846,9 +885,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value fromGlobalRegBuffer =
         rewriter.create<GpuAllocOp>(loc, loadBufferType);
     Value toLDSRegBuffer = rewriter.create<GpuAllocOp>(loc, loadBufferType);
-    Value ldsByteBuffer =
-        createLDSByteBuffer(rewriter, loc, dPerBlock * kPerBlock, elemType);
-    return {fromGlobalRegBuffer, toLDSRegBuffer, ldsByteBuffer};
+    return {fromGlobalRegBuffer, toLDSRegBuffer};
   }
 
   void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
@@ -1437,13 +1474,34 @@ struct GridwiseAttentionAccelRewritePattern
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
 
-    // Bufers for Gemm0
+    // Create shared buffers accross gemms and reductions
     int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
-    auto [fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ] =
-        createBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeQ,
+    int64_t gemm1KPerBlock = gemm0NPerBlock;
+    int64_t gemm1NPerBlock = gemm0NPerBlock;
+    SmallVector<Value> sharedBuffersGemmsA = createSharedLDSByteBufferRefs(
+        rewriter, 
+        loc, 
+        {gemm0KPerBlock * gemm0MPerBlock, gemm0MPerBlock * gemm0NPerBlock, gemm0MPerBlock * gemm0NPerBlock},
+        {elemTypeQ, elemTypeQxK, elemTypeQxK}
+    );
+    Value ldsByteBufferQ = sharedBuffersGemmsA[0];
+    Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsA[1];
+    Value gemm1LDSByteBufferA = sharedBuffersGemmsA[2];
+    SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
+        rewriter, 
+        loc, 
+        {gemm0KPerBlock * gemm0NPerBlock, gemm1KPerBlock * gemm1NPerBlock},
+        {elemTypeK, elemTypeV}
+    );
+    Value ldsByteBufferK = sharedBuffersGemmsB[0];
+    Value ldsByteBufferV = sharedBuffersGemmsB[1];
+
+    // Bufers for Gemm0
+    auto [fromGlobalRegBufferQ, toLDSRegBufferQ] =
+        createRegBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeQ,
                                gemm0MPerBlock, rewriter);
-    auto [fromGlobalRegBufferK, toLDSRegBufferK, ldsByteBufferK] =
-        createBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeK,
+    auto [fromGlobalRegBufferK, toLDSRegBufferK] =
+        createRegBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeK,
                                gemm0NPerBlock, rewriter);
     auto [preAccelRegBufferQ, preAccelRegBufferK] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm0, rewriter);
@@ -1464,8 +1522,8 @@ struct GridwiseAttentionAccelRewritePattern
     SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
                                                    gemm0NBlocks};
 
-    Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-        rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
+    // Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
+    //     rewriter, loc, gemm0MPerBlock * gemm0NPerBlock, elemTypeQxK);
     TypedValue<MemRefType> ldsReductionWorkspaceBuffer =
         viewBufferAs(rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
 
@@ -1494,25 +1552,25 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Value gemm0ExpOutBufferToLDS =
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
-    // gemm1 will happen after reductions are done;
-    // Therefore, we re-use that LDS buffer.
-    // The reduction buffer being larger is still
-    // acceptable; we just need a subview of that.
-    int64_t gemm1LDSByteBufferSize =
-        gemm0MPerBlock * gemm0NPerBlock * getByteWidth(elemTypeV);
-    if (ldsReductionWorkspaceByteBuffer.getType()
-            .cast<MemRefType>()
-            .getNumElements() < gemm1LDSByteBufferSize) {
-      return op.emitError("ldsReductionWorkspaceByteBuffer should not be less "
-                          "than gemm1LDSByteBufferSize.");
-    }
-    auto gemm1LDSByteBufferAType =
-        MemRefType::get({gemm1LDSByteBufferSize}, rewriter.getI8Type(),
-                        AffineMap{}, workgroupMemoryAddressSpace);
-    Value gemm1LDSByteBufferA = rewriter.create<memref::SubViewOp>(
-        loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
-        ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
-        ArrayRef<int64_t>{1});
+    // // gemm1 will happen after reductions are done;
+    // // Therefore, we re-use that LDS buffer.
+    // // The reduction buffer being larger is still
+    // // acceptable; we just need a subview of that.
+    // int64_t gemm1LDSByteBufferSize =
+    //     gemm0MPerBlock * gemm0NPerBlock * getByteWidth(elemTypeV);
+    // if (ldsReductionWorkspaceByteBuffer.getType()
+    //         .cast<MemRefType>()
+    //         .getNumElements() < gemm1LDSByteBufferSize) {
+    //   return op.emitError("ldsReductionWorkspaceByteBuffer should not be less "
+    //                       "than gemm1LDSByteBufferSize.");
+    // }
+    // auto gemm1LDSByteBufferAType =
+    //     MemRefType::get({gemm1LDSByteBufferSize}, rewriter.getI8Type(),
+    //                     AffineMap{}, workgroupMemoryAddressSpace);
+    // Value gemm1LDSByteBufferA = rewriter.create<memref::SubViewOp>(
+    //     loc, gemm1LDSByteBufferAType, ldsReductionWorkspaceByteBuffer,
+    //     ArrayRef<int64_t>{0}, ArrayRef<int64_t>{gemm1LDSByteBufferSize},
+    //     ArrayRef<int64_t>{1});
     auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
@@ -1522,10 +1580,8 @@ struct GridwiseAttentionAccelRewritePattern
     // Note that kPerBlock for Gemm1B is nPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
     // Note that nPerBlock for Gemm1B is whole width = gemm1N (head dimension)
-    int64_t gemm1KPerBlock = gemm0NPerBlock;
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1MBlocks = gemm1M / gemm1MPerBlock;
-    int64_t gemm1NPerBlock = gemm0NPerBlock;
     int64_t gemm1NBlocks = gemm1N / gemm1NPerBlock;
     assert(gemm0NPerBlock % gemm0kpack == 0 &&
            "nPerBlock should be divisible by kpack");
@@ -1549,8 +1605,8 @@ struct GridwiseAttentionAccelRewritePattern
         accelEmitterPtrGemm1->computeOutputTransforms(
             rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
             gemm1BidGridLengths, gemm1InMPerThread, gemm1InNPerThread);
-    auto [fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV] =
-        createBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
+    auto [fromGlobalRegBufferV, toLDSRegBufferV] =
+        createRegBuffersForGemmIn(loc, gemm1KPerBlock, blockSize, elemTypeV,
                                gemm1NPerBlock, rewriter);
     int64_t gemm1KPerThread = gemm0NPerThread;
     int64_t gemm1MPerThread =
