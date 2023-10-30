@@ -248,8 +248,6 @@ struct DimInfo {
   TransformMapAttr transformMap; // Map to which the dimension belongs
   TransformAttr transform;       // Transform to which the dimension belongs
   size_t positionInMerge; // Position of the dimension inside the transform
-  bool isBroadcast;       // Is this a broadcast dimension?
-  bool isPadded;          // Is this a padded dimension?
 
   // Utility function to return a transform pair <map,transform>
   std::pair<TransformMapAttr, TransformAttr> transformPair() {
@@ -308,18 +306,9 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       if (keyJ.transformPair() != keyI.transformPair())
         break;
 
-      // b) Unmerge parameters need to match merge parameters. Note that if
-      // the merge dimension goes through a Broadcast (before getting unmerged),
-      // this should be taken into account (i.e., the new parameter should be 1)
-      // However, if its padded, we should not be using 1 as the actual length
-      // becomes important.
-      int64_t dimJ = mergeJDims[posJ];
-      int64_t paramOrBroadcast =
-          (dimToMerge[dimJ].isBroadcast && !dimToMerge[dimJ].isPadded)
-              ? 1
-              : mergeJParams[posJ];
-
-      if (params[j] != paramOrBroadcast)
+      // b) Unmerge parameters need to match merge parameters.
+      int64_t expectedLength = mergeJParams[posJ];
+      if (params[j] != expectedLength)
         break;
 
       groupCandidate.push_back(mergeJDims[posJ]);
@@ -336,15 +325,14 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       for (auto d : groupCandidate)
         contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
 
-      // We also want to add the singleton/broadcast dimensions of the merge the
+      // We also want to add the singleton dimensions of the merge the
       // groupCandidate belongs to. In this way we cover for situations like
       // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
-      // - Merge{8,2,3}, <Broadcast at [1]>, <Unmerge{8,1,3}>
       for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
                                  keyI.transform.getParams())) {
         int64_t d = std::get<0>(pair);
         int64_t p = std::get<1>(pair);
-        if (p == 1 || dimToMerge[d].isBroadcast)
+        if (p == 1)
           contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
       }
     }
@@ -379,8 +367,7 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
       switch (transformType) {
       case TransformType::Merge:
         for (size_t i = 0; i < lowerDims.size(); i++) {
-          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i, false,
-                                          dimToMerge[upperDims[0]].isPadded};
+          thisDimToMerge[lowerDims[i]] = {transformMap, transform, i};
         }
         break;
       // AddDim drops dimensions down a hole, while ConstDim conjures them
@@ -443,34 +430,16 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         break;
       }
 
-      case TransformType::Pad:
-        for (auto pair : llvm::zip(upperDims, lowerDims)) {
-          uint32_t u = std::get<0>(pair);
-          uint32_t l = std::get<1>(pair);
-          thisDimToMerge[l] = dimToMerge[u];
-          thisDimToMerge[l].isPadded = true;
-        }
-        break;
       case TransformType::PassThrough:
       case TransformType::Slice:
+      case TransformType::Pad:
+      case TransformType::Broadcast:
         // We only care about how these transformations shuffle
         // the dimensions
         for (auto pair : llvm::zip(upperDims, lowerDims)) {
           uint32_t u = std::get<0>(pair);
           uint32_t l = std::get<1>(pair);
           thisDimToMerge[l] = dimToMerge[u];
-        }
-        break;
-      case TransformType::Broadcast:
-        // Flag the dimensions we are broadcasting, if the broadcast
-        // parameter is 1
-        for (auto pair : llvm::zip(upperDims, lowerDims, params)) {
-          uint32_t u = std::get<0>(pair);
-          uint32_t l = std::get<1>(pair);
-          uint32_t p = std::get<2>(pair);
-          thisDimToMerge[l] = dimToMerge[u];
-          if (p == 1)
-            thisDimToMerge[l].isBroadcast = true;
         }
         break;
       case TransformType::Unmerge:
