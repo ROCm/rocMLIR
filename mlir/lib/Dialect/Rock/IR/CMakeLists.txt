@@ -18,6 +18,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   MLIRRockAttrDefsIncGen
   MLIRRockGemmWrapperInterfaceIncGen
   MLIRRockTuningParamAttrInterfaceIncGen
+  MLIRRockAccelTuningParamAttrInterfaceIncGen
   MLIRRockAcceptingViewOpInterfaceIncGen
   MLIRRockWriterOpInterfaceIncGen
   MLIRRockOpsIncGen

@@ -461,9 +461,9 @@ def Rock_GpuAllocOp:
 
 // Wrap an allocOp as a multibuffer, i.e., a buffer with #n copies
 def Rock_ReinterpretMultiBufferOp:
-    Rock_Op<"reinterpret_multibuffer", []>,
+    Rock_Op<"reinterpret_multibuffer", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins Arg<MemRefRankOf<[I8], [1]>, "raw allocation", [MemRead]>:$input,
-                   I32Attr:$multibufferFactor)>,
+                   IndexAttr:$multibufferFactor)>,
     Results<(outs AnyMemRef:$output)> {
   let summary = "Reinterpret raw memory as a multi-buffer";
 
@@ -471,11 +471,15 @@ def Rock_ReinterpretMultiBufferOp:
     multiple copies. The first dimension of the output type is the multi-buffering factor}];
   let assemblyFormat = [{
     $input attr-dict
-    `:` type($input) `->` type($output)
+    `:` type($input) `to` type($output)
   }];
   let builders = [
     OpBuilder<(ins "Value":$input, "MemRefType":$bufferType, "int64_t":$mulbibufferFactor)>
   ];
+  let extraClassDeclaration = [{
+    /// For ViewLikeOpInterface.
+    Value getViewSource() { return getInput(); }
+  }];
   let hasVerifier = 1;
 }
 

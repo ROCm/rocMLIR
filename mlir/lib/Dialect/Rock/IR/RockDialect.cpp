@@ -900,14 +900,13 @@ void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
   MemRefType mbMemRefType = MemRefType::Builder(bufferType)
                                 .setShape(multiBufferedShape)
                                 .setLayout(MemRefLayoutAttrInterface());
-  build(b, state, mbMemRefType, input, multibufferFactor);
+  build(b, state, mbMemRefType, input, b.getIndexAttr(multibufferFactor));
 }
 
 LogicalResult ReinterpretMultiBufferOp::verify() {
-  int64_t mbFactor = getMultibufferFactor();
   MemRefType mbType = getOutput().getType();
   ArrayRef<int64_t> mbShape = mbType.getShape();
-  if (mbShape[0] != mbFactor)
+  if (mbShape[0] != getMultibufferFactor())
     return failure();
   return success();
 }
@@ -1452,7 +1451,6 @@ LogicalResult InBoundsStoreOp::verify() {
 Operation *
 ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder, Value view,
                                             ArrayRef<Value> newExtraIndices) {
-  // OpBuilder builder(getContext());
   auto newOp = builder.create<ThreadwiseReadIntoOp>(
       getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());

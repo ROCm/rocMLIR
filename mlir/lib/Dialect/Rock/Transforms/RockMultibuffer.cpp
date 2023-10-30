@@ -176,11 +176,13 @@ Value getSubviewIntoMultibuffer(RewriterBase &rewriter, Location loc, Value val,
 /// This is replacing a generic operation op(buffer) with a sequence of
 /// - multibuffer_view = memref.subview(buffer)
 /// - op(multibuffer_view)
-Operation *subviewAndClone(RewriterBase &rewriter, Location loc, Operation *op,
-                           Value val, Value loopIndex, int64_t operandNumber,
+Operation *subviewAndClone(RewriterBase &rewriter, Location loc,
+                           OpOperand &operand, Value val, Value loopIndex,
                            int64_t multiBufferingFactor) {
+  int64_t operandNumber = operand.getOperandNumber();
+  Operation *op = operand.getOwner();
   auto operands = op->getOperands();
-  Value buffer = operands[operandNumber];
+  Value buffer = operands[operand.getOperandNumber()];
   auto originalShape = buffer.getType().cast<ShapedType>().getShape();
   MemRefType mbMemRefType = val.getType().cast<MemRefType>();
   auto subview = getSubviewIntoMultibuffer(rewriter, loc, val, loopIndex,
@@ -199,7 +201,7 @@ bool acceptsViewAt(Operation *op, int64_t operandNumber) {
 }
 
 /// Return true if the `transformInput` is the first of the transform stack
-bool isTopOfTransformStack(Value transformInput) {
+bool isBottomOfTransformStack(Value transformInput) {
   if (dyn_cast<TransformOp>(transformInput.getDefiningOp())) {
     return false;
   }
@@ -231,7 +233,8 @@ static Value getMultiBufferIndex(RewriterBase &rewriter, Location loc,
   return bufferIndex;
 }
 
-/// Return true if the op fully overwrite the given `buffer` value.
+/// Return true if the op is a writer that fully overwrites
+/// the given raw `buffer` allocated
 bool overrideBuffer(Operation *op, Value buffer) {
   auto copyOp = dyn_cast<rock::RockWriterOpInterface>(op);
   if (!copyOp)
@@ -271,7 +274,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
     } else if (auto transform = dyn_cast<TransformOp>(owner)) {
       // rock.transform case      Value toTransform = val;
       Value toTransform = val;
-      if (isTopOfTransformStack(val) && val.getType().isa<ShapedType>()) {
+      if (isBottomOfTransformStack(val) && val.getType().isa<ShapedType>()) {
         // if this is the top of the transform stack (i.e., the input to the
         // transform is not a transform) add a broadcast
         auto shape = val.getType().cast<ShapedType>().getShape();
@@ -311,9 +314,8 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       Value mbIndex =
           getMultiBufferIndex(rewriter, loc, loop, multiBufferingFactor);
       // And then we can subview into the multibuffer
-      Operation *newOp =
-          subviewAndClone(rewriter, loc, owner, val, mbIndex,
-                          use.getOperandNumber(), multiBufferingFactor);
+      Operation *newOp = subviewAndClone(rewriter, loc, use, val, mbIndex,
+                                         multiBufferingFactor);
       if (newOp->getNumResults())
         replaceUsesAndPropagateType(rewriter, loc, owner, newOp->getResult(0),
                                     loop, loopLength, multiBufferingFactor);
