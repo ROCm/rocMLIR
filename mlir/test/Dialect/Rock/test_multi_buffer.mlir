@@ -89,7 +89,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %29 = rock.alloc(){__multibuffer__=2} : memref<8192xi8, #gpu.address_space<workgroup>>
     %30 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
     %c0_0 = arith.constant 0 : index
-    // CHECK: %[[multibuf_view:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> -> memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[multibuf_view:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
     // CHECK: %[[t0:.*]] = rock.transform %[[multibuf_view]] by {{.*}} : memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>> to memref<16x512xvector<8xf16>, #gpu.address_space<workgroup>>
     // CHECK: %[[t1:.*]] = rock.transform %[[t0]] by {{.*}} : memref<16x512xvector<8xf16>, #gpu.address_space<workgroup>>
     // CHECK: %[[t2:.*]] = rock.transform %[[t1]] by {{.*}} : memref<16x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
@@ -113,7 +113,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %40 = rock.transform %39 by #transform_map22 : memref<64x64xvector<8xf16>, #gpu.address_space<workgroup>> to memref<8x32x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>>
     %41 = rock.transform %40 by #transform_map23 : memref<8x32x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>> to memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
     %c0_3 = arith.constant 0 : index
-    // CHECK: %[[multibuf_view2:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> -> memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[multibuf_view2:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
     %view_4 = memref.view %29[%c0_3][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
     %c0_5 = arith.constant 0 : index
     %view_6 = memref.view %30[%c0_5][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
