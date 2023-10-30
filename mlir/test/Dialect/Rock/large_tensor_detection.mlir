@@ -1,5 +1,5 @@
 // RUN: rocmlir-opt %s -split-input-file -rock-gemm-to-gridwise \
-// RUN:    -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise \
+// RUN:    -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering \
 // RUN: | FileCheck %s --check-prefixes=BLOCKWISE
 // RUN: rocmlir-opt %s -split-input-file -rock-kernel-pipeline | FileCheck %s --check-prefixes=GPU
 

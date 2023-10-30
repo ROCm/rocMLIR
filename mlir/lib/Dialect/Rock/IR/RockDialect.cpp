@@ -1425,10 +1425,16 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
-  Attribute memSpaceAttr = destType.getMemorySpace();
-  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
-  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
-                                               gpu::AddressSpace::Private))
+  MemRefType srcType = getSource().getType();
+  Attribute dstMemSpaceAttr = destType.getMemorySpace();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  auto gpuDstMemSpaceAttr =
+      dstMemSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  auto gpuSrcMemSpaceAttr =
+      srcMemSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  if (dstMemSpaceAttr &&
+      (!gpuDstMemSpaceAttr ||
+       gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
     return emitOpError("dest must be private registers");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
@@ -1444,6 +1450,23 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   } else if (inputShape.size() != extraIdxCount + 1) {
     return emitOpError("source view must be extraIndices + 1");
   }
+
+  // Add more constraints if we see vector buffers (e.g.,
+  // memref<Kxvector<vxf16>>)
+  VectorType srcVectorType = srcType.getElementType().dyn_cast<VectorType>();
+  VectorType dstVectorType = destType.getElementType().dyn_cast<VectorType>();
+  if ((srcVectorType || dstVectorType) &&
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup)
+    return emitOpError("Vector buffers are only allowed when we read from LDS");
+  if (srcVectorType && dstVectorType) {
+    int64_t srcVectorLen = srcVectorType.getNumElements();
+    int64_t dstVectorLen = dstVectorType.getNumElements();
+    if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
+        (dstVectorLen > srcVectorLen && dstVectorLen % dstVectorLen != 0))
+      return emitOpError(
+          "Vector buffers vector's lengths need to be evenly divisible");
+  }
+
   return success();
 }
 
@@ -1571,8 +1594,8 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
                                (elemTypeV.getIntOrFloatBitWidth() / 8);
   int64_t gemm1BLdsSizeBytes =
       (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t totalLDSSize = gemm0ALdsSizeBytes + gemm0BLdsSizeBytes +
-                         gemm1ALdsSizeBytes + gemm1BLdsSizeBytes;
+  int64_t totalLDSSize = std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes) +
+                         std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
   if (totalLDSSize > 64 * 1024) {
     return emitError() << "totalLDSSize (" << totalLDSSize
                        << ") exceeds 64KB\n";

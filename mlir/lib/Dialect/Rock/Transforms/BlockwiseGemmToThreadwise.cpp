@@ -392,7 +392,6 @@ struct BlockwiseGemmRewritePattern
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccel lowering.
 //===----------------------------------------------------------------------===//
-
 struct BlockwiseGemmAccelRewritePattern
     : public OpConversionPattern<BlockwiseGemmAccelOp> {
   using OpConversionPattern<BlockwiseGemmAccelOp>::OpConversionPattern;
@@ -404,12 +403,9 @@ struct BlockwiseGemmAccelRewritePattern
 
     StringAttr arch = op.getArchAttr();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-    int64_t M = tuningParams.getMPerBlock();
-    int64_t N = tuningParams.getNPerBlock();
-    int64_t K = tuningParams.getKpackPerBlock();
+    int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-    int64_t KPack = tuningParams.getKpack();
 
     Type bufferElemTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -420,11 +416,6 @@ struct BlockwiseGemmAccelRewritePattern
       dataTypeA = bufferVecTypeA.getElementType();
     if (auto bufferVecTypeB = bufferElemTypeB.dyn_cast<VectorType>())
       dataTypeB = bufferVecTypeB.getElementType();
-
-    Value sourceOffsetA = adaptor.getWaveOffsetA();
-    Value sourceOffsetB = adaptor.getWaveOffsetB();
-    int64_t mWaves = M / mPerWave;
-    int64_t nWaves = N / nPerWave;
 
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
         op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
@@ -438,19 +429,9 @@ struct BlockwiseGemmAccelRewritePattern
     Type argTypeB = params.argTypeB;
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
-    int64_t mPerAccel = params.mPerAccel;
-    int64_t nPerAccel = params.nPerAccel;
     int64_t kBase = params.kBase;
-    int64_t kpackPerThread = params.kpackPerThread;
-    Value mWavesConstantOp = b.create<ConstantIndexOp>(loc, mWaves);
-    Value nWavesConstantOp = b.create<ConstantIndexOp>(loc, nWaves);
-    int64_t copyMPerThread = op.getInMPerThread();
-    int64_t copyNPerThread = op.getInNPerThread();
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-    const int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto laneId =
-        b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
@@ -460,149 +441,62 @@ struct BlockwiseGemmAccelRewritePattern
                << "nPerWave: " << nPerWave << "\n"
                << "mRepeat: " << mRepeats << "\n"
                << "nRepeat: " << nRepeats << "\n"
-               << "K: " << K << "\n"
+               << "kpackPerBlock: " << kpackPerBlock << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 
-    Value MConstantOp = b.create<ConstantIndexOp>(loc, M);
-    Value NConstantOp = b.create<ConstantIndexOp>(loc, N);
-
-    Value mPerAccelConstantOp = b.create<ConstantIndexOp>(loc, mPerAccel);
-    Value nPerAccelConstantOp = b.create<ConstantIndexOp>(loc, nPerAccel);
-
-    Value bufferA = adaptor.getBufferA();
-    Value bufferB = adaptor.getBufferB();
-
-    Value KPerThreadConstantOp = b.create<ConstantIndexOp>(loc, kpackPerThread);
-
-    auto ldsToRegisterCopy = [&](Location loc, OpBuilder mnb, OpBuilder kb,
-                                 Value sourceBase, Value mn_i, Value MN,
-                                 Value k_i, Value K, Value mnPerMfmaGroup,
-                                 Value mnWaves, Type ldsBufferElemType,
-                                 Type dataType, Value ldsOrig, Value regDest,
-                                 bool rotateDWithK, int64_t copyMNPerThread) {
-      // Compute source offset
-      Value sourceOffset = accelEmitterPtr->computeLdsSourceOffset(
-          kb, k_i, mnb, mn_i, b, MN, loc, sourceBase, mnWaves, laneId);
-
-      // If the dimension `d` has been rotated to minimize bank conflicts we
-      // want to apply the same rotation reading from LDS. This rotation happens
-      // in `wrapLDSforStore` from
-      // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which
-      // needs to be kept in sync with this function
-      if (rotateDWithK) {
-        Value col = kb.create<arith::RemUIOp>(loc, sourceOffset, MN);
-        Value row = kb.create<arith::DivUIOp>(loc, sourceOffset, MN);
-        Value offset = row;
-        if (KPack == 1) {
-          Value stride =
-              kb.create<arith::ConstantIndexOp>(loc, copyMNPerThread);
-          offset = kb.create<arith::MulIOp>(loc, row, stride);
-        }
-        col = kb.create<arith::AddIOp>(loc, col, offset);
-        col = kb.create<arith::RemUIOp>(loc, col, MN);
-        sourceOffset = kb.create<arith::AddIOp>(
-            loc, kb.create<arith::MulIOp>(loc, row, MN), col);
-      }
-
-      Value value = kb.create<memref::LoadOp>(loc, ldsBufferElemType, ldsOrig,
-                                              sourceOffset);
-
-      auto bufferType = regDest.getType().cast<MemRefType>();
-      Type bufferElementType = bufferType.getElementType();
-
-      // We're loading in units of kPack, but storing in units of k_base.
-      if (KPack == kBase) {
-        Value destOffset = k_i;
-        kb.create<memref::StoreOp>(loc, value, regDest, ValueRange{destOffset});
-      } else if (KPack > kBase) {
-        int64_t numStores = KPack / kBase;
-        Value baseDestOffset = kb.createOrFold<arith::MulIOp>(
-            loc, k_i, kb.createOrFold<arith::ConstantIndexOp>(loc, numStores));
-        for (int64_t i = 0; i < numStores; ++i) {
-          Value sliceStart =
-              kb.createOrFold<arith::ConstantIndexOp>(loc, kBase * i);
-          Value slice = kb.create<ExtractSliceOp>(loc, bufferElementType, value,
-                                                  sliceStart);
-          Value destOffset = kb.createOrFold<arith::AddIOp>(
-              loc, baseDestOffset,
-              kb.createOrFold<arith::ConstantIndexOp>(loc, i));
-          kb.create<memref::StoreOp>(loc, slice, regDest,
-                                     ValueRange{destOffset});
-        }
-      } else if (KPack < kBase) {
-        // Here we are gathering loaded values into vectors for passing into
-        // MFMAs.
-        Value destValsPerKpack =
-            kb.createOrFold<arith::ConstantIndexOp>(loc, kBase / KPack);
-        // This is fine, since the inputs to MFMAs are contiguous in the k
-        // dimension.
-        Value destOffset =
-            kb.createOrFold<arith::DivUIOp>(loc, k_i, destValsPerKpack);
-        Value destVecPart =
-            kb.createOrFold<arith::RemUIOp>(loc, k_i, destValsPerKpack);
-        Value destSlicePos = kb.createOrFold<arith::MulIOp>(
-            loc, destVecPart,
-            b.createOrFold<arith::ConstantIndexOp>(loc, KPack));
-        Value destVec = kb.create<memref::LoadOp>(
-            loc, bufferElementType, regDest, ValueRange{destOffset});
-        Value newDestVec = kb.create<InsertSliceOp>(
-            loc, bufferElementType, value, destVec, destSlicePos);
-        kb.create<memref::StoreOp>(loc, newDestVec, regDest,
-                                   ValueRange{destOffset});
-      }
-    };
-
-    auto ldsToRegisterCopyKdim =
-        [&](OpBuilder outerLoopB, affine::AffineForOp outerLoopBodyOp,
-            Value sourceBase, Value MN, Value mnPerMfmaGroup, Value mnWaves,
-            Type ldsBufferElemType, Type dataType, Value ldsOrig, Value regDest,
-            bool rotateDWithK, int64_t copyMNPerThread) {
-          auto innerLoopK =
-              outerLoopB.create<affine::AffineForOp>(loc, 0, kpackPerThread);
-          auto ilkb =
-              ConversionPatternRewriter::atBlockBegin(innerLoopK.getBody());
-          {
-            OpBuilder::InsertionGuard guard(b);
-            b.setInsertionPoint(outerLoopBodyOp);
-            OpBuilder::InsertionGuard guardBody(outerLoopB);
-            outerLoopB.setInsertionPointToStart(outerLoopBodyOp.getBody());
-            ldsToRegisterCopy(loc, outerLoopB, ilkb, sourceBase,
-                              outerLoopBodyOp.getInductionVar(), MN,
-                              innerLoopK.getInductionVar(),
-                              KPerThreadConstantOp, mnPerMfmaGroup, mnWaves,
-                              ldsBufferElemType, dataType, ldsOrig, regDest,
-                              rotateDWithK, copyMNPerThread);
-          }
-        };
-
-    // load A from LDS into registers
+    // The following loop nest hardcodes the following loop schedule:
+    //
     // for(index_t m_i = 0; m_i < mRepeats; ++m_i)
-    //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
-    //       ldsToRegisterCopy[m_i, k_i]
-    auto outerLoopM = b.create<affine::AffineForOp>(loc, 0, mRepeats);
-    auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody());
-    ldsToRegisterCopyKdim(olmb, outerLoopM, sourceOffsetA, MConstantOp,
-                          mPerAccelConstantOp, mWavesConstantOp,
-                          bufferElemTypeA, dataTypeA, op.getMatrixA(), bufferA,
-                          op.getRotateMWithK(), copyMPerThread);
+    //   regsA = threadwise_readinto[m_i, :]
+    //   for(index_t n_i = 0; n_i<nRepeats; ++n_i)
+    //       regsB = threadwise_readint[n_i, :]
+    //       threadwise_gemm(regsA, regsB)
+    //
+    // Which mimics:
+    // https://github.com/ROCmSoftwarePlatform/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
+    //
+    // Please note that different schedules might exist, so this can be
+    // considered a temporary hack until we have a proper way of "searching"
+    // through different schedules (either heuristically or automatically)
 
-    // load B from LDS into registers
-    // for(index_t n_i = 0; n_i < mRepeats; ++n_i)
-    //   for(index_t k_i = 0; k_i < KPerThread; ++k_i)
-    //       ldsToRegisterCopy[n_i, k_i]
-    auto outerLoopN = olmb.create<affine::AffineForOp>(loc, 0, nRepeats);
-    auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody());
-    ldsToRegisterCopyKdim(olnb, outerLoopN, sourceOffsetB, NConstantOp,
-                          nPerAccelConstantOp, nWavesConstantOp,
-                          bufferElemTypeB, dataTypeB, op.getMatrixB(), bufferB,
-                          op.getRotateNWithK(), copyNPerThread);
+    Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
+        b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
+        op.getRotateMWithK());
+    Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
+        b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
+        op.getRotateNWithK());
 
+    auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(mLoop.getBody());
+      Value m_i = mLoop.getInductionVar();
+
+      // regsA = read A from LDS
+      b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
+                                     op.getBufferA(), b.getArrayAttr({}),
+                                     ValueRange{tid, m_i}, true, true);
+
+      auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(nLoop.getBody());
+        Value n_i = nLoop.getInductionVar();
+
+        // regsB = read B from LDS
+        b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadB,
+                                       op.getBufferB(), b.getArrayAttr({}),
+                                       ValueRange{tid, n_i}, true, true);
+
+        // regsC += regsA * regsB
+        b.create<AccelGemmOp>(loc, mLoop.getInductionVar(),
+                              nLoop.getInductionVar(), adaptor.getBufferA(),
+                              adaptor.getBufferB(), adaptor.getMatrixC(), arch,
+                              op.getFeaturesAttr(), tuningParams);
+      }
+    }
     b.eraseOp(op);
-    olnb.create<AccelGemmOp>(loc, outerLoopM.getInductionVar(),
-                             outerLoopN.getInductionVar(), adaptor.getBufferA(),
-                             adaptor.getBufferB(), adaptor.getMatrixC(), arch,
-                             op.getFeaturesAttr(), tuningParams);
     return success();
   }
 };
@@ -624,307 +518,7 @@ struct ThreadwiseWriteAllRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 
-struct ThreadwiseCopyRewritePattern
-    : public OpConversionPattern<ThreadwiseCopyOp> {
-  using OpConversionPattern<ThreadwiseCopyOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseCopyOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const final;
-};
 } // end anonymous namespace
-
-LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
-    ThreadwiseCopyOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
-  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
-
-  auto [rawLoadBuffer, loadBufferView, sourceNeeds64BitIdx] =
-      untransform(b, sourceView);
-  auto [rawStoreBuffer, storeBufferView, dstNeeds64BitIdx] =
-      untransform(b, destView);
-
-  assert(!sourceNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
-  assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
-  ArrayRef<int64_t> rawLoadBufferShape =
-      rawLoadBuffer.getType().cast<ShapedType>().getShape();
-  ArrayRef<int64_t> rawStoreBufferShape =
-      rawStoreBuffer.getType().cast<ShapedType>().getShape();
-  if (rawLoadBufferShape.size() != 1)
-    return op.emitOpError("Raw load buffers have to be flat.");
-  if (rawStoreBufferShape.size() != 1)
-    return op.emitOpError("Raw store buffers have to be flat.");
-
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  auto srcViewShape = op.getSource().getType().getShape();
-  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
-
-  // Basic copy loop. Copy element by element from src to dest view
-  ArrayAttr copyFromView = loadBufferView;
-  ArrayAttr copyToView = storeBufferView;
-  SmallVector<Value> start(srcViewShape.size(), zero);
-  SmallVector<int64_t> strides(srcViewShape.size(), 1);
-  SmallVector<int64_t> bounds = llvm::to_vector(srcViewShape);
-  int64_t vecLen = 1;
-
-  // If we can invert the store view, we can easily find out the common
-  // vectorization length
-  auto storeBufferViewInverted = invertTransforms(b, loc, storeBufferView);
-  if (storeBufferViewInverted) {
-    auto srcToDstView =
-        prependUpperViews(b, storeBufferViewInverted, loadBufferView);
-    int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
-    vecLen = getMaxVectorizationForDatatype(srcToDstView, /*dim=*/0, maxVlen,
-                                            rawStoreBufferShape, elemType);
-
-    copyFromView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
-    copyToView = b.getArrayAttr({});
-
-    start = SmallVector<Value>{zero};
-    strides = SmallVector<int64_t>{vecLen};
-    bounds = llvm::to_vector(rawStoreBufferShape);
-  }
-
-  auto copyLoop =
-      b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
-                                  ArrayRef<Attribute>{copyFromView, copyToView},
-                                  /*bounds=*/bounds,
-                                  /*strides=*/strides, false,
-                                  /*useIndexDiffs=*/false);
-  {
-    PatternRewriter::InsertionGuard outerGuard(b);
-    b.setInsertionPointToStart(copyLoop.getBody());
-    Type loadType = vectorTypeOrSelf(elemType, vecLen);
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        copyLoop.getLowerCoords(0));
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              copyLoop.getLowerCoords(1));
-  }
-  b.eraseOp(op);
-  return success();
-}
-
-/// Amend the operation chain (and computed shape) for a read/write to add a
-/// length-1 iteration index to 0-dimensional (scalar) buffers.
-static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
-                                      ArrayRef<int64_t> &shape,
-                                      ArrayAttr &extraViews) {
-  if (!shape.empty())
-    return;
-  TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
-  addZero.ignore("zero");
-  TransformMapAttr addZeroAttr = addZero.get();
-  shape = addZeroAttr.getUpperBounds().asArrayRef();
-  SmallVector<Attribute, 4> views = {addZeroAttr};
-  if (extraViews)
-    views.append(extraViews.begin(), extraViews.end());
-  extraViews = b.getArrayAttr(views);
-}
-
-LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
-    ThreadwiseReadIntoOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
-  ArrayAttr extraViews = op.getExtraViews();
-  auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
-  ArrayRef<int64_t> inputShape;
-  if (extraViews.empty())
-    inputShape = sourceView.getType().getShape();
-  else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-  addIterationIndexIfScalar(b, loc, inputShape, extraViews);
-
-  auto [buffer, transforms, needs64BitIdx] =
-      untransform(b, sourceView, extraViews);
-
-  int64_t numValues = dest.getType().getNumElements();
-  MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> bufferShape = srcBufferType.getShape();
-  size_t extraIdxCount = op.getExtraIndices().size();
-
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-  if (srcBufferType.getMemorySpace()) {
-    srcAddrSpace =
-        srcBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
-  }
-
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  auto elementType = sourceView.getType().getElementType();
-  int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = " << vectorLen
-                          << "\n");
-
-  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  // In the future, this might get merged into the vectorizer.
-  transforms = collapseContiguousMerges(transforms, bufferShape);
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
-  SmallVector<Value, 3> readStartCoords =
-      llvm::to_vector<3>(op.getExtraIndices());
-  readStartCoords.push_back(zero);
-  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
-  bounds.push_back(numValues);
-  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
-  strides.push_back(vectorLen);
-
-  auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
-      ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loadLoop.getBody());
-    if (srcAddrSpace == gpu::AddressSpace::Global) {
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
-          loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
-      b.create<InBoundsStoreOp>(loc, loaded, dest,
-                                loadLoop.getLowerCoords(
-                                    /*domain=*/1)[extraIdxCount]);
-    } else {
-      if (needs64BitIdx)
-        return b.notifyMatchFailure(
-            loc, "non-global address spaces must have 32-bit pointers");
-      TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
-      scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
-      {
-        OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded = thenb.create<InBoundsLoadOp>(
-            loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
-        thenb.create<scf::YieldOp>(loc, loaded);
-      }
-      {
-        OpBuilder elseb = ifb.getElseBodyBuilder();
-        Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        elseb.create<scf::YieldOp>(loc, zeroVal);
-      }
-      b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest,
-                                loadLoop.getLowerCoords(
-                                    /*domain=*/1)[extraIdxCount]);
-    }
-  }
-  b.eraseOp(op);
-  return success();
-}
-
-LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
-    ThreadwiseWriteAllOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &b) const {
-  Location loc = op.getLoc();
-
-  auto source = cast<TypedValue<MemRefType>>(adaptor.getSource());
-  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
-
-  ArrayAttr extraViews = op.getExtraViews();
-  ArrayRef<int64_t> outputShape;
-  if (extraViews.empty())
-    outputShape = destView.getType().getShape();
-  else
-    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-  addIterationIndexIfScalar(b, loc, outputShape, extraViews);
-
-  auto [buffer, transforms, needs64BitIdx] =
-      untransform(b, destView, extraViews);
-
-  MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> bufferShape = dstBufferType.getShape();
-  size_t extraIdxCount = op.getExtraIndices().size();
-
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Global;
-  if (dstBufferType.getMemorySpace()) {
-    dstAddrSpace =
-        dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
-  }
-  int64_t iterLen = outputShape[extraIdxCount];
-  auto destElemType = buffer.getType().cast<MemRefType>().getElementType();
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t maxVecLen = iterLen;
-  Type elementType = destElemType;
-  int64_t implicitStride = 1;
-  // If the dest is already being viewed as vector-typed, there's no good
-  // mechanism to, for example, store a vector<8xf32> as two consecutive
-  // vector<4xf32>s, and there's unlikely to be any performance benefit from
-  // doing so. Therefore, don't bother.
-  if (auto elemVecType = destElemType.dyn_cast<VectorType>()) {
-    implicitStride = elemVecType.getNumElements();
-    maxVecLen = elemVecType.getNumElements();
-    elementType = elemVecType.getElementType();
-  }
-  int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType,
-      implicitStride);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
-                          << "\n");
-
-  bool forceUnroll = op.getForceUnroll();
-  bool useIndexDiffs = op.getUseIndexDiffs();
-
-  transforms = collapseContiguousMerges(transforms, bufferShape);
-
-  // Constant / consistent arguments
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-
-  SmallVector<Value, 3> writeStartCoords =
-      llvm::to_vector<3>(op.getExtraIndices());
-  writeStartCoords.push_back(zero);
-  SmallVector<int64_t, 3> bounds(writeStartCoords.size() - 1, 1);
-  bounds.push_back(iterLen);
-  SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
-  strides.push_back(vectorLen);
-
-  auto outLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
-      ArrayRef<Attribute>{b.getArrayAttr({}), transforms}, bounds, strides,
-      forceUnroll, useIndexDiffs);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(outLoop.getBody());
-    if (dstAddrSpace == gpu::AddressSpace::Global) {
-      b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                              outLoop.getLowerCoords(
-                                  /*domain=*/0)[extraIdxCount],
-                              outLoop.getValidity(/*domain=*/1),
-                              outLoop.getLowerCoords(/*domain=*/1),
-                              needs64BitIdx ? b.getUnitAttr() : nullptr,
-                              /*canStoreOffEnd=*/nullptr);
-    } else {
-      if (needs64BitIdx)
-        return b.notifyMatchFailure(
-            loc, "non-global address spaces must have 32-bit pointers");
-      Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-      TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
-      scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
-      {
-        OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded =
-            thenb.create<InBoundsLoadOp>(loc, loadType, source,
-                                         outLoop.getLowerCoords(
-                                             /*domain=*/0)[extraIdxCount]);
-        if (!destElemType.isa<VectorType>()) {
-          thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
-        } else {
-          thenb.create<memref::StoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
-        }
-      }
-    }
-  }
-  b.eraseOp(op);
-  return success();
-}
 
 //===----------------------------------------------------------------------===//
 // BlockwiseReduce lowering.
@@ -1502,34 +1096,18 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   {
     ConversionTarget writeAllTarget(*ctx);
-    writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseCopyOp, BlockwiseBroadcastReduceOp,
-                                BlockwiseFillOp>();
+    writeAllTarget.addIllegalOp<BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
     writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                                    memref::MemRefDialect, scf::SCFDialect,
                                    vector::VectorDialect, AffineDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
-        .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseCopyRewritePattern, BlockwiseReduceRewritePattern,
-             BlockwiseFillRewritePattern>(ctx);
+        .add<BlockwiseReduceRewritePattern, BlockwiseFillRewritePattern>(ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();
   }
-
-  WalkResult kernelNeeds64Bit = getOperation().walk([](Operation *op) {
-    if (auto globalLoad = dyn_cast<GlobalLoadOp>(op))
-      return globalLoad.getNeeds64BitIdx() ? WalkResult::interrupt()
-                                           : WalkResult::advance();
-    if (auto globalStore = dyn_cast<GlobalStoreOp>(op))
-      return globalStore.getNeeds64BitIdx() ? WalkResult::interrupt()
-                                            : WalkResult::advance();
-    return WalkResult::advance();
-  });
-  if (kernelNeeds64Bit.wasInterrupted())
-    getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
 
   ConversionTarget target(*ctx);
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();

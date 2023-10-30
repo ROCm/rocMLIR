@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -canonicalize -split-input-file %s | FileCheck %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -canonicalize -split-input-file %s | FileCheck %s
 
 // CHECK-DAG: #[[MAP:.*]] = affine_map<(d0, d1) -> (d1, d0)>
 // CHECK-DAG: #[[MAP1:.*]] = affine_map<(d0, d1) -> (d1 * 20 + d0)>
@@ -26,7 +26,7 @@
 // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
 // CHECK: rock.transforming_for {{.*}} (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %[[ZERO]]), {{.*}} bounds [1, 20] strides [1, 1] {
 // CHECK: %[[LDS_LD_VAL:.*]] = rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]]
-  
+
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 20] -> [20, 20]>
 func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<20xf32, #gpu.address_space<private>>,  %output_reg : memref<20xf32, #gpu.address_space<private>>, %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
     rock.blockwise_broadcast_reduce max [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32

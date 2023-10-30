@@ -180,8 +180,7 @@ func.func @rock_accel_gemm_two_results(%matrixA : memref<16xf32, 5>,
 func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                               %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
                                               %matrixC : memref<1xvector<32xf32>, 5>) {
-  %c0 = arith.constant 0 : index
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = mfma {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
@@ -206,8 +205,7 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
 func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                                 %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
                                                 %matrixC : memref<2xvector<32xf32>, 5>) {
-  %c0 = arith.constant 0 : index
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA[%c0] * %bufferB from %matrixB[%c0] features = mfma {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
