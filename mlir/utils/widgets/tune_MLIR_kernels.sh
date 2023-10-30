@@ -64,6 +64,7 @@ buildlibrockCompiler() {
           -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
           -DCMAKE_BUILD_TYPE=Release # or RelWithDebInfo
     cd build-static
+    rm ./lib/librockCompiler.a
     ninja
     rm -rf ${WORKSPACE}/MIOpenDeps
     cmake --install . --prefix ${WORKSPACE}/MIOpenDeps
