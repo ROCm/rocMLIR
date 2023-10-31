@@ -1448,18 +1448,32 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseReadIntoOp
 //===-----------------------------------------------------===//
+SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwiseReadIntoOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
 Operation *
-ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder, Value view,
+ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
                                             ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+  // Only one operand supports view
   auto newOp = builder.create<ThreadwiseReadIntoOp>(
       getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
-}
-
-SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {
-  auto operands = getOperation()->getOpOperands();
-  return {operands.begin()};
 }
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
@@ -1512,18 +1526,33 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
-Operation *
-ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder, Value view,
-                                            ArrayRef<Value> newExtraIndices) {
-  auto newOp = builder.create<ThreadwiseWriteAllOp>(
-      getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
-  return newOp.getOperation();
-}
 
 SmallPtrSet<OpOperand *, 2> ThreadwiseWriteAllOp::getAcceptingViewOperands() {
   auto operands = getOperation()->getOpOperands();
   return {operands.begin() + 1};
+}
+
+std::optional<OperandRange>
+ThreadwiseWriteAllOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+  // Only one operand supports view
+  auto newOp = builder.create<ThreadwiseWriteAllOp>(
+      getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
+      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
 }
 
 LogicalResult ThreadwiseWriteAllOp::verify() {

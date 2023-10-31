@@ -55,27 +55,29 @@ FailureOr<rock::GpuAllocOp> findAlloc(Value transformedValue) {
     }
     maybeAllocOp = dyn_cast<rock::GpuAllocOp>(curOp);
   }
+  if (!maybeAllocOp)
+    return failure();
+
   return maybeAllocOp;
 }
 
 /// Find all the final users of a rockAllocOp. By final users we mean
 /// operations that write/load data from the alloc
-static std::vector<Operation *> findAllocUsers(rock::GpuAllocOp allocOp) {
-  std::vector<Operation *> queue{allocOp.getOperation()};
-  std::set<Operation *> results;
+void findAllocUsers(rock::GpuAllocOp allocOp,
+                    SmallPtrSet<Operation *, 16> &users) {
+  std::vector<Operation *> worklist{allocOp.getOperation()};
 
-  while (!queue.empty()) {
-    Operation *curOp = queue.back();
-    queue.pop_back();
+  while (!worklist.empty()) {
+    Operation *curOp = worklist.back();
+    worklist.pop_back();
     for (Operation *user : curOp->getUsers()) {
       if (dyn_cast<rock::TransformOp>(user) || dyn_cast<memref::ViewOp>(user)) {
-        queue.push_back(user);
-      } else if (results.find(user) == results.end()) {
-        results.insert(user);
+        worklist.push_back(user);
+      } else if (!users.contains(user)) {
+        users.insert(user);
       }
     }
   }
-  return std::vector(results.begin(), results.end());
 }
 
 /// Compute, if possible, the constant different between two values.
@@ -301,11 +303,12 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       // This is an operation that accepts a view at the current position:
       // Add the loop index as an additional index
       auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(owner);
-      auto extraIndices = viewAcceptingOp.getExtraIndices();
       SmallVector<Value> newExtraIndices = {*loop.getSingleInductionVar()};
-      llvm::append_range(newExtraIndices, extraIndices);
-      Operation *newOp =
-          viewAcceptingOp.cloneWithExtraIndices(rewriter, val, newExtraIndices);
+      auto extraIndices = viewAcceptingOp.getExtraIndices(use);
+      if (extraIndices)
+        llvm::append_range(newExtraIndices, *extraIndices);
+      Operation *newOp = viewAcceptingOp.cloneWithExtraIndices(
+          rewriter, use, val, newExtraIndices);
       if (newOp->getNumResults())
         replaceUsesAndPropagateType(rewriter, loc, viewAcceptingOp,
                                     newOp->getResult(0), loop, loopLength,
@@ -326,7 +329,8 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
   }
   // Delete the tree that is not used
   for (Operation *op : opsToDelete) {
-    rewriter.eraseOp(op);
+    if (op->getUses().empty())
+      rewriter.eraseOp(op);
   }
 }
 } // namespace
@@ -349,7 +353,10 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
   LLVM_DEBUG(DBGS() << "Start multibuffering: " << allocOp << "\n");
   DominanceInfo dom(allocOp->getParentOp());
   LoopLikeOpInterface candidateLoop;
-  for (Operation *user : findAllocUsers(allocOp)) {
+  SmallPtrSet<Operation *, 16> users;
+  findAllocUsers(allocOp, users);
+
+  for (Operation *user : users) {
     auto parentLoop = user->getParentOfType<LoopLikeOpInterface>();
     if (!parentLoop) {
       LLVM_DEBUG(DBGS() << "--no parent loop -> fail\n");
@@ -363,7 +370,7 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
         continue;
       }
       // If this user doesn't dominate all the other users keep looking.
-      if (llvm::any_of(findAllocUsers(allocOp), [&](Operation *otherUser) {
+      if (llvm::any_of(users, [&](Operation *otherUser) {
             return !dom.dominates(user, otherUser);
           })) {
         LLVM_DEBUG(
@@ -371,7 +378,7 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
         continue;
       }
     } else {
-      if (llvm::any_of(findAllocUsers(allocOp), [&](Operation *otherUser) {
+      if (llvm::any_of(users, [&](Operation *otherUser) {
             return !isa<memref::DeallocOp>(otherUser) &&
                    !parentLoop->isProperAncestor(otherUser);
           })) {

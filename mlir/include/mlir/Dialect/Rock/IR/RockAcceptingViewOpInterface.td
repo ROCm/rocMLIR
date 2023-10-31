@@ -30,7 +30,7 @@ def RockAcceptingViewOpInterface : OpInterface<"RockAcceptingViewOpInterface"> {
         }],
         /*retType=*/"Operation *",
         /*methodName=*/"cloneWithExtraIndices",
-        /*args=*/(ins "OpBuilder& ":$builder, "Value":$view, "ArrayRef<Value>":$newExtraIndices),
+        /*args=*/(ins "OpBuilder& ":$builder, "OpOperand&":$operand, "Value":$view, "ArrayRef<Value>":$newExtraIndices),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
@@ -38,9 +38,9 @@ def RockAcceptingViewOpInterface : OpInterface<"RockAcceptingViewOpInterface"> {
         /*desc=*/[{
           "Return the extra indices used to index the operand accepting the view"
         }],
-        /*retType=*/"::mlir::Operation::operand_range",
+        /*retType=*/"std::optional<OperandRange>",
         /*methodName=*/"getExtraIndices",
-        /*args=*/(ins),
+        /*args=*/(ins "OpOperand&":$operand),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
