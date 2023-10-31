@@ -501,6 +501,24 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           dimMap[newDimsSorted[i]] = i;
           newReassocIndicesSorted.push_back(newReassocIdxMap[newDimsSorted[i]]);
         }
+        // HOTFIX: glue trailing unit dimensions onto collapses that need
+        // them. This is because a case like
+        // %t = transpose %aRaw [0, 1, 3, 2] : tensor<1x1xKxM> ->
+        // tensor<1x1xMxK> %a = collapse_shape [[0, 1], [2], [3]]
+        //    : tensor<1x1xMxK> -> tensor<1xMxK>
+        // will, with the above unit-dimension-removal logic, lead to the
+        // invalid reassociation [[0], [2], [3]], causing a crash.
+        // See MIGraphX bug #2365.
+        // The entire logic here should be reviewed, or at least made less
+        // complex if possible, but ... release-critical bug, what can we do?
+        for (size_t i = 0, e = newReassocIndicesSorted.size() - 1; i < e; ++i) {
+          ReassociationIndices &theseIndices = newReassocIndicesSorted[i];
+          const ReassociationIndices &nextIndices =
+              newReassocIndicesSorted[i + 1];
+          while (theseIndices.back() + 1 < nextIndices[0]) {
+            theseIndices.push_back(theseIndices.back() + 1);
+          }
+        }
         for (size_t i = 0; i < newDims.size(); i++) {
           newDims[i] = dimMap[newDims[i]];
         }
