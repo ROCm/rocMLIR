@@ -561,6 +561,7 @@ class GemmConfiguration(PerfConfiguration):
         result = OrderedDict()
         values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
                    self.g, self.m, self.k, self.n, self.perfConfig, self.computeTFlops(nanoSeconds)]
+
         assert(len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -901,7 +902,7 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
-def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
+def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, quickTuningDb: MaybeTuningDb, rocmlir_gen_flags):
     # Never pass tuning DB to this run
     mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, None, rocmlir_gen_flags)
         for testVector in configs)
@@ -909,6 +910,11 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
     if tuningDb:
         tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)
             for testVector in configs)
+    quick_tuned_df = None
+    if quickTuningDb:
+        quick_tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, quickTuningDb, rocmlir_gen_flags)
+            for testVector in configs)
+
     external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU)
         for testVector in configs)
 
@@ -923,13 +929,23 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
         df = df.merge(tuned_df, on=confClass.TABLE_COLUMNS[:-2],
             suffixes=('', ' (tuned)'))
         df.drop(columns=['PerfConfig'], inplace=True)
-        df.rename(columns={'TFlops': 'Tuned MLIR TFlops',
-            'PerfConfig (tuned)': 'PerfConfig'}, inplace=True)
+        df.rename(columns={'TFlops': 'Tuned MLIR TFlops', 'PerfConfig (tuned)' : 'PerfConfig' }, inplace=True)
+    if quick_tuned_df is not None:
+        # No need for suffixes, the conflicting columns have been renamed
+        # Also note that we're ignoring PerfConfig with the -2
+        df = df.merge(quick_tuned_df, on=confClass.TABLE_COLUMNS[:-2],
+            suffixes=('', ' (quick tuned)'))
+        df.rename(columns={'TFlops': 'Quick Tuned MLIR TFlops'}, inplace=True)
 
     df[f"MLIR/{externalName}"] = df['MLIR TFlops'] / df[externalTFlopsCol]
     if tuned_df is not None:
         df[f"Tuned/{externalName}"] = df['Tuned MLIR TFlops'] / df[externalTFlopsCol]
         df["Tuned/Untuned"] = df['Tuned MLIR TFlops'] / df['MLIR TFlops']
+    if quick_tuned_df is not None:
+        df[f"Quick Tuned/{externalName}"] = df['Quick Tuned MLIR TFlops'] / df[externalTFlopsCol]
+        df["Quick Tuned/Untuned"] = df['Quick Tuned MLIR TFlops'] / df['MLIR TFlops']
+    if tuned_df is not None and quick_tuned_df is not None:
+        df["Quick Tuned/Tuned"] = df['Quick Tuned MLIR TFlops'] / df['Tuned MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
     if confClass is RocBLASGemmConfig:
         reportFile = reportUtils.PERF_REPORT_FILE['rocBLAS']
@@ -1329,6 +1345,12 @@ def main(args=None):
         default=argparse.SUPPRESS,
         help="Tuning database filename"
     )
+    parser.add_argument(
+        "-qt", "--quick_tuning_db",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Quick tuning database filename"
+    )
 
     parser.add_argument(
         "--test_dir",
@@ -1378,8 +1400,12 @@ def main(args=None):
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
     tuningDb = None
+    quickTuningDb = None
     if 'tuning_db' in parsed_args:
         tuningDb = read_tuning_db(parsed_args.tuning_db)
+
+    if 'quick_tuning_db' in parsed_args:
+        quickTuningDb = read_tuning_db(parsed_args.quick_tuning_db)
 
     # Impose default behavior when no args have been passed
     if len(args) == 0:
@@ -1423,7 +1449,7 @@ def main(args=None):
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)
+        generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, quickTuningDb, rocmlir_gen_flags)
     elif parsed_args.tuning:
         tuneMLIRKernels(configs, paths, arch, numCU)
     elif opType == Operation.FUSION:
