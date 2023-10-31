@@ -17,6 +17,7 @@
 
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/OpDefinition.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 #include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.h.inc"
 

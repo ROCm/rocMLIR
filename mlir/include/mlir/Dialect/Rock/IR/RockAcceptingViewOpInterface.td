@@ -46,11 +46,11 @@ def RockAcceptingViewOpInterface : OpInterface<"RockAcceptingViewOpInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          "Return true if the operation accepts a view at operand `$pos`"
+          "Return the list of operands that accept a view"
         }],
-        /*retType=*/"bool",
-        /*methodName=*/"acceptsViewAt",
-        /*args=*/(ins "int64_t":$pos),
+        /*retType=*/"llvm::SmallPtrSet<OpOperand*, 2>",
+        /*methodName=*/"getAcceptingViewOperands",
+        /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >

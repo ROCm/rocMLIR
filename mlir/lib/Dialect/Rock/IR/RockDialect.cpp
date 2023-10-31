@@ -1457,7 +1457,10 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder, Value view,
   return newOp.getOperation();
 }
 
-bool ThreadwiseReadIntoOp::acceptsViewAt(int64_t pos) { return pos == 0; }
+SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
@@ -1518,7 +1521,10 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder, Value view,
   return newOp.getOperation();
 }
 
-bool ThreadwiseWriteAllOp::acceptsViewAt(int64_t pos) { return pos == 1; }
+SmallPtrSet<OpOperand *, 2> ThreadwiseWriteAllOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin() + 1};
+}
 
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();

@@ -194,10 +194,12 @@ Operation *subviewAndClone(RewriterBase &rewriter, Location loc,
 }
 
 /// Return if the operation accepts views for operand `operandNumber`
-bool acceptsViewAt(Operation *op, int64_t operandNumber) {
+bool acceptsViewAt(Operation *op, OpOperand &operand) {
   auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(op);
-  return (viewAcceptingOp != nullptr &&
-          viewAcceptingOp.acceptsViewAt(operandNumber));
+  if (!viewAcceptingOp)
+    return false;
+  auto acceptingViewOperands = viewAcceptingOp.getAcceptingViewOperands();
+  return acceptingViewOperands.contains(&operand);
 }
 
 /// Return true if the `transformInput` is the first of the transform stack
@@ -295,7 +297,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
 
       replaceUsesAndPropagateType(rewriter, loc, transform, newTransform, loop,
                                   loopLength, multiBufferingFactor);
-    } else if (acceptsViewAt(owner, use.getOperandNumber())) {
+    } else if (acceptsViewAt(owner, use)) {
       // This is an operation that accepts a view at the current position:
       // Add the loop index as an additional index
       auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(owner);
