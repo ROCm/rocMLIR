@@ -67,3 +67,11 @@
 -transA false -transB false -g 1 -m 2048 -n 2048 -k 2048
 -transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
 -transA false -transB false -g 1 -m 8192 -n 8192 -k 8192
+
+# Codex GEMV configurations
+# https://github.com/ROCmSoftwarePlatform/msft_amd_ai_operators/tree/group_gemm_tuning/operators/GEMM/triton
+-transA false -transB false -g 1 -m 1104 -n 1 -k 4608
+-transA false -transB false -g 1 -m 4608 -n 1 -k 320
+-transA false -transB false -g 1 -m 16 -n 1 -k 4608
+-transA false -transB false -g 1 -m 768 -n 1 -k 4608
+-transA false -transB false -g 1 -m 4608 -n 1 -k 768
