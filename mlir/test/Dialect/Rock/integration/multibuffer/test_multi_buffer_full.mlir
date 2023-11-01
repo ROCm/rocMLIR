@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt %s --rock-multibuffer-test | rocmlir-gen -ph -rand none -print-results - | rocmlir-driver --arch %arch -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: sed -e 's/##TOKEN_ARCH##/%arch/g' %s | rocmlir-opt --rock-multibuffer-test | rocmlir-gen -ph -rand none -print-results - | rocmlir-driver --arch %arch -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK: Unranked Memref base@ = {{.*}} rank = 3 offset = 0 sizes = [1, 384, 1024] strides = [393216, 1024, 1] data =
 // CHECK-COUNT-393216: 1024
 #map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
@@ -59,8 +59,8 @@
 #transform_map27 = #rock.transform_map<#map23 by [<PassThrough ["g_block"] at [0] -> ["gemmG"] at [0]>, <Unmerge{6, 1, 2, 1, 4, 2, 4} ["m_block", "m_i", "wave_m", "blk_row", "vec_group", "m_tid", "vec_item"] at [1, 7, 3, 9, 11, 5, 12] -> ["gemmM"] at [1]>, <Unmerge{16, 1, 2, 1, 32} ["n_block", "n_i", "wave_n", "blk_col", "n_tid"] at [2, 8, 4, 10, 6] -> ["gemmN"] at [2]>] bounds = [1, 6, 16, 2, 2, 2, 32, 1, 1, 1, 1, 4, 4] -> [1, 384, 1024]>
 #transform_map28 = #rock.transform_map<#map24 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmM"] at [1] -> ["gemmM"] at [1]>, <Merge{16, 2, 32} ["gemmN"] at [2] -> ["n_block", "n_iter", "n_tid"] at [2, 3, 4]>] bounds = [1, 384, 1024] -> [1, 384, 16, 2, 32]>
 #transform_map29 = #rock.transform_map<#map25 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmM"] at [1] -> ["gemmM"] at [1]>, <Unmerge{16, 32, 2} ["n_block", "n_tid", "n_iter"] at [2, 4, 3] -> ["gemmN"] at [2]>] bounds = [1, 384, 16, 2, 32] -> [1, 384, 1024]>
-module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
-  func.func @rock_gemm(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x1024xf16>, %arg2: memref<1x384x1024xf16>) attributes {block_size = 256 : i32, grid_size = 96 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a", wave_size = 64 : i32} {
+module attributes {mhal.arch = "##TOKEN_ARCH##"} {
+  func.func @rock_gemm(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x1024xf16>, %arg2: memref<1x384x1024xf16>) attributes {block_size = 256 : i32, grid_size = 96 : i32, kernel, mhal.arch = "##TOKEN_ARCH##", wave_size = 64 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<1x384x1024xf16> to memref<1x1024x384xf16>
     %alloc = memref.alloc() : memref<1x384x1024xf32>
     %1 = rock.transform %0 by #transform_map1 : memref<1x1024x384xf16> to memref<16x1x6x16x32x8x2x8xf16>
@@ -141,7 +141,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %19 -> [](%37) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
-      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx90a", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
+      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features =  mfma|dot|atomic_add {arch = "##TOKEN_ARCH##", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
     }
     %50 = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
