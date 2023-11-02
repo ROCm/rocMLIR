@@ -135,9 +135,11 @@ public:
     auto padAttr = op->getAttr("padding").template cast<ArrayAttr>();
     auto strideAttr = op->getAttr("stride").template cast<ArrayAttr>();
     auto dilationAttr = op->getAttr("dilation").template cast<ArrayAttr>();
-    int64_t padTop = padAttr[0].template dyn_cast<IntegerAttr>().getInt();
-    int64_t padBottom = padAttr[1].template dyn_cast<IntegerAttr>().getInt();
-    int64_t padLeft = padAttr[2].template dyn_cast<IntegerAttr>().getInt();
+    // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
+    // is [hlow, hhigh, wlow, whigh].
+    int64_t padTop = padAttr[2].template dyn_cast<IntegerAttr>().getInt();
+    int64_t padBottom = padAttr[0].template dyn_cast<IntegerAttr>().getInt();
+    int64_t padLeft = padAttr[1].template dyn_cast<IntegerAttr>().getInt();
     int64_t padRight = padAttr[3].template dyn_cast<IntegerAttr>().getInt();
     int64_t strideHeight =
         strideAttr[0].template dyn_cast<IntegerAttr>().getInt();
