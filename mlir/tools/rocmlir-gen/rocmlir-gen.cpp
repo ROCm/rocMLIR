@@ -3390,6 +3390,9 @@ static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
   OpBuilder b(context);
 
   originalFunc->removeAttr("kernel");
+  StringAttr archAttr = b.getStringAttr(arch);
+  if (originalFunc->hasAttr("arch"))
+    originalFunc->setAttr("arch", archAttr);
   auto readAttr =
       b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
   auto writeAttr =
@@ -3411,7 +3414,6 @@ static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
-  StringAttr archAttr = b.getStringAttr(arch);
   xmoduleOp->setAttr("mhal.arch", archAttr);
   xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
   auto *cloneFunc = originalFunc->clone();
