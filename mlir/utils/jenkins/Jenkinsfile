@@ -554,6 +554,10 @@ pipeline {
                                             --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                             --output=tuning_conv.tsv
                                           [ -f tuning_conv.tsv ]"""
+                                    sh """python3 ./bin/tuningRunner.py --operation attention \
+                                        --configs_file=../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                        --output=mlir_tuning_${ARCH}.tsv --verify-mode none
+                                        [ -f tuning_conv.tsv ]"""
                                 }
                             }
                         }
@@ -713,6 +717,10 @@ pipeline {
                                 sh """python3 ./bin/tuningRunner.py --operation conv \
                                         --configs_file=../mlir/utils/performance/conv-configs \
                                         --output=mlir_tuning_${ARCH}.tsv"""
+                                // Tune attention configs
+                                sh """python3 ./bin/tuningRunner.py --operation attention \
+                                        --configs_file=../mlir/utils/performance/attention-configs \
+                                        --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
                             }
                         }
                     }
@@ -855,6 +863,16 @@ pipeline {
                                 // Run bert perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op fusion \
           --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                            }
+                        }
+                    }
+                    stage("Test Attention") {
+                        steps {
+                            dir('build') {
+                                // Run attention benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/attention-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
                     }
