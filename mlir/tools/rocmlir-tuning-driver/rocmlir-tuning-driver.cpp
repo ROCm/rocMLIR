@@ -223,8 +223,7 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
-  FailureOr<Type> maybeToTuneType =
-      extractKernelDataType(source, funcs);
+  FailureOr<Type> maybeToTuneType = extractKernelDataType(source, funcs);
   if (failed(maybeToTuneType))
     return failure();
   Type toTuneType = maybeToTuneType.value();
