@@ -1588,6 +1588,22 @@ struct GridwiseAttentionAccelRewritePattern
          elemTypeOut});
 
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
+    TypedValue<MemRefType> ldsTileBufferQ;
+    if(gemm0K == gemm0KPerBlock){
+        llvm::errs() << "gemm0K is equal to gemm0KPerBlock\n";
+        Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+        LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
+            loc, inQ, /*kiter=*/zero, gridCoordsGemm1, fromGlobalRegBufferQ,
+            toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
+            gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
+            bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
+        ldsTileBufferQ = viewBufferAs(
+            rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
+        if (failed(statusLoadQTile)) {
+          return failure();
+        }
+    }
+
     affine::AffineForOp nLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0NBlocks, 1);
     {
@@ -1609,16 +1625,18 @@ struct GridwiseAttentionAccelRewritePattern
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
-        LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
-            toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
-            gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
-            bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
-        if (failed(statusLoadQTile)) {
-          return failure();
-        }
-        TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
+        if(gemm0K != gemm0KPerBlock){
+            // LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
+            //     loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
+            //     toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
+            //     gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
+            //     bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
+            // if (failed(statusLoadQTile)) {
+            // return failure();
+            // }
+            ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
+        }
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
             loc, inK, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "n", gemm0kpack,
