@@ -102,7 +102,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
             nanoSeconds = float(time)
 
         config.setPerfConfig(perfConfig)
-        entry = config.tableEntry(nanoSeconds)
+        entry = config.tableEntry(nanoSeconds, np.nan)
         allData.append(entry)
         theseTFlops = entry['TFlops']
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:

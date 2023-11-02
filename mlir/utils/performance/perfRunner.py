@@ -27,6 +27,7 @@ from typing import Optional, Dict, Tuple
 ROCPROF = '/opt/rocm/bin/rocprof'
 MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
+BANKCONFLICT = 'results.csv'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
@@ -135,6 +136,21 @@ def getNanoSeconds(fileName):
         csv_file.close()
         return result
 
+# Bank conflict functions.The percentage of GPUTime LDS is stalled by bank
+# conflicts. Value range: 0% (optimal) to 100% (bad).
+def getBankConflict(fileName):
+    if not os.path.exists(fileName):
+        return np.nan
+    with open(fileName, 'r') as csv_file:
+        reader = csv.DictReader(csv_file, delimiter = ',')
+
+        result = []
+        for row in reader:
+            result.append(float(row['LDSBankConflict']))
+        csv_file.close()
+        result_average = sum(result) / len(result)
+        return result_average
+
 # Tuning databases
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
 def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
@@ -178,7 +194,7 @@ class PerfConfiguration:
     def computeTFlops(self, ns: int) -> float:
         raise NotImplementedError()
 
-    def tableEntry(self, nanoSeconds):
+    def tableEntry(self, nanoSeconds, bankConflict):
         raise NotImplementedError()
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
@@ -247,7 +263,7 @@ def getConvConfigurations(fileName):
     return configs
 
 class ConvConfiguration(PerfConfiguration):
-    TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['TFlops']
+    TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
     EXTERNAL_NAME = "MIOpen"
 
     def computeTFlops(self, ns):
@@ -255,12 +271,12 @@ class ConvConfiguration(PerfConfiguration):
         # Repeats are handled by the fact that we're using avarageNs
         return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def tableEntry(self, nanoSeconds, bankConflict):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
         values = [self.direction, self.dataType, self.chip, self.numCU, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
-                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig,
+                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig, bankConflict,
                    self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
@@ -447,6 +463,7 @@ class ConvConfiguration(PerfConfiguration):
         p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
         # get output.
         nanoSeconds = np.nan
+        bankConflict = np.nan
         try:
             outs, errs = p1.communicate(timeout=300)
             if len(errs) > 0:
@@ -465,7 +482,7 @@ class ConvConfiguration(PerfConfiguration):
             p1.kill()
             print("MIOpen benchmark timed out")
             outs, errs = p1.communicate()
-        return config.tableEntry(nanoSeconds)
+        return config.tableEntry(nanoSeconds, bankConflict)
 
 def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
     configs = []
@@ -548,17 +565,17 @@ def getAttentionConfigurations(fileName):
 
 
 class GemmConfiguration(PerfConfiguration):
-    TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['TFlops']
+    TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
     def computeTFlops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         return (2.0 * self.g * self.m * self.k * self.n) / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def tableEntry(self, nanoSeconds, bankConflict):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
         values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
-                   self.g, self.m, self.k, self.n, self.perfConfig, self.computeTFlops(nanoSeconds)]
+                   self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -815,7 +832,8 @@ class RocBLASGemmConfig(GemmConfiguration):
             p.kill()
             outs, errs = p.communicate()
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-        return config.tableEntry(nanoSeconds)
+        bankConflict = np.nan
+        return config.tableEntry(nanoSeconds, bankConflict)
 
 class CKGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "CK"
@@ -854,13 +872,16 @@ class CKGemmConfig(GemmConfiguration):
 def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags, debug=True):
     # remove the result file generated by rocprof in previous benchmarking
     os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir, 'results.txt')
+
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF, '-i', file_path, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
     # invoke rocmlir-gen.
     p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -891,12 +912,15 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
         if (arch, configStr) in tuningDb:
             config.setPerfConfig(tuningDb[arch, configStr])
         else: # Tuning DB present but doesn't contain config, return N/A
-            return config.tableEntry(np.nan)
+            return config.tableEntry(np.nan,np.nan)
 
     runConfigWithMLIR(config, paths, rocmlir_gen_flags)
+    
+    # get the percentage of GPUTime LDS is stalled by bank conflicts
+    bankConflict = getBankConflict(BANKCONFLICT)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-    return config.tableEntry(nanoSeconds)
+    return config.tableEntry(nanoSeconds,bankConflict)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
 def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
@@ -911,14 +935,14 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
         for testVector in configs)
 
     externalName = confClass.EXTERNAL_NAME
-    df = mlir_df.merge(external_df, on=confClass.TABLE_COLUMNS[:-1],
+    df = mlir_df.merge(external_df, on=confClass.TABLE_COLUMNS[:-2],
                            suffixes=('', f" ({externalName})"))
     externalTFlopsCol = f"{externalName} TFlops (no MLIR Kernels)"
     df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": externalTFlopsCol}, inplace=True)
     if tuned_df is not None:
         # No need for suffixes, the conflicting columns have been renamed
-        # Also note that we're ignoring PerfConfig with the -2
-        df = df.merge(tuned_df, on=confClass.TABLE_COLUMNS[:-2],
+        # Also note that we're ignoring PerfConfig with the -3
+        df = df.merge(tuned_df, on=confClass.TABLE_COLUMNS[:-3],
             suffixes=('', ' (tuned)'))
         df.drop(columns=['PerfConfig'], inplace=True)
         df.rename(columns={'TFlops': 'Tuned MLIR TFlops',
@@ -1259,7 +1283,7 @@ def main(args=None):
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/performance/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",
@@ -1443,3 +1467,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     sys.exit(main())
+    
