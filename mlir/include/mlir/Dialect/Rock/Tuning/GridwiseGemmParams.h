@@ -258,7 +258,7 @@ public:
 //
 class PopulateParams : public BasePopulateParams<InitParamsNonAccel> {
 private:
-  static constexpr size_t nInitParameters = 21;
+  static constexpr size_t nInitParameters = 30;
   static const InitParamsNonAccel initParameters[nInitParameters];
   // if can't select config from above , use this config to do
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
@@ -375,16 +375,16 @@ protected:
 // Xdlops interface
 //
 class PopulateParamsXDL : public PopulateParamsAccel {
-  static constexpr size_t nInitParameters = 36;
+  static constexpr size_t nInitParameters = 40;
   // Initial tuning parameters for forward convolution and backward
   // convolution.
   static const InitParamsAccel initParameters[nInitParameters];
 
-  static constexpr size_t nInitParametersFp16 = 36;
+  static constexpr size_t nInitParametersFp16 = 40;
   // Tuning parameters for fp16/bf16 convolutions.
   static const InitParamsAccel initParametersFp16[nInitParametersFp16];
 
-  static constexpr size_t nInitParametersForward8Bit = 36;
+  static constexpr size_t nInitParametersForward8Bit = 40;
   // Tuning parameters for i8 convolutions.
   static const InitParamsAccel
       initParametersForward8Bit[nInitParametersForward8Bit];
@@ -412,11 +412,11 @@ protected:
 //
 class PopulateParamsWmma : public PopulateParamsAccel {
 private:
-  static constexpr size_t nInitParametersFp16 = 20;
+  static constexpr size_t nInitParametersFp16 = 30;
   // Tuning parameters for fp16/bf16 convolutions.
   static const InitParamsAccel initParametersFp16[nInitParametersFp16];
 
-  static constexpr size_t nInitParametersForward8Bit = 20;
+  static constexpr size_t nInitParametersForward8Bit = 30;
   // Tuning parameters for i8 convolutions.
   static const InitParamsAccel
       initParametersForward8Bit[nInitParametersForward8Bit];
