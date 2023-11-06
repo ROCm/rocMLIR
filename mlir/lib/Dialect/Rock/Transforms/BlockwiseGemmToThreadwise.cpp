@@ -702,8 +702,6 @@ struct BlockwiseReduceRewritePattern
                                    std::numeric_limits<int64_t>::min());
       }
     } else {
-      FloatType elemFloatType = elementType.cast<FloatType>();
-      APFloat initVal = APFloat::getZero(elemFloatType.getFloatSemantics());
       if (rMethod == ReduceMethod::Sum) {
         return createConstantFloatOp(rewriter, op.getLoc(), elementType,
                                      elementType, 0.0);
@@ -761,6 +759,13 @@ struct BlockwiseReduceRewritePattern
       }
       return reduced;
     }
+  }
+
+  int64_t roundToNextPowerof2(int64_t n) const {
+    double log2n = std::log2(static_cast<double>(n));
+    int64_t ceillog2n = static_cast<int64_t>(std::ceil(log2n));
+    int64_t ceilPowerOf2 = (int64_t)1 << ceillog2n;
+    return ceilPowerOf2;
   }
 
   LogicalResult
@@ -1020,14 +1025,11 @@ struct BlockwiseReduceRewritePattern
         // This RAII scope would do the following :
         // LDS[rtid] = reduce(LDS[rtid], LDS[rtid + offset])
         // where offset is a power of 2.
-        // Initial it starts with power = ceil(|rtid| / 2, power of 2)
+        // Initial it starts with power = ceil(|rtid|, power of 2) / 2
         // Then keep on reducing the power.
         {
-          double log2HalfRtidDimSize =
-              std::log2(static_cast<double>(threadViewShape[rTidDim]) / 2);
-          int64_t ceilLog2HalfRtidDimSize =
-              static_cast<int64_t>(std::ceil(log2HalfRtidDimSize));
-          int64_t ceilPowerOf2 = (int64_t)1 << ceilLog2HalfRtidDimSize;
+          int64_t ceilPowerOf2 =
+              roundToNextPowerof2(threadViewShape[rTidDim]) / 2;
           int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {
@@ -1038,7 +1040,8 @@ struct BlockwiseReduceRewritePattern
             Value maxActiveReductionThreadsVal =
                 rewriter.create<arith::ConstantIndexOp>(
                     loc, maxActiveReductionThreads);
-            maxActiveReductionThreads = maxActiveReductionThreads >> 1;
+            maxActiveReductionThreads =
+                roundToNextPowerof2(maxActiveReductionThreads) >> 1;
             Value isValid = rewriter.create<arith::CmpIOp>(
                 loc, arith::CmpIPredicate::slt, rtidPlusOffsetVal,
                 maxActiveReductionThreadsVal);

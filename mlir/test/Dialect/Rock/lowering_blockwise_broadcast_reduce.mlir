@@ -86,7 +86,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: rock.lds_barrier
 
 // CHECK: %[[PLUS_TWO_OFFSET:.*]] = arith.addi %[[PRT_THREAD_IDX]], %c2
-// CHECK: %[[PLUS_TWO_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_TWO_OFFSET]], %c2
+// CHECK: %[[PLUS_TWO_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_TWO_OFFSET]], %c4
 // CHECK: scf.if %[[PLUS_TWO_BCHECK]] {
     // CHECK: rock.transforming_for
     // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
@@ -98,7 +98,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: rock.lds_barrier
 
 // CHECK: %[[PLUS_ONE_OFFSET:.*]] = arith.addi %[[PRT_THREAD_IDX]], %c1
-// CHECK: %[[PLUS_ONE_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE_OFFSET]], %c1
+// CHECK: %[[PLUS_ONE_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE_OFFSET]], %c2
 // CHECK: scf.if %[[PLUS_ONE_BCHECK]] {
     // CHECK: rock.transforming_for
     // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
