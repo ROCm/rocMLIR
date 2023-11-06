@@ -685,35 +685,34 @@ struct BlockwiseReduceRewritePattern
     return rewriter.getArrayAttr({unmergeTrMap, padTrMap, mergeTrMap});
   }
 
-  arith::ConstantOp
-  getReductionInitValue(BlockwiseBroadcastReduceOp op,
-                        ConversionPatternRewriter &rewriter) const {
+  Value getReductionInitValue(BlockwiseBroadcastReduceOp op,
+                              ConversionPatternRewriter &rewriter) const {
     ReduceMethod rMethod = op.getReduceMethod();
-    TypedAttr initValAttr;
     Type elementType = op.getInput().getType().getElementType();
     if (elementType.isIntOrIndex()) {
       int64_t initVal;
       if (rMethod == ReduceMethod::Sum) {
-        initVal = 0;
+        return createConstantIntOp(rewriter, op.getLoc(), elementType,
+                                   elementType, 0);
       } else {
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
-        initVal = std::numeric_limits<int64_t>::min();
+        return createConstantIntOp(rewriter, op.getLoc(), elementType,
+                                   elementType,
+                                   std::numeric_limits<int64_t>::min());
       }
-      initValAttr = rewriter.getIntegerAttr(elementType, initVal);
     } else {
-      double initVal;
       if (rMethod == ReduceMethod::Sum) {
-        initVal = 0.0;
+        return createConstantFloatOp(rewriter, op.getLoc(), elementType,
+                                     elementType, 0.0);
       } else {
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
-        initVal = std::numeric_limits<double>::min();
+        return createConstantFloatOp(rewriter, op.getLoc(), elementType,
+                                     elementType,
+                                     -std::numeric_limits<float>::infinity());
       }
-      initValAttr = rewriter.getFloatAttr(elementType, initVal);
     }
-    return rewriter.create<arith::ConstantOp>(op.getLoc(), elementType,
-                                              initValAttr);
   }
 
   Value createReducingOp(BlockwiseBroadcastReduceOp op, Value input, Value acc,
@@ -760,6 +759,13 @@ struct BlockwiseReduceRewritePattern
       }
       return reduced;
     }
+  }
+
+  int64_t roundToNextPowerof2(int64_t n) const {
+    double log2n = std::log2(static_cast<double>(n));
+    int64_t ceillog2n = static_cast<int64_t>(std::ceil(log2n));
+    int64_t ceilPowerOf2 = (int64_t)1 << ceillog2n;
+    return ceilPowerOf2;
   }
 
   LogicalResult
@@ -828,7 +834,7 @@ struct BlockwiseReduceRewritePattern
         auto accRegType = MemRefType::get(
             nrIterVectorLen, elemType, AffineMap{}, privateMemoryAddressSpace);
         Value accReg = rewriter.create<GpuAllocOp>(loc, accRegType);
-        arith::ConstantOp initVal = getReductionInitValue(op, rewriter);
+        Value initVal = getReductionInitValue(op, rewriter);
         {
           PatternRewriter::InsertionGuard guard(rewriter);
           Value nrIter;
@@ -841,7 +847,7 @@ struct BlockwiseReduceRewritePattern
           } else {
             nrIter = zeroConstantOp;
           }
-          rewriter.create<FillOp>(loc, accReg, initVal.getResult());
+          rewriter.create<FillOp>(loc, accReg, initVal);
           int64_t rIterVectorLen = getMaxVectorizationForDatatype(
               threadToLDSViewTrs, rIterDim, threadViewShape[rIterDim],
               ldsBufferShape, elemType);
@@ -965,8 +971,8 @@ struct BlockwiseReduceRewritePattern
             SmallVector<int64_t> bounds{1, 1, threadViewShape[rIterDim]};
             SmallVector<int64_t> strides{1, 1, rIterVectorLen};
 
-            arith::ConstantOp initVal = getReductionInitValue(op, rewriter);
-            rewriter.create<FillOp>(loc, accReg, initVal.getResult());
+            Value initVal = getReductionInitValue(op, rewriter);
+            rewriter.create<FillOp>(loc, accReg, initVal);
 
             TransformingForOp reductionLoop =
                 rewriter.create<TransformingForOp>(
@@ -1019,23 +1025,26 @@ struct BlockwiseReduceRewritePattern
         // This RAII scope would do the following :
         // LDS[rtid] = reduce(LDS[rtid], LDS[rtid + offset])
         // where offset is a power of 2.
-        // Initial it starts with power = ceil(|rtid| / 2, power of 2)
+        // Initial it starts with power = ceil(|rtid|, power of 2) / 2
         // Then keep on reducing the power.
         {
-          double log2HalfRtidDimSize =
-              std::log2(static_cast<double>(threadViewShape[rTidDim]) / 2);
-          int64_t ceilLog2HalfRtidDimSize =
-              static_cast<int64_t>(std::ceil(log2HalfRtidDimSize));
-          int64_t ceilPowerOf2 = (int64_t)1 << ceilLog2HalfRtidDimSize;
+          int64_t ceilPowerOf2 =
+              roundToNextPowerof2(threadViewShape[rTidDim]) / 2;
+          int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {
             Value offsetVal =
                 rewriter.create<arith::ConstantIndexOp>(loc, offset);
             Value rtidPlusOffsetVal =
                 rewriter.create<arith::AddIOp>(loc, rtid, offsetVal);
+            Value maxActiveReductionThreadsVal =
+                rewriter.create<arith::ConstantIndexOp>(
+                    loc, maxActiveReductionThreads);
+            maxActiveReductionThreads =
+                roundToNextPowerof2(maxActiveReductionThreads) >> 1;
             Value isValid = rewriter.create<arith::CmpIOp>(
                 loc, arith::CmpIPredicate::slt, rtidPlusOffsetVal,
-                rtidDimSizeVal);
+                maxActiveReductionThreadsVal);
             scf::IfOp ifb = rewriter.create<scf::IfOp>(
                 loc, isValid, /*withElseRegion=*/false);
             {
