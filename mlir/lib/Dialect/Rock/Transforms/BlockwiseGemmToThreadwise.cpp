@@ -761,13 +761,6 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
-  int64_t roundToNextPowerof2(int64_t n) const {
-    double log2n = std::log2(static_cast<double>(n));
-    int64_t ceillog2n = static_cast<int64_t>(std::ceil(log2n));
-    int64_t ceilPowerOf2 = (int64_t)1 << ceillog2n;
-    return ceilPowerOf2;
-  }
-
   LogicalResult
   matchAndRewrite(BlockwiseBroadcastReduceOp op,
                   BlockwiseBroadcastReduceOpAdaptor adaptor,
@@ -1029,7 +1022,7 @@ struct BlockwiseReduceRewritePattern
         // Then keep on reducing the power.
         {
           int64_t ceilPowerOf2 =
-              roundToNextPowerof2(threadViewShape[rTidDim]) / 2;
+              llvm::PowerOf2Ceil(threadViewShape[rTidDim]) / 2;
           int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {
@@ -1041,7 +1034,7 @@ struct BlockwiseReduceRewritePattern
                 rewriter.create<arith::ConstantIndexOp>(
                     loc, maxActiveReductionThreads);
             maxActiveReductionThreads =
-                roundToNextPowerof2(maxActiveReductionThreads) >> 1;
+                llvm::PowerOf2Ceil(maxActiveReductionThreads) >> 1;
             Value isValid = rewriter.create<arith::CmpIOp>(
                 loc, arith::CmpIPredicate::slt, rtidPlusOffsetVal,
                 maxActiveReductionThreadsVal);
