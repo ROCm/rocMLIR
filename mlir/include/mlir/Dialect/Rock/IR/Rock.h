@@ -42,7 +42,8 @@ class PatternRewriter;
 
 // Following ifdef could be used to change
 // the attention operator to be a fused gemm-gemm
-// kernel for debugging purposes. This will 
+// kernel for debugging purposes. This will also
+// adjust the test harness to verify the same as well
 // #define ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
 
 namespace mlir {
