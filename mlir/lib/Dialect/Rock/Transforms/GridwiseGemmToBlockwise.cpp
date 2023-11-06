@@ -1502,6 +1502,10 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Buffers for gemm 1
     Value gemm1RegBufferA = gemm0OutBufferExp;
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    llvm::errs() << "Lowering attention op as a gemm-gemm op...\n";
+    gemm1RegBufferA = gemm0OutBuffer;
+#endif
     if (elemTypeV != elemTypeQxK) {
       gemm1RegBufferA =
           createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
@@ -1588,9 +1592,13 @@ struct GridwiseAttentionAccelRewritePattern
          elemTypeOut});
 
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
+#endif
     TypedValue<MemRefType> ldsTileBufferQ;
     if(gemm0K == gemm0KPerBlock){
-        llvm::errs() << "gemm0K is equal to gemm0KPerBlock\n";
+        LLVM_DEBUG(llvm::dbgs() << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
+        LLVM_DEBUG(llvm::dbgs() << "rock.attention: Prefetching Q tile into regs...\n");
         Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, /*kiter=*/zero, gridCoordsGemm1, fromGlobalRegBufferQ,
@@ -1612,7 +1620,9 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value nLoopIV = nLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
+#endif
       // The grid coordinates for gemm0 is almost simliar
       // to gemm1 except the n_block should be read iteratively
       // from gemm0's N axis. Hence, the replacement is done as
@@ -1626,14 +1636,14 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
         if(gemm0K != gemm0KPerBlock){
-            // LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            //     loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
-            //     toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
-            //     gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
-            //     bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
-            // if (failed(statusLoadQTile)) {
-            // return failure();
-            // }
+            LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
+                loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
+                toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack,
+                gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
+                bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
+            if (failed(statusLoadQTile)) {
+                return failure();
+            }
             ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
@@ -1733,6 +1743,9 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter.getNamedAttr("cast",
                                     rewriter.getAttr<linalg::TypeFnAttr>(
                                         linalg::TypeFn::cast_signed))});
+      // LDS barrier is needed because 
+      // of the LDS workspace reuse.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, gemm0OutBufferSumInGemm1Layout, reductionAxis,
@@ -1816,6 +1829,9 @@ struct GridwiseAttentionAccelRewritePattern
       createTypeConversionLaGeneric(rewriter, loc, attentionOutAccBuffer,
                                     attentionOutAccBufferOutTyped);
     }
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    attentionOutAccBufferOutTyped = gemm1OutBuffer;
+#endif
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBufferOutTyped, out,
         gemm1OutSubTileViews.gridSubTile,
