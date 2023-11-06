@@ -556,8 +556,16 @@ pipeline {
                                           [ -f tuning_conv.tsv ]"""
                                     sh """python3 ./bin/tuningRunner.py --operation attention \
                                         --configs_file=../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv --verify-mode none
+                                        --output=tuning_attention.tsv --verify-mode none
                                         [ -f tuning_conv.tsv ]"""
+                                    sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            --output=quick_tuning_gemm.tsv
+                                          [ -f quick_tuning_gemm.tsv ]"""
+                                    sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
+                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            --output=quick_tuning_conv.tsv
+                                          [ -f quick_tuning_conv.tsv ]"""
                                 }
                             }
                         }
@@ -721,6 +729,19 @@ pipeline {
                                 sh """python3 ./bin/tuningRunner.py --operation attention \
                                         --configs_file=../mlir/utils/performance/attention-configs \
                                         --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
+                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+                                sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
+                                        --configs_file=../mlir/utils/performance/gemm-configs \
+                                        --output=mlir_quick_tuning_${ARCH}.tsv
+                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+                                // Tune gemms int8xint8->int8 for performance comparisons against CK. (quick tuning)
+                                sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                        --configs_file=../mlir/utils/performance/gemm-configs \
+                                        --data-type i8_i8 --output=mlir_quick_tuning_${ARCH}.tsv"""
+                                // Tune resnet50 and unet configs (quick tuning)
+                                sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
+                                        --configs_file=../mlir/utils/performance/conv-configs \
+                                        --output=mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
                     }
@@ -846,11 +867,13 @@ pipeline {
                                 // Run MLIR vs MIOpend perf benchmarks.
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
-                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                       --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 // Run MLIR vs rocBLAS perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                        --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
-                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                       --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                             }
                         }
                     }

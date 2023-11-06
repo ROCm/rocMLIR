@@ -14,14 +14,14 @@ def printAllPerformance(chip, lib='rocBLAS'):
     try:
         df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_FILE[lib])
         perfReportFound = True
+        COLUMNS_TO_AVERAGE = ['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}']
         if 'Tuned MLIR TFlops' in df:
-            COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'Tuned MLIR TFlops',
-                f'{lib} TFlops (no MLIR Kernels)', 'Tuned/Untuned',
-                f'MLIR/{lib}', f'Tuned/{lib}']
-        else:
-            COLUMNS_TO_AVERAGE = ['MLIR TFlops',
-                f'{lib} TFlops (no MLIR Kernels)',
-                f'MLIR/{lib}']
+            COLUMNS_TO_AVERAGE += ['Tuned MLIR TFlops', 'Tuned/Untuned', f'Tuned/{lib}']
+            if 'Quick Tuned MLIR TFlops' in df:
+                COLUMNS_TO_AVERAGE += ['Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned', 'Quick Tuned/Tuned']
+        elif 'Quick Tuned MLIR TFlops' in df:
+            COLUMNS_TO_AVERAGE += ['Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned']
+
     except FileNotFoundError:
         print('Perf report not found.')
         return
@@ -47,7 +47,10 @@ def printAllPerformance(chip, lib='rocBLAS'):
     toHighlight = [f"MLIR/{lib}"]
     if "Tuned/Untuned" in df:
         toHighlight += [f"Tuned/{lib}", f"Tuned/Untuned"]
-
+        if "Quick Tuned/Tuned":
+            toHighlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned", "Quick Tuned/Tuned"]
+    elif "Quick Tuned/Untuned" in df:
+        toHighlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned"]
     with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as htmlOutput:
         reportUtils.htmlReport(df, means, f"MLIR vs. {lib} performance",
         toHighlight, reportUtils.colorForSpeedups, htmlOutput)
