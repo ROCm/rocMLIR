@@ -1651,11 +1651,11 @@ struct GridwiseAttentionAccelRewritePattern
           toLDSRegBufferQ, ldsByteBufferQ, "m", gemm0kpack, gemm0KpacksPerBlock,
           gemm0MPerBlock, blockSize, gridSize, bidGridOrder,
           gemm0BidGridLengths, forceUnroll, rewriter);
-      ldsTileBufferQ = viewBufferAs(rewriter, ldsByteBufferQ,
-                                    vectorTypeOrSelf(elemTypeQ, gemm0kpack));
       if (failed(statusLoadQTile)) {
         return failure();
       }
+      ldsTileBufferQ = viewBufferAs(rewriter, ldsByteBufferQ,
+                                    vectorTypeOrSelf(elemTypeQ, gemm0kpack));
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
       loadGemmOperandsFromLDSToRegs(
