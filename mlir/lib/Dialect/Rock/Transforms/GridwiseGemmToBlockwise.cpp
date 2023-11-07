@@ -1715,6 +1715,8 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter.getNamedAttr("cast",
                                     rewriter.getAttr<linalg::TypeFnAttr>(
                                         linalg::TypeFn::cast_signed))});
+      // LDS barrier as LDS workspace is reused.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, gemm0OutBufferSumInGemm1Layout, reductionAxis,
