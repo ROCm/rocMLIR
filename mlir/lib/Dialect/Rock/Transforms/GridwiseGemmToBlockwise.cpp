@@ -1389,7 +1389,6 @@ struct GridwiseAttentionAccelRewritePattern
     Value wrappedLDSBufferForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
         rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName, false);
     MemRefType bufType = preAccelRegBuffer.getType().cast<MemRefType>();
-    ArrayRef<int64_t> originalShape = bufType.getShape();
     int64_t repeats =
         dName == "m" ? accelParams.mRepeats : accelParams.nRepeats;
     affine::AffineForOp mRepeatsLoop =
@@ -1435,8 +1434,6 @@ struct GridwiseAttentionAccelRewritePattern
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getWorkgroupAddressSpace());
 
     int64_t gemm0G = qShape[0];
     int64_t gemm0K = qShape[1];

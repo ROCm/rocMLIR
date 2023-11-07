@@ -690,7 +690,6 @@ struct BlockwiseReduceRewritePattern
     ReduceMethod rMethod = op.getReduceMethod();
     Type elementType = op.getInput().getType().getElementType();
     if (elementType.isIntOrIndex()) {
-      int64_t initVal;
       if (rMethod == ReduceMethod::Sum) {
         return createConstantIntOp(rewriter, op.getLoc(), elementType,
                                    elementType, 0);
@@ -944,8 +943,6 @@ struct BlockwiseReduceRewritePattern
             rewriter.create<arith::DivSIOp>(loc, tid, nrDimSizeProductConst);
         Value nrtid =
             rewriter.create<arith::RemSIOp>(loc, tid, nrDimSizeProductConst);
-        Value rtidDimSizeVal = rewriter.create<arith::ConstantIndexOp>(
-            loc, threadViewShape[rTidDim]);
 
         // We need to do the threadwise reduction
         // here only if rIterDim is meaninfully iterated
