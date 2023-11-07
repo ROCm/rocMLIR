@@ -1378,15 +1378,14 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
-  void LoadGemmOperandsFromLDSToRegs(
+  void loadGemmOperandsFromLDSToRegs(
       PatternRewriter &rewriter, Location loc, Value ldsTileBuffer,
       Value preAccelRegBuffer, StringRef dName, int64_t blockSize,
-      int64_t inDPerThread,
-      const std::unique_ptr<accel::AccelEmitter> &accelEmitterPtr) const {
+      int64_t inDPerThread, const accel::AccelEmitter &accelEmitterPtr) const {
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-    rock::accel::AccelEmitterParams accelParams = accelEmitterPtr->getParams();
-    Value wrappedLDSBufferForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
+    rock::accel::AccelEmitterParams accelParams = accelEmitterPtr.getParams();
+    Value wrappedLDSBufferForLoad = accelEmitterPtr.wrapLDSBufferForLoad(
         rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName, false);
     MemRefType bufType = preAccelRegBuffer.getType().cast<MemRefType>();
     int64_t repeats =
@@ -1659,9 +1658,9 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
-      LoadGemmOperandsFromLDSToRegs(rewriter, loc, ldsTileBufferQ,
-                                    preAccelRegBuffersQ, "m", blockSize,
-                                    gemm0InMPerThread, accelEmitterPtrGemm0);
+      loadGemmOperandsFromLDSToRegs(
+          rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "m", blockSize,
+          gemm0InMPerThread, *accelEmitterPtrGemm0.get());
     }
 
     affine::AffineForOp nLoopOp =
@@ -1717,9 +1716,9 @@ struct GridwiseAttentionAccelRewritePattern
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
         if (gemm0K != gemm0KPerBlock) {
-          LoadGemmOperandsFromLDSToRegs(
+          loadGemmOperandsFromLDSToRegs(
               rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "m",
-              blockSize, gemm0InMPerThread, accelEmitterPtrGemm0);
+              blockSize, gemm0InMPerThread, *accelEmitterPtrGemm0.get());
         }
         // Emit lowered blockwise GEMM 0.
 
@@ -1811,6 +1810,9 @@ struct GridwiseAttentionAccelRewritePattern
       RegsAsMatrixSubTiles reductionOutSubTilesViews = makeNZeroSubTile(
           rewriter, loc, gemm1OutSubTileViews, reductionOutNLen,
           reductionOutNPerBlock, reductionOutNPerThread);
+      // LDS barrier is needed due to reuse
+      // of the LDS workspace and Gemm0 operand.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           gemm0OutBufferMaxInGemm1Layout, reductionAxis,
@@ -1844,7 +1846,9 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutBufferSum, gemm0OutBufferSumInGemm1Layout, reductionAxis,
           rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
           reductionOutSubTilesViews.blockSubTile, blockSize);
-
+      // LDS barrier is needed for re-use of
+      // of the LDS workspace and Gemm1 A operand
+      rewriter.create<LDSBarrierOp>(loc);
       // Emit blockwise GEMM 1.
       {
         if (elemTypeV != elemTypeQxK) {

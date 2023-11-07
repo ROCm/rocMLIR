@@ -417,7 +417,7 @@ FailureOr<MfmaInsn> MfmaInsn::select(StringRef mfmaInsn) {
 
 MfmaInsn::MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr) : attr(mfmaInsnAttr) {}
 
-MfmaInsnAttr MfmaInsn::getAttr() { return attr; }
+MfmaInsnAttr MfmaInsn::getAttr() const { return attr; }
 
 Type MfmaInsn::getArgTypeFor(Type elementType) {
   return attr.nInputsToMfma == 1
@@ -569,7 +569,7 @@ int64_t MfmaInsnGroup::getLenPerMfmaGroup(int64_t lenPerWave) {
   return (lenPerWave > 64) ? 64 : lenPerWave;
 }
 
-MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
+MfmaInsnAttr MfmaInsnGroup::getInsnAttr() const { return insn.getAttr(); }
 
 Type MfmaInsnGroup::getArgTypeA() { return insn.getArgTypeFor(elementTypeA); }
 

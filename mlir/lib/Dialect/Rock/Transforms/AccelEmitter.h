@@ -103,7 +103,7 @@ struct AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) = 0;
+                                     bool rotateDWithK) const = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -144,7 +144,7 @@ struct MfmaEmitter : public AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) override;
+                                     bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
@@ -175,7 +175,7 @@ struct WmmaEmitter : public AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) override;
+                                     bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
