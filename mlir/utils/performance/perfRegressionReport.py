@@ -41,8 +41,14 @@ def summarizeStat(grouped, func, data):
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     isGemm = "TransA" in newDf
+    isAttention = "TransQ" in newDf
+    parameters = reportUtils.CONV_TEST_PARAMETERS
+    if isGemm:
+        parameters = reportUtils.GEMM_TEST_PARAMETERS
+    if isAttention:
+        parameters = reportUtils.ATTN_TEST_PARAMETERS
     # Ignore perf config in join
-    joinCols = reportUtils.GEMM_TEST_PARAMETERS[:-1] if isGemm else reportUtils.CONV_TEST_PARAMETERS[:-1]
+    joinCols = parameters[:-1]
     try:
         data = newDf.merge(oldDf, on=joinCols, suffixes=('_new', '_old'))
     except KeyError as e:
@@ -99,7 +105,7 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
          columnsToAverage += ['% change (quick tuned)', oldLabelQuickTuned, newLabelQuickTuned]
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
-    groups = ["DataType"] if isGemm else ["Direction", "DataType", "InputLayout"]
+    groups = ["DataType"] if isGemm or isAttention else ["Direction", "DataType", "InputLayout"]
     grouped = data.groupby(groups)[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
@@ -141,9 +147,12 @@ if __name__ == '__main__':
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     isGemm = ("TransA" in data)
+    isAttention = ("TransQ" in data)
     hasTuning = ("% change (tuned)" in data)
     if isGemm and len(sys.argv) < 5:
         outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
+    if isAttention and len(sys.argv) < 5:
+        outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Attention.html')
     with open(outputPath, "w") as outputStream:
         toHighlight = ["% change", "% change (tuned)"] if hasTuning \
             else ["% change"]
