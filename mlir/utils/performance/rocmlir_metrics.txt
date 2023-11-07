@@ -1,0 +1,5 @@
+# This file was created to help us get information if a bank conflict occurred during execution.
+# With the help of rocprofiler, this is a file that lists the name of the row in which information related to bank conflicts is stored.
+# LDSBankConflict: The percentage of GPUTime LDS is stalled by bankconflicts. Value range: 0% (optimal) to 100% (bad).
+# Example rocprof -i input.txt -o output.csv ./binary
+pmc: LDSBankConflict

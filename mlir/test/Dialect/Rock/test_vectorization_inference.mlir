@@ -316,7 +316,9 @@ func.func @test_vectorization() {
   %36 = "get_length"() {transforms = [#transform_merge_7, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
   // CHECK-NEXT: result = 4
   %37 = "get_length"() {transforms = [#transform_merge_7, #transform_shuffle_5, #transform_unmerge_8], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
-  // CHECK-NEXT: result = 4
+  // Note: this isn't 4 because making sure the 8 part is divided by the
+  // broadcast length is important.
+  // CHECK-NEXT: result = 1
   %38 = "get_length"() {transforms = [#transform_merge_9, #transform_shuffle_6, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
   // CHECK-NEXT: result = 4
   %39 = "get_length"() {transforms = [#transform_merge, #transform_inject_unit_const, #transform_unmerge_7], in_dim = 0 : index, max_len = 4 : index} : () -> (memref<24xf32>)
