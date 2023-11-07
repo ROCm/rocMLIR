@@ -43,6 +43,11 @@ MlirType rocmlirMIXRShapedTypeGet(intptr_t rank, const int64_t *shape,
       llvm::ArrayRef(strides, static_cast<size_t>(rank)), unwrap(elementType)));
 }
 
+MlirType rocmlirMIXRShapedTypeAsTensor(MlirType type) {
+  return wrap(
+      llvm::cast<mlir::migraphx::MIXRShapedType>(unwrap(type)).asTensor());
+}
+
 // Returns the required buffer size if called with null buffer
 // and fill information in the passed ptr when provided.
 MLIR_CAPI_EXPORTED

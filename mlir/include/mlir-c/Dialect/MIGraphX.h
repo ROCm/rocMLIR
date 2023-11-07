@@ -39,6 +39,8 @@ MLIR_CAPI_EXPORTED MlirType rocmlirMIXRShapedTypeGet(intptr_t rank,
                                                      const int64_t *strides,
                                                      MlirType elementType);
 
+MLIR_CAPI_EXPORTED MlirType rocmlirMIXRShapedTypeAsTensor(MlirType type);
+
 // Phase 0 functions : Assuming the given module contains only one function
 
 // Returns the required buffer size if called with null buffer
