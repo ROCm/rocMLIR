@@ -5,12 +5,12 @@ module {
   // CLONE-NEXT: Unranked Memref base
 
 func.func @mlir_dot(%arg0: !migraphx.shaped<1x1x1x1xf32, 1x1x1x1>, %arg1: !migraphx.shaped<1x1x1x1xf32, 1x1x1x1>, %arg2: !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>, %arg3: !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>) -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> attributes{kernel, arch = ""} {
-    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : !migraphx.shaped<1x1x1x1xf32, 1x1x1x1> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
-    %1 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : !migraphx.shaped<1x1x1x1xf32, 1x1x1x1> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
+    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : !migraphx.shaped<1x1x1x1xf32, 1x1x1x1> -> !migraphx.shaped<1x12x384x384xf32, 0x0x0x0>
+    %1 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : !migraphx.shaped<1x1x1x1xf32, 1x1x1x1> -> !migraphx.shaped<1x12x384x384xf32, 0x0x0x0>
     %2 = migraphx.transpose %arg3 {permutation = [0, 1, 3, 2]} : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> -> !migraphx.shaped<1x12x64x384xf32, 294912x24576x384x1>
     %3 = migraphx.dot %arg2, %2 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>, !migraphx.shaped<1x12x64x384xf32, 294912x24576x384x1> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
-    %4 = migraphx.mul %3, %1 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>, !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
-    %5 = migraphx.add %4, %0 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>, !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
+    %4 = migraphx.mul %3, %1 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>, !migraphx.shaped<1x12x384x384xf32, 0x0x0x0> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
+    %5 = migraphx.add %4, %0 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>, !migraphx.shaped<1x12x384x384xf32, 0x0x0x0> -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
     return %5 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
   }
 }

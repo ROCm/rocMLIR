@@ -7,11 +7,11 @@
 // This is an awkward hack that should be fixed Later (tm)
 module {
   func.func @mlir_transpose_slice_dot_add_add_tanh_add_sigmoid_sub_mul_mul_add_real(%arg0: !migraphx.shaped<1x64xf32, 64x1>, %arg1: !migraphx.shaped<32x64xf32, 64x1>, %arg2: !migraphx.shaped<32x64xf32, 64x1>, %arg3: !migraphx.shaped<32x64xf32, 64x1>, %arg4: !migraphx.shaped<32x64xf32, 64x1>, %arg5: !migraphx.shaped<32x64xf32, 64x1>, %arg6: !migraphx.shaped<32x64xf32, 64x1>, %arg7: !migraphx.shaped<128x64xf32, 64x1>) -> !migraphx.shaped<32x64xf32, 64x1> attributes {kernel = "mixr", num_cu = 48 : i64} {
-    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [32, 64]} : !migraphx.shaped<1x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
+    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [32, 64]} : !migraphx.shaped<1x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 0x1>
     %1 = migraphx.transpose %arg7 {permutation = [1, 0]} : !migraphx.shaped<128x64xf32, 64x1> -> !migraphx.shaped<64x128xf32, 128x1>
     %2 = migraphx.slice %1 {axes = [1], ends = [128], starts = [64]} : !migraphx.shaped<64x128xf32, 128x1> -> !migraphx.shaped<64x64xf32, 64x1>
     %3 = migraphx.dot %arg6, %2 : !migraphx.shaped<32x64xf32, 64x1>, !migraphx.shaped<64x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
-    %4 = migraphx.add %3, %0 : !migraphx.shaped<32x64xf32, 64x1>, !migraphx.shaped<32x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
+    %4 = migraphx.add %3, %0 : !migraphx.shaped<32x64xf32, 64x1>, !migraphx.shaped<32x64xf32, 0x1> -> !migraphx.shaped<32x64xf32, 64x1>
     %5 = migraphx.add %arg1, %4 : !migraphx.shaped<32x64xf32, 64x1>, !migraphx.shaped<32x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
     %6 = migraphx.tanh %5 : !migraphx.shaped<32x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>
     %7 = migraphx.add %arg2, %arg3 : !migraphx.shaped<32x64xf32, 64x1>, !migraphx.shaped<32x64xf32, 64x1> -> !migraphx.shaped<32x64xf32, 64x1>

@@ -173,15 +173,22 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
   ArrayRef<int64_t> shape = getShape();
   ArrayRef<int64_t> strides = getStrides();
 
+  size_t nStrides = strides.size();
   SmallVector<int64_t> stridesToStandardPerm;
   getStridesToStandardShapePermutation(stridesToStandardPerm);
   SmallVector<int64_t, 4> orderedShape;
   SmallVector<int64_t, 4> orderedStrides;
-  orderedShape.resize_for_overwrite(stridesToStandardPerm.size());
-  orderedStrides.resize_for_overwrite(stridesToStandardPerm.size());
+  orderedShape.resize_for_overwrite(nStrides);
+  orderedStrides.resize_for_overwrite(nStrides);
   for (auto [to, from] : llvm::enumerate(stridesToStandardPerm)) {
     orderedShape[to] = shape[from];
     orderedStrides[to] = strides[from];
+    // Broadcasts become a length-1 dimension
+    if (strides[from] == 0) {
+      assert(static_cast<int64_t>(to) == from &&
+             "broadcast dimensions aren't reordered for memory layout");
+      orderedShape[to] = 1;
+    }
   }
   // Ensure we have a unit stride.
   for (auto stride : llvm::reverse(orderedStrides)) {
@@ -195,10 +202,21 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
     return nullptr;
   }
   // Check for the case where we're taking slices.
-  for (auto [idx, stride] :
-       llvm::enumerate(ArrayRef<int64_t>(orderedStrides).drop_back())) {
-    int64_t prevStride = orderedStrides[idx + 1];
-    int64_t expectedStride = prevStride * orderedShape[idx + 1];
+  for (auto [idx, stride] : llvm::enumerate(orderedStrides)) {
+    // We can stop checking after we've hit the fastest-moving dimension
+    if (stride == 1)
+      break;
+    // Broadcasts aren't subject to slice checking
+    if (stride == 0)
+      continue;
+
+    // Get the stride of the previous dimension, ignoring broadcast dims.
+    size_t prevIdx = idx + 1;
+    while (orderedStrides[prevIdx] == 0)
+      prevIdx += 1;
+    int64_t prevStride = orderedStrides[prevIdx];
+
+    int64_t expectedStride = prevStride * orderedShape[prevIdx];
     if (stride < expectedStride) {
       emitError(
           UnknownLoc::get(getContext()),
@@ -218,7 +236,7 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
                       Twine(prevStride));
         return nullptr;
       }
-      orderedShape[idx + 1] = stride / expectedStride;
+      orderedShape[prevIdx] = stride / prevStride;
     }
   }
   return RankedTensorType::get(orderedShape, getElementType());

@@ -32,7 +32,7 @@ class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
 
   let extraClassDeclaration = [{
   }];
-  let assemblyFormat = "operands attr-dict `:` type(operands) `->` type(results)";
+  //let assemblyFormat = "operands attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_LiteralOp : MIGraphX_Op<"literal",
@@ -61,6 +61,10 @@ class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []> :
                    AnyMIXRShaped:$inB)>,
     Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name # " of two shaped values with broadcast";
+  let assemblyFormat = [{
+    $inA `,` $inB attr-dict
+    `:` type($inA) `,` type($inB) `->` type($output)
+  }];
 }
 
 def MIGraphX_AddOp :
@@ -84,6 +88,10 @@ def MIGraphX_ClipOp :
   let description = [{
     Elementwise clip: output = min(max(x, minVals), maxVals)
   }];
+  let assemblyFormat = [{
+    $x `,` $minVals `,` $maxVals attr-dict
+    `:` type($x) `,` type($minVals) `,` type($maxVals) `->` type($output)
+  }];
 }
 
 // Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
@@ -97,6 +105,10 @@ def MIGraphX_WhereOp :
   let summary = "Elementwise select";
   let description = [{
     output[x] = cond[x] ? inA[x] : inB[x]
+  }];
+  let assemblyFormat = [{
+    $cond `,` $inA `,` $inB attr-dict
+    `:` type($cond) `,` type($inA) `,` type($inB) `->` type($output)
   }];
 }
 
@@ -116,14 +128,13 @@ def MIGraphX_ConvertOp :
 }
 
 class MIGraphX_ElementwiseUnaryOp<string name, list<Trait> traits=[]> :
-    MIGraphX_Op<name, [AllTypesMatch<["inA", "output"]>] # traits>,
+    MIGraphX_Op<name, traits>,
     Arguments<(ins AnyMIXRShaped:$inA)>,
     Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name;
-  // While we could have the assembly format only prent the type once given the
-  // current matching types constraint, MIGraphX doesn't strictly have that
-  // requirement (for example, MIGraphX's elementwise ops can implicitly
-  // do a gather) so we accept some redundancy in exchange for future-proofing.
+  let assemblyFormat = [{
+    $inA attr-dict `:` type($inA) `->` type($output)
+  }];
 }
 
 def MIGraphX_AbsOp :
@@ -177,6 +188,10 @@ def MIGraphX_QuantizeLinearOp :
     Quantization tensor channelwise. It computes the following:
     tensor[n,c,h,w] = clamping_truncate(round(tensor[n,c,h,w] / quantScale[c]) + quantBias[c])
   }];
+  let assemblyFormat = [{
+    $input `,` $scale (`,` $bias^)? attr-dict
+    `:` type($input) `,` type($scale) (`,` type($bias)^)? `->` type($output)
+  }];
 }
 
 def MIGraphX_DeQuantizeLinearOp :
@@ -189,6 +204,10 @@ def MIGraphX_DeQuantizeLinearOp :
   let description = [{
     De-Quantization tensor channelwise. It computes the following:
     tensor[n,c,h,w] = to_float(tensor[n,c,h,w] - quantBias[c]) * quantScale[c]
+  }];
+  let assemblyFormat = [{
+    $input `,` $scale (`,` $bias^)? attr-dict
+    `:` type($input) `,` type($scale) (`,` type($bias)^)? `->` type($output)
   }];
 }
 
@@ -206,16 +225,18 @@ def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
     In the case of a standard-layout type, this is a noop.
 
     When dealing with non-standard layouts, such as NHWC tensors, this will
-    lower to `tosa.transpose` and potentially `tosa.slice`.
+    lower to `tosa.transpose` and potentially `tosa.slice` and/or a broadcast
+    by way of `tosa.add`.
 
     Strides that don't neatly form a (padded) rectangle, that is, cases where
-    (ignoring broadcasted dimensions), you can't permute the strides into
+    (ignoring broadcasted dimensions), you can't permute the nonzero strides into
     [s1, ..., sL] such that sL is 1 and sK = prod_(i = K + 1)^L s_i with
-    and sK >= prod_(i = K + 1)^L size_i , are unsupported.
+    and sK >= prod_(i = K + 1)^L size_i , are unsupported
 
     Equivalently, you have to be able to create a tensor type that you can then
-    `tosa.slice` and then `tosa.transpose` to get the logical shape, otherwise
-    we can't easily evaluate the correctness of kernels during testing.
+    `tosa.transpose`, `tosa.slice`, and then potentially broadcast to get the
+    logical shape, otherwise we can't easily evaluate the correctness of kernels
+    during testing.
 
     That is, unpacked shapes like !mixr.shaped<3x2xf32, 2x6> are unsupported.
   }];
@@ -226,6 +247,9 @@ def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
       $_state.addTypes(in.getType().cast<MIXRShapedType>().asTensor());
     }]>
   ];
+  let assemblyFormat = [{
+    $in attr-dict `:` type($in) `to` type($out)
+  }];
 }
 
 def MIGraphX_AsUnderlyingShapeOp : MIGraphX_Op<"mlir.as.underlying.shape">,
@@ -248,6 +272,9 @@ def MIGraphX_AsUnderlyingShapeOp : MIGraphX_Op<"mlir.as.underlying.shape">,
     `!migraphx.shaped<3x2xf32, 4x1>` or `!migraphx.shaped<3x2xf32, 2x6>` are
     unsupported.
   }];
+  let assemblyFormat = [{
+    $in attr-dict `:` type($in) `to` type($out)
+  }];
 }
 
 // Convolution operations
@@ -263,6 +290,10 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
                          OptionalAttr<I64Attr>:$padding_mode,
                          OptionalAttr<StrAttr>:$perf_config);
 	  let results = (outs MIXRShapedOf<outputTypes>:$output);
+    let assemblyFormat = [{
+      $input `,` $filter attr-dict
+      `:` type($input) `,` type($filter) `->` type($output)
+    }];
 }
 
 def MIGraphX_QuantConvolutionOp :
@@ -298,6 +329,7 @@ def MIGraphX_BatchNormOp :
   let description = [{
     The `migraphx.batch_norm_inference` op computes batch_norm.
   }];
+  let assemblyFormat = "operands attr-dict `:` type(operands) `->` type($output)";
 }
 
 def MIGraphX_PadOp :
@@ -311,6 +343,9 @@ def MIGraphX_PadOp :
   let summary = "Pad operation";
   let description = [{
     The `migraphx.pad` op adds padding to the tensor.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
   }];
 }
 
@@ -328,6 +363,9 @@ def MIGraphX_PoolingOp :
   let description = [{
     The `migraphx.pooling` op computes average/max pooling op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 def MIGraphX_FlattenOp :
@@ -339,6 +377,9 @@ def MIGraphX_FlattenOp :
   let summary = "Flatten tensor";
   let description = [{
     The `migraphx.flatten` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
   }];
 }
 
@@ -352,6 +393,9 @@ def MIGraphX_TransposeOp :
   let description = [{
     The `migraphx.transpose` op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 def MIGraphX_ReshapeOp :
@@ -363,6 +407,9 @@ def MIGraphX_ReshapeOp :
   let summary = "reshape a tensor";
   let description = [{
     The `migraphx.reshape` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
   }];
 }
 
@@ -378,6 +425,9 @@ def MIGraphX_SliceOp :
   let description = [{
     The `migraphx.slice` op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 def MIGraphX_BroadcastOp :
@@ -391,6 +441,9 @@ def MIGraphX_BroadcastOp :
   let description = [{
     The `migraphx.broadcast` op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 def MIGraphX_MultiBroadcastOp :
@@ -403,6 +456,9 @@ def MIGraphX_MultiBroadcastOp :
   let description = [{
     The `migraphx.multibroadcast` op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
@@ -410,7 +466,11 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> o
     Arguments<(ins MIXRShapedOf<inputTypes>:$in_a,
                    MIXRShapedOf<inputTypes>:$in_b
                    )>,
-	Results<(outs MIXRShapedOf<outputTypes>:$output)>;
+	Results<(outs MIXRShapedOf<outputTypes>:$output)> {
+    let assemblyFormat = [{
+      $in_a `,` $in_b attr-dict `:` type($in_a) `,` type($in_b) `->` type($output)
+    }];
+}
 
 def MIGraphX_QuantDotOp :
     MIGraphX_DotOpBase<"quant_dot", [I8], [I32]>{
@@ -438,6 +498,9 @@ def MIGraphX_SoftmaxOp :
   let description = [{
     The `migraphx.softmax` op.
   }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
 }
 
 def MIGraphX_ReduceMeanOp :
@@ -449,6 +512,9 @@ def MIGraphX_ReduceMeanOp :
   let summary = "Get the mean of the values in given axis";
   let description = [{
     The `migraphx.reduce_mean` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
   }];
 }
 

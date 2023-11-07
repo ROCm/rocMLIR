@@ -149,10 +149,10 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_broadcast
   func.func @matmul_broadcast(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 768, 2304]} : !migraphx.shaped<1x768x2304xf16, 1769472x2304x1> -> !migraphx.shaped<64x768x2304xf16, 1769472x2304x1>
+    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 768, 2304]} : !migraphx.shaped<1x768x2304xf16, 1769472x2304x1> -> !migraphx.shaped<64x768x2304xf16, 0x2304x1>
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
-    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<64x64x768xf16, 49152x768x1>, !migraphx.shaped<64x768x2304xf16, 1769472x2304x1> -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
+    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<64x64x768xf16, 49152x768x1>, !migraphx.shaped<64x768x2304xf16, 0x2304x1> -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%arg1, %[[ADD]]
     %2 = migraphx.add %1, %arg0 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, !migraphx.shaped<64x64x2304xf16, 147456x2304x1> -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
     return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
@@ -160,12 +160,12 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_broadcast_R5
   func.func @matmul_broadcast_R5(%arg0: !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, %arg1: !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, %arg2: !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1>) -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1> -> !migraphx.shaped<2x4x8x768x2304xf16, 56623104x14155776x1769472x2304x1>
+    %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1> -> !migraphx.shaped<2x4x8x768x2304xf16, 0x0x0x2304x1>
     // CHECK-DAG: %[[RESHAPE0:.*]] = "tosa.reshape"(%arg1) <{new_shape = array<i64: 64, 64, 768>}>
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>}> : () -> tensor<2x4x8x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg2
     // CHECK-DAG: %[[RESHAPE1:.*]] = "tosa.reshape"(%[[ADD]]) <{new_shape = array<i64: 64, 768, 2304>}>
-    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, !migraphx.shaped<2x4x8x768x2304xf16, 56623104x14155776x1769472x2304x1> -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
+    %1 = migraphx.dot %arg1, %0 : !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, !migraphx.shaped<2x4x8x768x2304xf16, 0x0x0x2304x1> -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = "tosa.matmul"(%[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK: %[[RESHAPE2:.*]] = "tosa.reshape"(%[[MATMUL]]) <{new_shape = array<i64: 2, 4, 8, 64, 2304>}>
     %2 = migraphx.add %1, %arg0 : !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
@@ -176,9 +176,9 @@ module  {
   // broadcast ops will be lowered as implicit broadcast in tosa, passes if they're converted and legalize tosa.
   // CHECK-LABEL: func @func_mbcast
   func.func @func_mbcast(%arg0: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %arg1: !migraphx.shaped<1x3x224x224xf32, 150528x50176x224x1>, %arg2: !migraphx.shaped<64x3x7x7xf32, 147x49x7x1>) -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> attributes {kernel = "mixr"} {
-    %0 = migraphx.multibroadcast %arg0 {out_lens = [1, 64, 112, 112]} : !migraphx.shaped<1x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %0 = migraphx.multibroadcast %arg0 {out_lens = [1, 64, 112, 112]} : !migraphx.shaped<1x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x112x112xf32, 0x1x0x0>
     %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : !migraphx.shaped<1x3x224x224xf32, 150528x50176x224x1>, !migraphx.shaped<64x3x7x7xf32, 147x49x7x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
-    %2 = migraphx.add %1, %0 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>, !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+    %2 = migraphx.add %1, %0 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>, !migraphx.shaped<1x64x112x112xf32, 0x1x0x0> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
     %3 = migraphx.relu %2 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
     return %3 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
   }
@@ -193,7 +193,7 @@ module  {
   }
 
   // CHECK-LABEL: func.func @clip_broadcast
-  func.func @clip_broadcast(%arg0: !migraphx.shaped<64x64xf16, 64x1>, %arg1: !migraphx.shaped<1x64xf16, 64x1>, %arg2: !migraphx.shaped<1xf16, 1>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @clip_broadcast(%arg0: !migraphx.shaped<64x64xf16, 64x1>, %arg1: !migraphx.shaped<1x64xf16, 64x1>, %arg2: !migraphx.shaped<1xf16, 0>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x64xf16>}> : () -> tensor<64x64xf16>
     // CHECK-DAG: %[[ADD0:.*]] = "tosa.add"(%[[CST0]], %arg1
     // CHECK-DAG: %[[RESHAPE:.*]] = "tosa.reshape"(%arg2) <{new_shape = array<i64: 1, 1>}>
@@ -201,9 +201,9 @@ module  {
     // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %[[ADD0]])
     // CHECK: %[[MIN:.*]] = "tosa.minimum"(%[[MAX]], %[[ADD1]])
     // CHECK: return %[[MIN]]
-    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
-    %1 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1xf16, 1> -> !migraphx.shaped<64x64xf16, 64x1>
-    %2 = migraphx.clip %arg0, %0, %1 : !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
+    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 0x1>
+    %1 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<1xf16, 0> -> !migraphx.shaped<64x64xf16, 0x0>
+    %2 = migraphx.clip %arg0, %0, %1 : !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 0x1>, !migraphx.shaped<64x64xf16, 0x0> -> !migraphx.shaped<64x64xf16, 64x1>
     return %2 : !migraphx.shaped<64x64xf16, 64x1>
   }
 
@@ -221,8 +221,8 @@ module  {
     // CHECK-DAG: %[[ADD:.*]] = "tosa.add"(%[[CST0]], %arg0
     // CHECK-DAG: %[[CAST:.*]] = "tosa.cast"(%[[ADD]])
     // CHECK-DAG: "tosa.select"(%[[CAST]], %arg1, %arg2)
-    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<64x1xi8, 1x1> -> !migraphx.shaped<64x64xi8, 64x1>
-    %1 = migraphx.where %0, %arg1, %arg2 : !migraphx.shaped<64x64xi8, 64x1>, !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
+    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : !migraphx.shaped<64x1xi8, 1x1> -> !migraphx.shaped<64x64xi8, 1x0>
+    %1 = migraphx.where %0, %arg1, %arg2 : !migraphx.shaped<64x64xi8, 1x0>, !migraphx.shaped<64x64xf16, 64x1>, !migraphx.shaped<64x64xf16, 64x1> -> !migraphx.shaped<64x64xf16, 64x1>
     return %1 : !migraphx.shaped<64x64xf16, 64x1>
   }
 

@@ -4,9 +4,9 @@
 module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) {
     %0 = migraphx.dot %arg0, %arg1: !migraphx.shaped<1x7x3xf32, 21x3x1>, !migraphx.shaped<1x3x7xf32, 21x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
-    %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : !migraphx.shaped<1xf32, 1>
-    %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : !migraphx.shaped<1xf32, 1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
-    %scaled = migraphx.mul %0, %cst1 : !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x7xf32, 49x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
+    %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : !migraphx.shaped<1xf32, 0>
+    %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : !migraphx.shaped<1xf32, 0> -> !migraphx.shaped<1x7x7xf32, 0x0x0>
+    %scaled = migraphx.mul %0, %cst1 : !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x7xf32, 0x0x0> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
     %1 = migraphx.softmax %scaled{axis = 2 : i64} : !migraphx.shaped<1x7x7xf32, 49x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
     %2 = migraphx.dot %1, %arg2: !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x3xf32, 21x3x1> -> !migraphx.shaped<1x7x3xf32, 21x3x1>
     return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
@@ -19,9 +19,9 @@ module {
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
     func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
       %0 = migraphx.dot %arg0, %arg1: !migraphx.shaped<1x7x3xf32, 21x3x1>, !migraphx.shaped<1x3x7xf32, 21x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
-      %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : !migraphx.shaped<1xf32, 1>
-      %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : !migraphx.shaped<1xf32, 1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
-      %scaled = migraphx.mul %0, %cst1 : !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x7xf32, 49x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
+      %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : !migraphx.shaped<1xf32, 0>
+      %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : !migraphx.shaped<1xf32, 0> -> !migraphx.shaped<1x7x7xf32, 0x0x0>
+      %scaled = migraphx.mul %0, %cst1 : !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x7xf32, 0x0x0> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
       %1 = migraphx.softmax %scaled{axis = 2 : i64} : !migraphx.shaped<1x7x7xf32, 49x7x1> -> !migraphx.shaped<1x7x7xf32, 49x7x1>
       %2 = migraphx.dot %1, %arg2: !migraphx.shaped<1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x3xf32, 21x3x1> -> !migraphx.shaped<1x7x3xf32, 21x3x1>
       return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>

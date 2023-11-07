@@ -2,12 +2,11 @@
 // RUN: rocmlir-gen -fut mlir_reshape_convolution  --arch %arch --clone-harness %s| rocmlir-driver -kernel-pipeline=migraphx -host-pipeline=migraphx,highlevel |rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_reshape_convolution_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full| FileCheck %s  --check-prefixes=CHECK_FULL
 
 
-func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x1x16x1xf32, 256x256x16x16x1x1>, %arg1: !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> (!migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>) {
-    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 1, 16, 2, 16, 2]} : !migraphx.shaped<1x1x16x1x16x1xf32, 256x256x16x16x1x1> -> !migraphx.shaped<1x1x16x2x16x2xf32, 1024x1024x64x32x2x1>
-    %1 = migraphx.reshape %0 {dims = [2, 4, 32, 32]} : !migraphx.shaped<1x1x16x2x16x2xf32, 1024x1024x64x32x2x1> -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
+func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x2x16x2xf32, 256x256x16x0x1x0>, %arg1: !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> (!migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>) {
+    %1 = migraphx.reshape %arg0 {dims = [2, 4, 32, 32]} : !migraphx.shaped<1x1x16x2x16x2xf32, 256x256x16x0x1x0> -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
     %2 = migraphx.convolution %1, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>, !migraphx.shaped<1x1x3x3xf32, 9x9x3x1> -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
     return %2 : !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
-  }
+}
 
 // CHECK-LABEL: module
 // CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<1x1x16x1x16x1xf32> {func.read_access}, {{.*}}: memref<1x1x3x3xf32> {func.read_access}, {{.*}}: memref<1x1x32x32xf32> {func.write_access})

@@ -3,10 +3,9 @@
 // CLONE: [1 1 1]
 
 module {
-  func.func @test(%arg0: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %arg1: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, %arg2: !migraphx.shaped<64x64x1x1xf32, 64x1x1x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
-    %0 = migraphx.multibroadcast %arg0 {out_lens = [1, 64, 56, 56]} : !migraphx.shaped<1x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+  func.func @test(%arg0: !migraphx.shaped<1x64x56x56xf32, 0x1x0x0>, %arg1: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, %arg2: !migraphx.shaped<64x64x1x1xf32, 64x1x1x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
     %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<64x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
-    %2 = migraphx.add %1, %0 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 0x1x0x0> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
     %3 = migraphx.relu %2 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
     return %3 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }

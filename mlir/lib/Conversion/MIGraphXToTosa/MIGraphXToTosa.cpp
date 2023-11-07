@@ -1014,19 +1014,42 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   inType.getStridesToStandardShapePermutation(inversePermutation);
   SmallVector<int64_t> permutation;
   permutation.resize_for_overwrite(inversePermutation.size());
-  for (auto [to, from] : llvm::enumerate(inversePermutation))
+  bool hasTranspose = false;
+  for (auto [to, from] : llvm::enumerate(inversePermutation)) {
     permutation[from] = to;
-  Value transposed = getTransposeOp(loc, in, rewriter, permutation);
+    hasTranspose |= (from != static_cast<int64_t>(to));
+  }
+  Value transposed = in;
+  if (hasTranspose)
+    transposed = getTransposeOp(loc, in, rewriter, permutation);
   auto transposedType = cast<RankedTensorType>(transposed.getType());
   if (transposedType == resultType) {
     rewriter.replaceOp(op, transposed);
     return success();
   }
-  SmallVector<int64_t, 4> starts(permutation.size(), 0);
-  Value sliced = rewriter.create<tosa::SliceOp>(
-      loc, resultType, transposed, rewriter.getDenseI64ArrayAttr(starts),
-      rewriter.getDenseI64ArrayAttr(resultType.getShape()));
-  rewriter.replaceOp(op, sliced);
+
+  SmallVector<int64_t, 4> slicingShape(resultType.getShape());
+  for (auto [idx, dim] : llvm::enumerate(slicingShape)) {
+    if (inType.getStrides()[idx] == 0)
+      dim = 1;
+  }
+
+  Value maybeSliced = transposed;
+  if (transposedType.getShape() != ArrayRef(slicingShape)) {
+    SmallVector<int64_t, 4> starts(permutation.size(), 0);
+    RankedTensorType sliceType = resultType.clone(slicingShape);
+    maybeSliced = rewriter.create<tosa::SliceOp>(
+        loc, sliceType, transposed, rewriter.getDenseI64ArrayAttr(starts),
+        rewriter.getDenseI64ArrayAttr(slicingShape));
+  }
+  Value maybeBroadcast = maybeSliced;
+  if (maybeSliced.getType() != resultType) {
+    // We need a broadcast
+    Value zeroTensor = getZeroTensor(loc, resultType, rewriter);
+    maybeBroadcast =
+        rewriter.create<tosa::AddOp>(loc, resultType, zeroTensor, maybeSliced);
+  }
+  rewriter.replaceOp(op, maybeBroadcast);
   return success();
 }
 
@@ -1054,7 +1077,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   if (transposed.getType() != resultTensorType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(
-        "writing to tensors with long strides is unsupported");
+        "writing to tensors with long strides or broadcasts is unsupported");
   }
   rewriter.replaceOp(op, transposed);
   return success();
