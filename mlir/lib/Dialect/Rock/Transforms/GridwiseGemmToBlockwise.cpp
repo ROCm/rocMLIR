@@ -930,12 +930,10 @@ struct GridwiseAttentionAccelRewritePattern
 
   // This fuction creates interrim register buffers to store data in once
   // loaded from the LDS before accelerator intrinsics are called
-  std::tuple<SmallVector<Value>, SmallVector<Value>>
-  createRegInterrimBufferForAccel(Location loc,
-                                  rock::accel::AccelEmitterParams params,
-                                  PatternRewriter &rewriter,
-                                  int64_t mRepeats = 1,
-                                  int64_t nRepeats = 1) const {
+  std::tuple<Value, Value> createRegInterrimBufferForAccel(
+      Location loc, rock::accel::AccelEmitterParams params,
+      PatternRewriter &rewriter, int64_t mRepeats = 1,
+      int64_t nRepeats = 1) const {
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     int64_t kBasePerThread = params.kBasePerThread;
@@ -943,23 +941,23 @@ struct GridwiseAttentionAccelRewritePattern
     SmallVector<Value> arrayARegs;
     Type argTypeA = params.argTypeA;
     SmallVector<int64_t, 2> aShape{kBasePerThread};
+    if (mRepeats > 1) {
+      aShape.insert(aShape.begin(), mRepeats);
+    }
     auto arrayAType = MemRefType::get(aShape, argTypeA, AffineMap{},
                                       privateMemoryAddressSpace);
-    for (int64_t i = 0; i < mRepeats; i++) {
-      auto arrayA = rewriter.create<GpuAllocOp>(loc, arrayAType);
-      arrayARegs.push_back(arrayA);
-    }
+    auto arrayA = rewriter.create<GpuAllocOp>(loc, arrayAType);
 
     SmallVector<Value> arrayBRegs;
     Type argTypeB = params.argTypeB;
     SmallVector<int64_t, 2> bShape{kBasePerThread};
+    if (nRepeats > 1) {
+      bShape.insert(bShape.begin(), nRepeats);
+    }
     auto arrayBType = MemRefType::get(bShape, argTypeB, AffineMap{},
                                       privateMemoryAddressSpace);
-    for (int64_t i = 0; i < nRepeats; i++) {
-      auto arrayB = rewriter.create<GpuAllocOp>(loc, arrayBType);
-      arrayBRegs.push_back(arrayB);
-    }
-    return {arrayARegs, arrayBRegs};
+    auto arrayB = rewriter.create<GpuAllocOp>(loc, arrayBType);
+    return {arrayA, arrayB};
   }
 
   // This function does the corrections to row-based tiled reductions
@@ -1382,7 +1380,7 @@ struct GridwiseAttentionAccelRewritePattern
 
   void LoadGemmOperandsFromLDSToRegs(
       PatternRewriter &rewriter, Location loc, Value ldsTileBuffer,
-      ArrayRef<Value> preAccelRegBuffers, StringRef dName, int64_t blockSize,
+      Value preAccelRegBuffer, StringRef dName, int64_t blockSize,
       int64_t inDPerThread,
       const std::unique_ptr<accel::AccelEmitter> &accelEmitterPtr) const {
     // Get current workitem ID.
@@ -1390,11 +1388,23 @@ struct GridwiseAttentionAccelRewritePattern
     rock::accel::AccelEmitterParams accelParams = accelEmitterPtr->getParams();
     Value wrappedLDSBufferForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
         rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName, false);
-    for (auto [idx, preAccelRegBuffer] : llvm::enumerate(preAccelRegBuffers)) {
-      Value m_i = rewriter.createOrFold<ConstantIndexOp>(loc, idx);
-      rewriter.create<ThreadwiseReadIntoOp>(
-          loc, wrappedLDSBufferForLoad, preAccelRegBuffer,
-          rewriter.getArrayAttr({}), ValueRange{tid, m_i}, true, true);
+    MemRefType bufType = preAccelRegBuffer.getType().cast<MemRefType>();
+    ArrayRef<int64_t> originalShape = bufType.getShape();
+    int64_t repeats =
+        dName == "m" ? accelParams.mRepeats : accelParams.nRepeats;
+    affine::AffineForOp mRepeatsLoop =
+        rewriter.create<affine::AffineForOp>(loc, 0, repeats, 1);
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
+      Value mi = mRepeatsLoop.getInductionVar();
+      Value subview = preAccelRegBuffer;
+      if (repeats > 1) {
+        subview = createSliceOfFirstDim(rewriter, loc, preAccelRegBuffer, mi);
+      }
+      rewriter.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoad,
+                                            subview, rewriter.getArrayAttr({}),
+                                            ValueRange{tid, mi}, true, true);
     }
   }
 
@@ -1491,7 +1501,10 @@ struct GridwiseAttentionAccelRewritePattern
         loc, gemm0KPerBlock, blockSize, elemTypeQ, gemm0MPerBlock, rewriter);
     auto [fromGlobalRegBufferK, toLDSRegBufferK] = createRegBuffersForGemmIn(
         loc, gemm0KPerBlock, blockSize, elemTypeK, gemm0NPerBlock, rewriter);
-    auto [preAccelRegBuffersQ, preAccelRegBuffersK] =
+    // Note that we dont provide nRepeats because we dont want
+    // nRepeats times reg buffer to be created for B of gemm0
+    // because we wont be prefetching that.
+    auto [preAccelRegBuffersQ, preAccelRegBufferK] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm0, rewriter,
                                         accelParamsGemm0.mRepeats);
     Value accRegBufferGemm0 =
@@ -1544,7 +1557,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value gemm0ExpOutBufferToLDS =
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
 
-    auto [preAccelRegBuffersQxK, preAccelRegBuffersV] =
+    auto [preAccelRegBufferQxK, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
         createBufferForAccelGemmOut(loc, accelParamsGemm1, rewriter);
@@ -1723,9 +1736,17 @@ struct GridwiseAttentionAccelRewritePattern
             accelEmitterPtrGemm0->wrapLDSBufferForLoad(
                 rewriter, loc, ldsTileBufferK, op.getBlockSize(),
                 gemm0InNPerThread, "n", false);
-        for (auto [idx, preAccelRegBufferQ] :
-             llvm::enumerate(preAccelRegBuffersQ)) {
-          Value m_i = rewriter.createOrFold<ConstantIndexOp>(loc, idx);
+        affine::AffineForOp mRepeatsLoop = rewriter.create<affine::AffineForOp>(
+            loc, 0, accelParamsGemm0.mRepeats, 1);
+        {
+          PatternRewriter::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
+          Value mi = mRepeatsLoop.getInductionVar();
+          Value preAccelRegBufferQ = preAccelRegBuffersQ;
+          if (accelParamsGemm0.mRepeats > 1) {
+            preAccelRegBufferQ =
+                createSliceOfFirstDim(rewriter, loc, preAccelRegBuffersQ, mi);
+          }
           auto nLoop = rewriter.create<affine::AffineForOp>(
               loc, 0, accelParamsGemm0.nRepeats);
           {
@@ -1734,13 +1755,12 @@ struct GridwiseAttentionAccelRewritePattern
             Value n_i = nLoop.getInductionVar();
             // regsB = read B from LDS
             rewriter.create<ThreadwiseReadIntoOp>(
-                loc, wrappedLDSBufferForLoadB, preAccelRegBuffersK[0],
+                loc, wrappedLDSBufferForLoadB, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, n_i}, true, true);
-
             // regsC += regsA * regsB
             rewriter.create<AccelGemmOp>(
-                loc, m_i, nLoop.getInductionVar(), preAccelRegBufferQ,
-                preAccelRegBuffersK[0], accRegBufferGemm0, op.getArchAttr(),
+                loc, mi, nLoop.getInductionVar(), preAccelRegBufferQ,
+                preAccelRegBufferK, accRegBufferGemm0, op.getArchAttr(),
                 op.getFeaturesAttr(), op.getParamsAttr());
           }
         }
@@ -1876,9 +1896,9 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.getI32IntegerAttr(gemm1InMPerThread),
             rewriter.getI32IntegerAttr(gemm1InNPerThread),
             /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr, preAccelRegBuffersQxK[0],
-            preAccelRegBuffersV[0], accRegBufferGemm1, op.getArchAttr(),
-            op.getFeaturesAttr(), op.getBlockSizeAttr(), gemm1TuningParams);
+            /*rotateNWithK=*/nullptr, preAccelRegBufferQxK, preAccelRegBufferV,
+            accRegBufferGemm1, op.getArchAttr(), op.getFeaturesAttr(),
+            op.getBlockSizeAttr(), gemm1TuningParams);
         // There is no second k-loop
         // Therefore can get the output straight away
         accelEmitterPtrGemm1->computeOutputConversion(

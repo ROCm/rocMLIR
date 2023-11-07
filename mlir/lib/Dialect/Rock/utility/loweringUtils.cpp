@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -480,4 +481,27 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
   transformAttr.push_back(swapBackAttr);
 
   return swapBack;
+}
+
+Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
+                                        Value buffer, Value sliceIdx) {
+  MemRefType bufType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> originalShape = bufType.getShape().slice(1);
+  int64_t mbMemRefTypeRank = bufType.getRank();
+  IntegerAttr zero = rewriter.getIndexAttr(0);
+  IntegerAttr one = rewriter.getIndexAttr(1);
+  SmallVector<OpFoldResult> offsets(mbMemRefTypeRank, zero);
+  SmallVector<OpFoldResult> sizes(mbMemRefTypeRank, one);
+  SmallVector<OpFoldResult> strides(mbMemRefTypeRank, one);
+  // Offset is [bufferIndex, 0 ... 0 ].
+  offsets.front() = sliceIdx;
+  // Sizes is [1, original_size_0 ... original_size_n ].
+  for (int64_t i = 0, e = originalShape.size(); i != e; ++i)
+    sizes[1 + i] = rewriter.getIndexAttr(originalShape[i]);
+  auto dstMemref =
+      cast<MemRefType>(memref::SubViewOp::inferRankReducedResultType(
+          originalShape, bufType, offsets, sizes, strides));
+  Value subview = rewriter.create<memref::SubViewOp>(loc, dstMemref, buffer,
+                                                     offsets, sizes, strides);
+  return subview;
 }
