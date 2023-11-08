@@ -84,7 +84,13 @@ def uniqueCols(df: pd.DataFrame) -> List[str]:
 def cleanDataForHumans(data: pd.DataFrame, title: str)\
         -> Tuple[pd.DataFrame, str, List[str]]:
     isGemm = "TransA" in data
-    parameters = GEMM_TEST_PARAMETERS if isGemm else CONV_TEST_PARAMETERS
+    isAttention = "TransQ" in data
+    parameters = CONV_TEST_PARAMETERS
+    if isGemm:
+        parameters = GEMM_TEST_PARAMETERS
+    if isAttention:
+        parameters = ATTN_TEST_PARAMETERS
+
     indexCols = {k: k for k in parameters} # Preserves order
     if all((x in data.columns) for x in {"FilterLayout", "InputLayout",
                                               "OutputLayout"}):
@@ -102,7 +108,10 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
             indexCols["InputLayout"] = "Layout"
 
     columnsToDrop = uniqueCols(data)
-    if len(columnsToDrop) > 0:
+    # Do not drop unique columns in attention for now
+    # to keep it transparent what we are tracking.
+    # We can revisit this if it ever becomes an issue.
+    if len(columnsToDrop) > 0 and not isAttention:
         title = title + ": " + ", ".join(f"{c} = {data[c].iloc[0]}"
             for c in columnsToDrop)
         data = data.drop(columns=columnsToDrop, inplace=False)
