@@ -189,9 +189,10 @@ MLIRMHAL
 MLIRMHALPipeline
 MLIRMHALSupport
 MLIRMHALTransforms
-MLIRMIGraphX
+MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
 MLIRMIGraphXToTosa
+MLIRMIGraphXTransforms
 MLIRRockConv2dGenerator
 MLIRRockOps
 MLIRRockPipeline
