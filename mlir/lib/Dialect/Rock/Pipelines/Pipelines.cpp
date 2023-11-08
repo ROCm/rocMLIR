@@ -194,6 +194,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
+  // We need to lower affine again, because the expand strided metadata pass
+  // adds back affine.apply for memref.subview
+  gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true, gpu::amd::Runtime::Unknown));
