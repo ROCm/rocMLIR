@@ -1123,15 +1123,23 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  RockAccelTuningParamAttrInterface deriveGemm1TuningParams(
-      PatternRewriter &rewriter,
-      RockAccelTuningParamAttrInterface gemm0TuningParams) const {
+  RockAccelTuningParamAttrInterface
+  deriveGemm1TuningParams(PatternRewriter &rewriter,
+                          RockAccelTuningParamAttrInterface gemm0TuningParams,
+                          GemmFeatures features) const {
+    int64_t gemm1KPack = gemm0TuningParams.getKpack();
+    // TODO: This is a hack until we understand why second gemm
+    // fails with kpack > 1 for WMMA. It is unlikely to be
+    // a part of generic lowering gridwise_attention as it
+    // works fine with MFMA.
+    if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+      gemm1KPack = 1;
+    }
     return rewriter.getAttr<XdlopsGemmParamsAttr>(
-        /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() /
-            gemm0TuningParams.getKpack(),
+        /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() / gemm1KPack,
         /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
         /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-        /*gemmKPack=*/gemm0TuningParams.getKpack(),
+        /*gemmKPack=*/gemm1KPack,
         /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
         /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
         /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
@@ -1416,7 +1424,7 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
 
     RockAccelTuningParamAttrInterface gemm1TuningParams =
-        deriveGemm1TuningParams(rewriter, gemm0TuningParams);
+        deriveGemm1TuningParams(rewriter, gemm0TuningParams, op.getFeatures());
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
