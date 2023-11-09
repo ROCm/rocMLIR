@@ -1446,7 +1446,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc,
         {gemm0KPerBlock * gemm0MPerBlock, gemm0MPerBlock * gemm0NPerBlock,
          gemm0MPerBlock * gemm0NPerBlock},
-        {elemTypeQ, elemTypeQxK, elemTypeQxK});
+        {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsA[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsA[1];
     Value gemm1LDSByteBufferA = sharedBuffersGemmsA[2];
@@ -1690,6 +1690,8 @@ struct GridwiseAttentionAccelRewritePattern
       RegsAsMatrixSubTiles reductionOutSubTilesViews = makeNZeroSubTile(
           rewriter, loc, gemm1OutSubTileViews, reductionOutNLen,
           reductionOutNPerBlock, reductionOutNPerThread);
+      // LDS barrier.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           gemm0OutBufferMaxInGemm1Layout, reductionAxis,
@@ -1722,6 +1724,8 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutBufferSum, gemm0OutBufferSumInGemm1Layout, reductionAxis,
           rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
           reductionOutSubTilesViews.blockSubTile, blockSize);
+      // LDS barrier.
+      rewriter.create<LDSBarrierOp>(loc);
 
       // Emit blockwise GEMM 1.
       {
