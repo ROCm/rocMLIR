@@ -262,6 +262,60 @@ class AttrDef<Dialect dialect, string name, list<Trait> traits = [],
                                  "::" # cppClassName # ">($_self)">;
 }
 
+// Define an Attr name for NamedAttribute's.
+// - Name is dialect-scoped when not-inherent.
+// - Utilities to has/get/set/lookup on an Operation
+class AttrNameDef<Dialect dialect, string name, string userName,
+    string valueAttrType = "::mlir::Attribute"> :
+  AttrDef<dialect, name, [], "::mlir::StringAttr"> {
+  let mnemonic = userName;
+
+  string qualName = dialect.name # "." # mnemonic;
+  code typedefValueAttr = "typedef " # valueAttrType # " ValueAttrType;\n";
+  code getNameFunc = "static constexpr llvm::StringLiteral getName() { return \""
+      # qualName # "\"; }\n";
+
+  code nameFuncs = !strconcat(typedefValueAttr, getNameFunc, [{
+    // Get name based on inherentness
+    static llvm::StringLiteral getName(Operation *op) {
+      auto mnemonic = getMnemonic();
+      return op == nullptr || op->getInherentAttr(mnemonic) ? mnemonic : getName();
+    }
+    // Getters
+    static bool hasOn(::mlir::Operation *op) {
+      return op->hasAttr(getName(op));
+    }
+    static ValueAttrType getOn(::mlir::Operation *op) {
+      return op->getAttrOfType<ValueAttrType>(getName(op));
+    }
+    static ValueAttrType lookupOn(::mlir::Operation *op) {
+      if (auto attr = getOn(op))
+        return attr;
+      std::optional<RegisteredOperationName> opInfo = op->getRegisteredInfo();
+      if (!opInfo || !opInfo->hasTrait<OpTrait::IsIsolatedFromAbove>()) {
+        if (auto *par = op->getParentOp())
+          return lookupOn(par);
+      }
+      return ValueAttrType();
+    }
+    // Setters
+    static void setOn(::mlir::Operation *op, Attribute val) {
+      op->setAttr(getName(op), val);
+    }
+    static void removeOn(::mlir::Operation *op) {
+      op->removeAttr(getName(op));
+    }
+    static ::mlir::NamedAttribute getNamed(Builder b, Attribute val) {
+      return b.getNamedAttr(getName(), val);
+    }
+    static ::mlir::NamedAttribute getNamedInherent(Builder b, Attribute val) {
+      return b.getNamedAttr(getMnemonic(), val);
+    }
+  }]);
+
+  let extraClassDeclaration = nameFuncs;
+}
+
 // Define a new type, named `name`, belonging to `dialect` that inherits from
 // the given C++ base class.
 class TypeDef<Dialect dialect, string name, list<Trait> traits = [],

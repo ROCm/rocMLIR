@@ -40,7 +40,7 @@ __declspec(align(4096))
         print(f"{as_signed(byte):+4},", file=out, end=("\n" if i % 8 == 0 else " "))
       # Terminating null pointer needed for
       print("0x00};", file=out)
-    print("static constexpr std::initializer_list<std::pair<llvm::StringRef, llvm::StringRef>> allLibList = {", file=out)
+    print("static const std::initializer_list<std::pair<llvm::StringRef, llvm::StringRef>> allLibList = {", file=out)
     for lib in libs:
       print(f"{{\"{lib}.bc\", llvm::StringRef({lib}_bytes, {lib}_size)}},", file=out)
     print("};", file=out)
