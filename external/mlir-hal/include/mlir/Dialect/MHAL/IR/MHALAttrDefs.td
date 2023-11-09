@@ -13,12 +13,40 @@ include "mlir/Dialect/MHAL/IR/MHALBase.td"
 include "mlir/Dialect/MHAL/IR/MHALTypes.td"
 //include "mlir/IR/SubElementInterfaces.td"
 
-class MHAL_Attr<string name, list<Trait> traits = []> :
-    AttrDef<MHALDialect, name, traits>;
+class MHAL_Attr<string name, string userName, list<Trait> traits = []> :
+    AttrDef<MHALDialect, name, traits> {
+  let mnemonic = userName;
+}
+
+class MHAL_AttrName<string name, string userName,
+                    string baseAttrType = "::mlir::Attribute"> :
+    AttrNameDef<MHALDialect, name, userName, baseAttrType>;
+
+class MHAL_StringAttr<string name, string user_name> :
+    MHAL_AttrName<name, user_name, "::mlir::StringAttr"> {
+
+  let extraClassDeclaration = !strconcat(nameFuncs, [{
+    static ValueAttrType get(::mlir::MLIRContext *ctx, const char *val="") {
+      return ValueAttrType::get(ctx, val);
+    }
+    static void setOn(::mlir::Operation *op, const char *val) {
+      op->setAttr(getName(), get(op->getContext(), val));
+    }
+    static ::mlir::NamedAttribute getNamed(Builder b, const char *val) {
+      return getNamed(b, get(b.getContext(), val));
+    }
+  }]);
+}
+
+/// Misc Attrs
+def MHAL_ArchAttr : MHAL_StringAttr<"Arch", "arch">;
+def MHAL_ModuleAttr : MHAL_StringAttr<"Module", "module", "::mlir::UnitAttr">;
+def MHAL_ReferenceFuncAttr :
+    MHAL_AttrName<"ReferenceFunc", "reference_func", "::mlir::SymbolRefAttr">;
+def MHAL_TargetsAttr : MHAL_AttrName<"Targets", "targets", "::mlir::ArrayAttr">;
 
 /// TargetObjectAttr
-def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
-    let mnemonic = "target_obj";
+def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject", "target_obj"> {
 
     let description = [{
         A container for a target binary (or IR) and build details.
@@ -48,8 +76,7 @@ def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
 }
 
 /// KernelPackageAttr
-def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage"> {
-    let mnemonic = "kernel_pkg";
+def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage", "kernel_pkg"> {
 
     let description = [{
         A package for a target-specific launch object and launch details.

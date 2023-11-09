@@ -64,7 +64,7 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   if (!func.has_value() || func->getNumResults() != 0)
     return std::nullopt;
 
-  auto attr = (*func)->template getAttrOfType<ArrayAttr>("mhal.targets");
+  auto attr = mhal::TargetsAttr::getOn(*func);
   if (!attr)
     return std::nullopt;
 
@@ -200,7 +200,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     if (!gpuModule) {
       OpBuilder b(ctx);
       gpuModule = b.create<gpu::GPUModuleOp>(floc, gpuModuleName.str());
-      gpuModule->setAttr("arch", b.getStringAttr(arch));
+      mhal::ArchAttr::setOn(gpuModule, b.getStringAttr(arch));
       gpuModule->setAttr("gpu.binary", b.getStringAttr(binary));
 
       SymbolTable symbolTable(module);
@@ -212,8 +212,8 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
       OpBuilder b(gpuModule.getContext());
       gpuFunc =
           b.create<gpu::GPUFuncOp>(floc, funcName, func.getFunctionType());
-      gpuFunc->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-      gpuFunc->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+      gpuFunc->setAttr("rock.block_size", b.getI32IntegerAttr(blockSize));
+      gpuFunc->setAttr("rock.grid_size", b.getI32IntegerAttr(gridSize));
       gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
                        b.getUnitAttr());
 
@@ -372,5 +372,5 @@ void ConvertMHALToGPUPass::runOnOperation() {
       signalPassFailure();
   }
 
-  op.walk([](func::FuncOp f) { f->removeAttr("mhal.targets"); });
+  op.walk([](func::FuncOp f) { mhal::TargetsAttr::removeOn(f); });
 }

@@ -54,7 +54,7 @@ struct MHALPackageTargetsPass
         kernelImpls;
 
     mod->walk([&](ModuleOp kernelMod) {
-      if (kernelMod->hasAttr("mhal.module")) {
+      if (mhal::ModuleAttr::hasOn(kernelMod)) {
         SmallVector<gpu::GPUModuleOp, 8> gpuMods;
         kernelMod->walk([&](gpu::GPUModuleOp gpuMod) {
           auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
@@ -66,19 +66,17 @@ struct MHALPackageTargetsPass
 
           gpuMods.push_back(gpuMod);
 
-          // apply target spec to original func
+          // apply target spec to reference func
           gpuMod.walk([&](LLVM::LLVMFuncOp func) {
-            if (auto attr =
-                    func->getAttrOfType<SymbolRefAttr>("original_func")) {
+            if (auto attr = mhal::ReferenceFuncAttr::getOn(func)) {
               if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
-                auto archName =
-                    kernelMod->getAttrOfType<StringAttr>("mhal.arch")
-                        .getValue();
+                auto archName = mhal::ArchAttr::getOn(kernelMod);
                 auto funcName = attr.getLeafReference().getValue();
                 uint32_t gridSize =
-                    func->getAttrOfType<IntegerAttr>("grid_size").getInt();
+                    func->getAttrOfType<IntegerAttr>("rock.grid_size").getInt();
                 uint32_t blockSize =
-                    func->getAttrOfType<IntegerAttr>("block_size").getInt();
+                    func->getAttrOfType<IntegerAttr>("rock.block_size")
+                        .getInt();
 
                 DictionaryAttr objAttrs;
 
@@ -111,8 +109,8 @@ struct MHALPackageTargetsPass
     });
 
     for (auto pair : kernelImpls) {
-      pair.first->setAttr("mhal.targets", b.getArrayAttr({pair.second.begin(),
-                                                          pair.second.end()}));
+      mhal::TargetsAttr::setOn(
+          pair.first, b.getArrayAttr({pair.second.begin(), pair.second.end()}));
     }
 
     // cleanup

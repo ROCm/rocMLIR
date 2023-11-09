@@ -109,5 +109,5 @@ void ConvertMHALToCPUPass::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
 
-  op.walk([](func::FuncOp f) { f->removeAttr("mhal.targets"); });
+  op.walk([](func::FuncOp f) { mhal::TargetsAttr::removeOn(f); });
 }

@@ -48,9 +48,8 @@ struct MHALTargetKernelsPass
       MHALTargetKernelsPass>::MHALTargetKernelsPassBase;
 
   void runOnOperation() override {
-    constexpr llvm::StringLiteral kernel("mhal.module");
     ModuleOp mod = getOperation();
-    if (mod->hasAttr(kernel))
+    if (mhal::ModuleAttr::hasOn(mod))
       return;
 
     SmallVector<func::FuncOp, 8> kernelFuncs;
@@ -80,8 +79,8 @@ struct MHALTargetKernelsPass
         // create a KERNEL ModuleOp in case the KERNEL module specified does not
         // exist.
         kernelMod = b.create<ModuleOp>(mod.getLoc(), StringRef(modName));
-        kernelMod->setAttr(kernel, b.getUnitAttr());
-        kernelMod->setAttr("mhal.arch", b.getStringAttr(target));
+        mhal::ModuleAttr::setOn(kernelMod, b.getUnitAttr());
+        mhal::ArchAttr::setOn(kernelMod, target.c_str());
 
         // add the KERNELModuleOp into the symbol table.
         SymbolTable symbolTable(mod);
@@ -92,7 +91,7 @@ struct MHALTargetKernelsPass
       for (auto func : kernelFuncs) {
         // clone the func
         auto kernelFunc = func.clone();
-        kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
+        mhal::ReferenceFuncAttr::setOn(kernelFunc, SymbolRefAttr::get(func));
 
         // add the KERNELModuleOp into the symbol table.
         symbolTable.insert(kernelFunc);

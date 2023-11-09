@@ -70,10 +70,9 @@ struct MHALSelectTargetsPass
   // inserts the necessary synchronization (as async.await ops). Assumes
   // sequential execution semantics and that no asynchronous ops yet.
   void runOnOperation() override {
-    constexpr llvm::StringLiteral targetsTag = "mhal.targets";
     func::FuncOp func = getOperation();
     OpBuilder b(func);
-    if (auto targets = func->getAttrOfType<ArrayAttr>(targetsTag)) {
+    if (auto targets = mhal::TargetsAttr::getOn(func)) {
       mhal::KernelPackageAttr targetKrn;
       for (auto targetAttr : targets.getValue()) {
         auto pkgAttr = targetAttr.cast<mhal::KernelPackageAttr>();
@@ -85,13 +84,13 @@ struct MHALSelectTargetsPass
         }
       }
       if (targetKrn)
-        func->setAttr(targetsTag, b.getArrayAttr(targetKrn));
+        mhal::TargetsAttr::setOn(func, b.getArrayAttr(targetKrn));
       else {
         if (targetArchs.size() && !testType(mhal::TargetType::CPU)) {
           func.emitError("target object not found");
           signalPassFailure();
         }
-        func->removeAttr(targetsTag);
+        mhal::TargetsAttr::removeOn(func);
       }
     }
   }
