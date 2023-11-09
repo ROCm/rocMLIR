@@ -513,8 +513,6 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
     replacingValue = sameRankReshapedOp.getResult();
   }
 
-  llvm::errs() << "Replacing type: " << replacingValue.getType() << "\n";
-  llvm::errs() << "Out type: " << outType << "\n";
   // We create a dummy zero addition with implicit broadcasting
   // because tosa does not have an explicit broadcast op
   auto zeroTensor = getZeroTensor(loc, outType, rewriter);
