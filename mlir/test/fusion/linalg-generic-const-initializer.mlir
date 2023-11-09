@@ -20,7 +20,7 @@
 // right before it headed down to linalg.generic. The actuall gemm part has been
 // removed for test simplicity.
 module {
-  func.func @mlir_simplified_issue_(%arg0: memref<1x1x3072xf32>, %arg1: memref<32x384x768xi8>, %arg2: memref<32x768x3072xi8>, %arg3: memref<32x384x3072xi8>) attributes {arch = "gfx1100", block_size = 128 : i32, grid_size = 2304 : i32, kernel = "mixr", num_cu = 48 : i64, wave_size = 32 : i32} {
+  func.func @mlir_simplified_issue_(%arg0: memref<1x1x3072xf32>, %arg1: memref<32x384x768xi8>, %arg2: memref<32x768x3072xi8>, %arg3: memref<32x384x3072xi8>) attributes {mhal.arch = "gfx1100", rock.block_size = 128 : i32, rock.grid_size = 2304 : i32, kernel = "mixr", num_cu = 48 : i64, rock.wave_size = 32 : i32} {
     %c0 = arith.constant 0 : index
     %cst = arith.constant 34.907238 : f32
     %cst_4 = arith.constant 1.270000e+02 : f32

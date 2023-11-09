@@ -19,7 +19,7 @@ module {
     return %results : tensor<4x4x1x1xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_convolution_add_clip(%arg0: tensor<1x4x1x1xf32> {func.read_access}, %arg1: tensor<4x3x3x3xf32> {func.read_access}, %arg2: tensor<4x3x3x3xf32> {func.read_access}) -> (tensor<4x4x1x1xf32> {func.write_access}) attributes {kernel, original_func = @mlir_convolution_add_clip} {
+    func.func private @mlir_convolution_add_clip(%arg0: tensor<1x4x1x1xf32> {func.read_access}, %arg1: tensor<4x3x3x3xf32> {func.read_access}, %arg2: tensor<4x3x3x3xf32> {func.read_access}) -> (tensor<4x4x1x1xf32> {func.write_access}) attributes {kernel, mhal.reference_func = @mlir_convolution_add_clip} {
       %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [4, 4, 1, 1]} : (tensor<1x4x1x1xf32>) -> tensor<4x4x1x1xf32>
       %1 = "tosa.const"() <{value = dense<6.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
       %2 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>

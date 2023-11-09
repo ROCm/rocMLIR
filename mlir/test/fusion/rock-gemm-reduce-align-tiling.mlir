@@ -4,29 +4,29 @@
 // CHECK: [[MAP1:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [1, 128, 256] -> [1, 1, 256]>
 
 // CHECK: test_gemm_reduce_last_axis_fusion
-func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "", kernel} {
+func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {rock.arch = "", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
   rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = ""} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: %[[trOut:.*]] = rock.transform %arg2 by [[MAP0]] : memref<1x128x1xf32> to memref<1x128x256xf32>
   // CHECK: rock.threadwise_write_all {{.*}}(%[[trOut]]){{.*}} by  atomic_add : {{.*}} -> memref<1x128x256xf32>
-  rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
+  rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add {axis = 2 : index, block_size = 256 : i32, grid_size = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
   return
 }
 
 
 // CHECK: test_gemm_reduce_middle_axis_fusion
-func.func @test_gemm_reduce_middle_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x1x256xf32>) attributes {arch = "", kernel} {
+func.func @test_gemm_reduce_middle_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x1x256xf32>) attributes {rock.arch = "", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
   rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = ""} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: %[[trOut:.*]] = rock.transform %arg2 by [[MAP1]] : memref<1x1x256xf32> to memref<1x128x256xf32>
   // CHECK: rock.threadwise_write_all {{.*}}(%[[trOut]]){{.*}} by  atomic_add : {{.*}} -> memref<1x128x256xf32>
-  rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add {axis = 1 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x1x256xf32>
+  rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add {axis = 1 : index, block_size = 256 : i32, grid_size = 1 : i32} : memref<1x128x256xf32> into memref<1x1x256xf32>
   return
 }
 
 // CHECK: test_gemm_add_reduce_fusion
 #map = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x256xf32>, %arg3: memref<1x128x1xf32>) attributes {arch = "", kernel} {
+func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x256xf32>, %arg3: memref<1x128x1xf32>) attributes {rock.arch = "", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
   rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = ""} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   %1 = memref.alloc() : memref<1x128x256xf32>
@@ -37,16 +37,16 @@ func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memre
   }
   // CHECK: %[[trOut:.*]] = rock.transform %arg3 by [[MAP0]] : memref<1x128x1xf32> to memref<1x128x256xf32>
   // CHECK: rock.threadwise_write_all {{.*}}(%[[trOut]]){{.*}} by  atomic_add : {{.*}} -> memref<1x128x256xf32>
-  rock.reduce sum %1 into %arg3 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
+  rock.reduce sum %1 into %arg3 features = mfma|dot|atomic_add {axis = 2 : index, block_size = 256 : i32, grid_size = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
   return
 }
 
 // CHECK: test_gemm_reduce_max
-func.func @test_gemm_reduce_max(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "", kernel} {
+func.func @test_gemm_reduce_max(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {rock.arch = "", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
   rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = ""} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: %[[trOut:.*]] = rock.transform %arg2 by [[MAP0]] : memref<1x128x1xf32> to memref<1x128x256xf32>
   // CHECK: rock.threadwise_write_all {{.*}}(%[[trOut]]){{.*}} by  atomic_max : {{.*}} -> memref<1x128x256xf32>
-  rock.reduce max %0 into %arg2 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
+  rock.reduce max %0 into %arg2 features = mfma|dot|atomic_add {axis = 2 : index, block_size = 256 : i32, grid_size = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
   return
 }

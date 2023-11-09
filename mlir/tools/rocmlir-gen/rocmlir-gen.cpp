@@ -2155,8 +2155,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   // Set mhal.arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!mhal::ArchAttr::hasOn(module))
+    mhal::ArchAttr::setOn(module, archAttr);
 
   SmallVector<Type, 3> argTypes;
   getGemmTypes(params.types, argTypes,
@@ -2166,7 +2166,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("mhal.arch", archAttr)};
+      mhal::ArchAttr::getNamed(b, archAttr)};
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
@@ -2223,15 +2223,15 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   // Set mhal.arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!mhal::ArchAttr::hasOn(module))
+    mhal::ArchAttr::setOn(module, archAttr);
 
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("mhal.arch", archAttr)};
+      mhal::ArchAttr::getNamed(builder, archAttr)};
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
@@ -2722,7 +2722,7 @@ void insertPrefills(func::FuncOp fut) {
         size_t argCount = calleeFunc.getArguments().size();
         for (size_t i = 0; i < argCount; i++) {
           if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getName())) {
             argInitValues[i] = initAttr;
           }
         }

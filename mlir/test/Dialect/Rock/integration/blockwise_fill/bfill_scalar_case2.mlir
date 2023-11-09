@@ -11,11 +11,11 @@
 #transform_map4 = #rock.transform_map<#map4 by [<Unmerge{256, 2} ["tid", "iter"] at [1, 2] -> ["dim0"] at [1]>, <PassThrough ["bid"] at [0] -> ["bid"] at [0]>] bounds = [1, 256, 2] -> [1, 512]>
 #transform_map5 = #rock.transform_map<#map5 by [<Pad{0, 212} ["tid"] at [1] -> ["tid"] at [1]>, <PassThrough ["bid"] at [0] -> ["bid"] at [0]>] bounds = [1, 512] -> [1, 300]>
 
-func.func @rock_blockwise_fill_scalar_case1(%output : memref<1x300xf32>) attributes{arch = "", block_size = 256 : i32, grid_size = 1 : i32, kernel} {
+func.func @rock_blockwise_fill_scalar_case1(%output : memref<1x300xf32>) attributes{mhal.arch = "", rock.block_size = 256 : i32, rock.grid_size = 1 : i32, kernel} {
     %output_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
     %ldsbuf = rock.alloc() : memref<300xf32, #gpu.address_space<workgroup>>
     %c1 = arith.constant 3.0 : f32
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<300xf32, #gpu.address_space<workgroup>>, f32
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<300xf32, #gpu.address_space<workgroup>>, f32
     rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map, #transform_map1](%ldsbuf) -> %output_reg : memref<300xf32, #gpu.address_space<workgroup>> ->  memref<1xf32, #gpu.address_space<private>>
     rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map5](%output) by set : memref<1xf32, #gpu.address_space<private>> -> memref<1x300xf32>

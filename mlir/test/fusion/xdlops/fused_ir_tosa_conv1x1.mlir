@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
 module {
-  func.func @main(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<64x64x1x1xf32>, %arg2: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+  func.func @main(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<64x64x1x1xf32>, %arg2: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %0 = "tosa.transpose"(%arg0, %cst) {changing_layout_root = false} : (tensor<1x64x56x56xf32>, tensor<4xi64>) -> tensor<1x56x56x64xf32>
     %1 = "tosa.transpose"(%arg1, %cst) {changing_layout_root = false} : (tensor<64x64x1x1xf32>, tensor<4xi64>) -> tensor<64x1x1x64xf32>
@@ -10,7 +10,7 @@ module {
     %3 = "tosa.transpose"(%2, %cst_1) {changing_layout_root = true} : (tensor<1x56x56x64xf32>, tensor<4xi64>) -> tensor<1x64x56x56xf32>
     %4 = "tosa.add"(%3, %arg2) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %5 = "tosa.clamp"(%4) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
-    return {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} %5 : tensor<1x64x56x56xf32>
+    return {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908"} %5 : tensor<1x64x56x56xf32>
   }
 }
 // 1. Tracks the beginning of the store loop of gemmv2

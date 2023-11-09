@@ -6,7 +6,7 @@ module {
   // CHECK-NEXT: [-1,     1,     -1],
   // CHECK-NEXT: [0,     -1,     -0.999978],
   // CHECK-NEXT: [0,     -1,     -1]
-  func.func @dot_add(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>) -> tensor<1x5x3xf32> attributes{kernel, arch = ""} {
+  func.func @dot_add(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>) -> tensor<1x5x3xf32> attributes{kernel, mhal.arch = ""} {
     %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
     %2 = "migraphx.erf"(%0) : (tensor<1x5x3xf32>)-> tensor<1x5x3xf32>
     return %2 : tensor<1x5x3xf32>

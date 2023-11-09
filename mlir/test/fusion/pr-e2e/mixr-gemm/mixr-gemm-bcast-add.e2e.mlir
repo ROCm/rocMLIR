@@ -12,7 +12,7 @@ module {
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
 
-  func.func @dot_broadcast_add(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<3xf32>) -> tensor<1x5x3xf32> attributes{kernel, arch = ""} {
+  func.func @dot_broadcast_add(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<3xf32>) -> tensor<1x5x3xf32> attributes{kernel, mhal.arch = ""} {
     %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
     %1 = "migraphx.broadcast"(%arg2) {axis = 2:i64, out_lens= [1:i64, 5:i64, 3:i64] } : (tensor<3xf32>)-> tensor<1x5x3xf32>
     %2 = "migraphx.add"(%0, %1) {} : (tensor<1x5x3xf32>, tensor<1x5x3xf32>)-> tensor<1x5x3xf32>

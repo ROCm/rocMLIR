@@ -7,7 +7,7 @@
 
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 
-func.func @rock_threadwise_memcopy_simple(%input : memref<1x20x32xf32>,  %output : memref<1x20x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_threadwise_memcopy_simple(%input : memref<1x20x32xf32>,  %output : memref<1x20x32xf32>) attributes{mhal.arch = "", rock.block_size = 20 : i32, rock.grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<4x20xf32, #gpu.address_space<workgroup>>

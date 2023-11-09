@@ -1739,16 +1739,16 @@ LogicalResult InWarpTransposeOp::verify() {
 //===----------------------------------------------------------------------===//
 // WorkgroupIdOp and WorkitemIdOp
 //===----------------------------------------------------------------------===//
+template <typename Tattr>
 static ConstantIntRanges
-getIdRange(StringRef idName, Operation *op,
+getIdRange(Operation *op,
            int64_t fallback = std::numeric_limits<int32_t>::max()) {
   uint32_t bitwidth =
       ConstantIntRanges::getStorageBitwidth(op->getResultTypes().front());
   APInt zero = APInt::getZero(bitwidth);
   APInt max(bitwidth, fallback);
   if (func::FuncOp container = op->getParentOfType<func::FuncOp>()) {
-    if (IntegerAttr size =
-            container->getAttr(idName).dyn_cast_or_null<IntegerAttr>()) {
+    if (IntegerAttr size = Tattr::getOn(container)) {
       // Range inference uses ranges that're inclusive on both ends
       max = APInt(bitwidth, size.getValue().getSExtValue() - 1);
     }
@@ -1758,12 +1758,12 @@ getIdRange(StringRef idName, Operation *op,
 
 void WorkgroupIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                       SetIntRangeFn setResultRanges) {
-  setResultRanges(getResult(), getIdRange("grid_size", getOperation()));
+  setResultRanges(getResult(), getIdRange<GridSizeAttr>(getOperation()));
 }
 
 void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                      SetIntRangeFn setResultRanges) {
-  setResultRanges(getResult(), getIdRange("block_size", getOperation()));
+  setResultRanges(getResult(), getIdRange<BlockSizeAttr>(getOperation()));
 }
 
 //===-----------------------------------------------------===//

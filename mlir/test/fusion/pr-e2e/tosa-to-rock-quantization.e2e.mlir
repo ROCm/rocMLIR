@@ -2,7 +2,7 @@
 
 module {
   // CHECK: {{.*}}rank = 4 offset = 0 sizes = [1, 4, 2, 2]{{.*}}
-  func.func @mlir_quantization(%arg0: tensor<1x4x1x1xf32>, %arg1: tensor<1x4x2x2xi8>, %arg2: tensor<4x4x1x1xi8>) -> tensor<1x4x2x2xi8> attributes {arch = "", kernel = "mixr"} {
+  func.func @mlir_quantization(%arg0: tensor<1x4x1x1xf32>, %arg1: tensor<1x4x2x2xi8>, %arg2: tensor<4x4x1x1xi8>) -> tensor<1x4x2x2xi8> attributes {mhal.arch = "", kernel = "mixr"} {
     %0 = "tosa.const"() {value = dense<0> : tensor<1xi8>} : () -> tensor<1xi8>
     %1 = "tosa.const"() {value = dense<7.812500e-03> : tensor<1xf32>} : () -> tensor<1xf32>
     %2 = "tosa.const"() {value = dense<1.22070313E-4> : tensor<1xf32>} : () -> tensor<1xf32>

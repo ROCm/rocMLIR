@@ -8,7 +8,7 @@
 func.func @rock_blockwise_fill_scalar_case1(%ldsbuf : memref<256xf32, #gpu.address_space<workgroup>>){
     %c1 = arith.constant 1.0 : f32
     // CHECK: rock.transforming_for {{.*}} [[[TMAP]], [[TMAP1]]]
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<256xf32, #gpu.address_space<workgroup>>, f32
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<256xf32, #gpu.address_space<workgroup>>, f32
     return
 }
 
@@ -22,7 +22,7 @@ func.func @rock_blockwise_fill_scalar_case1(%ldsbuf : memref<256xf32, #gpu.addre
 func.func @rock_blockwise_fill_scalar_case2(%ldsbuf : memref<300xf32, #gpu.address_space<workgroup>>){
     %c1 = arith.constant 1.0 : f32
     // CHECK: rock.transforming_for {{.*}} [[[TMAP]], [[TMAP1]]]
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<300xf32, #gpu.address_space<workgroup>>, f32
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<300xf32, #gpu.address_space<workgroup>>, f32
     return
 }
 
@@ -36,7 +36,7 @@ func.func @rock_blockwise_fill_scalar_case2(%ldsbuf : memref<300xf32, #gpu.addre
 func.func @rock_blockwise_fill_vec_case1(%ldsbuf : memref<64xf32, #gpu.address_space<workgroup>>){
     %c1 = arith.constant dense<1.0> : vector<4xf32>
     // CHECK: rock.transforming_for {{.*}} [[[TMAP]], [[TMAP1]]]
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<64xf32, #gpu.address_space<workgroup>>, vector<4xf32>
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<64xf32, #gpu.address_space<workgroup>>, vector<4xf32>
     return
 }
 
@@ -50,7 +50,7 @@ func.func @rock_blockwise_fill_vec_case1(%ldsbuf : memref<64xf32, #gpu.address_s
 func.func @rock_blockwise_fill_vec_case2(%ldsbuf : memref<256xf32, #gpu.address_space<workgroup>>){
     %c1 = arith.constant dense<1.0> : vector<4xf32>
     // CHECK: rock.transforming_for {{.*}} [[[TMAP]], [[TMAP1]]]
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<256xf32, #gpu.address_space<workgroup>>, vector<4xf32>
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<256xf32, #gpu.address_space<workgroup>>, vector<4xf32>
     return
 }
 
@@ -64,6 +64,6 @@ func.func @rock_blockwise_fill_vec_case2(%ldsbuf : memref<256xf32, #gpu.address_
 func.func @rock_blockwise_fill_vec_case3(%ldsbuf : memref<1024xf32, #gpu.address_space<workgroup>>){
     %c1 = arith.constant dense<1.0> : vector<4xf32>
     // CHECK: rock.transforming_for {{.*}} [[[TMAP]], [[TMAP1]]]
-    rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<1024xf32, #gpu.address_space<workgroup>>, vector<4xf32>
+    rock.blockwise_fill(%ldsbuf, %c1) {block_size = 256 : i32} : memref<1024xf32, #gpu.address_space<workgroup>>, vector<4xf32>
     return
 }

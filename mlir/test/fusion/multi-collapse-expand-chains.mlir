@@ -9,7 +9,7 @@ module {
     // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<#map{{.*}} by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>] bounds = [4, 4] -> [1, 4]>
     // CHECK-COUNT-4: rock.threadwise_read_into {{.*}}
     // CHECK: rock.threadwise_read_into {{.*}}
-  func.func @test(%arg0: memref<1x4x1x1xf32>, %arg1: memref<4x3x3x3xf32>, %arg2: memref<4x3x3x3xf32>, %arg3: memref<4x4x1x1xf32>) attributes {arch = "gfx908:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @test(%arg0: memref<1x4x1x1xf32>, %arg1: memref<4x3x3x3xf32>, %arg2: memref<4x3x3x3xf32>, %arg3: memref<4x4x1x1xf32>) attributes {mhal.arch = "gfx908:sramecc+:xnack-", kernel = "mixr"} {
     %cst = arith.constant 0.000000e+00 : f32
     %cst_0 = arith.constant 3.40282347E+38 : f32
     %0 = memref.alloc() {alignment = 128 : i64} : memref<4x4x1x1xf32>

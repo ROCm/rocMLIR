@@ -8,7 +8,7 @@ module {
     // CHECK: rock.threadwise_write_all
     // CHECK-NOT: memref.copy
 
-    func.func @test(%arg0: tensor<64xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes{kernel, arch = ""} {
+    func.func @test(%arg0: tensor<64xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes{kernel, mhal.arch = ""} {
         %0 = migraphx.broadcast(%arg0) {axis = 1:i64, out_lens= [1:i64, 64:i64, 112:i64, 112:i64] } : (tensor<64xf32>)-> tensor<1x64x112x112xf32>
         %1 = migraphx.convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
         %2 = migraphx.add(%1, %0) : (tensor<1x64x112x112xf32>, tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>

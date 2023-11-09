@@ -12,7 +12,7 @@
 #transform_map21 = #rock.transform_map<#map12 by [<Merge{1, 2, 32} ["tid"] at [0] -> ["wave", "m_tid", "n_tid"] at [0, 1, 2]>, <Merge{1, 1, 4, 4} ["item"] at [1] -> ["i", "j", "vec_group", "vec_item"] at [3, 4, 5, 6]>] bounds = [64, 16] -> [1, 2, 32, 1, 1, 4, 4]>
 #transform_map22 = #rock.transform_map<#map13 by [<Merge{1, 1} ["wave"] at [0] -> ["wave_m", "wave_n"] at [0, 1]>, <PassThrough ["m_tid", "n_tid"] at [1, 2] -> ["m_tid", "n_tid"] at [2, 3]>, <Merge{1, 1} ["i"] at [3] -> ["m_i", "n_i"] at [4, 5]>, <Merge{1, 1} ["j"] at [4] -> ["blk_row", "blk_col"] at [6, 7]>, <PassThrough ["vec_group", "vec_item"] at [5, 6] -> ["vec_group", "vec_item"] at [8, 9]>] bounds = [1, 2, 32, 1, 1, 4, 4] -> [1, 1, 2, 32, 1, 1, 1, 1, 4, 4]>
 #transform_map23 = #rock.transform_map<#map14 by [<Unmerge{1, 1, 1, 4, 2, 4} ["m_i", "wave_m", "blk_row", "vec_group", "m_tid", "vec_item"] at [4, 0, 6, 8, 2, 9] -> ["gemmM"] at [0]>, <Unmerge{1, 1, 1, 32} ["n_i", "wave_n", "blk_col", "n_tid"] at [5, 1, 7, 3] -> ["gemmN"] at [1]>] bounds = [1, 1, 2, 32, 1, 1, 1, 1, 4, 4] -> [32, 32]>
-func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{arch = "", block_size = 64 : i32, grid_size = 24 : i32, kernel} {
+func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{mhal.arch = "", rock.block_size = 64 : i32, rock.grid_size = 24 : i32, kernel} {
   %input_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<1024xf32, #gpu.address_space<workgroup>>
@@ -27,7 +27,7 @@ func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>, 
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map1, #transform_map2, #transform_map3](%input)[%c0, %m_block_id, %n_block_id, %tid] -> %input_reg : memref<1x64x384xf32> ->  memref<16xf32, #gpu.address_space<private>>
 
-  rock.blockwise_broadcast_reduce  sum [#transform_map21, #transform_map22, #transform_map23] %input_reg into %output_reg using %ws_lds {axis = 0 : index, blockSize = 64 : i32} : memref<16xf32, #gpu.address_space<private>> using memref<1024xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
+  rock.blockwise_broadcast_reduce  sum [#transform_map21, #transform_map22, #transform_map23] %input_reg into %output_reg using %ws_lds {axis = 0 : index, block_size = 64 : i32} : memref<16xf32, #gpu.address_space<private>> using memref<1024xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
 
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map1, #transform_map2, #transform_map3](%output)[%c0, %m_block_id, %n_block_id, %tid] by set : memref<16xf32, #gpu.address_space<private>> -> memref<1x64x384xf32>
   return

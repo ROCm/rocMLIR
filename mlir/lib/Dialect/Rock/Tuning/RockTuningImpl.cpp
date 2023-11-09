@@ -388,8 +388,8 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
                                   SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
-  if (gemmIF.getNumCU().has_value())
-    numCU = gemmIF.getNumCU().value();
+  if (gemmIF.getNumCu().has_value())
+    numCU = gemmIF.getNumCu().value();
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   llvm::raw_svector_ostream problemOS(out);

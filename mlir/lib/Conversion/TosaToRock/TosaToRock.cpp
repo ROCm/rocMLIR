@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
@@ -86,17 +87,11 @@ getArchAttributes(Operation *op, Type inputType) {
   auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
-  StringAttr arch = StringAttr::get(op->getContext(), "");
   std::optional<uint32_t> num_cu = std::nullopt;
   std::optional<bool> xdlopsV2 = std::nullopt;
 
-  if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("mhal.arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = mod->getAttrOfType<StringAttr>("mhal.arch"))
+  StringAttr arch = StringAttr::get(op->getContext(), "");
+  if (auto attr = mhal::ArchAttr::lookupOn(op))
     arch = attr;
 
   if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
@@ -862,18 +857,17 @@ typename std::enable_if_t<
       /*useDPP=*/nullptr);
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
+  func.setResultAttr(0, rock::PrefillAttr::getName(func), outputInitVal);
   func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
                      rw.getUnitAttr());
   // The original function also need the read access attr for the output.
-  if (func->hasAttr("original_func")) {
+  // TODO(sjw): should be encoded in the kernel package
+  if (auto refFuncAttr = mhal::ReferenceFuncAttr::getOn(func)) {
     if (ModuleOp rootMod =
             func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
       SymbolTable symTable(rootMod);
-      SymbolRefAttr originalFuncAttr =
-          func->getAttrOfType<SymbolRefAttr>("original_func");
       if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
-              symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+              symTable.lookupSymbolIn(rootMod, refFuncAttr))) {
         originalFunc.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
                                    rw.getUnitAttr());
       }

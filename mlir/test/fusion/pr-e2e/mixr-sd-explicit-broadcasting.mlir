@@ -14,7 +14,7 @@ module {
     return %results : tensor<1x1x32x32xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_reshape_convolution_real__part_0(%arg0: tensor<1x1x16x1x16x1xf32> {func.read_access}, %arg1: tensor<1x1x3x3xf32> {func.read_access}) -> (tensor<1x1x32x32xf32> {func.write_access}) attributes {kernel, original_func = @mlir_reshape_convolution_real__part_0} {
+    func.func private @mlir_reshape_convolution_real__part_0(%arg0: tensor<1x1x16x1x16x1xf32> {func.read_access}, %arg1: tensor<1x1x3x3xf32> {func.read_access}) -> (tensor<1x1x32x32xf32> {func.write_access}) attributes {kernel, mhal.reference_func = @mlir_reshape_convolution_real__part_0} {
       %0 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [1, 1, 16, 2, 16, 2]} : (tensor<1x1x16x1x16x1xf32>) -> tensor<1x1x16x2x16x2xf32>
       %1 = migraphx.reshape(%0) {dims = [2, 4, 32, 32]} : (tensor<1x1x16x2x16x2xf32>) -> tensor<1x1x32x32xf32>
       %2 = migraphx.convolution(%1, %arg1) {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x1x32x32xf32>, tensor<1x1x3x3xf32>) -> tensor<1x1x32x32xf32>

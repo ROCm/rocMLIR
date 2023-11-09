@@ -2,7 +2,7 @@
 
 module {
   // CHECK-LABEL: @dot_tr_collapse_reshape1
-  func.func @dot_tr_collapse_reshape1(%arg0: tensor<1x1x1x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x12x384x64xf32>, %arg3: tensor<1x12x384x64xf32>) -> tensor<1x12x384x384xf32> attributes {arch = "", kernel} {
+  func.func @dot_tr_collapse_reshape1(%arg0: tensor<1x1x1x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x12x384x64xf32>, %arg3: tensor<1x12x384x64xf32>) -> tensor<1x12x384x384xf32> attributes {mhal.arch = "", kernel} {
     %cst = arith.constant dense<[0, 1, 3, 2]> : tensor<4xi64>
     // CHECK-DAG: %[[TRANSFORM0:.*]] = rock.transform %arg3 {{.*}} : memref<1x12x384x64xf32> to memref<12x384x64xf32>
     %0 = "tosa.transpose"(%arg3, %cst) : (tensor<1x12x384x64xf32>, tensor<4xi64>) -> tensor<1x12x64x384xf32>

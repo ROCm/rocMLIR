@@ -32,7 +32,7 @@
 // TRA-SAME:   tr %[[a]] *
 // NOTRB-SAME: %[[b]] features = {{.*}} storeMethod = set
 // TRB-SAME:   tr %[[b]] features = {{.*}} storeMethod = set
-// CHECK-SAME arch = "[[$ARCH]]"
+// CHECK-SAME mhal.arch = "[[$ARCH]]"
 // CHECK-NEXT: return
 
 // CHECK-LABEL: func.func @host_naive_gemm

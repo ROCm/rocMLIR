@@ -17,7 +17,7 @@ module {
     return %results : tensor<1x7x3xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_attention(%arg0: tensor<1x7x3xf32> {func.read_access}, %arg1: tensor<1x3x7xf32> {func.read_access}, %arg2: tensor<1x7x3xf32> {func.read_access}) -> (tensor<1x7x3xf32> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
+    func.func private @mlir_attention(%arg0: tensor<1x7x3xf32> {func.read_access}, %arg1: tensor<1x3x7xf32> {func.read_access}, %arg2: tensor<1x7x3xf32> {func.read_access}) -> (tensor<1x7x3xf32> {func.write_access}) attributes {kernel, mhal.reference_func = @mlir_attention} {
       %0 = migraphx.dot(%arg0, %arg1): (tensor<1x7x3xf32>, tensor<1x3x7xf32>) -> tensor<1x7x7xf32>
       %cst = "tosa.const"() {value = dense<1.250000e-01> : tensor<1xf32>} : () -> tensor<1xf32>
       %cst1 = migraphx.multibroadcast(%cst) {out_dyn_dims = [], out_lens = [1, 7, 7]} : (tensor<1xf32>) -> tensor<1x7x7xf32>

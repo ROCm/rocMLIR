@@ -75,7 +75,7 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
 
   if (auto convOp = dyn_cast<Conv2DBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
-    info.numCu = convOp.getNumCU();
+    info.numCu = convOp.getNumCu();
     info.batchSize = convDims.n;
   }
   return info;

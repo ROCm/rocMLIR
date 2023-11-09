@@ -139,7 +139,7 @@ public:
   LogicalResult getWorkspaceSize(ModuleOp &module, int &workspaceSize) const;
 
   // Utility function to get the number of CU for the specific GPU
-  uint32_t getNumCU() const;
+  int32_t getNumCu() const;
 
 private:
   template <typename Vector>

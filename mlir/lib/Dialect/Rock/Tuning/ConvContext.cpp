@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
@@ -47,10 +48,13 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
   if (opType == ConvOpType::BwdWeight) {
-    assert(op->hasAttrOfType<IntegerAttr>("numCU"));
+    assert(rock::NumCuAttr::hasOn(op));
   }
-  auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
-  int numCu = getOptionalIntAttribute(op, "numCU",
+  StringAttr archVal = StringAttr::get(op->getContext(), "");
+  if (auto attr = mhal::ArchAttr::lookupOn(op))
+    archVal = attr;
+
+  int numCu = getOptionalIntAttribute(op, rock::NumCuAttr::getMnemonic(),
                                       rock::lookupArchInfo(archVal).minNumCU);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
@@ -80,6 +84,6 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   auto gemmIface = cast<RockGemmWrapperInterface>(op);
   Type dataTypeA = gemmIface.getAType(), dataTypeB = gemmIface.getBType();
 
-  return {archVal,     numCu,      opType, dimIndexAndSize, strideVal,
-          dilationVal, paddingVal, gemmId, dataTypeA,       dataTypeB};
+  return {archVal.getValue(), numCu,      opType, dimIndexAndSize, strideVal,
+          dilationVal,        paddingVal, gemmId, dataTypeA,       dataTypeB};
 }

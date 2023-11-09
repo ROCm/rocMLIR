@@ -310,7 +310,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
     module->walk([&](ModuleOp kernelModule) {
-      auto archAttr = kernelModule->getAttrOfType<StringAttr>("mhal.arch");
+      auto archAttr = mhal::ArchAttr::getOn(kernelModule);
       hasKernels |= (bool)archAttr;
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
@@ -321,9 +321,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (!hasKernels) {
       // If no sub-modules, run KernelPipeline on top-level module
       if (onlyArch.empty()) {
-        if (module->hasAttrOfType<StringAttr>("mhal.arch")) {
-          onlyArch = module->getAttrOfType<StringAttr>("mhal.arch").getValue();
-        }
+        if (auto attr = mhal::ArchAttr::getOn(module))
+          onlyArch = attr.getValue();
       }
       targetArch = onlyArch;
       kernelResult =

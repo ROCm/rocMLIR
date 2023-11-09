@@ -75,7 +75,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
   mlirOperationSetAttributeByName(
       func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
   mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("arch"),
+      func, mlirStringRefCreateFromCString("mhal.arch"),
       mlirStringAttrGet(
           ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);

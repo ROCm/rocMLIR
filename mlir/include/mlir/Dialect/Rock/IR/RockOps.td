@@ -69,7 +69,7 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$derivedBlockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
+                   OptionalAttr<I32Attr>:$grid_size,
                    I32ArrayLength<4>:$padding,
                    I32ArrayLength<2>:$strides,
                    I32ArrayLength<2>:$dilations,
@@ -82,7 +82,7 @@ defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8];
 
 def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
-  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
+  dag additionalArgs = (ins OptionalAttr<I32Attr>:$num_cu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution forward";
   let description = [{
@@ -97,7 +97,7 @@ def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes>
 
 def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 {
-  dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
+  dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$num_cu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward data";
   let description = [{
@@ -117,7 +117,7 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
-                            OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
+                            OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$num_cu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward weight";
   let description = [{
@@ -142,11 +142,11 @@ def Rock_GemmOp :
                    UnitAttr:$bTransposed,
                    UnitAttr:$cTransposed,
                    StrAttr:$arch,
-                   OptionalAttr<I32Attr>:$numCU,
+                   OptionalAttr<I32Attr>:$num_cu,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$derivedBlockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
+                   OptionalAttr<I32Attr>:$grid_size,
                    OptionalAttr<RockTuningParamAttrInterface>:$params)>,
     Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
@@ -186,8 +186,8 @@ def Rock_ReduceOp :
     Rock_GemmFeaturesAttr:$features,
     ReduceMethodAttr:$reduceMethod,
     IndexAttr:$axis,
-    I32Attr:$blockSize,
-    I32Attr:$gridSize,
+    I32Attr:$block_size,
+    I32Attr:$grid_size,
     UnitAttr:$useLDS,
     UnitAttr:$useDPP
   )>,
@@ -247,8 +247,8 @@ def Rock_ZeroInitKernelOp :
     Rock_Op<"zero_init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
                   Rock_GemmFeaturesAttr:$features,
-                  OptionalAttr<I32Attr>:$blockSize,
-                  OptionalAttr<I32Attr>:$gridSize,
+                  OptionalAttr<I32Attr>:$block_size,
+                  OptionalAttr<I32Attr>:$grid_size,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
     Results<(outs Optional<AnyTensor>:$result)> {
   let summary = "Zero-initialize a buffer";
@@ -277,8 +277,8 @@ def Rock_ConvertingCopyKernelOp :
     Arguments<(ins AnyTensorOrMemRef:$input,
                   AnyTensorOrMemRef:$output,
                   Rock_GemmFeaturesAttr:$features,
-                  OptionalAttr<I32Attr>:$blockSize,
-                  OptionalAttr<I32Attr>:$gridSize,
+                  OptionalAttr<I32Attr>:$block_size,
+                  OptionalAttr<I32Attr>:$grid_size,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
     Results<(outs Optional<AnyTensor>:$result)> {
   let summary = "Copy input to output, performing a type conversion";
@@ -381,8 +381,8 @@ def Rock_GridwiseGemmOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$numCU,
-                   I32Attr:$gridSize,
+                   I32Attr:$num_cu,
+                   I32Attr:$grid_size,
                    Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
@@ -401,11 +401,11 @@ def Rock_GridwiseGemmAccelOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmOutputTypes, [3]>:$c,
                    StrAttr:$arch,
-                   I32Attr:$numCU,
+                   I32Attr:$num_cu,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize,
+                   I32Attr:$block_size,
+                   I32Attr:$grid_size,
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
@@ -427,8 +427,8 @@ def Rock_GridwiseAttentionAccelOp :
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize,
+                   I32Attr:$block_size,
+                   I32Attr:$grid_size,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params)> {
@@ -502,7 +502,7 @@ def Rock_BlockwiseFillOp:
     Rock_Op<"blockwise_fill", [AllElementTypesMatch<["memref", "value"]>]>,
     Arguments<(ins AnyMemRef:$memref,
                    AnyTypeOf<[AnyInteger, AnyFloat, AnyVector]>:$value,
-                   I32Attr:$blockSize)> {
+                   I32Attr:$block_size)> {
   let summary = "Fill memory with constant value on GPU";
   let description = [{
     The `rock.blockwise_fill` op fills a LDS memref on GPU with a constant value.
@@ -1162,7 +1162,7 @@ def Rock_BlockwiseGemmAccelOp:
                    MemRefOf<AccelResTypes>:$matrixC,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
+                   I32Attr:$block_size,
                    RockAccelTuningParamAttrInterface:$params)>{
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
@@ -1239,7 +1239,7 @@ def Rock_BlockwiseBroadcastReduceOp:
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
                    OptionalAttr<TransformMapArrayAttr>:$extraOutView,
-                   I32Attr:$blockSize
+                   I32Attr:$block_size
                    )> {
   let summary = "Blockwise reduce operation with output broadcasting";
   let description = [{

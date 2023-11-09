@@ -46,8 +46,13 @@ class Rock_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
   let symbolToStringFnName = "getNameFor" # name;
 }
 
-class Rock_Attr<string name, list<Trait> traits = []> :
-    AttrDef<Rock_Dialect, name, traits>;
+class Rock_Attr<string name, string userName, list<Trait> traits = []> :
+  AttrDef<Rock_Dialect, name, traits> {
+  let mnemonic = userName;
+}
+
+class Rock_AttrName<string name, string userName, string baseAttrType = "::mlir::Attribute"> :
+  AttrNameDef<Rock_Dialect, name, userName, baseAttrType>;
 
 /// ConvOpType
 def ConvOp2DType : I32EnumAttrCase<"Fwd", 0, "conv2d">;
@@ -109,8 +114,7 @@ def ReduceMethod : Rock_I32Enum<"ReduceMethod",
 def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
 
 /// TransformAttr
-def Rock_TransformAttr : Rock_Attr<"Transform"> {
-    let mnemonic = "transform";
+def Rock_TransformAttr : Rock_Attr<"Transform", "transform"> {
 
     let description = [{
         A coordinate transformation, that is, a component of a transform_map.
@@ -173,8 +177,7 @@ def Rock_TransformAttr : Rock_Attr<"Transform"> {
 }
 
 /// TransformsAttr
-def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
-    let mnemonic = "transform_map";
+def Rock_TransformMapAttr : Rock_Attr<"TransformMap", "transform_map"> {
     let description = [{
         A package of a series of coordinate transformation descriptions
         that completely defines how to map from some upper dimensions P
@@ -206,13 +209,13 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
-  let mnemonic = "general_gemm_params";
+def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", "general_gemm_params",
+    [RockTuningParamAttrInterface]> {
   let description = [{
     The tuning parameters for a general (no special instructions) matrix
     multiplication.
 
-    - blockSize: Optional parameter to specify the block size of the kernel
+    - block_size: Optional parameter to specify the block size of the kernel
     - kPerBlock: The number of values of k to process during each main loop
       iteration within a workgroup
     - mPerBlock: The number of values of m to process in each workgroup
@@ -223,7 +226,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - kpack: The number of values of k to pack contiguously into the shared buffer
   }];
   let parameters = (ins
-    "uint32_t":$blockSize,
+    "uint32_t":$block_size,
     "int64_t":$kPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
@@ -251,8 +254,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 }
 
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "xdlops_gemm_params";
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", "xdlops_gemm_params",
+    [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
   }];
@@ -285,8 +288,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
-def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "wmma_gemm_params";
+def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", "wmma_gemm_params",
+    [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let description = [{
     The tuning parameters for an wmma-based matrix multiplication.
   }];
@@ -339,7 +342,54 @@ def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // Misc Attrs
-def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
-  let mnemonic = "rock.prefill";
+
+class Rock_I32Attr<string name, string userName> :
+    Rock_AttrName<name, userName, "::mlir::IntegerAttr"> {
+
+  code intNameFuncs = [{
+      static ValueAttrType get(::mlir::MLIRContext *ctx, int32_t val=0) {
+        return ValueAttrType::get(::mlir::IntegerType::get(ctx, 32), val);
+      }
+      static ::mlir::NamedAttribute getNamed(Builder b, int32_t val) {
+        return getNamed(b, b.getI32IntegerAttr(val));
+      }
+      static ::mlir::NamedAttribute getNamedInherent(Builder b, int32_t val) {
+        return getNamedInherent(b, b.getI32IntegerAttr(val));
+      }
+      static void setOn(::mlir::Operation *op, int32_t val) {
+        op->setAttr(getName(), get(op->getContext(), val));
+      }
+    }];
+
+  let extraClassDeclaration = !strconcat(nameFuncs, intNameFuncs);
 }
+
+class Rock_UnitAttr<string name, string userName> :
+    Rock_AttrName<name, userName, "::mlir::UnitAttr"> {
+
+  code unitNameFuncs = [{
+      static ValueAttrType get(::mlir::MLIRContext *ctx) {
+        return ValueAttrType::get(ctx);
+      }
+      static void setOn(::mlir::Operation *op) {
+        op->setAttr(getName(), get(op->getContext()));
+      }
+    }];
+
+  let extraClassDeclaration = !strconcat(nameFuncs, unitNameFuncs);
+}
+
+def Rock_PrefillAttr : Rock_AttrName<"Prefill", "prefill">;
+
+def Rock_NumCuAttr : Rock_I32Attr<"NumCu", "num_cu">;
+def Rock_BlockSizeAttr : Rock_I32Attr<"BlockSize", "block_size">;
+def Rock_GridSizeAttr : Rock_I32Attr<"GridSize", "grid_size">;
+def Rock_WaveSizeAttr : Rock_I32Attr<"WaveSize", "wave_size">;
+def Rock_SharedBufferSizeAttr : Rock_I32Attr<"SharedBufferSize", "shared_buffer_size">;
+
+def Rock_BlocksPerCUAttr : Rock_I32Attr<"BlocksPerCU", "blocks_per_cu">;
+
+def Rock_Is64BitIndexAttr : Rock_UnitAttr<"Is64BitIndex", "is_64_bit_index">;
+def Rock_HasGlobalSyncAttr : Rock_UnitAttr<"HasGlobalSync", "has_global_sync">;
+
 #endif

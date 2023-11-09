@@ -3,13 +3,13 @@
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @misckernel_module
 // CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32> {llvm.noalias}, %{{.*}}: memref<?xf32> {llvm.noalias}) kernel
-// CHECK-SAME: block_size = 64 : i32
 // CHECK-SAME: gpu.known_block_size = array<i32: 64, 1, 1>
 // CHECK-SAME: gpu.known_grid_size = array<i32: 900, 1, 1>
-// CHECK-SAME: grid_size = 900 : i32
+// CHECK-SAME: rock.block_size = 64 : i32
+// CHECK-SAME: rock.grid_size = 900 : i32
 module {
   func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>)
-      attributes {kernel = 0 : i32, block_size = 64 : i32, grid_size = 900 : i32} {
+      attributes {kernel = 0 : i32, rock.block_size = 64 : i32, rock.grid_size = 900 : i32} {
     // CHECK: gpu.barrier
     rock.workgroup_barrier
 

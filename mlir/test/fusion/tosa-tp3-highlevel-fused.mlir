@@ -6,7 +6,7 @@
 // CHECK-NOT: linalg.generic
 
 module {
-  func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x64x28x28xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx906"} {
+  func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x64x28x28xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
     %cst_t = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi64>
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>

@@ -7,7 +7,7 @@ func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x12
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.general_gemm_params<
-      blockSize = 256,
+      block_size = 256,
       kPerBlock = 8,
       mPerBlock = 256,
       nPerBlock = 256,
@@ -76,7 +76,7 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
   %c0f = arith.constant 0.0 : f16
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    blockSize = 256 : i32,
+    block_size = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.xdlops_gemm_params<
@@ -101,7 +101,7 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
                                                %matrixC : memref<2xvector<32xf32>, 5>) {
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    blockSize = 256 : i32,
+    block_size = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.xdlops_gemm_params<

@@ -6,7 +6,7 @@ module {
   // CHECK:  [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
-  func.func @dot_reshape_1(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<1x5x3xf32>) -> tensor<1x15xf32> attributes{kernel, arch = ""} {
+  func.func @dot_reshape_1(%arg0: tensor<1x5x4xf32>, %arg1: tensor<1x4x3xf32>, %arg2: tensor<1x5x3xf32>) -> tensor<1x15xf32> attributes{kernel, mhal.arch = ""} {
     %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf32>, tensor<1x4x3xf32>) -> tensor<1x5x3xf32>
     %2 = "migraphx.reshape"(%0) {dims = [1:i64, 15:i64]} : (tensor<1x5x3xf32>)-> tensor<1x15xf32>
     return %2 : tensor<1x15xf32>

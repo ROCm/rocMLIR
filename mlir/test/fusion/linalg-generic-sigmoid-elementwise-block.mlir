@@ -22,7 +22,7 @@
 module {
   // CHECK-LABEL: @mlir_transpose_slice_dot_add_add_tanh_add_sigmoid_sub_mul_mul_add
   // CHECK-SAME: ([[arg0:%[^:]+]]: memref<2x5xf32>, [[arg1:%[^:]+]]: memref<2x5xf32>
-  func.func @mlir_transpose_slice_dot_add_add_tanh_add_sigmoid_sub_mul_mul_add(%arg0: memref<2x5xf32>, %arg1: memref<2x5xf32>, %arg2: memref<1x5xf32>, %arg3: memref<2x5xf32>,  %arg4: memref<2x5xf32>, %arg5: memref<2x5xf32>, %arg6: memref<2x5xf32>, %arg7: memref<15x5xf32>, %arg8: memref<2x5xf32>) attributes {arch = "gfx1100", block_size = 64 : i32, grid_size = 1 : i32, kernel = "mixr", num_cu = 48 : i64, wave_size = 32 : i32} {
+  func.func @mlir_transpose_slice_dot_add_add_tanh_add_sigmoid_sub_mul_mul_add(%arg0: memref<2x5xf32>, %arg1: memref<2x5xf32>, %arg2: memref<1x5xf32>, %arg3: memref<2x5xf32>,  %arg4: memref<2x5xf32>, %arg5: memref<2x5xf32>, %arg6: memref<2x5xf32>, %arg7: memref<15x5xf32>, %arg8: memref<2x5xf32>) attributes {mhal.arch = "gfx1100", rock.block_size = 64 : i32, rock.grid_size = 1 : i32, kernel = "mixr", num_cu = 48 : i64, rock.wave_size = 32 : i32} {
     %cst = arith.constant 1.000000e+00 : f32
     %alloc = memref.alloc() : memref<2x5xf32>
     %4 = rock.transform %alloc by #transform_map4 : memref<2x5xf32> to memref<1x2x5xf32>

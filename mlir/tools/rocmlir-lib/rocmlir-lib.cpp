@@ -208,8 +208,9 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   // If mlirHandle contains result from miirLowerTuningParams(), it is still
   // a mlir::func::FuncOp
   module.walk([&](func::FuncOp funcOp) -> WalkResult {
-    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
-    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
+    auto statusBlock =
+        getSizeAttr(rock::BlockSizeAttr::getOn(funcOp), blockSize);
+    auto statusGrid = getSizeAttr(rock::GridSizeAttr::getOn(funcOp), gridSize);
     if (statusBlock.succeeded() && statusGrid.succeeded()) {
       setReturn(blockSize, gridSize);
     }
@@ -223,8 +224,9 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   // If mlirHandle contains result from miirLowerTuningBin(), it is
   // a LLVM::LLVMFuncOp
   module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
-    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
-    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
+    auto statusBlock =
+        getSizeAttr(rock::BlockSizeAttr::getOn(funcOp), blockSize);
+    auto statusGrid = getSizeAttr(rock::GridSizeAttr::getOn(funcOp), gridSize);
     if (statusBlock.succeeded() && statusGrid.succeeded()) {
       setReturn(blockSize, gridSize);
     }

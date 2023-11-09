@@ -12,7 +12,7 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
   // CHECK: rock.accel_gemm
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    blockSize = 32 : i32,
+    block_size = 32 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<
@@ -37,7 +37,7 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
   // CHECK:  rock.accel_gemm
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    blockSize = 128 : i32,
+    block_size = 128 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<
@@ -62,7 +62,7 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
   // CHECK:  rock.accel_gemm
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    blockSize = 128 : i32,
+    block_size = 128 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.wmma_gemm_params<

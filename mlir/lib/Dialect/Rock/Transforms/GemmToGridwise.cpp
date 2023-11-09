@@ -144,7 +144,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  IntegerAttr numCUAttr = op.getNumCUAttr();
+  IntegerAttr numCUAttr = op.getNumCuAttr();
   if (!numCUAttr) {
     int64_t minNumCU = rock::lookupArchInfo(op.getArchAttr()).minNumCU;
     numCUAttr = rw.getI32IntegerAttr(minNumCU);
@@ -261,8 +261,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                       "gemm1N", gemm0ExtraPad.n);
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
-  IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
+  IntegerAttr blockSizeAttr = BlockSizeAttr::getOn(func);
+  IntegerAttr gridSizeAttr = GridSizeAttr::getOn(func);
   IntegerAttr prePadG0MAttr;
   if (gemm0ExtraPad.m) {
     prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);

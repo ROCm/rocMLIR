@@ -35,6 +35,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/IndexingUtils.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -228,11 +229,31 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   return transform(b, typedBuffer, asMatrix);
 }
 
-template <typename OpT>
-static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
+static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
-  int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  return success(ldsBytes <= 64 * 1024);
+  auto func = op->getParentOfType<func::FuncOp>();
+  StringAttr arch = mhal::ArchAttr::getOn(op);
+  if (!arch)
+    arch = mhal::ArchAttr::getOn(func);
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    arch = mhal::ArchAttr::getOn(mod);
+  }
+
+  if (arch) {
+    const int64_t ldsSize = rock::lookupArchInfo(arch).totalSharedMemPerCU;
+    int64_t ldsBytes = aBufferBytes + bBufferBytes;
+    // Set sharedMemSize attribute for this kernel
+    // TODO: update for multiple ops using shared mem
+    int64_t totalLDS = ldsBytes;
+    if (auto ldsAttr = SharedBufferSizeAttr::getOn(func)) {
+      totalLDS += ldsAttr.getInt();
+    }
+    SharedBufferSizeAttr::setOn(func, totalLDS);
+
+    return success(ldsBytes <= ldsSize);
+  }
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -459,7 +480,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCu(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
         /*extraIndices=*/
@@ -1583,7 +1604,7 @@ struct GridwiseAttentionAccelRewritePattern
 
     auto gridCoordsGemm1 = layout::makeGxMxNGridLayout(
         rewriter, loc, bid,
-        {gemm1MBlocks, gemm1NBlocks, /*op.getNumCU()=*/20, elemTypeV,
+        {gemm1MBlocks, gemm1NBlocks, /*op.getNumCu()=*/20, elemTypeV,
          elemTypeOut});
 
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
@@ -1957,7 +1978,7 @@ struct GridwiseGemmAccelRewritePattern
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid, {mBlocks, nBlocks, op.getNumCu(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
         /*extraIndices=*/

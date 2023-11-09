@@ -82,4 +82,5 @@ TransformMapAttr getTransformMapAttrChecked(
     DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds);
 } // namespace rock
 } // namespace mlir
+
 #endif // MLIR_ROCKOPS_OPS_H_

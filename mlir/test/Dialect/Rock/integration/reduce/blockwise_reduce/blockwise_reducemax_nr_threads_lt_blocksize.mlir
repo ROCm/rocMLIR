@@ -10,7 +10,7 @@
 
 #transform_map5 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 
-func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{mhal.arch = "", rock.block_size = 20 : i32, rock.grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<80xf32, #gpu.address_space<workgroup>>
@@ -18,7 +18,7 @@ func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20
   %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map2, #transform_map1, #transform_map0](%input)[%bid, %tid] -> %input_reg : memref<1x20x32xf32> ->  memref<4xf32, #gpu.address_space<private>>
-  rock.blockwise_broadcast_reduce max [#transform_map5]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
+  rock.blockwise_broadcast_reduce max [#transform_map5]%input_reg into %output_reg using %ws_lds {axis = 1 : index, block_size = 20 : i32} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map3](%output)[%bid, %tid] by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x1x32xf32>
   return
 }

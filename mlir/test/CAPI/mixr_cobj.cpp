@@ -95,6 +95,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
+  mlirOperationSetAttributeByName(
+      func, mlirStringRefCreateFromCString("mhal.arch"),
+      mlirStringAttrGet(
+          ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
 
   //-------------- conv0 = migraphx.convolution
 

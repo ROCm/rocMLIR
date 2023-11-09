@@ -683,7 +683,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     return WalkResult::advance();
   });
   if (kernelNeeds64Bit.wasInterrupted())
-    getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
+    rock::Is64BitIndexAttr::setOn(getOperation());
 
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();

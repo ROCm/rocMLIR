@@ -63,9 +63,9 @@ void AffixTuningParameters::runOnOperation() {
   func.walk([&](AttentionOp op) { affixTuningParametersImpl(op); });
   func.walk([&](ReduceOp op) {
     func::FuncOp funcOp = getOperation();
-    if (!funcOp->hasAttr("block_size")) {
-      funcOp->setAttr("block_size", op.getBlockSizeAttr());
-      funcOp->setAttr("grid_size", op.getGridSizeAttr());
+    if (!BlockSizeAttr::hasOn(funcOp)) {
+      BlockSizeAttr::setOn(funcOp, op.getBlockSizeAttr());
+      GridSizeAttr::setOn(funcOp, op.getGridSizeAttr());
     }
   });
   func.walk(
@@ -89,13 +89,13 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
 
   // Tracking utility kernel block size separately.
-  utilityOp->setAttr("blockSize", blockSizeAttr);
-  utilityOp->setAttr("gridSize", gridSizeAttr);
+  BlockSizeAttr::setOn(utilityOp, blockSizeAttr);
+  GridSizeAttr::setOn(utilityOp, gridSizeAttr);
   utilityOp->setAttr("elemsPerThread", b.getIndexAttr(elemsPerThread));
 
   func::FuncOp funcOp = getOperation();
-  funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
+  BlockSizeAttr::setOn(funcOp, blockSizeAttr);
+  GridSizeAttr::setOn(funcOp, gridSizeAttr);
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -146,9 +146,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
-    getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
+    BlockSizeAttr::setOn(getOperation(), blockSize);
+    GridSizeAttr::setOn(getOperation(), gridSize);
+    WaveSizeAttr::setOn(getOperation(), waveSize);
 
   } else {
     InitParamsNonAccel validParams;
@@ -177,10 +177,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
-    getOperation()->setAttr("block_size",
-                            b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
+    BlockSizeAttr::setOn(getOperation(), validParams.blockSize);
+    GridSizeAttr::setOn(getOperation(), gridSize);
+    WaveSizeAttr::setOn(getOperation(), waveSize);
   }
 }
 
@@ -254,9 +253,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
       ((gemm0Size.m + gemm0ExtraPad.m) / accelParams.getMPerBlock()) *
       ((gemm1Size.n + gemm1ExtraPad.n) / accelParams.getNPerBlock()) *
       gemm0Size.g;
-  IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
-  IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = getOperation();
-  funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
+  BlockSizeAttr::setOn(funcOp, blockSize);
+  GridSizeAttr::setOn(funcOp, gridSize);
+  WaveSizeAttr::setOn(funcOp, waveSize);
 }

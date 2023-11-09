@@ -2,7 +2,7 @@
 
 module {
   // CHECK-LABEL: @test_conv2d_tp
-  func.func @test_conv2d_tp(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx906"} {
+  func.func @test_conv2d_tp(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
     %cst_t = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi64>
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
@@ -23,7 +23,7 @@ module {
   }
 
   // CHECK-LABEL: @test_conv2d_tp_reshape1
-  func.func @test_conv2d_tp_reshape1(%arg0: tensor<1x256x28x28x128xf32>, %arg1: tensor<1x64x128x3x3xf32>, %arg2: tensor<1x256x64x28x28xf32>) -> tensor<1x256x28x28x64xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx906"} {
+  func.func @test_conv2d_tp_reshape1(%arg0: tensor<1x256x28x28x128xf32>, %arg1: tensor<1x64x128x3x3xf32>, %arg2: tensor<1x256x64x28x28xf32>) -> tensor<1x256x28x28x64xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
     %cst_t = arith.constant dense<[0, 1, 4, 2, 3]> : tensor<5xi64>
     %cst = arith.constant dense<[0, 1, 3, 4, 2]> : tensor<5xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
@@ -48,7 +48,7 @@ module {
   }
 
   // CHECK-LABEL: @test_conv2d_tp_reshape2
-  func.func @test_conv2d_tp_reshape2(%arg0: tensor<256x28x28x128x1xf32>, %arg1: tensor<64x128x3x3x1xf32>, %arg2: tensor<256x64x28x28x1xf32>) -> tensor<256x28x28x64x1xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx906"} {
+  func.func @test_conv2d_tp_reshape2(%arg0: tensor<256x28x28x128x1xf32>, %arg1: tensor<64x128x3x3x1xf32>, %arg2: tensor<256x64x28x28x1xf32>) -> tensor<256x28x28x64x1xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
     %cst_t = arith.constant dense<[0, 3, 1, 2, 4]> : tensor<5xi64>
     %cst = arith.constant dense<[0, 2, 3, 1, 4]> : tensor<5xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>

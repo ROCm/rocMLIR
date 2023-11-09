@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -410,7 +411,7 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*gemmBType=*/dataType,
                           /*kernelType=*/KernelType::Conv2DBwdWeight,
                           /*batchSize=*/convDims.n,
-                          /*numCU=*/getNumCU()};
+                          /*numCU=*/getNumCu()};
 
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
@@ -490,7 +491,7 @@ LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
   return success();
 }
 
-uint32_t Conv2dGenerator::getNumCU() const {
+int32_t Conv2dGenerator::getNumCu() const {
   return config.num_cu.has_value() ? config.num_cu.value()
                                    : rock::lookupArchInfo(config.arch).minNumCU;
 }
@@ -795,7 +796,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
 
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
-  NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
+  NamedAttribute archAttr = mhal::ArchAttr::getNamed(builder, archStrAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
@@ -843,8 +844,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("arch", archStrAttr),
-
+      mhal::ArchAttr::getNamedInherent(builder, archStrAttr),
       builder.getNamedAttr(
           "filter_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
@@ -856,7 +856,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           "output_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
-      builder.getNamedAttr("numCU", builder.getI32IntegerAttr(getNumCU())),
+      rock::NumCuAttr::getNamedInherent(builder, getNumCu()),
   };
 
   // The backwards data kernel needs to know its kernel ID, as there are

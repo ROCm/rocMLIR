@@ -185,7 +185,7 @@ static int toKernelOrder(Attribute attr) {
 
 static FailureOr<Type>
 extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
-  if (!op->hasAttr("mhal.arch")) {
+  if (!mhal::ArchAttr::hasOn(op)) {
     return op->emitOpError(
         "no architecture set, set mhal.arch on the input module");
   }
@@ -269,8 +269,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   rock::buildKernelPipeline(compilation, compilationKernOpts);
 
   RocmDeviceName deviceName;
-  StringRef archName =
-      source->getAttrOfType<StringAttr>("mhal.arch").getValue();
+  StringRef archName = mhal::ArchAttr::getOn(source).getValue();
   if (failed(deviceName.parse(archName)))
     return source->emitOpError("could not parse arch name: " + archName);
   rock::BackendOptions backendOpts;
@@ -329,10 +328,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         llvm::errs() << "Tuned copy somehow missing kernel function\n";
         return failure();
       }
-      blockSizes.push_back(
-          tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
-      gridSizes.push_back(
-          tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
+      blockSizes.push_back(rock::BlockSizeAttr::getOn(tunedFunc).getInt());
+      gridSizes.push_back(rock::GridSizeAttr::getOn(tunedFunc).getInt());
     }
     // We have to get these now, they disappear later. Also, if these attributes
     // aren't set the contract of the applicability pipeline changed and that's
@@ -396,7 +393,7 @@ int main(int argc, char **argv) {
 
   ModuleOp module;
   WalkResult findModule = source->walk([&](ModuleOp op) -> WalkResult {
-    if (op->hasAttr("mhal.arch")) {
+    if (mhal::ArchAttr::hasOn(op)) {
       module = op;
       return WalkResult::interrupt();
     }

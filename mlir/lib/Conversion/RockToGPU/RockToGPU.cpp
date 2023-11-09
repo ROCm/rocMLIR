@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -167,28 +168,32 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     }
 
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc->getAttr("block_size")) {
-      gpuFunc->setAttr("block_size", attr);
-      blockSize = attr.template cast<IntegerAttr>().getInt();
+    if (auto attr = rock::BlockSizeAttr::getOn(theFunc)) {
+      rock::BlockSizeAttr::setOn(gpuFunc, attr);
+      blockSize = attr.getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownBlockSizeAttrName(),
                        b.getDenseI32ArrayAttr({blockSize, 1, 1}));
     }
-    if (auto attr = theFunc->getAttr("grid_size")) {
-      gpuFunc->setAttr("grid_size", attr);
-      gridSize = attr.template cast<IntegerAttr>().getInt();
+    if (auto attr = rock::GridSizeAttr::getOn(theFunc)) {
+      rock::GridSizeAttr::setOn(gpuFunc, attr);
+      gridSize = attr.getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
+    if (auto attr = rock::SharedBufferSizeAttr::getOn(theFunc))
+      rock::SharedBufferSizeAttr::setOn(gpuFunc, attr);
 
-    if (auto attr = theFunc->getAttr("wave_size")) {
-      int32_t waveSize = attr.template cast<IntegerAttr>().getInt();
+    if (auto attr = rock::WaveSizeAttr::getOn(theFunc)) {
+      int32_t waveSize = attr.getInt();
       if (blockSize / waveSize >= 2) {
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
       }
     }
+    if (auto attr = rock::HasGlobalSyncAttr::getOn(theFunc))
+      rock::HasGlobalSyncAttr::setOn(gpuFunc);
 
     int32_t indexWidth = 32;
-    if (theFunc->hasAttr("rock.64bitindex"))
+    if (rock::Is64BitIndexAttr::hasOn(theFunc))
       indexWidth = 64;
     DataLayoutEntryInterface indexWidthAttr = DataLayoutEntryAttr::get(
         b.getIndexType(), b.getI32IntegerAttr(indexWidth));
@@ -237,10 +242,9 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     });
     if (result.wasInterrupted())
       return theFunc.emitOpError("failed to clone referenced global constants");
-    // copy original_func attribute
-    const char *attrName = "original_func";
-    if (auto attr = theFunc->getAttrOfType<SymbolRefAttr>(attrName)) {
-      gpuFunc->setAttr(attrName, attr);
+    // copy reference_func attribute
+    if (auto attr = mhal::ReferenceFuncAttr::getOn(theFunc)) {
+      mhal::ReferenceFuncAttr::setOn(gpuFunc, attr);
     }
 
     // convert all calls to gpu.launch_func

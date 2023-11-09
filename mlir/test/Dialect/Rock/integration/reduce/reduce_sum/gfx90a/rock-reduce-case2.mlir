@@ -21,15 +21,15 @@ module {
     }
     return
   }
-  func.func @test_reduce(%arg0: memref<10x30x20xf32>, %arg1: memref<10x1x20xf32>) attributes {arch = ""} {
+  func.func @test_reduce(%arg0: memref<10x30x20xf32>, %arg1: memref<10x1x20xf32>) attributes {mhal.arch = ""} {
     call @zero_init (%arg1) : (memref<10x1x20xf32>) -> ()
     %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<10x30x20xf32>, memref<10x1x20xf32>)
     mhal.await %token1 : !mhal.token
     return
   }
   module @__xmodule_gfx90a attributes {mhal.arch = "gfx90a",mhal.module} {
-    func.func private @test_reduce__part_1(%arg0: memref<10x30x20xf32> {func.read_access}, %arg1: memref<10x1x20xf32> {func.read_access, func.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 1, block_size = 256} {
-      rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 1 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<10x30x20xf32> into memref<10x1x20xf32>
+    func.func private @test_reduce__part_1(%arg0: memref<10x30x20xf32> {func.read_access}, %arg1: memref<10x1x20xf32> {func.read_access, func.write_access}) attributes {kernel, mhal.reference_func = @test_reduce__part_1, rock.grid_size = 1, rock.block_size = 256} {
+      rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 1 : index, block_size = 256 : i32, grid_size = 1 : i32} : memref<10x30x20xf32> into memref<10x1x20xf32>
       return
     }
   }

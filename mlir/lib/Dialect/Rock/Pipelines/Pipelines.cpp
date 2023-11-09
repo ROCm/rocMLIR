@@ -201,9 +201,11 @@ void rock::buildBackendPipeline(OpPassManager &pm,
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true, gpu::amd::Runtime::Unknown));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
-  if (options.compile)
+  if (options.compile) {
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel));
+    gpuPm.addPass(createRockCheckResidencyPass());
+  }
 }
 
 //===----------------------------------------------------------------------===//

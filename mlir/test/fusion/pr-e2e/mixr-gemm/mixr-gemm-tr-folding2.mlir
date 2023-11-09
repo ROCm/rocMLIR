@@ -14,7 +14,7 @@ module {
     return %results : tensor<1x6xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func @mlir_transpose_reshape_dot(%arg0: tensor<1x2x1x3xf32> {func.read_access}, %arg1: tensor<6x6xf32> {func.read_access}) -> (tensor<1x6xf32> {func.write_access}) attributes {kernel, original_func = @mlir_transpose_reshape_dot} {
+    func.func @mlir_transpose_reshape_dot(%arg0: tensor<1x2x1x3xf32> {func.read_access}, %arg1: tensor<6x6xf32> {func.read_access}) -> (tensor<1x6xf32> {func.write_access}) attributes {kernel, mhal.reference_func = @mlir_transpose_reshape_dot} {
       %0 = migraphx.transpose(%arg0) {permutation = [0, 2, 1, 3]} : (tensor<1x2x1x3xf32>) -> tensor<1x1x2x3xf32>
       %1 = migraphx.reshape(%0) {dims = [1, 6]} : (tensor<1x1x2x3xf32>) -> tensor<1x6xf32>
       %2 = migraphx.dot(%1, %arg1) : (tensor<1x6xf32>, tensor<6x6xf32>) -> tensor<1x6xf32>

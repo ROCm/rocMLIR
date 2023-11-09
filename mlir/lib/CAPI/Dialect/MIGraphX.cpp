@@ -74,11 +74,10 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   mod.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
     // There can be math lib ext linkage functions that does not represent
     // the kernel
-    if (llvmFunc->hasAttr("block_size") && llvmFunc->hasAttr("grid_size")) {
-      attrs[0] =
-          llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
-      attrs[1] =
-          llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
+    if (mlir::rock::BlockSizeAttr::hasOn(llvmFunc) &&
+        mlir::rock::GridSizeAttr::hasOn(llvmFunc)) {
+      attrs[0] = mlir::rock::BlockSizeAttr::getOn(llvmFunc).getInt();
+      attrs[1] = mlir::rock::GridSizeAttr::getOn(llvmFunc).getInt();
     }
   });
 }

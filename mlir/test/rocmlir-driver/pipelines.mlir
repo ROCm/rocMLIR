@@ -39,7 +39,7 @@
 // BINARY-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
 // BINARY-SAME: expand-strided-metadata,
 // BINARY-SAME: convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY-SAME: gpu-to-hsaco{chip=gfx90a features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY-SAME: gpu-to-hsaco{chip=gfx90a features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},rock-check-residency)){{$}}
 
 // BINARY_MI300: Kernel pipeline:
 // BINARY_MI300-NEXT: {{^}}builtin.module(strip-debuginfo,
@@ -49,7 +49,7 @@
 // BINARY_MI300-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},rock-check-residency)){{$}}
 
 // PARTITION: Partitioner pipeline:
 // PARTITION-NEXT: {{^}}builtin.module(func.func(tosa-make-broadcastable),

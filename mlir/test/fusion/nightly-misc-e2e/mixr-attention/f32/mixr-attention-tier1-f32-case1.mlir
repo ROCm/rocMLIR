@@ -14,7 +14,7 @@ module {
     return %results : tensor<1x12x384x64xf32>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_attention(%arg0: tensor<1x12x384x64xf32> {func.read_access}, %arg1: tensor<1x12x64x384xf32> {func.read_access}, %arg2: tensor<1x12x384x64xf32> {func.read_access}) -> (tensor<1x12x384x64xf32> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
+    func.func private @mlir_attention(%arg0: tensor<1x12x384x64xf32> {func.read_access}, %arg1: tensor<1x12x64x384xf32> {func.read_access}, %arg2: tensor<1x12x384x64xf32> {func.read_access}) -> (tensor<1x12x384x64xf32> {func.write_access}) attributes {kernel, mhal.reference_func = @mlir_attention} {
       %0 = migraphx.dot(%arg0, %arg1): (tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32>) -> tensor<1x12x384x384xf32>
       %1 = migraphx.softmax(%0){axis = 3 : i64} : tensor<1x12x384x384xf32> -> tensor<1x12x384x384xf32>
       %2 = migraphx.dot(%1, %arg2): (tensor<1x12x384x384xf32>, tensor<1x12x384x64xf32>) -> tensor<1x12x384x64xf32>
