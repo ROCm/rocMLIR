@@ -40,7 +40,7 @@ class MHAL_StringAttr<string name, string user_name> :
 
 /// Misc Attrs
 def MHAL_ArchAttr : MHAL_StringAttr<"Arch", "arch">;
-def MHAL_ModuleAttr : MHAL_StringAttr<"Module", "module", "::mlir::UnitAttr">;
+def MHAL_ModuleAttr : MHAL_AttrName<"Module", "module", "::mlir::UnitAttr">;
 def MHAL_ReferenceFuncAttr :
     MHAL_AttrName<"ReferenceFunc", "reference_func", "::mlir::SymbolRefAttr">;
 def MHAL_TargetsAttr : MHAL_AttrName<"Targets", "targets", "::mlir::ArrayAttr">;
