@@ -1128,13 +1128,6 @@ struct GridwiseAttentionAccelRewritePattern
                           RockAccelTuningParamAttrInterface gemm0TuningParams,
                           GemmFeatures features) const {
     int64_t gemm1KPack = gemm0TuningParams.getKpack();
-    // TODO: This is a hack until we understand why second gemm
-    // fails with kpack > 1 for WMMA. It is unlikely to be
-    // a part of generic lowering gridwise_attention as it
-    // works fine with MFMA.
-    if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
-      gemm1KPack = 1;
-    }
     return rewriter.getAttr<XdlopsGemmParamsAttr>(
         /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() / gemm1KPack,
         /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
@@ -1748,11 +1741,18 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, gemm1RegBufferA, gemm0ThreadwiseSubtileViewNxMMaps);
         // Correct the below toLDSViews to be max LDS vectorizable
         // (For now just hacked in the existing view)
+        // Copy copyKPerThread is set to 1 because
+        // K is not packed as kpack vectors. Therefore, setting
+        // copyKPerThread to be 1 will always make the LDS write
+        // to be scalars -- which makes the following layout agnostic.
+        // We should get rid of storing to LDS altogether with
+        // the transposed layout for this gemm.
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
             rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
             gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
             gemm1LDSByteBufferA, gemm1KpacksPerBlock, "m", gemm1KPerBlock,
-            gemm1MPerBlock, gemm1KPerThread, gemm1InMPerThread, forceUnroll);
+            gemm1MPerBlock, /*copyKPerThread=*/1, gemm1InMPerThread,
+            forceUnroll);
         if (failed(storeGemm1ATileStatus)) {
           return failure();
         }
