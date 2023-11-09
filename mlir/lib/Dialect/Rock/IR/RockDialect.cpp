@@ -887,6 +887,31 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ReinterpretMultiBufferOp
+//===-----------------------------------------------------===//
+void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
+                                     Value input, MemRefType bufferType,
+                                     int64_t multibufferFactor) {
+  ArrayRef<int64_t> originalShape = bufferType.getShape();
+  SmallVector<int64_t, 4> multiBufferedShape;
+  multiBufferedShape.push_back(multibufferFactor);
+  llvm::append_range(multiBufferedShape, originalShape);
+
+  MemRefType mbMemRefType = MemRefType::Builder(bufferType)
+                                .setShape(multiBufferedShape)
+                                .setLayout(MemRefLayoutAttrInterface());
+  build(b, state, mbMemRefType, input, b.getIndexAttr(multibufferFactor));
+}
+
+LogicalResult ReinterpretMultiBufferOp::verify() {
+  MemRefType mbType = getOutput().getType();
+  ArrayRef<int64_t> mbShape = mbType.getShape();
+  if (mbShape[0] != getMultibufferFactor())
+    return failure();
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
 
@@ -1423,6 +1448,34 @@ LogicalResult InBoundsStoreOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseReadIntoOp
 //===-----------------------------------------------------===//
+SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwiseReadIntoOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+  // Only one operand supports view
+  auto newOp = builder.create<ThreadwiseReadIntoOp>(
+      getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
+      getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
 LogicalResult ThreadwiseReadIntoOp::verify() {
   MemRefType destType = getDest().getType();
   MemRefType srcType = getSource().getType();
@@ -1473,6 +1526,35 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
+
+SmallPtrSet<OpOperand *, 2> ThreadwiseWriteAllOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin() + 1};
+}
+
+std::optional<OperandRange>
+ThreadwiseWriteAllOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+  // Only one operand supports view
+  auto newOp = builder.create<ThreadwiseWriteAllOp>(
+      getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
+      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   Attribute memSpaceAttr = sourceType.getMemorySpace();
@@ -1509,6 +1591,9 @@ LogicalResult ThreadwiseCopyOp::verify() {
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
+
+Value BlockwiseGemmOp::getDest() { return getMatrixC(); }
+
 LogicalResult BlockwiseGemmOp::verify() {
   MemRefType blockAType = getMatrixA().getType(),
              blockBType = getMatrixB().getType();
