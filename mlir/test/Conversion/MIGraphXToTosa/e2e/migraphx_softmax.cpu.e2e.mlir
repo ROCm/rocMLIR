@@ -9,12 +9,12 @@ module {
 // CHECK-NEXT: 0.0320586,  0.236883,  0.643914,  0.0871443
 
   func.func @create_test_tensor() -> !migraphx.shaped<4xf32, 1> {
-    %0 = migraphx.literal (dense<[0.0, 2.0, 3.0, 1.0]> : tensor<4xf32>) : !migraphx.shaped<4xf32, 1>
+    %0 = migraphx.literal (dense<[0.0, 2.0, 3.0, 1.0]> : tensor<4xf32>) : <4xf32, 1>
     return %0 : !migraphx.shaped<4xf32, 1>
   }
 
   func.func @softmax(%arg0: !migraphx.shaped<4xf32, 1>) -> !migraphx.shaped<4xf32, 1> {
-    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : !migraphx.shaped<4xf32, 1> -> !migraphx.shaped<4xf32, 1>
+    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : <4xf32, 1> -> <4xf32, 1>
      return %0 : !migraphx.shaped<4xf32, 1>
   }
 

@@ -4,9 +4,9 @@
 
 module {
   func.func @test(%arg0: !migraphx.shaped<1x512x7x7xf32, 0x1x0x0>, %arg1: !migraphx.shaped<1x512x14x14xf32, 100352x196x14x1>, %arg2: !migraphx.shaped<512x512x3x3xf32, 4608x9x3x1>) -> !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1> {
-    %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : !migraphx.shaped<1x512x14x14xf32, 100352x196x14x1>, !migraphx.shaped<512x512x3x3xf32, 4608x9x3x1> -> !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1>
-    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1>, !migraphx.shaped<1x512x7x7xf32, 0x1x0x0> -> !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1>
-    %3 = migraphx.relu %2 : !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1> -> !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1>
+    %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : <1x512x14x14xf32, 100352x196x14x1>, <512x512x3x3xf32, 4608x9x3x1> -> <1x512x7x7xf32, 25088x49x7x1>
+    %2 = migraphx.add %1, %arg0 : <1x512x7x7xf32, 25088x49x7x1>, <1x512x7x7xf32, 0x1x0x0> -> <1x512x7x7xf32, 25088x49x7x1>
+    %3 = migraphx.relu %2 : <1x512x7x7xf32, 25088x49x7x1> -> <1x512x7x7xf32, 25088x49x7x1>
     return %3 : !migraphx.shaped<1x512x7x7xf32, 25088x49x7x1>
   }
 }

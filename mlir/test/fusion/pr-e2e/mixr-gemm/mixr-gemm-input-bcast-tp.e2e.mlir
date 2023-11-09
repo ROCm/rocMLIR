@@ -4,8 +4,8 @@ module {
   // CHECK:  {{.*}}[4, 4, 4, 4],
   // CHECK-NEXT:   [4, 4, 4, 4]{{.*}}
   func.func @mlir_dot(%arg0: !migraphx.shaped<1x2x4xf32, 8x4x1>, %arg1: !migraphx.shaped<1x2x3xf32, 1x0x0>, %arg2: !migraphx.shaped<1x3x4xf32, 12x1x3>) -> !migraphx.shaped<1x2x4xf32, 8x4x1> attributes{kernel, arch = ""} {
-    %1 = migraphx.dot %arg1, %arg2 : !migraphx.shaped<1x2x3xf32, 1x0x0>, !migraphx.shaped<1x3x4xf32, 12x1x3> -> !migraphx.shaped<1x2x4xf32, 8x4x1>
-    %2 = migraphx.add %1, %arg0 : !migraphx.shaped<1x2x4xf32, 8x4x1>, !migraphx.shaped<1x2x4xf32, 8x4x1> -> !migraphx.shaped<1x2x4xf32, 8x4x1>
+    %1 = migraphx.dot %arg1, %arg2 : <1x2x3xf32, 1x0x0>, <1x3x4xf32, 12x1x3> -> <1x2x4xf32, 8x4x1>
+    %2 = migraphx.add %1, %arg0 : <1x2x4xf32, 8x4x1>, <1x2x4xf32, 8x4x1> -> <1x2x4xf32, 8x4x1>
     return %2 : !migraphx.shaped<1x2x4xf32, 8x4x1>
   }
 }

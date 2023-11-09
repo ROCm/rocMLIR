@@ -3,19 +3,19 @@
 module  {
   // CHECK-LABEL: func.func @ConvBias
   func.func @ConvBias(%arg0: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
-    %0 = migraphx.literal (dense<1.000000e+00> : tensor<64x64x1x1xf32>) : !migraphx.shaped<64x64x1x1xf32, 64x1x1x1>
-    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<64x64x1x1xf32, 64x1x1x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
-    %2 = migraphx.literal (dense<2.000000e+00> : tensor<1x64x56x56xf32>) : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
-    %3 = migraphx.add %1, %2 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %0 = migraphx.literal (dense<1.000000e+00> : tensor<64x64x1x1xf32>) : <64x64x1x1xf32, 64x1x1x1>
+    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x64x56x56xf32, 200704x3136x56x1>, <64x64x1x1xf32, 64x1x1x1> -> <1x64x56x56xf32, 200704x3136x56x1>
+    %2 = migraphx.literal (dense<2.000000e+00> : tensor<1x64x56x56xf32>) : <1x64x56x56xf32, 200704x3136x56x1>
+    %3 = migraphx.add %1, %2 : <1x64x56x56xf32, 200704x3136x56x1>, <1x64x56x56xf32, 200704x3136x56x1> -> <1x64x56x56xf32, 200704x3136x56x1>
      return %3 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }
   // CHECK-LABEL: func.func @ConvNoBias
   // CHECK-SAME: ([[arg0:%.+]]: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
   func.func @ConvNoBias(%arg0: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
-    %0 = migraphx.literal (dense<3.000000e+00> : tensor<64x64x1x1xf32>) : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %0 = migraphx.literal (dense<3.000000e+00> : tensor<64x64x1x1xf32>) : <1x64x56x56xf32, 200704x3136x56x1>
     // CHECK: [[trIn:%.+]] = "tosa.transpose"{{.*}}[[arg0]]{{.*}} : (tensor<1x64x56x56xf32>, tensor<4xi64>) -> tensor<1x56x56x64xf32>
     // CHECK: [[conv:%.+]] = "tosa.conv2d"{{.*}}[[trIn]]
-    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
+    %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x64x56x56xf32, 200704x3136x56x1>, <1x64x56x56xf32, 200704x3136x56x1> -> <1x64x56x56xf32, 200704x3136x56x1>
     // CHECK: [[trOut:%.+]] = "tosa.transpose"{{.*}}[[conv]]
      return %1 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }
@@ -33,7 +33,7 @@ func.func @convNHWC(%in: !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, %fil: !migra
   // CHECK: tosa.conv2d
   // CHECK-SAME: (tensor<1x5x5x4xf32>, tensor<7x3x3x4xf32>, tensor<7xf32>) -> tensor<1x3x3x7xf32>
   // CHECK-2: tosa.transpose
-  %out = migraphx.convolution %in, %fil {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, !migraphx.shaped<7x4x3x3xf32, 36x1x12x4> -> !migraphx.shaped<1x7x3x3xf32, 63x1x21x7>
+  %out = migraphx.convolution %in, %fil {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x4x5x5xf32, 100x1x20x4>, <7x4x3x3xf32, 36x1x12x4> -> <1x7x3x3xf32, 63x1x21x7>
   func.return %out : !migraphx.shaped<1x7x3x3xf32, 63x1x21x7>
 }
 
@@ -49,7 +49,7 @@ func.func @convNHWC(%in: !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, %fil: !migra
 // CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
 // CHECK: return [[outMem]]
 func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped<4x3xf32, 1x4> {
-  %op = migraphx.floor %arg0 : !migraphx.shaped<4x3xf32, 1x4> -> !migraphx.shaped<4x3xf32, 1x4>
+  %op = migraphx.floor %arg0 : <4x3xf32, 1x4> -> <4x3xf32, 1x4>
   func.return %op : !migraphx.shaped<4x3xf32, 1x4>
 }
 
@@ -60,7 +60,7 @@ func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped
 // CHECK: [[op:%.+]] = "tosa.sub"([[broadcast]], [[arg1]])
 // CHECK: return [[op]]
 func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.shaped<4x3xf32, 3x1>) -> !migraphx.shaped<4x3xf32, 3x1> {
-  %op = migraphx.sub %arg0, %arg1 : !migraphx.shaped<4x3xf32, 1x0>, !migraphx.shaped<4x3xf32, 3x1> -> !migraphx.shaped<4x3xf32, 3x1>
+  %op = migraphx.sub %arg0, %arg1 : <4x3xf32, 1x0>, <4x3xf32, 3x1> -> <4x3xf32, 3x1>
   func.return %op : !migraphx.shaped<4x3xf32, 3x1>
 }
 
@@ -70,7 +70,7 @@ func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.sha
 // CHECK: [[op:%.+]] = "tosa.sub"([[sliced]], [[arg1]])
 // CHECK: return [[op]]
 func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped<4x3xf32, 3x1>) -> !migraphx.shaped<4x3xf32, 3x1> {
-  %op = migraphx.sub %arg0, %arg1 : !migraphx.shaped<4x3xf32, 5x1>, !migraphx.shaped<4x3xf32, 3x1> -> !migraphx.shaped<4x3xf32, 3x1>
+  %op = migraphx.sub %arg0, %arg1 : <4x3xf32, 5x1>, <4x3xf32, 3x1> -> <4x3xf32, 3x1>
   func.return %op : !migraphx.shaped<4x3xf32, 3x1>
 }
 
@@ -84,7 +84,7 @@ func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped
 // CHECK: [[op:%.+]] = "tosa.sub"([[broadcast]], [[arg1]])
 // CHECK: return [[op]]
 func.func @everything(%arg0: !migraphx.shaped<4x3x5xf32, 1x0x6>, %arg1: !migraphx.shaped<4x3x5xf32, 15x5x1>) -> !migraphx.shaped<4x3x5xf32, 15x5x1> {
-  %op = migraphx.sub %arg0, %arg1 : !migraphx.shaped<4x3x5xf32, 1x0x6>, !migraphx.shaped<4x3x5xf32, 15x5x1> -> !migraphx.shaped<4x3x5xf32, 15x5x1>
+  %op = migraphx.sub %arg0, %arg1 : <4x3x5xf32, 1x0x6>, <4x3x5xf32, 15x5x1> -> <4x3x5xf32, 15x5x1>
   func.return %op : !migraphx.shaped<4x3x5xf32, 15x5x1>
 }
 
@@ -93,7 +93,7 @@ func.func @everything(%arg0: !migraphx.shaped<4x3x5xf32, 1x0x6>, %arg1: !migraph
 // CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
 // CHECK: return [[op]]
 func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 0> {
-  %op = migraphx.floor %arg0 : !migraphx.shaped<1xf32, 0> -> !migraphx.shaped<1xf32, 0>
+  %op = migraphx.floor %arg0 : <1xf32, 0> -> <1xf32, 0>
   func.return %op : !migraphx.shaped<1xf32, 0>
 }
 
@@ -102,6 +102,6 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
 // CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
 // CHECK: return [[op]]
 func.func @scalar0d(%arg0: !migraphx.shaped<f32>) -> !migraphx.shaped<f32> {
-  %op = migraphx.floor %arg0 : !migraphx.shaped<f32> -> !migraphx.shaped<f32>
+  %op = migraphx.floor %arg0 : <f32> -> <f32>
   func.return %op : !migraphx.shaped<f32>
 }
