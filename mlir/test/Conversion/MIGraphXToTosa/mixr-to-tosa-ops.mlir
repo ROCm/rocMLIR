@@ -183,6 +183,16 @@ module  {
     return %3 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
   }
 
+  // CHECK-LABEL: func.func @mbcast_non_first_dim
+  // COM: test for a bug in how mbcast was handled in this case.
+  // CHECK: new_shape = array<i64: 1, 1, 5, 1>
+  func.func @mbcast_non_first_dim(%arg0: !migraphx.shaped<2x3x3x5xf32, 45x15x5x1>, %arg1: !migraphx.shaped<5xf32, 1>) -> !migraphx.shaped<2x3x3x1xf32, 9x3x1x1> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 48 : i64} {
+    %0 = migraphx.reshape %arg1 {dims = [5, 1]} : <5xf32, 1> -> <5x1xf32, 1x1>
+    %1 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [2, 3, 5, 1]} : <5x1xf32, 1x1> -> <2x3x5x1xf32, 0x0x1x1>
+    %2 = migraphx.dot %arg0, %1 : <2x3x3x5xf32, 45x15x5x1>, <2x3x5x1xf32, 0x0x1x1> -> <2x3x3x1xf32, 9x3x1x1>
+    return %2 : !migraphx.shaped<2x3x3x1xf32, 9x3x1x1>
+  }
+
   // CHECK-LABEL: func.func @clip_i32
   func.func @clip_i32(%arg0: !migraphx.shaped<64x64xi32, 64x1>, %arg1: !migraphx.shaped<64x64xi32, 64x1>, %arg2: !migraphx.shaped<64x64xi32, 64x1>) -> !migraphx.shaped<64x64xi32, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
     // CHECK: %[[MAX:.*]] = "tosa.maximum"(%arg0, %arg1)

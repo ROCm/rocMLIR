@@ -442,12 +442,13 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   ArrayRef<int64_t> outShape = op.getOutput().getType().getShape();
   uint32_t outRank = op.getOutput().getType().getRank();
   Type elemType = op.getOutput().getType().getElementType();
-  int64_t axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
+  auto axis =
+      static_cast<size_t>(op->getAttr("axis").cast<IntegerAttr>().getInt());
 
   SmallVector<int64_t, 5> newShape;
   for (uint32_t i = 0; i < outRank; i++) {
-    if (i == axis) {
-      newShape.push_back(inShape[0]);
+    if (i >= axis && (i - axis) < inShape.size()) {
+      newShape.push_back(inShape[i - axis]);
     } else {
       newShape.push_back(1);
     }
@@ -474,8 +475,8 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   auto inType = cast<RankedTensorType>(adaptor.getInput().getType());
   auto outType = cast<RankedTensorType>(
       getTypeConverter()->convertType(op.getOutput().getType()));
-  ArrayRef<int64_t> inShape = inType.getShape();
   ArrayRef<int64_t> outShape = outType.getShape();
+  ArrayRef<int64_t> outStrides = op.getOutput().getType().getStrides();
   uint32_t inRank = inType.getRank();
   uint32_t outRank = outType.getRank();
   Type elemType = outType.getElementType();
@@ -502,16 +503,18 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
 
   Value replacingValue = adaptor.getInput();
   if (outRank > inRank) {
-    SmallVector<int64_t, 5> newShape = llvm::to_vector<5>(inShape);
-    for (uint32_t i = inRank; i < outRank; i++) {
-      newShape.push_back(1);
-    }
+    SmallVector<int64_t, 5> newShape;
+    newShape.reserve(outRank);
+    for (auto [len, stride] : llvm::zip_equal(outShape, outStrides))
+      newShape.push_back(stride == 0 ? 1 : len);
     tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
         rewriter, loc, elemType, adaptor.getInput(),
         rewriter.getDenseI64ArrayAttr(newShape));
     replacingValue = sameRankReshapedOp.getResult();
   }
 
+  llvm::errs() << "Replacing type: " << replacingValue.getType() << "\n";
+  llvm::errs() << "Out type: " << outType << "\n";
   // We create a dummy zero addition with implicit broadcasting
   // because tosa does not have an explicit broadcast op
   auto zeroTensor = getZeroTensor(loc, outType, rewriter);
@@ -1029,8 +1032,9 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   }
 
   SmallVector<int64_t, 4> slicingShape(resultType.getShape());
-  for (auto [idx, dim] : llvm::enumerate(slicingShape)) {
-    if (inType.getStrides()[idx] == 0)
+  for (auto [dim, stride] :
+       llvm::zip_equal(slicingShape, inType.getStrides())) {
+    if (stride == 0)
       dim = 1;
   }
 
