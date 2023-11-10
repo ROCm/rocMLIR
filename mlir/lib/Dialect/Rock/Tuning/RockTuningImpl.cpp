@@ -31,7 +31,6 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, Tunin
       {4, 8, 16},
       {1}
   };
-  PopulateParamsXDL tuningInfo;
   OpBuilder b(attnOp.getContext());
   for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
     for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
@@ -44,9 +43,12 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, Tunin
                     InitParamsAccel gemmParams(
                     gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                     gemmNPerWave, gemmKPack, forceUnroll, true);
+                    GemmFeatures features = attnOp.getFeatures();
+                    auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+                    Attribute params =
+                        populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
                     newSpace->tuningRange.push_back(
-                      cast<RockTuningParamAttrInterface>(
-                          tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                      cast<RockTuningParamAttrInterface>(params));
                 }
               }
             }
