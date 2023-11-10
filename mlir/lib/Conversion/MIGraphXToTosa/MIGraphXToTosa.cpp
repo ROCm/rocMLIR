@@ -999,13 +999,7 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   Location loc = op.getLoc();
   MIXRShapedType inType = op.getIn().getType();
   RankedTensorType resultType = op.getOut().getType();
-  auto inMemType = cast<RankedTensorType>(adaptor.getIn().getType());
   Value in = adaptor.getIn();
-
-  if (inMemType == resultType) {
-    rewriter.replaceOp(op, in);
-    return success();
-  }
 
   // This is the permutation that reorders the strides into standard shape.
   // Equivalently, it is the permutation that, when applied to a standard

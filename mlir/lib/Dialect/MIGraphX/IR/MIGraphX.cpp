@@ -247,29 +247,29 @@ void MIXRShapedType::getStridesToStandardShapePermutation(
   ArrayRef<int64_t> strides = getStrides();
   size_t n = strides.size();
   ret.resize_for_overwrite(n);
-  // Vector that'll be sorted so that the dimension with the smallest stride
-  // comes first. The second parameter is the reversed index of the dimension
-  // in the original strides array, which ensures that sorting by < leads
-  // to shapes like <1x2x1x3xf32, 6x3x3x1> are not permuted.
   SmallVector<std::pair<int64_t, size_t>, 4> indexedStrides;
   for (auto [idx, stride] : llvm::enumerate(strides)) {
     if (stride == 0) {
       // Broadcast dimensions stay put.
       ret[idx] = idx;
     } else {
-      indexedStrides.push_back({stride, n - idx});
+      indexedStrides.push_back({stride, idx});
       ret[idx] = -1;
     }
   }
-  llvm::sort(indexedStrides);
-  // The strides are sorted backwards of how we want to deal with them.
-  size_t nextStride = indexedStrides.size() - 1;
+  llvm::sort(indexedStrides, [](auto a, auto b) {
+    auto [aStride, aIdx] = a;
+    auto [bStride, bIdx] = b;
+    if (aStride != bStride)
+      return aStride > bStride;
+    return aIdx < bIdx;
+  });
+  size_t nextStride = 0;
   for (int64_t &stride : ret) {
     if (stride != -1)
       // Broadcast dimension which is already in permutaiton.
       continue;
-    // Undo the ordering hack above.
-    stride = n - indexedStrides[nextStride--].second;
+    stride = indexedStrides[nextStride++].second;
   }
   LLVM_DEBUG({
     llvm::dbgs() << "Found migraphx shaped type stride permutation: ";
