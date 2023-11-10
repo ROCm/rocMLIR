@@ -3391,8 +3391,8 @@ static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
 
   originalFunc->removeAttr("kernel");
   StringAttr archAttr = b.getStringAttr(arch);
-  if (originalFunc->hasAttr("arch"))
-    originalFunc->setAttr("arch", archAttr);
+  if (mhal::ArchAttr::hasOn(originalFunc))
+    mhal::ArchAttr::setOn(originalFunc, archAttr);
   auto readAttr =
       b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
   auto writeAttr =
@@ -3414,12 +3414,12 @@ static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
-  xmoduleOp->setAttr("mhal.arch", archAttr);
-  xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
+  mhal::ArchAttr::setOn(xmoduleOp, archAttr);
+  mhal::ModuleAttr::setOn(xmoduleOp, b.getUnitAttr());
   auto *cloneFunc = originalFunc->clone();
   auto cloneFuncOp = dyn_cast<func::FuncOp>(cloneFunc);
   cloneFuncOp->setAttr("kernel", b.getUnitAttr());
-  cloneFuncOp->setAttr("original_func", SymbolRefAttr::get(originalFunc));
+  mhal::ReferenceFuncAttr::setOn(cloneFuncOp, SymbolRefAttr::get(originalFunc));
   xmoduleOp.push_back(cloneFuncOp);
   module.push_back(xmoduleOp);
   return module;
@@ -3509,7 +3509,7 @@ int main(int argc, char **argv) {
         roots.remove(edge.getTarget());
       func::FuncOp func =
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-      if (func->hasAttr("original_func"))
+      if (mhal::ReferenceFuncAttr::hasOn(func))
         roots.remove(node);
       if (func->getParentOp() && func->getParentOp()->getParentOp())
         roots.remove(node);

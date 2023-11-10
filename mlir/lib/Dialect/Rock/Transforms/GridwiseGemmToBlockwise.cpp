@@ -232,9 +232,7 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
   auto func = op->getParentOfType<func::FuncOp>();
-  StringAttr arch = mhal::ArchAttr::getOn(op);
-  if (!arch)
-    arch = mhal::ArchAttr::getOn(func);
+  StringAttr arch = mhal::ArchAttr::lookupOn(op);
   if (!arch) {
     auto mod = func->getParentOfType<ModuleOp>();
     arch = mhal::ArchAttr::getOn(mod);

@@ -140,7 +140,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       rock.lds_barrier
       // CHECK: %[[multibuf_idx:.*]] = affine.apply {{.*}}(%arg3)
       // CHECK: %[[subview:.*]] = memref.subview %[[multibuf_view2]][%[[multibuf_idx]], 0] [1, 512] [1, 1]
-      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx90a", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
+      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx90a", block_size = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
     }
     return
