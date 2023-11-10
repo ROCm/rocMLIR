@@ -22,3 +22,5 @@ add_public_tablegen_target(MLIRRockAccelTuningParamAttrInterfaceIncGen)
 
 add_mlir_interface(RockGemmWrapperInterface)
 add_mlir_interface(RockConvInterface)
+add_mlir_interface(RockAcceptingViewOpInterface)
+add_mlir_interface(RockWriterOpInterface)

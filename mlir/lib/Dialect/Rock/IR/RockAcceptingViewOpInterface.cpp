@@ -1,0 +1,21 @@
+//===- RockGemmWrapperInterface.cpp -  -------===//
+//
+// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
+// Exceptions. See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+// Copyright (c) 2022 Advanced Micro Devices INc.
+//===----------------------------------------------------------------------===//
+//
+// This file defines RockAcceptingViewOpInterface, which abstracts rock
+// operations that accept a view as operands.
+//
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.h"
+
+namespace mlir {
+namespace rock {
+#include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.cpp.inc"
+} // namespace rock
+} // namespace mlir

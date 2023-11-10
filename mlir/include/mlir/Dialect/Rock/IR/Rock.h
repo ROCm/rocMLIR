@@ -66,8 +66,10 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
 
+#include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockWriterOpInterface.h"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Rock/IR/RockOps.h.inc"
