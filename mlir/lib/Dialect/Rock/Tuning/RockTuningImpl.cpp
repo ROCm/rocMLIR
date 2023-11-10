@@ -20,6 +20,43 @@
 namespace mlir {
 namespace rock {
 
+// The full space is a brute-force search for attention kernels
+void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, TuningParamSetKind kind){
+  const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {8, 16, 32},
+      {32, 64},
+      {32, 64},
+      {4, 8, 16},
+      {1}
+  };
+  PopulateParamsXDL tuningInfo;
+  OpBuilder b(attnOp.getContext());
+  for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
+    for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
+      for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
+        for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
+          for (uint32_t gemmNPerWave : validRangeAccelGemmParams[4]) {
+            for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
+              for (uint32_t forceUnroll : validRangeAccelGemmParams[6]) {
+                if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
+                    InitParamsAccel gemmParams(
+                    gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                    gemmNPerWave, gemmKPack, forceUnroll, true);
+                    newSpace->tuningRange.push_back(
+                      cast<RockTuningParamAttrInterface>(
+                          tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 // The full space is a brute-force search starting with the configs that have
 // the smallest parameters. This filters out perf configs that are
 // known to be impossible during tthe AffixTuningParams check.
@@ -286,7 +323,15 @@ TuningParamSet *createTunableParamSpace(ModuleOp &mod,
         return WalkResult::interrupt();
       });
   WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    createTuningRange(newSpace, op);
+    // createTuningRange(newSpace, op);
+    switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createAttnTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createTuningRange(newSpace, op);
+    }
     return WalkResult::interrupt();
   });
   if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {

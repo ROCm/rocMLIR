@@ -103,11 +103,14 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
-        perfConfig, time = result.split('\t')
-        if time == "N/A":
-            nanoSeconds = np.nan
-        else:
-            nanoSeconds = float(time)
+        try:
+            perfConfig, time = result.split('\t')
+            if time == "N/A":
+                nanoSeconds = np.nan
+            else:
+                nanoSeconds = float(time)
+        except:
+            continue
 
         config.setPerfConfig(perfConfig)
         entry = config.tableEntry(nanoSeconds)
@@ -131,6 +134,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
         commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
         # Note, we don't need the -ph, this goes to the tuning driver
         kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
+        print(f"{kernelGenCommand} | {paths.mlir_paths.rocmlir_tuning_driver_path}")
         kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
             stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
