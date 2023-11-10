@@ -13,14 +13,19 @@
 // CHECK-DAG: #[[TMAP5:.*]] = #rock.transform_map<#[[MAP3]]
 // CHECK-DAG: #[[TMAP6:.*]] = #rock.transform_map<#[[MAP4]]
 // CHECK: func @rock_blockwise_reducesum_nr_threads_gt_blocksize
+// CHECK: %[[NEGINF:.*]] = arith.constant 0xFF800000 : f32
 // CHECK: %[[ZERO:.*]] = arith.constant 0 : index
 // CHECK: %[[TID0:.*]] = rock.workitem_id : index
 // CHECK: rock.transforming_for {{.*}} ({{.*}}, %[[ITER_ARG:.*]]) = [](%[[TID0]], %[[ZERO]]), (%[[LDS_COORD:.*]]) = [#[[TMAP]], #[[TMAP1]], #[[TMAP2]]](%[[TID0]], %[[ZERO]]) {{.*}} bounds [1, 20] strides [1, 1] {
 // CHECK: %[[LOAD_VAL:.*]] = rock.in_bounds_load %arg0[%[[ITER_ARG]]]
 // CHECK: rock.in_bounds_store %[[LOAD_VAL]] -> %arg2[%[[LDS_COORD]]]
+
+// init the accumulator
+// CHECK: memref.store %[[NEGINF]], %[[TO_REDUCE_ACC_MEMREF:.*]][{{.*}}]
+
 // CHECK: rock.transforming_for {{.*}} (%[[LD_COORD:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[TID0]], %[[ZERO]], %[[ZERO]]), {{.*}}, (%[[LDS_ST_COORD:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %[[ZERO]], %[[ZERO]]) {{.*}} bounds [1, 1, 20] strides [1, 1, 4] {
 // CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LD_COORD]]]
-// CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load {{.*}}[%[[ZERO]]]
+// CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[ZERO]]]
 // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maxf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
 // CHECK: %[[ACC_NEW:.*]] = arith.maxf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
 // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
@@ -81,7 +86,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: rock.lds_barrier
 
 // CHECK: %[[PLUS_TWO_OFFSET:.*]] = arith.addi %[[PRT_THREAD_IDX]], %c2
-// CHECK: %[[PLUS_TWO_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_TWO_OFFSET]], %c5
+// CHECK: %[[PLUS_TWO_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_TWO_OFFSET]], %c4
 // CHECK: scf.if %[[PLUS_TWO_BCHECK]] {
     // CHECK: rock.transforming_for
     // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
@@ -93,7 +98,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: rock.lds_barrier
 
 // CHECK: %[[PLUS_ONE_OFFSET:.*]] = arith.addi %[[PRT_THREAD_IDX]], %c1
-// CHECK: %[[PLUS_ONE_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE_OFFSET]], %c5
+// CHECK: %[[PLUS_ONE_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE_OFFSET]], %c2
 // CHECK: scf.if %[[PLUS_ONE_BCHECK]] {
     // CHECK: rock.transforming_for
     // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
