@@ -7,7 +7,7 @@
 
 // CHECK_LINALG_ALIGN-COUNT-4: rock.threadwise_read_into {{.*}}
 // CHECK_LINALG_ALIGN: rock.threadwise_read_into {{.*}} -> [[lain:%.*]] :
-// CHECK_LINALG_ALIGN: linalg.generic{{.*}} ins({{.*}}, [[lain]] :{{.*}}) outs(%[[outBuf:.*]] : memref<32xf32, #gpu.address_space<private>>)
+// CHECK_LINALG_ALIGN: linalg.generic{{.*}} ins({{.*}}, [[lain]] :{{.*}}) outs(%[[outBuf:.*]] : memref<16xf32, #gpu.address_space<private>>)
 // CHECK_LINALG_ALIGN: rock.threadwise_write_all {{.*}} %[[outBuf]] ->
 // to test reshape is converted as transform and fused.
 
