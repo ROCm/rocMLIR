@@ -296,6 +296,20 @@ std::optional<int64_t> isConstantValue(Value v) {
   return std::nullopt;
 }
 
+struct ReinterpretMultiBufferRewritePattern
+    : public OpRewritePattern<ReinterpretMultiBufferOp> {
+  using OpRewritePattern<ReinterpretMultiBufferOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(ReinterpretMultiBufferOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    b.replaceOpWithNewOp<memref::ViewOp>(op, op.getOutput().getType(),
+                                         op.getInput(), zeroByteOffset,
+                                         ValueRange{});
+    return success();
+  }
+};
+
 struct IndexDiffUpdateRewritePattern
     : public OpRewritePattern<IndexDiffUpdateOp> {
   using OpRewritePattern<IndexDiffUpdateOp>::OpRewritePattern;
@@ -1557,7 +1571,9 @@ void RockSugarToLoopsPass::runOnOperation() {
   // Expand transforming_for loops so that the load/store patterns have as much
   // info about validity as possible.
   RewritePatternSet initialLoopPatterns(ctx);
-  initialLoopPatterns.add<TransformingForRewritePattern>(ctx);
+  initialLoopPatterns
+      .add<ReinterpretMultiBufferRewritePattern, TransformingForRewritePattern>(
+          ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                           std::move(initialLoopPatterns))))
     signalPassFailure();

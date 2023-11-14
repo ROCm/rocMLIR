@@ -1123,15 +1123,16 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  RockAccelTuningParamAttrInterface deriveGemm1TuningParams(
-      PatternRewriter &rewriter,
-      RockAccelTuningParamAttrInterface gemm0TuningParams) const {
+  RockAccelTuningParamAttrInterface
+  deriveGemm1TuningParams(PatternRewriter &rewriter,
+                          RockAccelTuningParamAttrInterface gemm0TuningParams,
+                          GemmFeatures features) const {
+    int64_t gemm1KPack = gemm0TuningParams.getKpack();
     return rewriter.getAttr<XdlopsGemmParamsAttr>(
-        /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() /
-            gemm0TuningParams.getKpack(),
+        /*gemmKpackPerBlock=*/gemm0TuningParams.getNPerBlock() / gemm1KPack,
         /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
         /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-        /*gemmKPack=*/gemm0TuningParams.getKpack(),
+        /*gemmKPack=*/gemm1KPack,
         /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
         /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
         /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
@@ -1416,7 +1417,7 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
 
     RockAccelTuningParamAttrInterface gemm1TuningParams =
-        deriveGemm1TuningParams(rewriter, gemm0TuningParams);
+        deriveGemm1TuningParams(rewriter, gemm0TuningParams, op.getFeatures());
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
@@ -1445,7 +1446,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc,
         {gemm0KPerBlock * gemm0MPerBlock, gemm0MPerBlock * gemm0NPerBlock,
          gemm0MPerBlock * gemm0NPerBlock},
-        {elemTypeQ, elemTypeQxK, elemTypeQxK});
+        {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsA[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsA[1];
     Value gemm1LDSByteBufferA = sharedBuffersGemmsA[2];
@@ -1689,6 +1690,8 @@ struct GridwiseAttentionAccelRewritePattern
       RegsAsMatrixSubTiles reductionOutSubTilesViews = makeNZeroSubTile(
           rewriter, loc, gemm1OutSubTileViews, reductionOutNLen,
           reductionOutNPerBlock, reductionOutNPerThread);
+      // LDS barrier.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           gemm0OutBufferMaxInGemm1Layout, reductionAxis,
@@ -1714,11 +1717,15 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter.getNamedAttr("cast",
                                     rewriter.getAttr<linalg::TypeFnAttr>(
                                         linalg::TypeFn::cast_signed))});
+      // LDS barrier as LDS workspace is reused.
+      rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, gemm0OutBufferSumInGemm1Layout, reductionAxis,
           rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
           reductionOutSubTilesViews.blockSubTile, blockSize);
+      // LDS barrier.
+      rewriter.create<LDSBarrierOp>(loc);
 
       // Emit blockwise GEMM 1.
       {
@@ -1737,11 +1744,18 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, gemm1RegBufferA, gemm0ThreadwiseSubtileViewNxMMaps);
         // Correct the below toLDSViews to be max LDS vectorizable
         // (For now just hacked in the existing view)
+        // Copy copyKPerThread is set to 1 because
+        // K is not packed as kpack vectors. Therefore, setting
+        // copyKPerThread to be 1 will always make the LDS write
+        // to be scalars -- which makes the following layout agnostic.
+        // We should get rid of storing to LDS altogether with
+        // the transposed layout for this gemm.
         LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
             rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
             gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
             gemm1LDSByteBufferA, gemm1KpacksPerBlock, "m", gemm1KPerBlock,
-            gemm1MPerBlock, gemm1KPerThread, gemm1InMPerThread, forceUnroll);
+            gemm1MPerBlock, /*copyKPerThread=*/1, gemm1InMPerThread,
+            forceUnroll);
         if (failed(storeGemm1ATileStatus)) {
           return failure();
         }

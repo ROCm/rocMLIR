@@ -12,17 +12,15 @@ name = "transK"
 values = ["true", "false"]
 prefix = "--transK="
 
-[[axis]]
-name = "scale"
-values = ["true", "false"]
-prefix = "--with-attn-scale="
-
 ## attention variant
 [[suite]]
 name = "pr_attention_f16"
 
 [[suite.test]]
 config = "-seq_len 384 -head_dim 64"
+
+[[suite.test]]
+config = "-seq_len 64 -head_dim 64 -perf_config 32,64,32,32,32,4,1,1"
 
 [[suite.test]]
 config = "-seq_len 64 -head_dim 64"
