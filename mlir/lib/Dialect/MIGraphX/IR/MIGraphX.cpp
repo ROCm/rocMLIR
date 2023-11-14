@@ -175,7 +175,7 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
 
   size_t nStrides = strides.size();
   SmallVector<int64_t> stridesToStandardPerm;
-  getStridesToStandardShapePermutation(stridesToStandardPerm);
+  getStridePermutation(stridesToStandardPerm);
   SmallVector<int64_t, 4> orderedShape;
   SmallVector<int64_t, 4> orderedStrides;
   orderedShape.resize_for_overwrite(nStrides);
@@ -184,11 +184,8 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
     orderedShape[to] = shape[from];
     orderedStrides[to] = strides[from];
     // Broadcasts become a length-1 dimension
-    if (strides[from] == 0) {
-      assert(static_cast<int64_t>(to) == from &&
-             "broadcast dimensions aren't reordered for memory layout");
+    if (strides[from] == 0)
       orderedShape[to] = 1;
-    }
   }
   // Ensure we have a unit stride.
   for (auto stride : llvm::reverse(orderedStrides)) {
@@ -242,35 +239,16 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
   return RankedTensorType::get(orderedShape, getElementType());
 }
 
-void MIXRShapedType::getStridesToStandardShapePermutation(
-    SmallVectorImpl<int64_t> &ret) const {
+void MIXRShapedType::getStridePermutation(SmallVectorImpl<int64_t> &ret) const {
+  ArrayRef<int64_t> shape = getShape();
   ArrayRef<int64_t> strides = getStrides();
   size_t n = strides.size();
   ret.resize_for_overwrite(n);
-  SmallVector<std::pair<int64_t, size_t>, 4> indexedStrides;
-  for (auto [idx, stride] : llvm::enumerate(strides)) {
-    if (stride == 0) {
-      // Broadcast dimensions stay put.
-      ret[idx] = idx;
-    } else {
-      indexedStrides.push_back({stride, idx});
-      ret[idx] = -1;
-    }
-  }
-  llvm::sort(indexedStrides, [](auto a, auto b) {
-    auto [aStride, aIdx] = a;
-    auto [bStride, bIdx] = b;
-    if (aStride != bStride)
-      return aStride > bStride;
-    return aIdx < bIdx;
+  llvm::copy(llvm::iota_range<int64_t>(0, n, /*Inclusive=*/false), ret.begin());
+  llvm::stable_sort(ret, [&](auto a, auto b) {
+    return std::make_tuple(strides[a], shape[a]) >
+           std::make_tuple(strides[b], shape[b]);
   });
-  size_t nextStride = 0;
-  for (int64_t &stride : ret) {
-    if (stride != -1)
-      // Broadcast dimension which is already in permutaiton.
-      continue;
-    stride = indexedStrides[nextStride++].second;
-  }
   LLVM_DEBUG({
     llvm::dbgs() << "Found migraphx shaped type stride permutation: ";
     llvm::interleaveComma(ret, llvm::dbgs());

@@ -1006,7 +1006,7 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   // shape, produces its in-memory layout. So, to get back to standard/logical
   // shape, we need to invert it.
   SmallVector<int64_t, 4> inversePermutation;
-  inType.getStridesToStandardShapePermutation(inversePermutation);
+  inType.getStridePermutation(inversePermutation);
   SmallVector<int64_t> permutation;
   permutation.resize_for_overwrite(inversePermutation.size());
   bool hasTranspose = false;
@@ -1068,7 +1068,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   // This is the permutation that reorderd strides into the order they'd be in
   // in a standard shape. So, applying it to a logically-shaped tensor gets
   // you the tensor in in-memory layout.
-  resultType.getStridesToStandardShapePermutation(permutation);
+  resultType.getStridePermutation(permutation);
   Value transposed = getTransposeOp(loc, in, rewriter, permutation);
   if (transposed.getType() != resultTensorType) {
     rewriter.eraseOp(transposed.getDefiningOp());

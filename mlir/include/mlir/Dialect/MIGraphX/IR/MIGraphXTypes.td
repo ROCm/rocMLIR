@@ -117,14 +117,15 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
     // If there is no such tensor, returns nullptr.
     ::mlir::RankedTensorType asMemoryLayoutTensor() const;
 
-    /// Return the permutation that, when applied to the strides of this shape,
-    /// puts them into standard layout (where the strides monotonically increase
-    /// from the right). This permutation leaves broadcast dimensions where they
-    /// are.
+    /// Return the permutation that describes how the strides have been permuted
+    /// from what they would be if the tensor were in standard shape. This function
+    /// is equivalent to MIGraphX's find_Permutation . Applying the inverse
+    /// of the permutation returned here to the strides will put them in standard
+    /// shape.
     ///
     /// The permutation is an array in the tosa form, that is, given sequences
     /// in and out, we map in[ret[x]] to out[x].
-    void getStridesToStandardShapePermutation(::llvm::SmallVectorImpl<int64_t>& ret) const;
+    void getStridePermutation(::llvm::SmallVectorImpl<int64_t>& ret) const;
   }];
 
   let hasCustomAssemblyFormat = 1;

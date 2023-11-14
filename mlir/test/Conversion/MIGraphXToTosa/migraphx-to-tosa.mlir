@@ -75,8 +75,8 @@ func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped
 }
 
 // CHECK-LABEL: @everything
-// CHECK-SAME: ([[arg0:%.+]]: tensor<5x1x6xf32>, [[arg1:%.+]]: tensor<4x3x5xf32>) -> tensor<4x3x5xf32>
-// CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[2, 1, 0]> : tensor<3xi64>}>
+// CHECK-SAME: ([[arg0:%.+]]: tensor<5x6x1xf32>, [[arg1:%.+]]: tensor<4x3x5xf32>) -> tensor<4x3x5xf32>
+// CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 2, 0]> : tensor<3xi64>}>
 // CHECK: [[transposed:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
 // CHECK: [[sliced:%.+]] = "tosa.slice"([[transposed]]) <{size = array<i64: 4, 1, 5>, start = array<i64: 0, 0, 0>}>
 // CHECK: [[zero:%.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<4x3x5xf32>}>
