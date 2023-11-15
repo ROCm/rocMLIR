@@ -101,6 +101,11 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
 
     ::mlir::RankedTensorType asTensor() const;
 
+    // Returns true if the given shaped type is in standard shape - that is,
+    // the strides are in decreasing order and there's a dimension with
+    // stride 1.
+    bool isStandard() const;
+
     // Returns true if any stride is 0, indicating that a dimension of this
     // shaped value is broadcast.
     bool hasBroadcast() const;

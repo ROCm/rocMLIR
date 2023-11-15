@@ -1058,18 +1058,15 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
     return op.emitOpError("unsupported conversion to underlying shape");
-  RankedTensorType inType = op.getIn().getType();
   Value in = adaptor.getIn();
-  if (inType == resultTensorType) {
-    rewriter.replaceOp(op, in);
-    return success();
-  }
   SmallVector<int64_t, 4> permutation;
   // This is the permutation that reorderd strides into the order they'd be in
   // in a standard shape. So, applying it to a logically-shaped tensor gets
   // you the tensor in in-memory layout.
   resultType.getStridePermutation(permutation);
-  Value transposed = getTransposeOp(loc, in, rewriter, permutation);
+  Value transposed = in;
+  if (!llvm::is_sorted(permutation))
+    transposed = getTransposeOp(loc, in, rewriter, permutation);
   if (transposed.getType() != resultTensorType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(

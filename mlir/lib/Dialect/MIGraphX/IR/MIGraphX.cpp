@@ -156,6 +156,16 @@ RankedTensorType MIXRShapedType::asTensor() const {
   return RankedTensorType::get(getShape(), getElementType());
 }
 
+bool MIXRShapedType::isStandard() const {
+  ArrayRef<int64_t> strides = getStrides();
+  if (strides.empty())
+    return true;
+  if (strides.size() == 1 && strides[0] == 0 && getShape()[0] == 1)
+    return true;
+  return llvm::is_sorted(llvm::reverse(strides)) &&
+         llvm::is_contained(strides, 1);
+}
+
 bool MIXRShapedType::hasBroadcast() const {
   return llvm::any_of(getStrides(), [](int64_t s) { return s == 0; });
 }
@@ -243,8 +253,9 @@ void MIXRShapedType::getStridePermutation(SmallVectorImpl<int64_t> &ret) const {
   ArrayRef<int64_t> shape = getShape();
   ArrayRef<int64_t> strides = getStrides();
   size_t n = strides.size();
-  ret.resize_for_overwrite(n);
-  llvm::copy(llvm::iota_range<int64_t>(0, n, /*Inclusive=*/false), ret.begin());
+  ret.clear();
+  ret.reserve(n);
+  llvm::append_range(ret, llvm::iota_range<int64_t>(0, n, /*Inclusive=*/false));
   llvm::stable_sort(ret, [&](auto a, auto b) {
     return std::make_tuple(strides[a], shape[a]) >
            std::make_tuple(strides[b], shape[b]);
