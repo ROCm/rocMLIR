@@ -1108,7 +1108,7 @@ pipeline {
                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                        proxy_opt=""
                                        if [ -n "${http_proxy}" ]; then
-                                           proxy_opt='-U ${http_proxy}'
+                                           proxy_opt="-U ${http_proxy}"
                                        fi
                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CHIP}" -f ./coverage.info ${proxy_opt}
                                        '''
