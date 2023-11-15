@@ -288,11 +288,35 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   Location loc = op.getLoc();
   auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
   auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+  auto srcViewShape = op.getSource().getType().getShape();
+  auto dstViewShape = op.getDest().getType().getShape();
+
+  size_t extraIndicesDestSize = op.getExtraIndicesDest().size();
+  size_t extraIndicesSourceSize = op.getExtraIndicesSource().size();
+  SmallVector<int64_t> extraIndicesDestShape;
+  for (size_t i = 0; i < extraIndicesDestSize; i++) {
+    extraIndicesDestShape.push_back(dstViewShape[i]);
+  }
+  SmallVector<int64_t> extraIndicesSourceShape;
+  for (size_t i = 0; i < extraIndicesSourceSize; i++) {
+    extraIndicesSourceShape.push_back(srcViewShape[i]);
+  }
 
   auto [rawLoadBuffer, loadBufferView, sourceNeeds64BitIdx] =
       untransform(b, sourceView);
   auto [rawStoreBuffer, storeBufferView, dstNeeds64BitIdx] =
       untransform(b, destView);
+
+  // We need to normalize the maps. I.e., if i0,...,iD-1 are the extra
+  // destination indices and j0, ..., jS-1 are the extra source indices, both
+  // source and destination views need to be [(i0, ..., iD-1), (j0, ..., jS-1),
+  // ..., (other dest/source transform indices)]. It is important that the extra
+  // dimensions are propagated top to bottom, otherwise the transformation stack
+  // might loose invertibility
+  loadBufferView = addPassThroughIndices(
+      b, loadBufferView, extraIndicesDestShape, extraIndicesSourceSize);
+  storeBufferView =
+      addPassThroughIndices(b, storeBufferView, extraIndicesSourceShape, 0);
 
   assert(!sourceNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
   assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
@@ -300,21 +324,23 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
       rawLoadBuffer.getType().cast<ShapedType>().getShape();
   ArrayRef<int64_t> rawStoreBufferShape =
       rawStoreBuffer.getType().cast<ShapedType>().getShape();
-  if (rawLoadBufferShape.size() != 1)
-    return op.emitOpError("Raw load buffers have to be flat.");
-  if (rawStoreBufferShape.size() != 1)
-    return op.emitOpError("Raw store buffers have to be flat.");
+  if (rawLoadBufferShape.size() > extraIndicesSourceSize + 1)
+    return op.emitOpError("Raw load buffers have to be flat or multi buffers.");
+  if (rawStoreBufferShape.size() > extraIndicesDestSize + 1)
+    return op.emitOpError("Raw store buffers have to be flat or muti buffers.");
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  auto srcViewShape = op.getSource().getType().getShape();
   Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
 
-  // Basic copy loop. Copy element by element from src to dest view
+  // Basic copy loop. Copy element by element from src to dest view. Only
+  // consider un-extended start/stride/bounds. We will extend those later to
+  // match our normalized structure
   ArrayAttr copyFromView = loadBufferView;
   ArrayAttr copyToView = storeBufferView;
-  SmallVector<Value> start(srcViewShape.size(), zero);
-  SmallVector<int64_t> strides(srcViewShape.size(), 1);
-  SmallVector<int64_t> bounds = llvm::to_vector(srcViewShape);
+  SmallVector<Value> start(srcViewShape.size() - extraIndicesSourceSize, zero);
+  SmallVector<int64_t> strides(srcViewShape.size() - extraIndicesSourceSize, 1);
+  SmallVector<int64_t> bounds(srcViewShape.begin() + extraIndicesSourceSize,
+                              srcViewShape.end());
   int64_t vecLen = 1;
 
   // If we can invert the store view, we can easily find out the common
@@ -324,31 +350,61 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     auto srcToDstView =
         prependUpperViews(b, storeBufferViewInverted, loadBufferView);
     int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
-    vecLen = getMaxVectorizationForDatatype(srcToDstView, /*dim=*/0, maxVlen,
-                                            rawStoreBufferShape, elemType);
-
+    auto shape = srcToDstView[0].cast<TransformMapAttr>().getUpperBounds();
+    vecLen = getMaxVectorizationForDatatype(
+        srcToDstView, /*dim=*/extraIndicesSourceSize + extraIndicesDestSize,
+        maxVlen, shape, elemType);
     copyFromView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
     copyToView = b.getArrayAttr({});
-
     start = SmallVector<Value>{zero};
     strides = SmallVector<int64_t>{vecLen};
-    bounds = llvm::to_vector(rawStoreBufferShape);
+    bounds = SmallVector<int64_t>{rawStoreBufferShape.back()};
   }
 
-  auto copyLoop =
-      b.create<TransformingForOp>(loc, ArrayRef<ValueRange>{start, start},
-                                  ArrayRef<Attribute>{copyFromView, copyToView},
-                                  /*bounds=*/bounds,
-                                  /*strides=*/strides, false,
-                                  /*useIndexDiffs=*/false);
+  // Extend start
+  SmallVector<Value> extendedStart(op.getExtraIndicesSource());
+  extendedStart.insert(extendedStart.begin(), op.getExtraIndicesDest().begin(),
+                       op.getExtraIndicesDest().end());
+  extendedStart.insert(extendedStart.begin(), start.begin(), start.end());
+
+  // Extend bounds
+  SmallVector<int64_t> extendedBounds(
+      extraIndicesSourceSize + extraIndicesDestSize, 1);
+  llvm::append_range(extendedBounds, bounds);
+
+  // Extend strides
+  SmallVector<int64_t> extendedStrides(
+      extraIndicesSourceSize + extraIndicesDestSize, 1);
+  llvm::append_range(extendedStrides, strides);
+
+  auto copyLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
+      ArrayRef<Attribute>{copyFromView, copyToView},
+      /*bounds=*/extendedBounds,
+      /*strides=*/extendedStrides, false,
+      /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
     Type loadType = vectorTypeOrSelf(elemType, vecLen);
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        copyLoop.getLowerCoords(0));
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              copyLoop.getLowerCoords(1));
+
+    // Load coords: get rid of the extra destination indices. The lower source
+    // buffer is in the form of [sourceIndices*,extraDestIndices,rawIndex].
+    auto loadCoords = SmallVector<Value>(copyLoop.getLowerCoords(0).begin(),
+                                         copyLoop.getLowerCoords(0).end() - 1 -
+                                             extraIndicesDestSize);
+    loadCoords.push_back(copyLoop.getLowerCoords(0).back());
+
+    // Store coords: get rid of the extra source indices. The lower dest buffer
+    // is in the form of [extraSourceIndices,destIndices*,rawIndex].
+    auto storeCoords = SmallVector<Value>(copyLoop.getLowerCoords(1).begin() +
+                                              extraIndicesSourceSize,
+                                          copyLoop.getLowerCoords(1).end() - 1);
+    storeCoords.push_back(copyLoop.getLowerCoords(1).back());
+
+    auto val =
+        b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer, loadCoords);
+    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer, storeCoords);
   }
   b.eraseOp(op);
   return success();

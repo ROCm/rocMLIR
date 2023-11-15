@@ -1582,8 +1582,16 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
 LogicalResult ThreadwiseCopyOp::verify() {
   auto srcShape = getSource().getType().getShape();
   auto dstShape = getDest().getType().getShape();
-  if (dstShape != srcShape)
-    return emitOpError("Source and dest shape need to have the same shape.");
+  // We can ignore the external indices, if there are any
+  size_t extraIndicesDestSize = getExtraIndicesDest().size();
+  size_t extraIndicesSourceSize = getExtraIndicesSource().size();
+  SmallVector<int64_t> unextendedSrcShape(
+      srcShape.begin() + extraIndicesSourceSize, srcShape.end());
+  SmallVector<int64_t> unextendedDstShape(
+      dstShape.begin() + extraIndicesDestSize, dstShape.end());
+  if (unextendedDstShape != unextendedSrcShape)
+    return emitOpError(
+        "Un-extended source and dest buffers need to have the same shape.");
 
   return success();
 }
