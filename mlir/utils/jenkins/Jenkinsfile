@@ -1092,7 +1092,7 @@ pipeline {
                             sh 'rm -f build/CMakeCache.txt'
                             sh 'rm -f build/*.profraw'
                             buildProject('check-rocmlir-build-only',
-                                         '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DCMAKE_CXX_FLAGS_DEBUG="-O0 -fprofile-instr-generate -fcoverage-mapping"')
+                                         '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                             dir ('build') {
                                 // Run tests.
                                 sh 'ninja check-rocmlir'
@@ -1107,8 +1107,8 @@ pipeline {
                                     sh '''
                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                        proxy_opt=""
-                                       if [ "${CHIP}" = "gfx90a" ]; then
-                                           proxy_opt='-U http://172.23.0.23:3128'
+                                       if [ -n "${http_proxy}" ]; then
+                                           proxy_opt='-U ${http_proxy}'
                                        fi
                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CHIP}" -f ./coverage.info ${proxy_opt}
                                        '''
