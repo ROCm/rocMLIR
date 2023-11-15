@@ -1092,7 +1092,7 @@ pipeline {
                             sh 'rm -f build/CMakeCache.txt'
                             sh 'rm -f build/*.profraw'
                             buildProject('check-rocmlir-build-only',
-                                         '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                         '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                             dir ('build') {
                                 // Run tests.
                                 sh 'ninja check-rocmlir'
