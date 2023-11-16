@@ -1114,7 +1114,7 @@ pipeline {
                                        '''
                                 }
                             }
-                            archiveArtifacts artifacts: 'build/coverage_${CHIP}.report, build/coverage_${CHIP}.info, build/coverage_${CHIP}.html', onlyIfSuccessful: true
+                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.info, build/coverage*.html', onlyIfSuccessful: true
                         }
                     }
                 }
