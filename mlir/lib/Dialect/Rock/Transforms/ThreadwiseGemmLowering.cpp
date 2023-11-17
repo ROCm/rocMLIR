@@ -327,7 +327,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   if (rawLoadBufferShape.size() > extraIndicesSourceSize + 1)
     return op.emitOpError("Raw load buffers have to be flat or multi buffers.");
   if (rawStoreBufferShape.size() > extraIndicesDestSize + 1)
-    return op.emitOpError("Raw store buffers have to be flat or muti buffers.");
+    return op.emitOpError(
+        "Raw store buffers have to be flat or multi buffers.");
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
@@ -363,9 +364,9 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
 
   // Extend start
   SmallVector<Value> extendedStart(op.getExtraIndicesSource());
-  extendedStart.insert(extendedStart.begin(), op.getExtraIndicesDest().begin(),
+  extendedStart.insert(extendedStart.end(), op.getExtraIndicesDest().begin(),
                        op.getExtraIndicesDest().end());
-  extendedStart.insert(extendedStart.begin(), start.begin(), start.end());
+  extendedStart.insert(extendedStart.end(), start.begin(), start.end());
 
   // Extend bounds
   SmallVector<int64_t> extendedBounds(

@@ -58,6 +58,7 @@ func.func @rock_threadwise_memcopy_no_inversion(%input : memref<16xf16, #gpu.add
 }
 
 // CHECK-LABEL: func.func @rock_threadwise_memcopy_extraindices
+// CHECK: ({{.*}}, {{.*}}, {{.*}}, {{.*}}, %[[i:.*]]: index, %[[j:.*]]: index)
 func.func @rock_threadwise_memcopy_extraindices(%input : memref<2x16xf16, #gpu.address_space<private>>,
                                                 %input1 : memref<16xf16, #gpu.address_space<private>>,
                                                 %output : memref<2x16xf16, #gpu.address_space<private>>,
@@ -79,15 +80,18 @@ func.func @rock_threadwise_memcopy_extraindices(%input : memref<2x16xf16, #gpu.a
     %28 = rock.transform %27 by #transform_map8 : memref<1x2x8xf16, #gpu.address_space<private>> to memref<8x2xf16, #gpu.address_space<private>>
 
     // copy from source to dest
-    // CHECK: rock.transforming_for
+    // CHECK: %[[c00:.*]] = arith.constant 0 : index
+    // CHECK: rock.transforming_for ({{.*}}) = [{{.*}}, {{.*}}, {{.*}}](%[[i]], %[[j]], %[[c00]])
     // CHECK: strides [1, 1, 8]
     rock.threadwise_copy %22[%i]-> %24[%j] : memref<2x8x2xf16, #gpu.address_space<private>> -> memref<2x8x2xf16, #gpu.address_space<private>>
 
-    // CHECK: rock.transforming_for
+    // CHECK: %[[c01:.*]] = arith.constant 0 : index
+    // CHECK: rock.transforming_for ({{.*}}) = [{{.*}}, {{.*}}](%[[j]], %[[c01]])
     // CHECK: strides [1, 8]
     rock.threadwise_copy %26 -> %24[%j] : memref<8x2xf16, #gpu.address_space<private>> -> memref<2x8x2xf16, #gpu.address_space<private>>
 
-    // CHECK: rock.transforming_for
+    // CHECK: %[[c02:.*]] = arith.constant 0 : index
+    // CHECK: rock.transforming_for ({{.*}}) = [{{.*}}, {{.*}}](%[[i]], %[[c02]], %[[c02]])
     // CHECK: strides [1, 1, 1]
     rock.threadwise_copy %22[%i]-> %28 : memref<2x8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
 
