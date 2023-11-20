@@ -1492,6 +1492,7 @@ struct GridwiseAttentionAccelRewritePattern
     rock::accel::AccelEmitterParams accelParams = accelEmitterPtr.getParams();
     Value wrappedLDSBufferForLoad = accelEmitterPtr.wrapLDSBufferForLoad(
         rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName, false);
+    MemRefType bufType = preAccelRegBuffer.getType().cast<MemRefType>();
     int64_t repeats =
         dName == "m" ? accelParams.mRepeats : accelParams.nRepeats;
     affine::AffineForOp mRepeatsLoop =

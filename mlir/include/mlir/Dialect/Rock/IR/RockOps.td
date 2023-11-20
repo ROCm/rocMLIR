@@ -1334,11 +1334,13 @@ def Rock_InWarpTransposeOp :
 }
 
 def Rock_ThreadwiseCopyOp :
-    Rock_Op<"threadwise_copy">,
+    Rock_Op<"threadwise_copy", [AttrSizedOperandSegments]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
       Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
+      Variadic<Index>:$extraIndicesSource,
       Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
+      Variadic<Index>:$extraIndicesDest,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
     )> {
@@ -1351,8 +1353,14 @@ def Rock_ThreadwiseCopyOp :
   }];
 
   let assemblyFormat = [{
-    attr-dict $source  `->` $dest `:` type($source) `->` type($dest)
+    attr-dict $source (`[` $extraIndicesSource^ `]`)? `->` $dest (`[` $extraIndicesDest^ `]`)? `:` type($source) `->` type($dest)
   }];
+
+  let builders = [
+    // Custom builder to not specify the extra indices
+    OpBuilder<(ins "Value":$source, "Value":$dest, CArg<"bool","false">:$forceUnroll, CArg<"bool","false">:$useIndexDiffs),
+                    [{ build($_builder, $_state, source, {}, dest, {}, forceUnroll, useIndexDiffs); }]>
+  ];
   let hasVerifier = 1;
 }
 

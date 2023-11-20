@@ -162,6 +162,16 @@ void convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
 ArrayAttr prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
                             ArrayAttr existingViews);
 
+// Given a `transform` stack [d0, ..., dn] -> .. -> (t0, ..., tm) it is useful
+// to add a passthrough index propagated top to bottom:
+//  [d0, ..., dP-1, (extra0, ..., extraL), dP, ... dn] -> (t0, ...,tP-1,
+//  (extra0, ..., extraL), tP..., tm)
+// The position P where we want the new variables to appear can be specified by
+// the `pos` input parameter. The parameter `length` represents the size of the
+// new dimensions to be inserted
+ArrayAttr addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
+                                ArrayRef<int64_t> lengths, int64_t pos);
+
 ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 
 } // end namespace rock
