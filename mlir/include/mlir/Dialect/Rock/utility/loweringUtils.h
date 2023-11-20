@@ -42,6 +42,10 @@ struct RegsAsMatrixSubTiles {
   ArrayAttr threadSubTile;
 };
 
+// Attribute name to set the initiation interval of a pipelined loop
+constexpr llvm::StringLiteral kInitiationIntervalAttrName =
+    "__initiation_interval__";
+
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
@@ -138,6 +142,10 @@ swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
 // This is a helper function to create a subview of slice of the first dimension
 Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
                             Value buffer, Value sliceIdx);
+
+// Given a `value` traverses its "views" until it finds the real allocation
+// or fails.
+FailureOr<rock::GpuAllocOp> findAlloc(Value value);
 
 } // end namespace rock
 } // end namespace mlir

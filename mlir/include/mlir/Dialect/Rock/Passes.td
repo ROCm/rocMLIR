@@ -78,6 +78,14 @@ def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
   let summary = "Clean up math using integer range analysis and other MLIR passes";
 }
 
+def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
+  let options = [
+    Option<"removeStages", "rock-pipeline-remove-stages", "bool", "true",
+      "Remove pipeline stages once the pipeline pass is completed">
+  ];
+  let summary = "Pipeline loops";
+}
+
 def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
   let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];

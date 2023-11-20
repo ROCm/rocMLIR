@@ -1208,9 +1208,9 @@ def Rock_AccelGemmOp:
     Rock_Op<"accel_gemm">,
     Arguments<(ins Index:$mRepeat,
                    Index:$nRepeat,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixA,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
-                   MemRefRankOf<AccelResTypes , [1]>:$matrixC,
+                   Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register A", [MemRead]>:$matrixA,
+                   Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register B", [MemRead]>:$matrixB,
+                   Arg<MemRefRankOf<AccelResTypes , [1]>, "source register C", [MemWrite]>:$matrixC,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
@@ -1334,7 +1334,7 @@ def Rock_InWarpTransposeOp :
 }
 
 def Rock_ThreadwiseCopyOp :
-    Rock_Op<"threadwise_copy", [AttrSizedOperandSegments]>,
+    Rock_Op<"threadwise_copy", [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>, AttrSizedOperandSegments]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
       Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
@@ -1363,5 +1363,16 @@ def Rock_ThreadwiseCopyOp :
   ];
   let hasVerifier = 1;
 }
+
+
+def Rock_StageOp :
+  Rock_Op<"stage">,
+  Arguments<(ins DefaultValuedStrAttr<StrAttr, "stage">:$name)>
+  {
+    let description = [{ }];
+    let summary = "";
+    let regions = (region AnyRegion:$region);
+    let hasCustomAssemblyFormat = 1;
+  }
 
 #endif // ROCK_OPS

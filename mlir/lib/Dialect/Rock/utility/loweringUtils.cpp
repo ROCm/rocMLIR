@@ -505,3 +505,22 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
                                                      offsets, sizes, strides);
   return subview;
 }
+
+FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
+  auto curOp = value.getDefiningOp();
+  auto maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+  while (!maybeAllocOp) {
+    // Keep going until the operation that defines the value is a
+    // view-like operation
+    if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
+      curOp = viewOp.getViewSource().getDefiningOp();
+    } else {
+      return failure();
+    }
+    maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+  }
+  if (!maybeAllocOp)
+    return failure();
+
+  return maybeAllocOp;
+}
