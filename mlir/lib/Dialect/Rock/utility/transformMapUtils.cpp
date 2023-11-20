@@ -1470,3 +1470,80 @@ ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
       .cast<TransformMapAttr>()
       .getLowerBounds();
 }
+
+ArrayAttr mlir::rock::addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
+                                            ArrayRef<int64_t> lengths,
+                                            int64_t pos) {
+  size_t numberOfIndices = lengths.size();
+
+  // No dimensions to add, return
+  if (numberOfIndices == 0)
+    return transforms;
+
+  // New transform stack
+  SmallVector<Attribute, 4> extendedTrs;
+
+  // Start iterating through the old stack
+  for (Attribute tr : transforms) {
+    TransformMapAttr trMap = tr.cast<TransformMapAttr>();
+    auto ops = llvm::to_vector(trMap.getOps());
+    SmallVector<TransformAttr> newOps;
+
+    // Since we are adding a PassThrough at position `pos`
+    // we need to shift all the subsequent dimensions of the other
+    // transformations by the number of extra indices we insert
+    for (auto t : ops) {
+      auto lowerDims = llvm::to_vector(t.getLowerDims());
+      auto upperDims = llvm::to_vector(t.getUpperDims());
+      for (size_t i = 0; i < lowerDims.size(); i++) {
+        if (lowerDims[i] >= pos)
+          lowerDims[i] += numberOfIndices;
+      }
+      for (size_t i = 0; i < upperDims.size(); i++) {
+        if (upperDims[i] >= pos)
+          upperDims[i] += numberOfIndices;
+      }
+      newOps.push_back(TransformAttr::get(
+          transforms.getContext(), t.getType(), t.getParams(),
+          t.getUpperNames(), upperDims, t.getLowerNames(), lowerDims));
+    }
+
+    // Add the passthrough transforms
+    SmallVector<SmallString<8>> extraNames;
+    for (unsigned i = 0; i < numberOfIndices; i++) {
+      SmallString<8> extraName(Twine("extra_" + Twine(i)).str());
+      extraNames.push_back(extraName);
+      auto passThrough = TransformAttr::get(
+          transforms.getContext(), TransformType::PassThrough, {},
+          {extraNames.back()}, {unsigned(pos) + i}, {extraNames.back()},
+          {unsigned(pos) + i});
+      newOps.push_back(passThrough);
+    }
+
+    // Change the lower/upper bounds. Given the old bounds [o0,...,on] the new
+    // bounds will be [o0,..oP-1,(n0,..,nL-1),oP,...,on] where P is the position
+    // `pos`
+    ArrayRef<int64_t> originalUpperBounds = trMap.getUpperBounds();
+    ArrayRef<int64_t> originalLowerBounds = trMap.getLowerBounds();
+    SmallVector<int64_t, 4> newUpperBounds(originalUpperBounds.begin(),
+                                           originalUpperBounds.begin() + pos);
+    SmallVector<int64_t, 4> newLowerBounds(originalLowerBounds.begin(),
+                                           originalLowerBounds.begin() + pos);
+    for (size_t i = 0; i < numberOfIndices; i++) {
+      newUpperBounds.push_back(lengths[i]);
+      newLowerBounds.push_back(lengths[i]);
+    }
+    newUpperBounds.insert(newUpperBounds.end(),
+                          originalUpperBounds.begin() + pos,
+                          originalUpperBounds.end());
+    newLowerBounds.insert(newLowerBounds.end(),
+                          originalLowerBounds.begin() + pos,
+                          originalLowerBounds.end());
+
+    // Add the new transform to the stack
+    TransformMapAttr newMap =
+        TransformMapAttr::get(newOps, newUpperBounds, newLowerBounds);
+    extendedTrs.push_back(newMap);
+  }
+  return b.getArrayAttr(extendedTrs);
+}
