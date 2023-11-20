@@ -75,9 +75,26 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // Store to LDS G0B tile buffer
       // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0BregsKpack]] -> [](%[[viewG0BStoreTr3]])
       // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-
       // CHECK: rock.lds_barrier
-      // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += {{.*}} from %[[view2G0AStore]] * {{.*}} from %[[view2G0BStore]]
+
+      // Load G0A from LDS to regs
+      // CHECK-DAG: %[[view2G0AStoreTr0:.+]] = rock.transform %[[view2G0AStore]]
+      // CHECK-DAG: %[[view2G0AStoreTr1:.+]] = rock.transform %[[view2G0AStoreTr0]]
+      // CHECK-DAG: %[[view2G0AStoreTr2:.+]] = rock.transform %[[view2G0AStoreTr1]]
+      // CHECK-DAG: %[[view2G0AStoreTr3:.+]] = rock.transform %[[view2G0AStoreTr2]]
+      // CHECK: affine.for
+        // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0AStoreTr3]]) {{.*}} -> %[[preAccelRegA:.+]] :
+
+      // Load G0B from LDS to regs and accel gemm
+      // CHECK-DAG: %[[view2G0BStoreTr0:.+]] = rock.transform %[[view2G0BStore]]
+      // CHECK-DAG: %[[view2G0BStoreTr1:.+]] = rock.transform %[[view2G0BStoreTr0]]
+      // CHECK-DAG: %[[view2G0BStoreTr2:.+]] = rock.transform %[[view2G0BStoreTr1]]
+      // CHECK-DAG: %[[view2G0BStoreTr3:.+]] = rock.transform %[[view2G0BStoreTr2]]
+      // CHECK: affine.for
+        // CHECK: affine.for
+          // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0BStoreTr3]]) {{.*}} -> %[[preAccelRegB:.+]] :
+          // CHECK: rock.accel_gemm %[[gemm0AccBuf]] += %[[preAccelRegA]]{{.*}} * %[[preAccelRegB]]{{.*}}
+
     // End of inner gemm0 KpacksPerBlock loop
     // CHECK: }
     // CHECK: rock.transforming_for

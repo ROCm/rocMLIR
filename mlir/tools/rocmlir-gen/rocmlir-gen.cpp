@@ -2437,8 +2437,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       builder, loc, elemType, expsTensor, reductionAxis);
   auto invExpsSums =
       createOpAndInfer<tosa::ReciprocalOp>(builder, loc, elemType, expsSums);
-  auto softmaxTensor = createOpAndInfer<tosa::MulOp>(
+  Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
       builder, loc, elemType, expsTensor, invExpsSums, /*shift=*/0);
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+  softmaxTensor = qkTensor;
+#endif
   Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
       builder, loc, elemType, softmaxTensor, valuesTensor);
   if (transposeO) {

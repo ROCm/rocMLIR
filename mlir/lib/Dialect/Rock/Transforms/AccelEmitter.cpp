@@ -395,7 +395,8 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
 Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK) {
+                                        StringRef dName,
+                                        bool rotateDWithK) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -570,7 +571,8 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
 Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK) {
+                                        StringRef dName,
+                                        bool rotateDWithK) const {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();

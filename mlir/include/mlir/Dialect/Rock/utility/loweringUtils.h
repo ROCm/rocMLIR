@@ -135,6 +135,10 @@ swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
                          bool doSwapThreadIterSubDimsForN, bool isBlockwise,
                          SmallVector<Attribute> &transformAttrs);
 
+// This is a helper function to create a subview of slice of the first dimension
+Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
+                            Value buffer, Value sliceIdx);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

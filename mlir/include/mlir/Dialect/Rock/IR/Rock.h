@@ -40,6 +40,12 @@ class PatternRewriter;
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 
+// Following ifdef could be used to change
+// the attention operator to be a fused gemm-gemm
+// kernel for debugging purposes. This will also
+// adjust the test harness to verify the same as well
+// #define ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+
 namespace mlir {
 namespace rock {
 //===----------------------------------------------------------------------===//
