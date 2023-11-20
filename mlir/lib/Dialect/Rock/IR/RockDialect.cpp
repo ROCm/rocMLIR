@@ -1591,24 +1591,19 @@ SmallPtrSet<OpOperand *, 2> ThreadwiseCopyOp::getAcceptingViewOperands() {
 
 std::optional<OperandRange>
 ThreadwiseCopyOp::getExtraIndices(OpOperand &operand) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
+  if (!getAcceptingViewOperands().contains(&operand))
     return std::nullopt;
-  }
-
-  if (operand.getOperandNumber() == 0) {
-    return getExtraIndicesSource();
-  } else {
-    return getExtraIndicesDest();
-  }
+  return (operand.getOperandNumber() == 0 ? getExtraIndicesSource()
+                                          : getExtraIndicesDest());
 }
 
 Operation *
 ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
                                         Value view,
                                         ArrayRef<Value> newExtraIndices) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
+  if (!getAcceptingViewOperands().contains(&operand))
     return getOperation();
-  }
+
   // Only one operand supports view
   ThreadwiseCopyOp newOp;
   if (operand.getOperandNumber() == 0) {

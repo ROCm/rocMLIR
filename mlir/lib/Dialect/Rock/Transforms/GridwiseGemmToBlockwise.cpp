@@ -242,7 +242,7 @@ Value gpuAlloc(OpBuilder &b, Location loc, int bufferDim, Type elementType,
       gpu::GPUDialect::getPrivateAddressSpace());
   if (!isPrivateMemory) {
     memoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
+        gpu::GPUDialect::getWorkgroupAddressSpace());
   }
 
   auto rawMemType =
@@ -2285,7 +2285,7 @@ struct GridwiseGemmAccelRewritePattern
 
     auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
     {
-      loopOp->setAttr(rock::kInitiationIntervalAttrName, b.getIndexAttr(1));
+      loopOp->setAttr(rock::kInitiationIntervalAttrName, b.getIndexAttr(2));
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 

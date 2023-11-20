@@ -69,8 +69,8 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %4 = rock.transform %3 by #transform_map4 : memref<16x1x6x16x8x32x8x2xf16> to memref<16x1x6x16x256x16xf16>
     %5 = rock.workgroup_id : index
     %6 = rock.workitem_id : index
-    %7 = rock.alloc() {__multibuffer__=2}: memref<16xf16, #gpu.address_space<private>>
-    %8 = rock.alloc() {__multibuffer__=2}: memref<16xf16, #gpu.address_space<private>>
+    %7 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %8 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     %c0 = arith.constant 0 : index
     %c22 = arith.constant 22 : index
     %c352 = arith.constant 352 : index
@@ -101,7 +101,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %c2 = arith.constant 2 : index
     %c64 = arith.constant 64 : index
     %29 = rock.alloc() {__multibuffer__=2}: memref<8192xi8, #gpu.address_space<workgroup>>
-    %30 = rock.alloc() {__multibuffer__=2}: memref<8192xi8, #gpu.address_space<workgroup>>
+    %30 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
     %c0_0 = arith.constant 0 : index
     %view = memref.view %29[%c0_0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
     %31 = rock.transform %view by #transform_map13 : memref<512xvector<8xf16>, #gpu.address_space<workgroup>> to memref<8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
