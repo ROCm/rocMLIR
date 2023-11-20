@@ -41,26 +41,6 @@ using namespace mlir::rock;
 namespace {
 // Set of utility functions used during the transformation
 
-/// Find the alloc whose transformedValue belongs to
-FailureOr<rock::GpuAllocOp> findAlloc(Value transformedValue) {
-  auto curOp = transformedValue.getDefiningOp();
-  auto maybeAllocOp = dyn_cast<rock::GpuAllocOp>(curOp);
-  while (!maybeAllocOp) {
-    if (auto transformOp = dyn_cast<rock::TransformOp>(curOp)) {
-      curOp = transformOp.getInput().getDefiningOp();
-    } else if (auto viewOp = dyn_cast<memref::ViewOp>(curOp)) {
-      curOp = viewOp.getSource().getDefiningOp();
-    } else {
-      return failure();
-    }
-    maybeAllocOp = dyn_cast<rock::GpuAllocOp>(curOp);
-  }
-  if (!maybeAllocOp)
-    return failure();
-
-  return maybeAllocOp;
-}
-
 /// Find all the final users of a rockAllocOp. By final users we mean
 /// operations that write/load data from the alloc
 void findAllocUsers(rock::GpuAllocOp allocOp,
@@ -71,7 +51,7 @@ void findAllocUsers(rock::GpuAllocOp allocOp,
     Operation *curOp = worklist.back();
     worklist.pop_back();
     for (Operation *user : curOp->getUsers()) {
-      if (dyn_cast<rock::TransformOp>(user) || dyn_cast<memref::ViewOp>(user)) {
+      if (dyn_cast<ViewLikeOpInterface>(user)) {
         worklist.push_back(user);
       } else if (!users.contains(user)) {
         users.insert(user);
@@ -240,10 +220,16 @@ static Value getMultiBufferIndex(RewriterBase &rewriter, Location loc,
 /// Return true if the op is a writer that fully overwrites
 /// the given raw `buffer` allocated
 bool overrideBuffer(Operation *op, Value buffer) {
-  auto copyOp = dyn_cast<rock::RockWriterOpInterface>(op);
-  if (!copyOp)
+
+  Value dest;
+  for (Value operand : op->getOperands()) {
+    if (hasEffect<MemoryEffects::Write>(op, operand)) {
+      dest = operand;
+    }
+  }
+  if (!dest)
     return false;
-  auto maybeAllocOp = findAlloc(copyOp.getDest());
+  auto maybeAllocOp = findAlloc(dest);
   if (failed(maybeAllocOp))
     return false;
   return (*maybeAllocOp).getResult() == buffer;
@@ -351,6 +337,28 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
                         unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
   LLVM_DEBUG(DBGS() << "Start multibuffering: " << allocOp << "\n");
+  if (!allocOp.getType().getElementType().isInteger(8)) {
+    LLVM_DEBUG(DBGS() << "-- Not a int8 buffer -> fail\n");
+    return failure();
+  }
+  if (allocOp.getType().getShape().size() != 1) {
+    LLVM_DEBUG(DBGS() << "-- Not a flat buffer -> fail\n");
+    return failure();
+  }
+
+  bool isUsedByViews = true;
+  for (auto user : allocOp->getUsers()) {
+    if (!dyn_cast<memref::ViewOp>(user)) {
+      isUsedByViews = false;
+      break;
+    }
+  }
+  if (!isUsedByViews) {
+    LLVM_DEBUG(DBGS() << "-- Cannot detect the raw i8 buffer alloc followed by "
+                         "a memref.viewOp\n");
+    return failure();
+  }
+
   DominanceInfo dom(allocOp->getParentOp());
   LoopLikeOpInterface candidateLoop;
   SmallPtrSet<Operation *, 16> users;
