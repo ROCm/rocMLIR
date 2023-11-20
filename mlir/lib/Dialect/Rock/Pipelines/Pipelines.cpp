@@ -159,6 +159,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      */
     funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
     funcPm.addPass(createCanonicalizerPass());
+    funcPm.addPass(rock::createRockPipelinePass());
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
@@ -199,7 +200,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::Unknown));
+      /*useBarePtrCallConv=*/true));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(
