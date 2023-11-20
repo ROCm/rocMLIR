@@ -88,6 +88,39 @@ func.func @everything(%arg0: !migraphx.shaped<4x3x5xf32, 1x0x6>, %arg1: !migraph
   func.return %op : !migraphx.shaped<4x3x5xf32, 15x5x1>
 }
 
+// CHECK-LABEL: @matchingLogicalTypes
+// CHECK-SAME: ([[arg0:%.+]]: tensor<3x3xf32>) -> tensor<3x3xf32>
+// CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 0]> : tensor<2xi64>}>
+// CHECK: [[logical:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
+// CHECK: [[op:%.+]] = "tosa.floor"([[logical]])
+// CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
+// CHECK: return [[outMem]]
+func.func @matchingLogicalTypes(%arg0: !migraphx.shaped<3x3xf32, 1x3>) -> !migraphx.shaped<3x3xf32, 1x3> {
+  %op = migraphx.floor %arg0 : <3x3xf32, 1x3> -> <3x3xf32, 1x3>
+  func.return %op : !migraphx.shaped<3x3xf32, 1x3>
+}
+
+// CHECK-LABEL: @transposeWithUnitDims
+// CHECK-SAME: ([[arg0:%.+]]: tensor<3x1x3xf32>) -> tensor<3x1x3xf32>
+// CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[2, 1, 0]> : tensor<3xi64>}>
+// CHECK: [[logical:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
+// CHECK: [[op:%.+]] = "tosa.floor"([[logical]])
+// CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
+// CHECK: return [[outMem]]
+func.func @transposeWithUnitDims(%arg0: !migraphx.shaped<3x1x3xf32, 1x3x3>) -> !migraphx.shaped<3x1x3xf32, 1x3x3> {
+  %op = migraphx.floor %arg0 : <3x1x3xf32, 1x3x3> -> <3x1x3xf32, 1x3x3>
+  func.return %op : !migraphx.shaped<3x1x3xf32, 1x3x3>
+}
+
+// CHECK-LABEL: @needStableSort
+// CHECK-SAME: ([[arg0:%.+]]: tensor<3x1x1xf32>) -> tensor<3x1x1xf32>
+// CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
+// CHECK: return [[op]]
+func.func @needStableSort(%arg0: !migraphx.shaped<3x1x1xf32, 1x1x1>) -> !migraphx.shaped<3x1x1xf32, 1x1x1> {
+  %op = migraphx.floor %arg0 : <3x1x1xf32, 1x1x1> -> <3x1x1xf32, 1x1x1>
+  func.return %op : !migraphx.shaped<3x1x1xf32, 1x1x1>
+}
+
 // CHECK-LABEL: @scalar
 // CHECK-SAME: ([[arg0:%.+]]: tensor<1xf32>) -> tensor<1xf32>
 // CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
