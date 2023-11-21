@@ -1201,9 +1201,11 @@ struct GridwiseAttentionAccelRewritePattern
       Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
-      Value maxRowDiff =
-          rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
-      Value maxRowDiffExp = rewriter.create<math::ExpOp>(loc, maxRowDiff);
+    //   Value maxRowDiff =
+    //       rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
+      Value maxRowDiffInv =
+          rewriter.create<arith::SubFOp>(loc, maxRowBufferNew, ldMaxRowBuffer);
+      Value maxRowDiffInvExp = rewriter.create<math::ExpOp>(loc, maxRowDiffInv);
       Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, attentionOutAccBuffer, attentionOutAccBufferCoords);
 
@@ -1212,8 +1214,8 @@ struct GridwiseAttentionAccelRewritePattern
       // from O0 / exp(m0) where both are zeros.
       Value isNotFirstIter = rewriter.create<arith::CmpIOp>(
           loc, arith::CmpIPredicate::ne, nLoopIV, zero);
-      Value scaledldAttentionOutAccBuffer = rewriter.create<arith::DivFOp>(
-          loc, ldAttentionOutAccBuffer, maxRowDiffExp);
+      Value scaledldAttentionOutAccBuffer = rewriter.create<arith::MulFOp>(
+          loc, ldAttentionOutAccBuffer, maxRowDiffInvExp);
       ldAttentionOutAccBuffer = rewriter.create<arith::SelectOp>(
           loc, isNotFirstIter, scaledldAttentionOutAccBuffer,
           ldAttentionOutAccBuffer);
