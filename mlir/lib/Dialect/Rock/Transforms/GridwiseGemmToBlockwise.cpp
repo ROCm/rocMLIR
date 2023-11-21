@@ -65,6 +65,7 @@ namespace rock {
 using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
+using mlir::gpu::AddressSpace;
 
 namespace {
 struct RockGridwiseGemmToBlockwisePass
@@ -236,18 +237,14 @@ static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
   return success(ldsBytes <= 64 * 1024);
 }
 
-Value gpuAlloc(OpBuilder &b, Location loc, int bufferDim, Type elementType,
-               bool isPrivateMemory) {
-  auto memoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getPrivateAddressSpace());
-  if (!isPrivateMemory) {
-    memoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getWorkgroupAddressSpace());
-  }
+Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
+               AddressSpace memoryAddressSpace) {
+  auto memoryAddressSpaceAttr =
+      b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
 
   auto rawMemType =
       MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
-                      AffineMap{}, memoryAddressSpace);
+                      AffineMap{}, memoryAddressSpaceAttr);
   auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
 
   return viewBufferAs(b, buffer, elementType);
@@ -2104,9 +2101,9 @@ struct GridwiseGemmAccelRewritePattern
 
     bool privateMem = true;
     auto loadBufferA =
-        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, privateMem);
+        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
     auto loadBufferB =
-        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, privateMem);
+        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
@@ -2114,9 +2111,9 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
 
     Value storeBufferA =
-        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, privateMem);
+        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
     Value storeBufferB =
-        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, privateMem);
+        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
 
     bool isKContiguousDimA = aVectorDim == GemmDimension::K;
     bool isKContiguousDimB = bVectorDim == GemmDimension::K;
@@ -2270,10 +2267,12 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
 
     // Logic to setup buffers for blockwise_gemm_accel.
-    auto arrayA = gpuAlloc(b, loc, kBasePerThread, argTypeA, privateMem);
-    auto arrayB = gpuAlloc(b, loc, kBasePerThread, argTypeB, privateMem);
+    auto arrayA =
+        gpuAlloc(b, loc, kBasePerThread, argTypeA, AddressSpace::Private);
+    auto arrayB =
+        gpuAlloc(b, loc, kBasePerThread, argTypeB, AddressSpace::Private);
     auto regCAllocOp =
-        gpuAlloc(b, loc, nOutputVectors, accVectorType, privateMem);
+        gpuAlloc(b, loc, nOutputVectors, accVectorType, AddressSpace::Private);
 
     Value zeroConstantCOp = createZeroConstantOp(b, loc, accVectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
@@ -2354,8 +2353,8 @@ struct GridwiseGemmAccelRewritePattern
     }
 
     // Matrix C write out logic.
-    Value convertedC =
-        gpuAlloc(b, loc, numOutputVectorElements, destType, privateMem);
+    Value convertedC = gpuAlloc(b, loc, numOutputVectorElements, destType,
+                                AddressSpace::Private);
 
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr

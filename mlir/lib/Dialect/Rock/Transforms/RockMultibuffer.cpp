@@ -346,13 +346,9 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
     return failure();
   }
 
-  bool isUsedByViews = true;
-  for (auto user : allocOp->getUsers()) {
-    if (!dyn_cast<memref::ViewOp>(user)) {
-      isUsedByViews = false;
-      break;
-    }
-  }
+  bool isUsedByViews = llvm::all_of(allocOp->getUsers(), [](Operation *user) {
+    return dyn_cast<memref::ViewOp>(user);
+  });
   if (!isUsedByViews) {
     LLVM_DEBUG(DBGS() << "-- Cannot detect the raw i8 buffer alloc followed by "
                          "a memref.viewOp\n");

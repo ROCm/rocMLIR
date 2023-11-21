@@ -1369,8 +1369,12 @@ def Rock_StageOp :
   Rock_Op<"stage">,
   Arguments<(ins DefaultValuedStrAttr<StrAttr, "stage">:$name)>
   {
-    let description = [{ }];
-    let summary = "";
+    let description = [{ `rock.stage` represents a single scheduling unit in a loop to be pipelined. If the body of the loop
+                         is partitioned in multiple stages then, setting the `__initiation__interval__` property of the
+                        `scf.for` operation will have the effect of overlapping different iterations inside the loop. For instance,
+                         if a loop is partitioned in 3 stages S0, S1, S2, and the II is set to 2, loop pipelineing will try to
+                        overlap an iteration containing S0 and S1 and a different iteration containing S2.}];
+    let summary = "Operation whose region represents a single scheduling unit";
     let regions = (region AnyRegion:$region);
     let hasCustomAssemblyFormat = 1;
   }

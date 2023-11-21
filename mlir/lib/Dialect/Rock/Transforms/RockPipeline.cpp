@@ -175,21 +175,18 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
                     const DenseSet<rock::GpuAllocOp> &resources, int64_t ii,
                     ScheduleType &schedule,
                     DenseMap<rock::GpuAllocOp, int> &multiBuffers) {
-  // Get the resource map (stage->allocs) and its inverse (alloc->stages)
-
   // Create the dependency graph
   DagType dag = createDependencyGraph(stages, resources);
-
-  for (auto res : resources)
-    multiBuffers[res] = 1;
 
   // Start building the schedules
   //
   // Since we accept the stages from the user, we don't need to do any
   // analysis to determine what goes in each stage. We only have to group things
   // in set of stages of length II.
-  //  For instance, if this is the unpipelined schedule decided by the user
-  //  +t\s+=== 0 ===+
+  //  For instance, consider the following unpipelined schedule. The column `t`
+  //  represents
+  // the time slot, and the subsequent columns represents the iterations.
+  //  +t\i+=== 0 ===+
   //  + 0 +== S0  ==+
   //  +===+=========+
   //  + 1 +== S1  ==+
@@ -199,8 +196,9 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   //  + 3 +== S3  ==+
   //  +===+=========+
   // When the II == 3 it means that S0/S3 will run in parallel while S2 and S3
-  // will run sequentially
-  //  +t\s+=== 0 ===++=== 1 ===+
+  // will run sequentially. Please note that S0 and S3 belong to two different
+  // iterations (0 and 1, respectively). This is the resulting schedule:
+  //  +t\i+=== 0 ===++=== 1 ===+
   //  + 0 +== S0  ==++== S3  ==+
   //  +===+=========++=========+
   //  + 1 +== S1  ==+
@@ -209,17 +207,17 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   //  +===+=========+
   // In this case, we reduced the time slots to 3, and we have 2 set of stages
   // runnning in parallel. Please note that conflicts can only happen between S0
-  // and S3. If we increase II, we get to :
-  //  +t\s+=== 0 ===++=== 1 ===+
+  // and S3. If we increase II, we generate the following pipeline:
+  //  +t\i+=== 0 ===++=== 1 ===+
   //  + 0 +== S0  ==++== S2  ==+
   //  +===+=========++=========+
   //  + 1 +== S1  ==++== S3  ==+
   //  +===+=========++=========+
-  // Now we have only two time slots and 2 sets of parallel stages. conflicts
-  // can happen between S0 and S2 and between S1 and S3. The above is capture in
+  // Now we have only two time slots and 2 iterations. conflicts
+  // can happen between S0 and S2 and between S1 and S3. This is all captured in
   // the following algorithm. `t` is the time slot, i.e., the flowing of the
-  // time, and goes from 0 to II. `stageSet` is the set of stages that run in
-  // parallel.
+  // time, and goes from 0 to II-1. `i` is the iteration that is starting at
+  // time `t`
   for (int t = 0; t < ii; t++) {
     int iteration = 0;
 
@@ -249,7 +247,7 @@ DagType pruneGraph(DagType dag, DenseMap<rock::StageOp, int> &iterationMap,
   DagType prunedGraph;
   // Multibuffers have the logical property of being unique for each iteration
   // of the loop Hence, if we know we are dealing with a multi-buffer and the
-  // dependency concerns two different iteration. In other woeds, if stageA
+  // dependency concerns two different iteration. In other words, if stageA
   // accesses LDS in iteration i and stageB accesses LDS in iteration j stageA
   // and stageB have no dependencies as long as i!=j
   for (auto [sink, edges] : dag) {
@@ -261,7 +259,7 @@ DagType pruneGraph(DagType dag, DenseMap<rock::StageOp, int> &iterationMap,
         // iteration
         if (factors[alloc] == 1 ||
             (factors[alloc] > 1 &&
-             ((iterationMap[sink] % 2) == (iterationMap[source] % 2)))) {
+             (iterationMap[sink] == iterationMap[source]))) {
           newDeps.insert({alloc, type});
         }
       }
@@ -354,6 +352,8 @@ void RockPipeline::runOnOperation() {
   // IR
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
   llvm::DenseMap<scf::ForOp, ScheduleType> scheduleMap;
+  for (auto res : allocs)
+    multiBufferFactors[res] = 1;
 
   func.walk([&](scf::ForOp forOp) -> WalkResult {
     SmallVector<rock::StageOp> stages;
