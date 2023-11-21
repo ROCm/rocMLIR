@@ -180,7 +180,7 @@ func.func @rock_gemm_ii_1(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x10
       }
       rock.yield
     } {name = "MMA"}
-  } {__initiation_interval__ = 1 : index}
+  } {pipeline = #rock.pipeline<1>}
   return
 }
 
@@ -294,6 +294,6 @@ func.func @rock_gemm_ii_2(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x10
       }
       rock.yield
     } {name = "MMA"}
-  } {__initiation_interval__ = 2 : index}
+  } {pipeline = #rock.pipeline<2>}
   return
 }

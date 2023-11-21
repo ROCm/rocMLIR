@@ -42,10 +42,6 @@ struct RegsAsMatrixSubTiles {
   ArrayAttr threadSubTile;
 };
 
-// Attribute name to set the initiation interval of a pipelined loop
-constexpr llvm::StringLiteral kInitiationIntervalAttrName =
-    "__initiation_interval__";
-
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles

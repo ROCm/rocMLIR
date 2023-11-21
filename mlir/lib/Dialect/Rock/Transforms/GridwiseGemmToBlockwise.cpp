@@ -2283,8 +2283,9 @@ struct GridwiseGemmAccelRewritePattern
     BlockwiseGemmAccelOp blockwiseGemmAccelOp;
 
     auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
+    loopOp->setAttr(PipelineAttr::getMnemonic(),
+                    rock::PipelineAttr::get(b.getContext(), 2));
     {
-      loopOp->setAttr(rock::kInitiationIntervalAttrName, b.getIndexAttr(2));
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 

@@ -355,16 +355,16 @@ void RockPipeline::runOnOperation() {
   for (auto res : allocs)
     multiBufferFactors[res] = 1;
 
+  auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
   func.walk([&](scf::ForOp forOp) -> WalkResult {
     SmallVector<rock::StageOp> stages;
 
-    if (!forOp->hasAttrOfType<IntegerAttr>(rock::kInitiationIntervalAttrName))
+    if (!forOp->hasAttrOfType<rock::PipelineAttr>(rockPipelineAttrName))
       return WalkResult::advance();
 
     bool isNestedPipelining = false;
     forOp.getBody()->walk([&](scf::ForOp nestedFor) {
-      if (nestedFor->hasAttrOfType<IntegerAttr>(
-              rock::kInitiationIntervalAttrName))
+      if (nestedFor->hasAttr(rockPipelineAttrName))
         isNestedPipelining = true;
     });
 
@@ -372,9 +372,9 @@ void RockPipeline::runOnOperation() {
       return WalkResult::advance();
 
     // Get the initiation interval (II)
-    int64_t ii = forOp->removeAttr(rock::kInitiationIntervalAttrName)
-                     .dyn_cast<IntegerAttr>()
-                     .getInt();
+    int64_t ii = forOp->removeAttr(rockPipelineAttrName)
+                     .dyn_cast<rock::PipelineAttr>()
+                     .getInitiationInterval();
 
     forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 
