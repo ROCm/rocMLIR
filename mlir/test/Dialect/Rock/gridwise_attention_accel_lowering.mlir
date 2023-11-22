@@ -101,9 +101,37 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
       // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
     // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]], {{.*}} %[[gemm0MaxG1Layout:.+]] using %[[ldsReductionWS]]
-    // CHECK: linalg.elemwise_binary {{.*}} fun = #linalg.binary_fn<sub>} ins(%[[gemm0AccBufScalar]], %[[gemm0Max]] {{.*}} outs(%[[gemm0Norm:[0-9]+]]
-    // CHECK: linalg.elemwise_unary {{.*}} fun = #linalg.unary_fn<exp>} ins(%[[gemm0Norm]] {{.*}} outs(%[[gemm0NormExp:[0-9]+]]
+
+    // Compute exp(gemm0 - rowmax_j)
+    // *****************************
+    // CHECK: rock.transforming_for
+      // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
+      // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
+      // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
+      // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
+      // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
+      // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp %[[gemm0ValSubMax]]
+      // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
+
     // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]], {{.*}} %[[gemm0SumG1Layout:.+]] using %[[ldsReductionWS]]
+
+    // li = exp(m_{j-1} - m_{j}) * l_{j-1} + rowsum(Pij)
+    // where
+    // l is the rowsum accumulator
+    // m is the rowmax accmulator
+    // P is exp(gemm0 - rowmax_j)
+    // *************************************************
+    // CHECK: rock.transforming_for
+      // CHECK-DAG: %[[rowsum:.+]] = rock.in_bounds_load %[[sumRowBuf]]
+      // CHECK-DAG: %[[tilesum:.+]] = rock.in_bounds_load %[[gemm0NormExpSum]]
+      // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
+      // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
+      // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
+      // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
+      // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp %[[maxdiff]]
+      // CHECK-DAG: %[[rowsummul:.+]] =  arith.mulf %[[maxdiffexp]], %[[rowsum]]
+      // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]
+      // CHECK-DAG: %[[tilesumadd]] -> %[[sumRowBuf]]
 
     // Viewing first gemm output as K x D
     // CHECK-DAG: %[[gemm0NormExpTr0:.+]] = rock.transform %[[gemm0NormExp]]
@@ -168,31 +196,17 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK: rock.transforming_for
       // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
       // CHECK-DAG: %[[gemm0MaxVal:.+]] = rock.in_bounds_load %[[gemm0MaxG1Layout]]
-      // CHECK-DAG: %[[rowsum:.+]] = rock.in_bounds_load %[[sumRowBuf]]
-      // CHECK-DAG: %[[gemm0SumVal:.+]] = rock.in_bounds_load %[[gemm0SumG1Layout]]
       // CHECK-DAG: %[[attnOutVal:.+]] = rock.in_bounds_load %[[attnOutBuf]]
       // CHECK-DAG: %[[gemm1Val:.+]] = rock.in_bounds_load %[[gemm1AccBufScalar]]
 
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[gemm0MaxVal]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
       // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp %[[maxdiff]]
-      // CHECK-DAG: %[[maxdiffexp1:.+]] = arith.mulf %[[maxdiffexp]], %[[rowsum]]
-      // CHECK-DAG: %[[tilemaxdiff:.+]] = arith.subf %[[gemm0MaxVal]], %[[newmax]]
-      // CHECK-DAG: %[[tilemaxdiffexp:.+]] = math.exp %[[tilemaxdiff]]
-      // CHECK-DAG: %[[tilemaxdiffexp1:.+]] = arith.mulf %[[tilemaxdiffexp]], %[[gemm0SumVal]]
-      // CHECK-DAG: %[[newsum:.+]] = arith.addf %[[maxdiffexp1]], %[[tilemaxdiffexp1]]
-
-      // CHECK-DAG: %[[scaleAttn:.+]] = arith.mulf %[[maxdiffexp]], %[[attnOutVal]]
-      // CHECK-DAG: %[[scaleAttn1:.+]] = arith.mulf %[[scaleAttn]], %[[rowsum]]
-      // CHECK-DAG: %[[scaleGemm1:.+]] = arith.mulf %[[tilemaxdiffexp]], %[[gemm1Val]]
-      // CHECK-DAG: %[[beforeDivide:.+]] = arith.addf %[[scaleAttn1]], %[[scaleGemm1]]
-      // CHECK-DAG: %[[correctAttn:.+]] = arith.divf %[[beforeDivide]], %[[newsum]]
-
-      // CHECK-DAG: rock.in_bounds_store %[[correctAttn]] -> %[[attnOutBuf]]
-      // if the last item in thread-row
+      // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
+      // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
+      // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[attnOutBuf]]
       // CHECK-DAG: scf.if
         // CHECK-DAG: rock.in_bounds_store %[[newmax]] -> %[[maxRowBuf]]
-        // CHECK-DAG: rock.in_bounds_store %[[newsum]] -> %[[sumRowBuf]]
 
     // CHECK : }
   // CHECK : }
