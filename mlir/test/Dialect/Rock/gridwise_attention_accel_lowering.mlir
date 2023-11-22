@@ -202,10 +202,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[gemm0MaxVal]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
       // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp %[[maxdiff]]
-      // CHECK-DAG: %[[isNotFirstIter:.+]] = arith.cmpi ne
-      // CHECK-DAG: %[[attnOutBufDiv:.+]] = arith.divf %[[attnOutVal]], %[[maxdiffexp]]
-      // CHECK-DAG: %[[attnOutBufDivSel:.+]] = arith.select %[[isNotFirstIter]], %[[attnOutBufDiv]], %[[attnOutVal]]
-      // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufDivSel]], %[[gemm1Val]]
+      // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
+      // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
       // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[attnOutBuf]]
       // CHECK-DAG: scf.if
         // CHECK-DAG: rock.in_bounds_store %[[newmax]] -> %[[maxRowBuf]]
