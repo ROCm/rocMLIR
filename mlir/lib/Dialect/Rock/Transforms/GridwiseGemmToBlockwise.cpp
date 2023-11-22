@@ -1624,8 +1624,6 @@ struct GridwiseAttentionAccelRewritePattern
     // layout of gemm1
     Value gemm0OutBufferMaxInGemm1Layout =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm1, rewriter);
-    // Value gemm0OutBufferSub =
-    //     createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
     Value gemm0OutBufferExp =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
     Value gemm0OutBufferSum =
