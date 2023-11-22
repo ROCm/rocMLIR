@@ -979,7 +979,6 @@ struct GridwiseAttentionAccelRewritePattern
         gemm0OutThreadwiseView.getType().cast<MemRefType>();
     int64_t g0Mpt = gemm0OutViewType.getShape()[0];
     int64_t g0Npt = gemm0OutViewType.getShape()[1];
-    llvm::errs() << gemm0OutThreadwiseView << "\n";
 
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
@@ -1201,29 +1200,18 @@ struct GridwiseAttentionAccelRewritePattern
       Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
-    //   Value maxRowDiff =
-    //       rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
-      Value maxRowDiffInv =
-          rewriter.create<arith::SubFOp>(loc, maxRowBufferNew, ldMaxRowBuffer);
-      Value maxRowDiffInvExp = rewriter.create<math::ExpOp>(loc, maxRowDiffInv);
+      Value maxRowDiff =
+          rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
+      Value maxRowDiffInvExp = rewriter.create<math::ExpOp>(loc, maxRowDiff);
       Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, attentionOutAccBuffer, attentionOutAccBufferCoords);
-
-      // We should avoid scaling attention output accumulator
-      // in the first iteration to avoid a nan situation arrising
-      // from O0 / exp(m0) where both are zeros.
-      Value isNotFirstIter = rewriter.create<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::ne, nLoopIV, zero);
       Value scaledldAttentionOutAccBuffer = rewriter.create<arith::MulFOp>(
           loc, ldAttentionOutAccBuffer, maxRowDiffInvExp);
-      ldAttentionOutAccBuffer = rewriter.create<arith::SelectOp>(
-          loc, isNotFirstIter, scaledldAttentionOutAccBuffer,
-          ldAttentionOutAccBuffer);
 
       Value ldGemm1Out = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, gemm1Out, gemm1OutCoords);
       Value stAttentionOutAccBuffer = rewriter.create<arith::AddFOp>(
-          loc, ldAttentionOutAccBuffer, ldGemm1Out);
+          loc, scaledldAttentionOutAccBuffer, ldGemm1Out);
       rewriter.create<InBoundsStoreOp>(loc, stAttentionOutAccBuffer,
                                        attentionOutAccBuffer,
                                        attentionOutAccBufferCoords);
