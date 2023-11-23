@@ -110,7 +110,7 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
   else:
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
   cpu_count = multiprocessing.cpu_count()
-  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet', '-j', str(cpu_count)],
+  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet', '-j', str(cpu_count), '-extra-arg=-std=c++17'],
                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
   a = ''.join(diff)
   out = p.communicate(input=a.encode())[0].decode()
@@ -174,7 +174,7 @@ if __name__ == '__main__':
   parsed_args = parser.parse_args(args)
   print(f"Running linters against base commit : {parsed_args.base_commit}")
   if not (
-    run_clang_format(parsed_args.base_commit,'./mlir/utils/jenkins/static-checks/clang-format.ignore', parsed_args.ignore_external) and
+    run_clang_format(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-format.ignore', parsed_args.ignore_external) and
     run_clang_tidy(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore', parsed_args.ignore_external)
   ):
     exit(1)
