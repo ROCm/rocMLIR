@@ -83,6 +83,7 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
     Option<"removeStages", "rock-pipeline-remove-stages", "bool", "true",
       "Remove pipeline stages once the pipeline pass is completed">
   ];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
   let summary = "Pipeline loops";
 }
 

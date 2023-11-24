@@ -45,6 +45,7 @@ namespace rock {
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
 
 using namespace mlir;
+using mlir::gpu::AddressSpace;
 
 enum class MemoryAccessType : uint32_t { READ = 1, WRITE = 2, UNKNOWN = 3 };
 
@@ -83,6 +84,16 @@ template <> struct DenseMapInfo<MemoryAccessType> {
 
 namespace {
 
+AddressSpace getAddressSpace(rock::GpuAllocOp alloc) {
+  if (alloc.getType().getMemorySpace()) {
+    return alloc.getType()
+        .getMemorySpace()
+        .cast<gpu::AddressSpaceAttr>()
+        .getValue();
+  }
+  return gpu::AddressSpace::Global;
+}
+
 // Simple rewrite pass to remove the stages
 struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
   using OpRewritePattern<rock::StageOp>::OpRewritePattern;
@@ -91,8 +102,24 @@ struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
                                 PatternRewriter &rw) const override {
     Block *sourceBlock = &op.getRegion().front();
     rw.eraseOp(sourceBlock->getTerminator());
-    rw.inlineBlockBefore(sourceBlock, op);
+    if (!sourceBlock->empty()) {
+      rw.inlineBlockBefore(sourceBlock, op);
+    }
     rw.eraseOp(op);
+    return failure();
+  }
+};
+
+struct RemoveBackToBackBarriersRewritePattern
+    : public OpRewritePattern<rock::LDSBarrierOp> {
+  using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
+                                PatternRewriter &rw) const override {
+    if (dyn_cast<rock::LDSBarrierOp>(op->getNextNode())) {
+      op->getNextNode()->erase();
+      return success();
+    }
     return failure();
   }
 };
@@ -225,16 +252,28 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     SmallVector<rock::StageOp> parallelStages;
     for (size_t j = t; j < stages.size(); j += ii) {
       schedule.push_back({stages[j], iteration++});
+
+      // This is the set of multi-buffers needed at this time slot
+      DenseMap<rock::GpuAllocOp, int> thisMultiBuffers = multiBuffers;
+      for (auto [alloc, factor] : thisMultiBuffers) {
+        thisMultiBuffers[alloc] = 1;
+      }
       // The only resource that can conflict btween different stages is memory
       // If there are memory conflicts we can sort them via multibuffers. I.e.,
       // we can (logically) provide a different buffer for different cycles
       for (auto otherStage : parallelStages) {
         auto dependencies = getDependencies(otherStage, stages[j], dag);
         for (auto [res, type] : dependencies) {
-          multiBuffers[res]++;
+          thisMultiBuffers[res]++;
         }
       }
       parallelStages.push_back(stages[j]);
+
+      // Update the global multibuffers by merging in the factors needed for
+      // the current time slot
+      for (auto [buffer, factor] : thisMultiBuffers)
+        if (factor > multiBuffers[buffer])
+          multiBuffers[buffer] = factor;
     }
   }
 }
@@ -242,8 +281,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 // Prune a dependency graph taking into account multi-buffers. Since
 // multi-buffers are logically different for each iteration, if the dependency
 // on a multi-buffer spans multiple iteration then it can be pruned
-DagType pruneGraph(DagType dag, DenseMap<rock::StageOp, int> &iterationMap,
-                   DenseMap<rock::GpuAllocOp, int> &factors) {
+DagType pruneGraph(DagType dag) {
   DagType prunedGraph;
   // Multibuffers have the logical property of being unique for each iteration
   // of the loop Hence, if we know we are dealing with a multi-buffer and the
@@ -254,74 +292,73 @@ DagType pruneGraph(DagType dag, DenseMap<rock::StageOp, int> &iterationMap,
     for (auto [source, deps] : edges) {
       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>> newDeps;
       for (auto [alloc, type] : deps) {
-        // Add the dependency only if it's not over a multiBuffer (factor==1) or
-        // if it's over a multibuffer, if sink and source share the same
-        // iteration
-        if (factors[alloc] == 1 ||
-            (factors[alloc] > 1 &&
-             (iterationMap[sink] == iterationMap[source]))) {
-          newDeps.insert({alloc, type});
-        }
+        if (getAddressSpace(alloc) != gpu::AddressSpace::Workgroup)
+          continue;
+        newDeps.insert({alloc, type});
       }
-      if (!newDeps.empty()) {
+      if (!newDeps.empty())
         prunedGraph[sink][source] = newDeps;
-      }
     }
   }
   return prunedGraph;
 }
 
-// Barrier placement after the pipeline pass
-void placeBarriers(IRRewriter &rewriter, Location loc,
-                   DenseMap<rock::GpuAllocOp, int> &factors,
-                   func::FuncOp func) {
-
-  llvm::DenseSet<rock::GpuAllocOp> allocs;
-  SmallVector<rock::StageOp> stages;
-
-  DenseMap<StringRef, int> iterationCount;
-  DenseMap<rock::StageOp, int> iterationMap;
-  func.walk([&](rock::StageOp stageOp) {
-    iterationMap[stageOp] = iterationCount[stageOp.getName()]++;
-    stages.push_back(stageOp);
-  });
-
-  func.walk([&](rock::GpuAllocOp alloc) { allocs.insert(alloc); });
-
-  DagType dag = createDependencyGraph(stages, allocs);
-
-  // Given that we might be using multi-buffers, the graph
-  // has to be pruned. I.e., if there is a [source]->alloc->[sink]
-  // dependency, but alloc is a multi-buffer and [source] and
-  // [sink] don't live in the same buffer, then we should not add
-  // a barrier
-  dag = pruneGraph(dag, iterationMap, factors);
-
-  DenseSet<rock::StageOp> markedStages;
-  for (auto [source, dependencies] : dag) {
-    for (auto [sink, resources] : dependencies) {
-      for (auto [alloc, type] : resources) {
-        // We now have the [source] -> (resources) -> [sink]
-        // dependency edge. We need to filter out register dependencies
-        // (don't need barriers) and edges we are already considered (don't
-        // insert barriers multiple times)
-        auto addressSpace = alloc.getType()
-                                .getMemorySpace()
-                                .cast<gpu::AddressSpaceAttr>()
-                                .getValue();
-        if (addressSpace != gpu::AddressSpace::Workgroup ||
-            markedStages.contains(sink))
-          continue;
-
-        // If you have any dependency that involves modifying LDS
-        // we need to add a barrier
-        PatternRewriter::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPoint(sink);
-        rewriter.create<rock::LDSBarrierOp>(loc);
-        markedStages.insert(sink);
-      }
-    }
+// Utility function to place an empty stage before or after another `stage`. The
+// empty stage will contain an `lds_barrier` if `isBarrier` is set to true
+rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
+                              rock::StageOp stage, bool isBarrier,
+                              bool isBefore) {
+  PatternRewriter::InsertionGuard guard(rewriter);
+  if (isBefore)
+    rewriter.setInsertionPoint(stage);
+  else
+    rewriter.setInsertionPointAfter(stage);
+  auto barrierStage = rewriter.create<rock::StageOp>(loc, "barrier");
+  rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
+  if (isBarrier) {
+    rewriter.create<rock::LDSBarrierOp>(loc);
   }
+  rewriter.create<rock::YieldOp>(loc);
+  return barrierStage;
+}
+
+// Barrier placement after the pipeline pass.
+// We add a dummy stage between each pair of stages. This makes
+// the process of pipelining easier, because we can use a
+// initiation interval twice as big and pipeline as usual. This function
+// takes also care to update the initiation interval, so that the caller
+// does not have to know how `placeBarrier` internally works.
+void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
+                   ArrayRef<rock::StageOp> stages,
+                   DenseSet<rock::GpuAllocOp> &allocs,
+                   SmallVector<rock::StageOp> &extendedStages,
+                   int64_t &initiationInterval) {
+  DagType dag = createDependencyGraph(stages, allocs);
+  dag = pruneGraph(dag);
+
+  extendedStages.push_back(stages[0]);
+  for (size_t i = 0; i < stages.size() - 1; i++) {
+    bool placeBarrier = dag[stages[i]].contains(stages[i + 1]);
+    bool before = true;
+    auto barrierStage =
+        placeEmptyStage(rewriter, loc, stages[i + 1], placeBarrier, before);
+    extendedStages.push_back(barrierStage);
+    extendedStages.push_back(stages[i + 1]);
+  }
+  // Place a barrier after the last stage. This barrier is necessary to take
+  // into consideration the loop carried dependencies when pipelining. However,
+  // this might introduce an unnecessary barrier as the last operation of the
+  // epilogue. We will take care of removing this barrier at the end of the pass
+  auto maybeNumIterations =
+      rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+  if (!maybeNumIterations.has_value() ||
+      (maybeNumIterations.has_value() && maybeNumIterations.value() > 1)) {
+    const bool placeBarrier = true;
+    const bool after = false;
+    extendedStages.push_back(
+        placeEmptyStage(rewriter, loc, stages.back(), placeBarrier, after));
+  }
+  initiationInterval *= 2;
 }
 
 struct RockPipeline : public rock::impl::RockPipelinePassBase<RockPipeline> {
@@ -347,11 +384,9 @@ void RockPipeline::runOnOperation() {
   // - LDS
   func.walk([&](rock::GpuAllocOp alloc) { allocs.insert(alloc); });
 
-  // Start analysis. We need a schedule for each loop that we have to schedule
-  // and we also need the multi-buffer factors for the different buffers in the
-  // IR
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
   llvm::DenseMap<scf::ForOp, ScheduleType> scheduleMap;
+  llvm::DenseMap<scf::ForOp, Operation *> nextOpMap;
   for (auto res : allocs)
     multiBufferFactors[res] = 1;
 
@@ -378,21 +413,32 @@ void RockPipeline::runOnOperation() {
 
     forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 
+    forOp.walk([](rock::LDSBarrierOp barrier) {
+      if (!barrier->getParentOfType<rock::StageOp>())
+        barrier->erase();
+    });
+
     if (stages.empty())
       WalkResult::advance();
 
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
 
+    // Insert the barriers as new stages
+    SmallVector<rock::StageOp> extendedStages;
+    placeBarriers(rewriter, loc, forOp, stages, allocs, extendedStages, ii);
+
     ScheduleType schedule;
-    createSchedule(stages, allocs, ii, schedule, multiBufferFactors);
+    createSchedule(extendedStages, allocs, ii, schedule, multiBufferFactors);
 
     scheduleMap[forOp] = schedule;
+    // Annotate the operation that defines the boundary of the `forOp`. This
+    // is because, at the end of the pass, we will remove any barrier at the
+    // boundary (because they are not useful)
+    nextOpMap[forOp] = forOp->getNextNode();
 
     return WalkResult::advance();
   });
-
-  // Done with analysis: we have the schedule and the multiBuffers needed
 
   // Multi-buffer(if needed)
   bool isMultiBufferingFailed = false;
@@ -404,35 +450,43 @@ void RockPipeline::runOnOperation() {
       }
     }
   }
+  if (isMultiBufferingFailed)
+    return signalPassFailure();
 
-  if (!isMultiBufferingFailed) {
-    // Remove the barriers that don't belong to stages, if any
-    for (auto [forOp, sched] : scheduleMap) {
-      forOp.walk([](rock::LDSBarrierOp barrier) {
-        if (!barrier->getParentOfType<rock::StageOp>())
-          barrier->erase();
-      });
-    }
+  // Check we didn't push memory too far
+  DenseMap<AddressSpace, size_t> gpuMemoryBytes;
+  func.walk([&](rock::GpuAllocOp alloc) {
+    auto addressSpace = getAddressSpace(alloc);
+    gpuMemoryBytes[addressSpace] += alloc.getType().getShape().back();
+  });
 
-    // Actual pipeline
-    {
-      RewritePatternSet patterns(&getContext());
-      mlir::scf::PipeliningOption options;
-      options.getScheduleFn = [&](scf::ForOp op, ScheduleType &sched) {
-        sched = scheduleMap[op];
-      };
-      scf::populateSCFLoopPipeliningPatterns(patterns, options);
-      (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
-    }
+  if (gpuMemoryBytes[AddressSpace::Workgroup] > size_t(64 * 1024))
+    return signalPassFailure();
 
-    // Place the barriers back
-    placeBarriers(rewriter, loc, multiBufferFactors, func);
+  // Pipeline the loops
+  {
+    RewritePatternSet patterns(&getContext());
+    mlir::scf::PipeliningOption options;
+    options.getScheduleFn = [&](scf::ForOp op, ScheduleType &sched) {
+      sched = scheduleMap[op];
+    };
+    scf::populateSCFLoopPipeliningPatterns(patterns, options);
+    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
   }
 
-  // Remove stages
-  if (removeStages) {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<RemoveStagesRewritePattern>(&getContext());
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  // Cleanup the stages
+  {
+    if (removeStages) {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<RemoveStagesRewritePattern,
+                   RemoveBackToBackBarriersRewritePattern>(&getContext());
+      (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    }
+  }
+
+  // Cleanup unwanted barriers
+  for (auto [forOp, nextOp] : nextOpMap) {
+    if (dyn_cast<rock::LDSBarrierOp>(nextOp->getPrevNode()))
+      nextOp->getPrevNode()->erase();
   }
 }

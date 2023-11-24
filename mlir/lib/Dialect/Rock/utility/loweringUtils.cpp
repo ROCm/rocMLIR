@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Matchers.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -523,4 +524,14 @@ FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
     return failure();
 
   return maybeAllocOp;
+}
+
+std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
+  IntegerAttr clb, cub;
+  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
+    llvm::APInt lbValue = clb.getValue();
+    llvm::APInt ubValue = cub.getValue();
+    return (ubValue - lbValue).getSExtValue();
+  }
+  return std::nullopt;
 }

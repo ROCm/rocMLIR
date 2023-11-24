@@ -2099,7 +2099,6 @@ struct GridwiseGemmAccelRewritePattern
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    bool privateMem = true;
     auto loadBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
     auto loadBufferB =

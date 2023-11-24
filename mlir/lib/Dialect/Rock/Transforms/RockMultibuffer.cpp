@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Transforms/RockMultibuffer.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
@@ -58,17 +57,6 @@ void findAllocUsers(rock::GpuAllocOp allocOp,
       }
     }
   }
-}
-
-/// Compute, if possible, the constant different between two values.
-std::optional<int64_t> computeConstDiff(Value l, Value u) {
-  IntegerAttr clb, cub;
-  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
-    llvm::APInt lbValue = clb.getValue();
-    llvm::APInt ubValue = cub.getValue();
-    return (ubValue - lbValue).getSExtValue();
-  }
-  return std::nullopt;
 }
 
 /// Given an original type `<dim x type>`, return its multibuffer version.
@@ -262,7 +250,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       replaceUsesAndPropagateType(rewriter, loc, view, newView, loop,
                                   loopLength, multiBufferingFactor);
     } else if (auto transform = dyn_cast<TransformOp>(owner)) {
-      // rock.transform case      Value toTransform = val;
+      // rock.transform case
       Value toTransform = val;
       if (isBottomOfTransformStack(val) && val.getType().isa<ShapedType>()) {
         // if this is the top of the transform stack (i.e., the input to the
@@ -296,9 +284,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       Operation *newOp = viewAcceptingOp.cloneWithExtraIndices(
           rewriter, use, val, newExtraIndices);
       if (newOp->getNumResults())
-        replaceUsesAndPropagateType(rewriter, loc, viewAcceptingOp,
-                                    newOp->getResult(0), loop, loopLength,
-                                    multiBufferingFactor);
+        rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
     } else {
       // This is an operation that does not accept a view at the current
       // position We need to add a straight affine map to do ( %i mod mbFactor)
@@ -308,8 +294,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       Operation *newOp = subviewAndClone(rewriter, loc, use, val, mbIndex,
                                          multiBufferingFactor);
       if (newOp->getNumResults())
-        replaceUsesAndPropagateType(rewriter, loc, owner, newOp->getResult(0),
-                                    loop, loopLength, multiBufferingFactor);
+        rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
     }
     opsToDelete.push_back(owner);
   }

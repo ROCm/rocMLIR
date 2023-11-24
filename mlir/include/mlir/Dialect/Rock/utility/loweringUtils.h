@@ -143,6 +143,9 @@ Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
 // or fails.
 FailureOr<rock::GpuAllocOp> findAlloc(Value value);
 
+/// Compute, if possible, the constant different between two values.
+std::optional<int64_t> computeConstDiff(Value l, Value u);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
