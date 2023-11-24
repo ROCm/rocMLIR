@@ -225,14 +225,14 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
     // add performant configs for tier1
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/8, /*mPerBlock=*/128,
-            /*nPerBlock=*/64, /*kpack=*/8,
-            /*mPerWave=*/32, /*nPerWave=*/64, /*forceUnroll=*/true)));
+            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
+            /*nPerBlock=*/128, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/8, /*mPerBlock=*/32,
-            /*nPerBlock=*/128, /*kpack=*/4,
-            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
+            /*nPerBlock=*/64, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/64, /*forceUnroll=*/true)));
 
     // add performant config for triton configs
     newSpace->tuningRange.push_back(
