@@ -104,7 +104,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
       // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
       // CHECK: linalg.yield %[[gemm0Scaled]]
-    // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]], {{.*}} %[[gemm0MaxG1Layout:.+]] using %[[ldsReductionWS]]
+    // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWS]]
 
     // Compute exp(gemm0 - rowmax_j)
     // *****************************
@@ -117,7 +117,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
       // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
 
-    // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]], {{.*}} %[[gemm0SumG1Layout:.+]] using %[[ldsReductionWS]]
+    // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]] using %[[ldsReductionWS]]
 
     // li = exp(m_{j-1} - m_{j}) * l_{j-1} + rowsum(Pij)
     // where
@@ -133,6 +133,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
       // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp2 %[[maxdiff]]
+      // CHECK-DAG: rock.in_bounds_store %[[maxdiffexp]] -> %[[maxdiffexpbuf:.+]][
       // CHECK-DAG: %[[rowsummul:.+]] =  arith.mulf %[[maxdiffexp]], %[[rowsum]]
       // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]
       // CHECK-DAG: %[[tilesumadd]] -> %[[sumRowBuf]]
@@ -198,20 +199,14 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
     // Reduction corrections
     // CHECK: rock.transforming_for
-      // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
-      // CHECK-DAG: %[[gemm0MaxVal:.+]] = rock.in_bounds_load %[[gemm0MaxG1Layout]]
+      // CHECK-DAG: %[[maxdiffexp:.+]] = rock.in_bounds_load %[[maxdiffexpbuf]]
       // CHECK-DAG: %[[attnOutVal:.+]] = rock.in_bounds_load %[[attnOutBuf]]
       // CHECK-DAG: %[[gemm1Val:.+]] = rock.in_bounds_load %[[gemm1AccBufScalar]]
 
-      // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[gemm0MaxVal]]
-      // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
-      // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp2 %[[maxdiff]]
       // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
       // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
       // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[attnOutBuf]]
-      // CHECK-DAG: scf.if
-        // CHECK-DAG: rock.in_bounds_store %[[newmax]] -> %[[maxRowBuf]]
-
+      
     // CHECK : }
   // CHECK : }
   // CHECK : rock.threadwise_write_all {{.*}} %[[attnOutBuf]] -> {{.*}}(%[[O]])
