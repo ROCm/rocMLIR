@@ -1210,7 +1210,7 @@ def Rock_AccelGemmOp:
                    Index:$nRepeat,
                    Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register A", [MemRead]>:$matrixA,
                    Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register B", [MemRead]>:$matrixB,
-                   Arg<MemRefRankOf<AccelResTypes , [1]>, "source register C", [MemWrite]>:$matrixC,
+                   Arg<MemRefRankOf<AccelResTypes , [1]>, "source register C", [MemRead, MemWrite]>:$matrixC,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {

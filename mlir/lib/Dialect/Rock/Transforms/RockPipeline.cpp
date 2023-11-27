@@ -127,10 +127,10 @@ struct RemoveBackToBackBarriersRewritePattern
 // Given an operation and its operand, find out what kind of access (if any)
 // the operation does on the operand
 MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
-  if (hasEffect<MemoryEffects::Read>(op, operand)) {
-    return MemoryAccessType::READ;
-  } else if (hasEffect<MemoryEffects::Write>(op, operand)) {
+  if (hasEffect<MemoryEffects::Write>(op, operand)) {
     return MemoryAccessType::WRITE;
+  } else if (hasEffect<MemoryEffects::Read>(op, operand)) {
+    return MemoryAccessType::READ;
   } else {
     return MemoryAccessType::UNKNOWN;
   }
