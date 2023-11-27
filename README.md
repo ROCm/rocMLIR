@@ -33,7 +33,7 @@ ninja
 
 and to install it so MIGraphX can find it
 ```
-cmake --install . --prefix [your MIOpen deps]
+cmake --install . --prefix [your/MIGraphX/deps/folder/path]
 ```
 
 ## Standalone usage
