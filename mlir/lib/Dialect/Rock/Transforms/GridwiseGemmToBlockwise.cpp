@@ -1032,7 +1032,8 @@ struct GridwiseAttentionAccelRewritePattern
   // P is exp(gemm0 - rowmax_j)
   void updateRowSum(PatternRewriter &rewriter, Location loc,
                     Value gemm0OutBufferSumView, Value gemm0OutBufferMaxView,
-                    Value sumRowBuffer, Value maxRowBuffer, Value expMaxDiffRowBuffer) const {
+                    Value sumRowBuffer, Value maxRowBuffer,
+                    Value expMaxDiffRowBuffer) const {
     Value gemm0OutBufferSum, gemm0OutBufferMax;
     ArrayAttr gemm0OutBufferSumTrs, gemm0OutBufferMaxTrs;
     std::tie(gemm0OutBufferMax, gemm0OutBufferMaxTrs, std::ignore) =
@@ -1089,7 +1090,6 @@ struct GridwiseAttentionAccelRewritePattern
                                        ValueRange{upperCoords[0]});
       rewriter.create<InBoundsStoreOp>(loc, maxRowBufferNew, maxRowBuffer,
                                        ValueRange{upperCoords[0]});
-      
     }
   }
 
@@ -1150,10 +1150,12 @@ struct GridwiseAttentionAccelRewritePattern
   // / expMaxDiff : attentionOutAccBuffer attentionOutAccBufferMaxScaled +=
   // gemm1OutThreadwiseView [STORE] attentionOutAccBuffer =
   // attentionOutAccBufferMaxScaled
-  void createAttentionRowStateCorrections(
-      PatternRewriter &rewriter, Location loc,
-      Value gemm1OutThreadwiseView, Value attentionOutAccBufferView,
-      Value expMaxDiffRowBuffer,  Value nLoopIV) const {
+  void createAttentionRowStateCorrections(PatternRewriter &rewriter,
+                                          Location loc,
+                                          Value gemm1OutThreadwiseView,
+                                          Value attentionOutAccBufferView,
+                                          Value expMaxDiffRowBuffer,
+                                          Value nLoopIV) const {
     Value gemm1Out, attentionOutAccBuffer;
     ArrayAttr gemm1OutTrs, attentionOutAccBufferTrs;
     std::tie(gemm1Out, gemm1OutTrs, std::ignore) =
@@ -1170,12 +1172,9 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
 
     auto loop = rewriter.create<TransformingForOp>(
-        loc,
-        ArrayRef<ValueRange>{{zero, zero},
-                             {zero, zero},
-                             {zero, zero}},
-        ArrayRef<Attribute>{rewriter.getArrayAttr({}),
-                            gemm1OutTrs, attentionOutAccBufferTrs},
+        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}, {zero, zero}},
+        ArrayRef<Attribute>{rewriter.getArrayAttr({}), gemm1OutTrs,
+                            attentionOutAccBufferTrs},
         /*bounds=*/ArrayRef<int64_t>{g1Mpt, g1Npt},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
@@ -1188,9 +1187,11 @@ struct GridwiseAttentionAccelRewritePattern
       Block::BlockArgListType attentionOutAccBufferCoords =
           loop.getLowerCoords(2);
 
-      Type expMaxDiffRowBufferElemType = getElementTypeOrSelf(expMaxDiffRowBuffer.getType());
+      Type expMaxDiffRowBufferElemType =
+          getElementTypeOrSelf(expMaxDiffRowBuffer.getType());
       Value maxRowDiffExp = rewriter.create<InBoundsLoadOp>(
-          loc, expMaxDiffRowBufferElemType, expMaxDiffRowBuffer, ValueRange{upperCoords[0]});
+          loc, expMaxDiffRowBufferElemType, expMaxDiffRowBuffer,
+          ValueRange{upperCoords[0]});
       Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, attentionOutAccBuffer, attentionOutAccBufferCoords);
       Value scaledldAttentionOutAccBuffer = rewriter.create<arith::MulFOp>(
@@ -1875,8 +1876,9 @@ struct GridwiseAttentionAccelRewritePattern
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
-          loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax, /*extraOut=*/nullptr,
-          reductionAxis, rock::ReduceMethod::Max, gemm0OutSubTileViews.blockSubTile, /*extraViews=*/nullptr, blockSize);
+          loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
+          /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
+          gemm0OutSubTileViews.blockSubTile, /*extraViews=*/nullptr, blockSize);
       // softmax normalization.
       Value gemm0MNThreadwiseView = transform(
           rewriter, gemm0OutBuffer,
@@ -1896,7 +1898,8 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
-          rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile, /*extraViews=*/nullptr, blockSize);
+          rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
+          /*extraViews=*/nullptr, blockSize);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
       Value gemm0SumThreadwiseView = transform(
@@ -1906,7 +1909,8 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, gemm0OutBufferMax,
           invertTransforms(rewriter, loc, gemm0OutSubTileViews.threadSubTile));
       updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
-                   gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer, expMaxDiffRowBuffer);
+                   gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
+                   expMaxDiffRowBuffer);
 
       // Emit blockwise GEMM 1.
       {
@@ -1975,9 +1979,9 @@ struct GridwiseAttentionAccelRewritePattern
         Value gemm1MNThreadwiseView =
             transform(rewriter, gemm1OutBuffer, invertedGemm1threadSubTileMaps);
         // Rescale/correct output, rowMax and rowSums
-        createAttentionRowStateCorrections(
-            rewriter, loc, gemm1MNThreadwiseView,
-            attentionOutAccBufferView, expMaxDiffRowBuffer, nLoopIV);
+        createAttentionRowStateCorrections(rewriter, loc, gemm1MNThreadwiseView,
+                                           attentionOutAccBufferView,
+                                           expMaxDiffRowBuffer, nLoopIV);
       }
     }
     scaleFinalOutput(rewriter, loc, attentionOutAccBufferView, sumRowBuffer);
