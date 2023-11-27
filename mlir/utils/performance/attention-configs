@@ -3,3 +3,6 @@
 -transO false -transV false -transK true -transQ false -t f16 -g 64 -seq_len 4096 -head_dim 128
 -transO false -transV false -transK true -transQ false -t f16 -g 32 -seq_len 8192 -head_dim 128
 -transO false -transV false -transK true -transQ false -t f16 -g 16 -seq_len 16384 -head_dim 128
+# migraphx favourites
+-transO false -transV false -transK true -transQ false -t f16 -g 12 -seq_len 384 -head_dim 64
+-transO false -transV false -transK true -transQ false -t f16 -g 768 -seq_len 384 -head_dim 64

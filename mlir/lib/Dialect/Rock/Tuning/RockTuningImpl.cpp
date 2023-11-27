@@ -222,6 +222,29 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
             /*nPerBlock=*/32, /*kpack=*/1,
             /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
 
+    // add performant configs for tier1
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
+            /*nPerBlock=*/128, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
+            /*nPerBlock=*/64, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/64, /*forceUnroll=*/true)));
+
+    // add performant config for triton configs
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/16, /*mPerBlock=*/128,
+            /*nPerBlock=*/128, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/64, /*forceUnroll=*/true)));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/16, /*mPerBlock=*/128,
+            /*nPerBlock=*/128, /*kpack=*/8,
+            /*mPerWave=*/64, /*nPerWave=*/64, /*forceUnroll=*/true)));
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
     PopulateParamsWmma tuningInfo;
@@ -339,6 +362,7 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 
   TypedValue<ShapedType> queries = attnOp.getQueries();
   ArrayRef<int64_t> qShape = queries.getType().getShape();
+  int64_t g = qShape[0];
 
   // TransQ
   problemOS << "-transQ ";
@@ -380,6 +404,7 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   } else {
     problemOS << "false" << sep;
   }
+  problemOS << "-g " << g << sep;
   problemOS << "-seq_len " << seqLen << sep;
   problemOS << "-head_dim " << numHeads;
   return success();
