@@ -375,7 +375,6 @@ void RockPipeline::runOnOperation() {
   IRRewriter rewriter(ctx);
 
   std::map<Operation *, SmallVector<rock::GpuAllocOp>> ldsAllocMap;
-
   llvm::DenseSet<rock::GpuAllocOp> allocs;
 
   // Collect the global resources (i.e., the memory allocations)
@@ -391,20 +390,20 @@ void RockPipeline::runOnOperation() {
     multiBufferFactors[res] = 1;
 
   auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
+  bool isNestedPipelining = false;
   func.walk([&](scf::ForOp forOp) -> WalkResult {
     SmallVector<rock::StageOp> stages;
 
     if (!forOp->hasAttrOfType<rock::PipelineAttr>(rockPipelineAttrName))
       return WalkResult::advance();
 
-    bool isNestedPipelining = false;
     forOp.getBody()->walk([&](scf::ForOp nestedFor) {
       if (nestedFor->hasAttr(rockPipelineAttrName))
         isNestedPipelining = true;
     });
 
     if (isNestedPipelining)
-      return WalkResult::advance();
+      return WalkResult::interrupt();
 
     // Get the initiation interval (II)
     int64_t ii = forOp->removeAttr(rockPipelineAttrName)
@@ -439,6 +438,9 @@ void RockPipeline::runOnOperation() {
 
     return WalkResult::advance();
   });
+
+  if (isNestedPipelining)
+    return signalPassFailure();
 
   // Multi-buffer(if needed)
   bool isMultiBufferingFailed = false;
