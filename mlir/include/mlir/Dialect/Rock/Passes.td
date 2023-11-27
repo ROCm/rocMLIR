@@ -111,4 +111,9 @@ def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", ""> {
   let summary = "prepare the generated code for llvm";
 }
 
+def RockCheckResidencyPass : Pass<"rock-check-residency", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "For global_sync check for full kernel launch residency";
+  let dependentDialects = ["LLVM::LLVMDialect", "gpu::GPUDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

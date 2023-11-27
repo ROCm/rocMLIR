@@ -41,6 +41,7 @@
 // BINARY-SAME: expand-strided-metadata,
 // BINARY-SAME: convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
 // BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
+// BINARY-SAME: rock-check-residency)){{$}}
 // BINARY-SAME: fp8-ext-to-tables){{$}}
 
 // BINARY_MI300: Kernel pipeline:
@@ -51,6 +52,7 @@
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
 // BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
+// BINARY_MI300-SAME: rock-check-residency)){{$}}
 // BINARY_MI300-SAME: fp8-ext-to-tables){{$}}
 
 // PARTITION: Partitioner pipeline:
