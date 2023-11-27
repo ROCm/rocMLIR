@@ -1,8 +1,8 @@
-// RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align --rock-pipeline | FileCheck %s
 // ALLOW_RETRIES: 2
 module {
   // CHECK-COUNT-4: rock.threadwise_read_into {{.*}}
-  // CHECK: rock.threadwise_read_into 
+  // CHECK: rock.threadwise_read_into
   // CHECK: linalg.generic
   // CHECK: rock.threadwise_write_all
   // CHECK-NOT: memref.copy

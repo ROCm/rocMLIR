@@ -9,6 +9,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   ConvToGemm.cpp
   GemmToGridwise.cpp
   RockMultibuffer.cpp
+  RockPipeline.cpp
   Regularize.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
@@ -46,6 +47,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRRockTuning
   MLIRRockUtility
   MLIRExecutionEngineUtils
+  MLIRSCFTransforms
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
