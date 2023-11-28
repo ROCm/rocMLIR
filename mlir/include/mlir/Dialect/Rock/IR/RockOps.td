@@ -1208,9 +1208,9 @@ def Rock_AccelGemmOp:
     Rock_Op<"accel_gemm">,
     Arguments<(ins Index:$mRepeat,
                    Index:$nRepeat,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixA,
-                   MemRefRankOf<AccelArgTypes, [1]>:$matrixB,
-                   MemRefRankOf<AccelResTypes , [1]>:$matrixC,
+                   Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register A", [MemRead]>:$matrixA,
+                   Arg<MemRefRankOf<AccelArgTypes, [1]>, "source register B", [MemRead]>:$matrixB,
+                   Arg<MemRefRankOf<AccelResTypes , [1]>, "source register C", [MemRead, MemWrite]>:$matrixC,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
@@ -1334,11 +1334,13 @@ def Rock_InWarpTransposeOp :
 }
 
 def Rock_ThreadwiseCopyOp :
-    Rock_Op<"threadwise_copy">,
+    Rock_Op<"threadwise_copy", [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>, AttrSizedOperandSegments]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
       Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
+      Variadic<Index>:$extraIndicesSource,
       Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
+      Variadic<Index>:$extraIndicesDest,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
     )> {
@@ -1351,9 +1353,30 @@ def Rock_ThreadwiseCopyOp :
   }];
 
   let assemblyFormat = [{
-    attr-dict $source  `->` $dest `:` type($source) `->` type($dest)
+    attr-dict $source (`[` $extraIndicesSource^ `]`)? `->` $dest (`[` $extraIndicesDest^ `]`)? `:` type($source) `->` type($dest)
   }];
+
+  let builders = [
+    // Custom builder to not specify the extra indices
+    OpBuilder<(ins "Value":$source, "Value":$dest, CArg<"bool","false">:$forceUnroll, CArg<"bool","false">:$useIndexDiffs),
+                    [{ build($_builder, $_state, source, {}, dest, {}, forceUnroll, useIndexDiffs); }]>
+  ];
   let hasVerifier = 1;
 }
+
+
+def Rock_StageOp :
+  Rock_Op<"stage">,
+  Arguments<(ins DefaultValuedStrAttr<StrAttr, "stage">:$name)>
+  {
+    let description = [{ `rock.stage` represents a single scheduling unit in a loop to be pipelined. If the body of the loop
+                         is partitioned in multiple stages then, setting the `__initiation__interval__` property of the
+                        `scf.for` operation will have the effect of overlapping different iterations inside the loop. For instance,
+                         if a loop is partitioned in 3 stages S0, S1, S2, and the II is set to 2, loop pipelineing will try to
+                        overlap an iteration containing S0 and S1 and a different iteration containing S2.}];
+    let summary = "Operation whose region represents a single scheduling unit";
+    let regions = (region AnyRegion:$region);
+    let hasCustomAssemblyFormat = 1;
+  }
 
 #endif // ROCK_OPS

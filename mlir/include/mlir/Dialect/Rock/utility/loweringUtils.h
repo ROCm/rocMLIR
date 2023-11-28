@@ -135,6 +135,17 @@ swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
                          bool doSwapThreadIterSubDimsForN, bool isBlockwise,
                          SmallVector<Attribute> &transformAttrs);
 
+// This is a helper function to create a subview of slice of the first dimension
+Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
+                            Value buffer, Value sliceIdx);
+
+// Given a `value` traverses its "views" until it finds the real allocation
+// or fails.
+FailureOr<rock::GpuAllocOp> findAlloc(Value value);
+
+/// Compute, if possible, the constant different between two values.
+std::optional<int64_t> computeConstDiff(Value l, Value u);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

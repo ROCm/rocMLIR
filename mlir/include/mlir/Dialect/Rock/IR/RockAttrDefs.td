@@ -342,4 +342,15 @@ def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatu
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
   let mnemonic = "rock.prefill";
 }
+
+def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
+  let mnemonic = "pipeline";
+  let parameters = (ins
+    "int64_t":$InitiationInterval
+  );
+  let assemblyFormat = "`<` params `>`";
+  let description = [{
+    An attribute to express the properties of a loop to be pipelined
+  }];
+}
 #endif

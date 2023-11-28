@@ -889,6 +889,7 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // ReinterpretMultiBufferOp
 //===-----------------------------------------------------===//
+
 void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
                                      Value input, MemRefType bufferType,
                                      int64_t multibufferFactor) {
@@ -1579,11 +1580,57 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// ThreadwiseCopyOp
+//===-----------------------------------------------------===//
+SmallPtrSet<OpOperand *, 2> ThreadwiseCopyOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  int extraIndicesOpPos = (getExtraIndicesSource().empty() ? 0 : 1);
+  return {operands.begin(), operands.begin() + extraIndicesOpPos + 1};
+}
+
+std::optional<OperandRange>
+ThreadwiseCopyOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand))
+    return std::nullopt;
+  return (operand.getOperandNumber() == 0 ? getExtraIndicesSource()
+                                          : getExtraIndicesDest());
+}
+
+Operation *
+ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
+                                        Value view,
+                                        ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand))
+    return getOperation();
+
+  // Only one operand supports view
+  ThreadwiseCopyOp newOp;
+  if (operand.getOperandNumber() == 0) {
+    newOp = builder.create<ThreadwiseCopyOp>(
+        getLoc(), view, newExtraIndices, getDest(), getExtraIndicesDest(),
+        getForceUnroll(), getUseIndexDiffs());
+  } else {
+    newOp = builder.create<ThreadwiseCopyOp>(
+        getLoc(), getSource(), getExtraIndicesSource(), view, newExtraIndices,
+        getForceUnroll(), getUseIndexDiffs());
+  }
+  return newOp.getOperation();
+}
+
 LogicalResult ThreadwiseCopyOp::verify() {
   auto srcShape = getSource().getType().getShape();
   auto dstShape = getDest().getType().getShape();
-  if (dstShape != srcShape)
-    return emitOpError("Source and dest shape need to have the same shape.");
+  // We can ignore the external indices, if there are any
+  size_t extraIndicesDestSize = getExtraIndicesDest().size();
+  size_t extraIndicesSourceSize = getExtraIndicesSource().size();
+  SmallVector<int64_t> unextendedSrcShape(
+      srcShape.begin() + extraIndicesSourceSize, srcShape.end());
+  SmallVector<int64_t> unextendedDstShape(
+      dstShape.begin() + extraIndicesDestSize, dstShape.end());
+  if (unextendedDstShape != unextendedSrcShape)
+    return emitOpError(
+        "Un-extended source and dest buffers need to have the same shape.");
 
   return success();
 }
@@ -1935,6 +1982,34 @@ LogicalResult AttentionOp::verify() {
       return emitError("scale needs to be of same rank to other inputs");
     }
   }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// StageOp
+//===-----------------------------------------------------===//
+
+void StageOp::print(OpAsmPrinter &p) {
+  // p.printOptionalArrowTypeList(getResultTypes());
+
+  p << ' ';
+  p.printRegion(getRegion(),
+                /*printEntryBlockArgs=*/false,
+                /*printBlockTerminators=*/true);
+
+  p.printOptionalAttrDict((*this)->getAttrs());
+}
+
+ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
+  if (parser.parseOptionalArrowTypeList(result.types))
+    return failure();
+
+  // Introduce the body region and parse it.
+  Region *body = result.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{}) ||
+      parser.parseOptionalAttrDict(result.attributes))
+    return failure();
 
   return success();
 }

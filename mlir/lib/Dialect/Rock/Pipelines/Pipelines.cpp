@@ -134,6 +134,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
+  funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
+  funcPm.addPass(rock::createRockPipelinePass());
+  funcPm.addPass(createCanonicalizerPass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
@@ -157,8 +160,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --rock-transform-to-memref --rock-loops-to-cf
      *   --convert-rock-to-gpu
      */
-    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-    funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
@@ -199,7 +200,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::Unknown));
+      /*useBarePtrCallConv=*/true));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(

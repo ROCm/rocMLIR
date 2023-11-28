@@ -10,6 +10,7 @@
 #ifndef MLIR_DIALECT_ROCK_TRANSFORMS_MULTIBUFFER_H
 #define MLIR_DIALECT_ROCK_TRANSFORMS_MULTIBUFFER_H
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 
 namespace mlir {

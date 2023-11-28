@@ -67,7 +67,7 @@ public:
   static FailureOr<MfmaInsn> select(StringRef mfmaInsn);
   MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr);
 
-  MfmaInsnAttr getAttr();
+  MfmaInsnAttr getAttr() const;
   Type getArgTypeFor(Type elementTypeA);
   VectorType getRetType(Type elementType);
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
@@ -145,7 +145,7 @@ public:
   static int64_t getLenPerMfmaGroup(int64_t lenPerWave);
   SmallVector<mlir::rock::MFMAParams, 2> getImms();
 
-  MfmaInsnAttr getInsnAttr();
+  MfmaInsnAttr getInsnAttr() const;
   Type getArgTypeA();
   Type getArgTypeB();
   VectorType getRetType();
