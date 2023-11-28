@@ -4,6 +4,7 @@
 // CHECK-LABEL: @gridwise_attn_simple
 // CHECK-SAME: (%[[Q:.+]]: memref<1x384x64xf32>, %[[K:.+]]: memref<1x64x384xf32>, %[[V:.+]]: memref<1x384x64xf32>, %[[O:.+]]: memref<1x384x64xf32>)
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
+  // CHECK-DAG: %[[ln2Recip:.+]] = arith.constant 1.44269502 : f32
   // CHECK-DAG: %[[negInf:.+]] = arith.constant 0xFF800000 : f32
   // CHECK-DAG: %[[zeroF32:.+]] = arith.constant 0.000000e+00 : f32
   // CHECK-DAG: %[[zeroVecF32:.+]] = arith.constant dense<0.000000e+00> : vector<16xf32>
@@ -100,6 +101,9 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
       // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
+    // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
+      // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
+      // CHECK: linalg.yield %[[gemm0Scaled]]
     // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]], {{.*}} %[[gemm0MaxG1Layout:.+]] using %[[ldsReductionWS]]
 
     // Compute exp(gemm0 - rowmax_j)
@@ -110,7 +114,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
       // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
       // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
-      // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp %[[gemm0ValSubMax]]
+      // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
       // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
 
     // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]], {{.*}} %[[gemm0SumG1Layout:.+]] using %[[ldsReductionWS]]
@@ -128,7 +132,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
-      // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp %[[maxdiff]]
+      // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp2 %[[maxdiff]]
       // CHECK-DAG: %[[rowsummul:.+]] =  arith.mulf %[[maxdiffexp]], %[[rowsum]]
       // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]
       // CHECK-DAG: %[[tilesumadd]] -> %[[sumRowBuf]]
@@ -201,7 +205,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
       // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[gemm0MaxVal]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
-      // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp %[[maxdiff]]
+      // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp2 %[[maxdiff]]
       // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
       // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
       // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[attnOutBuf]]

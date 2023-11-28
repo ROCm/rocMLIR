@@ -1033,7 +1033,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldGemm0OutSubMax =
           rewriter.create<arith::SubFOp>(loc, ldGemm0Out, maxRowBufferNew);
       Value ldGemm0OutSubMaxExp =
-          rewriter.create<math::ExpOp>(loc, ldGemm0OutSubMax);
+          rewriter.create<math::Exp2Op>(loc, ldGemm0OutSubMax);
 
       // Store back to gemm0Out
       rewriter.create<InBoundsStoreOp>(loc, ldGemm0OutSubMaxExp, gemm0OutExp,
@@ -1096,7 +1096,7 @@ struct GridwiseAttentionAccelRewritePattern
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
-      Value maxRowDiffExp = rewriter.create<math::ExpOp>(loc, maxRowDiff);
+      Value maxRowDiffExp = rewriter.create<math::Exp2Op>(loc, maxRowDiff);
       Value sumRowBufferNew = maxRowDiffExp;
       sumRowBufferNew =
           rewriter.create<arith::MulFOp>(loc, sumRowBufferNew, ldSumRowBuffer);
@@ -1220,7 +1220,7 @@ struct GridwiseAttentionAccelRewritePattern
 
       Value maxRowDiff =
           rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
-      Value maxRowDiffInvExp = rewriter.create<math::ExpOp>(loc, maxRowDiff);
+      Value maxRowDiffInvExp = rewriter.create<math::Exp2Op>(loc, maxRowDiff);
       Value ldAttentionOutAccBuffer = rewriter.create<InBoundsLoadOp>(
           loc, outElemType, attentionOutAccBuffer, attentionOutAccBufferCoords);
       Value scaledldAttentionOutAccBuffer = rewriter.create<arith::MulFOp>(
@@ -1892,6 +1892,14 @@ struct GridwiseAttentionAccelRewritePattern
                          gemm0OutSubTileViews, scaleInBuffer, scaleIn);
         }
       }
+      // Scale gemm0 output by (1/ln2)
+      // So that we can use exp2 instead of exp.
+      Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
+                                             elemTypeQxK, 1.44269504);
+      scaleFirstGemmSplat(
+          rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
+          ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
+
       // Handle padding
       bool hasPadding =
           op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
