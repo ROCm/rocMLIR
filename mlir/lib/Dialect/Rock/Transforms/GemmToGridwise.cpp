@@ -235,23 +235,23 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   ArrayRef<int64_t> keysShape = keys.getType().cast<MemRefType>().getShape();
   ArrayRef<int64_t> valuesShape =
       values.getType().cast<MemRefType>().getShape();
-  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
                      /*k=*/queriesShape[1],
-                     /*n=*/keysShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm0ExtraPad =
       requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
                      /*k=*/valuesShape[1],
-                     /*n=*/valuesShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm1ExtraPad =
       requiredPadding(params, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
 
-  queries = padMatrix(queries, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
-                      gemm0ExtraPad.m);
-  keys = padMatrix(keys, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
-                   gemm0ExtraPad.n);
-  values = padMatrix(values, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1N",
-                     gemm1ExtraPad.n);
+  queries = padMatrix(queries, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
+                      gemm0ExtraPad.n);
+  keys = padMatrix(keys, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
+                   gemm0ExtraPad.m);
+  values = padMatrix(values, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1M",
+                     gemm1ExtraPad.m);
   out = padMatrix(out, rw, loc, "gemm1M", gemm1ExtraPad.m, "gemm1N",
                   gemm1ExtraPad.n);
 
