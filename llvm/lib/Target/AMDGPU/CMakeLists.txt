@@ -17,12 +17,12 @@ tablegen(LLVM AMDGPUGenSubtargetInfo.inc -gen-subtarget)
 
 set(LLVM_TARGET_DEFINITIONS AMDGPUGISel.td)
 tablegen(LLVM AMDGPUGenGlobalISel.inc -gen-global-isel)
-tablegen(LLVM AMDGPUGenPreLegalizeGICombiner.inc -gen-global-isel-combiner
-              -combiners="AMDGPUPreLegalizerCombinerHelper")
-tablegen(LLVM AMDGPUGenPostLegalizeGICombiner.inc -gen-global-isel-combiner
-              -combiners="AMDGPUPostLegalizerCombinerHelper")
-tablegen(LLVM AMDGPUGenRegBankGICombiner.inc -gen-global-isel-combiner
-              -combiners="AMDGPURegBankCombinerHelper")
+tablegen(LLVM AMDGPUGenPreLegalizeGICombiner.inc -gen-global-isel-combiner-matchtable
+              -combiners="AMDGPUPreLegalizerCombiner")
+tablegen(LLVM AMDGPUGenPostLegalizeGICombiner.inc -gen-global-isel-combiner-matchtable
+              -combiners="AMDGPUPostLegalizerCombiner")
+tablegen(LLVM AMDGPUGenRegBankGICombiner.inc -gen-global-isel-combiner-matchtable
+              -combiners="AMDGPURegBankCombiner")
 
 set(LLVM_TARGET_DEFINITIONS R600.td)
 tablegen(LLVM R600GenAsmWriter.inc -gen-asm-writer)
@@ -69,6 +69,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPULibFunc.cpp
   AMDGPULowerKernelArguments.cpp
   AMDGPULowerKernelAttributes.cpp
+  AMDGPULowerKernelCalls.cpp
   AMDGPULowerModuleLDSPass.cpp
   AMDGPUMachineCFGStructurizer.cpp
   AMDGPUMachineFunction.cpp
@@ -101,6 +102,7 @@ add_llvm_target(AMDGPUCodeGen
   R600MachineCFGStructurizer.cpp
   GCNCreateVOPD.cpp
   GCNDPPCombine.cpp
+  AMDGPUResourceUsageAnalysis.cpp
   GCNHazardRecognizer.cpp
   GCNILPSched.cpp
   GCNIterativeScheduler.cpp
@@ -145,6 +147,7 @@ add_llvm_target(AMDGPUCodeGen
   SILoadStoreOptimizer.cpp
   SILowerControlFlow.cpp
   SILowerI1Copies.cpp
+  SILowerWWMCopies.cpp
   SILowerSGPRSpills.cpp
   SIMachineFunctionInfo.cpp
   SIMachineScheduler.cpp
@@ -161,7 +164,9 @@ add_llvm_target(AMDGPUCodeGen
   SIProgramInfo.cpp
   SIRegisterInfo.cpp
   SIShrinkInstructions.cpp
+  SISimplifyPredicatedCopies.cpp
   SIWholeQuadMode.cpp
+  GCNPreRAOptimizations.cpp
 
   LINK_COMPONENTS
   AMDGPUDesc

@@ -19,6 +19,7 @@
 #include "llvm/ADT/Uniformity.h"
 #include "llvm/CodeGen/MIRFormatter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineCycleAnalysis.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -139,6 +140,11 @@ public:
   /// of instruction rematerialization or sinking.
   virtual bool isIgnorableUse(const MachineOperand &MO) const {
     return false;
+  }
+
+  virtual bool isSafeToSink(MachineInstr &MI, MachineBasicBlock *SuccToSinkTo,
+                            MachineCycleInfo *CI) const {
+    return true;
   }
 
 protected:
@@ -1044,6 +1050,16 @@ public:
     return isCopyInstrImpl(MI);
   }
 
+  bool isFullCopyInstr(const MachineInstr &MI) const {
+    auto DestSrc = isCopyInstr(MI);
+    if (!DestSrc)
+      return false;
+
+    const MachineOperand *DestRegOp = DestSrc->Destination;
+    const MachineOperand *SrcRegOp = DestSrc->Source;
+    return !DestRegOp->getSubReg() && !SrcRegOp->getSubReg();
+  }
+
   /// If the specific machine instruction is an instruction that adds an
   /// immediate value and a physical register, and stores the result in
   /// the given physical register \c Reg, return a pair of the source
@@ -1149,6 +1165,10 @@ public:
   MachineInstr *foldMemoryOperand(MachineInstr &MI, ArrayRef<unsigned> Ops,
                                   MachineInstr &LoadMI,
                                   LiveIntervals *LIS = nullptr) const;
+
+  /// This function defines the logic to lower COPY instruction to
+  /// target specific instruction(s).
+  void lowerCopy(MachineInstr *MI, const TargetRegisterInfo *TRI) const;
 
   /// Return true when there is potentially a faster code sequence
   /// for an instruction chain ending in \p Root. All potential patterns are
@@ -1952,6 +1972,14 @@ public:
   /// to prevent register allocator to insert spills before such instructions.
   virtual bool isBasicBlockPrologue(const MachineInstr &MI) const {
     return false;
+  }
+
+
+  /// Allows targets to use appropriate copy instruction while spilitting live
+  /// range of a register in register allocation.
+  virtual unsigned getLiveRangeSplitOpcode(Register Reg,
+                                           const MachineFunction &MF) const {
+    return TargetOpcode::COPY;
   }
 
   /// During PHI eleimination lets target to make necessary checks and

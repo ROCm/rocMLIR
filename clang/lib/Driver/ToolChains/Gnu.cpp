@@ -31,6 +31,7 @@
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
+#include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/TargetParser.h"
 #include <system_error>
 
@@ -220,30 +221,6 @@ void tools::gcc::Linker::RenderExtraToolArgs(const JobAction &JA,
   // The types are (hopefully) good enough.
 }
 
-// On Arm the endianness of the output file is determined by the target and
-// can be overridden by the pseudo-target flags '-mlittle-endian'/'-EL' and
-// '-mbig-endian'/'-EB'. Unlike other targets the flag does not result in a
-// normalized triple so we must handle the flag here.
-static bool isArmBigEndian(const llvm::Triple &Triple,
-                           const ArgList &Args) {
-  bool IsBigEndian = false;
-  switch (Triple.getArch()) {
-  case llvm::Triple::armeb:
-  case llvm::Triple::thumbeb:
-    IsBigEndian = true;
-    [[fallthrough]];
-  case llvm::Triple::arm:
-  case llvm::Triple::thumb:
-    if (Arg *A = Args.getLastArg(options::OPT_mlittle_endian,
-                               options::OPT_mbig_endian))
-      IsBigEndian = !A->getOption().matches(options::OPT_mlittle_endian);
-    break;
-  default:
-    break;
-  }
-  return IsBigEndian;
-}
-
 static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
   switch (T.getArch()) {
   case llvm::Triple::x86:
@@ -258,7 +235,8 @@ static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
   case llvm::Triple::thumb:
   case llvm::Triple::armeb:
   case llvm::Triple::thumbeb:
-    return isArmBigEndian(T, Args) ? "armelfb_linux_eabi" : "armelf_linux_eabi";
+    return tools::arm::isARMBigEndian(T, Args) ? "armelfb_linux_eabi"
+                                               : "armelf_linux_eabi";
   case llvm::Triple::m68k:
     return "m68kelf";
   case llvm::Triple::ppc:
@@ -448,7 +426,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-s");
 
   if (Triple.isARM() || Triple.isThumb() || Triple.isAArch64()) {
-    bool IsBigEndian = isArmBigEndian(Triple, Args);
+    bool IsBigEndian = arm::isARMBigEndian(Triple, Args);
     if (IsBigEndian)
       arm::appendBE8LinkFlag(Args, CmdArgs, Triple);
     IsBigEndian = IsBigEndian || Arch == llvm::Triple::aarch64_be;
@@ -552,6 +530,13 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     ToolChain.addFastMathRuntimeIfAvailable(Args, CmdArgs);
   }
 
+  // Make sure openmp finds it libomp.so before all others.
+  if (Args.hasArg(options::OPT_fopenmp) ||
+      JA.isHostOffloading(Action::OFK_OpenMP)) {
+    addDirectoryList(Args, CmdArgs, "-L", "LIBRARY_PATH");
+    CmdArgs.push_back(Args.MakeArgString("-L" + D.Dir + "/../lib"));
+  }
+
   Args.AddAllArgs(CmdArgs, options::OPT_L);
   Args.AddAllArgs(CmdArgs, options::OPT_u);
 
@@ -562,6 +547,9 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     addLTOOptions(ToolChain, Args, CmdArgs, Output, Inputs[0],
                   D.getLTOMode() == LTOK_Thin);
   }
+  bool ProprietaryToolChain =
+    checkForAMDProprietaryOptOptions(ToolChain, D, Args, CmdArgs,
+	                             true /*isLLD*/);
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -575,6 +563,18 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // The profile runtime also needs access to system libraries.
   getToolChain().addProfileRTLibs(Args, CmdArgs);
+
+  // Add Fortran runtime libraries
+  if (needFortranLibs(D, Args)) {
+    ToolChain.AddFortranStdlibLibArgs(Args, CmdArgs);
+    CmdArgs.push_back("-rpath");
+    CmdArgs.push_back(Args.MakeArgString(D.Dir + "/../lib"));
+  } else {
+    // Claim "no Flang libraries" arguments if any
+    for (auto Arg : Args.filtered(options::OPT_noFlangLibs)) {
+      Arg->claim();
+    }
+  }
 
   if (D.CCCIsCXX() &&
       !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs,
@@ -600,7 +600,9 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   // AddRuntTimeLibs).
   if (D.IsFlangMode()) {
     addFortranRuntimeLibraryPath(ToolChain, Args, CmdArgs);
+#ifdef FLANG_FIXME
     addFortranRuntimeLibs(ToolChain, CmdArgs);
+#endif
     CmdArgs.push_back("-lm");
   }
 
@@ -624,8 +626,12 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
       // FIXME: Only pass GompNeedsRT = true for platforms with libgomp that
       // require librt. Most modern Linux platforms do, but some may not.
+      StringRef omptarget =
+          Args.getLastArgValue(options::OPT_fopenmp_targets_EQ);
+      bool isHostOffload = JA.isHostOffloading(Action::OFK_OpenMP) ||
+                           omptarget.equals("x86_64-pc-linux-gnu");
       if (addOpenMPRuntime(CmdArgs, ToolChain, Args, StaticOpenMP,
-                           JA.isHostOffloading(Action::OFK_OpenMP),
+                           isHostOffload,
                            /* GompNeedsRT= */ true))
         // OpenMP runtimes implies pthreads when using the GNU toolchain.
         // FIXME: Does this really make sense for all GNU toolchains?
@@ -700,7 +706,56 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.AddAllArgs(CmdArgs, options::OPT_T);
 
-  const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
+  // if a linker other than ld.lld is specified, dont use closed ld.lld.
+  if (Args.hasArg(options::OPT_fuse_ld_EQ)) {
+    StringRef LinkerName = Args.getLastArgValue(options::OPT_fuse_ld_EQ, "ld");
+    if (!LinkerName.equals_insensitive("lld"))
+      ProprietaryToolChain = false;
+  }
+
+  std::string AltPath = D.getInstalledDir();
+  AltPath += "/../alt/bin/ld.lld";
+  const char *Exec = ProprietaryToolChain
+         ? Args.MakeArgString(AltPath.c_str())
+         : Args.MakeArgString(ToolChain.GetLinkerPath());
+
+  // Check if linker has a corresponding LLVM IR assembler. If so, disassemble
+  // bitcode using current disassembler and then use assembler from linker's
+  // release to mask potential bitcode incompatibilities from different LLVM
+  // versions or releases. This fixes things like differences in number of
+  // integer attributes or anything where bitcodes may not match.
+  if (D.isUsingLTO() || ProprietaryToolChain) {
+    StringRef execSR(Exec);
+    std::string as_fn =
+        execSR.substr(0, execSR.find_last_of("/") + 1).str() + "llvm-as";
+    for (auto i : Inputs) {
+      if (llvm::sys::fs::exists(as_fn) && i.isFilename() &&
+          (i.getType() == clang::driver::types::TY_LTO_BC)) {
+        ArgStringList dis_args;
+        dis_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
+        dis_args.push_back("-o");
+        std::string TmpNameDisOutput =
+            C.getDriver().GetTemporaryPath("disassembled", "ll");
+        C.addTempFile(C.getArgs().MakeArgString(TmpNameDisOutput));
+        const char *DisOutputFn = C.getArgs().MakeArgString(TmpNameDisOutput);
+        dis_args.push_back(DisOutputFn);
+        InputInfo DisII(&JA, DisOutputFn);
+        C.addCommand(std::make_unique<Command>(
+            JA, *this, ResponseFileSupport::None(),
+            C.getArgs().MakeArgString(
+                getToolChain().GetProgramPath("llvm-dis")),
+            dis_args, i, DisII));
+        ArgStringList as_args;
+        as_args.push_back(DisOutputFn);
+        as_args.push_back("-o");
+        as_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
+        C.addCommand(std::make_unique<Command>(
+            JA, *this, ResponseFileSupport::None(),
+            C.getArgs().MakeArgString(as_fn), as_args, DisII, i));
+      }
+    }
+  }
+
   C.addCommand(std::make_unique<Command>(JA, *this,
                                          ResponseFileSupport::AtFileCurCP(),
                                          Exec, CmdArgs, Inputs, Output));
@@ -820,7 +875,7 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
   case llvm::Triple::thumb:
   case llvm::Triple::thumbeb: {
     const llvm::Triple &Triple2 = getToolChain().getTriple();
-    CmdArgs.push_back(isArmBigEndian(Triple2, Args) ? "-EB" : "-EL");
+    CmdArgs.push_back(arm::isARMBigEndian(Triple2, Args) ? "-EB" : "-EL");
     switch (Triple2.getSubArch()) {
     case llvm::Triple::ARMSubArch_v7:
       CmdArgs.push_back("-mfpu=neon");
@@ -849,6 +904,11 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     normalizeCPUNamesForAssembler(Args, CmdArgs);
 
     Args.AddLastArg(CmdArgs, options::OPT_mfpu_EQ);
+    // The integrated assembler doesn't implement e_flags setting behavior for
+    // -meabi=gnu (gcc -mabi={apcs-gnu,atpcs} passes -meabi=gnu to gas). For
+    // compatibility we accept but warn.
+    if (Arg *A = Args.getLastArgNoClaim(options::OPT_mabi_EQ))
+      A->ignoreTargetSpecific();
     break;
   }
   case llvm::Triple::aarch64:

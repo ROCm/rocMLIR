@@ -35,7 +35,7 @@
 static llvm::cl::opt<unsigned>
     AmdhsaCodeObjectVersion("amdhsa-code-object-version", llvm::cl::Hidden,
                             llvm::cl::desc("AMDHSA Code Object Version"),
-                            llvm::cl::init(4));
+                            llvm::cl::init(5));
 
 namespace {
 
@@ -94,6 +94,24 @@ unsigned getVmcntBitShiftHi(unsigned VersionMajor) { return 14; }
 unsigned getVmcntBitWidthHi(unsigned VersionMajor) {
   return (VersionMajor == 9 || VersionMajor == 10) ? 2 : 0;
 }
+
+/// \returns VmVsrc bit width
+inline unsigned getVmVsrcBitWidth() { return 3; }
+
+/// \returns VmVsrc bit shift
+inline unsigned getVmVsrcBitShift() { return 2; }
+
+/// \returns VaVdst bit width
+inline unsigned getVaVdstBitWidth() { return 4; }
+
+/// \returns VaVdst bit shift
+inline unsigned getVaVdstBitShift() { return 12; }
+
+/// \returns SaSdst bit width
+inline unsigned getSaSdstBitWidth() { return 1; }
+
+/// \returns SaSdst bit shift
+inline unsigned getSaSdstBitShift() { return 0; }
 
 } // end namespace anonymous
 
@@ -160,7 +178,7 @@ unsigned getCodeObjectVersion(const Module &M) {
   }
 
   // Default code object version.
-  return AMDHSA_COV4;
+  return AMDHSA_COV5;
 }
 
 unsigned getMultigridSyncArgImplicitArgPosition(unsigned CodeObjectVersion) {
@@ -1215,16 +1233,16 @@ bool shouldEmitConstantsToTextSection(const Triple &TT) {
   return TT.getArch() == Triple::r600;
 }
 
-std::pair<int, int> getIntegerPairAttribute(const Function &F,
-                                            StringRef Name,
-                                            std::pair<int, int> Default,
-                                            bool OnlyFirstRequired) {
+std::pair<unsigned, unsigned>
+getIntegerPairAttribute(const Function &F, StringRef Name,
+                        std::pair<unsigned, unsigned> Default,
+                        bool OnlyFirstRequired) {
   Attribute A = F.getFnAttribute(Name);
   if (!A.isStringAttribute())
     return Default;
 
   LLVMContext &Ctx = F.getContext();
-  std::pair<int, int> Ints = Default;
+  std::pair<unsigned, unsigned> Ints = Default;
   std::pair<StringRef, StringRef> Strs = A.getValueAsString().split(',');
   if (Strs.first.trim().getAsInteger(0, Ints.first)) {
     Ctx.emitError("can't parse first integer attribute " + Name);
@@ -1499,6 +1517,42 @@ int encodeDepCtr(const StringRef Name, int64_t Val, unsigned &UsedOprMask,
                  const MCSubtargetInfo &STI) {
   return encodeCustomOperand(DepCtrInfo, DEP_CTR_SIZE, Name, Val, UsedOprMask,
                              STI);
+}
+
+unsigned decodeFieldVmVsrc(unsigned Encoded) {
+  return unpackBits(Encoded, getVmVsrcBitShift(), getVmVsrcBitWidth());
+}
+
+unsigned decodeFieldVaVdst(unsigned Encoded) {
+  return unpackBits(Encoded, getVaVdstBitShift(), getVaVdstBitWidth());
+}
+
+unsigned decodeFieldSaSdst(unsigned Encoded) {
+  return unpackBits(Encoded, getSaSdstBitShift(), getSaSdstBitWidth());
+}
+
+unsigned encodeFieldVmVsrc(unsigned Encoded, unsigned VmVsrc) {
+  return packBits(VmVsrc, Encoded, getVmVsrcBitShift(), getVmVsrcBitWidth());
+}
+
+unsigned encodeFieldVmVsrc(unsigned VmVsrc) {
+  return encodeFieldVmVsrc(0xffff, VmVsrc);
+}
+
+unsigned encodeFieldVaVdst(unsigned Encoded, unsigned VaVdst) {
+  return packBits(VaVdst, Encoded, getVaVdstBitShift(), getVaVdstBitWidth());
+}
+
+unsigned encodeFieldVaVdst(unsigned VaVdst) {
+  return encodeFieldVaVdst(0xffff, VaVdst);
+}
+
+unsigned encodeFieldSaSdst(unsigned Encoded, unsigned SaSdst) {
+  return packBits(SaSdst, Encoded, getSaSdstBitShift(), getSaSdstBitWidth());
+}
+
+unsigned encodeFieldSaSdst(unsigned SaSdst) {
+  return encodeFieldSaSdst(0xffff, SaSdst);
 }
 
 } // namespace DepCtr
@@ -1956,6 +2010,8 @@ unsigned getNSAMaxSize(const MCSubtargetInfo &STI) {
   return 0;
 }
 
+unsigned getMaxNumUserSGPRs(const MCSubtargetInfo &STI) { return 16; }
+
 bool isSI(const MCSubtargetInfo &STI) {
   return STI.hasFeature(AMDGPU::FeatureSouthernIslands);
 }
@@ -2050,6 +2106,10 @@ bool hasMAIInsts(const MCSubtargetInfo &STI) {
 
 bool hasVOPD(const MCSubtargetInfo &STI) {
   return STI.hasFeature(AMDGPU::FeatureVOPD);
+}
+
+unsigned hasKernargPreload(const MCSubtargetInfo &STI) {
+  return STI.hasFeature(AMDGPU::FeatureKernargPreload);
 }
 
 int32_t getTotalNumVGPRs(bool has90AInsts, int32_t ArgNumAGPR,

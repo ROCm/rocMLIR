@@ -710,6 +710,22 @@ public:
     return result;
   }
 
+  class FpPragmaStackSaveRAII {
+  public:
+    FpPragmaStackSaveRAII(Sema &S) : S(S), SavedStack(S.FpPragmaStack) {}
+    ~FpPragmaStackSaveRAII() { S.FpPragmaStack = std::move(SavedStack); }
+
+  private:
+    Sema &S;
+    PragmaStack<FPOptionsOverride> SavedStack;
+  };
+
+  void resetFPOptions(FPOptions FPO) {
+    CurFPFeatures = FPO;
+    FpPragmaStack.Stack.clear();
+    FpPragmaStack.CurrentValue = FPO.getChangesFrom(FPOptions(LangOpts));
+  }
+
   // RAII object to push / pop sentinel slots for all MS #pragma stacks.
   // Actions should be performed only if we enter / exit a C++ method body.
   class PragmaStackSentinelRAII {
@@ -937,7 +953,7 @@ public:
   class DelayedDiagnostics;
 
   class DelayedDiagnosticsState {
-    sema::DelayedDiagnosticPool *SavedPool;
+    sema::DelayedDiagnosticPool *SavedPool = nullptr;
     friend class Sema::DelayedDiagnostics;
   };
   typedef DelayedDiagnosticsState ParsingDeclState;
@@ -995,6 +1011,14 @@ public:
       CurPool = state.SavedPool;
     }
   } DelayedDiagnostics;
+
+  enum CUDAFunctionTarget {
+    CFT_Device,
+    CFT_Global,
+    CFT_Host,
+    CFT_HostDevice,
+    CFT_InvalidTarget
+  };
 
   /// A RAII object to temporarily push a declaration context.
   class ContextRAII {
@@ -4706,8 +4730,13 @@ public:
   bool isValidPointerAttrType(QualType T, bool RefOkay = false);
 
   bool CheckRegparmAttr(const ParsedAttr &attr, unsigned &value);
+
+  /// Check validaty of calling convention attribute \p attr. If \p FD
+  /// is not null pointer, use \p FD to determine the CUDA/HIP host/device
+  /// target. Otherwise, it is specified by \p CFT.
   bool CheckCallingConvAttr(const ParsedAttr &attr, CallingConv &CC,
-                            const FunctionDecl *FD = nullptr);
+                            const FunctionDecl *FD = nullptr,
+                            CUDAFunctionTarget CFT = CFT_InvalidTarget);
   bool CheckAttrTarget(const ParsedAttr &CurrAttr);
   bool CheckAttrNoArgs(const ParsedAttr &CurrAttr);
   bool checkStringLiteralArgumentAttr(const AttributeCommonInfo &CI,
@@ -12661,6 +12690,8 @@ public:
   QualType CheckBitwiseOperands( // C99 6.5.[10...12]
       ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
       BinaryOperatorKind Opc);
+  void diagnoseLogicalInsteadOfBitwise(Expr *Op1, Expr *Op2, SourceLocation Loc,
+                                       BinaryOperatorKind Opc);
   QualType CheckLogicalOperands( // C99 6.5.[13,14]
     ExprResult &LHS, ExprResult &RHS, SourceLocation Loc,
     BinaryOperatorKind Opc);
@@ -13149,14 +13180,6 @@ public:
   void checkTypeSupport(QualType Ty, SourceLocation Loc,
                         ValueDecl *D = nullptr);
 
-  enum CUDAFunctionTarget {
-    CFT_Device,
-    CFT_Global,
-    CFT_Host,
-    CFT_HostDevice,
-    CFT_InvalidTarget
-  };
-
   /// Determines whether the given function is a CUDA device/host/kernel/etc.
   /// function.
   ///
@@ -13174,6 +13197,29 @@ public:
   };
   /// Determines whether the given variable is emitted on host or device side.
   CUDAVariableTarget IdentifyCUDATarget(const VarDecl *D);
+
+  /// Defines kinds of CUDA global host/device context where a function may be
+  /// called.
+  enum CUDATargetContextKind {
+    CTCK_Unknown,       /// Unknown context
+    CTCK_InitGlobalVar, /// Function called during global variable
+                        /// initialization
+  };
+
+  /// Define the current global CUDA host/device context where a function may be
+  /// called. Only used when a function is called outside of any functions.
+  struct CUDATargetContext {
+    CUDAFunctionTarget Target = CFT_HostDevice;
+    CUDATargetContextKind Kind = CTCK_Unknown;
+    Decl *D = nullptr;
+  } CurCUDATargetCtx;
+
+  struct CUDATargetContextRAII {
+    Sema &S;
+    CUDATargetContext SavedCtx;
+    CUDATargetContextRAII(Sema &S_, CUDATargetContextKind K, Decl *D);
+    ~CUDATargetContextRAII() { S.CurCUDATargetCtx = SavedCtx; }
+  };
 
   /// Gets the CUDA target for the current context.
   CUDAFunctionTarget CurrentCUDATarget() {
@@ -14028,6 +14074,8 @@ struct LateParsedTemplate {
   CachedTokens Toks;
   /// The template function declaration to be late parsed.
   Decl *D;
+  /// Floating-point options in the point of definition.
+  FPOptions FPO;
 };
 
 template <>

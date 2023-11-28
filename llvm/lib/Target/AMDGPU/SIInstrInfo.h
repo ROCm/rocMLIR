@@ -170,6 +170,12 @@ private:
   Register findUsedSGPR(const MachineInstr &MI, int OpIndices[3]) const;
 
 protected:
+  /// If the specific machine instruction is a instruction that moves/copies
+  /// value from one register to another register return destination and source
+  /// registers as machine operands.
+  std::optional<DestSourcePair>
+  isCopyInstrImpl(const MachineInstr &MI) const override;
+
   bool swapSourceModifiers(MachineInstr &MI,
                            MachineOperand &Src0, unsigned Src0OpName,
                            MachineOperand &Src1, unsigned Src1OpName) const;
@@ -216,6 +222,9 @@ public:
 
   bool isIgnorableUse(const MachineOperand &MO) const override;
 
+  bool isSafeToSink(MachineInstr &MI, MachineBasicBlock *SuccToSinkTo,
+                    MachineCycleInfo *CI) const override;
+
   bool areLoadsFromSameBasePtr(SDNode *Load0, SDNode *Load1, int64_t &Offset0,
                                int64_t &Offset1) const override;
 
@@ -251,12 +260,27 @@ public:
                     MachineBasicBlock::iterator I, const DebugLoc &DL,
                     Register SrcReg, int Value)  const;
 
+private:
+  void storeRegToStackSlotImpl(MachineBasicBlock &MBB,
+                               MachineBasicBlock::iterator MI, Register SrcReg,
+                               bool isKill, int FrameIndex,
+                               const TargetRegisterClass *RC,
+                               const TargetRegisterInfo *TRI, Register VReg,
+                               bool NeedsCFI) const;
+
+public:
   void storeRegToStackSlot(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MI, Register SrcReg,
                            bool isKill, int FrameIndex,
                            const TargetRegisterClass *RC,
                            const TargetRegisterInfo *TRI,
                            Register VReg) const override;
+
+  void storeRegToStackSlotCFI(MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator MI, Register SrcReg,
+                              bool isKill, int FrameIndex,
+                              const TargetRegisterClass *RC,
+                              const TargetRegisterInfo *TRI) const;
 
   void loadRegFromStackSlot(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MI, Register DestReg,
@@ -654,6 +678,11 @@ public:
     return get(Opcode).TSFlags & SIInstrFlags::SGPRSpill;
   }
 
+  static bool isWWMRegSpillOpcode(uint16_t Opcode) {
+    return Opcode == AMDGPU::SI_SPILL_WWM_V32_SAVE ||
+           Opcode == AMDGPU::SI_SPILL_WWM_V32_RESTORE;
+  }
+
   static bool isDPP(const MachineInstr &MI) {
     return MI.getDesc().TSFlags & SIInstrFlags::DPP;
   }
@@ -822,7 +851,7 @@ public:
   }
 
   bool isVGPRCopy(const MachineInstr &MI) const {
-    assert(MI.isCopy());
+    assert(isCopyInstr(MI));
     Register Dest = MI.getOperand(0).getReg();
     const MachineFunction &MF = *MI.getParent()->getParent();
     const MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -892,7 +921,7 @@ public:
     if (OpIdx >= MI.getDesc().NumOperands)
       return false;
 
-    if (MI.isCopy()) {
+    if (isCopyInstr(MI)) {
       unsigned Size = getOpSize(MI, OpIdx);
       assert(Size == 8 || Size == 4);
 
@@ -938,6 +967,15 @@ public:
                          StringRef &ErrInfo) const override;
 
   unsigned getVALUOp(const MachineInstr &MI) const;
+
+  void insertScratchExecCopy(MachineFunction &MF, MachineBasicBlock &MBB,
+                             MachineBasicBlock::iterator MBBI,
+                             const DebugLoc &DL, Register Reg, bool IsSCCLive,
+                             SlotIndexes *Indexes = nullptr) const;
+
+  void restoreExec(MachineFunction &MF, MachineBasicBlock &MBB,
+                   MachineBasicBlock::iterator MBBI, const DebugLoc &DL,
+                   Register Reg, SlotIndexes *Indexes = nullptr) const;
 
   /// Return the correct register class for \p OpNo.  For target-specific
   /// instructions, this will return the register class that has been defined
@@ -1128,6 +1166,9 @@ public:
   ScheduleHazardRecognizer *
   CreateTargetMIHazardRecognizer(const InstrItineraryData *II,
                                  const ScheduleDAGMI *DAG) const override;
+
+  unsigned getLiveRangeSplitOpcode(Register Reg,
+                                   const MachineFunction &MF) const override;
 
   bool isBasicBlockPrologue(const MachineInstr &MI) const override;
 

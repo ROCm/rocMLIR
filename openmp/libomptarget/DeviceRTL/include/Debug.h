@@ -20,14 +20,15 @@
 /// {
 extern "C" {
 void __assert_assume(bool condition);
-void __assert_fail(const char *assertion, const char *file, unsigned line,
-                   const char *function);
+void __assert_fail(const char *expr, const char *msg, const char *file,
+                   unsigned line, const char *function);
 }
 
-#define ASSERT(expr)                                                           \
+#if !defined(OMPTARGET_DEBUG) || (OMPTARGET_DEBUG != 0)
+#define ASSERT(expr, msg)                                                      \
   {                                                                            \
     if (config::isDebugMode(config::DebugKind::Assertion) && !(expr))          \
-      __assert_fail(#expr, __FILE__, __LINE__, __PRETTY_FUNCTION__);           \
+      __assert_fail(#expr, msg, __FILE__, __LINE__, __PRETTY_FUNCTION__);      \
     else                                                                       \
       __assert_assume(expr);                                                   \
   }
@@ -43,6 +44,12 @@ void __assert_fail(const char *assertion, const char *file, unsigned line,
 /// FunctionTracting set in the debug kind.
 #define FunctionTracingRAII()                                                  \
   DebugEntryRAII Entry(__FILE__, __LINE__, __PRETTY_FUNCTION__);
+#else
+#define ASSERT(expr, msg)
+#define PRINTF(fmt, ...)
+#define PRINT(str) PRINTF("%s", str)
+#define FunctionTracingRAII()
+#endif
 
 /// An RAII class for handling entries to debug locations. The current location
 /// and function will be printed on entry. Nested levels increase the

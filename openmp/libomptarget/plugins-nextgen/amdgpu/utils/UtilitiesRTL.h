@@ -26,25 +26,67 @@
 
 #include "llvm/Support/YAMLTraits.h"
 
+#include "elf_common.h"
+
 namespace llvm {
 namespace omp {
 namespace target {
 namespace plugin {
 namespace utils {
 
-// The implicit arguments of AMDGPU kernels.
-struct AMDGPUImplicitArgsTy {
-  uint64_t OffsetX;
-  uint64_t OffsetY;
-  uint64_t OffsetZ;
-  uint64_t HostcallPtr;
-  uint64_t Unused0;
-  uint64_t Unused1;
-  uint64_t Unused2;
+/// A list of offsets required by the ABI of code object versions 4 and 5.
+enum COV_OFFSETS : uint32_t {
+  COV4_SIZE = 56,
+  COV4_HOSTCALL_PTR_OFFSET = 24,
+  HOSTCALL_PTR_SIZE = 8,
+
+  COV5_SIZE = 256,
+
+  COV5_BLOCK_COUNT_X_OFFSET = 0,
+  COV5_BLOCK_COUNT_X_SIZE = 4,
+
+  COV5_BLOCK_COUNT_Y_OFFSET = 4,
+  COV5_BLOCK_COUNT_Y_SIZE = 4,
+
+  COV5_BLOCK_COUNT_Z_OFFSET = 8,
+  COV5_BLOCK_COUNT_Z_SIZE = 4,
+
+  COV5_GROUP_SIZE_X_OFFSET = 12,
+  COV5_GROUP_SIZE_X_SIZE = 2,
+
+  COV5_GROUP_SIZE_Y_OFFSET = 14,
+  COV5_GROUP_SIZE_Y_SIZE = 2,
+
+  COV5_GROUP_SIZE_Z_OFFSET = 16,
+  COV5_GROUP_SIZE_Z_SIZE = 2,
+
+  COV5_REMAINDER_X_OFFSET = 18,
+  COV5_REMAINDER_X_SIZE = 2,
+
+  COV5_REMAINDER_Y_OFFSET = 20,
+  COV5_REMAINDER_Y_SIZE = 2,
+
+  COV5_REMAINDER_Z_OFFSET = 22,
+  COV5_REMAINDER_Z_SIZE = 2,
+
+  COV5_GRID_DIMS_OFFSET = 64,
+  COV5_GRID_DIMS_SIZE = 2,
+
+  COV5_HOSTCALL_PTR_OFFSET = 80,
+
+  COV5_HEAPV1_PTR_OFFSET = 96,
+  COV5_HEAPV1_PTR_SIZE = 8,
+
+  // 128 KB
+  PER_DEVICE_PREALLOC_SIZE = 131072
 };
 
-static_assert(sizeof(AMDGPUImplicitArgsTy) == 56,
-              "Unexpected size of implicit arguments");
+enum XnackBuildMode : short {
+  XNACK_UNSUPPORTED = -1,
+  XNACK_MINUS = 0,
+  XNACK_PLUS = 1,
+  XNACK_ANY = 2
+};
 
 /// Parse a TargetID to get processor arch and feature map.
 /// Returns processor subarch.
@@ -80,7 +122,6 @@ StringRef parseTargetID(StringRef TargetID, StringMap<bool> &FeatureMap) {
 bool isImageCompatibleWithEnv(const __tgt_image_info *Info,
                               StringRef EnvTargetID) {
   llvm::StringRef ImageTargetID(Info->Arch);
-
   // Compatible in case of exact match.
   if (ImageTargetID == EnvTargetID) {
     DP("Compatible: Exact match \t[Image: %s]\t:\t[Env: %s]\n",
@@ -133,6 +174,71 @@ bool isImageCompatibleWithEnv(const __tgt_image_info *Info,
      ImageTargetID.data(), EnvTargetID.data());
 
   return true;
+}
+
+// Check target image for XNACK mode (XNACK+, XNACK-ANY, XNACK-)
+[[nodiscard]] XnackBuildMode
+extractXnackModeFromBinary(const __tgt_device_image *TgtImage) {
+  assert((TgtImage != nullptr) && "TgtImage is nullptr.");
+  u_int16_t EFlags = elf_get_eflags(TgtImage);
+
+  unsigned XnackFlags = EFlags & ELF::EF_AMDGPU_FEATURE_XNACK_V4;
+
+  switch (XnackFlags) {
+  case ELF::EF_AMDGPU_FEATURE_XNACK_ON_V4:
+    return XnackBuildMode::XNACK_PLUS;
+  case ELF::EF_AMDGPU_FEATURE_XNACK_ANY_V4:
+    return XnackBuildMode::XNACK_ANY;
+  case ELF::EF_AMDGPU_FEATURE_XNACK_OFF_V4:
+    return XnackBuildMode::XNACK_MINUS;
+  case ELF::EF_AMDGPU_FEATURE_XNACK_UNSUPPORTED_V4:
+    return XnackBuildMode::XNACK_UNSUPPORTED;
+  default:
+    FAILURE_MESSAGE("Unknown XNACK flag!\n");
+  }
+  return XNACK_MINUS;
+}
+
+bool IsXnackEnabledViaKernelParam() {
+
+  ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrError =
+      MemoryBuffer::getFileAsStream("/proc/cmdline");
+
+  if (std::error_code ErrorCode = FileOrError.getError()) {
+    FAILURE_MESSAGE("Cannot open /proc/cmdline : %s\n",
+                    ErrorCode.message().c_str());
+    return false;
+  }
+
+  StringRef FileContent = (FileOrError.get())->getBuffer();
+
+  StringRef RefString("amdgpu.noretry=");
+  int SizeOfRefString = RefString.size();
+
+  size_t Pos = FileContent.find_insensitive(RefString);
+  // Is noretry defined?
+  if (Pos != StringRef::npos) {
+    bool NoRetryValue = FileContent[Pos + SizeOfRefString] - '0';
+    // is noretry set to 0
+    if (!NoRetryValue)
+      return true;
+  }
+
+  return false;
+}
+
+void checkImageCompatibilityWithSystemXnackMode(__tgt_device_image *TgtImage,
+                                                bool IsXnackEnabled) {
+  XnackBuildMode ImageXnackMode = utils::extractXnackModeFromBinary(TgtImage);
+  if ((IsXnackEnabled && !ImageXnackMode)) {
+    FAILURE_MESSAGE(
+        "Image is not compatible with current XNACK mode! XNACK is enabled "
+        "on the system but image was compiled with xnack-.\n");
+  } else if (!IsXnackEnabled && (ImageXnackMode == 1)) {
+    FAILURE_MESSAGE("Image is not compatible with current XNACK mode! "
+                    "XNACK is disabled on the system. However, the image "
+                    "requires xnack+.\n");
+  }
 }
 
 struct KernelMetaDataTy {
@@ -223,7 +329,7 @@ private:
       KernelData.VGPRSpillCount = V.second.getUInt();
     } else if (isKey(V.first, ".private_segment_fixed_size")) {
       KernelData.PrivateSegmentSize = V.second.getUInt();
-    } else if (isKey(V.first, ".group_segement_fixed_size")) {
+    } else if (isKey(V.first, ".group_segment_fixed_size")) {
       KernelData.GroupSegmentList = V.second.getUInt();
     } else if (isKey(V.first, ".reqd_workgroup_size")) {
       getSequenceOfThreeInts(V.second, KernelData.RequestedWorkgroupSize);
@@ -295,7 +401,8 @@ private:
 /// Reads the AMDGPU specific metadata from the ELF file and propagates the
 /// KernelInfoMap
 Error readAMDGPUMetaDataFromImage(MemoryBufferRef MemBuffer,
-                                  StringMap<KernelMetaDataTy> &KernelInfoMap) {
+                                  StringMap<KernelMetaDataTy> &KernelInfoMap,
+                                  uint16_t &ELFABIVersion) {
   Error Err = Error::success(); // Used later as out-parameter
 
   auto ELFOrError = object::ELF64LEFile::create(MemBuffer.getBuffer());
@@ -305,6 +412,12 @@ Error readAMDGPUMetaDataFromImage(MemoryBufferRef MemBuffer,
   const object::ELF64LEFile ELFObj = ELFOrError.get();
   ArrayRef<object::ELF64LE::Shdr> Sections = cantFail(ELFObj.sections());
   KernelInfoReader Reader(KernelInfoMap);
+
+  // Read the code object version from ELF image header
+  auto Header = ELFObj.getHeader();
+  ELFABIVersion = (uint8_t)(Header.e_ident[ELF::EI_ABIVERSION]);
+  DP("ELFABIVERSION Version: %u\n", ELFABIVersion);
+
   for (const auto &S : Sections) {
     if (S.sh_type != ELF::SHT_NOTE)
       continue;

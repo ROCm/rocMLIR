@@ -13,7 +13,7 @@
 ; RUN: llvm-lto -thinlto-action=internalize %t.bc -thinlto-index=%t3.bc -exported-symbol=_linkoncefunc -o - | llvm-dis -o - | FileCheck %s --check-prefix=MOD1-INT
 ; RUN: llvm-lto -thinlto-action=promote %t2.bc -thinlto-index=%t3.bc -o - | llvm-dis -o - | FileCheck %s --check-prefix=MOD2
 ; When exported, we always preserve a linkonce
-; RUN: llvm-lto -thinlto-action=promote %t.bc -thinlto-index=%t3.bc -o - --exported-symbol=_linkonceodrfuncInSingleModule | llvm-dis -o - | FileCheck %s --check-prefix=EXPORTED
+; RUN: llvm-lto  -thinlto-action=promote %t.bc -thinlto-index=%t3.bc -o - --exported-symbol=_linkonceodrfuncInSingleModule | llvm-dis  -o - | FileCheck %s --check-prefix=EXPORTED
 
 ;; Now try this with the new LTO API
 ; RUN: llvm-lto2 run %t.bc %t2.bc -o %t3.out -save-temps \

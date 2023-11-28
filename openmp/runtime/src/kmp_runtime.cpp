@@ -405,6 +405,8 @@ void __kmp_print_storage_map_gtid(int gtid, void *p1, void *p2, size_t size,
   }
 #endif /* KMP_PRINT_DATA_PLACEMENT */
   __kmp_release_bootstrap_lock(&__kmp_stdio_lock);
+
+  va_end(ap);
 }
 
 void __kmp_warn(char const *format, ...) {
@@ -6103,7 +6105,6 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
       __kmp_join_barrier(gtid);
     }
   }
-  TCR_SYNC_PTR((intptr_t)__kmp_global.g.g_done);
 
 #if OMPD_SUPPORT
   if (ompd_state & OMPD_ENABLE_BP)
@@ -8233,6 +8234,7 @@ void __kmp_cleanup(void) {
 #else
   __kmp_cleanup_user_locks();
 #endif
+
 #if OMPD_SUPPORT
   if (ompd_state) {
     __kmp_free(ompd_env_block);
@@ -9141,14 +9143,9 @@ void __kmp_add_threads_to_team(kmp_team_t *team, int new_nthreads) {
 // Globals and functions for hidden helper task
 kmp_info_t **__kmp_hidden_helper_threads;
 kmp_info_t *__kmp_hidden_helper_main_thread;
-std::atomic<kmp_int32> __kmp_unexecuted_hidden_helper_tasks;
-#if KMP_OS_LINUX
-kmp_int32 __kmp_hidden_helper_threads_num = 8;
-kmp_int32 __kmp_enable_hidden_helper = TRUE;
-#else
 kmp_int32 __kmp_hidden_helper_threads_num = 0;
+std::atomic<kmp_int32> __kmp_unexecuted_hidden_helper_tasks;
 kmp_int32 __kmp_enable_hidden_helper = FALSE;
-#endif
 
 namespace {
 std::atomic<kmp_int32> __kmp_hit_hidden_helper_threads_num;

@@ -318,10 +318,10 @@ public:
 
   /// CurFuncDecl - Holds the Decl for the current outermost
   /// non-closure context.
-  const Decl *CurFuncDecl;
+  const Decl *CurFuncDecl = nullptr;
   /// CurCodeDecl - This is the inner-most code context, which includes blocks.
-  const Decl *CurCodeDecl;
-  const CGFunctionInfo *CurFnInfo;
+  const Decl *CurCodeDecl = nullptr;
+  const CGFunctionInfo *CurFnInfo = nullptr;
   QualType FnRetTy;
   llvm::Function *CurFn = nullptr;
 
@@ -407,6 +407,7 @@ public:
 
     return PostAllocaInsertPt;
   }
+
 
   /// API for captured statement code generation.
   class CGCapturedStmtInfo {
@@ -748,11 +749,11 @@ public:
 
     /// An i1 variable indicating whether or not the @finally is
     /// running for an exception.
-    llvm::AllocaInst *ForEHVar;
+    llvm::AllocaInst *ForEHVar = nullptr;
 
     /// An i8* variable into which the exception pointer to rethrow
     /// has been saved.
-    llvm::AllocaInst *SavedExnVar;
+    llvm::AllocaInst *SavedExnVar = nullptr;
 
   public:
     void enter(CodeGenFunction &CGF, const Stmt *Finally,
@@ -1022,6 +1023,11 @@ public:
       QualType VarTy = LocalVD->getType();
       if (VarTy->isReferenceType()) {
         Address Temp = CGF.CreateMemTemp(VarTy);
+        if (Temp.getElementType() != TempAddr.getPointer()->getType())
+          Temp = Address(CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+                             Temp.getPointer(),
+                             TempAddr.getPointer()->getType()->getPointerTo()),
+                         CGF.Int8Ty, TempAddr.getAlignment());
         CGF.Builder.CreateStore(TempAddr.getPointer(), Temp);
         TempAddr = Temp;
       }
@@ -2065,6 +2071,8 @@ public:
                                    llvm::Value *CompletePtr,
                                    QualType ElementType);
   void pushStackRestore(CleanupKind kind, Address SPMem);
+  void pushKmpcAllocFree(CleanupKind Kind,
+                         std::pair<llvm::Value *, llvm::Value *> AddrSizePair);
   void emitDestroy(Address addr, QualType type, Destroyer *destroyer,
                    bool useEHCleanupForArray);
   llvm::Function *generateDestroyHelper(Address addr, QualType type,
@@ -2716,6 +2724,10 @@ public:
                          AggValueSlot::Overlap_t MayOverlap,
                          bool isVolatile = false);
 
+  bool hasAddrOfLocalVar(const VarDecl *VD) {
+    return LocalDeclMap.find(VD) != LocalDeclMap.end();
+  }
+
   /// GetAddrOfLocalVar - Return the address of a local variable.
   Address GetAddrOfLocalVar(const VarDecl *VD) {
     auto it = LocalDeclMap.find(VD);
@@ -3143,16 +3155,20 @@ public:
     llvm::Value *Value;
     llvm::Type *ElementType;
     unsigned Alignment;
-    ParamValue(llvm::Value *V, llvm::Type *T, unsigned A)
-        : Value(V), ElementType(T), Alignment(A) {}
+    std::optional<Address> DebugAddr;
+    ParamValue(llvm::Value *V, llvm::Type *T, unsigned A,
+               std::optional<Address> DebugAddr)
+        : Value(V), ElementType(T), Alignment(A), DebugAddr(DebugAddr) {}
+
   public:
     static ParamValue forDirect(llvm::Value *value) {
-      return ParamValue(value, nullptr, 0);
+      return ParamValue(value, nullptr, 0, std::nullopt);
     }
-    static ParamValue forIndirect(Address addr) {
+    static ParamValue forIndirect(Address addr,
+                                  std::optional<Address> DebugAddr = std::nullopt) {
       assert(!addr.getAlignment().isZero());
       return ParamValue(addr.getPointer(), addr.getElementType(),
-                        addr.getAlignment().getQuantity());
+                        addr.getAlignment().getQuantity(), DebugAddr);
     }
 
     bool isIndirect() const { return Alignment != 0; }
@@ -3168,6 +3184,8 @@ public:
       return Address(Value, ElementType, CharUnits::fromQuantity(Alignment),
                      KnownNonNull);
     }
+
+    std::optional<Address> getDebugAddr() const { return DebugAddr; }
   };
 
   /// EmitParmDecl - Emit a ParmVarDecl or an ImplicitParamDecl.
@@ -3217,6 +3235,40 @@ public:
   /// EnsureInsertPoint if they wish to subsequently generate code without first
   /// calling EmitBlock, EmitBranch, or EmitStmt.
   void EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs = std::nullopt);
+
+  /// EmitOptKernel - For an OpenMP target directive, emit the optimized
+  /// kernel code assuming that related runtime environment variables
+  /// can be ignored. This function should be called after ensuring that
+  /// legality conditions for a no-loop kernel are met. There are 3 kinds of
+  /// optimized kernels that may be generated: No-Loop, Big-Jump-Loop, and Xteam
+  /// reduction.
+  void EmitOptKernel(const OMPExecutableDirective &D,
+                     const ForStmt *CapturedForStmt,
+                     llvm::omp::OMPTgtExecModeFlags OptKernelMode,
+                     SourceLocation Loc, const FunctionArgList *Args);
+
+  void EmitOptKernelCode(const OMPExecutableDirective &D,
+                         const ForStmt *CapturedForStmt,
+                         llvm::omp::OMPTgtExecModeFlags OptKernelMode,
+                         SourceLocation Loc, const FunctionArgList *Args);
+
+  void EmitNoLoopCode(const OMPExecutableDirective &D,
+                      const ForStmt *CapturedForStmt, SourceLocation Loc);
+
+  void EmitBigJumpLoopCode(const OMPExecutableDirective &D,
+                           const ForStmt *CapturedForStmt, SourceLocation Loc);
+
+  void EmitXteamRedCode(const OMPExecutableDirective &D,
+                        const ForStmt *CapturedForStmt, SourceLocation Loc,
+                        const FunctionArgList *Args);
+
+  /// Used in No-Loop and Xteam codegen to emit the loop iteration and the
+  /// associated variables. Returns the loop iteration variable and its address.
+  std::pair<const VarDecl *, Address> EmitNoLoopIV(const OMPLoopDirective &LD);
+
+  /// Emit updates of the original loop indices. Used by both
+  /// BigJumpLoop and Xteam reduction kernel codegen.
+  void EmitBigJumpLoopUpdates(const ForStmt &FStmt);
 
   /// EmitSimpleStmt - Try to emit a "simple" statement which does not
   /// necessarily require an insertion point or debug information; typically
@@ -3345,10 +3397,16 @@ public:
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
   llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
-  llvm::Function *GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
-                                                     SourceLocation Loc);
+  llvm::Function *
+  GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
+                                     const OMPExecutableDirective &D,
+                                     SourceLocation Loc);
   void GenerateOpenMPCapturedVars(const CapturedStmt &S,
-                                  SmallVectorImpl<llvm::Value *> &CapturedVars);
+                                  SmallVectorImpl<llvm::Value *> &CapturedVars,
+                                  const Stmt *XteamRedNestKey);
+  void
+  InitializeXteamRedCapturedVars(SmallVectorImpl<llvm::Value *> &CapturedVars,
+                                 QualType RedVarQualType);
   void emitOMPSimpleStore(LValue LVal, RValue RVal, QualType RValTy,
                           SourceLocation Loc);
   /// Perform element by element copying of arrays with type \a
@@ -3389,22 +3447,26 @@ public:
   /// \param AO Atomic ordering of the generated atomic instructions.
   /// \param CommonGen Code generator for complex expressions that cannot be
   /// expressed through atomicrmw instruction.
+  /// \param Hint OpenMP atomic hint expression
   /// \returns <true, OldAtomicValue> if simple 'atomicrmw' instruction was
   /// generated, <false, RValue::get(nullptr)> otherwise.
   std::pair<bool, RValue> EmitOMPAtomicSimpleUpdateExpr(
       LValue X, RValue E, BinaryOperatorKind BO, bool IsXLHSInRHSPart,
       llvm::AtomicOrdering AO, SourceLocation Loc,
-      const llvm::function_ref<RValue(RValue)> CommonGen);
+      const llvm::function_ref<RValue(RValue)> CommonGen,
+      const Expr *Hint = nullptr);
   bool EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
                                  OMPPrivateScope &PrivateScope);
   void EmitOMPPrivateClause(const OMPExecutableDirective &D,
                             OMPPrivateScope &PrivateScope);
   void EmitOMPUseDevicePtrClause(
       const OMPUseDevicePtrClause &C, OMPPrivateScope &PrivateScope,
-      const llvm::DenseMap<const ValueDecl *, Address> &CaptureDeviceAddrMap);
+      const llvm::DenseMap<const ValueDecl *, llvm::Value *>
+          CaptureDeviceAddrMap);
   void EmitOMPUseDeviceAddrClause(
       const OMPUseDeviceAddrClause &C, OMPPrivateScope &PrivateScope,
-      const llvm::DenseMap<const ValueDecl *, Address> &CaptureDeviceAddrMap);
+      const llvm::DenseMap<const ValueDecl *, llvm::Value *>
+          CaptureDeviceAddrMap);
   /// Emit code for copyin clause in \a D directive. The next code is
   /// generated at the start of outlined functions for directives:
   /// \code
@@ -3579,7 +3641,14 @@ public:
       const OMPTargetTeamsDistributeParallelForSimdDirective &S);
   void EmitOMPTargetTeamsDistributeSimdDirective(
       const OMPTargetTeamsDistributeSimdDirective &S);
-  void EmitOMPGenericLoopDirective(const OMPGenericLoopDirective &S);
+  void EmitOMPGenericLoopDirective(const OMPLoopDirective &S);
+  void EmitOMPParallelGenericLoopDirective(
+      const OMPLoopDirective &S);
+  void EmitOMPTargetParallelGenericLoopDirective(
+      const OMPTargetParallelGenericLoopDirective &S);
+  void EmitOMPTargetTeamsGenericLoopDirective(
+      const OMPTargetTeamsGenericLoopDirective &S);
+  void EmitOMPTeamsGenericLoopDirective(const OMPTeamsGenericLoopDirective &S);
   void EmitOMPInteropDirective(const OMPInteropDirective &S);
   void EmitOMPParallelMaskedDirective(const OMPParallelMaskedDirective &S);
 
@@ -3620,6 +3689,16 @@ public:
       CodeGenModule &CGM, StringRef ParentName,
       const OMPTargetTeamsDistributeParallelForSimdDirective &S);
 
+  /// Emit device code for the target teams loop directive.
+  static void EmitOMPTargetTeamsGenericLoopDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetTeamsGenericLoopDirective &S);
+
+  /// Emit device code for the target parallel loop directive.
+  static void EmitOMPTargetParallelGenericLoopDeviceFunction(
+      CodeGenModule &CGM, StringRef ParentName,
+      const OMPTargetParallelGenericLoopDirective &S);
+
   static void EmitOMPTargetTeamsDistributeParallelForDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
       const OMPTargetTeamsDistributeParallelForDirective &S);
@@ -3658,6 +3737,9 @@ public:
 
   /// Helper for the OpenMP loop directives.
   void EmitOMPLoopBody(const OMPLoopDirective &D, JumpDest LoopExit);
+
+  /// Helper for OpenMP NoLoop kernel CodeGen
+  void EmitOMPNoLoopBody(const OMPLoopDirective &D);
 
   /// Emit code for the worksharing loop-based directive.
   /// \return true, if this construct has any lastprivate clause, false -
@@ -4130,9 +4212,17 @@ public:
   RValue EmitCUDAKernelCallExpr(const CUDAKernelCallExpr *E,
                                 ReturnValueSlot ReturnValue);
 
-  RValue EmitNVPTXDevicePrintfCallExpr(const CallExpr *E);
-  RValue EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E);
-  RValue EmitOpenMPDevicePrintfCallExpr(const CallExpr *E);
+  RValue EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
+                                       ReturnValueSlot ReturnValue);
+  RValue EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E,
+                                        ReturnValueSlot ReturnValue);
+  std::vector<std::string> HostexecFns{
+      "printf",        "fprintf",         "hostexec",
+      "hostexec_uint", "hostexec_uint64", "hostexec_int",
+      "hostexec_long", "hostexec_float",  "hostexec_double"};
+  RValue EmitHostexecAllocAndExecFns(const CallExpr *E,
+                                     const char *allocate_name,
+                                     const char *execute_name);
 
   RValue EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                          const CallExpr *E, ReturnValueSlot ReturnValue);
@@ -4688,6 +4778,14 @@ public:
   /// point operation, expressed as the maximum relative error in ulp.
   void SetFPAccuracy(llvm::Value *Val, float Accuracy);
 
+  /// Set the minimum required accuracy of the given sqrt operation
+  /// based on CodeGenOpts.
+  void SetSqrtFPAccuracy(llvm::Value *Val);
+
+  /// Set the minimum required accuracy of the given sqrt operation based on
+  /// CodeGenOpts.
+  void SetDivFPAccuracy(llvm::Value *Val);
+
   /// Set the codegen fast-math flags.
   void SetFastMathFlags(FPOptions FPFeatures);
 
@@ -4853,6 +4951,22 @@ private:
   llvm::Value *EmitX86CpuSupports(ArrayRef<StringRef> FeatureStrs);
   llvm::Value *EmitX86CpuSupports(uint64_t Mask);
   llvm::Value *EmitX86CpuInit();
+
+  llvm::Value *applyNoLoopInc(const Expr *Inc, const VarDecl *IVDecl,
+                              llvm::Value *CurrVal);
+  /// Emit the starting index of a BigJumpLoop which is used in
+  /// BigJumpLoop and Xteam reduction kernels.
+  std::pair<const VarDecl *, Address>
+  EmitBigJumpLoopStartingIndex(const ForStmt &FStmt);
+  /// Emit the increment of a BigJumpLoop which is used in BigJumpLoop
+  /// and Xteam reduction kernels.
+  void EmitBigJumpLoopInc(const ForStmt &FStmt, const VarDecl *LoopVar,
+                          const Address &NoLoopIvAddr);
+  void EmitXteamLocalAggregator(const ForStmt *FStmt);
+  void EmitXteamRedSum(const ForStmt *FStmt, const FunctionArgList &Args,
+                       int BlockSize);
+  bool EmitXteamRedStmt(const Stmt *S);
+
   llvm::Value *FormX86ResolverCondition(const MultiVersionResolverOption &RO);
   llvm::Value *EmitAArch64CpuInit();
   llvm::Value *

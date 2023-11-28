@@ -9,7 +9,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/Utils/MemRefUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -108,18 +107,22 @@ Type mlir::memref::getTensorTypeFromMemRefType(Type type) {
   return NoneType::get(type.getContext());
 }
 
+OpFoldResult memref::getMixedSize(OpBuilder &builder, Location loc, Value value,
+                                  int64_t dim) {
+  auto memrefType = llvm::cast<MemRefType>(value.getType());
+  SmallVector<OpFoldResult> result;
+  if (memrefType.isDynamicDim(dim))
+    return builder.createOrFold<memref::DimOp>(loc, value, dim);
+
+  return builder.getIndexAttr(memrefType.getDimSize(dim));
+}
+
 SmallVector<OpFoldResult> memref::getMixedSizes(OpBuilder &builder,
                                                 Location loc, Value value) {
   auto memrefType = llvm::cast<MemRefType>(value.getType());
   SmallVector<OpFoldResult> result;
-  for (int64_t i = 0; i < memrefType.getRank(); ++i) {
-    if (memrefType.isDynamicDim(i)) {
-      Value size = builder.create<memref::DimOp>(loc, value, i);
-      result.push_back(size);
-    } else {
-      result.push_back(builder.getIndexAttr(memrefType.getDimSize(i)));
-    }
-  }
+  for (int64_t i = 0; i < memrefType.getRank(); ++i)
+    result.push_back(getMixedSize(builder, loc, value, i));
   return result;
 }
 
@@ -1352,13 +1355,10 @@ void ExtractAlignedPointerAsIndexOp::getAsmResultNames(
 /// The number and type of the results are inferred from the
 /// shape of the source.
 LogicalResult ExtractStridedMetadataOp::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    MLIRContext *context, std::optional<Location> location,
+    ExtractStridedMetadataOp::Adaptor adaptor,
     SmallVectorImpl<Type> &inferredReturnTypes) {
-  ExtractStridedMetadataOpAdaptor extractAdaptor(operands, attributes,
-                                                 properties);
-  auto sourceType =
-      llvm::dyn_cast<MemRefType>(extractAdaptor.getSource().getType());
+  auto sourceType = llvm::dyn_cast<MemRefType>(adaptor.getSource().getType());
   if (!sourceType)
     return failure();
 
@@ -1869,13 +1869,15 @@ LogicalResult ReinterpretCastOp::verify() {
            << srcType << " and result memref type " << resultType;
 
   // Match sizes in result memref type and in static_sizes attribute.
-  for (auto [idx, resultSize, expectedSize] :
-       llvm::enumerate(resultType.getShape(), getStaticSizes())) {
+  for (auto &en :
+       llvm::enumerate(llvm::zip(resultType.getShape(), getStaticSizes()))) {
+    int64_t resultSize = std::get<0>(en.value());
+    int64_t expectedSize = std::get<1>(en.value());
     if (!ShapedType::isDynamic(resultSize) &&
         !ShapedType::isDynamic(expectedSize) && resultSize != expectedSize)
       return emitError("expected result type with size = ")
              << expectedSize << " instead of " << resultSize
-             << " in dim = " << idx;
+             << " in dim = " << en.index();
   }
 
   // Match offset and strides in static_offset and static_strides attributes. If
@@ -1896,14 +1898,16 @@ LogicalResult ReinterpretCastOp::verify() {
            << expectedOffset << " instead of " << resultOffset;
 
   // Match strides in result memref type and in static_strides attribute.
-  for (auto [idx, resultStride, expectedStride] :
-       llvm::enumerate(resultStrides, getStaticStrides())) {
+  for (auto &en :
+       llvm::enumerate(llvm::zip(resultStrides, getStaticStrides()))) {
+    int64_t resultStride = std::get<0>(en.value());
+    int64_t expectedStride = std::get<1>(en.value());
     if (!ShapedType::isDynamic(resultStride) &&
         !ShapedType::isDynamic(expectedStride) &&
         resultStride != expectedStride)
       return emitError("expected result type with stride = ")
              << expectedStride << " instead of " << resultStride
-             << " in dim = " << idx;
+             << " in dim = " << en.index();
   }
 
   return success();

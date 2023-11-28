@@ -210,7 +210,6 @@
 
 /* Features in %edx for leaf 7 sub-leaf 1 */
 #define bit_AVXVNNIINT8   0x00000010
-#define bit_AVXNECONVERT  0x00000020
 #define bit_PREFETCHI     0x00004000
 
 /* Features in %eax for leaf 13 sub-leaf 1 */
@@ -330,12 +329,14 @@ static __inline int __get_cpuid_count (unsigned int __leaf,
 
 // If MS extensions are enabled, __cpuidex is defined as a builtin which will
 // conflict with the __cpuidex definition below.
+#ifdef BREAKS_ROCBLAS
 #ifndef _MSC_EXTENSIONS
 static __inline void __cpuidex (int __cpu_info[4], int __leaf, int __subleaf)
 {
   __cpuid_count(__leaf, __subleaf, __cpu_info[0], __cpu_info[1], __cpu_info[2],
                 __cpu_info[3]);
 }
+#endif
 #endif
 
 #endif /* __CPUID_H */

@@ -62,6 +62,7 @@ MODULE_PASS("forceattrs", ForceFunctionAttrsPass())
 MODULE_PASS("function-import", FunctionImportPass())
 MODULE_PASS("globalopt", GlobalOptPass())
 MODULE_PASS("globalsplit", GlobalSplitPass())
+MODULE_PASS("heterogeneous-debug-verify", HeterogeneousDebugVerify(TM->getOptLevel()))
 MODULE_PASS("hotcoldsplit", HotColdSplittingPass())
 MODULE_PASS("inferattrs", InferFunctionAttrsPass())
 MODULE_PASS("inliner-wrapper", ModuleInlinerWrapperPass())
@@ -183,6 +184,13 @@ MODULE_PASS_WITH_PARAMS("embed-bitcode",
                         },
                         parseEmbedBitcodePassOptions,
                         "thinlto;emit-summary")
+MODULE_PASS_WITH_PARAMS("memprof-use",
+                         "MemProfUsePass",
+                        [](std::string Opts) {
+                          return MemProfUsePass(Opts);
+                        },
+                        parseMemProfUsePassOptions,
+                        "profile-filename=S")
 #undef MODULE_PASS_WITH_PARAMS
 
 #ifndef CGSCC_ANALYSIS
@@ -226,7 +234,7 @@ CGSCC_PASS_WITH_PARAMS("function-attrs",
                          return PostOrderFunctionAttrsPass(SkipNonRecursive);
                        },
                        parsePostOrderFunctionAttrsPassOptions,
-                       "skip-non-recursive")
+                       "skip-non-recursive-function-attrs")
 #undef CGSCC_PASS_WITH_PARAMS
 
 #ifndef FUNCTION_ANALYSIS
@@ -379,7 +387,6 @@ FUNCTION_PASS("print<inline-cost>", InlineCostAnnotationPrinterPass(dbgs()))
 FUNCTION_PASS("print<inliner-size-estimator>",
   InlineSizeEstimatorAnalysisPrinterPass(dbgs()))
 FUNCTION_PASS("print<loops>", LoopPrinterPass(dbgs()))
-FUNCTION_PASS("print<memoryssa>", MemorySSAPrinterPass(dbgs()))
 FUNCTION_PASS("print<memoryssa-walker>", MemorySSAWalkerPrinterPass(dbgs()))
 FUNCTION_PASS("print<phi-values>", PhiValuesPrinterPass(dbgs()))
 FUNCTION_PASS("print<regions>", RegionInfoPrinterPass(dbgs()))
@@ -557,6 +564,13 @@ FUNCTION_PASS_WITH_PARAMS("function-simplification",
                            },
                           parseFunctionSimplificationPipelineOptions,
                           "O1;O2;O3;Os;Oz")
+FUNCTION_PASS_WITH_PARAMS("print<memoryssa>",
+                          "MemorySSAPrinterPass",
+                           [](bool NoEnsureOptimizedUses) {
+                             return MemorySSAPrinterPass(dbgs(), !NoEnsureOptimizedUses);
+                           },
+                          parseMemorySSAPrinterPassOptions,
+                          "no-ensure-optimized-uses")
 #undef FUNCTION_PASS_WITH_PARAMS
 
 #ifndef LOOPNEST_PASS

@@ -602,8 +602,6 @@ bool ARMTargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
     }
   }
 
-  HalfArgsAndReturns = true;
-
   switch (ArchVersion) {
   case 6:
     if (ArchProfile == llvm::ARM::ProfileKind::M)

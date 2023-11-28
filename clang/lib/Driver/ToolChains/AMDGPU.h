@@ -39,7 +39,8 @@ public:
 
 void getAMDGPUTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                              const llvm::opt::ArgList &Args,
-                             std::vector<StringRef> &Features);
+                             std::vector<StringRef> &Features,
+                             StringRef TcTargetID = StringRef());
 
 } // end namespace amdgpu
 } // end namespace tools
@@ -49,7 +50,7 @@ namespace toolchains {
 class LLVM_LIBRARY_VISIBILITY AMDGPUToolChain : public Generic_ELF {
 protected:
   const std::map<options::ID, const StringRef> OptionsDefault;
-
+  unsigned CodeObjectVersion = 5;
   Tool *buildLinker() const override;
   StringRef getOptionDefault(options::ID OptID) const {
     auto opt = OptionsDefault.find(OptID);
@@ -96,6 +97,17 @@ public:
 
   /// Needed for translating LTO options.
   const char *getDefaultLinker() const override { return "ld.lld"; }
+
+  /// Should skip Sanitize options
+  bool shouldSkipSanitizeOption(const ToolChain &TC,
+                                const llvm::opt::ArgList &DriverArgs,
+                                StringRef TargetID,
+                                const llvm::opt::Arg *A) const;
+
+  /// Should skip argument.
+  bool shouldSkipArgument(const llvm::opt::Arg *Arg) const;
+
+  unsigned GetCodeObjectVersion() const { return CodeObjectVersion; }
 
   /// Uses amdgpu-arch tool to get arch of the system GPU. Will return error
   /// if unable to find one.

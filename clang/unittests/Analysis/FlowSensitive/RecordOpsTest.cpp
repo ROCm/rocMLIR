@@ -16,14 +16,18 @@ namespace dataflow {
 namespace test {
 namespace {
 
-template <typename VerifyResultsT>
-void runDataflow(llvm::StringRef Code, VerifyResultsT VerifyResults,
-                 LangStandard::Kind Std = LangStandard::lang_cxx17,
-                 llvm::StringRef TargetFun = "target") {
+void runDataflow(
+    llvm::StringRef Code,
+    std::function<
+        void(const llvm::StringMap<DataflowAnalysisState<NoopLattice>> &,
+             ASTContext &)>
+        VerifyResults,
+    LangStandard::Kind Std = LangStandard::lang_cxx17,
+    llvm::StringRef TargetFun = "target") {
   ASSERT_THAT_ERROR(
-      runDataflowReturnError(Code, VerifyResults,
-                             DataflowAnalysisOptions{BuiltinOptions{}}, Std,
-                             TargetFun),
+      checkDataflowWithNoopAnalysis(Code, VerifyResults,
+                                    DataflowAnalysisOptions{BuiltinOptions{}},
+                                    Std, TargetFun),
       llvm::Succeeded());
 }
 
@@ -59,12 +63,12 @@ TEST(RecordOpsTest, CopyRecord) {
         auto &Inner1 = cast<AggregateStorageLocation>(S1.getChild(*InnerDecl));
         auto &Inner2 = cast<AggregateStorageLocation>(S2.getChild(*InnerDecl));
 
-        EXPECT_NE(Env.getValue(S1.getChild(*OuterIntDecl)),
-                  Env.getValue(S2.getChild(*OuterIntDecl)));
+        EXPECT_NE(getFieldValue(&S1, *OuterIntDecl, Env),
+                  getFieldValue(&S2, *OuterIntDecl, Env));
         EXPECT_NE(Env.getValue(S1.getChild(*RefDecl)),
                   Env.getValue(S2.getChild(*RefDecl)));
-        EXPECT_NE(Env.getValue(Inner1.getChild(*InnerIntDecl)),
-                  Env.getValue(Inner2.getChild(*InnerIntDecl)));
+        EXPECT_NE(getFieldValue(&Inner1, *InnerIntDecl, Env),
+                  getFieldValue(&Inner2, *InnerIntDecl, Env));
 
         auto *S1Val = cast<StructValue>(Env.getValue(S1));
         auto *S2Val = cast<StructValue>(Env.getValue(S2));
@@ -74,12 +78,12 @@ TEST(RecordOpsTest, CopyRecord) {
 
         copyRecord(S1, S2, Env);
 
-        EXPECT_EQ(Env.getValue(S1.getChild(*OuterIntDecl)),
-                  Env.getValue(S2.getChild(*OuterIntDecl)));
+        EXPECT_EQ(getFieldValue(&S1, *OuterIntDecl, Env),
+                  getFieldValue(&S2, *OuterIntDecl, Env));
         EXPECT_EQ(Env.getValue(S1.getChild(*RefDecl)),
                   Env.getValue(S2.getChild(*RefDecl)));
-        EXPECT_EQ(Env.getValue(Inner1.getChild(*InnerIntDecl)),
-                  Env.getValue(Inner2.getChild(*InnerIntDecl)));
+        EXPECT_EQ(getFieldValue(&Inner1, *InnerIntDecl, Env),
+                  getFieldValue(&Inner2, *InnerIntDecl, Env));
 
         S1Val = cast<StructValue>(Env.getValue(S1));
         S2Val = cast<StructValue>(Env.getValue(S2));

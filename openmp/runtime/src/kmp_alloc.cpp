@@ -1245,6 +1245,8 @@ static void **mk_dax_kmem_preferred;
 static void *(*kmp_target_alloc_host)(size_t size, int device);
 static void *(*kmp_target_alloc_shared)(size_t size, int device);
 static void *(*kmp_target_alloc_device)(size_t size, int device);
+static void *(*kmp_target_alloc_multi_devices)(size_t size, int num_devices,
+                                               int device_nums[]);
 static void *(*kmp_target_lock_mem)(void *ptr, size_t size, int device);
 static void *(*kmp_target_unlock_mem)(void *ptr, int device);
 static void *(*kmp_target_free_host)(void *ptr, int device);
@@ -1362,6 +1364,11 @@ void __kmp_init_target_mem() {
       KMP_DLSYM("llvm_omp_target_alloc_shared");
   *(void **)(&kmp_target_alloc_device) =
       KMP_DLSYM("llvm_omp_target_alloc_device");
+  *(void **)(&kmp_target_lock_mem) = KMP_DLSYM("llvm_omp_target_lock_mem");
+  *(void **)(&kmp_target_unlock_mem) = KMP_DLSYM("llvm_omp_target_unlock_mem");
+  *(void **)(&kmp_target_alloc_multi_devices) =
+      KMP_DLSYM("llvm_omp_target_alloc_multi_devices");
+
   *(void **)(&kmp_target_free_host) = KMP_DLSYM("llvm_omp_target_free_host");
   *(void **)(&kmp_target_free_shared) =
       KMP_DLSYM("llvm_omp_target_free_shared");
@@ -1376,17 +1383,68 @@ void __kmp_init_target_mem() {
   *(void **)(&kmp_target_unlock_mem) = KMP_DLSYM("llvm_omp_target_unlock_mem");
 }
 
+omp_memspace_handle_t
+__kmpc_get_memory_space(size_t num_devices, int device_ids[],
+                        omp_memspace_handle_t base_memory_space) {
+  KMP_DEBUG_ASSERT(base_memory_space == omp_default_mem_space ||
+                   base_memory_space == omp_low_lat_mem_space ||
+                   base_memory_space == omp_large_cap_mem_space ||
+                   base_memory_space == omp_const_mem_space ||
+                   base_memory_space == omp_high_bw_mem_space ||
+                   KMP_IS_TARGET_MEM_SPACE(base_memory_space));
+  KMP_DEBUG_ASSERT(num_devices > 0);
+
+  // when using a struct for memory space, instead of a predefined memory space,
+  // we will always call the corresponding libomptarget allocator, and disregard
+  // the predefined memory allocator
+  kmp_memspace_t *ms_t =
+      (kmp_memspace_t *)__kmp_allocate(sizeof(kmp_memspace_t)); // zeroed
+  ms_t->memspace = llvm_omp_target_shared_mem_alloc;
+  ms_t->num_devs = num_devices;
+  ms_t->devids = (int *)__kmp_allocate(num_devices * sizeof(int));
+  for (int i = 0; i < num_devices; i++)
+    ms_t->devids[i] = device_ids[i];
+  return (omp_memspace_handle_t)ms_t;
+}
+
+void __kmpc_destroy_memory_space(omp_memspace_handle_t ms) {
+  if (ms < kmp_max_mem_space)
+    return; // predefined memory space does not need to be destroyed
+  kmp_memspace_t *ms_t = RCAST(kmp_memspace_t *, ms);
+  __kmp_free(ms_t->devids);
+  __kmp_free(ms_t);
+
+  // lock/pin and unlock/unpin target calls
+  *(void **)(&kmp_target_lock_mem) = KMP_DLSYM("llvm_omp_target_lock_mem");
+  *(void **)(&kmp_target_unlock_mem) = KMP_DLSYM("llvm_omp_target_unlock_mem");
+}
+
 omp_allocator_handle_t __kmpc_init_allocator(int gtid, omp_memspace_handle_t ms,
                                              int ntraits,
                                              omp_alloctrait_t traits[]) {
   // OpenMP 5.0 only allows predefined memspaces
-  KMP_DEBUG_ASSERT(ms == omp_default_mem_space || ms == omp_low_lat_mem_space ||
-                   ms == omp_large_cap_mem_space || ms == omp_const_mem_space ||
-                   ms == omp_high_bw_mem_space || KMP_IS_TARGET_MEM_SPACE(ms));
+  omp_memspace_handle_t actual_ms = kmp_max_mem_space;
+  if (ms < kmp_max_mem_space) {
+    KMP_DEBUG_ASSERT(
+        ms == omp_default_mem_space || ms == omp_low_lat_mem_space ||
+        ms == omp_large_cap_mem_space || ms == omp_const_mem_space ||
+        ms == omp_high_bw_mem_space || KMP_IS_TARGET_MEM_SPACE(ms));
+    actual_ms = ms;
+  } else {
+    // memory space object obtained via omp_get_memory_space call
+    kmp_memspace_t *ms_t = RCAST(kmp_memspace_t *, ms);
+    actual_ms = ms_t->memspace;
+    KMP_DEBUG_ASSERT(actual_ms == omp_default_mem_space ||
+                     actual_ms == omp_low_lat_mem_space ||
+                     actual_ms == omp_large_cap_mem_space ||
+                     actual_ms == omp_const_mem_space ||
+                     actual_ms == omp_high_bw_mem_space ||
+                     KMP_IS_TARGET_MEM_SPACE(actual_ms));
+  }
   kmp_allocator_t *al;
   int i;
   al = (kmp_allocator_t *)__kmp_allocate(sizeof(kmp_allocator_t)); // zeroed
-  al->memspace = ms; // not used currently
+  al->memspace = ms;
   for (i = 0; i < ntraits; ++i) {
     switch (traits[i].key) {
     case omp_atk_sync_hint:
@@ -1569,9 +1627,12 @@ void *__kmp_alloc(int gtid, size_t algn, size_t size,
     align = algn; // max of allocator trait, parameter and sizeof(void*)
   desc.size_orig = size;
   desc.size_a = size + sz_desc + align;
+
   bool is_pinned = false;
   if (allocator > kmp_max_mem_alloc)
     is_pinned = al->pinned;
+  else if (allocator == ompx_pinned_mem_alloc)
+    is_pinned = true;
 
   // Use default allocator if libmemkind is not available
   int use_default_allocator = (__kmp_memkind_available) ? false : true;
@@ -1679,6 +1740,24 @@ void *__kmp_alloc(int gtid, size_t algn, size_t size,
       }
     }
   } else if (allocator < kmp_max_mem_alloc) {
+    if (KMP_IS_TARGET_MEM_ALLOC(allocator)) {
+      // Use size input directly as the memory may not be accessible on host.
+      // Use default device for now.
+      if (__kmp_target_mem_available) {
+        kmp_int32 device =
+            __kmp_threads[gtid]->th.th_current_task->td_icvs.default_device;
+        if (allocator == llvm_omp_target_host_mem_alloc)
+          ptr = kmp_target_alloc_host(size, device);
+        else if (allocator == llvm_omp_target_shared_mem_alloc)
+          ptr = kmp_target_alloc_shared(size, device);
+        else // allocator == llvm_omp_target_device_mem_alloc
+          ptr = kmp_target_alloc_device(size, device);
+        if (is_pinned && kmp_target_lock_mem)
+          kmp_target_lock_mem(ptr, size, device);
+      }
+      return ptr;
+    }
+
     // pre-defined allocator
     if (allocator == omp_high_bw_mem_alloc) {
       KMP_WARNING(OmpNoAllocator, "omp_high_bw_mem_alloc");
@@ -1749,6 +1828,10 @@ void *__kmp_alloc(int gtid, size_t algn, size_t size,
   desc.ptr_alloc = ptr;
   desc.ptr_align = (void *)addr_align;
   desc.allocator = al;
+
+  if (is_pinned && kmp_target_lock_mem)
+    kmp_target_lock_mem(desc.ptr_align, desc.size_a, default_device);
+
   *((kmp_mem_desc_t *)addr_descr) = desc; // save descriptor contents
   KMP_MB();
 
@@ -1858,6 +1941,12 @@ void ___kmpc_free(int gtid, void *ptr, omp_allocator_handle_t allocator) {
   oal = (omp_allocator_handle_t)al; // cast to void* for comparisons
   KMP_DEBUG_ASSERT(al);
 
+  // if locked, we locked descriptor and user memory: unlock both
+  bool is_pinned = false;
+  if (allocator > kmp_max_mem_alloc)
+    is_pinned = al->pinned;
+  else if (allocator == ompx_pinned_mem_alloc)
+    is_pinned = true;
   if (allocator > kmp_max_mem_alloc && kmp_target_unlock_mem && al->pinned) {
     kmp_int32 device =
         __kmp_threads[gtid]->th.th_current_task->td_icvs.default_device;

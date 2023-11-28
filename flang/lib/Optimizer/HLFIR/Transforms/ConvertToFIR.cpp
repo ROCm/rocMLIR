@@ -120,6 +120,11 @@ public:
         // Indicate the runtime that it should not reallocate in case of length
         // mismatch, and that it should use the LHS explicit/assumed length if
         // allocating/reallocation the LHS.
+        // Note that AssignExplicitLengthCharacter() must be used
+        // when isTemporaryLHS() is true here: the LHS is known to be
+        // character allocatable in this case, so finalization will not
+        // happen (as implied by temporary_lhs attribute), and LHS
+        // must keep its length (as implied by keep_lhs_length_if_realloc).
         fir::runtime::genAssignExplicitLengthCharacter(builder, loc, to, from);
       } else if (assignOp.isTemporaryLHS()) {
         // Use AssignTemporary, when the LHS is a compiler generated temporary.
@@ -148,11 +153,18 @@ public:
       else
         fir::runtime::genAssign(builder, loc, toMutableBox, from);
     } else {
+      // TODO: use the type specification to see if IsFinalizable is set,
+      // or propagate IsFinalizable attribute from lowering.
+      bool needFinalization =
+          !assignOp.isTemporaryLHS() &&
+          mlir::isa<fir::RecordType>(fir::getElementTypeOf(lhsExv));
+
       // genScalarAssignment() must take care of potential overlap
       // between LHS and RHS. Note that the overlap is possible
       // also for components of LHS/RHS, and the Assign() runtime
       // must take care of it.
       fir::factory::genScalarAssignment(builder, loc, lhsExv, rhsExv,
+                                        needFinalization,
                                         assignOp.isTemporaryLHS());
     }
     rewriter.eraseOp(assignOp);

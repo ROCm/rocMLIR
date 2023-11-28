@@ -1,5 +1,6 @@
-# See docs/CMake.html for instructions about how to build LLVM with CMake.
 
+
+# See docs/CMake.html for instructions about how to build LLVM with CMake.
 cmake_minimum_required(VERSION 3.20.0)
 
 set(LLVM_COMMON_CMAKE_UTILS ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
@@ -684,7 +685,7 @@ if( WIN32 AND NOT CYGWIN )
 endif()
 set(LLVM_NATIVE_TOOL_DIR "" CACHE PATH "Path to a directory containing prebuilt matching native tools (such as llvm-tblgen)")
 
-set(LLVM_INTEGRATED_CRT_ALLOC "" CACHE PATH "Replace the Windows CRT allocator with any of {rpmalloc|mimalloc|snmalloc}. Only works with /MT enabled.")
+set(LLVM_INTEGRATED_CRT_ALLOC "" CACHE PATH "Replace the Windows CRT allocator with any of {rpmalloc|mimalloc|snmalloc}. Only works with CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded.")
 if(LLVM_INTEGRATED_CRT_ALLOC)
   if(NOT WIN32)
     message(FATAL_ERROR "LLVM_INTEGRATED_CRT_ALLOC is only supported on Windows.")
@@ -838,12 +839,14 @@ endif()
 set(LLVM_TARGET_TRIPLE_ENV CACHE STRING "The name of environment variable to override default target. Disabled by blank.")
 mark_as_advanced(LLVM_TARGET_TRIPLE_ENV)
 
-if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390")
-  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
-else()
-  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
-endif()
-set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
+#if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390")
+#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
+#else()
+#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
+#endif()
+#set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
+#  "Enable per-target runtimes directory")
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR OFF CACHE BOOL
   "Enable per-target runtimes directory")
 
 set(LLVM_PROFDATA_FILE "" CACHE FILEPATH
@@ -982,9 +985,9 @@ configure_file(
   )
 
 # They are not referenced. See set_output_directory().
-set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
-set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
-set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
+set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
+set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
+set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
 
 # For up-to-date instructions for installing the TFLite dependency, refer to
 # the bot setup script: https://github.com/google/ml-compiler-opt/blob/main/buildbot/buildbot_init.sh
@@ -1331,4 +1334,16 @@ endif()
 
 if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
+endif()
+
+# Following variables are required for ROCM backwards compatibility,
+# and should be removed in ROCM 7.0 release.
+set(ROCM_LLVM_BACKWARD_COMPAT_LINK "" CACHE STRING "Old rocm-llvm install path")
+set(ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET "" CACHE STRING "New rocm-llvm install path")
+if (NOT ROCM_LLVM_BACKWARD_COMPAT_LINK STREQUAL "" AND
+    NOT ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET STREQUAL "")
+  install(CODE "execute_process(\
+                COMMAND ${CMAKE_COMMAND} -E create_symlink \
+                ${ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET} \
+                ${ROCM_LLVM_BACKWARD_COMPAT_LINK})")
 endif()

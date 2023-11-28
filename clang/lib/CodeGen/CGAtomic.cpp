@@ -839,7 +839,6 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
 
   CharUnits MaxInlineWidth =
       getContext().toCharUnitsFromBits(MaxInlineWidthInBits);
-
   DiagnosticsEngine &Diags = CGM.getDiags();
 
   if (Misaligned) {

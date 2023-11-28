@@ -267,6 +267,11 @@ struct EmptyOpInterface
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
+    if (op->getUses().empty()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+
     // tensor.empty ops are used to indicate the shape of a tensor. They have
     // no defined contents and cannot be bufferized. However, they can be
     // converted to bufferization.alloc_tensor ops, which then bufferize to an
@@ -765,7 +770,7 @@ struct InsertSliceOpInterface
           return isConstantIntValue(ofr, 0);
         });
     bool sizesMatchDestSizes = llvm::all_of(
-        llvm::enumerate(insertSliceOp.getMixedSizes()), [&](const auto &it) {
+        llvm::enumerate(insertSliceOp.getMixedSizes()), [&](auto &it) {
           return getConstantIntValue(it.value()) ==
                  destType.getDimSize(it.index());
         });

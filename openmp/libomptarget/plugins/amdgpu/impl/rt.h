@@ -8,19 +8,12 @@
 #ifndef SRC_RUNTIME_INCLUDE_RT_H_
 #define SRC_RUNTIME_INCLUDE_RT_H_
 
-#include "hsa_api.h"
-#include "impl_runtime.h"
 #include "internal.h"
 
 #include <string>
+#include <vector>
 
 namespace core {
-namespace Runtime {
-hsa_status_t Memfree(void *);
-hsa_status_t HostMalloc(void **ptr, size_t size,
-                        hsa_amd_memory_pool_t MemoryPool);
-
-} // namespace Runtime
 hsa_status_t RegisterModuleFromMemory(
     std::map<std::string, atl_kernel_info_t> &KernelInfoTable,
     std::map<std::string, atl_symbol_info_t> &SymbolInfoTable,
@@ -28,6 +21,17 @@ hsa_status_t RegisterModuleFromMemory(
     hsa_status_t (*on_deserialized_data)(void *data, size_t size,
                                          void *cb_state),
     void *cb_state, std::vector<hsa_executable_t> &HSAExecutables);
+
+class Runtime final {
+public:
+
+  static hsa_status_t Memfree(void *);
+  static hsa_status_t HostMalloc(void **ptr, size_t size,
+                                 hsa_amd_memory_pool_t MemoryPool);
+
+  static hsa_status_t FtnAssignWrapper(void *, void *, void *, void *, void *);
+
+};
 
 } // namespace core
 

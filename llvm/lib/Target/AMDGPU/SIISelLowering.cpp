@@ -15,6 +15,7 @@
 #include "AMDGPU.h"
 #include "AMDGPUInstrInfo.h"
 #include "AMDGPUTargetMachine.h"
+#include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIMachineFunctionInfo.h"
 #include "SIRegisterInfo.h"
@@ -59,14 +60,14 @@ static cl::opt<bool> UseDivergentRegisterIndexing(
   cl::desc("Use indirect register addressing for divergent indexes"),
   cl::init(false));
 
-static bool hasFP32Denormals(const MachineFunction &MF) {
+static bool denormalModeIsFlushAllF32(const MachineFunction &MF) {
   const SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
-  return Info->getMode().allFP32Denormals();
+  return Info->getMode().FP32Denormals == DenormalMode::getPreserveSign();
 }
 
-static bool hasFP64FP16Denormals(const MachineFunction &MF) {
+static bool denormalModeIsFlushAllF64F16(const MachineFunction &MF) {
   const SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
-  return Info->getMode().allFP64FP16Denormals();
+  return Info->getMode().FP64FP16Denormals == DenormalMode::getPreserveSign();
 }
 
 static unsigned findFirstFreeSGPR(CCState &CCInfo) {
@@ -751,6 +752,8 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
                       MVT::i8, MVT::i128},
                      Custom);
 
+  setOperationAction(ISD::MUL, MVT::i1, Promote);
+
   setTargetDAGCombine({ISD::ADD,
                        ISD::UADDO_CARRY,
                        ISD::SUB,
@@ -830,10 +833,10 @@ bool SITargetLowering::isFPExtFoldable(const SelectionDAG &DAG, unsigned Opcode,
                                        EVT DestVT, EVT SrcVT) const {
   return ((Opcode == ISD::FMAD && Subtarget->hasMadMixInsts()) ||
           (Opcode == ISD::FMA && Subtarget->hasFmaMixInsts())) &&
-    DestVT.getScalarType() == MVT::f32 &&
-    SrcVT.getScalarType() == MVT::f16 &&
-    // TODO: This probably only requires no input flushing?
-    !hasFP32Denormals(DAG.getMachineFunction());
+         DestVT.getScalarType() == MVT::f32 &&
+         SrcVT.getScalarType() == MVT::f16 &&
+         // TODO: This probably only requires no input flushing?
+         denormalModeIsFlushAllF32(DAG.getMachineFunction());
 }
 
 bool SITargetLowering::isFPExtFoldable(const MachineInstr &MI, unsigned Opcode,
@@ -843,7 +846,7 @@ bool SITargetLowering::isFPExtFoldable(const MachineInstr &MI, unsigned Opcode,
          DestTy.getScalarSizeInBits() == 32 &&
          SrcTy.getScalarSizeInBits() == 16 &&
          // TODO: This probably only requires no input flushing?
-         !hasFP32Denormals(*MI.getMF());
+         denormalModeIsFlushAllF32(*MI.getMF());
 }
 
 bool SITargetLowering::isShuffleMaskLegal(ArrayRef<int>, EVT) const {
@@ -2127,13 +2130,14 @@ void SITargetLowering::allocateSpecialInputSGPRs(
   const SIRegisterInfo &TRI,
   SIMachineFunctionInfo &Info) const {
   auto &ArgInfo = Info.getArgInfo();
+  const GCNUserSGPRUsageInfo &UserSGPRInfo = Info.getUserSGPRInfo();
 
   // TODO: Unify handling with private memory pointers.
-  if (Info.hasDispatchPtr())
+  if (UserSGPRInfo.hasDispatchPtr())
     allocateSGPR64Input(CCInfo, ArgInfo.DispatchPtr);
 
   const Module *M = MF.getFunction().getParent();
-  if (Info.hasQueuePtr() &&
+  if (UserSGPRInfo.hasQueuePtr() &&
       AMDGPU::getCodeObjectVersion(*M) < AMDGPU::AMDHSA_COV5)
     allocateSGPR64Input(CCInfo, ArgInfo.QueuePtr);
 
@@ -2142,7 +2146,7 @@ void SITargetLowering::allocateSpecialInputSGPRs(
   if (Info.hasImplicitArgPtr())
     allocateSGPR64Input(CCInfo, ArgInfo.ImplicitArgPtr);
 
-  if (Info.hasDispatchID())
+  if (UserSGPRInfo.hasDispatchID())
     allocateSGPR64Input(CCInfo, ArgInfo.DispatchID);
 
   // flat_scratch_init is not applicable for non-kernel functions.
@@ -2165,34 +2169,35 @@ void SITargetLowering::allocateHSAUserSGPRs(CCState &CCInfo,
                                             MachineFunction &MF,
                                             const SIRegisterInfo &TRI,
                                             SIMachineFunctionInfo &Info) const {
-  if (Info.hasImplicitBufferPtr()) {
+  const GCNUserSGPRUsageInfo &UserSGPRInfo = Info.getUserSGPRInfo();
+  if (UserSGPRInfo.hasImplicitBufferPtr()) {
     Register ImplicitBufferPtrReg = Info.addImplicitBufferPtr(TRI);
     MF.addLiveIn(ImplicitBufferPtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(ImplicitBufferPtrReg);
   }
 
   // FIXME: How should these inputs interact with inreg / custom SGPR inputs?
-  if (Info.hasPrivateSegmentBuffer()) {
+  if (UserSGPRInfo.hasPrivateSegmentBuffer()) {
     Register PrivateSegmentBufferReg = Info.addPrivateSegmentBuffer(TRI);
     MF.addLiveIn(PrivateSegmentBufferReg, &AMDGPU::SGPR_128RegClass);
     CCInfo.AllocateReg(PrivateSegmentBufferReg);
   }
 
-  if (Info.hasDispatchPtr()) {
+  if (UserSGPRInfo.hasDispatchPtr()) {
     Register DispatchPtrReg = Info.addDispatchPtr(TRI);
     MF.addLiveIn(DispatchPtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(DispatchPtrReg);
   }
 
   const Module *M = MF.getFunction().getParent();
-  if (Info.hasQueuePtr() &&
+  if (UserSGPRInfo.hasQueuePtr() &&
       AMDGPU::getCodeObjectVersion(*M) < AMDGPU::AMDHSA_COV5) {
     Register QueuePtrReg = Info.addQueuePtr(TRI);
     MF.addLiveIn(QueuePtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(QueuePtrReg);
   }
 
-  if (Info.hasKernargSegmentPtr()) {
+  if (UserSGPRInfo.hasKernargSegmentPtr()) {
     MachineRegisterInfo &MRI = MF.getRegInfo();
     Register InputPtrReg = Info.addKernargSegmentPtr(TRI);
     CCInfo.AllocateReg(InputPtrReg);
@@ -2201,26 +2206,100 @@ void SITargetLowering::allocateHSAUserSGPRs(CCState &CCInfo,
     MRI.setType(VReg, LLT::pointer(AMDGPUAS::CONSTANT_ADDRESS, 64));
   }
 
-  if (Info.hasDispatchID()) {
+  if (UserSGPRInfo.hasDispatchID()) {
     Register DispatchIDReg = Info.addDispatchID(TRI);
     MF.addLiveIn(DispatchIDReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(DispatchIDReg);
   }
 
-  if (Info.hasFlatScratchInit() && !getSubtarget()->isAmdPalOS()) {
+  if (UserSGPRInfo.hasFlatScratchInit() && !getSubtarget()->isAmdPalOS()) {
     Register FlatScratchInitReg = Info.addFlatScratchInit(TRI);
     MF.addLiveIn(FlatScratchInitReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(FlatScratchInitReg);
   }
 
+  // TODO: Add GridWorkGroupCount user SGPRs when used. For now with HSA we read
+  // these from the dispatch pointer.
+}
+
+// Allocate pre-loaded kernel arguemtns. Arguments to be preloading must be
+// sequential starting from the first argument.
+void SITargetLowering::allocatePreloadKernArgSGPRs(
+    CCState &CCInfo, SmallVectorImpl<CCValAssign> &ArgLocs,
+    const SmallVectorImpl<ISD::InputArg> &Ins, MachineFunction &MF,
+    const SIRegisterInfo &TRI, SIMachineFunctionInfo &Info) const {
+  Function &F = MF.getFunction();
+  unsigned LastExplicitArgOffset =
+      MF.getSubtarget<GCNSubtarget>().getExplicitKernelArgOffset();
+  GCNUserSGPRUsageInfo &SGPRInfo = Info.getUserSGPRInfo();
+  bool InPreloadSequence = true;
+  unsigned InIdx = 0;
+  for (auto &Arg : F.args()) {
+    if (!InPreloadSequence || !Arg.hasInRegAttr())
+      break;
+
+    int ArgIdx = Arg.getArgNo();
+    // Don't preload non-original args or parts not in the current preload
+    // sequence.
+    if (InIdx < Ins.size() && (!Ins[InIdx].isOrigArg() ||
+                               (int)Ins[InIdx].getOrigArgIndex() != ArgIdx))
+      break;
+
+    for (; InIdx < Ins.size() && Ins[InIdx].isOrigArg() &&
+           (int)Ins[InIdx].getOrigArgIndex() == ArgIdx;
+         InIdx++) {
+      assert(ArgLocs[ArgIdx].isMemLoc());
+      auto &ArgLoc = ArgLocs[InIdx];
+      const Align KernelArgBaseAlign = Align(16);
+      unsigned ArgOffset = ArgLoc.getLocMemOffset();
+      Align Alignment = commonAlignment(KernelArgBaseAlign, ArgOffset);
+      unsigned NumAllocSGPRs =
+          alignTo(ArgLoc.getLocVT().getFixedSizeInBits(), 32) / 32;
+
+      // Arg is preloaded into the previous SGPR.
+      if (ArgLoc.getLocVT().getStoreSize() < 4 && Alignment < 4) {
+        Info.getArgInfo().PreloadKernArgs[InIdx].Regs.push_back(
+            Info.getArgInfo().PreloadKernArgs[InIdx - 1].Regs[0]);
+        continue;
+      }
+
+      unsigned Padding = ArgOffset - LastExplicitArgOffset;
+      unsigned PaddingSGPRs = alignTo(Padding, 4) / 4;
+      // Check for free user SGPRs for preloading.
+      if (PaddingSGPRs + NumAllocSGPRs + 1 /*Synthetic SGPRs*/ >
+          SGPRInfo.getNumFreeUserSGPRs()) {
+        InPreloadSequence = false;
+        break;
+      }
+
+      // Preload this argument.
+      const TargetRegisterClass *RC =
+          TRI.getSGPRClassForBitWidth(NumAllocSGPRs * 32);
+      SmallVectorImpl<MCRegister> *PreloadRegs =
+          Info.addPreloadedKernArg(TRI, RC, NumAllocSGPRs, InIdx, PaddingSGPRs);
+
+      if (PreloadRegs->size() > 1)
+        RC = &AMDGPU::SGPR_32RegClass;
+      for (auto &Reg : *PreloadRegs) {
+        assert(Reg);
+        MF.addLiveIn(Reg, RC);
+        CCInfo.AllocateReg(Reg);
+      }
+
+      LastExplicitArgOffset = NumAllocSGPRs * 4 + ArgOffset;
+    }
+  }
+}
+
+void SITargetLowering::allocateLDSKernelId(CCState &CCInfo, MachineFunction &MF,
+                                           const SIRegisterInfo &TRI,
+                                           SIMachineFunctionInfo &Info) const {
+  // Always allocate this last since it is a synthetic preload.
   if (Info.hasLDSKernelId()) {
     Register Reg = Info.addLDSKernelId();
     MF.addLiveIn(Reg, &AMDGPU::SGPR_32RegClass);
     CCInfo.AllocateReg(Reg);
   }
-
-  // TODO: Add GridWorkGroupCount user SGPRs when used. For now with HSA we read
-  // these from the dispatch pointer.
 }
 
 // Allocate special input registers that are initialized per-wave.
@@ -2460,8 +2539,6 @@ SDValue SITargetLowering::LowerFormalArguments(
     return DAG.getEntryNode();
   }
 
-  Info->allocateKnownAddressLDSGlobal(Fn);
-
   SmallVector<ISD::InputArg, 16> Splits;
   SmallVector<CCValAssign, 16> ArgLocs;
   BitVector Skipped(Ins.size());
@@ -2473,12 +2550,13 @@ SDValue SITargetLowering::LowerFormalArguments(
   bool IsEntryFunc = AMDGPU::isEntryFunctionCC(CallConv);
 
   if (IsGraphics) {
-    assert(!Info->hasDispatchPtr() && !Info->hasKernargSegmentPtr() &&
-           !Info->hasWorkGroupInfo() && !Info->hasLDSKernelId() &&
-           !Info->hasWorkItemIDX() && !Info->hasWorkItemIDY() &&
-           !Info->hasWorkItemIDZ());
+    const GCNUserSGPRUsageInfo &UserSGPRInfo = Info->getUserSGPRInfo();
+    assert(!UserSGPRInfo.hasDispatchPtr() &&
+           !UserSGPRInfo.hasKernargSegmentPtr() && !Info->hasWorkGroupInfo() &&
+           !Info->hasLDSKernelId() && !Info->hasWorkItemIDX() &&
+           !Info->hasWorkItemIDY() && !Info->hasWorkItemIDZ());
     if (!Subtarget->enableFlatScratch())
-      assert(!Info->hasFlatScratchInit());
+      assert(!UserSGPRInfo.hasFlatScratchInit());
     if (CallConv != CallingConv::AMDGPU_CS || !Subtarget->hasArchitectedSGPRs())
       assert(!Info->hasWorkGroupIDX() && !Info->hasWorkGroupIDY() &&
              !Info->hasWorkGroupIDZ());
@@ -2527,17 +2605,23 @@ SDValue SITargetLowering::LowerFormalArguments(
     Splits.append(Ins.begin(), Ins.end());
   }
 
+  if (IsKernel)
+    analyzeFormalArgumentsCompute(CCInfo, Ins);
+
   if (IsEntryFunc) {
     allocateSpecialEntryInputVGPRs(CCInfo, MF, *TRI, *Info);
     allocateHSAUserSGPRs(CCInfo, MF, *TRI, *Info);
+    if (IsKernel && Subtarget->hasKernargPreload() &&
+        !Subtarget->needsKernargPreloadBackwardsCompatibility())
+      allocatePreloadKernArgSGPRs(CCInfo, ArgLocs, Ins, MF, *TRI, *Info);
+
+    allocateLDSKernelId(CCInfo, MF, *TRI, *Info);
   } else if (!IsGraphics) {
     // For the fixed ABI, pass workitem IDs in the last argument register.
     allocateSpecialInputVGPRsFixed(CCInfo, MF, *TRI, *Info);
   }
 
-  if (IsKernel) {
-    analyzeFormalArgumentsCompute(CCInfo, Ins);
-  } else {
+  if (!IsKernel) {
     CCAssignFn *AssignFn = CCAssignFnForCall(CallConv, isVarArg);
     CCInfo.AnalyzeFormalArguments(Splits, AssignFn);
   }
@@ -2583,9 +2667,81 @@ SDValue SITargetLowering::LowerFormalArguments(
         continue;
       }
 
-      SDValue Arg = lowerKernargMemParameter(
-        DAG, VT, MemVT, DL, Chain, Offset, Alignment, Ins[i].Flags.isSExt(), &Ins[i]);
-      Chains.push_back(Arg.getValue(1));
+      SDValue NewArg;
+      if (Arg.isOrigArg() && Info->getArgInfo().PreloadKernArgs.count(i)) {
+        if (MemVT.getStoreSize() < 4 && Alignment < 4) {
+          // In this case the argument is packed into the previous preload SGPR.
+          int64_t AlignDownOffset = alignDown(Offset, 4);
+          int64_t OffsetDiff = Offset - AlignDownOffset;
+          EVT IntVT = MemVT.changeTypeToInteger();
+
+          const SIMachineFunctionInfo *Info =
+              MF.getInfo<SIMachineFunctionInfo>();
+          MachineRegisterInfo &MRI = DAG.getMachineFunction().getRegInfo();
+          Register Reg =
+              Info->getArgInfo().PreloadKernArgs.find(i)->getSecond().Regs[0];
+
+          assert(Reg);
+          Register VReg = MRI.getLiveInVirtReg(Reg);
+          SDValue Copy = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32);
+
+          SDValue ShiftAmt = DAG.getConstant(OffsetDiff * 8, DL, MVT::i32);
+          SDValue Extract = DAG.getNode(ISD::SRL, DL, MVT::i32, Copy, ShiftAmt);
+
+          SDValue ArgVal = DAG.getNode(ISD::TRUNCATE, DL, IntVT, Extract);
+          ArgVal = DAG.getNode(ISD::BITCAST, DL, MemVT, ArgVal);
+          NewArg = convertArgType(DAG, VT, MemVT, DL, ArgVal,
+                                  Ins[i].Flags.isSExt(), &Ins[i]);
+
+          NewArg = DAG.getMergeValues({NewArg, Copy.getValue(1)}, DL);
+        } else {
+          const SIMachineFunctionInfo *Info =
+              MF.getInfo<SIMachineFunctionInfo>();
+          MachineRegisterInfo &MRI = DAG.getMachineFunction().getRegInfo();
+          const SmallVectorImpl<MCRegister> &PreloadRegs =
+              Info->getArgInfo().PreloadKernArgs.find(i)->getSecond().Regs;
+
+          SDValue Copy;
+          if (PreloadRegs.size() == 1) {
+            Register VReg = MRI.getLiveInVirtReg(PreloadRegs[0]);
+            const TargetRegisterClass *RC = MRI.getRegClass(VReg);
+            NewArg = DAG.getCopyFromReg(
+                Chain, DL, VReg,
+                EVT::getIntegerVT(*DAG.getContext(),
+                                  TRI->getRegSizeInBits(*RC)));
+
+          } else {
+            // If the kernarg alignment does not match the alignment of the SGPR
+            // tuple RC that can accommodate this argument, it will be built up
+            // via copies from from the individual SGPRs that the argument was
+            // preloaded to.
+            SmallVector<SDValue, 4> Elts;
+            for (auto Reg : PreloadRegs) {
+              Register VReg = MRI.getLiveInVirtReg(Reg);
+              Copy = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i32);
+              Elts.push_back(Copy);
+            }
+            NewArg =
+                DAG.getBuildVector(EVT::getVectorVT(*DAG.getContext(), MVT::i32,
+                                                    PreloadRegs.size()),
+                                   DL, Elts);
+          }
+
+          SDValue CMemVT;
+          if (VT.isScalarInteger() && VT.bitsLT(NewArg.getSimpleValueType()))
+            CMemVT = DAG.getNode(ISD::TRUNCATE, DL, MemVT, NewArg);
+          else
+            CMemVT = DAG.getBitcast(MemVT, NewArg);
+          NewArg = convertArgType(DAG, VT, MemVT, DL, CMemVT,
+                                  Ins[i].Flags.isSExt(), &Ins[i]);
+          NewArg = DAG.getMergeValues({NewArg, Chain}, DL);
+        }
+      } else {
+        NewArg =
+            lowerKernargMemParameter(DAG, VT, MemVT, DL, Chain, Offset,
+                                     Alignment, Ins[i].Flags.isSExt(), &Ins[i]);
+      }
+      Chains.push_back(NewArg.getValue(1));
 
       auto *ParamTy =
         dyn_cast<PointerType>(FType->getParamType(Ins[i].getOrigArgIndex()));
@@ -2595,11 +2751,11 @@ SDValue SITargetLowering::LowerFormalArguments(
         // On SI local pointers are just offsets into LDS, so they are always
         // less than 16-bits.  On CI and newer they could potentially be
         // real pointers, so we can't guarantee their size.
-        Arg = DAG.getNode(ISD::AssertZext, DL, Arg.getValueType(), Arg,
-                          DAG.getValueType(MVT::i16));
+        NewArg = DAG.getNode(ISD::AssertZext, DL, NewArg.getValueType(), NewArg,
+                             DAG.getValueType(MVT::i16));
       }
 
-      InVals.push_back(Arg);
+      InVals.push_back(NewArg);
       continue;
     } else if (!IsEntryFunc && VA.isMemLoc()) {
       SDValue Val = lowerStackParameter(DAG, VA, DL, Chain, Arg);
@@ -4646,7 +4802,7 @@ bool SITargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
     // Otherwise f32 mad is always full rate and returns the same result as
     // the separate operations so should be preferred over fma.
     // However does not support denormals.
-    if (hasFP32Denormals(MF))
+    if (!denormalModeIsFlushAllF32(MF))
       return Subtarget->hasFastFMAF32() || Subtarget->hasDLInsts();
 
     // If the subtarget has v_fmac_f32, that's just as good as v_mac_f32.
@@ -4655,7 +4811,7 @@ bool SITargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
   case MVT::f64:
     return true;
   case MVT::f16:
-    return Subtarget->has16BitInsts() && hasFP64FP16Denormals(MF);
+    return Subtarget->has16BitInsts() && !denormalModeIsFlushAllF64F16(MF);
   default:
     break;
   }
@@ -4684,9 +4840,10 @@ bool SITargetLowering::isFMADLegal(const MachineInstr &MI, LLT Ty) const {
     return false;
 
   if (Ty.getScalarSizeInBits() == 16)
-    return Subtarget->hasMadF16() && !hasFP64FP16Denormals(*MI.getMF());
+    return Subtarget->hasMadF16() && denormalModeIsFlushAllF64F16(*MI.getMF());
   if (Ty.getScalarSizeInBits() == 32)
-    return Subtarget->hasMadMacF32Insts() && !hasFP32Denormals(*MI.getMF());
+    return Subtarget->hasMadMacF32Insts() &&
+           denormalModeIsFlushAllF32(*MI.getMF());
 
   return false;
 }
@@ -4698,10 +4855,10 @@ bool SITargetLowering::isFMADLegal(const SelectionDAG &DAG,
   EVT VT = N->getValueType(0);
   if (VT == MVT::f32)
     return Subtarget->hasMadMacF32Insts() &&
-           !hasFP32Denormals(DAG.getMachineFunction());
+           denormalModeIsFlushAllF32(DAG.getMachineFunction());
   if (VT == MVT::f16) {
     return Subtarget->hasMadF16() &&
-           !hasFP64FP16Denormals(DAG.getMachineFunction());
+           denormalModeIsFlushAllF64F16(DAG.getMachineFunction());
   }
 
   return false;
@@ -8043,8 +8200,7 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
     }
 
     Ops.push_back(TDescr);
-    if (IsA16)
-      Ops.push_back(DAG.getTargetConstant(1, DL, MVT::i1));
+    Ops.push_back(DAG.getTargetConstant(IsA16, DL, MVT::i1));
     Ops.push_back(M->getChain());
 
     auto *NewNode = DAG.getMachineNode(Opcode, DL, M->getVTList(), Ops);
@@ -8926,7 +9082,7 @@ static bool addressMayBeAccessedAsPrivate(const MachineMemOperand *MMO,
                                           const SIMachineFunctionInfo &Info) {
   // TODO: Should check if the address can definitely not access stack.
   if (Info.isEntryFunction())
-    return Info.hasFlatScratchInit();
+    return Info.getUserSGPRInfo().hasFlatScratchInit();
   return true;
 }
 
@@ -9130,26 +9286,30 @@ SDValue SITargetLowering::lowerFastUnsafeFDIV(SDValue Op,
   EVT VT = Op.getValueType();
   const SDNodeFlags Flags = Op->getFlags();
 
-  bool AllowInaccurateRcp = Flags.hasApproximateFuncs();
-
-  // Without !fpmath accuracy information, we can't do more because we don't
-  // know exactly whether rcp is accurate enough to meet !fpmath requirement.
-  if (!AllowInaccurateRcp)
-    return SDValue();
+  bool AllowInaccurateRcp = Flags.hasApproximateFuncs() ||
+                            DAG.getTarget().Options.UnsafeFPMath;
 
   if (const ConstantFPSDNode *CLHS = dyn_cast<ConstantFPSDNode>(LHS)) {
+    // Without !fpmath accuracy information, we can't do more because we don't
+    // know exactly whether rcp is accurate enough to meet !fpmath requirement.
+    // f16 is always accurate enough
+    if (!AllowInaccurateRcp && VT != MVT::f16)
+      return SDValue();
+
     if (CLHS->isExactlyValue(1.0)) {
       // v_rcp_f32 and v_rsq_f32 do not support denormals, and according to
       // the CI documentation has a worst case error of 1 ulp.
       // OpenCL requires <= 2.5 ulp for 1.0 / x, so it should always be OK to
       // use it as long as we aren't trying to use denormals.
       //
-      // v_rcp_f16 and v_rsq_f16 DO support denormals.
+      // v_rcp_f16 and v_rsq_f16 DO support denormals and 0.51ulp.
 
       // 1.0 / sqrt(x) -> rsq(x)
 
       // XXX - Is UnsafeFPMath sufficient to do this for f64? The maximum ULP
       // error seems really high at 2^29 ULP.
+
+      // XXX - do we need afn for this or is arcp sufficent?
       if (RHS.getOpcode() == ISD::FSQRT)
         return DAG.getNode(AMDGPUISD::RSQ, SL, VT, RHS.getOperand(0));
 
@@ -9164,6 +9324,11 @@ SDValue SITargetLowering::lowerFastUnsafeFDIV(SDValue Op,
       return DAG.getNode(AMDGPUISD::RCP, SL, VT, FNegRHS);
     }
   }
+
+  // For f16 require arcp only.
+  // For f32 require afn+arcp.
+  if (!AllowInaccurateRcp && (VT != MVT::f16 || !Flags.hasAllowReciprocal()))
+    return SDValue();
 
   // Turn into multiply by the reciprocal.
   // x / y -> x * (1.0 / y)
@@ -9264,16 +9429,17 @@ SDValue SITargetLowering::LowerFDIV16(SDValue Op, SelectionDAG &DAG) const {
 
 // Faster 2.5 ULP division that does not support denormals.
 SDValue SITargetLowering::lowerFDIV_FAST(SDValue Op, SelectionDAG &DAG) const {
+  SDNodeFlags Flags = Op->getFlags();
   SDLoc SL(Op);
   SDValue LHS = Op.getOperand(1);
   SDValue RHS = Op.getOperand(2);
 
-  SDValue r1 = DAG.getNode(ISD::FABS, SL, MVT::f32, RHS);
+  SDValue r1 = DAG.getNode(ISD::FABS, SL, MVT::f32, RHS, Flags);
 
-  const APFloat K0Val(llvm::bit_cast<float>(0x6f800000));
+  const APFloat K0Val(0x1p+96f);
   const SDValue K0 = DAG.getConstantFP(K0Val, SL, MVT::f32);
 
-  const APFloat K1Val(llvm::bit_cast<float>(0x2f800000));
+  const APFloat K1Val(0x1p-32f);
   const SDValue K1 = DAG.getConstantFP(K1Val, SL, MVT::f32);
 
   const SDValue One = DAG.getConstantFP(1.0, SL, MVT::f32);
@@ -9283,30 +9449,27 @@ SDValue SITargetLowering::lowerFDIV_FAST(SDValue Op, SelectionDAG &DAG) const {
 
   SDValue r2 = DAG.getSetCC(SL, SetCCVT, r1, K0, ISD::SETOGT);
 
-  SDValue r3 = DAG.getNode(ISD::SELECT, SL, MVT::f32, r2, K1, One);
+  SDValue r3 = DAG.getNode(ISD::SELECT, SL, MVT::f32, r2, K1, One, Flags);
 
-  // TODO: Should this propagate fast-math-flags?
-  r1 = DAG.getNode(ISD::FMUL, SL, MVT::f32, RHS, r3);
+  r1 = DAG.getNode(ISD::FMUL, SL, MVT::f32, RHS, r3, Flags);
 
   // rcp does not support denormals.
-  SDValue r0 = DAG.getNode(AMDGPUISD::RCP, SL, MVT::f32, r1);
+  SDValue r0 = DAG.getNode(AMDGPUISD::RCP, SL, MVT::f32, r1, Flags);
 
-  SDValue Mul = DAG.getNode(ISD::FMUL, SL, MVT::f32, LHS, r0);
+  SDValue Mul = DAG.getNode(ISD::FMUL, SL, MVT::f32, LHS, r0, Flags);
 
-  return DAG.getNode(ISD::FMUL, SL, MVT::f32, r3, Mul);
+  return DAG.getNode(ISD::FMUL, SL, MVT::f32, r3, Mul, Flags);
 }
 
 // Returns immediate value for setting the F32 denorm mode when using the
 // S_DENORM_MODE instruction.
-static SDValue getSPDenormModeValue(int SPDenormMode, SelectionDAG &DAG,
-                                    const SDLoc &SL, const GCNSubtarget *ST) {
+static SDValue getSPDenormModeValue(uint32_t SPDenormMode, SelectionDAG &DAG,
+                                    const SIMachineFunctionInfo *Info,
+                                    const GCNSubtarget *ST) {
   assert(ST->hasDenormModeInst() && "Requires S_DENORM_MODE");
-  int DPDenormModeDefault = hasFP64FP16Denormals(DAG.getMachineFunction())
-                                ? FP_DENORM_FLUSH_NONE
-                                : FP_DENORM_FLUSH_IN_FLUSH_OUT;
-
-  int Mode = SPDenormMode | (DPDenormModeDefault << 2);
-  return DAG.getTargetConstant(Mode, SL, MVT::i32);
+  uint32_t DPDenormModeDefault = Info->getMode().fpDenormModeDPValue();
+  uint32_t Mode = SPDenormMode | (DPDenormModeDefault << 2);
+  return DAG.getTargetConstant(Mode, SDLoc(), MVT::i32);
 }
 
 SDValue SITargetLowering::LowerFDIV32(SDValue Op, SelectionDAG &DAG) const {
@@ -9344,7 +9507,11 @@ SDValue SITargetLowering::LowerFDIV32(SDValue Op, SelectionDAG &DAG) const {
                                (1 << AMDGPU::Hwreg::WIDTH_M1_SHIFT_);
   const SDValue BitField = DAG.getTargetConstant(Denorm32Reg, SL, MVT::i32);
 
-  const bool HasFP32Denormals = hasFP32Denormals(DAG.getMachineFunction());
+  const MachineFunction &MF = DAG.getMachineFunction();
+  const SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
+  const DenormalMode DenormMode = Info->getMode().FP32Denormals;
+
+  const bool HasFP32Denormals = DenormMode != DenormalMode::getPreserveSign();
 
   if (!HasFP32Denormals) {
     // Note we can't use the STRICT_FMA/STRICT_FMUL for the non-strict FDIV
@@ -9356,7 +9523,7 @@ SDValue SITargetLowering::LowerFDIV32(SDValue Op, SelectionDAG &DAG) const {
     SDNode *EnableDenorm;
     if (Subtarget->hasDenormModeInst()) {
       const SDValue EnableDenormValue =
-          getSPDenormModeValue(FP_DENORM_FLUSH_NONE, DAG, SL, Subtarget);
+          getSPDenormModeValue(FP_DENORM_FLUSH_NONE, DAG, Info, Subtarget);
 
       EnableDenorm = DAG.getNode(AMDGPUISD::DENORM_MODE, SL, BindParamVTs,
                                  DAG.getEntryNode(), EnableDenormValue).getNode();
@@ -9396,10 +9563,13 @@ SDValue SITargetLowering::LowerFDIV32(SDValue Op, SelectionDAG &DAG) const {
                              NumeratorScaled, Fma3, Flags);
 
   if (!HasFP32Denormals) {
+    // FIXME: This mishandles dynamic denormal mode. We need to query the
+    // current mode and restore the original.
+
     SDNode *DisableDenorm;
     if (Subtarget->hasDenormModeInst()) {
-      const SDValue DisableDenormValue =
-          getSPDenormModeValue(FP_DENORM_FLUSH_IN_FLUSH_OUT, DAG, SL, Subtarget);
+      const SDValue DisableDenormValue = getSPDenormModeValue(
+          FP_DENORM_FLUSH_IN_FLUSH_OUT, DAG, Info, Subtarget);
 
       DisableDenorm = DAG.getNode(AMDGPUISD::DENORM_MODE, SL, MVT::Other,
                                   Fma4.getValue(1), DisableDenormValue,
@@ -9522,9 +9692,7 @@ SDValue SITargetLowering::LowerFFREXP(SDValue Op, SelectionDAG &DAG) const {
       ISD::INTRINSIC_WO_CHAIN, dl, InstrExpVT,
       DAG.getTargetConstant(Intrinsic::amdgcn_frexp_exp, dl, MVT::i32), Val);
 
-  const GCNSubtarget &ST =
-      DAG.getMachineFunction().getSubtarget<GCNSubtarget>();
-  if (ST.hasFractBug()) {
+  if (Subtarget->hasFractBug()) {
     SDValue Fabs = DAG.getNode(ISD::FABS, dl, VT, Val);
     SDValue Inf = DAG.getConstantFP(
         APFloat::getInf(SelectionDAG::EVTToAPFloatSemantics(VT)), dl, VT);
@@ -10400,6 +10568,9 @@ calculateByteProvider(const SDValue &Op, unsigned Index, unsigned Depth,
     return std::nullopt;
   }
 
+  case ISD::BSWAP:
+    return calculateByteProvider(Op->getOperand(0), BitWidth / 8 - Index - 1,
+                                 Depth + 1, StartingIndex);
   default: {
     return std::nullopt;
   }
@@ -10843,10 +11014,15 @@ bool SITargetLowering::isCanonicalized(SelectionDAG &DAG, SDValue Op,
     return true;
 
   if (auto *CFP = dyn_cast<ConstantFPSDNode>(Op)) {
-    auto F = CFP->getValueAPF();
+    const auto &F = CFP->getValueAPF();
     if (F.isNaN() && F.isSignaling())
       return false;
-    return !F.isDenormal() || denormalsEnabledForType(DAG, Op.getValueType());
+    if (!F.isDenormal())
+      return true;
+
+    DenormalMode Mode =
+        DAG.getMachineFunction().getDenormalMode(F.getSemantics());
+    return Mode == DenormalMode::getIEEE();
   }
 
   // If source is a result of another standard FP operation it is already in
@@ -10915,6 +11091,7 @@ bool SITargetLowering::isCanonicalized(SelectionDAG &DAG, SDValue Op,
 
     // snans will be quieted, so we only need to worry about denormals.
     if (Subtarget->supportsMinMaxDenormModes() ||
+        // FIXME: denormalsEnabledForType is broken for dynamic
         denormalsEnabledForType(DAG, Op.getValueType()))
       return true;
 
@@ -10994,6 +11171,7 @@ bool SITargetLowering::isCanonicalized(SelectionDAG &DAG, SDValue Op,
     [[fallthrough]];
   }
   default:
+    // FIXME: denormalsEnabledForType is broken for dynamic
     return denormalsEnabledForType(DAG, Op.getValueType()) &&
            DAG.isKnownNeverSNaN(Op);
   }
@@ -11015,8 +11193,11 @@ bool SITargetLowering::isCanonicalized(Register Reg, MachineFunction &MF,
   if (mi_match(Reg, MRI, MIPatternMatch::m_GFCstOrSplat(FCR))) {
     if (FCR->Value.isSignaling())
       return false;
-    return !FCR->Value.isDenormal() ||
-           denormalsEnabledForType(MRI.getType(FCR->VReg), MF);
+    if (!FCR->Value.isDenormal())
+      return true;
+
+    DenormalMode Mode = MF.getDenormalMode(FCR->Value.getSemantics());
+    return Mode == DenormalMode::getIEEE();
   }
 
   if (MaxDepth == 0)
@@ -11059,6 +11240,7 @@ bool SITargetLowering::isCanonicalized(Register Reg, MachineFunction &MF,
   case AMDGPU::G_FMINNUM_IEEE:
   case AMDGPU::G_FMAXNUM_IEEE: {
     if (Subtarget->supportsMinMaxDenormModes() ||
+        // FIXME: denormalsEnabledForType is broken for dynamic
         denormalsEnabledForType(MRI.getType(Reg), MF))
       return true;
 
@@ -11115,9 +11297,16 @@ bool SITargetLowering::isCanonicalized(Register Reg, MachineFunction &MF,
 SDValue SITargetLowering::getCanonicalConstantFP(
   SelectionDAG &DAG, const SDLoc &SL, EVT VT, const APFloat &C) const {
   // Flush denormals to 0 if not enabled.
-  if (C.isDenormal() && !denormalsEnabledForType(DAG, VT)) {
-    return DAG.getConstantFP(APFloat::getZero(C.getSemantics(),
-                                              C.isNegative()), SL, VT);
+  if (C.isDenormal()) {
+    DenormalMode Mode =
+        DAG.getMachineFunction().getDenormalMode(C.getSemantics());
+    if (Mode == DenormalMode::getPreserveSign()) {
+      return DAG.getConstantFP(
+          APFloat::getZero(C.getSemantics(), C.isNegative()), SL, VT);
+    }
+
+    if (Mode != DenormalMode::getIEEE())
+      return SDValue();
   }
 
   if (C.isNaN()) {
@@ -11773,10 +11962,11 @@ unsigned SITargetLowering::getFusedOpcode(const SelectionDAG &DAG,
 
   // Only do this if we are not trying to support denormals. v_mad_f32 does not
   // support denormals ever.
-  if (((VT == MVT::f32 && !hasFP32Denormals(DAG.getMachineFunction())) ||
-       (VT == MVT::f16 && !hasFP64FP16Denormals(DAG.getMachineFunction()) &&
-        getSubtarget()->hasMadF16())) &&
-       isOperationLegal(ISD::FMAD, VT))
+  if (((VT == MVT::f32 &&
+        denormalModeIsFlushAllF32(DAG.getMachineFunction())) ||
+       (VT == MVT::f16 && Subtarget->hasMadF16() &&
+        denormalModeIsFlushAllF64F16(DAG.getMachineFunction()))) &&
+      isOperationLegal(ISD::FMAD, VT))
     return ISD::FMAD;
 
   const TargetOptions &Options = DAG.getTarget().Options;
@@ -13386,6 +13576,15 @@ void SITargetLowering::finalizeLowering(MachineFunction &MF) const {
     reservePrivateMemoryRegs(getTargetMachine(), MF, *TRI, *Info);
   }
 
+  // TODO: Move this logic to getReservedRegs()
+  // Reserve the SGPR(s) to save/restore EXEC for WWM spill/copy handling.
+  unsigned MaxNumSGPRs = ST.getMaxNumSGPRs(MF);
+  Register SReg = ST.isWave32()
+                      ? AMDGPU::SGPR_32RegClass.getRegister(MaxNumSGPRs - 1)
+                      : TRI->getAlignedHighSGPRForRC(MF, /*Align=*/2,
+                                                     &AMDGPU::SGPR_64RegClass);
+  Info->setSGPRForEXECCopy(SReg);
+
   assert(!TRI->isSubRegister(Info->getScratchRSrcReg(),
                              Info->getStackPtrOffsetReg()));
   if (Info->getStackPtrOffsetReg() != AMDGPU::SP_REG)
@@ -13725,10 +13924,10 @@ bool SITargetLowering::denormalsEnabledForType(const SelectionDAG &DAG,
                                                EVT VT) const {
   switch (VT.getScalarType().getSimpleVT().SimpleTy) {
   case MVT::f32:
-    return hasFP32Denormals(DAG.getMachineFunction());
+    return !denormalModeIsFlushAllF32(DAG.getMachineFunction());
   case MVT::f64:
   case MVT::f16:
-    return hasFP64FP16Denormals(DAG.getMachineFunction());
+    return !denormalModeIsFlushAllF64F16(DAG.getMachineFunction());
   default:
     return false;
   }
@@ -13738,10 +13937,10 @@ bool SITargetLowering::denormalsEnabledForType(LLT Ty,
                                                MachineFunction &MF) const {
   switch (Ty.getScalarSizeInBits()) {
   case 32:
-    return hasFP32Denormals(MF);
+    return !denormalModeIsFlushAllF32(MF);
   case 64:
   case 16:
-    return hasFP64FP16Denormals(MF);
+    return !denormalModeIsFlushAllF64F16(MF);
   default:
     return false;
   }
@@ -14055,7 +14254,7 @@ bool SITargetLowering::isReassocProfitable(SelectionDAG &DAG, SDValue N0,
 
 bool SITargetLowering::isReassocProfitable(MachineRegisterInfo &MRI,
                                            Register N0, Register N1) const {
-  return true; // FIXME: handle regbanks
+  return MRI.hasOneNonDBGUse(N0); // FIXME: handle regbanks
 }
 
 MachineMemOperand::Flags
@@ -14090,7 +14289,6 @@ bool SITargetLowering::checkForPhysRegDependency(
   }
   return false;
 }
-
 void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
   assert(Subtarget->hasAtomicFaddInsts() &&
          "target should have atomic fadd instructions");
@@ -14163,7 +14361,6 @@ void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
   Value *Val = AI->getValOperand();
   Type *ValTy = Val->getType();
   Value *Addr = AI->getPointerOperand();
-  PointerType *PtrTy = cast<PointerType>(Addr->getType());
 
   auto CreateNewAtomicRMW = [AI](IRBuilder<> &Builder, Value *Addr,
                                  Value *Val) -> Value * {
@@ -14188,8 +14385,7 @@ void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
 
   Builder.SetInsertPoint(SharedBB);
   Value *CastToLocal = Builder.CreateAddrSpaceCast(
-      Addr,
-      PointerType::getWithSamePointeeType(PtrTy, AMDGPUAS::LOCAL_ADDRESS));
+      Addr, PointerType::get(Ctx, AMDGPUAS::LOCAL_ADDRESS));
   Value *LoadedShared = CreateNewAtomicRMW(Builder, CastToLocal, Val);
   Builder.CreateBr(PhiBB);
 
@@ -14200,8 +14396,7 @@ void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
 
   Builder.SetInsertPoint(PrivateBB);
   Value *CastToPrivate = Builder.CreateAddrSpaceCast(
-      Addr,
-      PointerType::getWithSamePointeeType(PtrTy, AMDGPUAS::PRIVATE_ADDRESS));
+      Addr, PointerType::get(Ctx, AMDGPUAS::PRIVATE_ADDRESS));
   Value *LoadedPrivate =
       Builder.CreateLoad(ValTy, CastToPrivate, "loaded.private");
   Value *NewVal = Builder.CreateFAdd(LoadedPrivate, Val, "val.new");
@@ -14210,8 +14405,7 @@ void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
 
   Builder.SetInsertPoint(GlobalBB);
   Value *CastToGlobal = Builder.CreateAddrSpaceCast(
-      Addr,
-      PointerType::getWithSamePointeeType(PtrTy, AMDGPUAS::GLOBAL_ADDRESS));
+      Addr, PointerType::get(Ctx, AMDGPUAS::GLOBAL_ADDRESS));
   Value *LoadedGlobal = CreateNewAtomicRMW(Builder, CastToGlobal, Val);
   Builder.CreateBr(PhiBB);
 
@@ -14224,6 +14418,7 @@ void SITargetLowering::emitExpandAtomicRMW(AtomicRMWInst *AI) const {
 
   AI->replaceAllUsesWith(Loaded);
   AI->eraseFromParent();
+
 }
 
 LoadInst *

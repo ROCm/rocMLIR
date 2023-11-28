@@ -9,20 +9,21 @@
 
 ; CI-DAG: s_load_dword [[PTR:s[0-9]+]], s[6:7], 0x0{{$}}
 ; CI-DAG: s_load_dword [[APERTURE:s[0-9]+]], s[4:5], 0x10{{$}}
+; CI-DAG: v_mov_b32_e32 v2, 7
+; CI-DAG: s_waitcnt lgkmcnt(0)
 ; CI-DAG: s_cmp_lg_u32 [[PTR]], -1
-; CI-DAG: s_cselect_b32 s[[HI:[0-9]+]], [[APERTURE]], 0
-; CI-DAG: s_cselect_b32 s[[LO:[0-9]+]], [[PTR]], 0
+; CI-DAG: v_mov_b32_e32 v0, s0
+; CI-DAG: s_cselect_b32 s1, s1, 0
 
 ; GFX9-DAG: s_mov_b64 s[{{[0-9]+}}:[[HIBASE:[0-9]+]]], src_shared_base
 
-; HSA-DAG: v_mov_b32_e32 [[K:v[0-9]+]], 7
+; CI-DAG: v_mov_b32_e32 [[K:v[0-9]+]], s1
+; GFX9-DAG: v_mov_b32_e32 v0, s1
 ; GFX9-DAG: s_load_dword [[PTR:s[0-9]+]], s[4:5], 0x0{{$}}
 
-; GFX9: s_cmp_lg_u32 [[PTR]], -1
-; GFX9-DAG: s_cselect_b32 s[[LO:[0-9]+]], s[[HIBASE]], 0
-; GFX9-DAG: s_cselect_b32 s[[HI:[0-9]+]], [[PTR]], 0
+; GFX9-DAG: s_cselect_b32 s0, s1, 0
 
-; HSA: flat_store_dword v[[[LO]]:[[HI]]], [[K]]
+; HSA: flat_store_dword v[0:1], v2 
 
 ; At most 2 digits. Make sure src_shared_base is not counted as a high
 ; number SGPR.
@@ -69,18 +70,15 @@ define void @use_group_to_flat_addrspacecast_func(ptr addrspace(3) %ptr) #0 {
 
 ; CI-DAG: v_mov_b32_e32 [[K:v[0-9]+]], 7
 ; CI-DAG: s_cmp_lg_u32 [[PTR]], -1
-; CI-DAG: s_cselect_b32 s[[HI:[0-9]+]], [[APERTURE]], 0
-; CI-DAG: s_cselect_b32 s[[LO:[0-9]+]], [[PTR]], 0
+; CI-DAG: s_cselect_b32 s1, s1, 0
 
 ; GFX9-DAG: s_load_dword [[PTR:s[0-9]+]], s[4:5], 0x0{{$}}
 ; GFX9-DAG: s_mov_b64 s[{{[0-9]+}}:[[HIBASE:[0-9]+]]], src_private_base
 
-; GFX9-DAG: v_mov_b32_e32 [[K:v[0-9]+]], 7
-; GFX9: s_cmp_lg_u32 [[PTR]], -1
-; GFX9: s_cselect_b32 s[[LO:[0-9]+]], s[[HIBASE]], 0
-; GFX9: s_cselect_b32 s[[HI:[0-9]+]], [[PTR]], 0
+; GFX9: s_cselect_b32 s0, s1, 0
+; GFX9-DAG: v_mov_b32_e32 [[K:v[0-9]+]], s1
 
-; HSA: flat_store_dword v[[[LO]]:[[HI]]], [[K]]
+; HSA: flat_store_dword v[0:1], v2
 
 ; HSA: NumSgprs: {{[0-9]+}}
 define amdgpu_kernel void @use_private_to_flat_addrspacecast(ptr addrspace(5) %ptr) #0 {
@@ -136,15 +134,15 @@ define amdgpu_kernel void @use_constant_to_global_addrspacecast(ptr addrspace(4)
 ; HSA: enable_sgpr_queue_ptr = 0
 
 ; HSA: s_load_dwordx2 s[[[PTR_LO:[0-9]+]]:[[PTR_HI:[0-9]+]]]
-; CI-DAG: v_cmp_ne_u64_e64 s[[[CMP_LO:[0-9]+]]:[[CMP_HI:[0-9]+]]], s[[[PTR_LO]]:[[PTR_HI]]], 0{{$}}
-; CI-DAG: s_and_b64 s{{[[0-9]+:[0-9]+]}}, s[[[CMP_LO]]:[[CMP_HI]]], exec
-; CI-DAG: s_cselect_b32 [[CASTPTR:s[0-9]+]], s[[PTR_LO]], -1
-; CI-DAG: v_mov_b32_e32 [[VCASTPTR:v[0-9]+]], [[CASTPTR]]
+
+; CI-DAG: v_cmp_ne_u64_e64 s[2:3], s[0:1], 0
+; CI-DAG: v_mov_b32_e32 [[VCASTPTR:v[0-9]+]], s0
+
 ; HSA-DAG: v_mov_b32_e32 v[[K:[0-9]+]], 0{{$}}
 ; GFX9-DAG: s_cmp_lg_u64 s[[[CMP_LO:[0-9]+]]:[[CMP_HI:[0-9]+]]], 0
 ; GFX9-DAG: s_cselect_b32 s[[PTR_LO]], s[[PTR_LO]], -1
 ; GFX9-DAG: v_mov_b32_e32 [[CASTPTR:v[0-9]+]], s[[PTR_LO]]
-; CI-DAG: ds_write_b32 [[VCASTPTR]], v[[K]]
+; CI-DAG: ds_write_b32 [[VCASTPTR]], v0
 ; GFX9-DAG: ds_write_b32 [[CASTPTR]], v[[K]]
 define amdgpu_kernel void @use_flat_to_group_addrspacecast(ptr %ptr) #0 {
   %ftos = addrspacecast ptr %ptr to ptr addrspace(3)
@@ -161,10 +159,9 @@ define amdgpu_kernel void @use_flat_to_group_addrspacecast(ptr %ptr) #0 {
 ; CI-DAG v_cmp_ne_u64_e64 vcc, s[[[PTR_LO]]:[[PTR_HI]]], 0{{$}}
 ; CI-DAG v_mov_b32_e32 v[[VPTR_LO:[0-9]+]], s[[PTR_LO]]
 ; CI-DAG v_cndmask_b32_e32 [[CASTPTR:v[0-9]+]], -1, v[[VPTR_LO]]
-; CI-DAG: v_cmp_ne_u64_e64 s[[[CMP_LO:[0-9]+]]:[[CMP_HI:[0-9]+]]], s[[[PTR_LO]]:[[PTR_HI]]], 0{{$}}
-; CI-DAG: s_and_b64 s{{[[0-9]+:[0-9]+]}}, s[[[CMP_LO]]:[[CMP_HI]]], exec
-; CI-DAG: s_cselect_b32 [[CASTPTR:s[0-9]+]], s[[PTR_LO]], -1
-; CI-DAG: v_mov_b32_e32 [[VCASTPTR:v[0-9]+]], [[CASTPTR]]
+; CI-DAG: v_cmp_ne_u64_e64 s[2:3], s[0:1], 0
+; CI-DAG: v_mov_b32_e32 [[VCASTPTR:v[0-9]+]], s0
+
 ; HSA-DAG: v_mov_b32_e32 v[[K:[0-9]+]], 0{{$}}
 ; GFX9-DAG: s_cmp_lg_u64 s[[[CMP_LO:[0-9]+]]:[[CMP_HI:[0-9]+]]], 0
 ; GFX9-DAG: s_cselect_b32 s[[PTR_LO]], s[[PTR_LO]], -1

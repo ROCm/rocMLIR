@@ -28,7 +28,8 @@ namespace tools {
 
 namespace darwin {
 llvm::Triple::ArchType getArchTypeForMachOArchName(StringRef Str);
-void setTripleTypeForMachOArchName(llvm::Triple &T, StringRef Str);
+void setTripleTypeForMachOArchName(llvm::Triple &T, StringRef Str,
+                                   const llvm::opt::ArgList &Args);
 
 class LLVM_LIBRARY_VISIBILITY MachOTool : public Tool {
   virtual void anchor();
@@ -236,10 +237,6 @@ public:
   bool IsBlocksDefault() const override {
     // Always allow blocks on Apple; users interested in versioning are
     // expected to use /usr/include/Block.h.
-    return true;
-  }
-  bool IsIntegratedAssemblerDefault() const override {
-    // Default integrated assembler to on for Apple's MachO targets.
     return true;
   }
 
@@ -627,8 +624,7 @@ private:
                                    llvm::StringRef ArchDir,
                                    llvm::StringRef BitDir) const;
 
-  llvm::SmallString<128>
-  GetEffectiveSysroot(const llvm::opt::ArgList &DriverArgs) const;
+  llvm::StringRef GetHeaderSysroot(const llvm::opt::ArgList &DriverArgs) const;
 };
 
 } // end namespace toolchains

@@ -44,7 +44,7 @@
 // CHECK-DENORMS-ARE-ZERO-NOT: "-cl-denorms-are-zero"
 
 // CHECK-ROUND-DIV: "-cc1" {{.*}} "-cl-fp32-correctly-rounded-divide-sqrt"
-// CHECK-UNIFORM-WG: "-cc1" {{.*}} "-cl-uniform-work-group-size"
+// CHECK-UNIFORM-WG: "-cc1" {{.*}} "-foffload-uniform-block"
 // CHECK-C99: error: invalid value 'c99' in '-cl-std=c99'
 // CHECK-INVALID: error: invalid value 'invalid' in '-cl-std=invalid'
 

@@ -19,13 +19,33 @@ if (NOT LIBOMPTARGET_BUILD_AMDGPU_PLUGIN)
   return()
 endif()
 
+
 # as of rocm-3.7, hsa is installed with cmake packages and kmt is found via hsa
-find_package(hsa-runtime64 QUIET 1.2.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
+find_package(hsa-runtime64 QUIET 1.2.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS
+${CMAKE_INSTALL_PREFIX} /opt/rocm)
+
+if(hsa-runtime64_DIR)
+message("FOUND hsa-runtime64 at ${hsa-runtime64_DIR}")
+endif()
 
 if(NOT (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(ppc64le)|(aarch64)$" AND CMAKE_SYSTEM_NAME MATCHES "Linux"))
-  libomptarget_say("Not building AMDGPU plugin: only support AMDGPU in Linux x86_64, ppc64le, or aarch64 hosts")
-  return()
+libomptarget_say("Not building AMDGPU plugin: only support AMDGPU in Linux x86_64, ppc64le, or aarch64 hosts")
+return()
 endif()
+
+# libhsakmt.a
+find_library (HSAKMT_LIB libhsakmt.a REQURIED HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
+get_filename_component(HSAKMT_LIB_PATH ${HSAKMT_LIB} DIRECTORY)
+link_directories (${HSAKMT_LIB_PATH})
+
+# lib_drm_amdgpu
+pkg_check_modules(drm_amdgpu REQUIRED IMPORTED_TARGET libdrm_amdgpu)
+
+# lib_drm
+pkg_check_modules(drm REQUIRED IMPORTED_TARGET libdrm)
+
+# libnuma
+find_library(numa libnuma.so REQUIRED HINTS /usr/lib/x86_64-linux-gnu/)
 
 ################################################################################
 # Define the suffix for the runtime messaging dumps.
@@ -69,6 +89,7 @@ add_llvm_library(omptarget.rtl.amdgpu SHARED
   impl/system.cpp
   impl/msgpack.cpp
   src/rtl.cpp
+  src/ompt_callback.cpp
   ${LIBOMPTARGET_EXTRA_SOURCE}
 
   ADDITIONAL_HEADER_DIRS
@@ -80,16 +101,25 @@ add_llvm_library(omptarget.rtl.amdgpu SHARED
   Support
   Object
 
-  LINK_LIBS 
+  LINK_LIBS
+  PRIVATE hsakmt
+  PRIVATE drm_amdgpu
+  PRIVATE drm
+  PRIVATE numa
   PRIVATE
   elf_common
+  MemoryManager
   ${LIBOMPTARGET_DEP_LIBRARIES}
   ${OPENMP_PTHREAD_LIB}
+  -Wl,--whole-archive amdgcn_hostexec_services -Wl,--no-whole-archive
   "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../exports"
   ${LDFLAGS_UNDEFINED}
 
   NO_INSTALL_RPATH
 )
+
+add_dependencies(omptarget.rtl.amdgpu omptarget.devicertl.amdgpu )
+add_dependencies(omptarget.rtl.amdgpu amdgcn_hostexec_services)
 
 target_include_directories(
   omptarget.rtl.amdgpu
@@ -99,12 +129,19 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../../plugins-nextgen/amdgpu/utils
 )
 
+# Don't override an externally defined RPATH
+if(NOT DEFINED CMAKE_INSTALL_RPATH)
+  set_property(TARGET omptarget.rtl.amdgpu PROPERTY INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:$ORIGIN/../../lib")
+else()
+  set_target_properties(omptarget.rtl.amdgpu PROPERTIES
+    INSTALL_RPATH ${CMAKE_INSTALL_RPATH}
+    BUILD_RPATH ${CMAKE_INSTALL_RPATH} CXX_VISIBILITY_PRESET protected)
+endif()
+
 
 # Install plugin under the lib destination folder.
-install(TARGETS omptarget.rtl.amdgpu LIBRARY DESTINATION "${OPENMP_INSTALL_LIBDIR}")
-set_target_properties(omptarget.rtl.amdgpu PROPERTIES 
-  INSTALL_RPATH "$ORIGIN" BUILD_RPATH "$ORIGIN:${CMAKE_CURRENT_BINARY_DIR}/.."
-  CXX_VISIBILITY_PRESET protected)
+install(TARGETS omptarget.rtl.amdgpu LIBRARY DESTINATION "${RUN_PACKAGE}${OPENMP_INSTALL_LIBDIR}")
+set_property(TARGET omptarget.rtl.amdgpu PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
 # Report to the parent scope that we are building a plugin for hsa.
 # This controls whether tests are run for the nvptx offloading target

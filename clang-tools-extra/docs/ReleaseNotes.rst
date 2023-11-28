@@ -121,6 +121,12 @@ New checks
   Detect implicit and explicit casts of ``enum`` type into ``bool`` where ``enum`` type
   doesn't have a zero-value enumerator.
 
+- New :doc:`bugprone-switch-missing-default-case
+  <clang-tidy/checks/bugprone/switch-missing-default-case>` check.
+
+  Ensures that switch statements without default cases are flagged, focuses only
+  on covering cases with non-enums where the compiler may not issue warnings.
+
 - New :doc:`bugprone-unique-ptr-array-mismatch
   <clang-tidy/checks/bugprone/unique-ptr-array-mismatch>` check.
 
@@ -232,17 +238,17 @@ New check aliases
 
 - New alias :doc:`cppcoreguidelines-noexcept-destructor
   <clang-tidy/checks/cppcoreguidelines/noexcept-destructor>` to
-  :doc`performance-noexcept-destructor
+  :doc:`performance-noexcept-destructor
   <clang-tidy/checks/performance/noexcept-destructor>` was added.
 
 - New alias :doc:`cppcoreguidelines-noexcept-move-operations
   <clang-tidy/checks/cppcoreguidelines/noexcept-move-operations>` to
-  :doc`performance-noexcept-move-constructor
+  :doc:`performance-noexcept-move-constructor
   <clang-tidy/checks/performance/noexcept-move-constructor>` was added.
 
 - New alias :doc:`cppcoreguidelines-noexcept-swap
   <clang-tidy/checks/cppcoreguidelines/noexcept-swap>` to
-  :doc`performance-noexcept-swap
+  :doc:`performance-noexcept-swap
   <clang-tidy/checks/performance/noexcept-swap>` was added.
 
 - New alias :doc:`cppcoreguidelines-use-default-member-init
@@ -268,12 +274,10 @@ Changes in existing checks
   Global options of the same name should be used instead.
 
 - Improved :doc:`bugprone-exception-escape
-  <clang-tidy/checks/bugprone/exception-escape>` to not emit warnings for
-  forward declarations of functions.
-
-- Fixed :doc:`bugprone-exception-escape<clang-tidy/checks/bugprone/exception-escape>`
-  for coroutines where previously a warning would be emitted with coroutines
-  throwing exceptions in their bodies.
+  <clang-tidy/checks/bugprone/exception-escape>` check to not emit warnings for
+  forward declarations of functions, explicitly declared throwing functions,
+  coroutines throwing exceptions in their bodies and skip ``noexcept``
+  functions during call stack analysis.
 
 - Improved :doc:`bugprone-fold-init-type
   <clang-tidy/checks/bugprone/fold-init-type>` to handle iterators that do not
@@ -313,13 +317,27 @@ Changes in existing checks
   sequenced when constructor call is written as list-initialization. Understand
   that there is a sequence point between designated initializers.
 
+- Improved :doc:`bugprone-swapped-arguments
+  <clang-tidy/checks/bugprone/swapped-arguments>` by enhancing handling of
+  implicit conversions, resulting in better detection of argument swaps
+  involving integral and floating-point types.
+
 - Deprecated :doc:`cert-dcl21-cpp
   <clang-tidy/checks/cert/dcl21-cpp>` check.
+
+- Fixed :doc:`cppcoreguidelines-avoid-const-or-ref-data-members
+  <clang-tidy/checks/cppcoreguidelines/avoid-const-or-ref-data-members>` check
+  to emit warnings only on classes that are copyable/movable, as required by the
+  corresponding rule.
 
 - Deprecated C.48 enforcement from :doc:`cppcoreguidelines-prefer-member-initializer
   <clang-tidy/checks/cppcoreguidelines/prefer-member-initializer>`. Please use
   :doc:`cppcoreguidelines-use-default-member-init
   <clang-tidy/checks/cppcoreguidelines/use-default-member-init>` instead.
+
+- Improved :doc:`cppcoreguidelines-pro-bounds-constant-array-index
+  <clang-tidy/checks/cppcoreguidelines/pro-bounds-constant-array-index>` check
+  to cover type aliases of ``std::array``.
 
 - Fixed a false positive in :doc:`cppcoreguidelines-slicing
   <clang-tidy/checks/cppcoreguidelines/slicing>` check when warning would be
@@ -379,7 +397,7 @@ Changes in existing checks
   with attributes and to support nested inline namespace introduced in c++20.
 
 - Fixed an issue in `modernize-loop-convert
-  <clang-tidy/checks/modernize/modernize-loop-convert>` generating wrong code
+  <clang-tidy/checks/modernize/loop-convert>` generating wrong code
   when using structured bindings.
 
 - In :doc:`modernize-use-default-member-init
@@ -406,12 +424,9 @@ Changes in existing checks
   special member functions are not available.
 
 - Improved :doc:`performance-no-automatic-move
-  <clang-tidy/checks/performance/no-automatic-move>`: warn on ``const &&``
-  constructors.
-
-- Fixed a false positive in :doc:`performance-no-automatic-move
-  <clang-tidy/checks/performance/no-automatic-move>` when warning would be
-  emitted for a const local variable to which NRVO is applied.
+  <clang-tidy/checks/performance/no-automatic-move>` check to warn on
+  ``const &&`` constructors and ignore ``const`` local variable to which NRVO
+  is applied.
 
 - Fixed an issue in the :doc:`performance-noexcept-move-constructor
   <clang-tidy/checks/performance/noexcept-move-constructor>` checker that was causing

@@ -183,9 +183,11 @@ def DeprecatedCopyWithUserProvidedCopy : DiagGroup<"deprecated-copy-with-user-pr
 def DeprecatedCopyWithUserProvidedDtor : DiagGroup<"deprecated-copy-with-user-provided-dtor">;
 def DeprecatedCopy : DiagGroup<"deprecated-copy", [DeprecatedCopyWithUserProvidedCopy]>;
 def DeprecatedCopyWithDtor : DiagGroup<"deprecated-copy-with-dtor", [DeprecatedCopyWithUserProvidedDtor]>;
+def DeprecatedLiteralOperator : DiagGroup<"deprecated-literal-operator">;
 // For compatibility with GCC.
 def : DiagGroup<"deprecated-copy-dtor", [DeprecatedCopyWithDtor]>;
 def DeprecatedDeclarations : DiagGroup<"deprecated-declarations">;
+def DeprecatedRedundantConstexprStaticDef : DiagGroup<"deprecated-redundant-constexpr-static-def">;
 def UnavailableDeclarations : DiagGroup<"unavailable-declarations">;
 def UnguardedAvailabilityNew : DiagGroup<"unguarded-availability-new">;
 def UnguardedAvailability : DiagGroup<"unguarded-availability",
@@ -219,12 +221,15 @@ def Deprecated : DiagGroup<"deprecated", [DeprecatedAnonEnumEnumConversion,
                                           DeprecatedEnumFloatConversion,
                                           DeprecatedBuiltins,
                                           DeprecatedIncrementBool,
+                                          DeprecatedLiteralOperator,
                                           DeprecatedPragma,
                                           DeprecatedRegister,
                                           DeprecatedThisCapture,
                                           DeprecatedType,
                                           DeprecatedVolatile,
-                                          DeprecatedWritableStr]>,
+                                          DeprecatedWritableStr,
+                                          DeprecatedRedundantConstexprStaticDef,
+                                          ]>,
                  DiagCategory<"Deprecations">;
 
 def CXX20Designator : DiagGroup<"c++20-designator">;
@@ -862,7 +867,7 @@ def SignedEnumBitfield : DiagGroup<"signed-enum-bitfield">;
 
 def ReservedModuleIdentifier : DiagGroup<"reserved-module-identifier">;
 def ReservedIdentifier : DiagGroup<"reserved-identifier",
-    [ReservedIdAsMacro, ReservedModuleIdentifier]>;
+    [ReservedIdAsMacro, ReservedModuleIdentifier, UserDefinedLiterals]>;
 
 // Unreachable code warning groups.
 //
@@ -1336,6 +1341,9 @@ def HIPOnly : DiagGroup<"hip-only">;
 // Warning about mixed HIP and OpenMP compilation / target offloading.
 def HIPOpenMPOffloading: DiagGroup<"hip-omp-target-directives">;
 
+// Warning about multiple GPUs are detected.
+def MultiGPU: DiagGroup<"multi-gpu">;
+
 // Warnings which cause linking of the runtime libraries like
 // libc and the CRT to be skipped.
 def AVRRtlibLinkingQuirks : DiagGroup<"avr-rtlib-linking-quirks">;
@@ -1348,6 +1356,8 @@ def InvalidOrNonExistentDirectory : DiagGroup<"invalid-or-nonexistent-directory"
 def OptionIgnored : DiagGroup<"option-ignored">;
 
 def UnknownArgument : DiagGroup<"unknown-argument">;
+
+def UnsupportedABI : DiagGroup<"unsupported-abi">;
 
 // A warning group for warnings about code that clang accepts when
 // compiling OpenCL C/C++ but which is not compatible with the SPIR(-V) spec.

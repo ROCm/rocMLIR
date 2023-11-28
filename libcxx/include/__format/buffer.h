@@ -107,7 +107,7 @@ public:
     size_t __n = __str.size();
 
     __flush_on_overflow(__n);
-    if (__n <= __capacity_) {
+    if (__n < __capacity_) { //  push_back requires the buffer to have room for at least one character (so use <).
       _VSTD::copy_n(__str.data(), __n, _VSTD::addressof(__ptr_[__size_]));
       __size_ += __n;
       return;
@@ -136,7 +136,7 @@ public:
 
     size_t __n = static_cast<size_t>(__last - __first);
     __flush_on_overflow(__n);
-    if (__n <= __capacity_) {
+    if (__n < __capacity_) { //  push_back requires the buffer to have room for at least one character (so use <).
       _VSTD::transform(__first, __last, _VSTD::addressof(__ptr_[__size_]), _VSTD::move(__operation));
       __size_ += __n;
       return;
@@ -158,7 +158,7 @@ public:
   /// A \c fill_n wrapper.
   _LIBCPP_HIDE_FROM_ABI void __fill(size_t __n, _CharT __value) {
     __flush_on_overflow(__n);
-    if (__n <= __capacity_) {
+    if (__n < __capacity_) { //  push_back requires the buffer to have room for at least one character (so use <).
       _VSTD::fill_n(_VSTD::addressof(__ptr_[__size_]), __n, __value);
       __size_ += __n;
       return;
@@ -529,6 +529,7 @@ public:
 
   struct __iterator {
     using difference_type = ptrdiff_t;
+    using value_type      = _CharT;
 
     _LIBCPP_HIDE_FROM_ABI constexpr explicit __iterator(__retarget_buffer& __buffer)
         : __buffer_(std::addressof(__buffer)) {}
@@ -551,7 +552,14 @@ public:
   __retarget_buffer& operator=(const __retarget_buffer&) = delete;
 
   _LIBCPP_HIDE_FROM_ABI explicit __retarget_buffer(size_t __size_hint) {
-    auto __result = std::__allocate_at_least(__alloc_, __size_hint ? __size_hint : 256 / sizeof(_CharT));
+    // When the initial size is very small a lot of resizes happen
+    // when elements added. So use a hard-coded minimum size.
+    //
+    // Note a size < 2 will not work
+    // - 0 there is no buffer, while push_back requires 1 empty element.
+    // - 1 multiplied by the grow factor is 1 and thus the buffer never
+    //   grows.
+    auto __result = std::__allocate_at_least(__alloc_, std::max(__size_hint, 256 / sizeof(_CharT)));
     __ptr_        = __result.ptr;
     __capacity_   = __result.count;
   }
@@ -616,7 +624,7 @@ private:
     auto __guard  = std::__make_exception_guard([&] {
       allocator_traits<_Alloc>::deallocate(__alloc_, __result.ptr, __result.count);
     });
-    // This shouldn't throw, but just to be safe. Not that at -O1 this
+    // This shouldn't throw, but just to be safe. Note that at -O1 this
     // guard is optimized away so there is no runtime overhead.
     std::uninitialized_move_n(__ptr_, __size_, __result.ptr);
     __guard.__complete();

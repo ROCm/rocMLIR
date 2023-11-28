@@ -1148,9 +1148,10 @@ public:
     desc.setSpecifier(newSpec);
 
     // Fills in slice information.
-    for (auto [idx, offset, size, stride] : llvm::enumerate(
-             op.getMixedOffsets(), op.getMixedSizes(), op.getMixedStrides())) {
-      Dimension dim = idx;
+    for (const auto &it : llvm::enumerate(llvm::zip(
+             op.getMixedOffsets(), op.getMixedSizes(), op.getMixedStrides()))) {
+      Dimension dim = it.index();
+      auto [offset, size, stride] = it.value();
 
       Value offsetV = getValueOrCreateConstantIndexOp(rewriter, loc, offset);
       Value sizeV = getValueOrCreateConstantIndexOp(rewriter, loc, size);

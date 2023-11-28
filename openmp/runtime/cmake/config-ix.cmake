@@ -96,11 +96,6 @@ if(WIN32)
       )
     endforeach()
   endforeach()
-else()
-  # It is difficult to create a dummy assembly file that compiles into an
-  # executable for every architecture and then check the C compiler to
-  # see if -x assembler-with-cpp exists and works, so we assume it does for non-Windows.
-  set(LIBOMP_HAVE_X_ASSEMBLER_WITH_CPP_FLAG TRUE)
 endif()
 if(${LIBOMP_FORTRAN_MODULES})
   libomp_check_fortran_flag(-m32 LIBOMP_HAVE_M32_FORTRAN_FLAG)
@@ -138,6 +133,7 @@ elseif(NOT APPLE)
   llvm_check_compiler_linker_flag(C -Wl,-x LIBOMP_HAVE_X_FLAG)
   llvm_check_compiler_linker_flag(C -Wl,--as-needed LIBOMP_HAVE_AS_NEEDED_FLAG)
   llvm_check_compiler_linker_flag(C "-Wl,--version-script=${LIBOMP_SRC_DIR}/exports_test_so.txt" LIBOMP_HAVE_VERSION_SCRIPT_FLAG)
+  llvm_check_compiler_linker_flag(C "-Wl,--undefined-version" LIBOMP_HAVE_UNDEFINED_VERSION_FLAG)  # FIXME issue #58858
   llvm_check_compiler_linker_flag(C -static-libgcc LIBOMP_HAVE_STATIC_LIBGCC_FLAG)
   llvm_check_compiler_linker_flag(C -Wl,-z,noexecstack LIBOMP_HAVE_Z_NOEXECSTACK_FLAG)
 endif()
@@ -351,8 +347,15 @@ if(${LIBOMP_USE_HWLOC})
     NAMES hwloc libhwloc
     HINTS ${LIBOMP_HWLOC_INSTALL_DIR}/lib)
   if(LIBOMP_HWLOC_LIBRARY)
+    # In case libhwloc is static, check_library_exists does not work on static libs
+    get_filename_component(LIBOMP_HWLOC_LIBRARY_EXT ${LIBOMP_HWLOC_LIBRARY} EXT)
+    string(COMPARE EQUAL ${LIBOMP_HWLOC_LIBRARY_EXT} ".a" LIBOMP_HWLOC_LIBRARY_IS_STATIC)
+    if(LIBOMP_HWLOC_LIBRARY_IS_STATIC)
+      set(LIBOMP_HAVE_LIBHWLOC TRUE)
+    else()
     check_library_exists(${LIBOMP_HWLOC_LIBRARY} hwloc_topology_init
       ${LIBOMP_HWLOC_INSTALL_DIR}/lib LIBOMP_HAVE_LIBHWLOC)
+    endif()
     get_filename_component(LIBOMP_HWLOC_LIBRARY_DIR ${LIBOMP_HWLOC_LIBRARY} PATH)
   endif()
   if(LIBOMP_HAVE_HWLOC_H AND LIBOMP_HAVE_LIBHWLOC AND LIBOMP_HWLOC_LIBRARY)

@@ -40,7 +40,7 @@ define i64 @test_builtin_rdtsc() {
   ret i64 %1
 }
 
-define i64 @test_builtin_rdtscp(ptr %A) {
+define i64 @test_builtin_rdtscp(i8* %A) {
 ; X86-LABEL: test_builtin_rdtscp:
 ; X86:       # %bb.0:
 ; X86-NEXT:    pushl %esi
@@ -62,9 +62,10 @@ define i64 @test_builtin_rdtscp(ptr %A) {
 ; X64-NEXT:    retq
   %1 = call { i64, i32 } @llvm.x86.rdtscp()
   %2 = extractvalue { i64, i32 } %1, 1
-  store i32 %2, ptr %A, align 1
-  %3 = extractvalue { i64, i32 } %1, 0
-  ret i64 %3
+  %3 = bitcast i8* %A to i32*
+  store i32 %2, i32* %3, align 1
+  %4 = extractvalue { i64, i32 } %1, 0
+  ret i64 %4
 }
 
 declare i64 @llvm.readcyclecounter()

@@ -18,7 +18,7 @@ define void @foo() nounwind  {
 ; CHECK-NEXT:    callq qux@PLT
 ; CHECK-NEXT:    popq %rax
 ; CHECK-NEXT:    retq
-  %f = load float, ptr @a
+  %f = load float, float* @a
   call void @bar()
   call void @qux(float %f)
   call void @qux(float %f)

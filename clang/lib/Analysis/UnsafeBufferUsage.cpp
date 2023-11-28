@@ -210,7 +210,7 @@ static auto isInUnspecifiedLvalueContext(internal::Matcher<Expr> innerMatcher) {
         hasLHS(innerMatcher)
       )
     ));
-// clang-format off
+// clang-format on
 }
 
 
@@ -1290,6 +1290,14 @@ static StringRef getEndOfLine() {
   return EOL;
 }
 
+// Returns the text indicating that the user needs to provide input there:
+std::string getUserFillPlaceHolder(StringRef HintTextToUser = "placeholder") {
+  std::string s = std::string("<# ");
+  s += HintTextToUser;
+  s += " #>";
+  return s;
+}
+
 // Return the text representation of the given `APInt Val`:
 static std::string getAPIntText(APInt Val) {
   SmallVector<char> Txt;
@@ -1377,8 +1385,18 @@ getPointeeTypeText(const ParmVarDecl *VD, const SourceManager &SM,
   TypeLoc PteTyLoc = TyLoc.getUnqualifiedLoc().getNextTypeLoc();
   SourceLocation VDNameStartLoc = VD->getLocation();
 
-  if (!SM.isBeforeInTranslationUnit(PteTyLoc.getSourceRange().getEnd(),
-                                    VDNameStartLoc)) {
+  if (!(VDNameStartLoc.isValid() && PteTyLoc.getSourceRange().isValid())) {
+    // We are expecting these locations to be valid. But in some cases, they are
+    // not all valid. It is a Clang bug to me and we are not responsible for
+    // fixing it.  So we will just give up for now when it happens.
+    return std::nullopt;
+  }
+
+  // Note that TypeLoc.getEndLoc() returns the begin location of the last token:
+  SourceLocation PteEndOfTokenLoc =
+      Lexer::getLocForEndOfToken(PteTyLoc.getEndLoc(), 0, SM, LangOpts);
+
+  if (!SM.isBeforeInTranslationUnit(PteEndOfTokenLoc, VDNameStartLoc)) {
     // We only deal with the cases where the source text of the pointee type
     // appears on the left-hand side of the variable identifier completely,
     // including the following forms:
@@ -1393,13 +1411,8 @@ getPointeeTypeText(const ParmVarDecl *VD, const SourceManager &SM,
     // `PteTy` via source ranges.
     *QualifiersToAppend = PteTy.getQualifiers();
   }
-
-  // Note that TypeLoc.getEndLoc() returns the begin location of the last token:
-  SourceRange CSR{
-      PteTyLoc.getBeginLoc(),
-      Lexer::getLocForEndOfToken(PteTyLoc.getEndLoc(), 0, SM, LangOpts)};
-
-  return getRangeText(CSR, SM, LangOpts)->str();
+  return getRangeText({PteTyLoc.getBeginLoc(), PteEndOfTokenLoc}, SM, LangOpts)
+      ->str();
 }
 
 // Returns the text of the name (with qualifiers) of a `FunctionDecl`.
@@ -1755,14 +1768,6 @@ static bool hasConflictingOverload(const FunctionDecl *FD) {
   return !FD->getDeclContext()->lookup(FD->getDeclName()).isSingleResult();
 }
 
-// Returns the text representation of clang::unsafe_buffer_usage attribute.
-static std::string getUnsafeBufferUsageAttributeText() {
-  static const char *const RawAttr = "[[clang::unsafe_buffer_usage]]";
-  std::stringstream SS;
-  SS << RawAttr << getEndOfLine().str();
-  return SS.str();
-}
-
 // For a `FunDecl`, one of whose `ParmVarDecl`s is being changed to have a new
 // type, this function produces fix-its to make the change self-contained.  Let
 // 'F' be the entity defined by the original `FunDecl` and "NewF" be the entity
@@ -1804,8 +1809,8 @@ static std::string getUnsafeBufferUsageAttributeText() {
 // parameter indexed by `ParmIdx` is being changed.
 static std::optional<FixItList>
 createOverloadsForFixedParams(unsigned ParmIdx, StringRef NewTyText,
-                                const FunctionDecl *FD, const ASTContext &Ctx,
-                                UnsafeBufferUsageHandler &Handler) {
+                              const FunctionDecl *FD, const ASTContext &Ctx,
+                              UnsafeBufferUsageHandler &Handler) {
   // FIXME: need to make this conflict checking better:
   if (hasConflictingOverload(FD))
     return std::nullopt;
@@ -1859,7 +1864,7 @@ createOverloadsForFixedParams(unsigned ParmIdx, StringRef NewTyText,
   // A lambda that creates the text representation of a function definition with
   // the original signature:
   const auto OldOverloadDefCreator =
-      [&Handler, &SM,
+      [&SM, &Handler,
        &LangOpts](const FunctionDecl *FD, unsigned ParmIdx,
                   StringRef NewTypeText) -> std::optional<std::string> {
     std::stringstream SS;
@@ -1869,7 +1874,8 @@ createOverloadsForFixedParams(unsigned ParmIdx, StringRef NewTyText,
     if (auto FDPrefix = getRangeText(
             SourceRange(FD->getBeginLoc(), FD->getBody()->getBeginLoc()), SM,
             LangOpts))
-      SS << getUnsafeBufferUsageAttributeText() << FDPrefix->str() << "{";
+      SS << Handler.getUnsafeBufferUsageAttributeTextAt(FD->getBeginLoc(), " ")
+         << FDPrefix->str() << "{";
     else
       return std::nullopt;
     // Append: "return" func-name "("
@@ -1884,13 +1890,16 @@ createOverloadsForFixedParams(unsigned ParmIdx, StringRef NewTyText,
       const ParmVarDecl *Parm = FD->getParamDecl(i);
 
       if (Parm->isImplicit())
-        continue;
-      assert(Parm->getIdentifier() &&
-             "A parameter of a function definition has no name");
+        continue;      
+      // FIXME: If a parameter has no name, it is unused in the
+      // definition. So we could just leave it as it is.
+      if (!Parm->getIdentifier()) 
+	// If a parameter of a function definition has no name:
+        return std::nullopt;
       if (i == ParmIdx)
         // This is our spanified paramter!
         SS << NewTypeText.str() << "(" << Parm->getIdentifier()->getName().str() << ", "
-           << Handler.getUserFillPlaceHolder("size") << ")";
+           << getUserFillPlaceHolder("size") << ")";
       else
         SS << Parm->getIdentifier()->getName().str();
       if (i != NumParms - 1)
@@ -1921,7 +1930,8 @@ createOverloadsForFixedParams(unsigned ParmIdx, StringRef NewTyText,
       // Adds the unsafe-buffer attribute (if not already there) to `FReDecl`:
       if (!FReDecl->hasAttr<UnsafeBufferUsageAttr>()) {
         FixIts.emplace_back(FixItHint::CreateInsertion(
-            FReDecl->getBeginLoc(), getUnsafeBufferUsageAttributeText()));
+            FReDecl->getBeginLoc(), Handler.getUnsafeBufferUsageAttributeTextAt(
+                                        FReDecl->getBeginLoc(), " ")));
       }
       // Inserts a declaration with the new signature to the end of `FReDecl`:
       if (auto NewOverloadDecl =
@@ -1990,7 +2000,7 @@ static FixItList fixParamWithSpan(const ParmVarDecl *PVD, const ASTContext &Ctx,
   }
   if (ParmIdx < FD->getNumParams())
     if (auto OverloadFix = createOverloadsForFixedParams(ParmIdx, SpanTyText,
-                                                           FD, Ctx, Handler)) {
+                                                         FD, Ctx, Handler)) {
       Fixes.append(*OverloadFix);
       return Fixes;
     }
@@ -2013,7 +2023,7 @@ static FixItList fixVariableWithSpan(const VarDecl *VD,
   (void)DS;
 
   // FIXME: handle cases where DS has multiple declarations
-  return fixVarDeclWithSpan(VD, Ctx, Handler.getUserFillPlaceHolder());
+  return fixVarDeclWithSpan(VD, Ctx, getUserFillPlaceHolder());
 }
 
 // TODO: we should be consistent to use `std::nullopt` to represent no-fix due
@@ -2096,8 +2106,8 @@ static std::map<const VarDecl *, FixItList>
 getFixIts(FixableGadgetSets &FixablesForAllVars, const Strategy &S,
 	  ASTContext &Ctx,
           /* The function decl under analysis */ const Decl *D,
-    const DeclUseTracker &Tracker, UnsafeBufferUsageHandler &Handler,
-	  const DefMapTy &VarGrpMap) {
+          const DeclUseTracker &Tracker, UnsafeBufferUsageHandler &Handler,
+          const DefMapTy &VarGrpMap) {
   std::map<const VarDecl *, FixItList> FixItsForVariable;
   for (const auto &[VD, Fixables] : FixablesForAllVars.byVar) {
     FixItsForVariable[VD] =
@@ -2170,8 +2180,8 @@ getFixIts(FixableGadgetSets &FixablesForAllVars, const Strategy &S,
 
         FixItList GroupFix;
         if (FixItsForVariable.find(Var) == FixItsForVariable.end()) {
-          GroupFix = fixVariable(Var, ReplacementTypeForVD, D,
-                                 Tracker, Var->getASTContext(), Handler);
+          GroupFix = fixVariable(Var, ReplacementTypeForVD, D, Tracker,
+                                 Var->getASTContext(), Handler);
         } else {
           GroupFix = FixItsForVariable[Var];
         }

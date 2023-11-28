@@ -23,6 +23,7 @@
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
+#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -283,6 +284,7 @@ PipelineTuningOptions::PipelineTuningOptions() {
   LicmMssaOptCap = SetLicmMssaOptCap;
   LicmMssaNoAccForPromotionCap = SetLicmMssaNoAccForPromotionCap;
   CallGraphProfile = true;
+  UnifiedLTO = false;
   MergeFunctions = EnableMergeFunctions;
   InlinerThreshold = -1;
   EagerlyInvalidateAnalyses = EnableEagerlyInvalidateAnalyses;
@@ -1101,6 +1103,10 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
       PGOOpt->CSAction == PGOOptions::CSIRInstr)
     MPM.addPass(PGOInstrumentationGenCreateVar(PGOOpt->CSProfileGenFile));
 
+  if (PGOOpt && Phase != ThinOrFullLTOPhase::ThinLTOPostLink &&
+      !PGOOpt->MemoryProfile.empty())
+    MPM.addPass(MemProfUsePass(PGOOpt->MemoryProfile, PGOOpt->FS));
+
   // Synthesize function entry counts for non-PGO compilation.
   if (EnableSyntheticCounts && !PGOOpt)
     MPM.addPass(SyntheticCountsPropagation());
@@ -1244,19 +1250,24 @@ void PassBuilder::addVectorPasses(OptimizationLevel Level,
     // or SimplifyCFG passes scheduled after us, that would cleanup
     // the CFG mess this may created if allowed to modify CFG, so forbid that.
     FPM.addPass(SROAPass(SROAOptions::PreserveCFG));
-    FPM.addPass(InstCombinePass());
-    FPM.addPass(createFunctionToLoopPassAdaptor(
-        LICMPass(PTO.LicmMssaOptCap, PTO.LicmMssaNoAccForPromotionCap,
-                 /*AllowSpeculation=*/true),
-        /*UseMemorySSA=*/true, /*UseBlockFrequencyInfo=*/false));
   }
+
+  FPM.addPass(InstCombinePass());
+
+  // This is needed for two reasons:
+  //   1. It works around problems that instcombine introduces, such as sinking
+  //      expensive FP divides into loops containing multiplications using the
+  //      divide result.
+  //   2. It helps to clean up some loop-invariant code created by the loop
+  //      unroll pass when IsFullLTO=false.
+  FPM.addPass(createFunctionToLoopPassAdaptor(
+      LICMPass(PTO.LicmMssaOptCap, PTO.LicmMssaNoAccForPromotionCap,
+               /*AllowSpeculation=*/true),
+      /*UseMemorySSA=*/true, /*UseBlockFrequencyInfo=*/false));
 
   // Now that we've vectorized and unrolled loops, we may have more refined
   // alignment information, try to re-derive it here.
   FPM.addPass(AlignmentFromAssumptionsPass());
-
-  if (IsFullLTO)
-    FPM.addPass(InstCombinePass());
 }
 
 ModulePassManager
@@ -1434,6 +1445,13 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
     return buildO0DefaultPipeline(Level, LTOPreLink);
 
   ModulePassManager MPM;
+
+  auto OptimizationLevelAsOptLevel =
+      CodeGenOpt::getLevel(Level.getSpeedupLevel());
+  auto CodeGenOptLevel =
+      TM ? TM->getOptLevel()
+         : OptimizationLevelAsOptLevel.value_or(CodeGenOpt::Aggressive);
+  MPM.addPass(HeterogeneousDebugVerify(CodeGenOptLevel));
 
   // Convert @llvm.global.annotations to !annotation metadata.
   MPM.addPass(Annotation2MetadataPass());

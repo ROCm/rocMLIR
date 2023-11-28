@@ -1663,6 +1663,7 @@ Decl *TemplateDeclInstantiator::VisitClassTemplateDecl(ClassTemplateDecl *D) {
       SemaRef.Context, Pattern->getTagKind(), DC, Pattern->getBeginLoc(),
       Pattern->getLocation(), Pattern->getIdentifier(), PrevDecl,
       /*DelayTypeCreation=*/true);
+
   if (QualifierLoc)
     RecordInst->setQualifierInfo(QualifierLoc);
 
@@ -1672,6 +1673,7 @@ Decl *TemplateDeclInstantiator::VisitClassTemplateDecl(ClassTemplateDecl *D) {
   ClassTemplateDecl *Inst
     = ClassTemplateDecl::Create(SemaRef.Context, DC, D->getLocation(),
                                 D->getIdentifier(), InstParams, RecordInst);
+
   RecordInst->setDescribedClassTemplate(Inst);
 
   if (isFriend) {
@@ -1699,7 +1701,6 @@ Decl *TemplateDeclInstantiator::VisitClassTemplateDecl(ClassTemplateDecl *D) {
       if (SemaRef.CheckTemplateParameterList(InstParams, PrevParams,
                                              Sema::TPC_ClassTemplate))
         return nullptr;
-
       Inst->setAccess(PrevClassTemplate->getAccess());
     } else {
       Inst->setAccess(D->getAccess());
@@ -5087,6 +5088,10 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
     // PushDeclContext because we don't have a scope.
     Sema::ContextRAII savedContext(*this, Function);
 
+    FPFeaturesStateRAII SavedFPFeatures(*this);
+    CurFPFeatures = FPOptions(getLangOpts());
+    FpPragmaStack.CurrentValue = FPOptionsOverride();
+
     if (addInstantiatedParametersToScope(Function, PatternDecl, Scope,
                                          TemplateArgs))
       return;
@@ -6299,7 +6304,7 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
     if (!Result) {
       if (isa<UsingShadowDecl>(D)) {
         // UsingShadowDecls can instantiate to nothing because of using hiding.
-      } else if (hasUncompilableErrorOccurred()) {
+      } else if (Diags.hasUncompilableErrorOccurred()) {
         // We've already complained about some ill-formed code, so most likely
         // this declaration failed to instantiate. There's no point in
         // complaining further, since this is normal in invalid code.

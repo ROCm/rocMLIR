@@ -729,7 +729,7 @@ public:
     return 1;
   }
 
-  InstructionCost getMinMaxReductionCost(VectorType *, VectorType *, bool,
+  InstructionCost getMinMaxReductionCost(Intrinsic::ID IID, VectorType *,
                                          FastMathFlags,
                                          TTI::TargetCostKind) const {
     return 1;
@@ -990,9 +990,6 @@ public:
                              ArrayRef<const Value *> Operands, Type *AccessType,
                              TTI::TargetCostKind CostKind) {
     assert(PointeeType && Ptr && "can't get GEPCost of nullptr");
-    assert(cast<PointerType>(Ptr->getType()->getScalarType())
-               ->isOpaqueOrPointeeTypeMatches(PointeeType) &&
-           "explicit pointee type doesn't match operand's pointee type");
     auto *BaseGV = dyn_cast<GlobalValue>(Ptr->stripPointerCasts());
     bool HasBaseReg = (BaseGV == nullptr);
 

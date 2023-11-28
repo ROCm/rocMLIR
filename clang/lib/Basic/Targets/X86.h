@@ -146,7 +146,6 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasCMPCCXADD = false;
   bool HasRAOINT = false;
   bool HasAVXVNNIINT8 = false;
-  bool HasAVXNECONVERT = false;
   bool HasKL = false;      // For key locker
   bool HasWIDEKL = false; // For wide key locker
   bool HasHRESET = false;
@@ -217,8 +216,6 @@ public:
   void getCPUSpecificCPUDispatchFeatures(
       StringRef Name,
       llvm::SmallVectorImpl<StringRef> &Features) const override;
-
-  StringRef getCPUSpecificTuneName(StringRef Name) const override;
 
   std::optional<unsigned> getCPUCacheLineSize() const override;
 

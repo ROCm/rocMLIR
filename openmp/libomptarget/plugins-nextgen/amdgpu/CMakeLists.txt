@@ -22,6 +22,12 @@ endif()
 # as of rocm-3.7, hsa is installed with cmake packages and kmt is found via hsa
 find_package(hsa-runtime64 QUIET 1.2.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
 
+# Check for COMGr package , ASan requires COMGr with minimum version 2.4
+if(SANITIZER_AMDGPU)
+  add_definitions(-DSANITIZER_AMDGPU=1)
+  find_package(amd_comgr QUIET 2.4.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
+endif()
+
 if(NOT (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(ppc64le)|(aarch64)$" AND CMAKE_SYSTEM_NAME MATCHES "Linux"))
   libomptarget_say("Not building AMDGPU NextGen plugin: only support AMDGPU in Linux x86_64, ppc64le, or aarch64 hosts")
   return()
@@ -82,20 +88,26 @@ add_llvm_library(omptarget.rtl.amdgpu.nextgen SHARED
   PRIVATE
   elf_common
   MemoryManager
+  OMPT
   PluginInterface
   ${LIBOMPTARGET_DEP_LIBRARIES}
   ${OPENMP_PTHREAD_LIB}
+  -Wl,--whole-archive amdgcn_hostexec_services -Wl,--no-whole-archive
+  "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../exports"
   ${LDFLAGS_UNDEFINED}
 
   NO_INSTALL_RPATH
 )
-
-if ((OMPT_TARGET_DEFAULT) AND (LIBOMPTARGET_OMPT_SUPPORT))
-  target_link_libraries(omptarget.rtl.amdgpu.nextgen PRIVATE OMPT)
-endif()
+add_dependencies(omptarget.rtl.amdgpu.nextgen amdgcn_hostexec_services)
 
 if (LIBOMP_HAVE_VERSION_SCRIPT_FLAG)
-  target_link_libraries(omptarget.rtl.amdgpu.nextgen PRIVATE
+  target_link_libraries(
+    omptarget.rtl.amdgpu.nextgen
+#    PRIVATE hsakmt
+    PRIVATE drm_amdgpu
+    PRIVATE drm
+    PRIVATE numa
+    PRIVATE
     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../exports")
 endif()
 
@@ -108,7 +120,7 @@ target_include_directories(
 
 
 # Install plugin under the lib destination folder.
-install(TARGETS omptarget.rtl.amdgpu.nextgen LIBRARY DESTINATION "${OPENMP_INSTALL_LIBDIR}")
+install(TARGETS omptarget.rtl.amdgpu.nextgen LIBRARY DESTINATION "${RUN_PACKAGE}${OPENMP_INSTALL_LIBDIR}")
 set_target_properties(omptarget.rtl.amdgpu.nextgen PROPERTIES
   INSTALL_RPATH "$ORIGIN" BUILD_RPATH "$ORIGIN:${CMAKE_CURRENT_BINARY_DIR}/.."
   CXX_VISIBILITY_PRESET protected)

@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.20.0)
 
+if(${ENABLE_DEVEL_PACKAGE})
+  set(DEVEL_PACKAGE "devel/")
+endif()
+if(${ENABLE_RUN_PACKAGE})
+  set(RUN_PACKAGE "runtime/")
+endif()
+
+# Add cmake directory to search for custom cmake functions.
+#set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 set(LLVM_COMMON_CMAKE_UTILS ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
 
 # Add path for custom modules
@@ -59,6 +68,31 @@ else()
   set(CMAKE_CXX_STANDARD 17)
   set(CMAKE_CXX_STANDARD_REQUIRED NO)
   set(CMAKE_CXX_EXTENSIONS NO)
+endif()
+
+if((CMAKE_BUILD_TYPE MATCHES Debug) AND (${LIBOMPTARGET_NVPTX_DEBUG}))
+  if(SANITIZER_AMDGPU)
+    set(OPENMP_LIBDIR_SUFFIX "-debug/asan")
+    set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
+  else()
+    set(OPENMP_LIBDIR_SUFFIX "-debug")
+    set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
+  endif()
+endif()
+
+if((CMAKE_BUILD_TYPE MATCHES Release) AND (${LIBOMPTARGET_PERF}))
+  if(SANITIZER_AMDGPU)
+    set(OPENMP_LIBDIR_SUFFIX "-perf/asan")
+    set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
+  else()
+    set(OPENMP_LIBDIR_SUFFIX "-perf")
+    set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
+  endif()
+endif()
+
+if((CMAKE_BUILD_TYPE MATCHES Release) AND (NOT (${LIBOMPTARGET_PERF})) AND (${SANITIZER_AMDGPU}))
+  set(OPENMP_LIBDIR_SUFFIX "/asan")
+  set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
 endif()
 
 # Check and set up common compiler flags.

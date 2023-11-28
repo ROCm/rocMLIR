@@ -23,6 +23,95 @@
 #include <string>
 #include <thread>
 
+#ifdef OMPT_SUPPORT
+#include "ompt_callback.h"
+#define OMPT_IF_ENABLED(stmts)                                                 \
+  do {                                                                         \
+    if (ompt_enabled) {                                                        \
+      stmts                                                                    \
+    }                                                                          \
+  } while (0)
+#else
+#define OMPT_IF_ENABLED(stmts)
+#endif
+
+/// Used for invoking OMPT target callbacks before and after data operations.
+struct OmptInterfaceTargetDataOpRAII {
+  OmptInterfaceTargetDataOpRAII(ompt_target_data_op_t Type, void *HPtr,
+                                void *TPtr, int64_t TgtId, int64_t Sz)
+      : OpType{Type}, HstPtr{HPtr}, TgtPtr{TPtr},
+        RTLDeviceID{TgtId}, Size{Sz}, CodePtr{nullptr} {
+    OMPT_IF_ENABLED(init(););
+  }
+  ~OmptInterfaceTargetDataOpRAII() { OMPT_IF_ENABLED(fini();); }
+
+private:
+  ompt_target_data_op_t OpType;
+  void *HstPtr;
+  void *TgtPtr;
+  int64_t RTLDeviceID;
+  int64_t Size;
+  void *CodePtr;
+
+  void init() {
+    CodePtr = OMPT_GET_RETURN_ADDRESS(0);
+    ompt_interface.ompt_state_set(OMPT_GET_FRAME_ADDRESS(0), CodePtr);
+    // Data allocation callbacks are handled elsewhere
+    switch (OpType) {
+    case ompt_target_data_delete:
+    case ompt_target_data_delete_async:
+      ompt_interface.target_data_delete_begin(RTLDeviceID, TgtPtr, CodePtr);
+      break;
+    case ompt_target_data_transfer_to_device:
+    case ompt_target_data_transfer_to_device_async:
+      ompt_interface.target_data_submit_begin(RTLDeviceID, HstPtr, TgtPtr, Size,
+                                              CodePtr);
+      break;
+    case ompt_target_data_transfer_from_device:
+    case ompt_target_data_transfer_from_device_async:
+      ompt_interface.target_data_retrieve_begin(RTLDeviceID, HstPtr, TgtPtr,
+                                                Size, CodePtr);
+      break;
+    default:
+      break;
+    }
+  }
+
+  void fini() {
+    switch (OpType) {
+    case ompt_target_data_delete:
+    case ompt_target_data_delete_async:
+      ompt_interface.target_data_submit_trace_record_gen(
+          ompt_target_data_delete, /*src_addr=*/TgtPtr,
+          /*src_device_num=*/RTLDeviceID, /*dest_addr=*/nullptr,
+          /*dest_device_num=*/-1, Size);
+      ompt_interface.target_data_delete_end(RTLDeviceID, TgtPtr, CodePtr);
+      break;
+    case ompt_target_data_transfer_to_device:
+    case ompt_target_data_transfer_to_device_async:
+      ompt_interface.target_data_submit_trace_record_gen(
+          ompt_target_data_transfer_to_device, /*src_addr=*/HstPtr,
+          /*src_device_num=*/omp_get_initial_device(), /*dest_addr=*/TgtPtr,
+          /*dest_device_num=*/RTLDeviceID, Size);
+      ompt_interface.target_data_submit_end(RTLDeviceID, HstPtr, TgtPtr, Size,
+                                            CodePtr);
+      break;
+    case ompt_target_data_transfer_from_device:
+    case ompt_target_data_transfer_from_device_async:
+      ompt_interface.target_data_submit_trace_record_gen(
+          ompt_target_data_transfer_from_device, /*src_addr=*/TgtPtr,
+          /*src_device_num=*/RTLDeviceID, /*dest_addr=*/HstPtr,
+          /*dest_device_num=*/omp_get_initial_device(), Size);
+      ompt_interface.target_data_retrieve_end(RTLDeviceID, HstPtr, TgtPtr, Size,
+                                              CodePtr);
+      break;
+    default:
+      break;
+    }
+    ompt_interface.ompt_state_clear();
+  }
+};
+
 int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
                                             AsyncInfoTy &AsyncInfo) const {
   // First, check if the user disabled atomic map transfer/malloc/dealloc.
@@ -52,7 +141,8 @@ int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
 
 DeviceTy::DeviceTy(RTLInfoTy *RTL)
     : DeviceID(-1), RTL(RTL), RTLDeviceID(-1), IsInit(false), InitFlag(),
-      HasPendingGlobals(false), PendingCtorsDtors(), PendingGlobalsMtx() {}
+      HasPendingGlobals(false), PendingCtorsDtors(),
+      PendingGlobalsMtx(), ForceSynchronousTargetRegions(false) {}
 
 DeviceTy::~DeviceTy() {
   if (DeviceID == -1 || !(getInfoLevel() & OMP_INFOTYPE_DUMP_TABLE))
@@ -90,6 +180,7 @@ int DeviceTy::associatePtr(void *HstPtrBegin, void *TgtPtrBegin, int64_t Size) {
                /*HstPtrBase=*/(uintptr_t)HstPtrBegin,
                /*HstPtrBegin=*/(uintptr_t)HstPtrBegin,
                /*HstPtrEnd=*/(uintptr_t)HstPtrBegin + Size,
+               /*TgtAllocBegin=*/(uintptr_t)TgtPtrBegin,
                /*TgtPtrBegin=*/(uintptr_t)TgtPtrBegin,
                /*UseHoldRefCount=*/false, /*Name=*/nullptr,
                /*IsRefCountINF=*/true))
@@ -216,10 +307,10 @@ LookupResult DeviceTy::lookupMapping(HDTTMapAccessorTy &HDTTMap,
 
 TargetPointerResultTy DeviceTy::getTargetPointer(
     HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin, void *HstPtrBase,
-    int64_t Size, map_var_info_t HstPtrName, bool HasFlagTo, bool HasFlagAlways,
-    bool IsImplicit, bool UpdateRefCount, bool HasCloseModifier,
-    bool HasPresentModifier, bool HasHoldModifier, AsyncInfoTy &AsyncInfo,
-    HostDataToTargetTy *OwnedTPR, bool ReleaseHDTTMap) {
+    int64_t TgtPadding, int64_t Size, map_var_info_t HstPtrName, bool HasFlagTo,
+    bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
+    bool HasCloseModifier, bool HasPresentModifier, bool HasHoldModifier,
+    AsyncInfoTy &AsyncInfo, HostDataToTargetTy *OwnedTPR, bool ReleaseHDTTMap) {
 
   LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size, OwnedTPR);
   LR.TPR.Flags.IsPresent = true;
@@ -271,22 +362,52 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
       MESSAGE("device mapping required by 'present' map type modifier does not "
               "exist for host address " DPxMOD " (%" PRId64 " bytes)",
               DPxPTR(HstPtrBegin), Size);
-  } else if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY &&
-             !HasCloseModifier) {
-    // If unified shared memory is active, implicitly mapped variables that are
-    // not privatized use host address. Any explicitly mapped variables also use
-    // host address where correctness is not impeded. In all other cases maps
-    // are respected.
-    // In addition to the mapping rules above, the close map modifier forces the
-    // mapping of the variable to the device.
+  } else if (((RTL->requested_prepopulate_gpu_page_table()) ||
+              (RTL->are_allocations_for_maps_on_apus_disabled()) ||
+              (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY)) &&
+             (!HasCloseModifier)) {
+    // If unified shared memory is active, implicitly mapped variables that
+    // are not privatized use host address. Any explicitly mapped variables
+    // also use host address where correctness is not impeded. In all other
+    // cases maps are respected. In addition to the mapping rules above, the
+    // close map modifier forces the mapping of the variable to the device.
     if (Size) {
-      DP("Return HstPtrBegin " DPxMOD " Size=%" PRId64 " for unified shared "
-         "memory\n",
-         DPxPTR((uintptr_t)HstPtrBegin), Size);
-      LR.TPR.Flags.IsPresent = false;
-      LR.TPR.Flags.IsHostPointer = true;
-      LR.TPR.TargetPointer = HstPtrBegin;
+      // When allocating under unified_shared_memory, amdgpu plugin
+      // can optimize memory access latency by registering allocated
+      // memory as coarse-grained. The usage of coarse-grained memory can be
+      // overriden by setting the env-var OMPX_DISABLE_USM_MAPS=1.
+      // This is not done for APUs.
+      if (!(RTL->has_apu_device() || RTL->has_USM_capable_dGPU()) &&
+          RTL->is_fine_grained_memory_enabled() && HstPtrBegin &&
+          RTL->set_coarse_grain_mem_region) {
+        RTL->set_coarse_grain_mem_region(DeviceID, HstPtrBegin, Size);
+      }
+
+      if (RTL->has_apu_device() &&
+          RTL->requested_prepopulate_gpu_page_table() &&
+          RTL->prepopulate_page_table) {
+        RTL->prepopulate_page_table(DeviceID, HstPtrBegin, Size);
+      }
+
+      if (!RTL->is_no_maps_check()) {
+        // even under unified_shared_memory need to check for correctness of
+        // use of map clauses. Device pointer is same as host ptr in this case
+        LR.TPR.setEntry(HDTTMap
+                            ->emplace(new HostDataToTargetTy(
+                                (uintptr_t)HstPtrBase, (uintptr_t)HstPtrBegin,
+                                (uintptr_t)HstPtrBegin + Size,
+                                (uintptr_t)HstPtrBegin, (uintptr_t)HstPtrBegin,
+                                HasHoldModifier, HstPtrName, /*IsInf=*/true,
+                                /*IsUSMAlloc=*/true))
+                            .first->HDTT);
+      }
     }
+    DP("Return HstPtrBegin " DPxMOD " Size=%" PRId64 " for unified shared "
+       "memory\n",
+       DPxPTR((uintptr_t)HstPtrBegin), Size);
+    LR.TPR.Flags.IsPresent = false;
+    LR.TPR.Flags.IsHostPointer = true;
+    LR.TPR.TargetPointer = HstPtrBegin;
   } else if (HasPresentModifier) {
     DP("Mapping required by 'present' map type modifier does not exist for "
        "HstPtrBegin=" DPxMOD ", Size=%" PRId64 "\n",
@@ -297,24 +418,28 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
   } else if (Size) {
     // If it is not contained and Size > 0, we should create a new entry for it.
     LR.TPR.Flags.IsNewEntry = true;
-    uintptr_t Ptr = (uintptr_t)allocData(Size, HstPtrBegin);
+    uintptr_t TgtAllocBegin =
+        (uintptr_t)allocData(TgtPadding + Size, HstPtrBegin);
+    uintptr_t TgtPtrBegin = TgtAllocBegin + TgtPadding;
     // Release the mapping table lock only after the entry is locked by
     // attaching it to TPR.
     LR.TPR.setEntry(HDTTMap
                         ->emplace(new HostDataToTargetTy(
                             (uintptr_t)HstPtrBase, (uintptr_t)HstPtrBegin,
-                            (uintptr_t)HstPtrBegin + Size, Ptr, HasHoldModifier,
-                            HstPtrName))
+                            (uintptr_t)HstPtrBegin + Size, TgtAllocBegin,
+                            TgtPtrBegin, HasHoldModifier, HstPtrName))
                         .first->HDTT);
     INFO(OMP_INFOTYPE_MAPPING_CHANGED, DeviceID,
          "Creating new map entry with HstPtrBase=" DPxMOD
-         ", HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD ", Size=%ld, "
-         "DynRefCount=%s, HoldRefCount=%s, Name=%s\n",
-         DPxPTR(HstPtrBase), DPxPTR(HstPtrBegin), DPxPTR(Ptr), Size,
+         ", HstPtrBegin=" DPxMOD ", TgtAllocBegin=" DPxMOD
+         ", TgtPtrBegin=" DPxMOD
+         ", Size=%ld, DynRefCount=%s, HoldRefCount=%s, Name=%s\n",
+         DPxPTR(HstPtrBase), DPxPTR(HstPtrBegin), DPxPTR(TgtAllocBegin),
+         DPxPTR(TgtPtrBegin), Size,
          LR.TPR.getEntry()->dynRefCountToStr().c_str(),
          LR.TPR.getEntry()->holdRefCountToStr().c_str(),
          (HstPtrName) ? getNameFromMapping(HstPtrName).c_str() : "unknown");
-    LR.TPR.TargetPointer = (void *)Ptr;
+    LR.TPR.TargetPointer = (void *)TgtPtrBegin;
 
     // Notify the plugin about the new mapping.
     if (notifyDataMapped(HstPtrBegin, Size))
@@ -383,10 +508,14 @@ DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size, bool UpdateRefCount,
 
   LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
 
+  // When map checks are enabled under USM mode, mapped host pointers are
+  // tracked in the map table but should be treated as in the USM case
   LR.TPR.Flags.IsPresent = true;
 
-  if (LR.Flags.IsContained ||
-      (!MustContain && (LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter))) {
+  if ((LR.Flags.IsContained ||
+       (!MustContain && (LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter))) &&
+      !LR.TPR.getEntry()->IsUSMAlloc) {
+
     LR.TPR.Flags.IsLast =
         LR.TPR.getEntry()->decShouldRemove(UseHoldRefCount, ForceDelete);
 
@@ -431,7 +560,8 @@ DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size, bool UpdateRefCount,
          LR.TPR.getEntry()->dynRefCountToStr().c_str(), DynRefCountAction,
          LR.TPR.getEntry()->holdRefCountToStr().c_str(), HoldRefCountAction);
     LR.TPR.TargetPointer = (void *)TP;
-  } else if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY) {
+  } else if ((PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY) ||
+             (RTL->are_allocations_for_maps_on_apus_disabled())) {
     // If the value isn't found in the mapping and unified shared memory
     // is on then it means we have stumbled upon a value which we need to
     // use directly from the host.
@@ -490,8 +620,9 @@ int DeviceTy::eraseMapEntry(HDTTMapAccessorTy &HDTTMap,
 int DeviceTy::deallocTgtPtrAndEntry(HostDataToTargetTy *Entry, int64_t Size) {
   assert(Entry && "Trying to deallocate a null entry.");
 
-  DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
-     DPxPTR(Entry->TgtPtrBegin), Size);
+  DP("Deleting tgt data " DPxMOD " of size %" PRId64 " by freeing allocation "
+     "starting at " DPxMOD "\n",
+     DPxPTR(Entry->TgtPtrBegin), Size, DPxPTR(Entry->TgtAllocBegin));
 
   void *Event = Entry->getEvent();
   if (Event && destroyEvent(Event) != OFFLOAD_SUCCESS) {
@@ -499,7 +630,7 @@ int DeviceTy::deallocTgtPtrAndEntry(HostDataToTargetTy *Entry, int64_t Size) {
     return OFFLOAD_FAIL;
   }
 
-  int Ret = deleteData((void *)Entry->TgtPtrBegin);
+  int Ret = deleteData((void *)Entry->TgtAllocBegin);
 
   // Notify the plugin about the unmapped memory.
   Ret |= notifyDataUnmapped((void *)Entry->HstPtrBegin);
@@ -514,9 +645,17 @@ void DeviceTy::init() {
   // Make call to init_requires if it exists for this plugin.
   if (RTL->init_requires)
     RTL->init_requires(PM->RTLs.RequiresFlags);
+
+  // set_up_env() has a temporary dependency on RequiresFlags being set. This
+  // spot is the earliest possible call-site.
+  RTL->set_up_env();
+
   int32_t Ret = RTL->init_device(RTLDeviceID);
+  DP("Initialization returned %d\n", Ret);
   if (Ret != OFFLOAD_SUCCESS)
     return;
+  assert(RTL->number_of_team_procs && "Need function pointer to entry point");
+  setTeamProcs(RTL->number_of_team_procs(RTLDeviceID));
 
   IsInit = true;
 }
@@ -548,11 +687,35 @@ __tgt_target_table *DeviceTy::loadBinary(void *Img) {
 }
 
 void *DeviceTy::allocData(int64_t Size, void *HstPtr, int32_t Kind) {
-  return RTL->data_alloc(RTLDeviceID, Size, HstPtr, Kind);
+  void *codeptr = nullptr;
+  // Can't use OmptInterfaceTargetDataOpRAII since the target pointer
+  // is not available yet.
+  OMPT_IF_ENABLED(
+      codeptr = OMPT_GET_RETURN_ADDRESS(0);
+      ompt_interface.ompt_state_set(OMPT_GET_FRAME_ADDRESS(0), codeptr);
+      ompt_interface.target_data_alloc_begin(RTLDeviceID, HstPtr, Size,
+                                             codeptr););
+
+  void *tgt_ptr = RTL->data_alloc(RTLDeviceID, Size, HstPtr, Kind);
+
+  OMPT_IF_ENABLED(ompt_interface.target_data_submit_trace_record_gen(
+      ompt_target_data_alloc, /*src_addr=*/HstPtr,
+      /*src_device_num=*/omp_get_initial_device(), /*dest_addr=*/tgt_ptr,
+      /*dest_device_num=*/RTLDeviceID, Size);
+                  ompt_interface.target_data_alloc_end(RTLDeviceID, HstPtr,
+                                                       tgt_ptr, Size, codeptr);
+                  ompt_interface.ompt_state_clear(););
+  return tgt_ptr;
 }
 
-int32_t DeviceTy::deleteData(void *TgtPtrBegin, int32_t Kind) {
-  return RTL->data_delete(RTLDeviceID, TgtPtrBegin, Kind);
+int32_t DeviceTy::deleteData(void *TgtAllocBegin, int32_t Kind) {
+  // If enabled, trigger OMPT callbacks before and after data delete. A trace
+  // record is generated as well.
+  OmptInterfaceTargetDataOpRAII delete_raii(ompt_target_data_delete,
+                                            /*host ptr=*/nullptr, TgtAllocBegin,
+                                            RTLDeviceID, /*Size=*/0);
+
+  return RTL->data_delete(RTLDeviceID, TgtAllocBegin, Kind);
 }
 
 static void printCopyInfo(int DeviceId, bool H2D, void *SrcPtrBegin,
@@ -583,7 +746,13 @@ int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
                   Entry);
   }
 
-  if (!AsyncInfo || !RTL->data_submit_async || !RTL->synchronize)
+  // If enabled, trigger OMPT callbacks before and after data submit. A trace
+  // record is generated as well.
+  OmptInterfaceTargetDataOpRAII submit_raii(ompt_target_data_transfer_to_device,
+                                            HstPtrBegin, TgtPtrBegin,
+                                            RTLDeviceID, Size);
+  if (ForceSynchronousTargetRegions || ompt_enabled || !AsyncInfo ||
+      !RTL->data_submit_async || !RTL->synchronize)
     return RTL->data_submit(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size);
   return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
                                 AsyncInfo);
@@ -604,7 +773,13 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
                   Entry);
   }
 
-  if (!RTL->data_retrieve_async || !RTL->synchronize)
+  // If enabled, trigger OMPT callbacks before and after data retrieve. A trace
+  // record is generated as well.
+  OmptInterfaceTargetDataOpRAII retrieve_raii(
+      ompt_target_data_transfer_from_device, HstPtrBegin, TgtPtrBegin,
+      RTLDeviceID, Size);
+  if (ForceSynchronousTargetRegions || ompt_enabled ||
+      !RTL->data_retrieve_async || !RTL->synchronize)
     return RTL->data_retrieve(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size);
   return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
                                   AsyncInfo);
@@ -613,7 +788,8 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
 // Copy data from current device to destination device directly
 int32_t DeviceTy::dataExchange(void *SrcPtr, DeviceTy &DstDev, void *DstPtr,
                                int64_t Size, AsyncInfoTy &AsyncInfo) {
-  if (!AsyncInfo || !RTL->data_exchange_async || !RTL->synchronize) {
+  if (ForceSynchronousTargetRegions || ompt_enabled || !AsyncInfo ||
+      !RTL->data_exchange_async || !RTL->synchronize) {
     assert(RTL->data_exchange && "RTL->data_exchange is nullptr");
     return RTL->data_exchange(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID, DstPtr,
                               Size);
@@ -654,6 +830,10 @@ int32_t DeviceTy::launchKernel(void *TgtEntryPtr, void **TgtVarsPtr,
                                ptrdiff_t *TgtOffsets,
                                const KernelArgsTy &KernelArgs,
                                AsyncInfoTy &AsyncInfo) {
+  if (ForceSynchronousTargetRegions || ompt_enabled || !RTL->launch_kernel ||
+      !RTL->synchronize)
+    return RTL->launch_kernel_sync(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
+                                   TgtOffsets, &KernelArgs);
   return RTL->launch_kernel(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, TgtOffsets,
                             &KernelArgs, AsyncInfo);
 }

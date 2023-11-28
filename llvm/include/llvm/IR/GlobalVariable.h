@@ -34,7 +34,10 @@ class Constant;
 class Module;
 
 template <typename ValueSubClass> class SymbolTableListTraits;
+class DIGlobalVariable;
 class DIGlobalVariableExpression;
+class DIFragment;
+class DILifetime;
 
 class GlobalVariable : public GlobalObject, public ilist_node<GlobalVariable> {
   friend class SymbolTableListTraits<GlobalVariable>;
@@ -182,6 +185,18 @@ public:
 
   /// Fill the vector with all debug info attachements.
   void getDebugInfo(SmallVectorImpl<DIGlobalVariableExpression *> &GVs) const;
+
+  /// Attach a DIGlobalVariable.
+  void addDebugInfo(DIGlobalVariable *GV);
+
+  /// Fill the vector with all debug info attachements.
+  void getDebugInfo(SmallVectorImpl<DIGlobalVariable *> &GVs) const;
+
+  /// Attach a DIFragment.
+  void setDbgDef(DIFragment *F);
+
+  /// Retrieve the attached DIFragment.
+  DIFragment *getDbgDef() const;
 
   /// Add attribute to this global.
   void addAttribute(Attribute::AttrKind Kind) {

@@ -22,6 +22,19 @@
 #include <cstring>
 #include <mutex>
 
+EXTERN int ompx_get_team_procs(int device_num) {
+  if (!deviceIsReady(device_num)) {
+    DP("Device %d did not initialize\n", device_num);
+    return 0;
+  }
+  TIMESCOPE();
+  PM->RTLsMtx.lock();
+  int TeamProcs = PM->Devices[device_num]->getTeamProcs();
+  PM->RTLsMtx.unlock();
+  DP("Call to ompx_get_team_procs returning %d\n", TeamProcs);
+  return TeamProcs;
+}
+
 EXTERN int omp_get_num_devices(void) {
   TIMESCOPE();
   PM->RTLsMtx.lock();
@@ -63,6 +76,24 @@ EXTERN void *llvm_omp_target_alloc_host(size_t Size, int DeviceNum) {
 
 EXTERN void *llvm_omp_target_alloc_shared(size_t Size, int DeviceNum) {
   return targetAllocExplicit(Size, DeviceNum, TARGET_ALLOC_SHARED, __func__);
+}
+
+EXTERN void *llvm_omp_target_alloc_multi_devices(size_t size, int num_devices,
+                                                 int device_nums[]) {
+  if (num_devices < 1)
+    return nullptr;
+
+  if (!PM->RTLs.SystemSupportManagedMemory())
+    return nullptr;
+
+  // disregard device ids for now and allocate shared memory that can be
+  // accessed by any device and host under xnack+ mode
+  void *ptr =
+      targetAllocExplicit(size, device_nums[0], TARGET_ALLOC_DEFAULT, __func__);
+  DeviceTy &Device = *PM->Devices[device_nums[0]];
+  if (Device.RTL->enable_access_to_all_agents)
+    Device.RTL->enable_access_to_all_agents(ptr, device_nums[0]);
+  return ptr;
 }
 
 EXTERN void omp_target_free(void *Ptr, int DeviceNum) {
@@ -462,6 +493,13 @@ EXTERN int omp_target_disassociate_ptr(const void *HostPtr, int DeviceNum) {
   int Rc = Device.disassociatePtr(const_cast<void *>(HostPtr));
   DP("omp_target_disassociate_ptr returns %d\n", Rc);
   return Rc;
+}
+
+EXTERN int omp_is_coarse_grain_mem_region(void *ptr, size_t size) {
+  DeviceTy &Device = *PM->Devices[omp_get_default_device()];
+  if (!Device.RTL->query_coarse_grain_mem_region)
+    return 0;
+  return Device.RTL->query_coarse_grain_mem_region(Device.DeviceID, ptr, size);
 }
 
 EXTERN void *omp_get_mapped_ptr(const void *Ptr, int DeviceNum) {
