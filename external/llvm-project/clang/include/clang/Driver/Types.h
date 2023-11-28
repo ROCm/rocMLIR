@@ -45,6 +45,9 @@ namespace types {
   /// temp file of this type, or null if unspecified.
   const char *getTypeTempSuffix(ID Id, bool CLMode = false);
 
+  /// onlyAssembleType - Should this type only be assembled.
+  bool onlyAssembleType(ID Id);
+
   /// onlyPrecompileType - Should this type only be precompiled.
   bool onlyPrecompileType(ID Id);
 
@@ -126,6 +129,12 @@ namespace types {
   /// Lookup header file input type that corresponds to given
   /// source file type (used for clang-cl emulation of \Yc).
   ID lookupHeaderTypeForSourceType(ID Id);
+
+  /// isFreeFormFortran -- is it a free form layout Fortran input
+  bool isFreeFormFortran(ID Id);
+
+  /// isFixedFormFortran -- is it a fixed form layout Fortran input
+  bool isFixedFormFortran(ID Id);
 
 } // end namespace types
 } // end namespace driver

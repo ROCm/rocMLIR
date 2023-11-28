@@ -158,7 +158,6 @@ The libraries used by an executable compiled for target offloading are:
   - ``libomptarget.rtl.amdgpu.so``
   - ``libomptarget.rtl.cuda.so``
   - ``libomptarget.rtl.x86_64.so``
-  - ``libomptarget.rtl.ve.so``
   - and others
 
 - dependencies of those plugins, e.g. cuda/rocr for nvptx/amdgpu
@@ -188,8 +187,8 @@ compiler build time. Otherwise it will attempt to dlopen ``libcuda.so``. It does
 not have rpath set.
 
 The amdgpu plugin is linked against ROCr if cmake found it at compiler build
-time. Otherwise it will attempt to dlopen ``libhsa-runtime64.so``. It has rpath
-set to ``$ORIGIN``, so installing ``libhsa-runtime64.so`` in the same directory is a
+time. Otherwise it will attempt to dlopen ``libhsa-runtime64.so.1``. It has rpath
+set to ``$ORIGIN``, so installing ``libhsa-runtime64.so.1`` in the same directory is a
 way to locate it without environment variables.
 
 In addition to those, there is a compiler runtime library called deviceRTL.
@@ -244,15 +243,6 @@ through a similar mechanism. It is worth noting that this support requires
 `extensions to the OpenMP begin/end declare variant context selector
 <https://clang.llvm.org/docs/AttributeReference.html#pragma-omp-declare-variant>`__
 that are exposed through LLVM/Clang to the user as well.
-
-Q: What is a way to debug errors from mapping memory to a target device?
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-An experimental way to debug these errors is to use :ref:`remote process
-offloading <remote_offloading_plugin>`.
-By using ``libomptarget.rtl.rpc.so`` and ``openmp-offloading-server``, it is
-possible to explicitly perform memory transfers between processes on the host
-CPU and run sanitizers while doing so in order to catch these errors.
 
 Q: Why does my application say "Named symbol not found" and abort when I run it?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -433,3 +423,21 @@ Clang compiler and runtime libraries from the same build. Nevertheless, in order
 to better support third-party libraries and toolchains that depend on existing
 libomptarget entry points, contributors are discouraged from making
 modifications to them.
+
+Q: Can I use libc functions on the GPU?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+LLVM provides basic ``libc`` functionality through the LLVM C Library. For 
+building instructions, refer to the associated `LLVM libc documentation 
+<https://libc.llvm.org/gpu/using.html#building-the-gpu-library>`_. Once built, 
+this provides a static library called ``libcgpu.a``. See the documentation for a 
+list of `supported functions <https://libc.llvm.org/gpu/support.html>`_ as well. 
+To utilize these functions, simply link this library as any other when building 
+with OpenMP.
+
+.. code-block:: shell
+
+   clang++ openmp.cpp -fopenmp --offload-arch=gfx90a -lcgpu
+
+For more information on how this is implemented in LLVM/OpenMP's offloading 
+runtime, refer to the `runtime documentation <libomptarget_libc>`_.

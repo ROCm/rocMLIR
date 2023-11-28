@@ -151,6 +151,7 @@ cxx_sources = [
   "new_handler.cpp",
   "new_helpers.cpp",
   "optional.cpp",
+  "print.cpp",
   "random.cpp",
   "random_shuffle.cpp",
   "regex.cpp",
@@ -211,6 +212,11 @@ if (libcxx_enable_filesystem) {
   if (libcxx_use_compiler_rt) {
     cxx_sources += [ "filesystem/int128_builtins.cpp" ]
   }
+}
+
+# FIXME: Put this behind an arg, or enable it by default on macOS.
+if (false) {
+  cxx_sources += [ "pstl/libdispatch.cpp" ]
 }
 
 if (libcxx_enable_shared) {

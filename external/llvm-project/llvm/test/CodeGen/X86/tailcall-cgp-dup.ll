@@ -7,14 +7,45 @@
 
 define i32 @foo(i32 %x) nounwind ssp {
 ; CHECK-LABEL: foo:
+; OPT-LABEL: @foo(
+; OPT-NEXT:  entry:
+; OPT-NEXT:    switch i32 [[X:%.*]], label [[RETURN:%.*]] [
+; OPT-NEXT:    i32 1, label [[SW_BB:%.*]]
+; OPT-NEXT:    i32 2, label [[SW_BB1:%.*]]
+; OPT-NEXT:    i32 3, label [[SW_BB3:%.*]]
+; OPT-NEXT:    i32 4, label [[SW_BB5:%.*]]
+; OPT-NEXT:    i32 5, label [[SW_BB7:%.*]]
+; OPT-NEXT:    i32 6, label [[SW_BB9:%.*]]
+; OPT-NEXT:    ]
+; OPT:       sw.bb:
+; OPT-NEXT:    [[CALL:%.*]] = tail call i32 @f1() #[[ATTR3:[0-9]+]]
+; OPT-NEXT:    ret i32 [[CALL]]
+; OPT:       sw.bb1:
+; OPT-NEXT:    [[CALL2:%.*]] = tail call i32 @f2() #[[ATTR3]]
+; OPT-NEXT:    ret i32 [[CALL2]]
+; OPT:       sw.bb3:
+; OPT-NEXT:    [[CALL4:%.*]] = tail call i32 @f3() #[[ATTR3]]
+; OPT-NEXT:    ret i32 [[CALL4]]
+; OPT:       sw.bb5:
+; OPT-NEXT:    [[CALL6:%.*]] = tail call i32 @f4() #[[ATTR3]]
+; OPT-NEXT:    ret i32 [[CALL6]]
+; OPT:       sw.bb7:
+; OPT-NEXT:    [[CALL8:%.*]] = tail call i32 @f5() #[[ATTR3]]
+; OPT-NEXT:    ret i32 [[CALL8]]
+; OPT:       sw.bb9:
+; OPT-NEXT:    [[CALL10:%.*]] = tail call i32 @f6() #[[ATTR3]]
+; OPT-NEXT:    ret i32 [[CALL10]]
+; OPT:       return:
+; OPT-NEXT:    ret i32 0
+;
 entry:
   switch i32 %x, label %return [
-    i32 1, label %sw.bb
-    i32 2, label %sw.bb1
-    i32 3, label %sw.bb3
-    i32 4, label %sw.bb5
-    i32 5, label %sw.bb7
-    i32 6, label %sw.bb9
+  i32 1, label %sw.bb
+  i32 2, label %sw.bb1
+  i32 3, label %sw.bb3
+  i32 4, label %sw.bb5
+  i32 5, label %sw.bb7
+  i32 6, label %sw.bb9
   ]
 
 sw.bb:                                            ; preds = %entry
@@ -67,9 +98,20 @@ declare i32 @f6()
 ; rdar://11958338
 %0 = type opaque
 
-declare ptr @bar(ptr) uwtable optsize noinline ssp
+declare i8* @bar(i8*) uwtable optsize noinline ssp
 
-define hidden ptr @thingWithValue(ptr %self) uwtable ssp {
+define hidden %0* @thingWithValue(i8* %self) uwtable ssp {
+; OPT-LABEL: @thingWithValue(
+; OPT-NEXT:  entry:
+; OPT-NEXT:    br i1 undef, label [[SOMETHINGWITHVALUE_EXIT:%.*]], label [[IF_ELSE_I:%.*]]
+; OPT:       if.else.i:
+; OPT-NEXT:    [[CALL4_I:%.*]] = tail call ptr @bar(ptr undef) #[[ATTR4:[0-9]+]]
+; OPT-NEXT:    [[TMP0:%.*]] = bitcast ptr [[CALL4_I]] to ptr
+; OPT-NEXT:    ret ptr [[TMP0]]
+; OPT:       someThingWithValue.exit:
+; OPT-NEXT:    [[RETVAL_0_I:%.*]] = bitcast ptr undef to ptr
+; OPT-NEXT:    ret ptr [[RETVAL_0_I]]
+;
 entry:
 ; CHECK-LABEL: thingWithValue:
 ; CHECK: je _bar
@@ -79,12 +121,13 @@ if.then.i:                                        ; preds = %entry
   br label %someThingWithValue.exit
 
 if.else.i:                                        ; preds = %entry
-  %call4.i = tail call ptr @bar(ptr undef) optsize
+  %call4.i = tail call i8* @bar(i8* undef) optsize
   br label %someThingWithValue.exit
 
 someThingWithValue.exit:                          ; preds = %if.else.i, %if.then.i
-  %retval.0.in.i = phi ptr [ undef, %if.then.i ], [ %call4.i, %if.else.i ]
-  ret ptr %retval.0.in.i
+  %retval.0.in.i = phi i8* [ undef, %if.then.i ], [ %call4.i, %if.else.i ]
+  %retval.0.i = bitcast i8* %retval.0.in.i to %0*
+  ret %0* %retval.0.i
 }
 
 
@@ -94,6 +137,15 @@ declare zeroext i1 @foo_i1()
 ; CHECK-LABEL: zext_i1
 ; CHECK: je _foo_i1
 define zeroext i1 @zext_i1(i1 %k) {
+; OPT-LABEL: @zext_i1(
+; OPT-NEXT:  entry:
+; OPT-NEXT:    br i1 [[K:%.*]], label [[LAND_END:%.*]], label [[LAND_RHS:%.*]]
+; OPT:       land.rhs:
+; OPT-NEXT:    [[CALL1:%.*]] = tail call zeroext i1 @foo_i1()
+; OPT-NEXT:    ret i1 [[CALL1]]
+; OPT:       land.end:
+; OPT-NEXT:    ret i1 false
+;
 entry:
   br i1 %k, label %land.end, label %land.rhs
 
@@ -108,15 +160,16 @@ land.end:                                         ; preds = %entry, %land.rhs
 
 ; We need to look through bitcasts when looking for tail calls in phi incoming
 ; values.
-declare ptr @g_ret32()
-define ptr @f_ret8(ptr %obj) nounwind {
+declare i32* @g_ret32()
+define i8* @f_ret8(i8* %obj) nounwind {
 ; OPT-LABEL: @f_ret8(
 ; OPT-NEXT:  entry:
 ; OPT-NEXT:    [[CMP:%.*]] = icmp eq ptr [[OBJ:%.*]], null
 ; OPT-NEXT:    br i1 [[CMP]], label [[RETURN:%.*]], label [[IF_THEN:%.*]]
 ; OPT:       if.then:
 ; OPT-NEXT:    [[PTR:%.*]] = tail call ptr @g_ret32()
-; OPT-NEXT:    ret ptr [[PTR]]
+; OPT-NEXT:    [[CASTED:%.*]] = bitcast ptr [[PTR]] to ptr
+; OPT-NEXT:    ret ptr [[CASTED]]
 ; OPT:       return:
 ; OPT-NEXT:    ret ptr [[OBJ]]
 ;
@@ -128,14 +181,15 @@ define ptr @f_ret8(ptr %obj) nounwind {
 ; CHECK-NEXT:    movq %rdi, %rax
 ; CHECK-NEXT:    retq
 entry:
-  %cmp = icmp eq ptr %obj, null
+  %cmp = icmp eq i8* %obj, null
   br i1 %cmp, label %return, label %if.then
 
 if.then:
-  %ptr = tail call ptr @g_ret32()
+  %ptr = tail call i32* @g_ret32()
+  %casted = bitcast i32* %ptr to i8*
   br label %return
 
 return:
-  %retval = phi ptr [ %ptr, %if.then ], [ %obj, %entry ]
-  ret ptr %retval
+  %retval = phi i8* [ %casted, %if.then ], [ %obj, %entry ]
+  ret i8* %retval
 }

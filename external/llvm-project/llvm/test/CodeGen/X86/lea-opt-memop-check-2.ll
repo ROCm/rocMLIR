@@ -3,12 +3,12 @@
 ; PR27502
 ; UNREACHABLE: "Invalid address displacement operand"
 
-@buf = internal global [5 x ptr] zeroinitializer
+@buf = internal global [5 x i8*] zeroinitializer
 
-declare i32 @llvm.eh.sjlj.setjmp(ptr) nounwind
+declare i32 @llvm.eh.sjlj.setjmp(i8*) nounwind
 
 define i32 @test() nounwind optsize {
-  %r = tail call i32 @llvm.eh.sjlj.setjmp(ptr @buf)
+  %r = tail call i32 @llvm.eh.sjlj.setjmp(i8* bitcast ([5 x i8*]* @buf to i8*))
   ret i32 %r
 ; CHECK-LABEL: test:
 ; CHECK:	leaq .LBB0_3(%rip), %r[[REG:[a-z]+]]

@@ -47,9 +47,6 @@ mlir::LogicalResult hlfir::AssignOp::verify() {
         hlfir::getFortranElementType(lhsType).isa<fir::CharacterType>()))
     return emitOpError("`realloc` must be set and lhs must be a character "
                        "allocatable when `keep_lhs_length_if_realloc` is set");
-  if (mustKeepLhsLengthInAllocatableAssignment() && isTemporaryLHS())
-    return emitOpError("`keep_lhs_length_if_realloc` does not make sense "
-                       "for `temporary_lhs` assignments");
   return mlir::success();
 }
 
@@ -736,7 +733,9 @@ mlir::LogicalResult hlfir::DotProductOp::verify() {
   int64_t lhsSize = lhsShape[0];
   int64_t rhsSize = rhsShape[0];
 
-  if (lhsSize != rhsSize)
+  constexpr int64_t unknownExtent = fir::SequenceType::getUnknownExtent();
+  if ((lhsSize != unknownExtent) && (rhsSize != unknownExtent) &&
+      (lhsSize != rhsSize))
     return emitOpError("both arrays must have the same size");
 
   if (mlir::isa<fir::LogicalType>(lhsEleTy) !=
@@ -982,9 +981,16 @@ void hlfir::AssociateOp::build(mlir::OpBuilder &builder,
                                mlir::ValueRange typeparams,
                                fir::FortranVariableFlagsAttr fortran_attrs) {
   auto nameAttr = builder.getStringAttr(uniq_name);
-  // TODO: preserve polymorphism of polymorphic expr.
-  mlir::Type firVarType = fir::ReferenceType::get(
-      getFortranElementOrSequenceType(source.getType()));
+  mlir::Type dataType = getFortranElementOrSequenceType(source.getType());
+
+  // Preserve polymorphism of polymorphic expr.
+  mlir::Type firVarType;
+  auto sourceExprType = mlir::dyn_cast<hlfir::ExprType>(source.getType());
+  if (sourceExprType && sourceExprType.isPolymorphic())
+    firVarType = fir::ClassType::get(fir::HeapType::get(dataType));
+  else
+    firVarType = fir::ReferenceType::get(dataType);
+
   mlir::Type hlfirVariableType =
       DeclareOp::getHLFIRVariableType(firVarType, /*hasExplicitLbs=*/false);
   mlir::Type i1Type = builder.getI1Type();
@@ -1011,6 +1017,7 @@ void hlfir::AsExprOp::build(mlir::OpBuilder &builder,
                             mlir::OperationState &result, mlir::Value var,
                             mlir::Value mustFree) {
   hlfir::ExprType::Shape typeShape;
+  bool isPolymorphic = fir::isPolymorphicType(var.getType());
   mlir::Type type = getFortranElementOrSequenceType(var.getType());
   if (auto seqType = type.dyn_cast<fir::SequenceType>()) {
     typeShape.append(seqType.getShape().begin(), seqType.getShape().end());
@@ -1018,7 +1025,7 @@ void hlfir::AsExprOp::build(mlir::OpBuilder &builder,
   }
 
   auto resultType = hlfir::ExprType::get(builder.getContext(), typeShape, type,
-                                         /*isPolymorphic: TODO*/ false);
+                                         isPolymorphic);
   return build(builder, result, resultType, var, mustFree);
 }
 
@@ -1499,6 +1506,26 @@ void hlfir::CharExtremumOp::build(mlir::OpBuilder &builder,
       false);
 
   build(builder, result, resultType, predicate, strings);
+}
+
+//===----------------------------------------------------------------------===//
+// GetLength
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult
+hlfir::GetLengthOp::canonicalize(GetLengthOp getLength,
+                                 mlir::PatternRewriter &rewriter) {
+  mlir::Location loc = getLength.getLoc();
+  auto exprTy = mlir::cast<hlfir::ExprType>(getLength.getExpr().getType());
+  auto charTy = mlir::cast<fir::CharacterType>(exprTy.getElementType());
+  if (!charTy.hasConstantLen())
+    return mlir::failure();
+
+  mlir::Type indexTy = rewriter.getIndexType();
+  auto cstLen = rewriter.create<mlir::arith::ConstantOp>(
+      loc, indexTy, mlir::IntegerAttr::get(indexTy, charTy.getLen()));
+  rewriter.replaceOp(getLength, cstLen);
+  return mlir::success();
 }
 
 #include "flang/Optimizer/HLFIR/HLFIROpInterfaces.cpp.inc"

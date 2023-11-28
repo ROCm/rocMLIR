@@ -30,6 +30,8 @@
 
 #define OFFLOAD_DEVICE_DEFAULT -1
 
+#define HOST_DEVICE                -10
+
 // Don't format out enums and structs.
 // clang-format off
 
@@ -294,6 +296,7 @@ struct __tgt_device_info {
 extern "C" {
 #endif
 
+int ompx_get_team_procs(int device_num);
 int omp_get_num_devices(void);
 int omp_get_device_num(void);
 int omp_get_initial_device(void);
@@ -315,6 +318,8 @@ int omp_target_disassociate_ptr(const void *HostPtr, int DeviceNum);
 
 /// Explicit target memory allocators
 /// Using the llvm_ prefix until they become part of the OpenMP standard.
+void *llvm_omp_target_lock_mem(void *ptr, size_t size, int device_num);
+void llvm_omp_target_unlock_mem(void *ptr, int device_num);
 void *llvm_omp_target_alloc_device(size_t Size, int DeviceNum);
 void *llvm_omp_target_alloc_host(size_t Size, int DeviceNum);
 void *llvm_omp_target_alloc_shared(size_t Size, int DeviceNum);
@@ -336,6 +341,12 @@ void __tgt_register_lib(__tgt_bin_desc *Desc);
 
 /// Initialize all RTLs at once
 void __tgt_init_all_rtls();
+/// adds an image information struct, called for each image
+void __tgt_register_image_info(__tgt_image_info *imageInfo);
+
+/// gets pointer to image information for specified image number
+/// Returns nullptr for apps built with old version of compiler
+__tgt_image_info *__tgt_get_image_info(uint32_t image_num);
 
 /// removes a target shared library from the target execution image
 void __tgt_unregister_lib(__tgt_bin_desc *Desc);

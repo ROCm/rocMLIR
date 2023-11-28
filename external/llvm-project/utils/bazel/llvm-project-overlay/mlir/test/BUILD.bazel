@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("//mlir:build_defs.bzl", "if_cuda_available")
 load("//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 load("//llvm:lit_test.bzl", "package_path")
 
@@ -82,6 +83,7 @@ cc_library(
             "lib/Analysis/*.cpp",
             "lib/Analysis/*.h",
             "lib/Analysis/DataFlow/*.cpp",
+            "lib/Analysis/DataFlow/*.h",
         ],
     ),
     includes = ["lib/Dialect/Test"],
@@ -592,26 +594,44 @@ cc_library(
 cc_library(
     name = "TestGPU",
     srcs = glob(["lib/Dialect/GPU/*.cpp"]),
-    defines = ["MLIR_CUDA_CONVERSIONS_ENABLED"],
+    defines = ["MLIR_CUDA_CONVERSIONS_ENABLED"] + if_cuda_available([
+        "MLIR_GPU_TO_CUBIN_PASS_ENABLE",
+    ]),
     includes = ["lib/Dialect/Test"],
     deps = [
         "//llvm:NVPTXCodeGen",
         "//llvm:Support",
         "//mlir:AffineDialect",
+        "//mlir:AffineToStandard",
         "//mlir:ArithDialect",
+        "//mlir:ArithToLLVM",
         "//mlir:FuncDialect",
+        "//mlir:FuncToLLVM",
         "//mlir:GPUDialect",
+        "//mlir:GPUToGPURuntimeTransforms",
+        "//mlir:GPUToNVVMTransforms",
         "//mlir:GPUTransforms",
         "//mlir:IR",
         "//mlir:IndexDialect",
+        "//mlir:IndexToLLVM",
+        "//mlir:MathToLLVM",
         "//mlir:MemRefDialect",
+        "//mlir:MemRefTransforms",
+        "//mlir:MemRefToLLVM",
+        "//mlir:NVGPUToNVVM",
         "//mlir:NVVMToLLVMIRTranslation",
         "//mlir:Pass",
+        "//mlir:ReconcileUnrealizedCasts",
         "//mlir:ROCDLToLLVMIRTranslation",
         "//mlir:SCFDialect",
+        "//mlir:SCFToControlFlow",
         "//mlir:SPIRVDialect",
         "//mlir:ToLLVMIRTranslation",
+        "//mlir:Transforms",
         "//mlir:TransformUtils",
+        "//mlir:VectorDialect",
+        "//mlir:VectorToLLVM",
+        "//mlir:VectorToSCF",
     ],
 )
 
@@ -708,6 +728,7 @@ cc_library(
         "//mlir:Pass",
         "//mlir:Transforms",
         "//mlir:VectorDialect",
+        "//mlir:VectorTransforms",
     ],
 )
 

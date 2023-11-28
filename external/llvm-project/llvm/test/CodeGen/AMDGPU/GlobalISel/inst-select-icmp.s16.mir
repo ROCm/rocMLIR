@@ -314,4 +314,3 @@ body: |
     %4:vcc(s1) = G_ICMP intpred(ule), %2, %3
     S_ENDPGM 0, implicit %4
 ...
-

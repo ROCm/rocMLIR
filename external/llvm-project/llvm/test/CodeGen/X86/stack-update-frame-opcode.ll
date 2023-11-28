@@ -16,7 +16,8 @@ entry:
 ; ATOM_LP64: leaq -1608
 ; ATOM_ILP32: leal -1608
 
-  %call = call i32 @foo(i32 %a, ptr %arr) nounwind
+  %arraydecay = getelementptr inbounds [400 x i32], [400 x i32]* %arr, i64 0, i64 0
+  %call = call i32 @foo(i32 %a, i32* %arraydecay) nounwind
   ret i32 %call
 
 ; CORE_LP64: addq $1608
@@ -26,5 +27,5 @@ entry:
 
 }
 
-declare i32 @foo(i32, ptr)
+declare i32 @foo(i32, i32*)
 

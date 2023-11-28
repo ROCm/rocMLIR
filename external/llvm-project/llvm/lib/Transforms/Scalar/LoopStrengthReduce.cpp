@@ -3361,6 +3361,8 @@ void LSRInstance::CollectFixupsAndInitialFormulae() {
           // S is normalized, so normalize N before folding it into S
           // to keep the result normalized.
           N = normalizeForPostIncUse(N, TmpPostIncLoops, SE);
+          if (!N)
+            continue;
           Kind = LSRUse::ICmpZero;
           S = SE.getMinusSCEV(N, S);
         } else if (L->isLoopInvariant(NV) &&
@@ -3375,6 +3377,8 @@ void LSRInstance::CollectFixupsAndInitialFormulae() {
           // SCEV can't compute the difference of two unknown pointers.
           N = SE.getUnknown(NV);
           N = normalizeForPostIncUse(N, TmpPostIncLoops, SE);
+          if (!N)
+            continue;
           Kind = LSRUse::ICmpZero;
           S = SE.getMinusSCEV(N, S);
           assert(!isa<SCEVCouldNotCompute>(S));
@@ -3503,8 +3507,8 @@ LSRInstance::CollectLoopInvariantFixupsAndFormulae() {
       if (const Instruction *Inst = dyn_cast<Instruction>(V)) {
         // Look for instructions defined outside the loop.
         if (L->contains(Inst)) continue;
-      } else if (isa<UndefValue>(V))
-        // Undef doesn't have a live range, so it doesn't matter.
+      } else if (isa<Constant>(V))
+        // Constants can be re-materialized.
         continue;
       for (const Use &U : V->uses()) {
         const Instruction *UserInst = dyn_cast<Instruction>(U.getUser());
@@ -4160,7 +4164,7 @@ getAnyExtendConsideringPostIncUses(ArrayRef<PostIncLoopSet> Loops,
     auto *DenormExpr = denormalizeForPostIncUse(Expr, L, SE);
     const SCEV *NewDenormExpr = SE.getAnyExtendExpr(DenormExpr, ToTy);
     const SCEV *New = normalizeForPostIncUse(NewDenormExpr, L, SE);
-    if (Result && New != Result)
+    if (!New || (Result && New != Result))
       return nullptr;
     Result = New;
   }

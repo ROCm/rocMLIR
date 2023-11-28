@@ -12,6 +12,15 @@ define ptr @foo(ptr %Ptr) {
 ; CHECK-NEXT: mov (%rdi), %rax
 ; CHECK-NEXT: lea -8(%rsp), %rax
 ; CHECK-NEXT: #NO_APP
-  ret ptr %1
+  ret i8* %1
 ; CHECK-NEXT: retq
+}
+
+define void @intptr() {
+; Don't assert on a non-ptr operand, existing code & gcc accept these.
+entry:
+; CHECK-LABEL: intptr:
+; CHECK: ud1l 49150(%eax), %eax
+  call void asm "ud1l $0(%eax), %eax", "p,~{dirflag},~{fpsr},~{flags}"(i32 49150)
+  unreachable
 }

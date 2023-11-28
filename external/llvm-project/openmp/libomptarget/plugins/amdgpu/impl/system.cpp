@@ -67,6 +67,17 @@ public:
     HiddenMultiGridSyncArg,
     HiddenHostcallBuffer,
     HiddenHeapV1,
+    HiddenBlockCountX,
+    HiddenBlockCountY,
+    HiddenBlockCountZ,
+    HiddenGroupSizeX,
+    HiddenGroupSizeY,
+    HiddenGroupSizeZ,
+    HiddenRemainderX,
+    HiddenRemainderY,
+    HiddenRemainderZ,
+    HiddenGridDims,
+    HiddenQueuePtr,
     Unknown
   };
 
@@ -102,7 +113,19 @@ static const std::map<std::string, KernelArgMD::ValueKind> ArgValueKind = {
     {"hidden_multigrid_sync_arg",
      KernelArgMD::ValueKind::HiddenMultiGridSyncArg},
     {"hidden_hostcall_buffer", KernelArgMD::ValueKind::HiddenHostcallBuffer},
-    {"hidden_heap_v1", KernelArgMD::ValueKind::HiddenHeapV1}};
+    {"hidden_heap_v1", KernelArgMD::ValueKind::HiddenHeapV1},
+    {"hidden_block_count_x", KernelArgMD::ValueKind::HiddenBlockCountX},
+    {"hidden_block_count_y", KernelArgMD::ValueKind::HiddenBlockCountY},
+    {"hidden_block_count_z", KernelArgMD::ValueKind::HiddenBlockCountZ},
+    {"hidden_group_size_x", KernelArgMD::ValueKind::HiddenGroupSizeX},
+    {"hidden_group_size_y", KernelArgMD::ValueKind::HiddenGroupSizeY},
+    {"hidden_group_size_z", KernelArgMD::ValueKind::HiddenGroupSizeZ},
+    {"hidden_remainder_x", KernelArgMD::ValueKind::HiddenRemainderX},
+    {"hidden_remainder_y", KernelArgMD::ValueKind::HiddenRemainderY},
+    {"hidden_remainder_z", KernelArgMD::ValueKind::HiddenRemainderZ},
+    {"hidden_grid_dims", KernelArgMD::ValueKind::HiddenGridDims},
+    {"hidden_queue_ptr", KernelArgMD::ValueKind::HiddenQueuePtr},
+};
 
 namespace core {
 
@@ -164,6 +187,17 @@ static bool isImplicit(KernelArgMD::ValueKind value_kind) {
   case KernelArgMD::ValueKind::HiddenMultiGridSyncArg:
   case KernelArgMD::ValueKind::HiddenHostcallBuffer:
   case KernelArgMD::ValueKind::HiddenHeapV1:
+  case KernelArgMD::ValueKind::HiddenBlockCountX:
+  case KernelArgMD::ValueKind::HiddenBlockCountY:
+  case KernelArgMD::ValueKind::HiddenBlockCountZ:
+  case KernelArgMD::ValueKind::HiddenGroupSizeX:
+  case KernelArgMD::ValueKind::HiddenGroupSizeY:
+  case KernelArgMD::ValueKind::HiddenGroupSizeZ:
+  case KernelArgMD::ValueKind::HiddenRemainderX:
+  case KernelArgMD::ValueKind::HiddenRemainderY:
+  case KernelArgMD::ValueKind::HiddenRemainderZ:
+  case KernelArgMD::ValueKind::HiddenGridDims:
+  case KernelArgMD::ValueKind::HiddenQueuePtr:
     return true;
   default:
     return false;
@@ -353,6 +387,7 @@ static hsa_status_t get_code_object_custom_metadata(
   msgpack_errors =
       map_lookup_array({metadata.first, metadata.second}, "amdhsa.kernels",
                        &kernel_array, &kernelsSize);
+
   if (msgpack_errors != 0) {
     printf("[%s:%d] %s failed\n", __FILE__, __LINE__,
            "kernels lookup in program metadata");
@@ -363,6 +398,7 @@ static hsa_status_t get_code_object_custom_metadata(
     assert(msgpack_errors == 0);
     std::string kernelName;
     std::string symbolName;
+    std::string kernelKind;
 
     msgpack::byte_range element;
     msgpack_errors += array_lookup_element(kernel_array, i, &element);
@@ -387,9 +423,21 @@ static hsa_status_t get_code_object_custom_metadata(
       return HSA_STATUS_ERROR_INVALID_CODE_OBJECT;
     }
 
-    atl_kernel_info_t info = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    atl_kernel_info_t info = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "normal"};
 
     uint64_t sgpr_count, vgpr_count, sgpr_spill_count, vgpr_spill_count;
+
+    if (symbolName == "amdgcn.device.init.kd" ||
+        symbolName == "amdgcn.device.fini.kd") {
+      msgpack_errors += map_lookup_string(element, ".kind", &kernelKind);
+      if (msgpack_errors != 0) {
+        printf("[%s:%d] %s failed\n", __FILE__, __LINE__,
+               "kind metadata lookup in kernel metadata");
+        return HSA_STATUS_ERROR_INVALID_CODE_OBJECT;
+      }
+      info.kind = kernelKind;
+    }
+
     msgpack_errors += map_lookup_uint64_t(element, ".sgpr_count", &sgpr_count);
     if (msgpack_errors != 0) {
       printf("[%s:%d] %s failed\n", __FILE__, __LINE__,
@@ -473,8 +521,7 @@ static hsa_status_t get_code_object_custom_metadata(
         size_t new_offset = lcArg.offset_;
         size_t padding = new_offset - offset;
         offset = new_offset;
-        DP("Arg[%lu] \"%s\" (%u, %u)\n", i, lcArg.name_.c_str(), lcArg.size_,
-           lcArg.offset_);
+
         offset += lcArg.size_;
 
         // check if the arg is a hidden/implicit arg
@@ -482,9 +529,13 @@ static hsa_status_t get_code_object_custom_metadata(
         if (!isImplicit(lcArg.valueKind_)) {
           info.explicit_argument_count++;
           kernel_explicit_args_size += lcArg.size_;
+          DP("Explicit Kernel Arg[%lu] \"%s\" (%u, %u)\n", i,
+             lcArg.name_.c_str(), lcArg.size_, lcArg.offset_);
         } else {
           info.implicit_argument_count++;
           hasHiddenArgs = true;
+          DP("Implicit Kernel Arg[%lu] \"%s\" (%u, %u)\n", i,
+             lcArg.name_.c_str(), lcArg.size_, lcArg.offset_);
         }
         kernel_explicit_args_size += padding;
       }
@@ -492,7 +543,7 @@ static hsa_status_t get_code_object_custom_metadata(
 
     // TODO: Probably don't want this arithmetic
     info.kernel_segment_size =
-        (hasHiddenArgs ? kernel_explicit_args_size : kernel_segment_size);
+        (!hasHiddenArgs ? kernel_explicit_args_size : kernel_segment_size);
     DP("[%s: kernarg seg size] (%lu --> %u)\n", kernelName.c_str(),
        kernel_segment_size, info.kernel_segment_size);
 
@@ -641,6 +692,8 @@ hsa_status_t RegisterModuleFromMemory(
     void *cb_state, std::vector<hsa_executable_t> &HSAExecutables) {
   hsa_status_t err;
   hsa_executable_t executable = {0};
+  hsa_code_object_reader_t code_object_rdr;
+
   hsa_profile_t agent_profile;
 
   err = hsa_agent_get_info(agent, HSA_AGENT_INFO_PROFILE, &agent_profile);
@@ -655,10 +708,20 @@ hsa_status_t RegisterModuleFromMemory(
   /* Create the empty executable.  */
   err = hsa_executable_create(agent_profile, HSA_EXECUTABLE_STATE_UNFROZEN, "",
                               &executable);
+
   if (err != HSA_STATUS_SUCCESS) {
     printf("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
            "Create the executable", get_error_string(err));
     return HSA_STATUS_ERROR;
+  }
+
+  err = hsa_code_object_reader_create_from_memory(module_bytes, module_size,
+                                                  &code_object_rdr);
+  if (err != HSA_STATUS_SUCCESS) {
+    printf("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
+           "Error in creating code object reader from memory!",
+           get_error_string(err));
+    return err;
   }
 
   bool module_load_success = false;
@@ -675,7 +738,6 @@ hsa_status_t RegisterModuleFromMemory(
            "Getting custom code object metadata", get_error_string(err));
         continue;
       }
-
       // Deserialize code object.
       hsa_code_object_t code_object = {0};
       err = hsa_code_object_deserialize(module_bytes, module_size, NULL,
@@ -698,10 +760,9 @@ hsa_status_t RegisterModuleFromMemory(
                get_error_string(impl_err));
         return impl_err;
       }
-
-      /* Load the code object.  */
-      err =
-          hsa_executable_load_code_object(executable, agent, code_object, NULL);
+      /* Load the code object. */
+      err = hsa_executable_load_agent_code_object(executable, agent,
+                                                  code_object_rdr, NULL, NULL);
       if (err != HSA_STATUS_SUCCESS) {
         DP("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
            "Loading the code object", get_error_string(err));

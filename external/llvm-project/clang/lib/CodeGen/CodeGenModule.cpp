@@ -41,6 +41,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/Module.h"
+#include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/Version.h"
@@ -51,6 +52,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Frontend/OpenMP/OMPDeviceConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/AttributeMask.h"
 #include "llvm/IR/CallingConv.h"
@@ -65,6 +67,7 @@
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/xxhash.h"
@@ -470,7 +473,7 @@ void CodeGenModule::createOpenMPRuntime() {
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
   case llvm::Triple::amdgcn:
-    assert(getLangOpts().OpenMPIsDevice &&
+    assert(getLangOpts().OpenMPIsTargetDevice &&
            "OpenMP AMDGPU/NVPTX is only prepared to deal with device code.");
     OpenMPRuntime.reset(new CGOpenMPRuntimeGPU(*this));
     break;
@@ -826,6 +829,9 @@ void CodeGenModule::Release() {
     EmitMainVoidAlias();
 
   if (getTriple().isAMDGPU()) {
+      if (!getModule().getModuleFlag("amdgpu_hostcall")) {
+        getModule().addModuleFlag(llvm::Module::Override, "amdgpu_hostcall", 1);
+      }
     // Emit amdgpu_code_object_version module flag, which is code object version
     // times 100.
     if (getTarget().getTargetOpts().CodeObjectVersion !=
@@ -953,12 +959,17 @@ void CodeGenModule::Release() {
                               "StrictVTablePointersRequirement",
                               llvm::MDNode::get(VMContext, Ops));
   }
-  if (getModuleDebugInfo())
+  if (getModuleDebugInfo()) {
     // We support a single version in the linked module. The LLVM
     // parser will drop debug info with a different version number
     // (and warn about it, too).
+    uint32_t DebugMetadataVersion =
+      CodeGenOpts.HeterogeneousDwarf ?
+        llvm::DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF :
+        llvm::DEBUG_METADATA_VERSION;
     getModule().addModuleFlag(llvm::Module::Warning, "Debug Info Version",
-                              llvm::DEBUG_METADATA_VERSION);
+                              DebugMetadataVersion);
+  }
 
   // We need to record the widths of enums and wchar_t, so that we can generate
   // the correct build attributes in the ARM backend. wchar_size is also used by
@@ -1089,7 +1100,7 @@ void CodeGenModule::Release() {
   // Indicate whether this Module was compiled with -fopenmp
   if (getLangOpts().OpenMP && !getLangOpts().OpenMPSimd)
     getModule().addModuleFlag(llvm::Module::Max, "openmp", LangOpts.OpenMP);
-  if (getLangOpts().OpenMPIsDevice)
+  if (getLangOpts().OpenMPIsTargetDevice)
     getModule().addModuleFlag(llvm::Module::Max, "openmp-device",
                               LangOpts.OpenMP);
 
@@ -2386,8 +2397,8 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   // functions. If the current target's C++ ABI requires this and this is a
   // member function, set its alignment accordingly.
   if (getTarget().getCXXABI().areMemberFunctionsAligned()) {
-    if (F->getAlignment() < 2 && isa<CXXMethodDecl>(D))
-      F->setAlignment(llvm::Align(2));
+    if (F->getPointerAlignment(getDataLayout()) < 2 && isa<CXXMethodDecl>(D))
+      F->setAlignment(std::max(llvm::Align(2), F->getAlign().valueOrOne()));
   }
 
   // In the cross-dso CFI mode with canonical jump tables, we want !type
@@ -2416,15 +2427,6 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   }
 }
 
-void CodeGenModule::setLLVMFunctionFEnvAttributes(const FunctionDecl *D,
-                                                  llvm::Function *F) {
-  if (D->hasAttr<StrictFPAttr>()) {
-    llvm::AttrBuilder FuncAttrs(F->getContext());
-    FuncAttrs.addAttribute("strictfp");
-    F->addFnAttrs(FuncAttrs);
-  }
-}
-
 void CodeGenModule::SetCommonAttributes(GlobalDecl GD, llvm::GlobalValue *GV) {
   const Decl *D = GD.getDecl();
   if (isa_and_nonnull<NamedDecl>(D))
@@ -2435,12 +2437,14 @@ void CodeGenModule::SetCommonAttributes(GlobalDecl GD, llvm::GlobalValue *GV) {
   if (D && D->hasAttr<UsedAttr>())
     addUsedOrCompilerUsedGlobal(GV);
 
-  if (CodeGenOpts.KeepStaticConsts && D && isa<VarDecl>(D)) {
-    const auto *VD = cast<VarDecl>(D);
-    if (VD->getType().isConstQualified() &&
-        VD->getStorageDuration() == SD_Static)
-      addUsedOrCompilerUsedGlobal(GV);
-  }
+  if (const auto *VD = dyn_cast_if_present<VarDecl>(D);
+      VD &&
+      ((CodeGenOpts.KeepPersistentStorageVariables &&
+        (VD->getStorageDuration() == SD_Static ||
+         VD->getStorageDuration() == SD_Thread)) ||
+       (CodeGenOpts.KeepStaticConsts && VD->getStorageDuration() == SD_Static &&
+        VD->getType().isConstQualified())))
+    addUsedOrCompilerUsedGlobal(GV);
 }
 
 bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
@@ -2488,8 +2492,7 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
     if (SD) {
       // Apply the given CPU name as the 'tune-cpu' so that the optimizer can
       // favor this processor.
-      TuneCPU = getTarget().getCPUSpecificTuneName(
-          SD->getCPUName(GD.getMultiVersionIndex())->getName());
+      TuneCPU = SD->getCPUName(GD.getMultiVersionIndex())->getName();
     }
   } else {
     // Otherwise just add the existing target cpu and target features to the
@@ -2611,9 +2614,6 @@ void CodeGenModule::CreateFunctionTypeMetadataForIcall(const FunctionDecl *FD,
 }
 
 void CodeGenModule::setKCFIType(const FunctionDecl *FD, llvm::Function *F) {
-  if (isa<CXXMethodDecl>(FD) && !cast<CXXMethodDecl>(FD)->isStatic())
-    return;
-
   llvm::LLVMContext &Ctx = F->getContext();
   llvm::MDBuilder MDB(Ctx);
   F->setMetadata(llvm::LLVMContext::MD_kcfi_type,
@@ -3325,12 +3325,14 @@ bool CodeGenModule::MustBeEmitted(const ValueDecl *Global) {
   if (LangOpts.EmitAllDecls)
     return true;
 
-  if (CodeGenOpts.KeepStaticConsts) {
-    const auto *VD = dyn_cast<VarDecl>(Global);
-    if (VD && VD->getType().isConstQualified() &&
-        VD->getStorageDuration() == SD_Static)
-      return true;
-  }
+  const auto *VD = dyn_cast<VarDecl>(Global);
+  if (VD &&
+      ((CodeGenOpts.KeepPersistentStorageVariables &&
+        (VD->getStorageDuration() == SD_Static ||
+         VD->getStorageDuration() == SD_Thread)) ||
+       (CodeGenOpts.KeepStaticConsts && VD->getStorageDuration() == SD_Static &&
+        VD->getType().isConstQualified())))
+    return true;
 
   return getContext().DeclMustBeEmitted(Global);
 }
@@ -4270,7 +4272,7 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
   // the iFunc instead. Name Mangling will handle the rest of the changes.
   if (const FunctionDecl *FD = cast_or_null<FunctionDecl>(D)) {
     // For the device mark the function as one that should be emitted.
-    if (getLangOpts().OpenMPIsDevice && OpenMPRuntime &&
+    if (getLangOpts().OpenMPIsTargetDevice && OpenMPRuntime &&
         !OpenMPRuntime->markAsGlobalTarget(GD) && FD->isDefined() &&
         !DontDefer && !IsForDefinition) {
       if (const FunctionDecl *FDDef = FD->getDefinition()) {
@@ -4778,7 +4780,8 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName, llvm::Type *Ty,
     }
   }
 
-  if (GV->isDeclaration()) {
+  if (D &&
+      D->isThisDeclarationADefinition(Context) == VarDecl::DeclarationOnly) {
     getTargetCodeGenInfo().setTargetAttributes(D, GV, *this);
     // External HIP managed variables needed to be recorded for transformation
     // in both device and host compilations.
@@ -5094,7 +5097,7 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
 
   // If this is OpenMP device, check if it is legal to emit this global
   // normally.
-  if (LangOpts.OpenMPIsDevice && OpenMPRuntime &&
+  if (LangOpts.OpenMPIsTargetDevice && OpenMPRuntime &&
       OpenMPRuntime->emitTargetGlobalVariable(D))
     return;
 
@@ -5664,9 +5667,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   MaybeHandleStaticInExternC(D, Fn);
 
   maybeSetTrivialComdat(*D, *Fn);
-
-  // Set CodeGen attributes that represent floating point environment.
-  setLLVMFunctionFEnvAttributes(D, Fn);
 
   CodeGenFunction(*this).GenerateCode(GD, Fn, FI);
 
@@ -6733,7 +6733,7 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     if (LangOpts.CUDA && LangOpts.CUDAIsDevice)
       break;
     // File-scope asm is ignored during device-side OpenMP compilation.
-    if (LangOpts.OpenMPIsDevice)
+    if (LangOpts.OpenMPIsTargetDevice)
       break;
     // File-scope asm is ignored during device-side SYCL compilation.
     if (LangOpts.SYCLIsDevice)
@@ -7164,9 +7164,9 @@ llvm::Constant *CodeGenModule::GetAddrOfRTTIDescriptor(QualType Ty,
   // FIXME: should we even be calling this method if RTTI is disabled
   // and it's not for EH?
   if ((!ForEH && !getLangOpts().RTTI) || getLangOpts().CUDAIsDevice ||
-      (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice &&
+      (getLangOpts().OpenMP && getLangOpts().OpenMPIsTargetDevice &&
        getTriple().isNVPTX()))
-    return llvm::Constant::getNullValue(Int8PtrTy);
+    return llvm::Constant::getNullValue(GlobalsInt8PtrTy);
 
   if (ForEH && Ty->isObjCObjectPointerType() &&
       LangOpts.ObjCRuntime.isGNUFamily())
@@ -7456,6 +7456,1240 @@ void CodeGenModule::printPostfixForExternalizedDecl(llvm::raw_ostream &OS,
   } else {
     OS << getContext().getCUIDHash();
   }
+}
+
+namespace {
+/// A 'teams loop' with a nested 'loop bind(parallel)', OpenMP API call,
+/// or generic function call in the associated loop-nest cannot be a
+/// 'parllel for'.
+class TeamsLoopChecker final : public ConstStmtVisitor<TeamsLoopChecker> {
+public:
+  TeamsLoopChecker(CodeGenModule &CGM)
+      : CGM(CGM), TeamsLoopCanBeParallelFor{true} {}
+  bool teamsLoopCanBeParallelFor() const {
+    return TeamsLoopCanBeParallelFor;
+  }
+  // Is there a nested OpenMP loop bind(parallel)
+  void VisitOMPExecutableDirective(const OMPExecutableDirective *D) {
+    if (D->getDirectiveKind() == llvm::omp::Directive::OMPD_loop) {
+      if (const auto *C = D->getSingleClause<OMPBindClause>())
+        if (C->getBindKind() == OMPC_BIND_parallel) {
+          TeamsLoopCanBeParallelFor = false;
+          // No need to continue visiting any more
+          return;
+        }
+    }
+    for (const Stmt *Child : D->children())
+      if (Child)
+        Visit(Child);
+  }
+
+  void VisitCallExpr(const CallExpr *C) {
+    // For now, can't be parallel if
+    //  - calling an OpenMP API; or
+    //  - a regular function call, unless no-nested-parallelism has been set.
+    if (C) {
+      auto *FD = dyn_cast_or_null<FunctionDecl>(C->getCalleeDecl());
+      if (FD) {
+        std::string Name = FD->getNameInfo().getAsString();
+        if (Name.find("omp_") == 0) {
+          TeamsLoopCanBeParallelFor = false;
+          // No need to continue visiting any more
+          return;
+        }
+      }
+      TeamsLoopCanBeParallelFor = CGM.getLangOpts().OpenMPNoNestedParallelism;
+      // No need to continue visiting any more
+      return;
+    }
+    for (const Stmt *Child : C->children())
+      if (Child)
+        Visit(Child);
+  }
+
+  void VisitCapturedStmt(const CapturedStmt *S) {
+    if (!S)
+      return;
+    Visit(S->getCapturedDecl()->getBody());
+  }
+
+  void VisitStmt(const Stmt *S) {
+    if (!S)
+      return;
+    for (const Stmt *Child : S->children())
+      if (Child)
+        Visit(Child);
+  }
+
+private:
+  CodeGenModule &CGM;
+  bool TeamsLoopCanBeParallelFor;
+};
+} // namespace
+
+/// Determine if 'teams loop' can be emitted using 'parallel for'.
+bool CodeGenModule::TeamsLoopCanBeParallelFor(const OMPExecutableDirective &D) {
+  if (D.getDirectiveKind() != llvm::omp::Directive::OMPD_target_teams_loop)
+    return false;
+  assert(D.hasAssociatedStmt() &&
+      "Loop directive must have associated statement.");
+  TeamsLoopChecker Checker(*this);
+  Checker.Visit(D.getAssociatedStmt());
+  return Checker.teamsLoopCanBeParallelFor();
+}
+
+namespace {
+class NoLoopChecker final : public ConstStmtVisitor<NoLoopChecker> {
+public:
+  NoLoopChecker()
+      : NoLoopCheckStatus{CodeGenModule::NxSuccess}, HasNestedGenericCall{
+                                                         false} {}
+  CodeGenModule::NoLoopXteamErr getNoLoopCheckStatus() const {
+    return NoLoopCheckStatus;
+  }
+  bool hasNestedGenericCall() const { return HasNestedGenericCall; }
+
+  // Reject if there is a nested OpenMP parallel directive
+  void VisitOMPExecutableDirective(const OMPExecutableDirective *D) {
+    if (D->getDirectiveKind() == llvm::omp::Directive::OMPD_parallel) {
+      NoLoopCheckStatus = CodeGenModule::NxNestedOmpParallelDirective;
+      // No need to continue visiting any more
+      return;
+    }
+    for (const Stmt *Child : D->children())
+      if (Child)
+        Visit(Child);
+  }
+
+  void VisitCallExpr(const CallExpr *C) {
+    // Set status if calling an OpenMP API
+    // Set status if there is a call other than to an OpenMP function.
+    if (C) {
+      auto *FD = dyn_cast_or_null<FunctionDecl>(C->getCalleeDecl());
+      if (FD) {
+        std::string Name = FD->getNameInfo().getAsString();
+        if (Name.find("omp_") == 0) {
+          NoLoopCheckStatus = CodeGenModule::NxNestedOmpCall;
+          // No need to continue visiting any more
+          return;
+        }
+      }
+      HasNestedGenericCall = true;
+    }
+    for (const Stmt *Child : C->children())
+      if (Child)
+        Visit(Child);
+  }
+
+  void VisitCapturedStmt(const CapturedStmt *S) {
+    if (!S)
+      return;
+    Visit(S->getCapturedDecl()->getBody());
+  }
+
+  void VisitStmt(const Stmt *S) {
+    if (!S)
+      return;
+    for (const Stmt *Child : S->children())
+      if (Child)
+        Visit(Child);
+  }
+
+private:
+  CodeGenModule::NoLoopXteamErr NoLoopCheckStatus;
+  bool HasNestedGenericCall;
+};
+
+/// Ensure no-loop codegen can handle the step. The visitor will reject any
+/// expression that contains the loop index provided
+class NoLoopStepChecker final : public ConstStmtVisitor<NoLoopStepChecker> {
+public:
+  NoLoopStepChecker(const VarDecl *LV) : LoopVar{LV}, UnsupportedStep{false} {}
+  NoLoopStepChecker() = delete;
+
+  bool isUnsupported() const { return UnsupportedStep; }
+
+  void VisitDeclRefExpr(const DeclRefExpr *DRE) {
+    // We do not handle an expression with the loop var
+    if (DRE && DRE->getDecl() == LoopVar) {
+      UnsupportedStep = true;
+      // No need to continue any more
+      return;
+    }
+    for (const Stmt *Child : DRE->children())
+      if (Child)
+        Visit(Child);
+  }
+
+  void VisitStmt(const Stmt *S) {
+    if (!S)
+      return;
+    for (const Stmt *Child : S->children())
+      if (Child)
+        Visit(Child);
+  }
+
+private:
+  const VarDecl *LoopVar;
+  bool UnsupportedStep;
+};
+
+/// Ensure xteam reduction codegen can handle the statements in the kernel loop.
+/// The visitor will reject any assignment statement if it finds a reduction
+/// variable as the lhs of an assignment statement but not of the following
+/// form: red_var += <expr> red_var = red_var + <expr> red_var = <expr> +
+/// red_var
+class XteamRedExprChecker final : public ConstStmtVisitor<XteamRedExprChecker> {
+public:
+  XteamRedExprChecker(const CodeGenModule::XteamRedVarMap &RVM)
+      : RedMap{RVM}, IsSupported{true} {}
+  XteamRedExprChecker() = delete;
+
+  bool isSupported() const { return IsSupported; }
+
+  void VisitStmt(const Stmt *S) {
+    if (!S)
+      return;
+    if (isa<BinaryOperator>(S)) {
+      const BinaryOperator *BinOpExpr = cast<BinaryOperator>(S);
+      // Even though we filtered out everything except the sum reduction
+      // operator, we need to make sure the reduction assignment uses
+      // either += or a pattern Codegen can handle. For + reduction op,
+      // Codegen currently handles red-var += <expr>,
+      // red-var = red-var + <expr> and red-var = <expr> + red-var.
+      // We punt on anything more complex.
+
+      auto isExprXteamRedVar = [this](Expr *E) {
+        if (!isa<DeclRefExpr>(E))
+          return false;
+        auto *Decl = cast<DeclRefExpr>(E)->getDecl();
+        if (!isa<VarDecl>(Decl))
+          return false;
+        auto *VD = cast<VarDecl>(Decl);
+        if (RedMap.find(VD) != RedMap.end())
+          return true;
+        return false;
+      };
+
+      Expr *LHS = BinOpExpr->getLHS()->IgnoreImpCasts();
+      if (isExprXteamRedVar(LHS)) {
+        auto BinOpExprOp = BinOpExpr->getOpcode();
+        if (BinOpExprOp != BO_Assign && BinOpExprOp != BO_AddAssign &&
+            BinOpExprOp != BO_Add) {
+          IsSupported = false;
+          return;
+        }
+        // We only need to further examine the assignment case.
+        // If += or +, Codegen will extract the rhs.
+        if (BinOpExpr->getOpcode() == BO_Assign) {
+          Expr *RHS = BinOpExpr->getRHS()->IgnoreImpCasts();
+          if (!isa<BinaryOperator>(RHS)) {
+            IsSupported = false;
+            return;
+          }
+          BinaryOperator *BinOpRHS = cast<BinaryOperator>(RHS);
+          if (BinOpRHS->getOpcode() != BO_Add) {
+            IsSupported = false;
+            return;
+          }
+          Expr *LHSBinOpRHS = BinOpRHS->getLHS()->IgnoreImpCasts();
+          Expr *RHSBinOpRHS = BinOpRHS->getRHS()->IgnoreImpCasts();
+          if (!isExprXteamRedVar(LHSBinOpRHS) &&
+              !isExprXteamRedVar(RHSBinOpRHS)) {
+            IsSupported = false;
+            return;
+          }
+        }
+      }
+    }
+    for (const Stmt *Child : S->children())
+      if (Child)
+        Visit(Child);
+  }
+
+private:
+  const CodeGenModule::XteamRedVarMap &RedMap;
+  bool IsSupported;
+};
+
+} // namespace
+
+void CodeGenModule::emitNxResult(std::string StatusMsg,
+                                 const OMPExecutableDirective &D,
+                                 NoLoopXteamErr Status) {
+  if (Status)
+    StatusMsg += ": Failed: ";
+  else
+    StatusMsg += ": Succeeded";
+  switch (Status) {
+  case NxSuccess:
+    break;
+  case NxNonSPMD:
+    StatusMsg += "Non-SPMD mode not supported";
+    break;
+  case NxOptionDisabled:
+    StatusMsg += "Command line option disabled";
+    break;
+  case NxOptionDisabledOrHasCall:
+    StatusMsg += "Command line option disabled or has a nested call";
+    break;
+  case NxUnsupportedDirective:
+    StatusMsg += "Unsupported directive";
+    break;
+  case NxUnsupportedSplitDirective:
+    StatusMsg += "Unsupported split directive";
+    break;
+  case NxNoStmt:
+    StatusMsg += "No statement found";
+    break;
+  case NxUnsupportedTargetClause:
+    StatusMsg += "Unsupported target clause";
+    break;
+  case NxNotLoopDirective:
+    StatusMsg += "Not a loop directive";
+    break;
+  case NxNotCapturedStmt:
+    StatusMsg += "Not a captured statement";
+    break;
+  case NxNotExecutableStmt:
+    StatusMsg += "Not an executable directive";
+    break;
+  case NxUnsupportedNestedSplitDirective:
+    StatusMsg += "Unsupported nested split directive";
+    break;
+  case NxSplitConstructImproperlyNested:
+    StatusMsg += "Improperly nested split construct";
+    break;
+  case NxNestedOmpParallelDirective:
+    StatusMsg += "Nested OpenMP parallel directive";
+    break;
+  case NxNestedOmpCall:
+    StatusMsg += "Nested OpenMP API call";
+    break;
+  case NxNoSingleForStmt:
+    StatusMsg += "Could not find a single FOR statement";
+    break;
+  case NxUnsupportedLoopInit:
+    StatusMsg += "Unsupported loop initialization expression";
+    break;
+  case NxUnsupportedLoopStop:
+    StatusMsg += "Unsupported loop condition expression";
+    break;
+  case NxUnsupportedLoopStep:
+    StatusMsg += "Unsupported loop increment expression";
+    break;
+  case NxGuidedOrRuntimeSched:
+    StatusMsg += "Guided or runtime schedule not supported";
+    break;
+  case NxNonUnitStaticChunk:
+    StatusMsg += "Schedule clause with non-unit chunk size";
+    break;
+  case NxNonConcurrentOrder:
+    StatusMsg += "Non-concurrent order not supported";
+    break;
+  case NxUnsupportedRedType:
+    StatusMsg += "Unsupported reduction variable type";
+    break;
+  case NxUnsupportedRedIntSize:
+    StatusMsg +=
+        "Integer reduction variable with the specified size not supported";
+    break;
+  case NxNotScalarRed:
+    StatusMsg += "Non-scalar reduction variable";
+    break;
+  case NxNotBinOpRed:
+    StatusMsg += "Only binary reduction operator supported";
+    break;
+  case NxUnsupportedRedOp:
+    StatusMsg += "Unsupported reduction operator";
+    break;
+  case NxNoRedVar:
+    StatusMsg += "No reduction variable found";
+    break;
+  case NxMultRedVar:
+    StatusMsg += "Multiple reduction variables in the same loop not supported";
+    break;
+  case NxUnsupportedRedExpr:
+    StatusMsg += "Unsupported reduction expression found";
+    break;
+  case NxUnsupportedXteamRedThreadLimit:
+    StatusMsg += "Thread Limit less than 256 not supported";
+    break;
+  }
+
+  SourceLocation L = D.getBeginLoc();
+  SourceManager &SM = getContext().getSourceManager();
+  PresumedLoc PLoc = SM.getPresumedLoc(L);
+  const char *FileName = PLoc.isValid() ? PLoc.getFilename() : nullptr;
+  unsigned LineNo =
+      PLoc.isValid() ? PLoc.getLine() : SM.getExpansionLineNumber(L);
+
+  llvm::dbgs() << StatusMsg << ": " << FileName << ": " << LineNo << "\n";
+}
+
+void CodeGenModule::emitTargetTeamsLoopCodegenStatus(
+    std::string StatusMsg, const OMPExecutableDirective &D, bool IsDevice) {
+  if (IsDevice)
+    StatusMsg += ": DEVICE";
+  else
+    StatusMsg += ": HOST";
+  SourceLocation L = D.getBeginLoc();
+  SourceManager &SM = getContext().getSourceManager();
+  PresumedLoc PLoc = SM.getPresumedLoc(L);
+  const char *FileName = PLoc.isValid() ? PLoc.getFilename() : nullptr;
+  unsigned LineNo =
+      PLoc.isValid() ? PLoc.getLine() : SM.getExpansionLineNumber(L);
+  llvm::dbgs() << StatusMsg << ": " << FileName << ": " << LineNo << "\n";
+}
+
+const ForStmt *CodeGenModule::getSingleForStmt(const Stmt *S) {
+  if (S == nullptr)
+    return nullptr;
+  if (S->getStmtClass() == Stmt::ForStmtClass)
+    return cast<ForStmt>(S);
+  const Stmt *Innermost = getMappedInnermostStmt(S);
+  if (Innermost)
+    S = Innermost;
+  if (!isa<CapturedStmt>(S))
+    return nullptr;
+  while (S->getStmtClass() == Stmt::CapturedStmtClass) {
+    S = cast<CapturedStmt>(S)->getCapturedDecl()->getBody();
+  }
+  if (S->getStmtClass() == Stmt::ForStmtClass)
+    return cast<ForStmt>(S);
+  else
+    while (S->getStmtClass() == Stmt::CompoundStmtClass) {
+      const CompoundStmt &CompStmt = cast<CompoundStmt>(*S);
+      if (CompStmt.size() != 1)
+        return nullptr;
+      if (CompStmt.body_front()->getStmtClass() == Stmt::ForStmtClass)
+        return cast<ForStmt>(CompStmt.body_front());
+      S = CompStmt.body_front();
+    }
+  return nullptr;
+}
+
+const VarDecl *CodeGenModule::checkLoopInit(const OMPLoopDirective &LD) {
+  const Expr *IVExpr = LD.getIterationVariable();
+  if (!isa<DeclRefExpr>(IVExpr))
+    return nullptr;
+  const ValueDecl *ValD = cast<DeclRefExpr>(IVExpr)->getDecl();
+  if (!isa<VarDecl>(ValD))
+    return nullptr;
+  const VarDecl *VD = cast<VarDecl>(ValD);
+  if (!VD->getType()->isIntegerType())
+    return nullptr;
+  return VD;
+}
+
+bool CodeGenModule::checkLoopStop(const OMPLoopDirective &LD,
+                                  const ForStmt &FStmt) {
+  // We don't handle a condition variable for NoLoop
+  if (FStmt.getConditionVariable() != nullptr)
+    return false;
+  // Make sure the loop condition is valid
+  if (LD.getCond() == nullptr)
+    return false;
+  return true;
+}
+
+// Return true if the step is either a unary increment of the provided loop
+// index or a binary add on the loop index. Otherwise return false.
+bool CodeGenModule::checkLoopStep(const Expr *Inc, const VarDecl *VD) {
+  if (Inc == nullptr)
+    return false;
+  if (Inc->getStmtClass() == Expr::UnaryOperatorClass &&
+      cast<UnaryOperator>(Inc)->isIncrementOp()) {
+    const auto *IncDRE =
+        cast<DeclRefExpr>(cast<UnaryOperator>(Inc)->getSubExpr());
+    if (IncDRE == nullptr)
+      return false;
+    const auto *IncVarDecl = cast<VarDecl>(IncDRE->getDecl());
+    if (IncVarDecl == nullptr)
+      return false;
+    if (IncVarDecl != VD)
+      return false;
+    return true;
+  }
+
+  // We support either += or = in the step expression
+  if ((isa<CompoundAssignOperator>(Inc) &&
+       cast<CompoundAssignOperator>(Inc)->getOpcode() == BO_AddAssign) ||
+      (isa<BinaryOperator>(Inc) &&
+       cast<BinaryOperator>(Inc)->getOpcode() == BO_Assign)) {
+    // LHS must be the loop variable
+    const auto *IncDRE = cast<DeclRefExpr>(cast<BinaryOperator>(Inc)->getLHS());
+    if (IncDRE == nullptr)
+      return false;
+    if (!isa<VarDecl>(IncDRE->getDecl()))
+      return false;
+    // The step variable must be the loop variable
+    if (IncDRE->getDecl() != VD)
+      return false;
+    // Found step += val, return true
+    if (isa<CompoundAssignOperator>(Inc) &&
+        cast<CompoundAssignOperator>(Inc)->getOpcode() == BO_AddAssign)
+      return true;
+
+    // If it is an assignment binary operator, analyze it further
+    assert(isa<BinaryOperator>(Inc) &&
+           cast<BinaryOperator>(Inc)->getOpcode() == BO_Assign &&
+           "Unexpected expression in step");
+    const Expr *IncRHS = cast<BinaryOperator>(Inc)->getRHS();
+    // We support binary add operator, operating on the loop variable
+    if (isa<BinaryOperator>(IncRHS) &&
+        cast<BinaryOperator>(IncRHS)->getOpcode() == BO_Add) {
+      const BinaryOperator *IncRHSBinOp = cast<BinaryOperator>(IncRHS);
+      const Expr *LHSIncRHS = IncRHSBinOp->getLHS();
+      const Expr *RHSIncRHS = IncRHSBinOp->getRHS();
+
+      // We support either step = step + val or step = val + step. We don't
+      // currently support more complex expressions. Additionally, make sure
+      // that step does not appear in val.
+      auto checkStep = [VD](const Expr *CheckedExpr) {
+        NoLoopStepChecker Checker(VD);
+        Checker.Visit(CheckedExpr);
+        if (Checker.isUnsupported())
+          return false;
+        return true;
+      };
+
+      if (isa<DeclRefExpr>(LHSIncRHS) &&
+          cast<DeclRefExpr>(LHSIncRHS)->getDecl() == VD) {
+        // Check that VD does not occur in RHSIncRHS
+        return checkStep(RHSIncRHS);
+      }
+      if (isa<DeclRefExpr>(RHSIncRHS) &&
+          cast<DeclRefExpr>(RHSIncRHS)->getDecl() == VD) {
+        // Check that VD does not occur in LHSIncRHS
+        return checkStep(LHSIncRHS);
+      }
+      if (isa<ImplicitCastExpr>(LHSIncRHS) &&
+          isa<DeclRefExpr>(cast<ImplicitCastExpr>(LHSIncRHS)->getSubExpr()) &&
+          cast<DeclRefExpr>(cast<ImplicitCastExpr>(LHSIncRHS)->getSubExpr())
+                  ->getDecl() == VD) {
+        // Visit RHSIncRHS and make sure the loop variable is not present as a
+        // declref
+        return checkStep(RHSIncRHS);
+      }
+      if (isa<ImplicitCastExpr>(RHSIncRHS) &&
+          isa<DeclRefExpr>(cast<ImplicitCastExpr>(RHSIncRHS)->getSubExpr()) &&
+          cast<DeclRefExpr>(cast<ImplicitCastExpr>(RHSIncRHS)->getSubExpr())
+                  ->getDecl() == VD) {
+        // Visit LHSIncRHS and make sure the loop variable is not present as a
+        // declref
+        return checkStep(LHSIncRHS);
+      }
+    }
+  }
+  return false;
+}
+
+// If the step is a unary expression, we already ensure it is an increment. So
+// no more processing is required for a unary expression. For a binary
+// expression, return the step.
+const Expr *CodeGenModule::getBinaryExprStep(const Expr *Inc,
+                                             const VarDecl *VD) {
+  if (isa<UnaryOperator>(Inc))
+    return nullptr;
+  // Found step += val, return val
+  if (isa<CompoundAssignOperator>(Inc) &&
+      cast<CompoundAssignOperator>(Inc)->getOpcode() == BO_AddAssign)
+    return cast<BinaryOperator>(Inc)->getRHS();
+
+  // If found step = step + val or step = val + step, return val
+  if (isa<BinaryOperator>(Inc) &&
+      cast<BinaryOperator>(Inc)->getOpcode() == BO_Assign) {
+    const auto *IncRHS = cast<BinaryOperator>(Inc)->getRHS();
+    assert(isa<BinaryOperator>(IncRHS) &&
+           cast<BinaryOperator>(IncRHS)->getOpcode() == BO_Add);
+    // Find the step based on the supported scenario
+    const Expr *StepExpr = nullptr;
+    const BinaryOperator *IncRHSBinOp = cast<BinaryOperator>(IncRHS);
+    const Expr *LHSIncRHS = IncRHSBinOp->getLHS();
+    const Expr *RHSIncRHS = IncRHSBinOp->getRHS();
+    if (isa<DeclRefExpr>(LHSIncRHS) &&
+        cast<DeclRefExpr>(LHSIncRHS)->getDecl() == VD)
+      StepExpr = RHSIncRHS;
+    else if (isa<DeclRefExpr>(RHSIncRHS) &&
+             cast<DeclRefExpr>(RHSIncRHS)->getDecl() == VD)
+      StepExpr = LHSIncRHS;
+    else if (isa<ImplicitCastExpr>(LHSIncRHS) &&
+             isa<DeclRefExpr>(
+                 cast<ImplicitCastExpr>(LHSIncRHS)->getSubExpr()) &&
+             cast<DeclRefExpr>(cast<ImplicitCastExpr>(LHSIncRHS)->getSubExpr())
+                     ->getDecl() == VD)
+      StepExpr = RHSIncRHS;
+    else if (isa<ImplicitCastExpr>(RHSIncRHS) &&
+             isa<DeclRefExpr>(
+                 cast<ImplicitCastExpr>(RHSIncRHS)->getSubExpr()) &&
+             cast<DeclRefExpr>(cast<ImplicitCastExpr>(RHSIncRHS)->getSubExpr())
+                     ->getDecl() == VD)
+      StepExpr = LHSIncRHS;
+    else
+      llvm_unreachable("Unexpected step");
+    return StepExpr;
+  }
+  llvm_unreachable("Unexpected operator type in step computation");
+}
+
+std::pair<CodeGenModule::NoLoopXteamErr, bool>
+CodeGenModule::getNoLoopForStmtStatus(const OMPExecutableDirective &D,
+                                      const Stmt *OMPStmt) {
+  NoLoopChecker Checker;
+  Checker.Visit(OMPStmt);
+  bool HasNestedGenericCall = Checker.hasNestedGenericCall();
+  NoLoopXteamErr NxStatus = NxSuccess;
+  if ((NxStatus = Checker.getNoLoopCheckStatus()))
+    return std::make_pair(NxStatus, HasNestedGenericCall);
+
+  // Now ensure that code generation will handle this construct
+
+  const ForStmt *FStmt = getSingleForStmt(OMPStmt);
+  if (FStmt == nullptr)
+    return std::make_pair(NxNoSingleForStmt, HasNestedGenericCall);
+
+  assert(isa<OMPLoopDirective>(D) && "Expected a loop directive");
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+
+  // Ensure loop init and condition are supported
+  const VarDecl *VD = checkLoopInit(LD);
+  if (VD == nullptr)
+    return std::make_pair(NxUnsupportedLoopInit, HasNestedGenericCall);
+
+  if (!checkLoopStep(LD.getInc(), VD))
+    return std::make_pair(NxUnsupportedLoopStep, HasNestedGenericCall);
+
+  if (!checkLoopStop(LD, *FStmt))
+    return std::make_pair(NxUnsupportedLoopStop, HasNestedGenericCall);
+
+  return std::make_pair(NxSuccess, HasNestedGenericCall);
+}
+
+int CodeGenModule::getWorkGroupSizeSPMDHelper(const OMPExecutableDirective &D) {
+  // Honor block-size provided by command-line option. This logic must be kept
+  // in sync with metadata generation. If this option is not specified on the
+  // command line then the value used will be the 256.
+  int WorkGroupSz = getLangOpts().OpenMPGPUThreadsPerTeam;
+
+  // Cross team reduction blocksize default may be specified separately.
+  if (isXteamRedKernel(D))
+    WorkGroupSz = getLangOpts().OpenMPTargetXteamReductionBlockSize;
+
+  // Check block-size provided by thread_limit clause. We start with the
+  // maximum thread limit and lower it if user requests a lower thread limit.
+  int ThreadLimit = getTarget().getGridValue().GV_Max_WG_Size;
+  const auto *ThreadLimitClause = D.getSingleClause<OMPThreadLimitClause>();
+  if (ThreadLimitClause) {
+    Expr *ThreadLimitExpr = ThreadLimitClause->getThreadLimit();
+    clang::Expr::EvalResult Result;
+    if (ThreadLimitExpr->EvaluateAsInt(Result, getContext())) {
+      int ThreadLimitEval = Result.Val.getInt().getExtValue();
+      if (ThreadLimitEval > 0 && ThreadLimitEval < ThreadLimit)
+        ThreadLimit = ThreadLimitEval;
+    }
+  }
+
+  // If the command line work group size is less than any default or user
+  // specified thread limit then it is honored otherwise the thread limit
+  // determined above will be used.
+  if (WorkGroupSz > ThreadLimit)
+    WorkGroupSz = ThreadLimit;
+
+  // Set the actual number of threads if the user requests a value different
+  // then the default. If the value is greater than the currently computed
+  // thread limit then cap the number of threads to the thread limit.
+  int NumThreads = getTarget().getGridValue().GV_Default_WG_Size;
+  const auto *NumThreadsClause = D.getSingleClause<OMPNumThreadsClause>();
+  if (NumThreadsClause) {
+    Expr *NumThreadsExpr = NumThreadsClause->getNumThreads();
+    clang::Expr::EvalResult Result;
+    if (NumThreadsExpr->EvaluateAsInt(Result, getContext())) {
+      NumThreads = Result.Val.getInt().getExtValue();
+      // Cap the number of threads to the current thread limit.
+      if (NumThreads > ThreadLimit)
+        NumThreads = ThreadLimit;
+      // num_threads clause takes precendence over the command line value:
+      WorkGroupSz = NumThreads;
+    }
+  }
+
+  // Sanitize the workgroup size received from the command line. Its default
+  // value is GV_Default_WG_Size.
+  if (WorkGroupSz < 1 || WorkGroupSz > ThreadLimit)
+    WorkGroupSz = getTarget().getGridValue().GV_Default_WG_Size;
+
+  return WorkGroupSz;
+}
+
+int CodeGenModule::getOptKernelWorkGroupSize(
+    const OptKernelNestDirectives &NestDirs, bool isXteamRed) {
+  int WGSizeDefault =
+      isXteamRed ? 1024 : getTarget().getGridValue().GV_Default_WG_Size;
+
+  // Allow command-line option override clauses on the OpenMP construct.
+  // Exception: If the command line value is the same as the default, the clause
+  // overrides.
+  int CmdLineOption = isXteamRed
+                          ? getLangOpts().OpenMPTargetXteamReductionBlockSize
+                          : getLangOpts().OpenMPGPUThreadsPerTeam;
+  if (CmdLineOption != WGSizeDefault)
+    return CmdLineOption;
+
+  // The blocksize used by optimized kernels is the minimum of the
+  // max_wg_size and any thread_limit or num_threads specified on any OpenMP
+  // clauses.
+  int WGSize = getTarget().getGridValue().GV_Max_WG_Size;
+  for (const auto &Dir : NestDirs)
+    WGSize = std::min(WGSize, getWorkGroupSizeSPMDHelper(*Dir));
+  return WGSize;
+}
+
+int CodeGenModule::computeOptKernelBlockSize(
+    const OptKernelNestDirectives &NestDirs, bool isXteamRed) {
+  int InitialBlockSize = getOptKernelWorkGroupSize(NestDirs, isXteamRed);
+  if (!isXteamRed)
+    return InitialBlockSize;
+  // We support block sizes 64, 128, 256, 512, and 1024 only for Xteam
+  // reduction.
+  if (InitialBlockSize < 128)
+    return 64;
+  if (InitialBlockSize < 256)
+    return 128;
+  if (InitialBlockSize < 512)
+    return 256;
+  if (InitialBlockSize < 1024)
+    return 512;
+  return 1024;
+}
+
+std::pair<CodeGenModule::NoLoopXteamErr, bool>
+CodeGenModule::getXteamRedForStmtStatus(const OMPExecutableDirective &D,
+                                        const Stmt *OMPStmt,
+                                        const XteamRedVarMap &RVM) {
+  auto [NxStatus, HasNestedGenericCall] = getNoLoopForStmtStatus(D, OMPStmt);
+  if (NxStatus)
+    return std::make_pair(NxStatus, HasNestedGenericCall);
+  // The above check ensures that there is only one statement corresponding to
+  // the directive
+  const ForStmt *FStmt = getSingleForStmt(OMPStmt);
+  assert(FStmt != nullptr && "Unexpected missing For Stmt");
+  XteamRedExprChecker Chk(RVM);
+  Chk.Visit(FStmt);
+  if (!Chk.isSupported())
+    return std::make_pair(NxUnsupportedRedExpr, HasNestedGenericCall);
+  return std::make_pair(NxSuccess, HasNestedGenericCall);
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getNoLoopCompatibleSchedStatus(const OMPLoopDirective &LD) {
+  for (const auto *C : LD.getClausesOfKind<OMPScheduleClause>()) {
+    OpenMPScheduleClauseKind SchedKind = C->getScheduleKind();
+    if (SchedKind == OMPC_SCHEDULE_guided || SchedKind == OMPC_SCHEDULE_runtime)
+      return NxGuidedOrRuntimeSched;
+    // No need to examine the monotonic ordering-modifier since with No-Loop,
+    // each thread executes a single iteration. Monotonic refers to ordering
+    // of iterations within a thread which does not apply here.
+    // The other modifier, simd, is ignored since the SIMD construct is ignored
+    // as well for device code generation.
+    assert((SchedKind == OMPC_SCHEDULE_static ||
+            SchedKind == OMPC_SCHEDULE_dynamic ||
+            SchedKind == OMPC_SCHEDULE_auto) &&
+           "Unexpected schedule");
+
+    // Return success if either auto or chunk size is 1.
+    const Expr *ChunkExpr = C->getChunkSize();
+    if (SchedKind == OMPC_SCHEDULE_auto) {
+      assert(ChunkExpr == nullptr && "Chunk size unexpected");
+    } else {
+      bool HasChunkSizeOne = false;
+      Expr::EvalResult Result;
+      if (ChunkExpr && ChunkExpr->EvaluateAsInt(Result, getContext())) {
+        llvm::APSInt EvaluatedChunk = Result.Val.getInt();
+        HasChunkSizeOne = EvaluatedChunk.getLimitedValue() == 1;
+      }
+      if (!HasChunkSizeOne)
+        return NxNonUnitStaticChunk;
+    }
+  }
+  return NxSuccess;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getNoLoopCompatibleOrderStatus(const OMPLoopDirective &LD) {
+  for (const auto *C : LD.getClausesOfKind<OMPOrderClause>()) {
+    if (C->getKind() != OMPC_ORDER_concurrent)
+      return NxNonConcurrentOrder;
+  }
+  return NxSuccess;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getXteamRedCompatibleThreadLimitStatus(
+    const OMPLoopDirective &LD) {
+  const auto *ThreadLimitClause = LD.getSingleClause<OMPThreadLimitClause>();
+  if (!ThreadLimitClause)
+    return NxSuccess;
+  Expr *ThreadLimitExpr = ThreadLimitClause->getThreadLimit();
+  clang::Expr::EvalResult Result;
+  if (ThreadLimitExpr->EvaluateAsInt(Result, getContext())) {
+    int ThreadLimitEval = Result.Val.getInt().getExtValue();
+    // We support thread limit >= 64
+    if (ThreadLimitEval > 63)
+      return NxSuccess;
+  }
+  return NxUnsupportedXteamRedThreadLimit;
+}
+
+CodeGenModule::NoLoopXteamErr CodeGenModule::getNoLoopStatusForClauses(
+    const OptKernelNestDirectives &NestDirs) {
+  for (auto &D : NestDirs) {
+    if (D->hasClausesOfKind<OMPInReductionClause>() ||
+        D->hasClausesOfKind<OMPReductionClause>() ||
+        D->hasClausesOfKind<OMPDistScheduleClause>() ||
+        D->hasClausesOfKind<OMPLastprivateClause>() ||
+        D->hasClausesOfKind<OMPCopyinClause>() ||
+        D->hasClausesOfKind<OMPOrderedClause>())
+      return NxUnsupportedTargetClause;
+  }
+  if (!isa<OMPLoopDirective>(NestDirs.back()))
+    return NxNotLoopDirective;
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(*NestDirs.back());
+  NoLoopXteamErr NxStatus = NxSuccess;
+  if ((NxStatus = getNoLoopCompatibleOrderStatus(LD)))
+    return NxStatus;
+  return getNoLoopCompatibleSchedStatus(LD);
+}
+
+CodeGenModule::NoLoopXteamErr CodeGenModule::getXteamRedStatusForClauses(
+    const OptKernelNestDirectives &NestDirs) {
+  for (auto &D : NestDirs) {
+    if (D->hasClausesOfKind<OMPDependClause>() ||
+        D->hasClausesOfKind<OMPInReductionClause>() ||
+        D->hasClausesOfKind<OMPNowaitClause>() ||
+        D->hasClausesOfKind<OMPDistScheduleClause>() ||
+        D->hasClausesOfKind<OMPLastprivateClause>() ||
+        D->hasClausesOfKind<OMPCopyinClause>() ||
+        D->hasClausesOfKind<OMPOrderedClause>())
+      return NxUnsupportedTargetClause;
+  }
+  if (!isa<OMPLoopDirective>(NestDirs.back()))
+    return NxNotLoopDirective;
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(*NestDirs.back());
+  NoLoopXteamErr NxStatus = NxSuccess;
+  if ((NxStatus = getXteamRedCompatibleThreadLimitStatus(LD)))
+    return NxStatus;
+  if ((NxStatus = getNoLoopCompatibleOrderStatus(LD)))
+    return NxStatus;
+  return getNoLoopCompatibleSchedStatus(LD);
+}
+
+/// Given a directive, collect metadata for the reduction variables for Xteam
+/// reduction, if applicable
+std::pair<
+    CodeGenModule::NoLoopXteamErr,
+    std::pair<CodeGenModule::XteamRedVarMap, CodeGenModule::XteamRedVarVecTy>>
+CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
+  // Check all nest directives. A reduction clause is treated
+  // equivalently regardless the nesting level it is at -- this is
+  // because Xteam reduction is applied today for a nest that
+  // satisfies target-teams-distribute-parallel-for.
+  XteamRedVarMap VarMap;
+
+  // This vector defines the order in which Xteam metadata will always be
+  // generated.
+  XteamRedVarVecTy VarVec;
+  // Either we emit Xteam code for all reduction variables or none at all
+  for (auto &D : NestDirs) {
+    for (const auto *C : D->getClausesOfKind<OMPReductionClause>()) {
+      for (const Expr *Ref : C->varlists()) {
+        // Only scalar variables supported today
+        if (!isa<DeclRefExpr>(Ref))
+          return std::make_pair(NxNotScalarRed, std::make_pair(VarMap, VarVec));
+        const ValueDecl *ValDecl = cast<DeclRefExpr>(Ref)->getDecl();
+        if (!isa<VarDecl>(ValDecl))
+          return std::make_pair(NxNotScalarRed, std::make_pair(VarMap, VarVec));
+
+        llvm::Type *RefType = getTypes().ConvertTypeForMem(Ref->getType());
+        // TODO support more data types
+        if (!RefType->isFloatTy() && !RefType->isDoubleTy() &&
+            !RefType->isIntegerTy())
+          return std::make_pair(NxUnsupportedRedType,
+                                std::make_pair(VarMap, VarVec));
+        if (RefType->isIntegerTy() && RefType->getPrimitiveSizeInBits() != 32 &&
+            RefType->getPrimitiveSizeInBits() != 64)
+          return std::make_pair(NxUnsupportedRedIntSize,
+                                std::make_pair(VarMap, VarVec));
+
+        const VarDecl *VD = cast<VarDecl>(ValDecl);
+        // Filter out duplicates
+        if (VarMap.find(VD) == VarMap.end()) {
+          // Address of the local var and arg pos will be populated later
+          XteamRedVarInfo XRVI(Ref, Address::invalid(),
+                               std::numeric_limits<size_t>::max());
+          VarMap.insert(std::make_pair(VD, XRVI));
+          VarVec.push_back(VD);
+        }
+      }
+      // Now make sure that we support all the operators. Today, only sum
+      for (const Expr *Ref : C->reduction_ops()) {
+        if (!isa<BinaryOperator>(Ref))
+          return std::make_pair(NxNotBinOpRed, std::make_pair(VarMap, VarVec));
+        auto BinExpr = cast<BinaryOperator>(Ref);
+        if (BinExpr->getOpcode() != BO_Assign)
+          return std::make_pair(NxNotBinOpRed, std::make_pair(VarMap, VarVec));
+        auto BinExprRhs = BinExpr->getRHS()->IgnoreImpCasts();
+        if (!isa<BinaryOperator>(BinExprRhs) ||
+            cast<BinaryOperator>(BinExprRhs)->getOpcode() != BO_Add)
+          return std::make_pair(NxUnsupportedRedOp,
+                                std::make_pair(VarMap, VarVec));
+      }
+    }
+  }
+  // We support multiple reduction operations in the same loop with the new
+  // DeviceRTL APIs. So bail out only if none was found.
+  if (VarMap.size() == 0)
+    return std::make_pair(NxNoRedVar, std::make_pair(VarMap, VarVec));
+
+  return std::make_pair(NxSuccess, std::make_pair(VarMap, VarVec));
+}
+
+const OMPExecutableDirective *
+getNestedDirective(const OMPExecutableDirective &D) {
+  const Stmt *AssocStmt = D.getAssociatedStmt();
+  if (!isa<CapturedStmt>(AssocStmt))
+    return nullptr;
+  while (AssocStmt->getStmtClass() == Stmt::CapturedStmtClass) {
+    AssocStmt = cast<CapturedStmt>(AssocStmt)->getCapturedDecl()->getBody();
+  }
+  while (AssocStmt->getStmtClass() == Stmt::CompoundStmtClass) {
+    const CompoundStmt &CompStmt = cast<CompoundStmt>(*AssocStmt);
+    // We require proper nesting of the constructs
+    if (CompStmt.size() != 1)
+      return nullptr;
+    AssocStmt = CompStmt.body_front();
+  }
+  if (!isa<OMPExecutableDirective>(AssocStmt))
+    return nullptr;
+  return cast<OMPExecutableDirective>(AssocStmt);
+}
+
+static bool
+hasNumTeamsClause(const CodeGenModule::OptKernelNestDirectives &NestDirs) {
+  for (const auto &D : NestDirs)
+    if (D->hasClausesOfKind<OMPNumTeamsClause>())
+      return true;
+  return false;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::checkNest(const OMPExecutableDirective &D,
+                         OptKernelNestDirectives *NestDirs) {
+  NoLoopXteamErr NxStatus = NxSuccess;
+  switch (D.getDirectiveKind()) {
+  case llvm::omp::Directive::OMPD_target_teams_distribute_parallel_for:
+  case llvm::omp::Directive::OMPD_target_teams_distribute_parallel_for_simd:
+  case llvm::omp::Directive::OMPD_target_teams_loop:
+    NestDirs->push_back(&D);
+    return NxSuccess;
+  case llvm::omp::Directive::OMPD_target:
+    if ((NxStatus = checkTargetNest(D, NestDirs)))
+      return NxStatus;
+    break;
+  case llvm::omp::Directive::OMPD_target_teams:
+    if ((NxStatus = checkTargetTeamsNest(D, NestDirs)))
+      return NxStatus;
+    break;
+  default:
+    return NxUnsupportedDirective;
+  }
+  return NxSuccess;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::checkTargetNest(const OMPExecutableDirective &D,
+                               OptKernelNestDirectives *NestDirs) {
+  NoLoopXteamErr NxStatus = NxSuccess;
+  NestDirs->push_back(&D);
+
+  const OMPExecutableDirective *NestedDir = getNestedDirective(D);
+  if (NestedDir == nullptr)
+    return NxSplitConstructImproperlyNested;
+
+  switch (NestedDir->getDirectiveKind()) {
+  case llvm::omp::Directive::OMPD_teams_distribute_parallel_for:
+  case llvm::omp::Directive::OMPD_teams_distribute_parallel_for_simd:
+  case llvm::omp::Directive::OMPD_teams_loop:
+    NestDirs->push_back(NestedDir);
+    return NxSuccess;
+  case llvm::omp::Directive::OMPD_teams:
+    if ((NxStatus = checkTargetTeamsNest(*NestedDir, NestDirs)))
+      return NxStatus;
+    break;
+  default:
+    return NxUnsupportedNestedSplitDirective;
+  }
+  return NxSuccess;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::checkTargetTeamsNest(const OMPExecutableDirective &D,
+                                    OptKernelNestDirectives *NestDirs) {
+  NestDirs->push_back(&D);
+
+  const OMPExecutableDirective *NestedDir = getNestedDirective(D);
+  if (NestedDir == nullptr)
+    return NxSplitConstructImproperlyNested;
+
+  switch (NestedDir->getDirectiveKind()) {
+  case llvm::omp::Directive::OMPD_distribute_parallel_for:
+  case llvm::omp::Directive::OMPD_distribute_parallel_for_simd:
+  case llvm::omp::Directive::OMPD_loop:
+    NestDirs->push_back(NestedDir);
+    return NxSuccess;
+  default:
+    return NxUnsupportedNestedSplitDirective;
+  }
+  llvm_unreachable("Unexpected OpenMP clause");
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::checkAndSetNoLoopKernel(const OMPExecutableDirective &D) {
+  NoLoopXteamErr NxStatus = NxSuccess;
+  if (!getLangOpts().OpenMPTargetIgnoreEnvVars ||
+      !getLangOpts().OpenMPNoNestedParallelism ||
+      !getLangOpts().OpenMPNoThreadState)
+    return NxOptionDisabled;
+
+  OptKernelNestDirectives NestDirs;
+  if ((NxStatus = checkNest(D, &NestDirs)))
+    return NxStatus;
+
+  // Check clauses of nested directives that make up
+  // target-teams-distribute-parallel-for
+  if ((NxStatus = getNoLoopStatusForClauses(NestDirs)))
+    return NxStatus;
+
+  // Make sure CodeGen can handle the FOR statement
+  if (!D.hasAssociatedStmt())
+    return NxNoStmt;
+
+  const OMPExecutableDirective &InnermostDir = *NestDirs.back();
+  if (!InnermostDir.hasAssociatedStmt())
+    return NxNoStmt;
+
+  std::pair<NoLoopXteamErr, bool> ForStmtStatus =
+      getNoLoopForStmtStatus(InnermostDir, InnermostDir.getAssociatedStmt());
+  if ((NxStatus = ForStmtStatus.first))
+    return NxStatus;
+
+  bool HasNestedGenericCall = ForStmtStatus.second;
+
+  // Now we should determine whether this qualifies as a NoLoop or a
+  // BigJumpLoop kernel. BigJumpLoop is enabled whenever NoLoop is
+  // enabled. If the num_teams clause is specified, BigJumpLoop is
+  // chosen. If the command line option to force BigJumpLoop is used,
+  // it is preferred over No-Loop.
+
+  // The metadata map for all optimized kernels will have the ForStmt
+  // as the key.
+  const ForStmt *FStmt = getSingleForStmt(InnermostDir.getAssociatedStmt());
+  assert(FStmt && "For stmt cannot be null");
+
+  if (getLangOpts().OpenMPTargetIgnoreEnvVars &&
+      ((getLangOpts().OpenMPNoNestedParallelism &&
+        getLangOpts().OpenMPNoThreadState) ||
+       !HasNestedGenericCall) &&
+      !hasNumTeamsClause(NestDirs) && getLangOpts().OpenMPTargetNoLoop) {
+    assert(!isNoLoopKernel(FStmt) && "No-Loop already set!");
+
+    // Now that an optimized kernel will be generated, set the nest map
+    addOptKernelNestMap(NestDirs);
+
+    NoLoopKernels.insert(
+        std::make_pair(FStmt, NoLoopKernelInfo(/*BlockSize=*/0, NestDirs)));
+    int BlockSize =
+        getLangOpts().OpenMPIsTargetDevice
+            ? computeOptKernelBlockSize(NestDirs, /*isXteamRed=*/false)
+            : 0;
+    if (BlockSize > 0)
+      updateNoLoopKernel(FStmt, BlockSize);
+    return NxSuccess;
+  }
+
+  if (((getLangOpts().OpenMPNoNestedParallelism &&
+        getLangOpts().OpenMPNoThreadState) || !HasNestedGenericCall) &&
+      getLangOpts().OpenMPTargetBigJumpLoop) {
+    assert(!isBigJumpLoopKernel(FStmt) && "Big-Jump-Loop already set!");
+
+    // Now that an optimized kernel will be generated, set the nest map
+    addOptKernelNestMap(NestDirs);
+
+    BigJumpLoopKernels.insert(
+        std::make_pair(FStmt, NoLoopKernelInfo(/*BlockSize=*/0, NestDirs)));
+    int BlockSize =
+        getLangOpts().OpenMPIsTargetDevice
+            ? computeOptKernelBlockSize(NestDirs, /*isXteamRed=*/false)
+            : 0;
+    if (BlockSize > 0)
+      updateBigJumpLoopKernel(FStmt, BlockSize);
+    return NxSuccess;
+  }
+  return NxOptionDisabledOrHasCall;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::checkAndSetXteamRedKernel(const OMPExecutableDirective &D) {
+  NoLoopXteamErr NxStatus = NxSuccess;
+  if (!getLangOpts().OpenMPTargetIgnoreEnvVars ||
+      !getLangOpts().OpenMPNoNestedParallelism ||
+      !getLangOpts().OpenMPNoThreadState)
+    return NxOptionDisabled;
+
+  OptKernelNestDirectives NestDirs;
+  if ((NxStatus = checkNest(D, &NestDirs)))
+    return NxStatus;
+
+  // For now, keep the reduction helpers separate. Revisit merging with noloop
+  // later
+  if ((NxStatus = getXteamRedStatusForClauses(NestDirs)))
+    return NxStatus;
+
+  std::pair<NoLoopXteamErr, std::pair<CodeGenModule::XteamRedVarMap,
+                                      CodeGenModule::XteamRedVarVecTy>>
+      RedVarMapPair = collectXteamRedVars(NestDirs);
+  if (RedVarMapPair.first)
+    return RedVarMapPair.first;
+
+  // Make sure CodeGen can handle the FOR statement
+  if (!D.hasAssociatedStmt())
+    return NxNoStmt;
+
+  const OMPExecutableDirective &InnermostDir = *NestDirs.back();
+  if (!InnermostDir.hasAssociatedStmt())
+    return NxNoStmt;
+
+  auto ForStmtStatus =
+      getXteamRedForStmtStatus(InnermostDir, InnermostDir.getAssociatedStmt(),
+                               RedVarMapPair.second.first);
+  if ((NxStatus = ForStmtStatus.first))
+    return NxStatus;
+
+  bool HasNestedGenericCall = ForStmtStatus.second;
+
+  if (((getLangOpts().OpenMPNoNestedParallelism &&
+        getLangOpts().OpenMPNoThreadState) ||
+       !HasNestedGenericCall)) {
+    const ForStmt *FStmt = getSingleForStmt(InnermostDir.getAssociatedStmt());
+    assert(FStmt && "For stmt cannot be null");
+    assert(!isXteamRedKernel(FStmt) && "Xteam reduction already set!");
+
+    // Now that an optimized kernel will be generated, set the nest map
+    addOptKernelNestMap(NestDirs);
+
+    // Create a map from the ForStmt, some of the info will be populated later
+    XteamRedKernels.insert(
+        std::make_pair(FStmt, XteamRedKernelInfo(/*ThreadStartIndex=*/nullptr,
+                                                 /*NumTeams=*/nullptr,
+                                                 /*BlockSize=*/0, NestDirs,
+                                                 RedVarMapPair.second.first,
+                                                 RedVarMapPair.second.second)));
+
+    // The blocksize has to be computed after adding this kernel to the metadata
+    // above, since the computation below depends on that metadata. Compute
+    // block size during device compilation only.
+    int BlockSize =
+        getLangOpts().OpenMPIsTargetDevice
+            ? computeOptKernelBlockSize(NestDirs, /*isXteamRed=*/true)
+            : 0;
+    if (BlockSize > 0)
+      updateXteamRedKernel(FStmt, BlockSize);
+    return NxSuccess;
+  }
+  return NxOptionDisabledOrHasCall;
+}
+
+bool CodeGenModule::isXteamRedKernel(const OMPExecutableDirective &D) {
+  if (!D.hasAssociatedStmt())
+    return false;
+  const ForStmt *FStmt = getSingleForStmt(getOptKernelKey(D));
+  if (FStmt == nullptr)
+    return false;
+  return isXteamRedKernel(FStmt);
+}
+
+bool CodeGenModule::isBigJumpLoopKernel(const OMPExecutableDirective &D) {
+  if (!D.hasAssociatedStmt())
+    return false;
+  const ForStmt *FStmt = getSingleForStmt(getOptKernelKey(D));
+  if (FStmt == nullptr)
+    return false;
+  return isBigJumpLoopKernel(FStmt);
+}
+
+bool CodeGenModule::isNoLoopKernel(const OMPExecutableDirective &D) {
+  if (!D.hasAssociatedStmt())
+    return false;
+  const ForStmt *FStmt = getSingleForStmt(getOptKernelKey(D));
+  if (FStmt == nullptr)
+    return false;
+  return isNoLoopKernel(FStmt);
+}
+
+void CodeGenModule::addOptKernelNestMap(
+    const OptKernelNestDirectives &NestDirs) {
+  const OMPExecutableDirective &InnermostDir = *NestDirs.back();
+  assert(InnermostDir.hasAssociatedStmt() &&
+         "Innermost directive has no associated statement");
+  const Stmt *InnermostCS = InnermostDir.getAssociatedStmt();
+  for (const auto &Dir : NestDirs) {
+    assert(Dir->hasAssociatedStmt() &&
+           "Nest directive has no associated statement");
+    OptKernelNestMap[Dir->getAssociatedStmt()] = InnermostCS;
+  }
+}
+
+const Stmt *CodeGenModule::getOptKernelKey(const OMPExecutableDirective &D) {
+  assert(D.hasAssociatedStmt() && "Directive has no associated statement");
+  return D.getAssociatedStmt();
+}
+
+void CodeGenModule::resetOptKernelMetadata(const Stmt *DirectiveStmt) {
+  if (DirectiveStmt == nullptr)
+    return;
+  const ForStmt *KernelForStmt = getSingleForStmt(DirectiveStmt);
+  if (KernelForStmt == nullptr)
+    return;
+
+  llvm::omp::OMPTgtExecModeFlags OptKernelMode;
+  if (isNoLoopKernel(KernelForStmt))
+    OptKernelMode =
+        llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
+  else if (isBigJumpLoopKernel(KernelForStmt))
+    OptKernelMode =
+        llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP;
+  else if (isXteamRedKernel(KernelForStmt))
+    OptKernelMode = llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_XTEAM_RED;
+  else
+    return;
+
+  // Get the directives before resetting any metadata
+  const OptKernelNestDirectives &Dirs =
+      getOptKernelDirectives(KernelForStmt, OptKernelMode);
+
+  // First reset the optimized kernel metadata
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
+    resetNoLoopKernel(KernelForStmt);
+  else if (OptKernelMode ==
+           llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP)
+    resetBigJumpLoopKernel(KernelForStmt);
+  else
+    resetXteamRedKernel(KernelForStmt);
+
+  // Now reset the split directives metadata
+  for (const auto &Dir : Dirs)
+    eraseOptKernelNestElem(getOptKernelKey(*Dir));
 }
 
 void CodeGenModule::moveLazyEmissionStates(CodeGenModule *NewBuilder) {

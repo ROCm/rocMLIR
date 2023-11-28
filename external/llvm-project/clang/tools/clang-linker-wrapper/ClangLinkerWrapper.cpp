@@ -15,6 +15,7 @@
 //===---------------------------------------------------------------------===//
 
 #include "OffloadWrapper.h"
+#include "clang/Basic/TargetID.h"
 #include "clang/Basic/Version.h"
 #include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
@@ -514,14 +515,15 @@ std::unique_ptr<lto::LTO> createLTO(
     const ArgList &Args, const std::vector<std::string> &Features,
     ModuleHook Hook = [](size_t, const Module &) { return true; }) {
   const llvm::Triple Triple(Args.getLastArgValue(OPT_triple_EQ));
-  StringRef Arch = Args.getLastArgValue(OPT_arch_EQ);
+  StringRef TargetID = Args.getLastArgValue(OPT_arch_EQ);
+  StringRef GPUArch = clang::getProcessorFromTargetID(Triple, TargetID);
   lto::Config Conf;
   lto::ThinBackend Backend;
   // TODO: Handle index-only thin-LTO
   Backend =
       lto::createInProcessThinBackend(llvm::heavyweight_hardware_concurrency());
 
-  Conf.CPU = Arch.str();
+  Conf.CPU = GPUArch.str();
   Conf.Options = codegen::InitTargetOptionsFromCodeGenFlags(Triple);
 
   StringRef OptLevel = Args.getLastArgValue(OPT_opt_level, "O2");
@@ -540,8 +542,8 @@ std::unique_ptr<lto::LTO> createLTO(
   Conf.PTO.SLPVectorization = Conf.OptLevel > 1;
 
   if (SaveTemps) {
-    std::string TempName = (sys::path::filename(ExecutableName) + "." +
-                            Triple.getTriple() + "." + Arch)
+    std::string TempName = (sys::path::filename(ExecutableName) + "-device-" +
+                            Triple.getTriple() + "-" + TargetID)
                                .str();
     Conf.PostInternalizeModuleHook = [=](size_t Task, const Module &M) {
       std::string File =
@@ -988,10 +990,27 @@ DerivedArgList getLinkerArgs(ArrayRef<OffloadFile> Input,
 
   // Set the subarchitecture and target triple for this compilation.
   const OptTable &Tbl = getOptTable();
-  DAL.AddJoinedArg(nullptr, Tbl.getOption(OPT_arch_EQ),
-                   Args.MakeArgString(Input.front().getBinary()->getArch()));
+  StringRef Triple = Input.front().getBinary()->getTriple();
+  std::string AMDGPUFeatures;
+
+  if (llvm::Triple(Triple).isAMDGPU()) {
+    // Extract Features from the binary and append them in arch
+    auto Features = getTargetFeatures(Input);
+    for (auto feature : Features) {
+      AMDGPUFeatures.append(feature.substr(1, feature.size()) +
+                            feature.substr(0, 1) + ":");
+    }
+  }
   DAL.AddJoinedArg(nullptr, Tbl.getOption(OPT_triple_EQ),
-                   Args.MakeArgString(Input.front().getBinary()->getTriple()));
+                   Args.MakeArgString(Triple));
+  if (llvm::Triple(Triple).isAMDGPU() && !AMDGPUFeatures.empty())
+    DAL.AddJoinedArg(nullptr, Tbl.getOption(OPT_arch_EQ),
+                     Args.MakeArgString(
+                         Input.front().getBinary()->getArch() + ":" +
+                         AMDGPUFeatures.substr(0, AMDGPUFeatures.size() - 1)));
+  else
+    DAL.AddJoinedArg(nullptr, Tbl.getOption(OPT_arch_EQ),
+                     Args.MakeArgString(Input.front().getBinary()->getArch()));
 
   // If every input file is bitcode we have whole program visibility as we do
   // only support static linking with bitcode.

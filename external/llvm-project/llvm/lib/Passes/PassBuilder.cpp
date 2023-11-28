@@ -75,6 +75,7 @@
 #include "llvm/CodeGen/TypePromotion.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/PrintPasses.h"
 #include "llvm/IR/SafepointIRVerifier.h"
@@ -263,6 +264,117 @@
 #include <optional>
 
 using namespace llvm;
+
+// AOCC begin
+static cl::opt<bool>
+    EnableNaNsForSQRT("enable-nans-for-sqrt", cl::init(false), cl::Hidden,
+                       cl::desc("Enable NaNs for SQRT."));
+
+static cl::opt<bool> EnableBranchFuse(
+            "phi-elim-preserve-cmpjmp-glue", cl::init(false), cl::Hidden,
+                cl::desc("Place copy statements of PHI nodes before cmp"
+                         "statement during PHI elimination"));
+
+static cl::opt<bool> DelayVectorizationToLTO(
+    "delay-vectorization-to-lto", cl::init(false), cl::Hidden,
+    cl::desc("Delay Vectorization to LTO for resolving memory dependencies."));
+
+
+static cl::opt<bool> EnablePartialUnswitching(
+    "enable-partial-unswitch", cl::init(false), cl::Hidden,
+    cl::desc("Enable experimental partial loop unswitcing"));
+
+static cl::opt<bool> EnableAggressiveUnswitching(
+    "aggressive-loop-unswitch", cl::init(false), cl::Hidden,
+    cl::desc("Enable experimental aggressive loop unswitching"));
+
+static cl::opt<bool>
+    ConvertPowExpToInt("convert-pow-exp-to-int", cl::Hidden,
+                         cl::init(true),
+                         cl::desc("Allow converting exponent of pow "
+                                  "from float to int and call powi"));
+static cl::opt<bool> RunGlobalSLPVectorization(
+    "global-vectorize-slp", cl::init(false), cl::Hidden,
+    cl::desc("Run the Global SLP vectorization passes"));
+static cl::opt<bool> MoveLoadSliceGSLP(
+    "move-load-slice-gslp", cl::init(false), cl::Hidden,
+    cl::desc("Move Load Slices to aid global slp vectorization"));
+static cl::opt<int> EnableReduceArrayComputations(
+    "reduce-array-computations", cl::init(0), cl::Hidden,
+    cl::desc("Enable reduction of array computations"));
+
+static cl::opt<bool>
+RunArrayRemap("remap-arrays", cl::init(false), cl::Hidden,
+                     cl::desc("Run the Array Remap passes"));
+
+static cl::opt<int>
+InputStructPeelMemBlockSize("struct-peel-mem-block-size",
+    cl::init(0), cl::Hidden,
+    cl::desc("structure peeling memory block size."));
+
+static cl::opt<bool> EnableLVFunctionSpecialization(
+    "lv-function-specialization", cl::init(false), cl::Hidden,
+    cl::desc("Enable Linktime Function Specialization For Vectorization"));
+
+static cl::opt<bool> DisableI2DCallPromotion(
+    "disable-itodcalls", cl::init(false), cl::Hidden,
+    cl::desc("Disable indirect calls to direct calls promotion"));
+
+static cl::opt<bool> DisableI2DCallPromotionByClone(
+    "disable-itodcallsbyclone", cl::init(false), cl::Hidden,
+    cl::desc("Disable indirect calls to direct calls promotion by function cloning"));
+
+static cl::opt<bool> rvBoscc(
+    "rv-boscc", cl::init(true), cl::Hidden,
+    cl::desc("enable BOSCC transform with region vectorization"));
+
+static cl::opt<bool> rvVectorize(
+    "region-vectorize", cl::init(false), cl::Hidden,
+    cl::desc("enable region vectorization"));
+
+static cl::opt<bool> markOutlined(
+    "mark-rv-outline", cl::init(true), cl::Hidden,
+    cl::desc("mark outlined functions as inline"));
+
+static cl::opt<bool> rvOutline(
+    "rv-outline", cl::init(false), cl::Hidden,
+    cl::desc("outline conditional code in Region vectorization"));
+
+static cl::opt<unsigned>
+rvDepth("rv-depth", cl::init(0),
+        cl::Hidden,
+        cl::desc("vector factor for the RV vectorized loop"));
+
+static cl::opt<int>
+rvMaxVectorRegSizeOption("rv-max-reg-size", cl::init(128), cl::Hidden,
+    cl::desc("Attempt to vectorize for this register size in bits"));
+
+static cl::opt<bool> EnableBranchCombine("enable-branch-combine",
+    cl::desc("Enable branch fusion pass"),
+    cl::init(false), cl::Hidden);
+
+
+static cl::opt<bool>
+    noStoreSink("simplifycfg-no-storesink", cl::Hidden, cl::init(false),
+               cl::desc("Sink store instructions down to the end block generating phi nodes for address and value"));
+
+
+enum PrefetchLevel {
+    zero, one
+};
+
+static cl::opt<PrefetchLevel> EnablePrefetch("enable-X86-prefetching",
+    cl::desc("enable software prefetching on X86"),
+    cl::ValueOptional, cl::init(PrefetchLevel::zero));
+
+static cl::opt<bool>
+    EnableVRP("enable-licm-vrp", cl::Hidden, cl::init(false),
+    cl::desc("enable register pressure awareness in LICM pass"));
+
+static cl::opt<bool> DoFunctionSpecialize("function-specialize",
+    cl::init(true), cl::desc("Specialize function calls."), cl::Hidden);
+
+// AOCC end
 
 static const Regex DefaultAliasRegex(
     "^(default|thinlto-pre-link|thinlto|lto-pre-link|lto)<(O[0123sz])>$");
@@ -693,7 +805,7 @@ Expected<bool> parseCoroSplitPassOptions(StringRef Params) {
 }
 
 Expected<bool> parsePostOrderFunctionAttrsPassOptions(StringRef Params) {
-  return parseSinglePassOption(Params, "skip-non-recursive",
+  return parseSinglePassOption(Params, "skip-non-recursive-function-attrs",
                                "PostOrderFunctionAttrs");
 }
 
@@ -1066,6 +1178,28 @@ parseFunctionSimplificationPipelineOptions(StringRef Params) {
   return *L;
 }
 
+Expected<bool> parseMemorySSAPrinterPassOptions(StringRef Params) {
+  return parseSinglePassOption(Params, "no-ensure-optimized-uses",
+                               "MemorySSAPrinterPass");
+}
+
+Expected<std::string> parseMemProfUsePassOptions(StringRef Params) {
+  std::string Result;
+  while (!Params.empty()) {
+    StringRef ParamName;
+    std::tie(ParamName, Params) = Params.split(';');
+
+    if (ParamName.consume_front("profile-filename=")) {
+      Result = ParamName.str();
+    } else {
+      return make_error<StringError>(
+          formatv("invalid MemProfUse pass parameter '{0}' ", ParamName).str(),
+          inconvertibleErrorCode());
+    }
+  }
+  return Result;
+}
+
 } // namespace
 
 /// Tests whether a pass name starts with a valid prefix for a default pipeline
@@ -1379,7 +1513,13 @@ Error PassBuilder::parseModulePass(ModulePassManager &MPM,
     } else if (Matches[1] == "thinlto") {
       MPM.addPass(buildThinLTODefaultPipeline(L, nullptr));
     } else if (Matches[1] == "lto-pre-link") {
-      MPM.addPass(buildLTOPreLinkDefaultPipeline(L));
+      if (PTO.UnifiedLTO)
+        // When UnifiedLTO is enabled, use the ThinLTO pre-link pipeline. This
+        // avoids compile-time performance regressions and keeps the pre-link
+        // LTO pipeline "unified" for both LTO modes.
+        MPM.addPass(buildThinLTOPreLinkDefaultPipeline(L));
+      else
+        MPM.addPass(buildLTOPreLinkDefaultPipeline(L));
     } else {
       assert(Matches[1] == "lto" && "Not one of the matched options!");
       MPM.addPass(buildLTODefaultPipeline(L, nullptr));

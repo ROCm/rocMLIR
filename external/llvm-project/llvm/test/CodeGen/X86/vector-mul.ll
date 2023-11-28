@@ -1888,18 +1888,18 @@ define <2 x i64> @mul_v2i64_zext_cross_bb(ptr %in, ptr %y) {
 ; X64-AVX-NEXT:    vpmovzxdq {{.*#+}} xmm1 = mem[0],zero,mem[1],zero
 ; X64-AVX-NEXT:    vpmuludq %xmm1, %xmm0, %xmm0
 ; X64-AVX-NEXT:    retq
-  %a = load <2 x i32>, ptr %in
+  %a = load <2 x i32>, <2 x i32>* %in
   %b = zext <2 x i32> %a to <2 x i64>
   br label %foo
 
 foo:
-  %c = load <2 x i32>, ptr %y
+  %c = load <2 x i32>, <2 x i32>* %y
   %d = zext <2 x i32> %c to <2 x i64>
   %e = mul <2 x i64> %b, %d
   ret <2 x i64> %e
 }
 
-define <4 x i64> @mul_v4i64_zext_cross_bb(ptr %in, ptr %y) {
+define <4 x i64> @mul_v4i64_zext_cross_bb(<4 x i32>* %in, <4 x i32>* %y) {
 ; X86-SSE2-LABEL: mul_v4i64_zext_cross_bb:
 ; X86-SSE2:       # %bb.0:
 ; X86-SSE2-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -1978,12 +1978,12 @@ define <4 x i64> @mul_v4i64_zext_cross_bb(ptr %in, ptr %y) {
 ; X64-AVX512DQ-NEXT:    vpmovzxdq {{.*#+}} ymm1 = mem[0],zero,mem[1],zero,mem[2],zero,mem[3],zero
 ; X64-AVX512DQ-NEXT:    vpmuludq %ymm1, %ymm0, %ymm0
 ; X64-AVX512DQ-NEXT:    retq
-  %a = load <4 x i32>, ptr %in
+  %a = load <4 x i32>, <4 x i32>* %in
   %b = zext <4 x i32> %a to <4 x i64>
   br label %foo
 
 foo:
-  %c = load <4 x i32>, ptr %y
+  %c = load <4 x i32>, <4 x i32>* %y
   %d = zext <4 x i32> %c to <4 x i64>
   %e = mul <4 x i64> %b, %d
   ret <4 x i64> %e

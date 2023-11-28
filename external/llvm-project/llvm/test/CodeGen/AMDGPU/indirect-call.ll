@@ -397,28 +397,27 @@ define void @test_indirect_call_vgpr_ptr(ptr %fptr) {
 ; GCN-NEXT:    s_mov_b32 s33, s32
 ; GCN-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GCN-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[18:19]
-; GCN-NEXT:    v_writelane_b32 v41, s16, 0
+; GCN-NEXT:    v_writelane_b32 v40, s16, 18
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s30, 16
+; GCN-NEXT:    v_writelane_b32 v40, s31, 17
 ; GCN-NEXT:    s_mov_b32 s42, s15
 ; GCN-NEXT:    s_mov_b32 s43, s14
 ; GCN-NEXT:    s_mov_b32 s44, s13
@@ -448,28 +447,27 @@ define void @test_indirect_call_vgpr_ptr(ptr %fptr) {
 ; GCN-NEXT:    s_cbranch_execnz .LBB2_1
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[46:47]
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
-; GCN-NEXT:    v_readlane_b32 s4, v41, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 16
+; GCN-NEXT:    v_readlane_b32 s31, v40, 17
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
+; GCN-NEXT:    v_readlane_b32 s4, v40, 18
 ; GCN-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GCN-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
 ; GCN-NEXT:    s_addk_i32 s32, 0xfc00
 ; GCN-NEXT:    s_mov_b32 s33, s4
@@ -483,28 +481,27 @@ define void @test_indirect_call_vgpr_ptr(ptr %fptr) {
 ; GISEL-NEXT:    s_mov_b32 s33, s32
 ; GISEL-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GISEL-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[18:19]
-; GISEL-NEXT:    v_writelane_b32 v41, s16, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s16, 18
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 17
 ; GISEL-NEXT:    s_mov_b32 s42, s15
 ; GISEL-NEXT:    s_mov_b32 s43, s14
 ; GISEL-NEXT:    s_mov_b32 s44, s13
@@ -534,28 +531,27 @@ define void @test_indirect_call_vgpr_ptr(ptr %fptr) {
 ; GISEL-NEXT:    s_cbranch_execnz .LBB2_1
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[46:47]
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
-; GISEL-NEXT:    v_readlane_b32 s4, v41, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s4, v40, 18
 ; GISEL-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GISEL-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
 ; GISEL-NEXT:    s_addk_i32 s32, 0xfc00
 ; GISEL-NEXT:    s_mov_b32 s33, s4
@@ -573,28 +569,27 @@ define void @test_indirect_call_vgpr_ptr_arg(ptr %fptr) {
 ; GCN-NEXT:    s_mov_b32 s33, s32
 ; GCN-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GCN-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[18:19]
-; GCN-NEXT:    v_writelane_b32 v41, s16, 0
+; GCN-NEXT:    v_writelane_b32 v40, s16, 18
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s30, 16
+; GCN-NEXT:    v_writelane_b32 v40, s31, 17
 ; GCN-NEXT:    s_mov_b32 s42, s15
 ; GCN-NEXT:    s_mov_b32 s43, s14
 ; GCN-NEXT:    s_mov_b32 s44, s13
@@ -627,28 +622,27 @@ define void @test_indirect_call_vgpr_ptr_arg(ptr %fptr) {
 ; GCN-NEXT:    s_cbranch_execnz .LBB3_1
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[46:47]
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
-; GCN-NEXT:    v_readlane_b32 s4, v41, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 16
+; GCN-NEXT:    v_readlane_b32 s31, v40, 17
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
+; GCN-NEXT:    v_readlane_b32 s4, v40, 18
 ; GCN-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GCN-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
 ; GCN-NEXT:    s_addk_i32 s32, 0xfc00
 ; GCN-NEXT:    s_mov_b32 s33, s4
@@ -662,28 +656,27 @@ define void @test_indirect_call_vgpr_ptr_arg(ptr %fptr) {
 ; GISEL-NEXT:    s_mov_b32 s33, s32
 ; GISEL-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GISEL-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[18:19]
-; GISEL-NEXT:    v_writelane_b32 v41, s16, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s16, 18
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 17
 ; GISEL-NEXT:    s_mov_b32 s42, s15
 ; GISEL-NEXT:    s_mov_b32 s43, s14
 ; GISEL-NEXT:    s_mov_b32 s44, s13
@@ -714,28 +707,27 @@ define void @test_indirect_call_vgpr_ptr_arg(ptr %fptr) {
 ; GISEL-NEXT:    s_cbranch_execnz .LBB3_1
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[46:47]
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
-; GISEL-NEXT:    v_readlane_b32 s4, v41, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s4, v40, 18
 ; GISEL-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GISEL-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
 ; GISEL-NEXT:    s_addk_i32 s32, 0xfc00
 ; GISEL-NEXT:    s_mov_b32 s33, s4
@@ -753,28 +745,27 @@ define i32 @test_indirect_call_vgpr_ptr_ret(ptr %fptr) {
 ; GCN-NEXT:    s_mov_b32 s33, s32
 ; GCN-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GCN-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[18:19]
-; GCN-NEXT:    v_writelane_b32 v41, s16, 0
+; GCN-NEXT:    v_writelane_b32 v40, s16, 18
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s30, 16
+; GCN-NEXT:    v_writelane_b32 v40, s31, 17
 ; GCN-NEXT:    s_mov_b32 s42, s15
 ; GCN-NEXT:    s_mov_b32 s43, s14
 ; GCN-NEXT:    s_mov_b32 s44, s13
@@ -806,28 +797,27 @@ define i32 @test_indirect_call_vgpr_ptr_ret(ptr %fptr) {
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[46:47]
 ; GCN-NEXT:    v_add_i32_e32 v0, vcc, 1, v2
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
-; GCN-NEXT:    v_readlane_b32 s4, v41, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 16
+; GCN-NEXT:    v_readlane_b32 s31, v40, 17
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
+; GCN-NEXT:    v_readlane_b32 s4, v40, 18
 ; GCN-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GCN-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
 ; GCN-NEXT:    s_addk_i32 s32, 0xfc00
 ; GCN-NEXT:    s_mov_b32 s33, s4
@@ -841,28 +831,27 @@ define i32 @test_indirect_call_vgpr_ptr_ret(ptr %fptr) {
 ; GISEL-NEXT:    s_mov_b32 s33, s32
 ; GISEL-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GISEL-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[18:19]
-; GISEL-NEXT:    v_writelane_b32 v41, s16, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s16, 18
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 17
 ; GISEL-NEXT:    s_mov_b32 s42, s15
 ; GISEL-NEXT:    s_mov_b32 s43, s14
 ; GISEL-NEXT:    s_mov_b32 s44, s13
@@ -894,28 +883,27 @@ define i32 @test_indirect_call_vgpr_ptr_ret(ptr %fptr) {
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[46:47]
 ; GISEL-NEXT:    v_add_i32_e32 v0, vcc, 1, v1
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
-; GISEL-NEXT:    v_readlane_b32 s4, v41, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s4, v40, 18
 ; GISEL-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GISEL-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
 ; GISEL-NEXT:    s_addk_i32 s32, 0xfc00
 ; GISEL-NEXT:    s_mov_b32 s33, s4
@@ -934,30 +922,29 @@ define void @test_indirect_call_vgpr_ptr_in_branch(ptr %fptr, i1 %cond) {
 ; GCN-NEXT:    s_mov_b32 s33, s32
 ; GCN-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GCN-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[18:19]
-; GCN-NEXT:    v_writelane_b32 v41, s16, 0
+; GCN-NEXT:    v_writelane_b32 v40, s16, 20
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
-; GCN-NEXT:    v_writelane_b32 v40, s50, 18
-; GCN-NEXT:    v_writelane_b32 v40, s51, 19
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s50, 16
+; GCN-NEXT:    v_writelane_b32 v40, s51, 17
+; GCN-NEXT:    v_writelane_b32 v40, s30, 18
+; GCN-NEXT:    v_writelane_b32 v40, s31, 19
 ; GCN-NEXT:    s_mov_b32 s42, s15
 ; GCN-NEXT:    s_mov_b32 s43, s14
 ; GCN-NEXT:    s_mov_b32 s44, s13
@@ -994,30 +981,29 @@ define void @test_indirect_call_vgpr_ptr_in_branch(ptr %fptr, i1 %cond) {
 ; GCN-NEXT:    s_mov_b64 exec, s[48:49]
 ; GCN-NEXT:  .LBB5_4: ; %bb2
 ; GCN-NEXT:    s_or_b64 exec, exec, s[46:47]
-; GCN-NEXT:    v_readlane_b32 s51, v40, 19
-; GCN-NEXT:    v_readlane_b32 s50, v40, 18
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
-; GCN-NEXT:    v_readlane_b32 s4, v41, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 18
+; GCN-NEXT:    v_readlane_b32 s31, v40, 19
+; GCN-NEXT:    v_readlane_b32 s51, v40, 17
+; GCN-NEXT:    v_readlane_b32 s50, v40, 16
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
+; GCN-NEXT:    v_readlane_b32 s4, v40, 20
 ; GCN-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GCN-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
 ; GCN-NEXT:    s_addk_i32 s32, 0xfc00
 ; GCN-NEXT:    s_mov_b32 s33, s4
@@ -1031,30 +1017,29 @@ define void @test_indirect_call_vgpr_ptr_in_branch(ptr %fptr, i1 %cond) {
 ; GISEL-NEXT:    s_mov_b32 s33, s32
 ; GISEL-NEXT:    s_or_saveexec_b64 s[18:19], -1
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
-; GISEL-NEXT:    buffer_store_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[18:19]
-; GISEL-NEXT:    v_writelane_b32 v41, s16, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s16, 20
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
-; GISEL-NEXT:    v_writelane_b32 v40, s50, 18
-; GISEL-NEXT:    v_writelane_b32 v40, s51, 19
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s50, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s51, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 18
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 19
 ; GISEL-NEXT:    s_mov_b32 s42, s15
 ; GISEL-NEXT:    s_mov_b32 s43, s14
 ; GISEL-NEXT:    s_mov_b32 s44, s13
@@ -1091,30 +1076,29 @@ define void @test_indirect_call_vgpr_ptr_in_branch(ptr %fptr, i1 %cond) {
 ; GISEL-NEXT:    s_mov_b64 exec, s[48:49]
 ; GISEL-NEXT:  .LBB5_4: ; %bb2
 ; GISEL-NEXT:    s_or_b64 exec, exec, s[46:47]
-; GISEL-NEXT:    v_readlane_b32 s51, v40, 19
-; GISEL-NEXT:    v_readlane_b32 s50, v40, 18
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
-; GISEL-NEXT:    v_readlane_b32 s4, v41, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 18
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 19
+; GISEL-NEXT:    v_readlane_b32 s51, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s50, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s4, v40, 20
 ; GISEL-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
-; GISEL-NEXT:    buffer_load_dword v41, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
 ; GISEL-NEXT:    s_addk_i32 s32, 0xfc00
 ; GISEL-NEXT:    s_mov_b32 s33, s4
@@ -1141,38 +1125,38 @@ define void @test_indirect_call_vgpr_ptr_inreg_arg(ptr %fptr) {
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
-; GCN-NEXT:    v_writelane_b32 v40, s50, 18
-; GCN-NEXT:    v_writelane_b32 v40, s51, 19
-; GCN-NEXT:    v_writelane_b32 v40, s52, 20
-; GCN-NEXT:    v_writelane_b32 v40, s53, 21
-; GCN-NEXT:    v_writelane_b32 v40, s54, 22
-; GCN-NEXT:    v_writelane_b32 v40, s55, 23
-; GCN-NEXT:    v_writelane_b32 v40, s56, 24
-; GCN-NEXT:    v_writelane_b32 v40, s57, 25
-; GCN-NEXT:    v_writelane_b32 v40, s58, 26
-; GCN-NEXT:    v_writelane_b32 v40, s59, 27
-; GCN-NEXT:    v_writelane_b32 v40, s60, 28
-; GCN-NEXT:    v_writelane_b32 v40, s61, 29
-; GCN-NEXT:    v_writelane_b32 v40, s62, 30
-; GCN-NEXT:    v_writelane_b32 v40, s63, 31
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s50, 16
+; GCN-NEXT:    v_writelane_b32 v40, s51, 17
+; GCN-NEXT:    v_writelane_b32 v40, s52, 18
+; GCN-NEXT:    v_writelane_b32 v40, s53, 19
+; GCN-NEXT:    v_writelane_b32 v40, s54, 20
+; GCN-NEXT:    v_writelane_b32 v40, s55, 21
+; GCN-NEXT:    v_writelane_b32 v40, s56, 22
+; GCN-NEXT:    v_writelane_b32 v40, s57, 23
+; GCN-NEXT:    v_writelane_b32 v40, s58, 24
+; GCN-NEXT:    v_writelane_b32 v40, s59, 25
+; GCN-NEXT:    v_writelane_b32 v40, s60, 26
+; GCN-NEXT:    v_writelane_b32 v40, s61, 27
+; GCN-NEXT:    v_writelane_b32 v40, s62, 28
+; GCN-NEXT:    v_writelane_b32 v40, s63, 29
+; GCN-NEXT:    v_writelane_b32 v40, s30, 30
+; GCN-NEXT:    v_writelane_b32 v40, s31, 31
 ; GCN-NEXT:    s_mov_b64 s[6:7], exec
 ; GCN-NEXT:    s_movk_i32 s4, 0x7b
 ; GCN-NEXT:  .LBB6_1: ; =>This Inner Loop Header: Depth=1
@@ -1186,38 +1170,38 @@ define void @test_indirect_call_vgpr_ptr_inreg_arg(ptr %fptr) {
 ; GCN-NEXT:    s_cbranch_execnz .LBB6_1
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
-; GCN-NEXT:    v_readlane_b32 s63, v40, 31
-; GCN-NEXT:    v_readlane_b32 s62, v40, 30
-; GCN-NEXT:    v_readlane_b32 s61, v40, 29
-; GCN-NEXT:    v_readlane_b32 s60, v40, 28
-; GCN-NEXT:    v_readlane_b32 s59, v40, 27
-; GCN-NEXT:    v_readlane_b32 s58, v40, 26
-; GCN-NEXT:    v_readlane_b32 s57, v40, 25
-; GCN-NEXT:    v_readlane_b32 s56, v40, 24
-; GCN-NEXT:    v_readlane_b32 s55, v40, 23
-; GCN-NEXT:    v_readlane_b32 s54, v40, 22
-; GCN-NEXT:    v_readlane_b32 s53, v40, 21
-; GCN-NEXT:    v_readlane_b32 s52, v40, 20
-; GCN-NEXT:    v_readlane_b32 s51, v40, 19
-; GCN-NEXT:    v_readlane_b32 s50, v40, 18
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 30
+; GCN-NEXT:    v_readlane_b32 s31, v40, 31
+; GCN-NEXT:    v_readlane_b32 s63, v40, 29
+; GCN-NEXT:    v_readlane_b32 s62, v40, 28
+; GCN-NEXT:    v_readlane_b32 s61, v40, 27
+; GCN-NEXT:    v_readlane_b32 s60, v40, 26
+; GCN-NEXT:    v_readlane_b32 s59, v40, 25
+; GCN-NEXT:    v_readlane_b32 s58, v40, 24
+; GCN-NEXT:    v_readlane_b32 s57, v40, 23
+; GCN-NEXT:    v_readlane_b32 s56, v40, 22
+; GCN-NEXT:    v_readlane_b32 s55, v40, 21
+; GCN-NEXT:    v_readlane_b32 s54, v40, 20
+; GCN-NEXT:    v_readlane_b32 s53, v40, 19
+; GCN-NEXT:    v_readlane_b32 s52, v40, 18
+; GCN-NEXT:    v_readlane_b32 s51, v40, 17
+; GCN-NEXT:    v_readlane_b32 s50, v40, 16
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
 ; GCN-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[6:7]
@@ -1235,38 +1219,38 @@ define void @test_indirect_call_vgpr_ptr_inreg_arg(ptr %fptr) {
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
-; GISEL-NEXT:    v_writelane_b32 v40, s50, 18
-; GISEL-NEXT:    v_writelane_b32 v40, s51, 19
-; GISEL-NEXT:    v_writelane_b32 v40, s52, 20
-; GISEL-NEXT:    v_writelane_b32 v40, s53, 21
-; GISEL-NEXT:    v_writelane_b32 v40, s54, 22
-; GISEL-NEXT:    v_writelane_b32 v40, s55, 23
-; GISEL-NEXT:    v_writelane_b32 v40, s56, 24
-; GISEL-NEXT:    v_writelane_b32 v40, s57, 25
-; GISEL-NEXT:    v_writelane_b32 v40, s58, 26
-; GISEL-NEXT:    v_writelane_b32 v40, s59, 27
-; GISEL-NEXT:    v_writelane_b32 v40, s60, 28
-; GISEL-NEXT:    v_writelane_b32 v40, s61, 29
-; GISEL-NEXT:    v_writelane_b32 v40, s62, 30
-; GISEL-NEXT:    v_writelane_b32 v40, s63, 31
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s50, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s51, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s52, 18
+; GISEL-NEXT:    v_writelane_b32 v40, s53, 19
+; GISEL-NEXT:    v_writelane_b32 v40, s54, 20
+; GISEL-NEXT:    v_writelane_b32 v40, s55, 21
+; GISEL-NEXT:    v_writelane_b32 v40, s56, 22
+; GISEL-NEXT:    v_writelane_b32 v40, s57, 23
+; GISEL-NEXT:    v_writelane_b32 v40, s58, 24
+; GISEL-NEXT:    v_writelane_b32 v40, s59, 25
+; GISEL-NEXT:    v_writelane_b32 v40, s60, 26
+; GISEL-NEXT:    v_writelane_b32 v40, s61, 27
+; GISEL-NEXT:    v_writelane_b32 v40, s62, 28
+; GISEL-NEXT:    v_writelane_b32 v40, s63, 29
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 30
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 31
 ; GISEL-NEXT:    s_mov_b64 s[6:7], exec
 ; GISEL-NEXT:    s_movk_i32 s4, 0x7b
 ; GISEL-NEXT:  .LBB6_1: ; =>This Inner Loop Header: Depth=1
@@ -1280,38 +1264,38 @@ define void @test_indirect_call_vgpr_ptr_inreg_arg(ptr %fptr) {
 ; GISEL-NEXT:    s_cbranch_execnz .LBB6_1
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
-; GISEL-NEXT:    v_readlane_b32 s63, v40, 31
-; GISEL-NEXT:    v_readlane_b32 s62, v40, 30
-; GISEL-NEXT:    v_readlane_b32 s61, v40, 29
-; GISEL-NEXT:    v_readlane_b32 s60, v40, 28
-; GISEL-NEXT:    v_readlane_b32 s59, v40, 27
-; GISEL-NEXT:    v_readlane_b32 s58, v40, 26
-; GISEL-NEXT:    v_readlane_b32 s57, v40, 25
-; GISEL-NEXT:    v_readlane_b32 s56, v40, 24
-; GISEL-NEXT:    v_readlane_b32 s55, v40, 23
-; GISEL-NEXT:    v_readlane_b32 s54, v40, 22
-; GISEL-NEXT:    v_readlane_b32 s53, v40, 21
-; GISEL-NEXT:    v_readlane_b32 s52, v40, 20
-; GISEL-NEXT:    v_readlane_b32 s51, v40, 19
-; GISEL-NEXT:    v_readlane_b32 s50, v40, 18
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 30
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 31
+; GISEL-NEXT:    v_readlane_b32 s63, v40, 29
+; GISEL-NEXT:    v_readlane_b32 s62, v40, 28
+; GISEL-NEXT:    v_readlane_b32 s61, v40, 27
+; GISEL-NEXT:    v_readlane_b32 s60, v40, 26
+; GISEL-NEXT:    v_readlane_b32 s59, v40, 25
+; GISEL-NEXT:    v_readlane_b32 s58, v40, 24
+; GISEL-NEXT:    v_readlane_b32 s57, v40, 23
+; GISEL-NEXT:    v_readlane_b32 s56, v40, 22
+; GISEL-NEXT:    v_readlane_b32 s55, v40, 21
+; GISEL-NEXT:    v_readlane_b32 s54, v40, 20
+; GISEL-NEXT:    v_readlane_b32 s53, v40, 19
+; GISEL-NEXT:    v_readlane_b32 s52, v40, 18
+; GISEL-NEXT:    v_readlane_b32 s51, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s50, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
 ; GISEL-NEXT:    s_or_saveexec_b64 s[6:7], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[6:7]
@@ -1334,38 +1318,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_reuse(i32 %i, ptr %fptr) {
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
 ; GCN-NEXT:    buffer_store_dword v41, off, s[0:3], s33 ; 4-byte Folded Spill
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
-; GCN-NEXT:    v_writelane_b32 v40, s50, 18
-; GCN-NEXT:    v_writelane_b32 v40, s51, 19
-; GCN-NEXT:    v_writelane_b32 v40, s52, 20
-; GCN-NEXT:    v_writelane_b32 v40, s53, 21
-; GCN-NEXT:    v_writelane_b32 v40, s54, 22
-; GCN-NEXT:    v_writelane_b32 v40, s55, 23
-; GCN-NEXT:    v_writelane_b32 v40, s56, 24
-; GCN-NEXT:    v_writelane_b32 v40, s57, 25
-; GCN-NEXT:    v_writelane_b32 v40, s58, 26
-; GCN-NEXT:    v_writelane_b32 v40, s59, 27
-; GCN-NEXT:    v_writelane_b32 v40, s60, 28
-; GCN-NEXT:    v_writelane_b32 v40, s61, 29
-; GCN-NEXT:    v_writelane_b32 v40, s62, 30
-; GCN-NEXT:    v_writelane_b32 v40, s63, 31
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s50, 16
+; GCN-NEXT:    v_writelane_b32 v40, s51, 17
+; GCN-NEXT:    v_writelane_b32 v40, s52, 18
+; GCN-NEXT:    v_writelane_b32 v40, s53, 19
+; GCN-NEXT:    v_writelane_b32 v40, s54, 20
+; GCN-NEXT:    v_writelane_b32 v40, s55, 21
+; GCN-NEXT:    v_writelane_b32 v40, s56, 22
+; GCN-NEXT:    v_writelane_b32 v40, s57, 23
+; GCN-NEXT:    v_writelane_b32 v40, s58, 24
+; GCN-NEXT:    v_writelane_b32 v40, s59, 25
+; GCN-NEXT:    v_writelane_b32 v40, s60, 26
+; GCN-NEXT:    v_writelane_b32 v40, s61, 27
+; GCN-NEXT:    v_writelane_b32 v40, s62, 28
+; GCN-NEXT:    v_writelane_b32 v40, s63, 29
+; GCN-NEXT:    v_writelane_b32 v40, s30, 30
+; GCN-NEXT:    v_writelane_b32 v40, s31, 31
 ; GCN-NEXT:    v_mov_b32_e32 v41, v0
 ; GCN-NEXT:    s_mov_b64 s[4:5], exec
 ; GCN-NEXT:  .LBB7_1: ; =>This Inner Loop Header: Depth=1
@@ -1381,38 +1365,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_reuse(i32 %i, ptr %fptr) {
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
 ; GCN-NEXT:    v_mov_b32_e32 v0, v41
-; GCN-NEXT:    v_readlane_b32 s63, v40, 31
-; GCN-NEXT:    v_readlane_b32 s62, v40, 30
-; GCN-NEXT:    v_readlane_b32 s61, v40, 29
-; GCN-NEXT:    v_readlane_b32 s60, v40, 28
-; GCN-NEXT:    v_readlane_b32 s59, v40, 27
-; GCN-NEXT:    v_readlane_b32 s58, v40, 26
-; GCN-NEXT:    v_readlane_b32 s57, v40, 25
-; GCN-NEXT:    v_readlane_b32 s56, v40, 24
-; GCN-NEXT:    v_readlane_b32 s55, v40, 23
-; GCN-NEXT:    v_readlane_b32 s54, v40, 22
-; GCN-NEXT:    v_readlane_b32 s53, v40, 21
-; GCN-NEXT:    v_readlane_b32 s52, v40, 20
-; GCN-NEXT:    v_readlane_b32 s51, v40, 19
-; GCN-NEXT:    v_readlane_b32 s50, v40, 18
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 30
+; GCN-NEXT:    v_readlane_b32 s31, v40, 31
+; GCN-NEXT:    v_readlane_b32 s63, v40, 29
+; GCN-NEXT:    v_readlane_b32 s62, v40, 28
+; GCN-NEXT:    v_readlane_b32 s61, v40, 27
+; GCN-NEXT:    v_readlane_b32 s60, v40, 26
+; GCN-NEXT:    v_readlane_b32 s59, v40, 25
+; GCN-NEXT:    v_readlane_b32 s58, v40, 24
+; GCN-NEXT:    v_readlane_b32 s57, v40, 23
+; GCN-NEXT:    v_readlane_b32 s56, v40, 22
+; GCN-NEXT:    v_readlane_b32 s55, v40, 21
+; GCN-NEXT:    v_readlane_b32 s54, v40, 20
+; GCN-NEXT:    v_readlane_b32 s53, v40, 19
+; GCN-NEXT:    v_readlane_b32 s52, v40, 18
+; GCN-NEXT:    v_readlane_b32 s51, v40, 17
+; GCN-NEXT:    v_readlane_b32 s50, v40, 16
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
 ; GCN-NEXT:    buffer_load_dword v41, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
@@ -1432,38 +1416,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_reuse(i32 %i, ptr %fptr) {
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
 ; GISEL-NEXT:    buffer_store_dword v41, off, s[0:3], s33 ; 4-byte Folded Spill
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
-; GISEL-NEXT:    v_writelane_b32 v40, s50, 18
-; GISEL-NEXT:    v_writelane_b32 v40, s51, 19
-; GISEL-NEXT:    v_writelane_b32 v40, s52, 20
-; GISEL-NEXT:    v_writelane_b32 v40, s53, 21
-; GISEL-NEXT:    v_writelane_b32 v40, s54, 22
-; GISEL-NEXT:    v_writelane_b32 v40, s55, 23
-; GISEL-NEXT:    v_writelane_b32 v40, s56, 24
-; GISEL-NEXT:    v_writelane_b32 v40, s57, 25
-; GISEL-NEXT:    v_writelane_b32 v40, s58, 26
-; GISEL-NEXT:    v_writelane_b32 v40, s59, 27
-; GISEL-NEXT:    v_writelane_b32 v40, s60, 28
-; GISEL-NEXT:    v_writelane_b32 v40, s61, 29
-; GISEL-NEXT:    v_writelane_b32 v40, s62, 30
-; GISEL-NEXT:    v_writelane_b32 v40, s63, 31
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s50, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s51, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s52, 18
+; GISEL-NEXT:    v_writelane_b32 v40, s53, 19
+; GISEL-NEXT:    v_writelane_b32 v40, s54, 20
+; GISEL-NEXT:    v_writelane_b32 v40, s55, 21
+; GISEL-NEXT:    v_writelane_b32 v40, s56, 22
+; GISEL-NEXT:    v_writelane_b32 v40, s57, 23
+; GISEL-NEXT:    v_writelane_b32 v40, s58, 24
+; GISEL-NEXT:    v_writelane_b32 v40, s59, 25
+; GISEL-NEXT:    v_writelane_b32 v40, s60, 26
+; GISEL-NEXT:    v_writelane_b32 v40, s61, 27
+; GISEL-NEXT:    v_writelane_b32 v40, s62, 28
+; GISEL-NEXT:    v_writelane_b32 v40, s63, 29
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 30
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 31
 ; GISEL-NEXT:    v_mov_b32_e32 v41, v0
 ; GISEL-NEXT:    s_mov_b64 s[4:5], exec
 ; GISEL-NEXT:  .LBB7_1: ; =>This Inner Loop Header: Depth=1
@@ -1479,38 +1463,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_reuse(i32 %i, ptr %fptr) {
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
 ; GISEL-NEXT:    v_mov_b32_e32 v0, v41
-; GISEL-NEXT:    v_readlane_b32 s63, v40, 31
-; GISEL-NEXT:    v_readlane_b32 s62, v40, 30
-; GISEL-NEXT:    v_readlane_b32 s61, v40, 29
-; GISEL-NEXT:    v_readlane_b32 s60, v40, 28
-; GISEL-NEXT:    v_readlane_b32 s59, v40, 27
-; GISEL-NEXT:    v_readlane_b32 s58, v40, 26
-; GISEL-NEXT:    v_readlane_b32 s57, v40, 25
-; GISEL-NEXT:    v_readlane_b32 s56, v40, 24
-; GISEL-NEXT:    v_readlane_b32 s55, v40, 23
-; GISEL-NEXT:    v_readlane_b32 s54, v40, 22
-; GISEL-NEXT:    v_readlane_b32 s53, v40, 21
-; GISEL-NEXT:    v_readlane_b32 s52, v40, 20
-; GISEL-NEXT:    v_readlane_b32 s51, v40, 19
-; GISEL-NEXT:    v_readlane_b32 s50, v40, 18
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 30
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 31
+; GISEL-NEXT:    v_readlane_b32 s63, v40, 29
+; GISEL-NEXT:    v_readlane_b32 s62, v40, 28
+; GISEL-NEXT:    v_readlane_b32 s61, v40, 27
+; GISEL-NEXT:    v_readlane_b32 s60, v40, 26
+; GISEL-NEXT:    v_readlane_b32 s59, v40, 25
+; GISEL-NEXT:    v_readlane_b32 s58, v40, 24
+; GISEL-NEXT:    v_readlane_b32 s57, v40, 23
+; GISEL-NEXT:    v_readlane_b32 s56, v40, 22
+; GISEL-NEXT:    v_readlane_b32 s55, v40, 21
+; GISEL-NEXT:    v_readlane_b32 s54, v40, 20
+; GISEL-NEXT:    v_readlane_b32 s53, v40, 19
+; GISEL-NEXT:    v_readlane_b32 s52, v40, 18
+; GISEL-NEXT:    v_readlane_b32 s51, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s50, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
 ; GISEL-NEXT:    buffer_load_dword v41, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 offset:4 ; 4-byte Folded Reload
@@ -1537,38 +1521,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_return(i32 %i, ptr %fptr) {
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
-; GCN-NEXT:    v_writelane_b32 v40, s50, 18
-; GCN-NEXT:    v_writelane_b32 v40, s51, 19
-; GCN-NEXT:    v_writelane_b32 v40, s52, 20
-; GCN-NEXT:    v_writelane_b32 v40, s53, 21
-; GCN-NEXT:    v_writelane_b32 v40, s54, 22
-; GCN-NEXT:    v_writelane_b32 v40, s55, 23
-; GCN-NEXT:    v_writelane_b32 v40, s56, 24
-; GCN-NEXT:    v_writelane_b32 v40, s57, 25
-; GCN-NEXT:    v_writelane_b32 v40, s58, 26
-; GCN-NEXT:    v_writelane_b32 v40, s59, 27
-; GCN-NEXT:    v_writelane_b32 v40, s60, 28
-; GCN-NEXT:    v_writelane_b32 v40, s61, 29
-; GCN-NEXT:    v_writelane_b32 v40, s62, 30
-; GCN-NEXT:    v_writelane_b32 v40, s63, 31
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s50, 16
+; GCN-NEXT:    v_writelane_b32 v40, s51, 17
+; GCN-NEXT:    v_writelane_b32 v40, s52, 18
+; GCN-NEXT:    v_writelane_b32 v40, s53, 19
+; GCN-NEXT:    v_writelane_b32 v40, s54, 20
+; GCN-NEXT:    v_writelane_b32 v40, s55, 21
+; GCN-NEXT:    v_writelane_b32 v40, s56, 22
+; GCN-NEXT:    v_writelane_b32 v40, s57, 23
+; GCN-NEXT:    v_writelane_b32 v40, s58, 24
+; GCN-NEXT:    v_writelane_b32 v40, s59, 25
+; GCN-NEXT:    v_writelane_b32 v40, s60, 26
+; GCN-NEXT:    v_writelane_b32 v40, s61, 27
+; GCN-NEXT:    v_writelane_b32 v40, s62, 28
+; GCN-NEXT:    v_writelane_b32 v40, s63, 29
+; GCN-NEXT:    v_writelane_b32 v40, s30, 30
+; GCN-NEXT:    v_writelane_b32 v40, s31, 31
 ; GCN-NEXT:    s_mov_b64 s[4:5], exec
 ; GCN-NEXT:  .LBB8_1: ; =>This Inner Loop Header: Depth=1
 ; GCN-NEXT:    v_readfirstlane_b32 s6, v1
@@ -1584,38 +1568,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_return(i32 %i, ptr %fptr) {
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
 ; GCN-NEXT:    v_mov_b32_e32 v0, v3
-; GCN-NEXT:    v_readlane_b32 s63, v40, 31
-; GCN-NEXT:    v_readlane_b32 s62, v40, 30
-; GCN-NEXT:    v_readlane_b32 s61, v40, 29
-; GCN-NEXT:    v_readlane_b32 s60, v40, 28
-; GCN-NEXT:    v_readlane_b32 s59, v40, 27
-; GCN-NEXT:    v_readlane_b32 s58, v40, 26
-; GCN-NEXT:    v_readlane_b32 s57, v40, 25
-; GCN-NEXT:    v_readlane_b32 s56, v40, 24
-; GCN-NEXT:    v_readlane_b32 s55, v40, 23
-; GCN-NEXT:    v_readlane_b32 s54, v40, 22
-; GCN-NEXT:    v_readlane_b32 s53, v40, 21
-; GCN-NEXT:    v_readlane_b32 s52, v40, 20
-; GCN-NEXT:    v_readlane_b32 s51, v40, 19
-; GCN-NEXT:    v_readlane_b32 s50, v40, 18
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 30
+; GCN-NEXT:    v_readlane_b32 s31, v40, 31
+; GCN-NEXT:    v_readlane_b32 s63, v40, 29
+; GCN-NEXT:    v_readlane_b32 s62, v40, 28
+; GCN-NEXT:    v_readlane_b32 s61, v40, 27
+; GCN-NEXT:    v_readlane_b32 s60, v40, 26
+; GCN-NEXT:    v_readlane_b32 s59, v40, 25
+; GCN-NEXT:    v_readlane_b32 s58, v40, 24
+; GCN-NEXT:    v_readlane_b32 s57, v40, 23
+; GCN-NEXT:    v_readlane_b32 s56, v40, 22
+; GCN-NEXT:    v_readlane_b32 s55, v40, 21
+; GCN-NEXT:    v_readlane_b32 s54, v40, 20
+; GCN-NEXT:    v_readlane_b32 s53, v40, 19
+; GCN-NEXT:    v_readlane_b32 s52, v40, 18
+; GCN-NEXT:    v_readlane_b32 s51, v40, 17
+; GCN-NEXT:    v_readlane_b32 s50, v40, 16
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
 ; GCN-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
@@ -1633,38 +1617,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_return(i32 %i, ptr %fptr) {
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
-; GISEL-NEXT:    v_writelane_b32 v40, s50, 18
-; GISEL-NEXT:    v_writelane_b32 v40, s51, 19
-; GISEL-NEXT:    v_writelane_b32 v40, s52, 20
-; GISEL-NEXT:    v_writelane_b32 v40, s53, 21
-; GISEL-NEXT:    v_writelane_b32 v40, s54, 22
-; GISEL-NEXT:    v_writelane_b32 v40, s55, 23
-; GISEL-NEXT:    v_writelane_b32 v40, s56, 24
-; GISEL-NEXT:    v_writelane_b32 v40, s57, 25
-; GISEL-NEXT:    v_writelane_b32 v40, s58, 26
-; GISEL-NEXT:    v_writelane_b32 v40, s59, 27
-; GISEL-NEXT:    v_writelane_b32 v40, s60, 28
-; GISEL-NEXT:    v_writelane_b32 v40, s61, 29
-; GISEL-NEXT:    v_writelane_b32 v40, s62, 30
-; GISEL-NEXT:    v_writelane_b32 v40, s63, 31
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s50, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s51, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s52, 18
+; GISEL-NEXT:    v_writelane_b32 v40, s53, 19
+; GISEL-NEXT:    v_writelane_b32 v40, s54, 20
+; GISEL-NEXT:    v_writelane_b32 v40, s55, 21
+; GISEL-NEXT:    v_writelane_b32 v40, s56, 22
+; GISEL-NEXT:    v_writelane_b32 v40, s57, 23
+; GISEL-NEXT:    v_writelane_b32 v40, s58, 24
+; GISEL-NEXT:    v_writelane_b32 v40, s59, 25
+; GISEL-NEXT:    v_writelane_b32 v40, s60, 26
+; GISEL-NEXT:    v_writelane_b32 v40, s61, 27
+; GISEL-NEXT:    v_writelane_b32 v40, s62, 28
+; GISEL-NEXT:    v_writelane_b32 v40, s63, 29
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 30
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 31
 ; GISEL-NEXT:    s_mov_b64 s[4:5], exec
 ; GISEL-NEXT:  .LBB8_1: ; =>This Inner Loop Header: Depth=1
 ; GISEL-NEXT:    v_readfirstlane_b32 s8, v1
@@ -1680,38 +1664,38 @@ define i32 @test_indirect_call_vgpr_ptr_arg_and_return(i32 %i, ptr %fptr) {
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
 ; GISEL-NEXT:    v_mov_b32_e32 v0, v2
-; GISEL-NEXT:    v_readlane_b32 s63, v40, 31
-; GISEL-NEXT:    v_readlane_b32 s62, v40, 30
-; GISEL-NEXT:    v_readlane_b32 s61, v40, 29
-; GISEL-NEXT:    v_readlane_b32 s60, v40, 28
-; GISEL-NEXT:    v_readlane_b32 s59, v40, 27
-; GISEL-NEXT:    v_readlane_b32 s58, v40, 26
-; GISEL-NEXT:    v_readlane_b32 s57, v40, 25
-; GISEL-NEXT:    v_readlane_b32 s56, v40, 24
-; GISEL-NEXT:    v_readlane_b32 s55, v40, 23
-; GISEL-NEXT:    v_readlane_b32 s54, v40, 22
-; GISEL-NEXT:    v_readlane_b32 s53, v40, 21
-; GISEL-NEXT:    v_readlane_b32 s52, v40, 20
-; GISEL-NEXT:    v_readlane_b32 s51, v40, 19
-; GISEL-NEXT:    v_readlane_b32 s50, v40, 18
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 30
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 31
+; GISEL-NEXT:    v_readlane_b32 s63, v40, 29
+; GISEL-NEXT:    v_readlane_b32 s62, v40, 28
+; GISEL-NEXT:    v_readlane_b32 s61, v40, 27
+; GISEL-NEXT:    v_readlane_b32 s60, v40, 26
+; GISEL-NEXT:    v_readlane_b32 s59, v40, 25
+; GISEL-NEXT:    v_readlane_b32 s58, v40, 24
+; GISEL-NEXT:    v_readlane_b32 s57, v40, 23
+; GISEL-NEXT:    v_readlane_b32 s56, v40, 22
+; GISEL-NEXT:    v_readlane_b32 s55, v40, 21
+; GISEL-NEXT:    v_readlane_b32 s54, v40, 20
+; GISEL-NEXT:    v_readlane_b32 s53, v40, 19
+; GISEL-NEXT:    v_readlane_b32 s52, v40, 18
+; GISEL-NEXT:    v_readlane_b32 s51, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s50, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
 ; GISEL-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
@@ -1734,38 +1718,38 @@ define void @test_indirect_tail_call_vgpr_ptr(ptr %fptr) {
 ; GCN-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
 ; GCN-NEXT:    s_addk_i32 s32, 0x400
-; GCN-NEXT:    v_writelane_b32 v40, s30, 0
-; GCN-NEXT:    v_writelane_b32 v40, s31, 1
-; GCN-NEXT:    v_writelane_b32 v40, s34, 2
-; GCN-NEXT:    v_writelane_b32 v40, s35, 3
-; GCN-NEXT:    v_writelane_b32 v40, s36, 4
-; GCN-NEXT:    v_writelane_b32 v40, s37, 5
-; GCN-NEXT:    v_writelane_b32 v40, s38, 6
-; GCN-NEXT:    v_writelane_b32 v40, s39, 7
-; GCN-NEXT:    v_writelane_b32 v40, s40, 8
-; GCN-NEXT:    v_writelane_b32 v40, s41, 9
-; GCN-NEXT:    v_writelane_b32 v40, s42, 10
-; GCN-NEXT:    v_writelane_b32 v40, s43, 11
-; GCN-NEXT:    v_writelane_b32 v40, s44, 12
-; GCN-NEXT:    v_writelane_b32 v40, s45, 13
-; GCN-NEXT:    v_writelane_b32 v40, s46, 14
-; GCN-NEXT:    v_writelane_b32 v40, s47, 15
-; GCN-NEXT:    v_writelane_b32 v40, s48, 16
-; GCN-NEXT:    v_writelane_b32 v40, s49, 17
-; GCN-NEXT:    v_writelane_b32 v40, s50, 18
-; GCN-NEXT:    v_writelane_b32 v40, s51, 19
-; GCN-NEXT:    v_writelane_b32 v40, s52, 20
-; GCN-NEXT:    v_writelane_b32 v40, s53, 21
-; GCN-NEXT:    v_writelane_b32 v40, s54, 22
-; GCN-NEXT:    v_writelane_b32 v40, s55, 23
-; GCN-NEXT:    v_writelane_b32 v40, s56, 24
-; GCN-NEXT:    v_writelane_b32 v40, s57, 25
-; GCN-NEXT:    v_writelane_b32 v40, s58, 26
-; GCN-NEXT:    v_writelane_b32 v40, s59, 27
-; GCN-NEXT:    v_writelane_b32 v40, s60, 28
-; GCN-NEXT:    v_writelane_b32 v40, s61, 29
-; GCN-NEXT:    v_writelane_b32 v40, s62, 30
-; GCN-NEXT:    v_writelane_b32 v40, s63, 31
+; GCN-NEXT:    v_writelane_b32 v40, s34, 0
+; GCN-NEXT:    v_writelane_b32 v40, s35, 1
+; GCN-NEXT:    v_writelane_b32 v40, s36, 2
+; GCN-NEXT:    v_writelane_b32 v40, s37, 3
+; GCN-NEXT:    v_writelane_b32 v40, s38, 4
+; GCN-NEXT:    v_writelane_b32 v40, s39, 5
+; GCN-NEXT:    v_writelane_b32 v40, s40, 6
+; GCN-NEXT:    v_writelane_b32 v40, s41, 7
+; GCN-NEXT:    v_writelane_b32 v40, s42, 8
+; GCN-NEXT:    v_writelane_b32 v40, s43, 9
+; GCN-NEXT:    v_writelane_b32 v40, s44, 10
+; GCN-NEXT:    v_writelane_b32 v40, s45, 11
+; GCN-NEXT:    v_writelane_b32 v40, s46, 12
+; GCN-NEXT:    v_writelane_b32 v40, s47, 13
+; GCN-NEXT:    v_writelane_b32 v40, s48, 14
+; GCN-NEXT:    v_writelane_b32 v40, s49, 15
+; GCN-NEXT:    v_writelane_b32 v40, s50, 16
+; GCN-NEXT:    v_writelane_b32 v40, s51, 17
+; GCN-NEXT:    v_writelane_b32 v40, s52, 18
+; GCN-NEXT:    v_writelane_b32 v40, s53, 19
+; GCN-NEXT:    v_writelane_b32 v40, s54, 20
+; GCN-NEXT:    v_writelane_b32 v40, s55, 21
+; GCN-NEXT:    v_writelane_b32 v40, s56, 22
+; GCN-NEXT:    v_writelane_b32 v40, s57, 23
+; GCN-NEXT:    v_writelane_b32 v40, s58, 24
+; GCN-NEXT:    v_writelane_b32 v40, s59, 25
+; GCN-NEXT:    v_writelane_b32 v40, s60, 26
+; GCN-NEXT:    v_writelane_b32 v40, s61, 27
+; GCN-NEXT:    v_writelane_b32 v40, s62, 28
+; GCN-NEXT:    v_writelane_b32 v40, s63, 29
+; GCN-NEXT:    v_writelane_b32 v40, s30, 30
+; GCN-NEXT:    v_writelane_b32 v40, s31, 31
 ; GCN-NEXT:    s_mov_b64 s[4:5], exec
 ; GCN-NEXT:  .LBB9_1: ; =>This Inner Loop Header: Depth=1
 ; GCN-NEXT:    v_readfirstlane_b32 s6, v0
@@ -1778,38 +1762,38 @@ define void @test_indirect_tail_call_vgpr_ptr(ptr %fptr) {
 ; GCN-NEXT:    s_cbranch_execnz .LBB9_1
 ; GCN-NEXT:  ; %bb.2:
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
-; GCN-NEXT:    v_readlane_b32 s63, v40, 31
-; GCN-NEXT:    v_readlane_b32 s62, v40, 30
-; GCN-NEXT:    v_readlane_b32 s61, v40, 29
-; GCN-NEXT:    v_readlane_b32 s60, v40, 28
-; GCN-NEXT:    v_readlane_b32 s59, v40, 27
-; GCN-NEXT:    v_readlane_b32 s58, v40, 26
-; GCN-NEXT:    v_readlane_b32 s57, v40, 25
-; GCN-NEXT:    v_readlane_b32 s56, v40, 24
-; GCN-NEXT:    v_readlane_b32 s55, v40, 23
-; GCN-NEXT:    v_readlane_b32 s54, v40, 22
-; GCN-NEXT:    v_readlane_b32 s53, v40, 21
-; GCN-NEXT:    v_readlane_b32 s52, v40, 20
-; GCN-NEXT:    v_readlane_b32 s51, v40, 19
-; GCN-NEXT:    v_readlane_b32 s50, v40, 18
-; GCN-NEXT:    v_readlane_b32 s49, v40, 17
-; GCN-NEXT:    v_readlane_b32 s48, v40, 16
-; GCN-NEXT:    v_readlane_b32 s47, v40, 15
-; GCN-NEXT:    v_readlane_b32 s46, v40, 14
-; GCN-NEXT:    v_readlane_b32 s45, v40, 13
-; GCN-NEXT:    v_readlane_b32 s44, v40, 12
-; GCN-NEXT:    v_readlane_b32 s43, v40, 11
-; GCN-NEXT:    v_readlane_b32 s42, v40, 10
-; GCN-NEXT:    v_readlane_b32 s41, v40, 9
-; GCN-NEXT:    v_readlane_b32 s40, v40, 8
-; GCN-NEXT:    v_readlane_b32 s39, v40, 7
-; GCN-NEXT:    v_readlane_b32 s38, v40, 6
-; GCN-NEXT:    v_readlane_b32 s37, v40, 5
-; GCN-NEXT:    v_readlane_b32 s36, v40, 4
-; GCN-NEXT:    v_readlane_b32 s35, v40, 3
-; GCN-NEXT:    v_readlane_b32 s34, v40, 2
-; GCN-NEXT:    v_readlane_b32 s31, v40, 1
-; GCN-NEXT:    v_readlane_b32 s30, v40, 0
+; GCN-NEXT:    v_readlane_b32 s30, v40, 30
+; GCN-NEXT:    v_readlane_b32 s31, v40, 31
+; GCN-NEXT:    v_readlane_b32 s63, v40, 29
+; GCN-NEXT:    v_readlane_b32 s62, v40, 28
+; GCN-NEXT:    v_readlane_b32 s61, v40, 27
+; GCN-NEXT:    v_readlane_b32 s60, v40, 26
+; GCN-NEXT:    v_readlane_b32 s59, v40, 25
+; GCN-NEXT:    v_readlane_b32 s58, v40, 24
+; GCN-NEXT:    v_readlane_b32 s57, v40, 23
+; GCN-NEXT:    v_readlane_b32 s56, v40, 22
+; GCN-NEXT:    v_readlane_b32 s55, v40, 21
+; GCN-NEXT:    v_readlane_b32 s54, v40, 20
+; GCN-NEXT:    v_readlane_b32 s53, v40, 19
+; GCN-NEXT:    v_readlane_b32 s52, v40, 18
+; GCN-NEXT:    v_readlane_b32 s51, v40, 17
+; GCN-NEXT:    v_readlane_b32 s50, v40, 16
+; GCN-NEXT:    v_readlane_b32 s49, v40, 15
+; GCN-NEXT:    v_readlane_b32 s48, v40, 14
+; GCN-NEXT:    v_readlane_b32 s47, v40, 13
+; GCN-NEXT:    v_readlane_b32 s46, v40, 12
+; GCN-NEXT:    v_readlane_b32 s45, v40, 11
+; GCN-NEXT:    v_readlane_b32 s44, v40, 10
+; GCN-NEXT:    v_readlane_b32 s43, v40, 9
+; GCN-NEXT:    v_readlane_b32 s42, v40, 8
+; GCN-NEXT:    v_readlane_b32 s41, v40, 7
+; GCN-NEXT:    v_readlane_b32 s40, v40, 6
+; GCN-NEXT:    v_readlane_b32 s39, v40, 5
+; GCN-NEXT:    v_readlane_b32 s38, v40, 4
+; GCN-NEXT:    v_readlane_b32 s37, v40, 3
+; GCN-NEXT:    v_readlane_b32 s36, v40, 2
+; GCN-NEXT:    v_readlane_b32 s35, v40, 1
+; GCN-NEXT:    v_readlane_b32 s34, v40, 0
 ; GCN-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GCN-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GCN-NEXT:    s_mov_b64 exec, s[4:5]
@@ -1827,38 +1811,38 @@ define void @test_indirect_tail_call_vgpr_ptr(ptr %fptr) {
 ; GISEL-NEXT:    buffer_store_dword v40, off, s[0:3], s33 ; 4-byte Folded Spill
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
 ; GISEL-NEXT:    s_addk_i32 s32, 0x400
-; GISEL-NEXT:    v_writelane_b32 v40, s30, 0
-; GISEL-NEXT:    v_writelane_b32 v40, s31, 1
-; GISEL-NEXT:    v_writelane_b32 v40, s34, 2
-; GISEL-NEXT:    v_writelane_b32 v40, s35, 3
-; GISEL-NEXT:    v_writelane_b32 v40, s36, 4
-; GISEL-NEXT:    v_writelane_b32 v40, s37, 5
-; GISEL-NEXT:    v_writelane_b32 v40, s38, 6
-; GISEL-NEXT:    v_writelane_b32 v40, s39, 7
-; GISEL-NEXT:    v_writelane_b32 v40, s40, 8
-; GISEL-NEXT:    v_writelane_b32 v40, s41, 9
-; GISEL-NEXT:    v_writelane_b32 v40, s42, 10
-; GISEL-NEXT:    v_writelane_b32 v40, s43, 11
-; GISEL-NEXT:    v_writelane_b32 v40, s44, 12
-; GISEL-NEXT:    v_writelane_b32 v40, s45, 13
-; GISEL-NEXT:    v_writelane_b32 v40, s46, 14
-; GISEL-NEXT:    v_writelane_b32 v40, s47, 15
-; GISEL-NEXT:    v_writelane_b32 v40, s48, 16
-; GISEL-NEXT:    v_writelane_b32 v40, s49, 17
-; GISEL-NEXT:    v_writelane_b32 v40, s50, 18
-; GISEL-NEXT:    v_writelane_b32 v40, s51, 19
-; GISEL-NEXT:    v_writelane_b32 v40, s52, 20
-; GISEL-NEXT:    v_writelane_b32 v40, s53, 21
-; GISEL-NEXT:    v_writelane_b32 v40, s54, 22
-; GISEL-NEXT:    v_writelane_b32 v40, s55, 23
-; GISEL-NEXT:    v_writelane_b32 v40, s56, 24
-; GISEL-NEXT:    v_writelane_b32 v40, s57, 25
-; GISEL-NEXT:    v_writelane_b32 v40, s58, 26
-; GISEL-NEXT:    v_writelane_b32 v40, s59, 27
-; GISEL-NEXT:    v_writelane_b32 v40, s60, 28
-; GISEL-NEXT:    v_writelane_b32 v40, s61, 29
-; GISEL-NEXT:    v_writelane_b32 v40, s62, 30
-; GISEL-NEXT:    v_writelane_b32 v40, s63, 31
+; GISEL-NEXT:    v_writelane_b32 v40, s34, 0
+; GISEL-NEXT:    v_writelane_b32 v40, s35, 1
+; GISEL-NEXT:    v_writelane_b32 v40, s36, 2
+; GISEL-NEXT:    v_writelane_b32 v40, s37, 3
+; GISEL-NEXT:    v_writelane_b32 v40, s38, 4
+; GISEL-NEXT:    v_writelane_b32 v40, s39, 5
+; GISEL-NEXT:    v_writelane_b32 v40, s40, 6
+; GISEL-NEXT:    v_writelane_b32 v40, s41, 7
+; GISEL-NEXT:    v_writelane_b32 v40, s42, 8
+; GISEL-NEXT:    v_writelane_b32 v40, s43, 9
+; GISEL-NEXT:    v_writelane_b32 v40, s44, 10
+; GISEL-NEXT:    v_writelane_b32 v40, s45, 11
+; GISEL-NEXT:    v_writelane_b32 v40, s46, 12
+; GISEL-NEXT:    v_writelane_b32 v40, s47, 13
+; GISEL-NEXT:    v_writelane_b32 v40, s48, 14
+; GISEL-NEXT:    v_writelane_b32 v40, s49, 15
+; GISEL-NEXT:    v_writelane_b32 v40, s50, 16
+; GISEL-NEXT:    v_writelane_b32 v40, s51, 17
+; GISEL-NEXT:    v_writelane_b32 v40, s52, 18
+; GISEL-NEXT:    v_writelane_b32 v40, s53, 19
+; GISEL-NEXT:    v_writelane_b32 v40, s54, 20
+; GISEL-NEXT:    v_writelane_b32 v40, s55, 21
+; GISEL-NEXT:    v_writelane_b32 v40, s56, 22
+; GISEL-NEXT:    v_writelane_b32 v40, s57, 23
+; GISEL-NEXT:    v_writelane_b32 v40, s58, 24
+; GISEL-NEXT:    v_writelane_b32 v40, s59, 25
+; GISEL-NEXT:    v_writelane_b32 v40, s60, 26
+; GISEL-NEXT:    v_writelane_b32 v40, s61, 27
+; GISEL-NEXT:    v_writelane_b32 v40, s62, 28
+; GISEL-NEXT:    v_writelane_b32 v40, s63, 29
+; GISEL-NEXT:    v_writelane_b32 v40, s30, 30
+; GISEL-NEXT:    v_writelane_b32 v40, s31, 31
 ; GISEL-NEXT:    s_mov_b64 s[4:5], exec
 ; GISEL-NEXT:  .LBB9_1: ; =>This Inner Loop Header: Depth=1
 ; GISEL-NEXT:    v_readfirstlane_b32 s6, v0
@@ -1871,38 +1855,38 @@ define void @test_indirect_tail_call_vgpr_ptr(ptr %fptr) {
 ; GISEL-NEXT:    s_cbranch_execnz .LBB9_1
 ; GISEL-NEXT:  ; %bb.2:
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]
-; GISEL-NEXT:    v_readlane_b32 s63, v40, 31
-; GISEL-NEXT:    v_readlane_b32 s62, v40, 30
-; GISEL-NEXT:    v_readlane_b32 s61, v40, 29
-; GISEL-NEXT:    v_readlane_b32 s60, v40, 28
-; GISEL-NEXT:    v_readlane_b32 s59, v40, 27
-; GISEL-NEXT:    v_readlane_b32 s58, v40, 26
-; GISEL-NEXT:    v_readlane_b32 s57, v40, 25
-; GISEL-NEXT:    v_readlane_b32 s56, v40, 24
-; GISEL-NEXT:    v_readlane_b32 s55, v40, 23
-; GISEL-NEXT:    v_readlane_b32 s54, v40, 22
-; GISEL-NEXT:    v_readlane_b32 s53, v40, 21
-; GISEL-NEXT:    v_readlane_b32 s52, v40, 20
-; GISEL-NEXT:    v_readlane_b32 s51, v40, 19
-; GISEL-NEXT:    v_readlane_b32 s50, v40, 18
-; GISEL-NEXT:    v_readlane_b32 s49, v40, 17
-; GISEL-NEXT:    v_readlane_b32 s48, v40, 16
-; GISEL-NEXT:    v_readlane_b32 s47, v40, 15
-; GISEL-NEXT:    v_readlane_b32 s46, v40, 14
-; GISEL-NEXT:    v_readlane_b32 s45, v40, 13
-; GISEL-NEXT:    v_readlane_b32 s44, v40, 12
-; GISEL-NEXT:    v_readlane_b32 s43, v40, 11
-; GISEL-NEXT:    v_readlane_b32 s42, v40, 10
-; GISEL-NEXT:    v_readlane_b32 s41, v40, 9
-; GISEL-NEXT:    v_readlane_b32 s40, v40, 8
-; GISEL-NEXT:    v_readlane_b32 s39, v40, 7
-; GISEL-NEXT:    v_readlane_b32 s38, v40, 6
-; GISEL-NEXT:    v_readlane_b32 s37, v40, 5
-; GISEL-NEXT:    v_readlane_b32 s36, v40, 4
-; GISEL-NEXT:    v_readlane_b32 s35, v40, 3
-; GISEL-NEXT:    v_readlane_b32 s34, v40, 2
-; GISEL-NEXT:    v_readlane_b32 s31, v40, 1
-; GISEL-NEXT:    v_readlane_b32 s30, v40, 0
+; GISEL-NEXT:    v_readlane_b32 s30, v40, 30
+; GISEL-NEXT:    v_readlane_b32 s31, v40, 31
+; GISEL-NEXT:    v_readlane_b32 s63, v40, 29
+; GISEL-NEXT:    v_readlane_b32 s62, v40, 28
+; GISEL-NEXT:    v_readlane_b32 s61, v40, 27
+; GISEL-NEXT:    v_readlane_b32 s60, v40, 26
+; GISEL-NEXT:    v_readlane_b32 s59, v40, 25
+; GISEL-NEXT:    v_readlane_b32 s58, v40, 24
+; GISEL-NEXT:    v_readlane_b32 s57, v40, 23
+; GISEL-NEXT:    v_readlane_b32 s56, v40, 22
+; GISEL-NEXT:    v_readlane_b32 s55, v40, 21
+; GISEL-NEXT:    v_readlane_b32 s54, v40, 20
+; GISEL-NEXT:    v_readlane_b32 s53, v40, 19
+; GISEL-NEXT:    v_readlane_b32 s52, v40, 18
+; GISEL-NEXT:    v_readlane_b32 s51, v40, 17
+; GISEL-NEXT:    v_readlane_b32 s50, v40, 16
+; GISEL-NEXT:    v_readlane_b32 s49, v40, 15
+; GISEL-NEXT:    v_readlane_b32 s48, v40, 14
+; GISEL-NEXT:    v_readlane_b32 s47, v40, 13
+; GISEL-NEXT:    v_readlane_b32 s46, v40, 12
+; GISEL-NEXT:    v_readlane_b32 s45, v40, 11
+; GISEL-NEXT:    v_readlane_b32 s44, v40, 10
+; GISEL-NEXT:    v_readlane_b32 s43, v40, 9
+; GISEL-NEXT:    v_readlane_b32 s42, v40, 8
+; GISEL-NEXT:    v_readlane_b32 s41, v40, 7
+; GISEL-NEXT:    v_readlane_b32 s40, v40, 6
+; GISEL-NEXT:    v_readlane_b32 s39, v40, 5
+; GISEL-NEXT:    v_readlane_b32 s38, v40, 4
+; GISEL-NEXT:    v_readlane_b32 s37, v40, 3
+; GISEL-NEXT:    v_readlane_b32 s36, v40, 2
+; GISEL-NEXT:    v_readlane_b32 s35, v40, 1
+; GISEL-NEXT:    v_readlane_b32 s34, v40, 0
 ; GISEL-NEXT:    s_or_saveexec_b64 s[4:5], -1
 ; GISEL-NEXT:    buffer_load_dword v40, off, s[0:3], s33 ; 4-byte Folded Reload
 ; GISEL-NEXT:    s_mov_b64 exec, s[4:5]

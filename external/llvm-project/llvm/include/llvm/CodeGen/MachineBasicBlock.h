@@ -791,6 +791,15 @@ public:
         static_cast<const MachineBasicBlock *>(this)->getSingleSuccessor());
   }
 
+  /// Return the predecessor of this block if it has a single predecessor.
+  /// Otherwise return a null pointer.
+  ///
+  const MachineBasicBlock *getSinglePredecessor() const;
+  MachineBasicBlock *getSinglePredecessor() {
+    return const_cast<MachineBasicBlock *>(
+        static_cast<const MachineBasicBlock *>(this)->getSinglePredecessor());
+  }
+
   /// Return the fallthrough block if the block can implicitly
   /// transfer control to the block after it by falling off the end of
   /// it. If an explicit branch to the fallthrough block is not allowed,
@@ -816,6 +825,9 @@ public:
   /// the first instruction, which might be PHI.
   /// Returns end() is there's no non-PHI instruction.
   iterator getFirstNonPHI();
+  const_iterator getFirstNonPHI() const {
+    return const_cast<MachineBasicBlock *>(this)->getFirstNonPHI();
+  }
 
   /// Return the first instruction in MBB after I that is not a PHI or a label.
   /// This is the correct point to insert lowered copies at the beginning of a

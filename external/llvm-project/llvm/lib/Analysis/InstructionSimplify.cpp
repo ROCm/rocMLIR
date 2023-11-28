@@ -4138,7 +4138,8 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       case FCmpInst::FCMP_UGT:
       case FCmpInst::FCMP_UNE:
         // (X >= 0) implies (X > C) when (C < 0)
-        if (CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
+        if (cannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI, 0,
+                                        Q.AC, Q.CxtI, Q.DT))
           return getTrue(RetTy);
         break;
       case FCmpInst::FCMP_OEQ:
@@ -4203,19 +4204,23 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   if (match(RHS, m_AnyZeroFP())) {
     switch (Pred) {
     case FCmpInst::FCMP_OGE:
-    case FCmpInst::FCMP_ULT:
+    case FCmpInst::FCMP_ULT: {
+      FPClassTest Interested = FMF.noNaNs() ? fcNegative : fcNegative | fcNan;
+      KnownFPClass Known = computeKnownFPClass(LHS, Q.DL, Interested, 0,
+                                               Q.TLI, Q.AC, Q.CxtI, Q.DT);
+
       // Positive or zero X >= 0.0 --> true
       // Positive or zero X <  0.0 --> false
-      if ((FMF.noNaNs() ||
-           isKnownNeverNaN(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT)) &&
-          CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
+      if ((FMF.noNaNs() || Known.isKnownNeverNaN()) &&
+          Known.cannotBeOrderedLessThanZero())
         return Pred == FCmpInst::FCMP_OGE ? getTrue(RetTy) : getFalse(RetTy);
       break;
+    }
     case FCmpInst::FCMP_UGE:
     case FCmpInst::FCMP_OLT:
       // Positive or zero or nan X >= 0.0 --> true
       // Positive or zero or nan X <  0.0 --> false
-      if (CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
+      if (cannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT))
         return Pred == FCmpInst::FCMP_UGE ? getTrue(RetTy) : getFalse(RetTy);
       break;
     default:
@@ -4251,12 +4256,15 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
   if (V == Op)
     return RepOp;
 
+  if (!MaxRecurse--)
+    return nullptr;
+
   // We cannot replace a constant, and shouldn't even try.
   if (isa<Constant>(Op))
     return nullptr;
 
   auto *I = dyn_cast<Instruction>(V);
-  if (!I || !is_contained(I->operands(), Op))
+  if (!I)
     return nullptr;
 
   // The arguments of a phi node might refer to a value from a previous
@@ -4267,15 +4275,26 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
   if (Op->getType()->isVectorTy()) {
     // For vector types, the simplification must hold per-lane, so forbid
     // potentially cross-lane operations like shufflevector.
-    assert(I->getType()->isVectorTy() && "Vector type mismatch");
-    if (isa<ShuffleVectorInst>(I) || isa<CallBase>(I))
+    if (!I->getType()->isVectorTy() || isa<ShuffleVectorInst>(I) ||
+        isa<CallBase>(I))
       return nullptr;
   }
 
   // Replace Op with RepOp in instruction operands.
-  SmallVector<Value *, 8> NewOps(I->getNumOperands());
-  transform(I->operands(), NewOps.begin(),
-            [&](Value *V) { return V == Op ? RepOp : V; });
+  SmallVector<Value *, 8> NewOps;
+  bool AnyReplaced = false;
+  for (Value *InstOp : I->operands()) {
+    if (Value *NewInstOp = simplifyWithOpReplaced(
+            InstOp, Op, RepOp, Q, AllowRefinement, MaxRecurse)) {
+      NewOps.push_back(NewInstOp);
+      AnyReplaced = InstOp != NewInstOp;
+    } else {
+      NewOps.push_back(InstOp);
+    }
+  }
+
+  if (!AnyReplaced)
+    return nullptr;
 
   if (!AllowRefinement) {
     // General InstSimplify functions may refine the result, e.g. by returning
@@ -4300,10 +4319,8 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
       // by assumption and this case never wraps, so nowrap flags can be
       // ignored.
       if ((Opcode == Instruction::Sub || Opcode == Instruction::Xor) &&
-          NewOps[0] == NewOps[1]) {
-        assert(NewOps[0] == RepOp && "Precondition for non-poison assumption");
+          NewOps[0] == RepOp && NewOps[1] == RepOp)
         return Constant::getNullValue(I->getType());
-      }
 
       // If we are substituting an absorber constant into a binop and extra
       // poison can't leak if we remove the select -- because both operands of
@@ -4312,18 +4329,20 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
       // (Op == 0) ? 0 : (Op & -Op)            --> Op & -Op
       // (Op == 0) ? 0 : (Op * (binop Op, C))  --> Op * (binop Op, C)
       // (Op == -1) ? -1 : (Op | (binop C, Op) --> Op | (binop C, Op)
-      if (RepOp == ConstantExpr::getBinOpAbsorber(Opcode, I->getType()) &&
+      Constant *Absorber =
+          ConstantExpr::getBinOpAbsorber(Opcode, I->getType());
+      if ((NewOps[0] == Absorber || NewOps[1] == Absorber) &&
           impliesPoison(BO, Op))
-        return RepOp;
+        return Absorber;
     }
 
-    if (auto *GEP = dyn_cast<GetElementPtrInst>(I)) {
-      // getelementptr x, 0 -> x
-      if (NewOps.size() == 2 && match(NewOps[1], m_Zero()) &&
-          !GEP->isInBounds())
+    if (isa<GetElementPtrInst>(I)) {
+      // getelementptr x, 0 -> x.
+      // This never returns poison, even if inbounds is set.
+      if (NewOps.size() == 2 && match(NewOps[1], m_Zero()))
         return NewOps[0];
     }
-  } else if (MaxRecurse) {
+  } else {
     // The simplification queries below may return the original value. Consider:
     //   %div = udiv i32 %arg, %arg2
     //   %mul = mul nsw i32 %div, %arg2
@@ -4338,7 +4357,7 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
     };
 
     return PreventSelfSimplify(
-        ::simplifyInstructionWithOperands(I, NewOps, Q, MaxRecurse - 1));
+        ::simplifyInstructionWithOperands(I, NewOps, Q, MaxRecurse));
   }
 
   // If all operands are constant after substituting Op for RepOp then we can
@@ -4883,10 +4902,8 @@ static Value *simplifyGEPInst(Type *SrcTy, Value *Ptr,
     }
   }
 
-  // For opaque pointers an all-zero GEP is a no-op. For typed pointers,
-  // it may be equivalent to a bitcast.
-  if (Ptr->getType()->getScalarType()->isOpaquePointerTy() &&
-      Ptr->getType() == GEPTy &&
+  // All-zero GEP is a no-op, unless it performs a vector splat.
+  if (Ptr->getType() == GEPTy &&
       all_of(Indices, [](const auto *V) { return match(V, m_Zero()); }))
     return Ptr;
 
@@ -4896,9 +4913,9 @@ static Value *simplifyGEPInst(Type *SrcTy, Value *Ptr,
       any_of(Indices, [](const auto *V) { return isa<PoisonValue>(V); }))
     return PoisonValue::get(GEPTy);
 
+  // getelementptr undef, idx -> undef
   if (Q.isUndefValue(Ptr))
-    // If inbounds, we can choose an out-of-bounds pointer as a base pointer.
-    return InBounds ? PoisonValue::get(GEPTy) : UndefValue::get(GEPTy);
+    return UndefValue::get(GEPTy);
 
   bool IsScalableVec =
       isa<ScalableVectorType>(SrcTy) || any_of(Indices, [](const Value *V) {
@@ -5550,7 +5567,7 @@ simplifyFAddInst(Value *Op0, Value *Op1, FastMathFlags FMF,
   // fadd X, 0 ==> X, when we know X is not -0
   if (canIgnoreSNaN(ExBehavior, FMF))
     if (match(Op1, m_PosZeroFP()) &&
-        (FMF.noSignedZeros() || CannotBeNegativeZero(Op0, Q.TLI)))
+        (FMF.noSignedZeros() || cannotBeNegativeZero(Op0, Q.DL, Q.TLI)))
       return Op0;
 
   if (!isDefaultFPEnvironment(ExBehavior, Rounding))
@@ -5612,7 +5629,7 @@ simplifyFSubInst(Value *Op0, Value *Op1, FastMathFlags FMF,
   // fsub X, -0 ==> X, when we know X is not -0
   if (canIgnoreSNaN(ExBehavior, FMF))
     if (match(Op1, m_NegZeroFP()) &&
-        (FMF.noSignedZeros() || CannotBeNegativeZero(Op0, Q.TLI)))
+        (FMF.noSignedZeros() || cannotBeNegativeZero(Op0, Q.DL, Q.TLI)))
       return Op0;
 
   // fsub -0.0, (fsub -0.0, X) ==> X
@@ -6156,6 +6173,15 @@ static Value *simplifyUnaryIntrinsic(Function *F, Value *Op0,
     if (isSplatValue(Op0))
       return Op0;
     break;
+  case Intrinsic::frexp: {
+    // Frexp is idempotent with the added complication of the struct return.
+    if (match(Op0, m_ExtractValue<0>(m_Value(X)))) {
+      if (match(X, m_Intrinsic<Intrinsic::frexp>(m_Value())))
+        return X;
+    }
+
+    break;
+  }
   default:
     break;
   }

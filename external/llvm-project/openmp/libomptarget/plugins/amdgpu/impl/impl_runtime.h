@@ -10,7 +10,21 @@
 
 #include "hsa_api.h"
 
+#ifdef __cplusplus
 extern "C" {
+#endif
+
+// wait for signal to turn to success
+hsa_status_t wait_for_signal(hsa_signal_t signal, hsa_signal_value_t init,
+                             hsa_signal_value_t success);
+hsa_status_t wait_for_signal_kernel(hsa_signal_t signal,
+                                    hsa_signal_value_t init,
+                                    hsa_signal_value_t success);
+hsa_status_t wait_for_signal_data(hsa_signal_t signal, hsa_signal_value_t init,
+                                  hsa_signal_value_t success);
+hsa_status_t wait_for_signal_active(hsa_signal_t signal,
+                                    hsa_signal_value_t init,
+                                    hsa_signal_value_t success);
 
 // Check if pointer ptr is already locked
 hsa_status_t is_locked(void *ptr, void **agentBaseAddress);
@@ -24,11 +38,15 @@ hsa_status_t impl_module_register_from_memory_to_place(
 hsa_status_t impl_memcpy_h2d(hsa_signal_t signal, void *deviceDest,
                              void *hostSrc, size_t size,
                              hsa_agent_t device_agent,
-                             hsa_amd_memory_pool_t MemoryPool);
+                             hsa_amd_memory_pool_t MemoryPool,
+                             bool *user_locked);
 
 hsa_status_t impl_memcpy_d2h(hsa_signal_t sig, void *hostDest, void *deviceSrc,
                              size_t size, hsa_agent_t device_agent,
-                             hsa_amd_memory_pool_t MemoryPool);
-}
+                             hsa_amd_memory_pool_t MemoryPool,
+                             bool *user_locked);
 
+#ifdef __cplusplus
+}
+#endif
 #endif // INCLUDE_IMPL_RUNTIME_H_

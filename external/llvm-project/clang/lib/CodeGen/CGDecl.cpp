@@ -447,6 +447,12 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // If this value has an initializer, emit it.
   if (D.getInit() && !isCudaSharedVar)
     var = AddInitializerToStaticVarDecl(D, var);
+  // amdgcn does not support initializers in LDS
+  if ((var->getType()->getAddressSpace() ==
+       CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared)) &&
+      (CGM.getContext().getTargetInfo().getTriple().isAMDGCN()))
+    var->setInitializer(
+        llvm::UndefValue::get(var->getValueType()));
 
   var->setAlignment(alignment.getAsAlign());
 
@@ -468,6 +474,9 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   if (D.hasAttr<RetainAttr>())
     CGM.addUsedGlobal(var);
   else if (D.hasAttr<UsedAttr>())
+    CGM.addUsedOrCompilerUsedGlobal(var);
+
+  if (CGM.getCodeGenOpts().KeepPersistentStorageVariables)
     CGM.addUsedOrCompilerUsedGlobal(var);
 
   // We may have to cast the constant because of the initializer
@@ -578,6 +587,16 @@ namespace {
       llvm::Value *V = CGF.Builder.CreateLoad(Stack);
       llvm::Function *F = CGF.CGM.getIntrinsic(llvm::Intrinsic::stackrestore);
       CGF.Builder.CreateCall(F, V);
+    }
+  };
+
+  struct KmpcAllocFree final : EHScopeStack::Cleanup {
+    std::pair<llvm::Value *, llvm::Value *> AddrSizePair;
+    KmpcAllocFree(const std::pair<llvm::Value *, llvm::Value *> &AddrSizePair)
+        : AddrSizePair(AddrSizePair) {}
+    void Emit(CodeGenFunction &CGF, Flags EmissionFlags) override {
+      auto &RT = CGF.CGM.getOpenMPRuntime();
+      RT.getKmpcFreeShared(CGF, AddrSizePair);
     }
   };
 
@@ -1583,28 +1602,59 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
   } else {
     EnsureInsertPoint();
 
-    if (!DidCallStackSave) {
-      // Save the stack.
-      Address Stack =
-        CreateTempAlloca(Int8PtrTy, getPointerAlign(), "saved_stack");
+    // Delayed globalization for variable length declarations. This ensures that
+    // the expression representing the length has been emitted and can be used
+    // by the definition of the VLA. Since this is an escaped declaration, in
+    // OpenMP we have to use a call to __kmpc_alloc_shared(). The matching
+    // deallocation call to __kmpc_free_shared() is emitted later.
+    bool VarAllocated = false;
+    if (getLangOpts().OpenMPIsTargetDevice) {
+      auto &RT = CGM.getOpenMPRuntime();
+      if (RT.isDelayedVariableLengthDecl(*this, &D)) {
+        // Emit call to __kmpc_alloc_shared() instead of the alloca.
+        std::pair<llvm::Value *, llvm::Value *> AddrSizePair =
+            RT.getKmpcAllocShared(*this, &D);
 
-      llvm::Function *F = CGM.getIntrinsic(llvm::Intrinsic::stacksave);
-      llvm::Value *V = Builder.CreateCall(F);
-      Builder.CreateStore(V, Stack);
+        // Save the address of the allocation:
+        LValue Base = MakeAddrLValue(AddrSizePair.first, D.getType(),
+                                     CGM.getContext().getDeclAlign(&D),
+                                     AlignmentSource::Decl);
+        address = Base.getAddress(*this);
 
-      DidCallStackSave = true;
+        // Push a cleanup block to emit the call to __kmpc_free_shared in the
+        // appropriate location at the end of the scope of the
+        // __kmpc_alloc_shared functions:
+        pushKmpcAllocFree(NormalCleanup, AddrSizePair);
 
-      // Push a cleanup block and restore the stack there.
-      // FIXME: in general circumstances, this should be an EH cleanup.
-      pushStackRestore(NormalCleanup, Stack);
+        // Mark variable as allocated:
+        VarAllocated = true;
+      }
     }
 
-    auto VlaSize = getVLASize(Ty);
-    llvm::Type *llvmTy = ConvertTypeForMem(VlaSize.Type);
+    if (!VarAllocated) {
+      if (!DidCallStackSave) {
+        // Save the stack.
+        Address Stack =
+            CreateTempAlloca(Int8PtrTy, getPointerAlign(), "saved_stack");
 
-    // Allocate memory for the array.
-    address = CreateTempAlloca(llvmTy, alignment, "vla", VlaSize.NumElts,
-                               &AllocaAddr);
+        llvm::Function *F = CGM.getIntrinsic(llvm::Intrinsic::stacksave);
+        llvm::Value *V = Builder.CreateCall(F);
+        Builder.CreateStore(V, Stack);
+
+        DidCallStackSave = true;
+
+        // Push a cleanup block and restore the stack there.
+        // FIXME: in general circumstances, this should be an EH cleanup.
+        pushStackRestore(NormalCleanup, Stack);
+      }
+
+      auto VlaSize = getVLASize(Ty);
+      llvm::Type *llvmTy = ConvertTypeForMem(VlaSize.Type);
+
+      // Allocate memory for the array.
+      address = CreateTempAlloca(llvmTy, alignment, "vla", VlaSize.NumElts,
+                                 &AllocaAddr);
+    }
 
     // If we have debug info enabled, properly describe the VLA dimensions for
     // this type by registering the vla size expression for each of the
@@ -1618,16 +1668,27 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
 
   // Emit debug info for local var declaration.
   if (EmitDebugInfo && HaveInsertPoint()) {
-    Address DebugAddr = address;
-    bool UsePointerValue = NRVO && ReturnValuePointer.isValid();
     DI->setLocation(D.getLocation());
 
-    // If NRVO, use a pointer to the return address.
+    // Even for NRVO, we may not have ReturnValuePointer if the sret parameter
+    // is also byval.
+    bool UsePointerValue = NRVO && ReturnValuePointer.isValid();
+    Address DebugAddr = Address::invalid();
     if (UsePointerValue) {
       DebugAddr = ReturnValuePointer;
-      AllocaAddr = ReturnValuePointer;
+    } else {
+      // We are either in an alloca, and AllocaAddr is valid, or we are in:
+      // * An sret+byval NRVO return parameter.
+      // * A runtime-managed OpenMP allocation.
+      // FIXME: The assert condition here is overly broad.
+      // FIXME: Can the cases where OpenMP requires this be eliminated?
+      assert(AllocaAddr.isValid() || NRVO ||
+             getLangOpts().OpenMP &&
+                 "Expected either an alloca, sret+byval NRVO parameter, or "
+                 "OpenMP runtime allocation.");
+      DebugAddr = AllocaAddr.isValid() ? AllocaAddr : address;
     }
-    (void)DI->EmitDeclareOfAutoVariable(&D, AllocaAddr.getPointer(), Builder,
+    (void)DI->EmitDeclareOfAutoVariable(&D, DebugAddr.getPointer(), Builder,
                                         UsePointerValue);
   }
 
@@ -2141,6 +2202,11 @@ void CodeGenFunction::pushStackRestore(CleanupKind Kind, Address SPMem) {
   EHStack.pushCleanup<CallStackRestore>(Kind, SPMem);
 }
 
+void CodeGenFunction::pushKmpcAllocFree(
+    CleanupKind Kind, std::pair<llvm::Value *, llvm::Value *> AddrSizePair) {
+  EHStack.pushCleanup<KmpcAllocFree>(Kind, AddrSizePair);
+}
+
 void CodeGenFunction::pushLifetimeExtendedDestroy(CleanupKind cleanupKind,
                                                   Address addr, QualType type,
                                                   Destroyer *destroyer,
@@ -2478,7 +2544,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
   }
 
   Address DeclPtr = Address::invalid();
-  Address AllocaPtr = Address::invalid();
+  Address DebugPtr = Address::invalid();
   bool DoStore = false;
   bool IsScalar = hasScalarEvaluationKind(Ty);
   bool UseIndirectDebugAddress = false;
@@ -2486,12 +2552,17 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
   // If we already have a pointer to the argument, reuse the input pointer.
   if (Arg.isIndirect()) {
     DeclPtr = Arg.getIndirectAddress();
+    if (auto DebugAddr = Arg.getDebugAddr())
+      DebugPtr = *DebugAddr;
+    else
+      DebugPtr = DeclPtr;
     DeclPtr = DeclPtr.withElementType(ConvertTypeForMem(Ty));
     // Indirect argument is in alloca address space, which may be different
     // from the default address space.
     auto AllocaAS = CGM.getASTAllocaAddressSpace();
     auto *V = DeclPtr.getPointer();
-    AllocaPtr = DeclPtr;
+
+    DebugPtr = DeclPtr;
 
     // For truly ABI indirect arguments -- those that are not `byval` -- store
     // the address of the argument on the stack to preserve debug information.
@@ -2500,9 +2571,10 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
       UseIndirectDebugAddress = !ArgInfo.getIndirectByVal();
     if (UseIndirectDebugAddress) {
       auto PtrTy = getContext().getPointerType(Ty);
-      AllocaPtr = CreateMemTemp(PtrTy, getContext().getTypeAlignInChars(PtrTy),
-                                D.getName() + ".indirect_addr");
-      EmitStoreOfScalar(V, AllocaPtr, /* Volatile */ false, PtrTy);
+      Address StackHomedPtr =
+          CreateMemTemp(PtrTy, getContext().getTypeAlignInChars(PtrTy),
+                        D.getName() + ".indirect_addr", &DebugPtr);
+      EmitStoreOfScalar(V, StackHomedPtr, /* Volatile */ false, PtrTy);
     }
 
     auto SrcLangAS = getLangOpts().OpenCL ? LangAS::opencl_private : AllocaAS;
@@ -2541,12 +2613,11 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
             ? CGM.getOpenMPRuntime().getAddressOfLocalVariable(*this, &D)
             : Address::invalid();
     if (getLangOpts().OpenMP && OpenMPLocalAddr.isValid()) {
-      DeclPtr = OpenMPLocalAddr;
-      AllocaPtr = DeclPtr;
+      DeclPtr = DebugPtr = OpenMPLocalAddr;
     } else {
       // Otherwise, create a temporary to hold the value.
       DeclPtr = CreateMemTemp(Ty, getContext().getDeclAlign(&D),
-                              D.getName() + ".addr", &AllocaPtr);
+                              D.getName() + ".addr", &DebugPtr);
     }
     DoStore = true;
   }
@@ -2623,7 +2694,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
     if (CGM.getCodeGenOpts().hasReducedDebugInfo() && !CurFuncIsThunk &&
         !NoDebugInfo) {
       llvm::DILocalVariable *DILocalVar = DI->EmitDeclareOfArgVariable(
-          &D, AllocaPtr.getPointer(), ArgNo, Builder, UseIndirectDebugAddress);
+          &D, DebugPtr.getPointer(), ArgNo, Builder, UseIndirectDebugAddress);
       if (const auto *Var = dyn_cast_or_null<ParmVarDecl>(&D))
         DI->getParamDbgMappings().insert({Var, DILocalVar});
     }

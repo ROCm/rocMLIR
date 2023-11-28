@@ -18,41 +18,6 @@ def get_required_attr(config, attr_name):
         )
     return attr_value
 
-
-def push_dynamic_library_lookup_path(config, new_path):
-    if platform.system() == "Windows":
-        dynamic_library_lookup_var = "PATH"
-    elif platform.system() == "Darwin":
-        dynamic_library_lookup_var = "DYLD_LIBRARY_PATH"
-    else:
-        dynamic_library_lookup_var = "LD_LIBRARY_PATH"
-
-    new_ld_library_path = os.path.pathsep.join(
-        (new_path, config.environment.get(dynamic_library_lookup_var, ""))
-    )
-    config.environment[dynamic_library_lookup_var] = new_ld_library_path
-
-    if platform.system() == "FreeBSD":
-        dynamic_library_lookup_var = "LD_32_LIBRARY_PATH"
-        new_ld_32_library_path = os.path.pathsep.join(
-            (new_path, config.environment.get(dynamic_library_lookup_var, ""))
-        )
-        config.environment[dynamic_library_lookup_var] = new_ld_32_library_path
-
-    if platform.system() == "SunOS":
-        dynamic_library_lookup_var = "LD_LIBRARY_PATH_32"
-        new_ld_library_path_32 = os.path.pathsep.join(
-            (new_path, config.environment.get(dynamic_library_lookup_var, ""))
-        )
-        config.environment[dynamic_library_lookup_var] = new_ld_library_path_32
-
-        dynamic_library_lookup_var = "LD_LIBRARY_PATH_64"
-        new_ld_library_path_64 = os.path.pathsep.join(
-            (new_path, config.environment.get(dynamic_library_lookup_var, ""))
-        )
-        config.environment[dynamic_library_lookup_var] = new_ld_library_path_64
-
-
 # Setup config name.
 config.name = "AddressSanitizer" + config.name_suffix
 
@@ -285,15 +250,6 @@ if (
 ):
     config.available_features.add("leak-detection")
 
-# Set LD_LIBRARY_PATH to pick dynamic runtime up properly.
-push_dynamic_library_lookup_path(config, config.compiler_rt_libdir)
-
-# GCC-ASan uses dynamic runtime by default.
-if config.compiler_id == "GNU":
-    gcc_dir = os.path.dirname(config.clang)
-    libasan_dir = os.path.join(gcc_dir, "..", "lib" + config.bits)
-    push_dynamic_library_lookup_path(config, libasan_dir)
-
 # Add the RT libdir to PATH directly so that we can successfully run the gtest
 # binary to list its tests.
 if config.host_os == "Windows" and config.asan_dynamic:
@@ -325,3 +281,46 @@ if not config.parallelism_group:
 
 if config.host_os == "NetBSD":
     config.substitutions.insert(0, ("%run", config.netbsd_noaslr_prefix))
+
+# Find ROCM runtime and compiler paths only
+# when built with -DSANITIZER_AMDGPU=1
+def configure_rocm(config, test_rocm_path):
+    if (not os.path.isdir(test_rocm_path)):
+        print("no directory found")
+        test_rocm_path = os.path.join('/opt','rocm')
+        if (not os.path.isdir(test_rocm_path)):
+            test_rocm_path = os.path.abspath(os.path.join(config.llvm_install_dir, os.pardir))
+            if (not os.path.isdir(test_rocm_path)):
+                sys.exit("ROCM installation not found, try exporting ASAN_TEST_ROCM variable")
+
+    test_device_libs  = os.path.join(test_rocm_path, 'amdgcn', 'bitcode')
+    test_hip_path     = os.path.join(test_rocm_path, 'hip')
+    hipcc             = os.path.join(test_hip_path, 'bin', 'hipcc')
+
+    build_clang = getattr(config, 'clang', None)
+    build_clang = build_clang.lstrip()
+    build_clang = build_clang.rstrip()
+    test_clang_path = os.path.dirname(build_clang)
+
+    def hip_build_invocation(hipcc, compile_flags):
+        return ' ' + ' '.join([hipcc] + compile_flags) + ' ' # append extra space to avoid concat issue in shell
+
+    hipcxx_sanitize_options = ["-fsanitize=address", "-shared-libsan", "-fgpu-sanitize"]
+
+    config.substitutions.append(
+        ('%hipcompiler',
+        hip_build_invocation(hipcc, config.cxx_mode_flags + [config.target_cflags] + hipcxx_sanitize_options)))
+
+    #ROCM SPECIFIC ENVIRONMENT VARIABLES
+    device_library_path    = 'DEVICE_LIB_PATH=' + test_device_libs
+    hip_path               = 'HIP_PATH='        + test_hip_path
+    rocm_path              = 'ROCM_PATH='       + test_rocm_path
+    clang_path             = 'HIP_CLANG_PATH='  + test_clang_path
+    rocm_environment       = [device_library_path, hip_path, rocm_path, clang_path]
+    export_rocm_components = 'export ' + ' '.join(rocm_environment)
+    config.substitutions.append(('%ROCM_ENV', export_rocm_components))
+    config.suffixes.append('.hip')
+
+test_rocm_path = os.environ.get('ASAN_TEST_ROCM','null')
+if config.support_amd_offload_tests == 'true':
+    configure_rocm(config, test_rocm_path)

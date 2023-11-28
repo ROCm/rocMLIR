@@ -486,6 +486,11 @@ bool AsmPrinter::doInitialization(Module &M) {
     }
   }
 
+  // On AIX, emit bytes for llvm.commandline metadata after .file so that the
+  // C_INFO symbol is preserved if any csect is kept by the linker.
+  if (TM.getTargetTriple().isOSBinFormatXCOFF())
+    emitModuleCommandLines(M);
+
   GCModuleInfo *MI = getAnalysisIfAvailable<GCModuleInfo>();
   assert(MI && "AsmPrinter didn't require GCModuleInfo?");
   for (const auto &I : *MI)
@@ -725,8 +730,8 @@ void AsmPrinter::emitGlobalVariable(const GlobalVariable *GV) {
 
     if (T.getArch() != Triple::aarch64 || !T.isAndroid())
       OutContext.reportError(SMLoc(),
-                             "Tagged symbols (-fsanitize=memtag-globals) are "
-                             "only supported on aarch64 + Android.");
+                             "tagged symbols (-fsanitize=memtag-globals) are "
+                             "only supported on AArch64 Android");
     OutStreamer->emitSymbolAttribute(EmittedSym, MAI->getMemtagAttr());
   }
 
@@ -1257,6 +1262,31 @@ static bool emitDebugLabelComment(const MachineInstr *MI, AsmPrinter &AP) {
   return true;
 }
 
+/// This method handles the target-independent form
+/// of DBG_DEF, returning true if it was able to do so.  A false return
+/// means the target will need to handle MI in EmitInstruction.
+bool AsmPrinter::emitDebugComment(const MachineInstr *MI) {
+  assert(MI->isDebugInstr());
+
+  if (!isVerbose())
+    return true;
+
+  switch(MI->getOpcode()) {
+      case TargetOpcode::DBG_DEF:
+      case TargetOpcode::DBG_KILL:
+        // FIXME(KZHURAVL): Implement for def/kill.
+        return true;
+      case TargetOpcode::DBG_VALUE:
+      case TargetOpcode::DBG_VALUE_LIST:
+        return emitDebugValueComment(MI, *this);
+      case TargetOpcode::DBG_LABEL:
+        return emitDebugLabelComment(MI, *this);
+      default:
+        break;
+  }
+  return false;
+}
+
 AsmPrinter::CFISection
 AsmPrinter::getFunctionCFISectionType(const Function &F) const {
   // Ignore functions that won't get emitted.
@@ -1681,11 +1711,13 @@ void AsmPrinter::emitFunctionBody() {
       case TargetOpcode::INLINEASM_BR:
         emitInlineAsm(&MI);
         break;
+      case TargetOpcode::DBG_DEF:
+      case TargetOpcode::DBG_KILL:
       case TargetOpcode::DBG_VALUE:
       case TargetOpcode::DBG_VALUE_LIST:
-        if (isVerbose()) {
-          if (!emitDebugValueComment(&MI, *this))
-            emitInstruction(&MI);
+      case TargetOpcode::DBG_LABEL:
+        if(!emitDebugComment(&MI)) {
+          emitInstruction(&MI);
         }
         break;
       case TargetOpcode::DBG_INSTR_REF:
@@ -1696,12 +1728,6 @@ void AsmPrinter::emitFunctionBody() {
       case TargetOpcode::DBG_PHI:
         // This instruction is only used to label a program point, it's purely
         // meta information.
-        break;
-      case TargetOpcode::DBG_LABEL:
-        if (isVerbose()) {
-          if (!emitDebugLabelComment(&MI, *this))
-            emitInstruction(&MI);
-        }
         break;
       case TargetOpcode::IMPLICIT_DEF:
         if (isVerbose()) emitImplicitDef(&MI);
@@ -2330,7 +2356,9 @@ bool AsmPrinter::doFinalization(Module &M) {
   emitModuleIdents(M);
 
   // Emit bytes for llvm.commandline metadata.
-  emitModuleCommandLines(M);
+  // The command line metadata is emitted earlier on XCOFF.
+  if (!TM.getTargetTriple().isOSBinFormatXCOFF())
+    emitModuleCommandLines(M);
 
   // Emit .note.GNU-split-stack and .note.GNU-no-split-stack sections if
   // split-stack is used.

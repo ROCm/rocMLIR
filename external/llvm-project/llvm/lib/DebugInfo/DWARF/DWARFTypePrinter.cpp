@@ -143,9 +143,6 @@ DWARFTypePrinter::appendUnqualifiedNameBefore(DWARFDie D,
     Word = false;
     break;
   }
-  case DW_TAG_LLVM_ptrauth_type:
-    appendQualifiedNameBefore(Inner());
-    break;
   case DW_TAG_const_type:
   case DW_TAG_volatile_type:
     appendConstVolatileQualifierBefore(D);
@@ -241,6 +238,7 @@ void DWARFTypePrinter::appendUnqualifiedNameAfter(
                                    DW_TAG_ptr_to_member_type);
     break;
   }
+#if 0 // seems to be missing upstream patches
   case DW_TAG_LLVM_ptrauth_type: {
     auto getValOrNull = [&](dwarf::Attribute Attr) -> uint64_t {
       if (auto Form = D.find(Attr))
@@ -270,6 +268,7 @@ void DWARFTypePrinter::appendUnqualifiedNameAfter(
     OS << PtrauthStream.str();
     break;
   }
+#endif //>>>>>>> 41bdb8cd36388ccd0c020798a7b9ce9014af753c
     /*
   case DW_TAG_structure_type:
   case DW_TAG_class_type:
@@ -424,11 +423,11 @@ bool DWARFTypePrinter::appendTemplateParameters(DWARFDie D,
             OS << (char)Val;
             OS << "'";
           } else if (Val < 256)
-            OS << to_string(llvm::format("'\\x%02x'", Val));
+            OS << llvm::format("'\\x%02" PRIx64 "'", Val);
           else if (Val <= 0xFFFF)
-            OS << to_string(llvm::format("'\\u%04x'", Val));
+            OS << llvm::format("'\\u%04" PRIx64 "'", Val);
           else
-            OS << to_string(llvm::format("'\\U%08x'", Val));
+            OS << llvm::format("'\\U%08" PRIx64 "'", Val);
         }
       }
       continue;

@@ -7,9 +7,9 @@ declare x86_fastcallcc i64 @barrier()
 ;CHECK: barrier
 ;CHECK: vbroadcastss [[SPILLED]], %ymm0
 ;CHECK: ret
-define <8 x float> @bcast_fold( ptr %A) {
+define <8 x float> @bcast_fold( float* %A) {
 BB:
-  %A0 = load float, ptr %A
+  %A0 = load float, float* %A
   %tt3 = call x86_fastcallcc i64 @barrier()
   br i1 undef, label %work, label %exit
 

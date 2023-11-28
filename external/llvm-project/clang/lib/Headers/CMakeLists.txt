@@ -159,7 +159,6 @@ set(x86_files
   avx512vpopcntdqvlintrin.h
   avxifmaintrin.h
   avxintrin.h
-  avxneconvertintrin.h
   avxvnniint8intrin.h
   avxvnniintrin.h
   bmi2intrin.h
@@ -190,6 +189,9 @@ set(x86_files
   movdirintrin.h
   mwaitxintrin.h
   nmmintrin.h
+  omp_libmextras.h
+  opencl-c.h
+  opencl-c-base.h
   pconfigintrin.h
   pkuintrin.h
   pmmintrin.h
@@ -296,6 +298,8 @@ set(openmp_wrapper_files
   openmp_wrappers/__clang_openmp_device_functions.h
   openmp_wrappers/complex_cmath.h
   openmp_wrappers/new
+  openmp_wrappers/hip/hip_runtime.h
+  openmp_wrappers/usm/force_usm.h
 )
 
 include(GetClangResourceDir)

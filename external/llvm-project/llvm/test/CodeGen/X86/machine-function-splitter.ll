@@ -2,6 +2,10 @@
 ; RUN: llc < %s -mtriple=x86_64-unknown-linux-gnu -split-machine-functions -mfs-psi-cutoff=0 -mfs-count-threshold=2000 | FileCheck %s --dump-input=always -check-prefix=MFS-OPTS1
 ; RUN: llc < %s -mtriple=x86_64-unknown-linux-gnu -split-machine-functions -mfs-psi-cutoff=950000 | FileCheck %s -check-prefix=MFS-OPTS2
 ; RUN: llc < %s -mtriple=x86_64-unknown-linux-gnu -split-machine-functions -mfs-split-ehcode | FileCheck %s -check-prefix=MFS-EH-SPLIT
+; RUN: sed 's/InstrProf/SampleProfile/g' %s > %t.ll
+; RUN: llc < %t.ll -mtriple=x86_64-unknown-linux-gnu -split-machine-functions | FileCheck %s --check-prefix=FSAFDO-MFS
+; RUN: llc < %t.ll -mtriple=x86_64-unknown-linux-gnu -split-machine-functions | FileCheck %s --check-prefix=FSAFDO-MFS2
+
 define void @foo1(i1 zeroext %0) nounwind !prof !14 !section_prefix !15 {
 ;; Check that cold block is moved to .text.split.
 ; MFS-DEFAULTS-LABEL: foo1
@@ -149,7 +153,7 @@ define void @foo6(i1 zeroext %0) nounwind section "nosplit" !prof !14 {
   ret void
 }
 
-define i32 @foo7(i1 zeroext %0) personality ptr @__gxx_personality_v0 !prof !14 {
+define i32 @foo7(i1 zeroext %0) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) !prof !14 {
 ;; Check that a single cold ehpad is split out.
 ; MFS-DEFAULTS-LABEL: foo7
 ; MFS-DEFAULTS:       .section        .text.split.foo7,"ax",@progbits
@@ -161,10 +165,10 @@ entry:
           to label %try.cont unwind label %lpad
 
 lpad:
-  %1 = landingpad { ptr, i32 }
+  %1 = landingpad { i8*, i32 }
           cleanup
-          catch ptr @_ZTIi
-  resume { ptr, i32 } %1
+          catch i8* bitcast (i8** @_ZTIi to i8*)
+  resume { i8*, i32 } %1
 
 try.cont:
   br i1 %0, label %2, label %4, !prof !17
@@ -182,7 +186,7 @@ try.cont:
   ret i32 %7
 }
 
-define i32 @foo8(i1 zeroext %0) personality ptr @__gxx_personality_v0 !prof !14 {
+define i32 @foo8(i1 zeroext %0) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) !prof !14 {
 ;; Check that all ehpads are treated as hot if one of them is hot.
 ; MFS-DEFAULTS-LABEL: foo8
 ; MFS-DEFAULTS:       callq   _Unwind_Resume@PLT
@@ -203,10 +207,10 @@ entry:
           to label %try.cont unwind label %lpad1
 
 lpad1:
-  %1 = landingpad { ptr, i32 }
+  %1 = landingpad { i8*, i32 }
           cleanup
-          catch ptr @_ZTIi
-  resume { ptr, i32 } %1
+          catch i8* bitcast (i8** @_ZTIi to i8*)
+  resume { i8*, i32 } %1
 
 try.cont:
   br i1 %0, label %hot, label %cold, !prof !17
@@ -217,10 +221,10 @@ hot:
           to label %exit unwind label %lpad2, !prof !21
 
 lpad2:
-  %3 = landingpad { ptr, i32 }
+  %3 = landingpad { i8*, i32 }
           cleanup
-          catch ptr @_ZTIi
-  resume { ptr, i32 } %3
+          catch i8* bitcast (i8** @_ZTIi to i8*)
+  resume { i8*, i32 } %3
 
 cold:
   %4 = call i32 @baz()
@@ -368,6 +372,66 @@ try.cont:                                        ; preds = %entry
   ret i32 %8
 }
 
+define void @foo14(i1 zeroext %0, i1 zeroext %1) nounwind !prof !24 {
+; FSAFDO-MFS: .section	.text.split.foo14,"ax"
+; FSAFDO-MFS: foo14.cold:
+  br i1 %0, label %3, label %7, !prof !25
+
+3:
+  %4 = call i32 @bar()
+  br label %7
+
+5:
+  %6 = call i32 @baz()
+  br label %7
+
+7:
+  br i1 %1, label %8, label %10, !prof !26
+
+8:
+  %9 = call i32 @bam()
+  br label %12
+
+10:
+  %11 = call i32 @baz()
+  br label %12
+
+12:
+  %13 = tail call i32 @qux()
+  ret void
+}
+
+define void @foo15(i1 zeroext %0, i1 zeroext %1) nounwind !prof !27 {
+;; HasAccurateProfile is false, foo15 is hot, but no profile data for
+;; blocks, no split should happen.
+; FSAFDO-MFS2-NOT: .section	.text.split.foo15,"ax"
+; FSAFDO-MFS2-NOT: foo15.cold:
+  br i1 %0, label %3, label %7
+
+3:
+  %4 = call i32 @bar()
+  br label %7
+
+5:
+  %6 = call i32 @baz()
+  br label %7
+
+7:
+  br i1 %1, label %8, label %10
+
+8:
+  %9 = call i32 @bam()
+  br label %12
+
+10:
+  %11 = call i32 @baz()
+  br label %12
+
+12:
+  %13 = tail call i32 @qux()
+  ret void
+}
+
 declare i32 @bar()
 declare i32 @baz()
 declare i32 @bam()
@@ -375,7 +439,7 @@ declare i32 @qux()
 declare void @_Z1fv()
 declare i32 @__gxx_personality_v0(...)
 
-@_ZTIi = external constant ptr
+@_ZTIi = external constant i8*
 
 attributes #0 = { "implicit-section-name"="nosplit" }
 
@@ -404,3 +468,7 @@ attributes #0 = { "implicit-section-name"="nosplit" }
 !21 = !{!"branch_weights", i32 6000, i32 4000}
 !22 = !{!"branch_weights", i32 80, i32 9920}
 !23 = !{!"function_entry_count", i64 7}
+!24 = !{!"function_entry_count", i64 10000}
+!25 = !{!"branch_weights", i32 0, i32 7000}
+!26 = !{!"branch_weights", i32 1000, i32 6000}
+!27 = !{!"function_entry_count", i64 10000}

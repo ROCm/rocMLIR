@@ -26,6 +26,16 @@ Non-comprehensive list of changes in this release
 ELF Improvements
 ----------------
 
+* ``ELFCOMPRESS_ZSTD`` compressed input sections are now supported.
+  (`D129406 <https://reviews.llvm.org/D129406>`_)
+* ``--compress-debug-sections=zstd`` is now available to compress debug
+  sections with zstd (``ELFCOMPRESS_ZSTD``).
+  (`D133548 <https://reviews.llvm.org/D133548>`_)
+* ``--no-warnings``/``-w`` is now available to suppress warnings.
+  (`D136569 <https://reviews.llvm.org/D136569>`_)
+* ``DT_RISCV_VARIANT_CC`` is now produced if at least one ``R_RISCV_JUMP_SLOT``
+  relocation references a symbol with the ``STO_RISCV_VARIANT_CC`` bit.
+  (`D107951 <https://reviews.llvm.org/D107951>`_)
 * ``--remap-inputs=`` and ``--remap-inputs-file=`` are added to remap input files.
   (`D148859 <https://reviews.llvm.org/D148859>`_)
 * ``PT_RISCV_ATTRIBUTES`` is added to include the SHT_RISCV_ATTRIBUTES section.
@@ -36,6 +46,18 @@ Breaking changes
 
 COFF Improvements
 -----------------
+
+* lld-link can now find libraries with relative paths that are relative to
+  `/libpath`. Before it would only be able to find libraries relative to the
+  current directory.
+  I.e. ``lld-link /libpath:c:\relative\root relative\path\my.lib`` where before
+  we would have to do ``lld-link /libpath:c:\relative\root\relative\path my.lib``
+* lld-link learned -print-search-paths that will print all the paths where it will
+  search for libraries.
+* By default lld-link will now search for libraries in the toolchain directories.
+  Specifically it will search:
+  ``<toolchain>/lib``, ``<toolchain>/lib/clang/<version>/lib`` and
+  ``<toolchain>/lib/clang/<version>/lib/windows``.
 
 MinGW Improvements
 ------------------

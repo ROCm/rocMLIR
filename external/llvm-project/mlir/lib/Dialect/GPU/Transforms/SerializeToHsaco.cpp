@@ -52,6 +52,7 @@
 #include "llvm/Support/Process.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/WithColor.h"
 
 #include "llvm/Target/TargetMachine.h"
@@ -59,7 +60,6 @@
 
 #include "llvm/Transforms/IPO/Internalize.h"
 
-#include <mutex>
 #include <optional>
 
 LLD_HAS_DRIVER(elf)
@@ -69,7 +69,7 @@ using namespace mlir;
 namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
-  static std::once_flag initializeBackendOnce;
+  static llvm::once_flag initializeBackendOnce;
 
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SerializeToHsacoPass)
@@ -132,13 +132,13 @@ static void maybeSetOption(Pass::Option<std::string> &option,
     option = getValue();
 }
 
-std::once_flag SerializeToHsacoPass::initializeBackendOnce;
+llvm::once_flag SerializeToHsacoPass::initializeBackendOnce;
 
 SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
                                            StringRef features, int optLevel) {
   // No matter how this pass is constructed, ensure that the AMDGPU backend
   // is initialized exactly once.
-  std::call_once(initializeBackendOnce, []() {
+  llvm::call_once(initializeBackendOnce, []() {
     // Initialize LLVM AMDGPU backend.
     LLVMInitializeAMDGPUAsmParser();
     LLVMInitializeAMDGPUAsmPrinter();
@@ -301,7 +301,7 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
 
     // This constant must always match the default code object ABI version
     // of the AMDGPU backend.
-    addControlConstant("__oclc_ABI_version", 400, 32);
+    addControlConstant("__oclc_ABI_version", 500, 32);
   }
 
   // Determine libraries we need to link - order matters due to dependencies

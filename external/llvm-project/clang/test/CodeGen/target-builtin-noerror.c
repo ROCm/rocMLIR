@@ -124,7 +124,6 @@ void verifycpustrings(void) {
   (void)__builtin_cpu_is("rocketlake");
   (void)__builtin_cpu_is("sandybridge");
   (void)__builtin_cpu_is("shanghai");
-  (void)__builtin_cpu_is("sierraforest");
   (void)__builtin_cpu_is("silvermont");
   (void)__builtin_cpu_is("skylake");
   (void)__builtin_cpu_is("skylake-avx512");

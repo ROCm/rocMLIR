@@ -11,11 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <omptarget.h>
+
 #include "device.h"
 #include "omptarget.h"
 #include "private.h"
 #include "rtl.h"
 
+#include <stdarg.h>
 #include "Utilities.h"
 
 #include <cassert>
@@ -23,6 +26,88 @@
 #include <cstdlib>
 #include <mutex>
 #include <type_traits>
+
+#ifdef OMPT_SUPPORT
+#include "ompt_callback.h"
+
+#define OMPT_IF_ENABLED(stmts)                                                 \
+  do {                                                                         \
+    if (ompt_enabled) {                                                        \
+      stmts                                                                    \
+    }                                                                          \
+  } while (0)
+#else
+#define OMPT_IF_ENABLED(stmts)
+#endif
+
+/// Holds information to delay OMPT call after device initialization
+class OMPTInvokeWrapper {
+public:
+  OMPTInvokeWrapper()
+      : IsNullOpt(true), CodePtr(nullptr), ReturnFramePtr(nullptr),
+        DeviceId(-1), Kind(ompt_target) {}
+  OMPTInvokeWrapper(void *CodePtr, void *ReturnFramePtr, int64_t DeviceId,
+                    ompt_target_t Kind)
+      : IsNullOpt(false), CodePtr(CodePtr), ReturnFramePtr(ReturnFramePtr),
+        DeviceId(DeviceId), Kind(Kind) {}
+
+  void setDeviceId(int64_t DevId) { DeviceId = DevId; }
+
+  void invokeBegin() {
+    if (IsNullOpt)
+      return;
+
+    ompt_interface.ompt_state_set(ReturnFramePtr, CodePtr);
+    switch (Kind) {
+    case ompt_target_enter_data:
+    case ompt_target_enter_data_nowait:
+      ompt_interface.target_data_enter_begin(DeviceId, CodePtr);
+      break;
+    case ompt_target_exit_data:
+    case ompt_target_exit_data_nowait:
+      ompt_interface.target_data_exit_begin(DeviceId, CodePtr);
+      break;
+    case ompt_target_update:
+    case ompt_target_update_nowait:
+      ompt_interface.target_update_begin(DeviceId, CodePtr);
+      break;
+    }
+    ompt_interface.target_trace_record_gen(DeviceId, Kind, ompt_scope_begin,
+                                           CodePtr);
+  }
+
+  void invokeEnd() {
+    if (IsNullOpt)
+      return;
+
+    ompt_interface.ompt_state_set(ReturnFramePtr, CodePtr);
+    // The trace record must be written out before invoking the callback
+    // interface. This is because the end-callback interface resets metadata.
+    ompt_interface.target_trace_record_gen(DeviceId, Kind, ompt_scope_end,
+                                           CodePtr);
+    switch (Kind) {
+    case ompt_target_enter_data:
+    case ompt_target_enter_data_nowait:
+      ompt_interface.target_data_enter_end(DeviceId, CodePtr);
+      break;
+    case ompt_target_exit_data:
+    case ompt_target_exit_data_nowait:
+      ompt_interface.target_data_exit_end(DeviceId, CodePtr);
+      break;
+    case ompt_target_update:
+    case ompt_target_update_nowait:
+      ompt_interface.target_update_end(DeviceId, CodePtr);
+      break;
+    }
+  }
+
+private:
+  bool IsNullOpt;
+  void *CodePtr;
+  void *ReturnFramePtr;
+  int64_t DeviceId;
+  ompt_target_t Kind;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 /// adds requires flags
@@ -72,7 +157,8 @@ targetDataMapper(ident_t *Loc, int64_t DeviceId, int32_t ArgNum,
                  void **ArgsBase, void **Args, int64_t *ArgSizes,
                  int64_t *ArgTypes, map_var_info_t *ArgNames, void **ArgMappers,
                  TargetDataFuncPtrTy TargetDataFunction,
-                 const char *RegionTypeMsg, const char *RegionName) {
+                 const char *RegionTypeMsg, const char *RegionName,
+                 OMPTInvokeWrapper *OMPTInvoker) {
   static_assert(std::is_convertible_v<TargetAsyncInfoTy, AsyncInfoTy>,
                 "TargetAsyncInfoTy must be convertible to AsyncInfoTy.");
 
@@ -102,10 +188,17 @@ targetDataMapper(ident_t *Loc, int64_t DeviceId, int32_t ArgNum,
   TargetAsyncInfoTy TargetAsyncInfo(Device);
   AsyncInfoTy &AsyncInfo = TargetAsyncInfo;
 
+  // DeviceId is only valid after the call to checkDeviceAndCtors, so we update
+  // the DevicId in the Wrapper object before invoking OMPT
+  OMPT_IF_ENABLED(OMPTInvoker->setDeviceId(DeviceId);
+                  OMPTInvoker->invokeBegin(););
+
   int Rc = OFFLOAD_SUCCESS;
   Rc = TargetDataFunction(Loc, Device, ArgNum, ArgsBase, Args, ArgSizes,
                           ArgTypes, ArgNames, ArgMappers, AsyncInfo,
                           false /* FromMapper */);
+
+  OMPT_IF_ENABLED(OMPTInvoker->invokeEnd(););
 
   if (Rc == OFFLOAD_SUCCESS)
     Rc = AsyncInfo.synchronize();
@@ -123,9 +216,19 @@ EXTERN void __tgt_target_data_begin_mapper(ident_t *Loc, int64_t DeviceId,
                                            map_var_info_t *ArgNames,
                                            void **ArgMappers) {
   TIMESCOPE_WITH_IDENT(Loc);
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1,
+                             ompt_target_enter_data);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
   targetDataMapper<AsyncInfoTy>(Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes,
                                 ArgTypes, ArgNames, ArgMappers, targetDataBegin,
-                                "Entering OpenMP data region", "begin");
+                                "Entering OpenMP data region", "begin",
+                                &IWrapper);
 }
 
 EXTERN void __tgt_target_data_begin_nowait_mapper(
@@ -134,9 +237,19 @@ EXTERN void __tgt_target_data_begin_nowait_mapper(
     void **ArgMappers, int32_t DepNum, void *DepList, int32_t NoAliasDepNum,
     void *NoAliasDepList) {
   TIMESCOPE_WITH_IDENT(Loc);
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1,
+                             ompt_target_enter_data_nowait);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
   targetDataMapper<TaskAsyncInfoWrapperTy>(
       Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes, ArgTypes, ArgNames,
-      ArgMappers, targetDataBegin, "Entering OpenMP data region", "begin");
+      ArgMappers, targetDataBegin, "Entering OpenMP data region", "begin",
+      &IWrapper);
 }
 
 /// passes data from the target, releases target memory and destroys
@@ -149,9 +262,18 @@ EXTERN void __tgt_target_data_end_mapper(ident_t *Loc, int64_t DeviceId,
                                          map_var_info_t *ArgNames,
                                          void **ArgMappers) {
   TIMESCOPE_WITH_IDENT(Loc);
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1,
+                             ompt_target_exit_data);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
   targetDataMapper<AsyncInfoTy>(Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes,
                                 ArgTypes, ArgNames, ArgMappers, targetDataEnd,
-                                "Exiting OpenMP data region", "end");
+                                "Exiting OpenMP data region", "end", &IWrapper);
 }
 
 EXTERN void __tgt_target_data_end_nowait_mapper(
@@ -160,9 +282,19 @@ EXTERN void __tgt_target_data_end_nowait_mapper(
     void **ArgMappers, int32_t DepNum, void *DepList, int32_t NoAliasDepNum,
     void *NoAliasDepList) {
   TIMESCOPE_WITH_IDENT(Loc);
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1,
+                             ompt_target_exit_data_nowait);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
   targetDataMapper<TaskAsyncInfoWrapperTy>(
       Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes, ArgTypes, ArgNames,
-      ArgMappers, targetDataEnd, "Exiting OpenMP data region", "end");
+      ArgMappers, targetDataEnd, "Exiting OpenMP data region", "end",
+      &IWrapper);
 }
 
 EXTERN void __tgt_target_data_update_mapper(ident_t *Loc, int64_t DeviceId,
@@ -172,9 +304,18 @@ EXTERN void __tgt_target_data_update_mapper(ident_t *Loc, int64_t DeviceId,
                                             map_var_info_t *ArgNames,
                                             void **ArgMappers) {
   TIMESCOPE_WITH_IDENT(Loc);
-  targetDataMapper<AsyncInfoTy>(
-      Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes, ArgTypes, ArgNames,
-      ArgMappers, targetDataUpdate, "Updating OpenMP data", "update");
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1, ompt_target_update);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
+  targetDataMapper<AsyncInfoTy>(Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes,
+                                ArgTypes, ArgNames, ArgMappers,
+                                targetDataUpdate, "Updating OpenMP data",
+                                "update", &IWrapper);
 }
 
 EXTERN void __tgt_target_data_update_nowait_mapper(
@@ -183,9 +324,19 @@ EXTERN void __tgt_target_data_update_nowait_mapper(
     void **ArgMappers, int32_t DepNum, void *DepList, int32_t NoAliasDepNum,
     void *NoAliasDepList) {
   TIMESCOPE_WITH_IDENT(Loc);
+
+#ifdef OMPT_SUPPORT
+  OMPTInvokeWrapper IWrapper(OMPT_GET_RETURN_ADDRESS(0),
+                             OMPT_GET_FRAME_ADDRESS(0), -1,
+                             ompt_target_update_nowait);
+#else
+  OMPTInvokeWrapper IWrapper;
+#endif
+
   targetDataMapper<TaskAsyncInfoWrapperTy>(
       Loc, DeviceId, ArgNum, ArgsBase, Args, ArgSizes, ArgTypes, ArgNames,
-      ArgMappers, targetDataUpdate, "Updating OpenMP data", "update");
+      ArgMappers, targetDataUpdate, "Updating OpenMP data", "update",
+      &IWrapper);
 }
 
 static KernelArgsTy *upgradeKernelArgs(KernelArgsTy *KernelArgs,
@@ -245,10 +396,10 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
   KernelArgs =
       upgradeKernelArgs(KernelArgs, LocalKernelArgs, NumTeams, ThreadLimit);
 
-  assert(KernelArgs->NumTeams[0] == static_cast<uint32_t>(NumTeams) &&
-         !KernelArgs->NumTeams[1] && !KernelArgs->NumTeams[2] &&
+  assert(KernelArgs->NumTeams[0] == NumTeams && !KernelArgs->NumTeams[1] &&
+         !KernelArgs->NumTeams[2] &&
          "OpenMP interface should not use multiple dimensions");
-  assert(KernelArgs->ThreadLimit[0] == static_cast<uint32_t>(ThreadLimit) &&
+  assert(KernelArgs->ThreadLimit[0] == ThreadLimit &&
          !KernelArgs->ThreadLimit[1] && !KernelArgs->ThreadLimit[2] &&
          "OpenMP interface should not use multiple dimensions");
 
@@ -257,7 +408,7 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
                          KernelArgs->ArgSizes, KernelArgs->ArgTypes,
                          KernelArgs->ArgNames, "Entering OpenMP kernel");
 #ifdef OMPTARGET_DEBUG
-  for (uint32_t I = 0; I < KernelArgs->NumArgs; ++I) {
+  for (int I = 0; I < KernelArgs->NumArgs; ++I) {
     DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
        ", Type=0x%" PRIx64 ", Name=%s\n",
        I, DPxPTR(KernelArgs->ArgBasePtrs[I]), DPxPTR(KernelArgs->ArgPtrs[I]),
@@ -272,6 +423,14 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
   TargetAsyncInfoTy TargetAsyncInfo(Device);
   AsyncInfoTy &AsyncInfo = TargetAsyncInfo;
 
+  void *CodePtr = nullptr;
+  OMPT_IF_ENABLED(
+      CodePtr = OMPT_GET_RETURN_ADDRESS(0);
+      ompt_interface.ompt_state_set(OMPT_GET_FRAME_ADDRESS(0), CodePtr);
+      ompt_interface.target_begin(DeviceId, CodePtr);
+      ompt_interface.target_trace_record_gen(DeviceId, ompt_target,
+                                             ompt_scope_begin, CodePtr););
+
   int Rc = OFFLOAD_SUCCESS;
   Rc = target(Loc, Device, HostPtr, *KernelArgs, AsyncInfo);
 
@@ -279,6 +438,13 @@ static inline int targetKernel(ident_t *Loc, int64_t DeviceId, int32_t NumTeams,
     Rc = AsyncInfo.synchronize();
 
   handleTargetOutcome(Rc == OFFLOAD_SUCCESS, Loc);
+  assert(Rc == OFFLOAD_SUCCESS && "offload failed");
+
+  OMPT_IF_ENABLED(ompt_interface.target_trace_record_gen(
+      DeviceId, ompt_target, ompt_scope_end, CodePtr);
+                  ompt_interface.target_end(DeviceId, CodePtr);
+                  ompt_interface.ompt_state_clear(););
+
   assert(Rc == OFFLOAD_SUCCESS && "__tgt_target_kernel unexpected failure!");
 
   return OMP_TGT_SUCCESS;

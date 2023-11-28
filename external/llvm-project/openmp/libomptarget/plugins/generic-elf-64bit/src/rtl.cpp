@@ -41,6 +41,7 @@ using namespace llvm::sys;
 #include "elf_common.h"
 
 #define NUMBER_OF_DEVICES 4
+#define NUMBER_OF_TEAM_PROCS 1
 #define OFFLOAD_SECTION_NAME "omp_offloading_entries"
 
 /// Array of Dynamic libraries loaded for this target.
@@ -127,6 +128,25 @@ int32_t __tgt_rtl_is_valid_binary(__tgt_device_image *Image) {
 }
 
 int32_t __tgt_rtl_number_of_devices() { return NUMBER_OF_DEVICES; }
+
+bool __tgt_rtl_has_apu_device() { return false; }
+
+bool __tgt_rtl_has_gfx90a_device() { return false; }
+
+// __tgt_rtl_number_of_team_procs supports the ompx_get_team_procs(devid)
+// API. This is number of physical processors that can execute a teams of
+// threads in parallel WITHIN a device. For GPUs, this is the number of
+// Nvidia stream multi-processors (SMs) or AMD Compute Units (CUs) on a
+// device. For CPUs, this depends on how devices are modeled. For example,
+// if a team of threads can be dispatched to a single socket on a 4-socket
+// system modeled as 4 devices then the number of TEAM_PROCS is 1.
+// However, if same system modeled as a single device, then there are 4
+// physical processors that can execute a team of threads so the correct
+// response to ompx_get_team_procs(0) would be 4. Since number of
+// devices is defaulted to 4 above we default NUMBER_OF_TEAM_PROCS to 1.
+int32_t __tgt_rtl_number_of_team_procs(int32_t device_id) {
+  return NUMBER_OF_TEAM_PROCS;
+}
 
 int32_t __tgt_rtl_init_device(int32_t DeviceId) { return OFFLOAD_SUCCESS; }
 
@@ -254,7 +274,7 @@ int32_t __tgt_rtl_launch_kernel(int32_t DeviceId, void *TgtEntryPtr,
   std::vector<void *> Args(KernelArgs->NumArgs);
   std::vector<void *> Ptrs(KernelArgs->NumArgs);
 
-  for (uint32_t I = 0; I < KernelArgs->NumArgs; ++I) {
+  for (int32_t I = 0; I < KernelArgs->NumArgs; ++I) {
     Ptrs[I] = (void *)((intptr_t)TgtArgs[I] + TgtOffsets[I]);
     Args[I] = &Ptrs[I];
   }
@@ -273,6 +293,14 @@ int32_t __tgt_rtl_launch_kernel(int32_t DeviceId, void *TgtEntryPtr,
   *((void **)&Entry) = TgtEntryPtr;
   ffi_call(&Cif, Entry, NULL, &Args[0]);
   return OFFLOAD_SUCCESS;
+}
+
+int32_t __tgt_rtl_launch_kernel_sync(int32_t DeviceId, void *TgtEntryPtr,
+                                     void **TgtArgs, ptrdiff_t *TgtOffsets,
+                                     KernelArgsTy *KernelArgs,
+                                     __tgt_async_info *AsyncInfoPtr) {
+  return __tgt_rtl_launch_kernel(DeviceId, TgtEntryPtr, TgtArgs, TgtOffsets,
+                                 KernelArgs, AsyncInfoPtr);
 }
 
 #ifdef __cplusplus

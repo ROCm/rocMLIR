@@ -80,12 +80,13 @@ entry:
 define i32 @pr26023() minsize {
 entry:
   %x = alloca [120 x i8]
-  call void asm sideeffect "", "imr,~{memory},~{dirflag},~{fpsr},~{flags}"(ptr %x)
-  %arrayidx = getelementptr inbounds [120 x i8], ptr %x, i64 0, i64 119
-  store volatile i8 -2, ptr %arrayidx
+  %0 = getelementptr inbounds [120 x i8], [120 x i8]* %x, i64 0, i64 0
+  call void asm sideeffect "", "imr,~{memory},~{dirflag},~{fpsr},~{flags}"(i8* %0)
+  %arrayidx = getelementptr inbounds [120 x i8], [120 x i8]* %x, i64 0, i64 119
+  store volatile i8 -2, i8* %arrayidx
   call void asm sideeffect "", "r,~{dirflag},~{fpsr},~{flags}"(i32 5)
-  %0 = load volatile i8, ptr %arrayidx
-  %conv = sext i8 %0 to i32
+  %1 = load volatile i8, i8* %arrayidx
+  %conv = sext i8 %1 to i32
   ret i32 %conv
 
 ; The function writes to the redzone, so push/pop cannot be used.

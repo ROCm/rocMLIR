@@ -1628,12 +1628,6 @@ static void speculateSelectInstLoads(SelectInst &SI, LoadInst &LI,
 
   IRB.SetInsertPoint(&LI);
 
-  if (auto *TypedPtrTy = LI.getPointerOperandType();
-      !TypedPtrTy->isOpaquePointerTy() && SI.getType() != TypedPtrTy) {
-    TV = IRB.CreateBitOrPointerCast(TV, TypedPtrTy, "");
-    FV = IRB.CreateBitOrPointerCast(FV, TypedPtrTy, "");
-  }
-
   LoadInst *TL =
       IRB.CreateAlignedLoad(LI.getType(), TV, LI.getAlign(),
                             LI.getName() + ".sroa.speculate.load.true");
@@ -1702,11 +1696,6 @@ static void rewriteMemOpOfSelect(SelectInst &SI, T &I,
     }
     CondMemOp.insertBefore(NewMemOpBB->getTerminator());
     Value *Ptr = SI.getOperand(1 + SuccIdx);
-    if (auto *PtrTy = Ptr->getType();
-        !PtrTy->isOpaquePointerTy() &&
-        PtrTy != CondMemOp.getPointerOperandType())
-      Ptr = BitCastInst::CreatePointerBitCastOrAddrSpaceCast(
-          Ptr, CondMemOp.getPointerOperandType(), "", &CondMemOp);
     CondMemOp.setOperand(I.getPointerOperandIndex(), Ptr);
     if (isa<LoadInst>(I)) {
       CondMemOp.setName(I.getName() + (IsThen ? ".then" : ".else") + ".val");
@@ -1769,8 +1758,6 @@ static bool rewriteSelectInstMemOps(SelectInst &SI,
 static Value *getAdjustedPtr(IRBuilderTy &IRB, const DataLayout &DL, Value *Ptr,
                              APInt Offset, Type *PointerTy,
                              const Twine &NamePrefix) {
-  assert(Ptr->getType()->isOpaquePointerTy() &&
-         "Only opaque pointers supported");
   if (Offset != 0)
     Ptr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Ptr, IRB.getInt(Offset),
                                 NamePrefix + "sroa_idx");
@@ -2016,7 +2003,6 @@ static VectorType *isVectorPromotionViable(Partition &P, const DataLayout &DL) {
   // Collect the candidate types for vector-based promotion. Also track whether
   // we have different element types.
   SmallVector<VectorType *, 4> CandidateTys;
-  SetVector<Type *> LoadStoreTys;
   Type *CommonEltTy = nullptr;
   VectorType *CommonVecPtrTy = nullptr;
   bool HaveVecPtrTy = false;
@@ -2050,40 +2036,15 @@ static VectorType *isVectorPromotionViable(Partition &P, const DataLayout &DL) {
       }
     }
   };
-  // Put load and store types into a set for de-duplication.
-  for (const Slice &S : P) {
-    Type *Ty;
-    if (auto *LI = dyn_cast<LoadInst>(S.getUse()->getUser()))
-      Ty = LI->getType();
-    else if (auto *SI = dyn_cast<StoreInst>(S.getUse()->getUser()))
-      Ty = SI->getValueOperand()->getType();
-    else
-      continue;
-    LoadStoreTys.insert(Ty);
-    // Consider any loads or stores that are the exact size of the slice.
-    if (S.beginOffset() == P.beginOffset() && S.endOffset() == P.endOffset())
-      CheckCandidateType(Ty);
-  }
-  // Consider additional vector types where the element type size is a
-  // multiple of load/store element size.
-  for (Type *Ty : LoadStoreTys) {
-    if (!VectorType::isValidElementType(Ty))
-      continue;
-    unsigned TypeSize = DL.getTypeSizeInBits(Ty).getFixedValue();
-    // Make a copy of CandidateTys and iterate through it, because we might
-    // append to CandidateTys in the loop.
-    SmallVector<VectorType *, 4> CandidateTysCopy = CandidateTys;
-    for (VectorType *&VTy : CandidateTysCopy) {
-      unsigned VectorSize = DL.getTypeSizeInBits(VTy).getFixedValue();
-      unsigned ElementSize =
-          DL.getTypeSizeInBits(VTy->getElementType()).getFixedValue();
-      if (TypeSize != VectorSize && TypeSize != ElementSize &&
-          VectorSize % TypeSize == 0) {
-        VectorType *NewVTy = VectorType::get(Ty, VectorSize / TypeSize, false);
-        CheckCandidateType(NewVTy);
-      }
+  // Consider any loads or stores that are the exact size of the slice.
+  for (const Slice &S : P)
+    if (S.beginOffset() == P.beginOffset() &&
+        S.endOffset() == P.endOffset()) {
+      if (auto *LI = dyn_cast<LoadInst>(S.getUse()->getUser()))
+        CheckCandidateType(LI->getType());
+      else if (auto *SI = dyn_cast<StoreInst>(S.getUse()->getUser()))
+        CheckCandidateType(SI->getValueOperand()->getType());
     }
-  }
 
   // If we didn't find a vector type, nothing to do here.
   if (CandidateTys.empty())

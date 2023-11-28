@@ -36,7 +36,6 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GenericUniformityImpl.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
@@ -48,31 +47,14 @@
 #include "llvm/Support/Regex.h"
 #include <cassert>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace clang::clangd {
-
-static bool AnalyzeStdlib = false;
-void setIncludeCleanerAnalyzesStdlib(bool B) { AnalyzeStdlib = B; }
-
 namespace {
-
-// Returns the range starting at '#' and ending at EOL. Escaped newlines are not
-// handled.
-clangd::Range getDiagnosticRange(llvm::StringRef Code, unsigned HashOffset) {
-  clangd::Range Result;
-  Result.end = Result.start = offsetToPosition(Code, HashOffset);
-
-  // Span the warning until the EOL or EOF.
-  Result.end.character +=
-      lspLength(Code.drop_front(HashOffset).take_until([](char C) {
-        return C == '\n' || C == '\r';
-      }));
-  return Result;
-}
 
 bool isIgnored(llvm::StringRef HeaderPath, HeaderFilter IgnoreHeaders) {
   // Convert the path to Unix slashes and try to match against the filter.
@@ -85,16 +67,14 @@ bool isIgnored(llvm::StringRef HeaderPath, HeaderFilter IgnoreHeaders) {
   return false;
 }
 
-bool mayConsiderUnused(const Inclusion &Inc, ParsedAST &AST,
-                       const include_cleaner::PragmaIncludes *PI) {
+bool mayConsiderUnused(
+    const Inclusion &Inc, ParsedAST &AST,
+    const include_cleaner::PragmaIncludes *PI) {
   // FIXME(kirillbobyrev): We currently do not support the umbrella headers.
   // System headers are likely to be standard library headers.
   // Until we have good support for umbrella headers, don't warn about them.
-  if (Inc.Written.front() == '<') {
-    if (AnalyzeStdlib && tooling::stdlib::Header::named(Inc.Written))
-      return true;
-    return false;
-  }
+  if (Inc.Written.front() == '<')
+    return tooling::stdlib::Header::named(Inc.Written).has_value();
   assert(Inc.HeaderID);
   auto HID = static_cast<IncludeStructure::HeaderID>(*Inc.HeaderID);
   auto FE = AST.getSourceManager().getFileManager().getFileRef(
@@ -125,18 +105,6 @@ bool mayConsiderUnused(const Inclusion &Inc, ParsedAST &AST,
   return true;
 }
 
-llvm::StringRef getResolvedPath(const include_cleaner::Header &SymProvider) {
-  switch (SymProvider.kind()) {
-  case include_cleaner::Header::Physical:
-    return SymProvider.physical()->tryGetRealPathName();
-  case include_cleaner::Header::Standard:
-    return SymProvider.standard().name().trim("<>\"");
-  case include_cleaner::Header::Verbatim:
-    return SymProvider.verbatim().trim("<>\"");
-  }
-  llvm_unreachable("Unknown header kind");
-}
-
 std::vector<Diag> generateMissingIncludeDiagnostics(
     ParsedAST &AST, llvm::ArrayRef<MissingIncludeDiagInfo> MissingIncludes,
     llvm::StringRef Code, HeaderFilter IgnoreHeaders) {
@@ -156,7 +124,7 @@ std::vector<Diag> generateMissingIncludeDiagnostics(
                                          FileStyle->IncludeStyle);
   for (const auto &SymbolWithMissingInclude : MissingIncludes) {
     llvm::StringRef ResolvedPath =
-        getResolvedPath(SymbolWithMissingInclude.Providers.front());
+        SymbolWithMissingInclude.Providers.front().resolvedPath();
     if (isIgnored(ResolvedPath, IgnoreHeaders)) {
       dlog("IncludeCleaner: not diagnosing missing include {0}, filtered by "
            "config",
@@ -236,7 +204,7 @@ std::vector<Diag> generateUnusedIncludeDiagnostics(
     D.InsideMainFile = true;
     D.Severity = DiagnosticsEngine::Warning;
     D.Tags.push_back(Unnecessary);
-    D.Range = getDiagnosticRange(Code, Inc->HashOffset);
+    D.Range = rangeTillEOL(Code, Inc->HashOffset);
     // FIXME(kirillbobyrev): Removing inclusion might break the code if the
     // used headers are only reachable transitively through this one. Suggest
     // including them directly instead.
@@ -338,7 +306,7 @@ getUnused(ParsedAST &AST,
     auto IncludeID = static_cast<IncludeStructure::HeaderID>(*MFI.HeaderID);
     if (ReferencedFiles.contains(IncludeID))
       continue;
-    if (!mayConsiderUnused(MFI, AST, AST.getPragmaIncludes())) {
+    if (!mayConsiderUnused(MFI, AST, AST.getPragmaIncludes().get())) {
       dlog("{0} was not used, but is not eligible to be diagnosed as unused",
            MFI.Written);
       continue;
@@ -421,7 +389,7 @@ IncludeCleanerFindings computeIncludeCleanerFindings(ParsedAST &AST) {
   trace::Span Tracer("include_cleaner::walkUsed");
   include_cleaner::walkUsed(
       AST.getLocalTopLevelDecls(), /*MacroRefs=*/Macros,
-      AST.getPragmaIncludes(), SM,
+      AST.getPragmaIncludes().get(), SM,
       [&](const include_cleaner::SymbolReference &Ref,
           llvm::ArrayRef<include_cleaner::Header> Providers) {
         bool Satisfied = false;
