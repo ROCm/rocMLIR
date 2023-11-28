@@ -3,17 +3,10 @@
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup_generic
 {
-    # Latest "generic" version.  (Must have libaio1 installed already.)
     # Note that all this happens without privileges.
-    pushd /tmp
-    wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz
-    tar xf mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz
-    mv mysql-8.0.34-linux-glibc2.28-x86_64 mysql
-    export PATH=$PATH:/tmp/mysql/bin
-    mysqld --initialize-insecure --datadir=/tmp/mysql/data
-    # --pid-file=/tmp/mysql/mysqld.pid --socket=/tmp/mysql/mysqld.sock
-    mysqld -D --basedir=/tmp/mysql --datadir=/tmp/mysql/data --log-error=/tmp/mysql/errors.log
-    popd
+    export PATH=$PATH:/usr/mysql/bin
+    mysqld --initialize-insecure --datadir=/tmp/mysql-data
+    mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
 
     # Using this name should force socket access, which we want.
     TUNA_DB_HOSTNAME=localhost
@@ -22,21 +15,7 @@ function mysql_setup_generic
 
 function tuna_setup
 {
-    startdir=`pwd`
-    rm -rf MITuna
-    git clone --branch pf-tuna-rocmlir-3 https://github.com/ROCmSoftwarePlatform/MITuna.git
-    cd MITuna
-    export TUNA_DIR=`pwd`
-
-    python3 -m venv myvenv
-    source myvenv/bin/activate
-
-    # --ignore-installed because of problems upgrading PyYAML.  See also -U.
-    python3 -m pip install -r requirements.txt --ignore-installed
-    python3 -m pip install scipy pandas
-
-    cd $startdir
-
+    export TUNA_DIR=$HOME/MITuna
     export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
     if pgrep mysqld ; then
@@ -140,16 +119,11 @@ export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 # If no mysqld running, assume it and Tuna need to be set up.
 # Otherwise, assume the usual setup.
 if ! pgrep mysqld ; then
-    #mysqld -D
     mysql_setup_generic
     tuna_setup
 else
-    PATH=$PATH:/tmp/mysql/bin
+    PATH=$PATH:/usr/mysql/bin
     TUNA_DB_HOSTNAME=localhost
-fi
-
-if [ "$VIRTUAL_ENV" = "" ]; then
-    source ${TUNA_DIR}/myvenv/bin/activate
 fi
 
 tuna_run $OP $TUNING_SPACE

@@ -932,7 +932,6 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
 # Benchmarking function.
 def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
     config = confClass.fromCommandLine(commandLine, arch, numCU)
-    #configStr = ' '.join(commandLine)
     configStr = config.toCommandLine()
     if tuningDb:
         if (arch, configStr) in tuningDb:
