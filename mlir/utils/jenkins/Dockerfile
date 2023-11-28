@@ -121,3 +121,15 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   libaio1 && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
+# mysql setup for tuna
+# Latest "generic" version.  (Must have libaio1 installed already.)
+RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz && \
+    tar xf mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz && \
+    mv mysql-8.0.34-linux-glibc2.28-x86_64 /usr/mysql
+
+# python setup for tuna
+# --ignore-installed because of problems upgrading PyYAML.  See also -U.
+RUN git clone --branch pf-tuna-rocmlir-3 https://github.com/ROCmSoftwarePlatform/MITuna.git && \
+    python3 -m pip install -r MITuna/requirements.txt --ignore-installed && \
+    python3 -m pip install scipy pandas
