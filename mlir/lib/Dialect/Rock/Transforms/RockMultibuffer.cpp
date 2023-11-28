@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Transforms/RockMultibuffer.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
@@ -41,26 +40,6 @@ using namespace mlir::rock;
 namespace {
 // Set of utility functions used during the transformation
 
-/// Find the alloc whose transformedValue belongs to
-FailureOr<rock::GpuAllocOp> findAlloc(Value transformedValue) {
-  auto curOp = transformedValue.getDefiningOp();
-  auto maybeAllocOp = dyn_cast<rock::GpuAllocOp>(curOp);
-  while (!maybeAllocOp) {
-    if (auto transformOp = dyn_cast<rock::TransformOp>(curOp)) {
-      curOp = transformOp.getInput().getDefiningOp();
-    } else if (auto viewOp = dyn_cast<memref::ViewOp>(curOp)) {
-      curOp = viewOp.getSource().getDefiningOp();
-    } else {
-      return failure();
-    }
-    maybeAllocOp = dyn_cast<rock::GpuAllocOp>(curOp);
-  }
-  if (!maybeAllocOp)
-    return failure();
-
-  return maybeAllocOp;
-}
-
 /// Find all the final users of a rockAllocOp. By final users we mean
 /// operations that write/load data from the alloc
 void findAllocUsers(rock::GpuAllocOp allocOp,
@@ -71,24 +50,13 @@ void findAllocUsers(rock::GpuAllocOp allocOp,
     Operation *curOp = worklist.back();
     worklist.pop_back();
     for (Operation *user : curOp->getUsers()) {
-      if (dyn_cast<rock::TransformOp>(user) || dyn_cast<memref::ViewOp>(user)) {
+      if (dyn_cast<ViewLikeOpInterface>(user)) {
         worklist.push_back(user);
       } else if (!users.contains(user)) {
         users.insert(user);
       }
     }
   }
-}
-
-/// Compute, if possible, the constant different between two values.
-std::optional<int64_t> computeConstDiff(Value l, Value u) {
-  IntegerAttr clb, cub;
-  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
-    llvm::APInt lbValue = clb.getValue();
-    llvm::APInt ubValue = cub.getValue();
-    return (ubValue - lbValue).getSExtValue();
-  }
-  return std::nullopt;
 }
 
 /// Given an original type `<dim x type>`, return its multibuffer version.
@@ -240,10 +208,16 @@ static Value getMultiBufferIndex(RewriterBase &rewriter, Location loc,
 /// Return true if the op is a writer that fully overwrites
 /// the given raw `buffer` allocated
 bool overrideBuffer(Operation *op, Value buffer) {
-  auto copyOp = dyn_cast<rock::RockWriterOpInterface>(op);
-  if (!copyOp)
+
+  Value dest;
+  for (Value operand : op->getOperands()) {
+    if (hasEffect<MemoryEffects::Write>(op, operand)) {
+      dest = operand;
+    }
+  }
+  if (!dest)
     return false;
-  auto maybeAllocOp = findAlloc(copyOp.getDest());
+  auto maybeAllocOp = findAlloc(dest);
   if (failed(maybeAllocOp))
     return false;
   return (*maybeAllocOp).getResult() == buffer;
@@ -276,7 +250,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       replaceUsesAndPropagateType(rewriter, loc, view, newView, loop,
                                   loopLength, multiBufferingFactor);
     } else if (auto transform = dyn_cast<TransformOp>(owner)) {
-      // rock.transform case      Value toTransform = val;
+      // rock.transform case
       Value toTransform = val;
       if (isBottomOfTransformStack(val) && val.getType().isa<ShapedType>()) {
         // if this is the top of the transform stack (i.e., the input to the
@@ -310,9 +284,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       Operation *newOp = viewAcceptingOp.cloneWithExtraIndices(
           rewriter, use, val, newExtraIndices);
       if (newOp->getNumResults())
-        replaceUsesAndPropagateType(rewriter, loc, viewAcceptingOp,
-                                    newOp->getResult(0), loop, loopLength,
-                                    multiBufferingFactor);
+        rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
     } else {
       // This is an operation that does not accept a view at the current
       // position We need to add a straight affine map to do ( %i mod mbFactor)
@@ -322,8 +294,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       Operation *newOp = subviewAndClone(rewriter, loc, use, val, mbIndex,
                                          multiBufferingFactor);
       if (newOp->getNumResults())
-        replaceUsesAndPropagateType(rewriter, loc, owner, newOp->getResult(0),
-                                    loop, loopLength, multiBufferingFactor);
+        rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
     }
     opsToDelete.push_back(owner);
   }
@@ -351,6 +322,24 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
                         unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
   LLVM_DEBUG(DBGS() << "Start multibuffering: " << allocOp << "\n");
+  if (!allocOp.getType().getElementType().isInteger(8)) {
+    LLVM_DEBUG(DBGS() << "-- Not a int8 buffer -> fail\n");
+    return failure();
+  }
+  if (allocOp.getType().getShape().size() != 1) {
+    LLVM_DEBUG(DBGS() << "-- Not a flat buffer -> fail\n");
+    return failure();
+  }
+
+  bool isUsedByViews = llvm::all_of(allocOp->getUsers(), [](Operation *user) {
+    return dyn_cast<memref::ViewOp>(user);
+  });
+  if (!isUsedByViews) {
+    LLVM_DEBUG(DBGS() << "-- Cannot detect the raw i8 buffer alloc followed by "
+                         "a memref.viewOp\n");
+    return failure();
+  }
+
   DominanceInfo dom(allocOp->getParentOp());
   LoopLikeOpInterface candidateLoop;
   SmallPtrSet<Operation *, 16> users;
