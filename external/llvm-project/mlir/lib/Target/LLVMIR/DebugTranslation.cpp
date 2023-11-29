@@ -162,7 +162,9 @@ llvm::DIDerivedType *DebugTranslation::translateImpl(DIDerivedTypeAttr attr) {
       /*File=*/nullptr, /*Line=*/0,
       /*Scope=*/nullptr, translate(attr.getBaseType()), attr.getSizeInBits(),
       attr.getAlignInBits(), attr.getOffsetInBits(),
-      /*DWARFAddressSpace=*/std::nullopt, /*Flags=*/llvm::DINode::FlagZero);
+      // FIXME: Track mspace in DI metadata attrs
+      /*DWARFAddressSpace=*/std::nullopt, llvm::dwarf::DW_MSPACE_LLVM_none,
+      /*Flags=*/llvm::DINode::FlagZero);
 }
 
 llvm::DIFile *DebugTranslation::translateImpl(DIFileAttr attr) {
@@ -199,7 +201,9 @@ DebugTranslation::translateImpl(DILocalVariableAttr attr) {
       llvmCtx, translate(attr.getScope()), getMDStringOrNull(attr.getName()),
       translate(attr.getFile()), attr.getLine(), translate(attr.getType()),
       attr.getArg(),
-      /*Flags=*/llvm::DINode::FlagZero, attr.getAlignInBits(),
+      // FIXME: Track mspace in DI metadata attrs
+      /*Flags=*/llvm::DINode::FlagZero, llvm::dwarf::DW_MSPACE_LLVM_none,
+      attr.getAlignInBits(),
       /*Annotations=*/nullptr);
 }
 
