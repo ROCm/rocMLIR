@@ -15,7 +15,10 @@ function mysql_setup_generic
 
 function tuna_setup
 {
-    export TUNA_DIR=$HOME/MITuna
+    rm -rf /MITuna
+    git clone --branch pf-tuna-rocmlir-3 https://github.com/ROCmSoftwarePlatform/MITuna.git /MITuna
+    source /tuna-venv/bin/activate
+    export TUNA_DIR=/MITuna
     export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
     if pgrep mysqld ; then
@@ -124,6 +127,10 @@ if ! pgrep mysqld ; then
 else
     PATH=$PATH:/usr/mysql/bin
     TUNA_DB_HOSTNAME=localhost
+fi
+
+if [ "$VIRTUAL_ENV" = "" ]; then
+    source /tuna-venv/bin/activate
 fi
 
 tuna_run $OP $TUNING_SPACE
