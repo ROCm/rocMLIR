@@ -45,30 +45,30 @@ function tuna_run
 {
     kind=$1
     space=$2
-    baselabel=`date --iso-8601=minutes`
+    baselabel=$(date --iso-8601=minutes)
 
-    clear_tables $kind
-    ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name ${CONFIGS_FILE} --config_type $kind
-    ${TUNA_DIR}/tuna/go_fish.py rocmlir --init_session -l "$baselabel $kind" --config_type $kind --tuning_space $space 2> initlog
-    session=`perl -n -e'/Added new session_id: (\d+)/ && print $1' < initlog`
+    clear_tables "$kind"
+    ${TUNA_DIR}/tuna/rocmlir/import_configs.py --file_name "${CONFIGS_FILE}" --config_type "$kind"
+    ${TUNA_DIR}/tuna/go_fish.py rocmlir --init_session -l "$baselabel $kind" --config_type "$kind" --tuning_space "$space" 2> initlog
+    session=$(perl -n -e'/Added new session_id: (\d+)/ && print $1' < initlog)
     cat initlog
-    ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id $session
+    ${TUNA_DIR}/tuna/rocmlir/load_job.py --session_id "$session"
     factor=""
     if [ -n "${LOAD_FACTOR}" ]; then
         factor="--load_factor ${LOAD_FACTOR}"
     fi
-    (cd ${ROCMLIR_DIR}/build/ ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id $session $factor)
-    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id $session --append -f "$OUT_FILE"
+    (cd "${ROCMLIR_DIR}"/build/ || exit 1 ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id "$session" "$factor")
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id "$session" --append -f "$OUT_FILE"
 }
 
 
 
-usage() { echo "$0 usage:" && grep " .)\ #" $0; exit 0; }
+usage() { echo "$0 usage:" && grep " .)\ #" "$0"; exit 0; }
 [ $# -eq 0 ] && usage
 
 export CONFIGS_FILE=
-export TUNA_DIR=`pwd`/MITuna      # Assumes we're in the build directory
-export ROCMLIR_DIR=`pwd`/..       # Assumes we're in the build directory
+export TUNA_DIR=$(pwd)/MITuna     # Assumes we're in the build directory
+export ROCMLIR_DIR=$(pwd)/..      # Assumes we're in the build directory
 export OUT_FILE=results.tsv
 export OP=convolution
 export TUNING_SPACE=exhaustive
@@ -85,7 +85,7 @@ while getopts ":hc:t:r:f:o:s:l:" arg; do
   case $arg in
     o) # Operation (convolution or gemm [default convolution])
       OP=${OPTARG}
-      [ "$OP" = "convolution" -o "$OP" = "gemm" -o "$OP" = "attention" ] \
+      [ "$OP" = "convolution" ] || [ "$OP" = "gemm" ] || [ "$OP" = "attention" ] \
         || echo "Operation needs to be 'convolution', 'gemm', or 'attention'."
       ;;
     c) # Configs file
@@ -133,4 +133,4 @@ if [ "$VIRTUAL_ENV" = "" ]; then
     source /tuna-venv/bin/activate
 fi
 
-tuna_run $OP $TUNING_SPACE
+tuna_run "$OP" "$TUNING_SPACE"
