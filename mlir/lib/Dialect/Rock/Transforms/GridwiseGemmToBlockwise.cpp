@@ -1482,7 +1482,7 @@ struct GridwiseAttentionAccelRewritePattern
   }
 
   Value transposeAttnOperand(PatternRewriter &rewriter, Location loc, TypedValue<MemRefType> operand) const {
-      TopDownTMBuilder viewBuilder(rewriter, operand.getType().getShape(), loc);
+      BottomUpTMBuilder viewBuilder(rewriter, operand.getType().getShape(), loc);
       viewBuilder.passThrough({0, 1, 2}, {0, 2, 1});
       TransformMapAttr trMap = viewBuilder.get();
       return rewriter.create<TransformOp>(loc, operand, trMap);
@@ -1862,11 +1862,13 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
                                              elemTypeQxK, 1.44269504);
       scaleFirstGemmSplat(
-          rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViewsTr,
+          rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
           ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
+#endif
 
       // Handle padding
       bool hasPadding =
