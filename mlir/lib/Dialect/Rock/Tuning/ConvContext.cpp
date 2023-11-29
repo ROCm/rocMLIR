@@ -60,9 +60,10 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
 
-  auto strideVal = extractFromI64ArrayAttr(convOp.getStrides());
-  auto dilationVal = extractFromI64ArrayAttr(convOp.getDilations());
-  auto paddingVal = extractFromI64ArrayAttr(convOp.getPadding());
+  auto strideVal = extractFromIntegerArrayAttr<int64_t>(convOp.getStrides());
+  auto dilationVal =
+      extractFromIntegerArrayAttr<int64_t>(convOp.getDilations());
+  auto paddingVal = extractFromIntegerArrayAttr<int64_t>(convOp.getPadding());
 
   populateDimIndexAndSize(
       filterLayoutAttr,

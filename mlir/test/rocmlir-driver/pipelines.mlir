@@ -40,7 +40,7 @@
 // BINARY-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
 // BINARY-SAME: expand-strided-metadata,
 // BINARY-SAME: convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY-SAME: gpu-to-hsaco{chip=gfx90a features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
 
 // BINARY_MI300: Kernel pipeline:
 // BINARY_MI300-NEXT: {{^}}builtin.module(strip-debuginfo,
@@ -50,7 +50,7 @@
 // BINARY_MI300-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
 
 // PARTITION: Partitioner pipeline:
 // PARTITION-NEXT: {{^}}builtin.module(func.func(tosa-make-broadcastable),
@@ -75,18 +75,18 @@
 // HIGHLEVEL-SAME: func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true}),
 // HIGHLEVEL-SAME: func.func(tosa-layerwise-constant-fold),
 // HIGHLEVEL-SAME: func.func(tosa-make-broadcastable),
-// HIGHLEVEL-SAME: func.func(tosa-validate{profile=undefined strict-op-spec-alignment=false}),
+// HIGHLEVEL-SAME: func.func(tosa-validate{level=8k profile=undefined strict-op-spec-alignment=false}),
 // HIGHLEVEL-SAME: func.func(tosa-to-linalg),
 // HIGHLEVEL-SAME: func.func(tosa-to-tensor,
 // HIGHLEVEL-SAME: tosa-to-scf,
 // HIGHLEVEL-SAME: tosa-to-arith{include-apply-rescale=false use-32-bit=false},
 // HIGHLEVEL-SAME: linalg-fuse-elementwise-ops,
-// HIGHLEVEL-SAME: linalg-fold-unit-extent-dims{fold-one-trip-loops-only=false use-rank-reducing-slices=false},
+// HIGHLEVEL-SAME: linalg-fold-unit-extent-dims{use-rank-reducing-slices=false},
 // HIGHLEVEL-SAME: rock-view-to-transform,
 // HIGHLEVEL-SAME: canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // HIGHLEVEL-SAME: cse),
 // HIGHLEVEL-SAME: convert-tensor-to-linalg,
 // HIGHLEVEL-SAME: func.func(empty-tensor-to-alloc-tensor,
-// HIGHLEVEL-SAME: linalg-fold-unit-extent-dims{fold-one-trip-loops-only=false use-rank-reducing-slices=false}),
+// HIGHLEVEL-SAME: linalg-fold-unit-extent-dims{use-rank-reducing-slices=false}),
 // HIGHLEVEL-SAME: one-shot-bufferize{allow-return-allocs=false allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up bufferize-function-boundaries=false copy-before-write=false create-deallocs=true  dump-alias-sets=false function-boundary-type-conversion=infer-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=fully-dynamic-layout-map},
 // HIGHLEVEL-SAME: buffer-results-to-out-params){{$}}
