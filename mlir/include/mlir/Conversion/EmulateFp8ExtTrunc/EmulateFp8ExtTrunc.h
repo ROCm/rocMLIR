@@ -1,4 +1,4 @@
-//===-- Fp8ExtToTables pass declarations ----------------*- C++ -*-===//
+//===-- EmulateFp8ExtTrunc pass declarations ----------------*- C++ -*-===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -11,18 +11,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_CONVERSION_FP8EXTTOTABLES_FP8EXTTOTABLES_H
-#define MLIR_CONVERSION_FP8EXTTOTABLES_FP8EXTTOTABLES_H
+#ifndef MLIR_CONVERSION_EMULATEFP8EXTTRUNC_EMULATEFP8EXTTRUNC_H
+#define MLIR_CONVERSION_EMULATEFP8EXTTRUNC_EMULATEFP8EXTTRUNC_H
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
 
-#define GEN_PASS_DECL_FP8EXTTOTABLESPASS
+#define GEN_PASS_DECL_EMULATEFP8EXTTRUNCPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 
-void addFp8ExtToTablesPatterns(RewritePatternSet &patterns);
+void addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns);
 
 } // namespace mlir
 

@@ -1,5 +1,5 @@
-add_rocmlir_conversion_library(RocmlirFp8ExtToTables
-  Fp8ExtToTables.cpp
+add_rocmlir_conversion_library(RocmlirEmulateFp8ExtTrunc
+  EmulateFp8ExtTrunc.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Arith
@@ -9,7 +9,7 @@ add_rocmlir_conversion_library(RocmlirFp8ExtToTables
   RocMLIRConversionPassIncGen
 )
 
-target_link_libraries(RocmlirFp8ExtToTables
+target_link_libraries(RocmlirEmulateFp8ExtTrunc
   PUBLIC
   MLIRIR
   MLIRPass

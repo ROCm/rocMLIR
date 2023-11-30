@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -fp8-ext-to-tables -split-input-file %s | FileCheck %s
+// RUN: rocmlir-opt -emulate-fp8-ext-trunc -split-input-file %s | FileCheck %s
 
 module {
   func.func @ext_scalar(%arg0: f8E5M2FNUZ) -> f16 {

@@ -1,4 +1,4 @@
-//===- Fp8ExtToTables.cpp - arith.extf on fp8 by table lookup -----------===//
+//===- EmulateFp8ExtTrunc.cpp - arith.extf on fp8 by table lookup -------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
+#include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -26,7 +26,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
-#define GEN_PASS_DEF_FP8EXTTOTABLESPASS
+#define GEN_PASS_DEF_EMULATEFP8EXTTRUNCPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 } // namespace mlir
 
@@ -34,10 +34,10 @@ using namespace mlir;
 using namespace mlir::arith;
 
 namespace {
-struct Fp8ExtToTablesPass final
-    : public impl::Fp8ExtToTablesPassBase<Fp8ExtToTablesPass> {
-  using impl::Fp8ExtToTablesPassBase<
-      Fp8ExtToTablesPass>::Fp8ExtToTablesPassBase;
+struct EmulateFp8ExtTruncPass final
+    : public impl::EmulateFp8ExtTruncPassBase<EmulateFp8ExtTruncPass> {
+  using impl::EmulateFp8ExtTruncPassBase<
+      EmulateFp8ExtTruncPass>::EmulateFp8ExtTruncPassBase;
 
   void runOnOperation() override;
 };
@@ -172,15 +172,16 @@ void Fp8ExtToTableLookupPattern::rewrite(
   return rewriter.replaceOp(op, ret);
 }
 
-void mlir::addFp8ExtToTablesPatterns(RewritePatternSet &patterns) {
+void mlir::addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns) {
   patterns.add<Fp8ExtToTableLookupPattern>(patterns.getContext());
 }
 
-void Fp8ExtToTablesPass::runOnOperation() {
+void EmulateFp8ExtTruncPass::runOnOperation() {
   Operation *op = getOperation();
   if (!op->hasTrait<OpTrait::SymbolTable>()) {
-    emitError(op->getLoc(), "fp8-ext-to-tables requires a module-like (symbol "
-                            "table having) root operation");
+    emitError(op->getLoc(),
+              "emulate-fp8-ext-trunc requires a module-like (symbol "
+              "table having) root operation");
     return signalPassFailure();
   }
 
@@ -191,7 +192,7 @@ void Fp8ExtToTablesPass::runOnOperation() {
   target.addDynamicallyLegalOp<arith::ExtFOp>(
       [](ExtFOp op) { return failed(canRewriteToTable(op)); });
   RewritePatternSet rewrites(ctx);
-  addFp8ExtToTablesPatterns(rewrites);
+  addEmulateFp8ExtTruncPatterns(rewrites);
   if (failed(applyPartialConversion(op, target, std::move(rewrites))))
     return signalPassFailure();
 }
