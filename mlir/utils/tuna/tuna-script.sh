@@ -67,7 +67,7 @@ usage() { echo "$0 usage:" && grep " .)\ #" "$0"; exit 0; }
 [ $# -eq 0 ] && usage
 
 export CONFIGS_FILE=
-export TUNA_DIR=$(pwd)/MITuna     # Assumes we're in the build directory
+export TUNA_DIR=/tmp/MITuna
 export ROCMLIR_DIR=$(pwd)/..      # Assumes we're in the build directory
 export OUT_FILE=results.tsv
 export OP=convolution
