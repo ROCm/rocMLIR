@@ -760,6 +760,120 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
+  ArrayAttr createReducedView(PatternRewriter &rewriter,
+                              Location loc,
+                              ArrayAttr subTileView, 
+                              int64_t axis) const{
+    ArrayRef<int64_t> threadSubTileShape = getLowerShape(subTileView);
+    TopDownTMBuilder viewBuilder(rewriter, threadSubTileShape, loc);
+    for (auto [dim, dimSize] : llvm::enumerate(threadSubTileShape)) {
+      if(dim == axis){
+        viewBuilder.constDim("rDim", dim, 0, dimSize);
+      }
+      else{
+        viewBuilder.passThrough({(unsigned int)dim}, {(unsigned int)dim});
+      }
+    }
+    TransformMapAttr redDimZeroMap = viewBuilder.get();
+    ArrayAttr reducedView = prependUpperViews(rewriter, subTileView, rewriter.getArrayAttr({redDimZeroMap}));
+    return reducedView;
+  }
+
+  void doThreadwiseReductions(PatternRewriter &rewriter,
+                              Location loc,
+                              BlockwiseBroadcastReduceOp op,
+                              Value reducedBuffer,
+                              ArrayAttr inputBlockSubTile2dView) const {
+    Value inputRawBuffer = op.getInput();
+    int64_t numElements = inputRawBuffer.getType().cast<MemRefType>().getNumElements();
+    constexpr size_t nrDim = 0;
+    constexpr size_t rDim = 1;
+    // Get current workitem ID.
+    WorkitemIdOp tid =
+        rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());    
+
+    ArrayRef<int64_t> threadSubTileShape = getLowerShape(inputBlockSubTile2dView);
+    // ArrayAttr reducedBlockView = createReducedView(rewriter, loc, inputBlockSubTileView, axis);
+
+    Type elemType = inputRawBuffer.getType().cast<MemRefType>().getElementType();
+    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    auto loop = rewriter.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{{tid, zero}, {tid, zero}},
+        ArrayRef<Attribute>{inputBlockSubTile2dView},
+        /*bounds=*/ArrayRef<int64_t>{1, numElements},
+        /*strides=*/ArrayRef<int64_t>{1, 1},
+        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+      Block::BlockArgListType subtileCoords = loop.getLowerCoords(0);
+      Value ldInput = rewriter.create<InBoundsLoadOp>(
+          loc, elemType, inputRawBuffer, subtileCoords);
+      Value ldInputAcc = rewriter.create<InBoundsLoadOp>(
+          loc, elemType, reducedBuffer, subtileCoords[nrDim]);
+      Value reduced = createReducingOp(op, ldInput, ldInputAcc, rewriter);
+      rewriter.create<InBoundsStoreOp>(loc, reduced,
+                                       inputRawBuffer,
+                                       subtileCoords[nrDim]);
+    }
+  }
+
+  void zeroBuffer(PatternRewriter &rewriter, Location loc,
+                     Value accBuffer) const {
+    MemRefType accBufferType = accBuffer.getType().cast<MemRefType>();
+    Value zeroConstantCOp =
+        createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
+    rewriter.create<FillOp>(loc, accBuffer, zeroConstantCOp);
+  }
+
+  void storePartialReductionstoLDS(PatternRewriter &rewriter,
+                   Location loc,
+                   Value reducedBuffer,
+                   Value ldsBuffer,
+                   ArrayAttr inputBlockSubTile2dView) const {
+    Type elemType = reducedBuffer.getType().cast<MemRefType>().getElementType();
+    // not all of these are valid as reducedBuffer is sparse
+    int64_t numPartialReducedElements = reducedBuffer.getType().cast<MemRefType>().getNumElements();
+    ArrayAttr inputBlockSubTile2dViewInv = invertTransforms(rewriter, loc, inputBlockSubTile2dView);
+    WorkitemIdOp tid =
+        rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
+    auto interThreadReductionCounterType = MemRefType::get({1}, rewriter.getIndexType(), AffineMap{},
+                                                       privateMemoryAddressSpace);
+    Value interThreadReductionCounter = rewriter.create<GpuAllocOp>(loc, interThreadReductionCounterType);
+    zeroBuffer(rewriter, loc, interThreadReductionCounter);
+    auto loop = rewriter.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
+        ArrayRef<Attribute>{inputBlockSubTile2dViewInv, rewriter.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>{numPartialReducedElements, 1},
+        /*strides=*/ArrayRef<int64_t>{1, 1},
+        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+    {
+            Block::BlockArgListType tidAndIter = loop.getLowerCoords(0);
+            Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
+            Value isCurrThread = rewriter.create<arith::CmpIOp>(
+                loc, arith::CmpIPredicate::eq, tidAndIter[0], tid);
+            scf::IfOp ifb = rewriter.create<scf::IfOp>(
+                loc, isCurrThread, /*withElseRegion=*/false);
+            {
+              OpBuilder thenb = ifb.getThenBodyBuilder();
+              Value ldReduced = thenb.create<InBoundsLoadOp>(
+                                loc, elemType, reducedBuffer, ValueRange{upperCoords[0]});
+              Value ldThreadReductionCounter = thenb.create<InBoundsLoadOp>(
+                                loc, thenb.getIndexType(), interThreadReductionCounter, ValueRange{zero});
+              thenb.create<InBoundsStoreOp>(
+                  loc, ldReduced, ldsBuffer,
+                  ValueRange{upperCoords[0], ldThreadReductionCounter});
+              ldThreadReductionCounter = thenb.create<arith::AddFOp>(loc, ldThreadReductionCounter, one);
+              thenb.create<InBoundsStoreOp>(loc, ldThreadReductionCounter, interThreadReductionCounter, ValueRange{zero});
+            }
+    }
+     
+  }
+
   LogicalResult
   matchAndRewrite(BlockwiseBroadcastReduceOp op,
                   BlockwiseBroadcastReduceOpAdaptor adaptor,
