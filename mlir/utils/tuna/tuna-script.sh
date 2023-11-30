@@ -15,10 +15,10 @@ function mysql_setup_generic
 
 function tuna_setup
 {
-    rm -rf /MITuna
-    git clone --branch pf-tuna-rocmlir-3 https://github.com/ROCmSoftwarePlatform/MITuna.git /MITuna
+    rm -rf /tmp/MITuna
+    git clone --branch pf-tuna-rocmlir-3 https://github.com/ROCmSoftwarePlatform/MITuna.git /tmp/MITuna
     source /tuna-venv/bin/activate
-    export TUNA_DIR=/MITuna
+    export TUNA_DIR=/tmp/MITuna
     export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
     if pgrep mysqld ; then
@@ -57,7 +57,7 @@ function tuna_run
     if [ -n "${LOAD_FACTOR}" ]; then
         factor="--load_factor ${LOAD_FACTOR}"
     fi
-    (cd "${ROCMLIR_DIR}"/build/ || exit 1 ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id "$session" "$factor")
+    (cd "${ROCMLIR_DIR}"/build/ || exit 1 ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id "$session" $factor)
     ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id "$session" --append -f "$OUT_FILE"
 }
 
