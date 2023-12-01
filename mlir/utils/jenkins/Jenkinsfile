@@ -58,10 +58,11 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
     sh 'id'
+    sh 'printenv'
 }
 
 String dockerArgs() {
-    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro -e http_proxy=$http_proxy -e https_proxy=$https_proxy"
 }
 
 String dockerImage() {
