@@ -15,13 +15,8 @@ function mysql_setup_generic
 
 function tuna_setup
 {
-    echo hostname: `hostname`
-    echo http proxy: $http_proxy
-    echo node_name: $NODE_NAME
-    uname -a
-
-    rm -rf /tmp/MITuna
-    git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git /tmp/MITuna
+#     rm -rf /tmp/MITuna
+#     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git /tmp/MITuna
 
     source /tuna-venv/bin/activate
     export TUNA_DIR=/tmp/MITuna
