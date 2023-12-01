@@ -17,6 +17,7 @@ function tuna_setup
 {
     echo hostname: `hostname`
     echo http proxy: $http_proxy
+    echo node_name: $NODE_NAME
     uname -a
 
     rm -rf /tmp/MITuna
