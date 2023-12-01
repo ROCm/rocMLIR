@@ -549,7 +549,7 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
-                            dir('/tmp') {
+                            dir('/tmp/MITuna') {
                                 getTuna()
                             }
                             dir('build') {
@@ -719,7 +719,7 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                            dir('/tmp') {
+                            dir('/tmp/MITuna') {
                                 getTuna()
                             }
                             dir('build') {
