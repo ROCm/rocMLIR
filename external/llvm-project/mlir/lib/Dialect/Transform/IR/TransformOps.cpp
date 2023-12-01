@@ -781,11 +781,8 @@ LogicalResult transform::ForeachMatchOp::verifySymbolUses(
                          << matcher << " (" << matcherResults.size() << ") and "
                          << action << " (" << actionArguments.size() << ")";
     }
-    // NOTE: hack around an amd-mainline-open cherry-pick failure
-    for (auto &&[i, pair] :
-         llvm::enumerate(llvm::zip(matcherResults, actionArguments))) {
-      auto &&[matcherType, actionType] = pair;
-      // END HACK:
+    for (auto &&[i, matcherType, actionType] :
+         llvm::enumerate(matcherResults, actionArguments)) {
       if (implementSameTransformInterface(matcherType, actionType))
         continue;
 
@@ -1276,10 +1273,7 @@ transform::MatchParamCmpIOp::apply(transform::TransformRewriter &rewriter,
            << " vs " << references.size() << ")";
   }
 
-  // NOTE: hack around bad amd-mainline-open cherry-pick
-  for (auto &&[i, pair] : llvm::enumerate(llvm::zip(params, references))) {
-    auto &&[param, reference] = pair;
-    // END HACK
+  for (auto &&[i, param, reference] : llvm::enumerate(params, references)) {
     auto intAttr = llvm::dyn_cast<IntegerAttr>(param);
     auto refAttr = llvm::dyn_cast<IntegerAttr>(reference);
     if (!intAttr || !refAttr) {
