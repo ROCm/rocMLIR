@@ -1066,6 +1066,32 @@ def rocm_path_EQ : Joined<["--"], "rocm-path=">, Group<i_Group>,
   HelpText<"ROCm installation path, used for finding and automatically linking required bitcode libraries.">;
 def hip_path_EQ : Joined<["--"], "hip-path=">, Group<i_Group>,
   HelpText<"HIP runtime installation path, used for finding HIP version and adding HIP include path.">;
+def hipstdpar : Flag<["--"], "hipstdpar">,
+  Flags<[CoreOption, CC1Option]>,
+  Group<CompileOnly_Group>,
+  HelpText<"Enable HIP acceleration for standard parallel algorithms">,
+  MarshallingInfoFlag<LangOpts<"HIPStdPar">>;
+def hipstdpar_interpose_alloc : Flag<["--"], "hipstdpar-interpose-alloc">,
+  Flags<[CoreOption, CC1Option]>,
+  Group<CompileOnly_Group>,
+  HelpText<"Replace all memory allocation / deallocation calls with "
+           "hipManagedMalloc / hipFree equivalents">,
+  MarshallingInfoFlag<LangOpts<"HIPStdParInterposeAlloc">>;
+// TODO: use MarshallingInfo here
+def hipstdpar_path_EQ : Joined<["--"], "hipstdpar-path=">, Group<i_Group>,
+  HelpText<
+    "HIP Standard Parallel Algorithm Acceleration library path, used for "
+    "finding and implicitly including the library header">;
+def hipstdpar_thrust_path_EQ : Joined<["--"], "hipstdpar-thrust-path=">,
+  Group<i_Group>,
+  HelpText<
+    "rocThrust path, required by the HIP Standard Parallel Algorithm "
+    "Acceleration library, used to implicitly include the rocThrust library">;
+def hipstdpar_prim_path_EQ : Joined<["--"], "hipstdpar-prim-path=">,
+  Group<i_Group>,
+  HelpText<
+    "rocPrim path, required by the HIP Standard Parallel Algorithm "
+    "Acceleration library, used to implicitly include the rocPrim library">;
 def amdgpu_arch_tool_EQ : Joined<["--"], "amdgpu-arch-tool=">, Group<i_Group>,
   HelpText<"Tool used for detecting AMD GPU arch in the system.">;
 def nvptx_arch_tool_EQ : Joined<["--"], "nvptx-arch-tool=">, Group<i_Group>,
@@ -2832,36 +2858,36 @@ def fopenmp_target_xteam_reduction_blocksize_EQ : Joined<["-"], "fopenmp-target-
   Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
 def fopenmp_target_fast : Flag<["-"], "fopenmp-target-fast">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
 def fno_openmp_target_fast : Flag<["-"], "fno-openmp-target-fast">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
-def fopenmp_target_ignore_env_vars : Flag<["-"], "fopenmp-target-ignore-env-vars">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fopenmp_target_ignore_env_vars : Flag<["-"], "fopenmp-target-ignore-env-vars">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Assert that device related environment variables can be ignored while generating code">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetIgnoreEnvVars">>;
-def fno_openmp_target_ignore_env_vars : Flag<["-"], "fno-openmp-target-ignore-env-vars">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fno_openmp_target_ignore_env_vars : Flag<["-"], "fno-openmp-target-ignore-env-vars">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Assert that device related environment variables cannot be ignored while generating code">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetIgnoreEnvVars">>;
-def fopenmp_target_big_jump_loop : Flag<["-"], "fopenmp-target-big-jump-loop">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fopenmp_target_big_jump_loop : Flag<["-"], "fopenmp-target-big-jump-loop">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Use the big-jump-loop code generation technique if possible">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetBigJumpLoop">>;
-def fno_openmp_target_big_jump_loop : Flag<["-"], "fno-openmp-target-big-jump-loop">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fno_openmp_target_big_jump_loop : Flag<["-"], "fno-openmp-target-big-jump-loop">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Do not use the big-jump-loop code generation technique">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetBigJumpLoop">>;
-def fopenmp_target_no_loop : Flag<["-"], "fopenmp-target-no-loop">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fopenmp_target_no_loop : Flag<["-"], "fopenmp-target-no-loop">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Use the no-loop code generation technique if possible">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetNoLoop">>;
-def fno_openmp_target_no_loop : Flag<["-"], "fno-openmp-target-no-loop">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fno_openmp_target_no_loop : Flag<["-"], "fno-openmp-target-no-loop">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Do not use the no-loop code generation technique">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetNoLoop">>;
-def fopenmp_target_xteam_reduction : Flag<["-"], "fopenmp-target-xteam-reduction">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fopenmp_target_xteam_reduction : Flag<["-"], "fopenmp-target-xteam-reduction">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Use the cross-team code generation technique if possible">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetXteamReduction">>;
-def fno_openmp_target_xteam_reduction : Flag<["-"], "fno-openmp-target-xteam-reduction">, Group<f_Group>, 
-  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+def fno_openmp_target_xteam_reduction : Flag<["-"], "fno-openmp-target-xteam-reduction">, Group<f_Group>,
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>,
   HelpText<"Do not use the cross-team reduction code generation technique">,
   MarshallingInfoFlag<LangOpts<"OpenMPTargetXteamReduction">>;
 def fopenmp_force_usm : Flag<["-"], "fopenmp-force-usm">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
