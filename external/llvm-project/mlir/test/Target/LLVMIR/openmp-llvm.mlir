@@ -18,16 +18,16 @@ llvm.func @test_stand_alone_directives() {
   llvm.return
 }
 
-// CHECK-LABEL: define void @test_flush_construct(ptr %0)
-llvm.func @test_flush_construct(%arg0: !llvm.ptr) {
+// CHECK-LABEL: define void @test_flush_construct(i32 %0)
+llvm.func @test_flush_construct(%arg0: i32) {
   // CHECK: call void @__kmpc_flush(ptr @{{[0-9]+}}
   omp.flush
 
   // CHECK: call void @__kmpc_flush(ptr @{{[0-9]+}}
-  omp.flush (%arg0 : !llvm.ptr)
+  omp.flush (%arg0 : i32)
 
   // CHECK: call void @__kmpc_flush(ptr @{{[0-9]+}}
-  omp.flush (%arg0, %arg0 : !llvm.ptr, !llvm.ptr)
+  omp.flush (%arg0, %arg0 : i32, i32)
 
   %0 = llvm.mlir.constant(1 : i64) : i64
   //  CHECK: alloca {{.*}} align 4
@@ -2485,8 +2485,8 @@ llvm.func @omp_opaque_pointers(%arg0 : !llvm.ptr, %arg1: !llvm.ptr, %expr: i32) 
 // CHECK: @__omp_rtl_assume_threads_oversubscription = weak_odr hidden constant i32 1
 // CHECK: @__omp_rtl_assume_no_thread_state = weak_odr hidden constant i32 1
 // CHECK: @__omp_rtl_assume_no_nested_parallelism = weak_odr hidden constant i32 1
-module attributes {omp.flags = #omp.flags<debug_kind = 1, assume_teams_oversubscription = true,
-                                          assume_threads_oversubscription = true, assume_no_thread_state = true,
+module attributes {omp.flags = #omp.flags<debug_kind = 1, assume_teams_oversubscription = true, 
+                                          assume_threads_oversubscription = true, assume_no_thread_state = true, 
                                           assume_no_nested_parallelism = true>} {}
 // -----
 
@@ -2531,8 +2531,8 @@ module attributes {omp.version = #omp.version<version = 51>} {}
 // CHECK: @__omp_rtl_assume_threads_oversubscription = weak_odr hidden constant i32 0
 // CHECK: @__omp_rtl_assume_no_thread_state = weak_odr hidden constant i32 0
 // CHECK: @__omp_rtl_assume_no_nested_parallelism = weak_odr hidden constant i32 0
-module attributes {omp.flags = #omp.flags<debug_kind = 0, assume_teams_oversubscription = false,
-                                          assume_threads_oversubscription = false, assume_no_thread_state = false,
+module attributes {omp.flags = #omp.flags<debug_kind = 0, assume_teams_oversubscription = false, 
+                                          assume_threads_oversubscription = false, assume_no_thread_state = false, 
                                           assume_no_nested_parallelism = false>} {}
 
 // -----
@@ -2547,8 +2547,8 @@ module attributes {omp.flags = #omp.flags<assume_teams_oversubscription = true, 
 // -----
 
 module attributes {omp.is_target_device = false} {
-  // DISABLED, this portion of the test is disabled via the removal of the colon for the time
-  // being as filtering is enabled for device only for the time being while a fix is in progress.
+  // DISABLED, this portion of the test is disabled via the removal of the colon for the time 
+  // being as filtering is enabled for device only for the time being while a fix is in progress. 
   // CHECK-NOT @filter_host_nohost
   llvm.func @filter_host_nohost() -> ()
       attributes {
