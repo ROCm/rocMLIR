@@ -192,10 +192,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
-  if (archInfo.hasFp8ConversionInstrs)
+  if (archInfo.hasFp8ConversionInstrs) {
+    ArithToAMDGPUConversionPassOptions options;
+    options.saturateFP8Truncf = true;
+    gpuPm.addPass(createArithToAMDGPUConversionPass(options));
     gpuPm.addPass(createArithToAMDGPUConversionPass());
-  else
+  } else {
     gpuPm.addPass(createFp8ExtToTablesPass());
+  }
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
