@@ -1,0 +1,22 @@
+// REQUIRES: x86-registered-target
+// REQUIRES: amdgpu-registered-target
+// REQUIRES: system-linux
+// XFAIL: target={{.*}}hexagon{{.*}}
+// XFAIL: target={{.*}}-scei{{.*}}
+// XFAIL: target={{.*}}-sie{{.*}}
+
+// RUN: %clang -### --hipstdpar --hipstdpar-path=%S/Inputs/hipstdpar \
+// RUN:   --hipstdpar-thrust-path=%S/Inputs/hipstdpar/thrust \
+// RUN:   --hipstdpar-prim-path=%S/Inputs/hipstdpar/rocprim \
+// RUN:   -nogpulib -nogpuinc --compile %s 2>&1 | \
+// RUN:   FileCheck --check-prefix=HIPSTDPAR-COMPILE %s
+// RUN: touch %t.o
+// RUN: %clang -### --hipstdpar %t.o 2>&1 | FileCheck --check-prefix=HIPSTDPAR-LINK %s
+
+// HIPSTDPAR-COMPILE: "-x" "hip"
+// HIPSTDPAR-COMPILE: "-idirafter" "{{.*/thrust}}"
+// HIPSTDPAR-COMPILE: "-idirafter" "{{.*/rocprim}}"
+// HIPSTDPAR-COMPILE: "-idirafter" "{{.*/Inputs/hipstdpar}}"
+// HIPSTDPAR-COMPILE: "-include" "hipstdpar_lib.hpp"
+// HIPSTDPAR-LINK: "-rpath"
+// HIPSTDPAR-LINK: "-l{{.*hip.*}}"
