@@ -35,7 +35,9 @@ LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
 DATA_TYPES_ATTENTION = ['f32', 'f16']
-OUTPUT_DATA_TYPES_MAP = {'f32':'f32', 'f16':'f16', 'i8':'i32'}
+OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'i8': 'i32',
+                         'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
+                         'bf8_bf8': 'f32'}
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
@@ -351,6 +353,14 @@ class ConvConfiguration(PerfConfiguration):
             dataType = 'bf16'
         elif argv[0] == 'convint8':
             dataType = 'i8'
+        elif argv[0] == 'convfp8_fp8':
+            dataType = 'fp8_fp8'
+        elif argv[0] == 'convfp8_bf8':
+            dataType = 'fp8_bf8'
+        elif argv[0] == 'convbf8_fp8':
+            dataType = 'bf8_fp8'
+        elif argv[0] == 'convbf8_bf8':
+            dataType = 'bf8_bf8'
 
         layout = None
         try:

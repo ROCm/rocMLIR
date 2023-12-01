@@ -82,7 +82,7 @@ def ArithEmulateUnsupportedFloats : Pass<"arith-emulate-unsupported-floats"> {
       "MLIR type to convert the unsupported source types to">,
   ];
 
-  let dependentDialects = ["vector::VectorDialect"];
+  let dependentDialects = ["vector::VectorDialect", "math::MathDialect"];
 }
 
 def ArithEmulateWideInt : Pass<"arith-emulate-wide-int"> {
