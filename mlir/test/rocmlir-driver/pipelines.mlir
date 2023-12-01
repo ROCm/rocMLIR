@@ -35,22 +35,23 @@
 
 // BINARY: Kernel pipeline:
 // BINARY-NEXT: {{^}}builtin.module(strip-debuginfo,
-// BINARY-SAME: fp8-ext-to-tables,
 // BINARY-SAME: gpu.module(amdgpu-emulate-atomics{chipset=gfx90a},
-// BINARY-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
+// BINARY-SAME: arith-emulate-unsupported-floats{source-types=bf16,f8E4M3FNUZ,f8E5M2FNUZ target-type=f32},
+// BINARY-SAME: fp8-ext-to-tables,
 // BINARY-SAME: expand-strided-metadata,
 // BINARY-SAME: convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
+// BINARY-SAME: fp8-ext-to-tables){{$}}
 
 // BINARY_MI300: Kernel pipeline:
 // BINARY_MI300-NEXT: {{^}}builtin.module(strip-debuginfo,
-// BINARY_MI300-SAME: gpu.module(convert-arith-to-amdgpu),
-// BINARY_MI300-SAME: fp8-ext-to-tables,
 // BINARY_MI300-SAME: gpu.module(amdgpu-emulate-atomics{chipset=gfx940},
-// BINARY_MI300-SAME: arith-emulate-unsupported-floats{source-types=bf16 target-type=f32},
+// BINARY_MI300-SAME: arith-emulate-unsupported-floats{source-types=bf16,f8E4M3FNUZ,f8E5M2FNUZ target-type=f32},
+// BINARY_MI300-SAME: convert-arith-to-amdgpu{saturate-fp8-truncf=true},
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa})){{$}}
+// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
+// BINARY_MI300-SAME: fp8-ext-to-tables){{$}}
 
 // PARTITION: Partitioner pipeline:
 // PARTITION-NEXT: {{^}}builtin.module(func.func(tosa-make-broadcastable),

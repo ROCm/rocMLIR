@@ -44,7 +44,10 @@ struct ExtfOnFloat8RewritePattern final
 
 struct TruncfToFloat8RewritePattern final
     : public OpRewritePattern<arith::TruncFOp> {
-  using OpRewritePattern<arith::TruncFOp>::OpRewritePattern;
+  bool saturateFP8 = false;
+  TruncfToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8)
+      : OpRewritePattern<arith::TruncFOp>::OpRewritePattern(ctx),
+        saturateFP8(saturateFP8) {}
 
   LogicalResult match(arith::TruncFOp op) const override;
   void rewrite(arith::TruncFOp op, PatternRewriter &rewriter) const override;
@@ -127,6 +130,60 @@ static Value castToF32(Value value, Location loc, PatternRewriter &rewriter) {
   llvm_unreachable("The only 32-bit float type is f32");
 }
 
+static Value getMaybeVectorConstant(PatternRewriter &rewriter, Location loc,
+                                    const APFloat &value, Type type) {
+  if (isa<FloatType>(type))
+    return rewriter.createOrFold<arith::ConstantOp>(
+        loc, type, rewriter.getFloatAttr(type, value));
+  TypedAttr splat = DenseElementsAttr::get(cast<ShapedType>(type), value);
+  return rewriter.createOrFold<arith::ConstantOp>(loc, type, splat);
+}
+
+// If `in` is a finite value, clamp it between the maximum and minimum values
+// of `outElemType` so that subsequent conversion instructions don't
+// overflow those out-of-range values to NaN. These semantics are commonly
+// used in machine-learning contexts where failure to clamp would lead to
+// excessive NaN production.
+static Value clampInput(PatternRewriter &rewriter, Location loc,
+                        Type outElemType, Value source) {
+  Type sourceType = source.getType();
+  const llvm::fltSemantics &sourceSem =
+      cast<FloatType>(getElementTypeOrSelf(sourceType)).getFloatSemantics();
+  const llvm::fltSemantics &targetSem =
+      cast<FloatType>(outElemType).getFloatSemantics();
+
+  APFloat min = APFloat::getLargest(targetSem, /*Negative=*/true);
+  APFloat max = APFloat::getLargest(targetSem, /*Negative=*/false);
+  bool ignoredLosesInfo = false;
+  // We can ignore conversion failures here because this conversion promotes
+  // from a smaller type to a larger one.
+  (void)min.convert(sourceSem, APFloat::rmNearestTiesToEven, &ignoredLosesInfo);
+  (void)max.convert(sourceSem, APFloat::rmNearestTiesToEven, &ignoredLosesInfo);
+
+  Value minCst = getMaybeVectorConstant(rewriter, loc, min, sourceType);
+  Value maxCst = getMaybeVectorConstant(rewriter, loc, max, sourceType);
+
+  Value inf = getMaybeVectorConstant(
+      rewriter, loc, APFloat::getInf(sourceSem, /*Negative=*/false),
+      sourceType);
+  Value negInf = getMaybeVectorConstant(
+      rewriter, loc, APFloat::getInf(sourceSem, /*Negative=*/true), sourceType);
+  Value isInf = rewriter.createOrFold<arith::CmpFOp>(
+      loc, arith::CmpFPredicate::OEQ, source, inf);
+  Value isNegInf = rewriter.createOrFold<arith::CmpFOp>(
+      loc, arith::CmpFPredicate::OEQ, source, negInf);
+  Value isNan = rewriter.createOrFold<arith::CmpFOp>(
+      loc, arith::CmpFPredicate::UNO, source, source);
+  Value isNonFinite = rewriter.create<arith::OrIOp>(
+      loc, rewriter.create<arith::OrIOp>(loc, isInf, isNegInf), isNan);
+
+  Value clampedBelow = rewriter.create<arith::MaxFOp>(loc, source, minCst);
+  Value clamped = rewriter.create<arith::MinFOp>(loc, clampedBelow, maxCst);
+  Value res =
+      rewriter.create<arith::SelectOp>(loc, isNonFinite, source, clamped);
+  return res;
+}
+
 LogicalResult TruncfToFloat8RewritePattern::match(arith::TruncFOp op) const {
   Type outType = op.getOut().getType();
   if (auto outVecType = outType.dyn_cast<VectorType>()) {
@@ -145,6 +202,8 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
   Location loc = op.getLoc();
   Value in = op.getIn();
   Type outElemType = getElementTypeOrSelf(op.getOut().getType());
+  if (saturateFP8)
+    in = clampInput(rewriter, loc, outElemType, in);
   VectorType truncResType = VectorType::get(4, outElemType);
   if (!in.getType().isa<VectorType>()) {
     Value asFloat = castToF32(in, loc, rewriter);
@@ -196,15 +255,16 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
 }
 
 void mlir::arith::populateArithToAMDGPUConversionPatterns(
-    RewritePatternSet &patterns) {
-  patterns.add<ExtfOnFloat8RewritePattern, TruncfToFloat8RewritePattern>(
-      patterns.getContext());
+    RewritePatternSet &patterns, bool saturateFP8Truncf) {
+  patterns.add<ExtfOnFloat8RewritePattern>(patterns.getContext());
+  patterns.add<TruncfToFloat8RewritePattern>(patterns.getContext(),
+                                             saturateFP8Truncf);
 }
 
 void ArithToAMDGPUConversionPass::runOnOperation() {
   Operation *op = getOperation();
   RewritePatternSet patterns(op->getContext());
-  arith::populateArithToAMDGPUConversionPatterns(patterns);
+  arith::populateArithToAMDGPUConversionPatterns(patterns, saturateFP8Truncf);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     return signalPassFailure();
 }

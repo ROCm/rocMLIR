@@ -489,14 +489,28 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
 
     // OP datatype
-    if (inType.getElementType().isF32()) {
+    Type inElemType = inType.getElementType();
+    Type filElemType = filType.getElementType();
+    if (inElemType.isF32()) {
       problemOS << "conv ";
-    } else if (inType.getElementType().isF16()) {
+    } else if (inElemType.isF16()) {
       problemOS << "convfp16 ";
-    } else if (inType.getElementType().isBF16()) {
+    } else if (inElemType.isBF16()) {
       problemOS << "convbfp16 ";
-    } else if (inType.getElementType().isInteger(8)) {
+    } else if (inElemType.isInteger(8)) {
       problemOS << "convint8 ";
+    } else if (inElemType.isFloat8E4M3FNUZ() &&
+               filElemType.isFloat8E4M3FNUZ()) {
+      problemOS << "convfp8_fp8 ";
+    } else if (inElemType.isFloat8E4M3FNUZ() &&
+               filElemType.isFloat8E5M2FNUZ()) {
+      problemOS << "convfp8_bf8 ";
+    } else if (inElemType.isFloat8E5M2FNUZ() &&
+               filElemType.isFloat8E4M3FNUZ()) {
+      problemOS << "convbf8_fp8 ";
+    } else if (inElemType.isFloat8E5M2FNUZ() &&
+               filElemType.isFloat8E5M2FNUZ()) {
+      problemOS << "convbf8_bf8 ";
     } else {
       return failure();
     }

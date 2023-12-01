@@ -184,16 +184,22 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    */
   pm.addPass(createStripDebugInfoPass());
   AmdArchInfo archInfo = lookupArchInfo(options.chip);
-  if (archInfo.hasFp8ConversionInstrs)
-    pm.addNestedPass<gpu::GPUModuleOp>(createArithToAMDGPUConversionPass());
-  pm.addPass(createFp8ExtToTablesPass());
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
-  SmallVector<std::string, 1> unsupportedFloats = {"bf16"};
+  SmallVector<std::string, 3> unsupportedFloats = {"bf16", "f8E4M3FNUZ",
+                                                   "f8E5M2FNUZ"};
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
+  if (archInfo.hasFp8ConversionInstrs) {
+    ArithToAMDGPUConversionPassOptions options;
+    options.saturateFP8Truncf = true;
+    gpuPm.addPass(createArithToAMDGPUConversionPass(options));
+    gpuPm.addPass(createArithToAMDGPUConversionPass());
+  } else {
+    gpuPm.addPass(createFp8ExtToTablesPass());
+  }
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
@@ -205,6 +211,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   if (options.compile)
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel));
+  // Quick hack around the facct that our host code runner pipeline can't
+  // include our fp8 extf implmenentation becasue of MHAL's organization. That
+  // pass will ideally be nicely implemented and upstreamed Later (tm).
+  pm.addPass(createFp8ExtToTablesPass());
 }
 
 //===----------------------------------------------------------------------===//
