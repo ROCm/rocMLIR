@@ -53,6 +53,7 @@ void getAndBuildCK(String cmakeOpts) {
 void getTuna() {
     git branch: 'pf-tuna-rocmlir-3', poll: false, \
         url: 'http://github.com/ROCmSoftwarePlatform/MITuna.git'
+    sh 'mv MITuna /tmp'
 }
 
 void showEnv() {
@@ -549,9 +550,7 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
-                            dir('/tmp/MITuna') {
-                                getTuna()
-                            }
+                            getTuna()
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
@@ -719,9 +718,7 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                            dir('/tmp/MITuna') {
-                                getTuna()
-                            }
+                            getTuna()
                             dir('build') {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
