@@ -56,6 +56,7 @@ void getTuna() {
     // sh 'mv MITuna /tmp'
     sh 'pwd'
     sh 'ls -ls'
+    sh 'ls -ls /tmp'
 }
 
 void showEnv() {
@@ -552,7 +553,9 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
-                            getTuna()
+                            dir('/tmp/MITuna') {
+                                getTuna()
+                            }
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
@@ -720,7 +723,9 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                            getTuna()
+                            dir('/tmp/MITuna') {
+                                getTuna()
+                            }
                             dir('build') {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
