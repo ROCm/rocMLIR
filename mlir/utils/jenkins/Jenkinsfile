@@ -53,7 +53,9 @@ void getAndBuildCK(String cmakeOpts) {
 void getTuna() {
     git branch: 'pf-tuna-rocmlir-3', poll: false, \
         url: 'http://github.com/ROCmSoftwarePlatform/MITuna.git'
-    sh 'mv MITuna /tmp'
+    // sh 'mv MITuna /tmp'
+    sh 'pwd'
+    sh 'ls -ls'
 }
 
 void showEnv() {
