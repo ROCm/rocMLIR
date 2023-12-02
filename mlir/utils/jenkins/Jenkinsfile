@@ -555,30 +555,30 @@ pipeline {
                             buildProject('ci-performance-scripts', '')
                             dir('/tmp/MITuna') {
                                 getTuna()
-                            }
-                            dir('build') {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    // Tune gemms, fail if the DB is not created
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -f tuning_gemm.tsv
-                                          [ -f tuning_gemm.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -f tuning_conv.tsv
-                                          [ -f tuning_conv.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                            -f tuning_attention.tsv
-                                          [ -f tuning_attention.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -f quick_tuning_gemm.tsv -s quick
-                                          [ -f quick_tuning_gemm.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -f quick_tuning_conv.tsv -s quick
-                                          [ -f quick_tuning_conv.tsv ]"""
+                                dir('build') {
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        // Tune gemms, fail if the DB is not created
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -f tuning_gemm.tsv
+                                              [ -f tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -f tuning_conv.tsv
+                                              [ -f tuning_conv.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                -f tuning_attention.tsv
+                                              [ -f tuning_attention.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -f quick_tuning_gemm.tsv -s quick
+                                              [ -f quick_tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -f quick_tuning_conv.tsv -s quick
+                                              [ -f quick_tuning_conv.tsv ]"""
+                                    }
                                 }
                             }
                         }
@@ -725,32 +725,32 @@ pipeline {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('/tmp/MITuna') {
                                 getTuna()
-                            }
-                            dir('build') {
-                                // Tune gemms with default datatypes, fail if the DB is not created
-                                // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs \
-                                        -f mlir_tuning_${ARCH}.tsv
-                                      [ -f mlir_tuning_${ARCH}.tsv ]"""
-                                // Tune resnet50 and unet configs
-                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs \
-                                        -f mlir_tuning_${ARCH}.tsv"""
-                                // Tune attention configs
-                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/attention-configs \
-                                        -f mlir_tuning_${ARCH}.tsv"""
-                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs -s quick \
-                                        -f mlir_quick_tuning_${ARCH}.tsv
-                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
-                                // Tune resnet50 and unet configs (quick tuning)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs -s quick \
-                                        -f mlir_quick_tuning_${ARCH}.tsv"""
+                                dir('build') {
+                                    // Tune gemms with default datatypes, fail if the DB is not created
+                                    // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/performance/gemm-configs \
+                                            -f mlir_tuning_${ARCH}.tsv
+                                          [ -f mlir_tuning_${ARCH}.tsv ]"""
+                                    // Tune resnet50 and unet configs
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/performance/conv-configs \
+                                            -f mlir_tuning_${ARCH}.tsv"""
+                                    // Tune attention configs
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                            -c ../mlir/utils/performance/attention-configs \
+                                            -f mlir_tuning_${ARCH}.tsv"""
+                                    // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+                                    // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/performance/gemm-configs -s quick \
+                                            -f mlir_quick_tuning_${ARCH}.tsv
+                                          [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+                                    // Tune resnet50 and unet configs (quick tuning)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/performance/conv-configs -s quick \
+                                            -f mlir_quick_tuning_${ARCH}.tsv"""
+                                }
                             }
                         }
                     }
