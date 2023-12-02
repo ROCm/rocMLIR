@@ -1236,6 +1236,7 @@ def Rock_BlockwiseBroadcastReduceOp:
                    MemRefOf<GemmOutputTypes>:$output,
                    Optional<MemRefOf<GemmOutputTypes>>:$extraOut,
                    IndexAttr:$axis,
+                   IndexAttr:$nrDimPerThread,
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
                    OptionalAttr<TransformMapArrayAttr>:$extraOutView,

@@ -34,7 +34,7 @@
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 20] -> [20, 20]>
 func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<20xf32, #gpu.address_space<private>>,  %output_reg : memref<20xf32, #gpu.address_space<private>>, %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
-    rock.blockwise_broadcast_reduce max [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32
+    rock.blockwise_broadcast_reduce max [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 20 : index} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32
     return
 }
 
@@ -119,6 +119,6 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<4xf32, #gpu.address_space<private>>,  %output_reg : memref<4xf32, #gpu.address_space<private>>, %ws_lds : memref<80xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
-  rock.blockwise_broadcast_reduce sum [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
+  rock.blockwise_broadcast_reduce sum [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 4 : index} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
   return
 }
