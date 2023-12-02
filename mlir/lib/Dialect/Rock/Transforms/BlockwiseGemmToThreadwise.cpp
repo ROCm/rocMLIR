@@ -843,7 +843,7 @@ struct BlockwiseReduceRewritePattern
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{tid, zero}, {tid, zero}},
-        ArrayRef<Attribute>{inputBlockSubTile2dView},
+        ArrayRef<Attribute>{inputBlockSubTile2dView, rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, numElements},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
@@ -851,23 +851,16 @@ struct BlockwiseReduceRewritePattern
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
       Block::BlockArgListType subtileCoords = loop.getLowerCoords(0);
+      Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
       Value ldInput = rewriter.create<InBoundsLoadOp>(
-          loc, elemType, inputRawBuffer, subtileCoords);
+          loc, elemType, inputRawBuffer, upperCoords[1]);
       Value ldInputAcc = rewriter.create<InBoundsLoadOp>(
           loc, elemType, reducedBuffer, subtileCoords[nrDim]);
       Value reduced = createReducingOp(op, ldInput, ldInputAcc, rewriter);
       rewriter.create<InBoundsStoreOp>(loc, reduced,
-                                       inputRawBuffer,
+                                       reducedBuffer,
                                        subtileCoords[nrDim]);
     }
-  }
-
-  void zeroBuffer(PatternRewriter &rewriter, Location loc,
-                     Value accBuffer) const {
-    MemRefType accBufferType = accBuffer.getType().cast<MemRefType>();
-    Value zeroConstantCOp =
-        createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
-    rewriter.create<FillOp>(loc, accBuffer, zeroConstantCOp);
   }
 
   void storePartialReductionstoLDS(PatternRewriter &rewriter,
@@ -889,7 +882,7 @@ struct BlockwiseReduceRewritePattern
     auto interThreadReductionCounterType = MemRefType::get({numPartialReducedElements}, rewriter.getIndexType(), AffineMap{},
                                                        privateMemoryAddressSpace);
     Value interThreadReductionCounter = rewriter.create<GpuAllocOp>(loc, interThreadReductionCounterType);
-    zeroBuffer(rewriter, loc, interThreadReductionCounter);
+    rewriter.create<FillOp>(loc, interThreadReductionCounter, zero);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{inputBlockSubTile2dViewInv, rewriter.getArrayAttr({})},
@@ -897,6 +890,8 @@ struct BlockwiseReduceRewritePattern
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
     {
+            OpBuilder::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(loop.getBody());
             Block::BlockArgListType tidAndIter = loop.getLowerCoords(0);
             Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
             Value isCurrThread = rewriter.create<arith::CmpIOp>(
@@ -907,19 +902,21 @@ struct BlockwiseReduceRewritePattern
               OpBuilder thenb = ifb.getThenBodyBuilder();
               Value ldReduced = thenb.create<InBoundsLoadOp>(
                                 loc, elemType, reducedBuffer, ValueRange{upperCoords[0]});
-              Value ldThreadReductionCounter = thenb.create<InBoundsLoadOp>(
-                                loc, thenb.getIndexType(), interThreadReductionCounter, ValueRange{upperCoords[0]});
+              Value ldThreadReductionCounter = thenb.create<memref::LoadOp>(
+                                loc, interThreadReductionCounter, ValueRange{upperCoords[0]});
               auto ldsStoreloop = thenb.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{upperCoords[0], ldThreadReductionCounter}}, 
                                                                   ArrayRef<Attribute>{toFlatLDSView}, 
                                                                   /*bounds=*/ArrayRef<int64_t>{1, 1}, 
                                                                   /*strides=*/ArrayRef<int64_t>{1, 1},
                                                                   /*useIndexDiffs=*/true, /*forceUnroll=*/true);
               {
+                OpBuilder::InsertionGuard guard(rewriter);
+                thenb.setInsertionPointToStart(ldsStoreloop.getBody());
                 Block::BlockArgListType ldsFlatCoords = ldsStoreloop.getLowerCoords(0);
                 thenb.create<InBoundsStoreOp>(loc, ldReduced, ldsBuffer, ldsFlatCoords);
               }
-              ldThreadReductionCounter = thenb.create<arith::AddFOp>(loc, ldThreadReductionCounter, one);
-              thenb.create<InBoundsStoreOp>(loc, ldThreadReductionCounter, interThreadReductionCounter, ValueRange{upperCoords[0]});
+              ldThreadReductionCounter = thenb.create<arith::AddIOp>(loc, ldThreadReductionCounter, one);
+              thenb.create<memref::StoreOp>(loc, ldThreadReductionCounter, interThreadReductionCounter, ValueRange{upperCoords[0]});
             }
     }
   }
