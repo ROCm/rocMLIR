@@ -1,4 +1,5 @@
 // RUN: rocmlir-opt %s --rock-multibuffer-test | FileCheck %s
+// RUN: rocmlir-opt %s --rock-multibuffer-test --rock-blockwise-gemm-to-threadwise --rock-threadwise-gemm-lowering | FileCheck %s --check-prefix=LOWERING
 #map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 8 + d5) * 8 + d7, (d2 * 32 + d4) * 2 + d6)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)>
@@ -73,7 +74,11 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %18 = arith.divui %17, %14 : index
     rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%2) [%c0, %9, %16, %18, %6] -> %7 : memref<16x1x6x16x256x16xf16> -> memref<16xf16, #gpu.address_space<private>>
     rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%4) [%c0, %9, %16, %18, %6] -> %8 : memref<16x1x6x16x256x16xf16> -> memref<16xf16, #gpu.address_space<private>>
-    %19 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %c0_0 = arith.constant 0 : index
+    // LOWERING: %[[multibuf0:.*]] = rock.alloc() : memref<64xi8, #gpu.address_space<private>>
+    %raw = rock.alloc(){__multibuffer__=2} : memref<32xi8, #gpu.address_space<private>>
+    // LOWERING: %[[multibuf0_view:.*]] = rock.reinterpret_multibuffer %[[multibuf0]] {{.*}} : memref<64xi8, #gpu.address_space<private>> to memref<2x16xf16, #gpu.address_space<private>>
+    %19 = memref.view %raw[%c0_0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
     %20 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     %21 = rock.transform %7 by #transform_map5 : memref<16xf16, #gpu.address_space<private>> to memref<2x8xf16, #gpu.address_space<private>>
     %22 = rock.transform %21 by #transform_map6 : memref<2x8xf16, #gpu.address_space<private>> to memref<8x2xf16, #gpu.address_space<private>>
@@ -85,19 +90,17 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %28 = rock.transform %27 by #transform_map12 : memref<1x2x8xf16, #gpu.address_space<private>> to memref<8x2xf16, #gpu.address_space<private>>
     %c2 = arith.constant 2 : index
     %c64 = arith.constant 64 : index
-    // CHECK: %[[multibuf:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[multibuf1:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
     %29 = rock.alloc(){__multibuffer__=2} : memref<8192xi8, #gpu.address_space<workgroup>>
     %30 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
-    %c0_0 = arith.constant 0 : index
-    // CHECK: %[[multibuf_view:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t0:.*]] = rock.transform %[[multibuf_view]] by {{.*}} : memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>> to memref<16x512xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t1:.*]] = rock.transform %[[t0]] by {{.*}} : memref<16x512xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t2:.*]] = rock.transform %[[t1]] by {{.*}} : memref<16x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t3:.*]] = rock.transform %[[t2]] by {{.*}} : memref<16x8x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t4:.*]] = rock.transform %[[t3]] by {{.*}} : memref<16x8x512x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t5:.*]] = rock.transform %[[t4]] by {{.*}} : memref<16x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t6:.*]] = rock.transform %[[t5]] by {{.*}} : memref<16x64x64xvector<8xf16>, #gpu.address_space<workgroup>>
-    // CHECK: %[[t7:.*]] = rock.transform %[[t6]] by {{.*}} : memref<16x32x8x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[multibuf_view:.*]] = rock.reinterpret_multibuffer %[[multibuf1]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t1:.*]] = rock.transform %[[multibuf_view]] by {{.*}} : memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t2:.*]] = rock.transform %[[t1]] by {{.*}} : memref<2x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t3:.*]] = rock.transform %[[t2]] by {{.*}} : memref<2x8x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t4:.*]] = rock.transform %[[t3]] by {{.*}} : memref<2x8x512x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t5:.*]] = rock.transform %[[t4]] by {{.*}} : memref<2x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t6:.*]] = rock.transform %[[t5]] by {{.*}} : memref<2x64x64xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[t7:.*]] = rock.transform %[[t6]] by {{.*}} : memref<2x32x8x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>>
     %view = memref.view %29[%c0_0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
     %31 = rock.transform %view by #transform_map13 : memref<512xvector<8xf16>, #gpu.address_space<workgroup>> to memref<8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
     %32 = rock.transform %31 by #transform_map14 : memref<8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>> to memref<8x8x64x1x8xvector<8xf16>, #gpu.address_space<workgroup>>
@@ -113,7 +116,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %40 = rock.transform %39 by #transform_map22 : memref<64x64xvector<8xf16>, #gpu.address_space<workgroup>> to memref<8x32x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>>
     %41 = rock.transform %40 by #transform_map23 : memref<8x32x1x2x8xvector<8xf16>, #gpu.address_space<workgroup>> to memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
     %c0_3 = arith.constant 0 : index
-    // CHECK: %[[multibuf_view2:.*]] = rock.reinterpret_multibuffer %[[multibuf]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: %[[multibuf_view2:.*]] = rock.reinterpret_multibuffer %[[multibuf1]] {{.*}} : memref<16384xi8, #gpu.address_space<workgroup>> to memref<2x512xvector<8xf16>, #gpu.address_space<workgroup>>
     %view_4 = memref.view %29[%c0_3][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
     %c0_5 = arith.constant 0 : index
     %view_6 = memref.view %30[%c0_5][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
@@ -132,14 +135,22 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     affine.for %arg3 = 0 to 16 {
       rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%2) [%arg3, %9, %16, %18, %6] -> %7 : memref<16x1x6x16x256x16xf16> -> memref<16xf16, #gpu.address_space<private>>
       rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%4) [%arg3, %9, %16, %18, %6] -> %8 : memref<16x1x6x16x256x16xf16> -> memref<16xf16, #gpu.address_space<private>>
+      // CHECK: %[[mbIndex0:.*]] = affine.apply {{.*}}(%arg3)
+      // CHECK: rock.threadwise_copy {{.*}} -> {{.*}}[%[[mbIndex0]]]
+      // LOWERING: rock.transforming_for
+      // LOWERING: strides [1, 8]
+      // LOWERING: rock.in_bounds_store {{.*}} -> %[[multibuf0_view]][{{.*}}]
       rock.threadwise_copy %22 -> %24 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
       rock.threadwise_copy %26 -> %28 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
-      // CHECK: rock.threadwise_write_all {{.*}} %19 -> [](%[[t7]]) [%arg3, %6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<16x256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+      // CHECK: %[[mbIndex1:.*]] = affine.apply {{.*}}(%arg3)
+      // CHECK: %[[subview0:.*]] = memref.subview
+      // CHECK: %[[mbIndex0:.*]] = affine.apply {{.*}}(%arg3)
+      // CHECK: rock.threadwise_write_all {{.*}} %[[subview0]] -> [](%[[t7]]) [%[[mbIndex0]], %6] by  set : memref<16xf16, strided<[1], offset: ?>, #gpu.address_space<private>> -> memref<2x256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %19 -> [](%37) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
       // CHECK: %[[multibuf_idx:.*]] = affine.apply {{.*}}(%arg3)
-      // CHECK: %[[subview:.*]] = memref.subview %[[multibuf_view2]][%[[multibuf_idx]], 0] [1, 512] [1, 1]
+      // CHECK: %[[subview1:.*]] = memref.subview %[[multibuf_view2]][%[[multibuf_idx]], 0] [1, 512] [1, 1]
       rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx90a", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
     }
