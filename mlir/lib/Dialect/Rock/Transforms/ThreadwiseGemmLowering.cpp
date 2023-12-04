@@ -361,6 +361,7 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     strides = SmallVector<int64_t>{vecLen};
     bounds = SmallVector<int64_t>{rawStoreBufferShape.back()};
   }
+
   // Extend start
   SmallVector<Value> extendedStart(op.getExtraIndicesSource());
   extendedStart.insert(extendedStart.end(), op.getExtraIndicesDest().begin(),
