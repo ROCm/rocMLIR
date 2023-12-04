@@ -297,7 +297,7 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
 }
 
 def MIGraphX_QuantConvolutionOp :
-    MIGraphX_ConvOpBase<"quant_convolution", [I8], [I32]> {
+    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]> {
   let summary = "quantized convolution forward";
   let description = [{
     The `migraphx.quant_convolution` op computes quantized convolution forward.
