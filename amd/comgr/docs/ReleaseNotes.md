@@ -98,6 +98,14 @@ of the flag handling to toolchain. Currently only supports HIP.
 - (Data Type) AMD\_COMGR\_DATA\_KIND\_AR\_BUNDLE
   - These data kinds can now be passed to an AMD\_COMGR\_ACTION\_LINK\_BC\_TO\_BC
 action, and Comgr will internally unbundle and link via the OffloadBundler and linkInModule APIs.
+- (Language Type) AMD\_COMGR\_LANGUAGE\_LLVM\_IR
+  - This language can now be passed to AMD\_COMGR\_ACTION\_COMPILE\_\* actions
+  to enable compilation of LLVM IR (.ll or .bc) files. This is useful for MLIR
+  contexts.
+- (Action) AMD\_COMGR\_ACTION\_COMPILE\_SOURCE\_TO\_EXECUTABLE
+  - This action allows compilation from source directly to executable, including
+  linking device libraries.
+
 
 Deprecated Comgr Actions and Data Types
 ---------------------------------------
@@ -128,6 +136,9 @@ unbundling.
 - Add git branch and commit hash for Comgr, and commit hash for LLVM to log
 output for Comgr actions. This can help us debug issues more quickly in cases
 where reporters provide Comgr logs.
+- Fix multiple bugs with mangled names test
+- Refactor nested kernel behavior into new test, as this behavior is less common
+and shouldn't be featured in the baseline tests
 
 New Targets
 -----------

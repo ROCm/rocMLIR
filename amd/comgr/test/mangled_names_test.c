@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
 
   SizeSource1 = setBuf(TEST_OBJ_DIR "/source1.cl", &BufSource1);
   SizeSource2 = setBuf(TEST_OBJ_DIR "/source2.cl", &BufSource2);
-  SizeInclude = setBuf(TEST_OBJ_DIR "/include-a.h", &BufInclude);
+  SizeInclude = setBuf(TEST_OBJ_DIR "/include-macro.h", &BufInclude);
 
   Status = amd_comgr_create_data_set(&DataSetIn);
   checkError(Status, "amd_comgr_create_data_set");
@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
   checkError(Status, "amd_comgr_create_data");
   Status = amd_comgr_set_data(DataInclude, SizeInclude, BufInclude);
   checkError(Status, "amd_comgr_set_data");
-  Status = amd_comgr_set_data_name(DataInclude, "include-a.h");
+  Status = amd_comgr_set_data_name(DataInclude, "include-macro.h");
   checkError(Status, "amd_comgr_set_data_name");
   Status = amd_comgr_data_set_add(DataSetIn, DataInclude);
   checkError(Status, "amd_comgr_data_set_add");
@@ -116,10 +116,28 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  Status = amd_comgr_create_data_set(&DataSetLinked);
+  checkError(Status, "amd_comgr_create_data_set");
+
+  Status = amd_comgr_do_action(AMD_COMGR_ACTION_LINK_BC_TO_BC, DataAction,
+                               DataSetBc, DataSetLinked);
+  checkError(Status, "amd_comgr_do_action");
+
+  Status = amd_comgr_action_data_count(DataSetLinked, AMD_COMGR_DATA_KIND_BC,
+                                       &Count);
+  checkError(Status, "amd_comgr_action_data_count");
+
+  if (Count != 1) {
+    printf("AMD_COMGR_ACTION_LINK_BC_TO_BC Failed: "
+           "produced %zu BC objects (expected 1)\n",
+           Count);
+    exit(1);
+  }
+
   // Get bitcode mangled names
   amd_comgr_data_t DataBc;
 
-  Status = amd_comgr_action_data_get_data(DataSetBc,
+  Status = amd_comgr_action_data_get_data(DataSetLinked,
                                           AMD_COMGR_DATA_KIND_BC,
                                           0, &DataBc);
   checkError(Status, "amd_comgr_action_data_get_data");
@@ -158,7 +176,7 @@ int main(int argc, char *argv[]) {
   if (numNames != 2) {
     printf("amd_populate_mangled_names Failed: "
            "produced %zu bitcode names (expected 2)\n",
-           Count);
+           numNames);
     exit(1);
   }
 
@@ -181,24 +199,6 @@ int main(int argc, char *argv[]) {
     }
 
     free(mName);
-  }
-
-  Status = amd_comgr_create_data_set(&DataSetLinked);
-  checkError(Status, "amd_comgr_create_data_set");
-
-  Status = amd_comgr_do_action(AMD_COMGR_ACTION_LINK_BC_TO_BC, DataAction,
-                               DataSetBc, DataSetLinked);
-  checkError(Status, "amd_comgr_do_action");
-
-  Status = amd_comgr_action_data_count(DataSetLinked, AMD_COMGR_DATA_KIND_BC,
-                                       &Count);
-  checkError(Status, "amd_comgr_action_data_count");
-
-  if (Count != 1) {
-    printf("AMD_COMGR_ACTION_LINK_BC_TO_BC Failed: "
-           "produced %zu BC objects (expected 1)\n",
-           Count);
-    exit(1);
   }
 
   Status = amd_comgr_create_data_set(&DataSetReloc);
