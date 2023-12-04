@@ -3,18 +3,18 @@
 module {
   // CHECK: [1 1 1]
   // CHECK-NEXT: Unranked Memref base
-  func.func @mlir_convolution(%arg0: tensor<1x2048x1x1xf32>, %arg1: tensor<1x2048x1x1xf32>, %arg2: tensor<1x2048x7x7xf32>, %arg3: tensor<1x2048x1x1xf32>, %arg4: tensor<1x1024x14x14xf32>, %arg5: tensor<2048x1024x1x1xf32>) -> tensor<1x2048x7x7xf32> {
-    %0 = migraphx.multibroadcast(%arg3) {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : (tensor<1x2048x1x1xf32>) -> tensor<1x2048x7x7xf32>
-    %1 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : (tensor<1x2048x1x1xf32>) -> tensor<1x2048x7x7xf32>
-    %2 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : (tensor<1x2048x1x1xf32>) -> tensor<1x2048x7x7xf32>
-    %3 = migraphx.convolution(%arg4, %arg5) {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [2, 2]} : (tensor<1x1024x14x14xf32>, tensor<2048x1024x1x1xf32>) -> tensor<1x2048x7x7xf32>
-    %4 = migraphx.mul(%2, %3) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %5 = migraphx.mul(%1, %4) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %6 = migraphx.mul(%2, %arg2) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %7 = migraphx.mul(%1, %6) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %8 = migraphx.add(%7, %5) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %9 = migraphx.add(%8, %0) : (tensor<1x2048x7x7xf32>, tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    %10 = migraphx.relu(%9) : (tensor<1x2048x7x7xf32>) -> tensor<1x2048x7x7xf32>
-    return %10 : tensor<1x2048x7x7xf32>
+  func.func @mlir_convolution(%arg0: !migraphx.shaped<1x2048x1x1xf32, 2048x1x1x1>, %arg1: !migraphx.shaped<1x2048x1x1xf32, 2048x1x1x1>, %arg2: !migraphx.shaped<1x2048x7x7xf32, 100352x49x7x1>, %arg3: !migraphx.shaped<1x2048x1x1xf32, 2048x1x1x1>, %arg4: !migraphx.shaped<1x1024x14x14xf32, 200704x196x14x1>, %arg5: !migraphx.shaped<2048x1024x1x1xf32, 1024x1x1x1>) -> !migraphx.shaped<1x2048x7x7xf32, 100352x49x7x1> {
+    %0 = migraphx.multibroadcast %arg3 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
+    %1 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
+    %2 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
+    %3 = migraphx.convolution %arg4, %arg5 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [2, 2]} : <1x1024x14x14xf32, 200704x196x14x1>, <2048x1024x1x1xf32, 1024x1x1x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %4 = migraphx.mul %2, %3 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %5 = migraphx.mul %1, %4 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %6 = migraphx.mul %2, %arg2 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %7 = migraphx.mul %1, %6 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %8 = migraphx.add %7, %5 : <1x2048x7x7xf32, 100352x49x7x1>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %9 = migraphx.add %8, %0 : <1x2048x7x7xf32, 100352x49x7x1>, <1x2048x7x7xf32, 0x1x0x0> -> <1x2048x7x7xf32, 100352x49x7x1>
+    %10 = migraphx.relu %9 : <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
+    return %10 : !migraphx.shaped<1x2048x7x7xf32, 100352x49x7x1>
   }
 }
