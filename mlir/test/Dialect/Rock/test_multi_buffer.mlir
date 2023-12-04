@@ -143,9 +143,9 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       rock.threadwise_copy %22 -> %24 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
       rock.threadwise_copy %26 -> %28 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
       // CHECK: %[[mbIndex1:.*]] = affine.apply {{.*}}(%arg3)
-      // CHECK: %[[subview0:.*]] = memref.subview
-      // CHECK: %[[mbIndex0:.*]] = affine.apply {{.*}}(%arg3)
-      // CHECK: rock.threadwise_write_all {{.*}} %[[subview0]] -> [](%[[t7]]) [%[[mbIndex0]], %6] by  set : memref<16xf16, strided<[1], offset: ?>, #gpu.address_space<private>> -> memref<2x256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+      // CHECK: %[[subview0:.*]] = memref.subview {{.*}}[%[[mbIndex1]], 0]
+      // CHECK: %[[mbIndex2:.*]] = affine.apply {{.*}}(%arg3)
+      // CHECK: rock.threadwise_write_all {{.*}} %[[subview0]] -> [](%[[t7]]) [%[[mbIndex2]], %6] by  set : memref<16xf16, strided<[1], offset: ?>, #gpu.address_space<private>> -> memref<2x256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %19 -> [](%37) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.threadwise_write_all features =  mfma|dot|atomic_add {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
