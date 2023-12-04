@@ -3,11 +3,10 @@
 // CLONE: [1 1 1]
 
 module {
-  func.func @test(%arg0: tensor<1x256x1x1xf32>, %arg1: tensor<1x256x14x14xf32>, %arg2: tensor<256x256x3x3xf32>) -> tensor<1x256x14x14xf32> {
-    %0 = migraphx.multibroadcast(%arg0) {out_lens = [1, 256, 14, 14]} : (tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %1 = migraphx.convolution(%arg1, %arg2) {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x256x14x14xf32>, tensor<256x256x3x3xf32>) -> tensor<1x256x14x14xf32>
-    %2 = migraphx.add(%1, %0) : (tensor<1x256x14x14xf32>, tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
-    %3 = migraphx.relu(%2) : (tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
-    return %3 : tensor<1x256x14x14xf32>
+  func.func @test(%arg0: !migraphx.shaped<1x256x14x14xf32, 0x1x0x0>, %arg1: !migraphx.shaped<1x256x14x14xf32, 50176x196x14x1>, %arg2: !migraphx.shaped<256x256x3x3xf32, 2304x9x3x1>) -> !migraphx.shaped<1x256x14x14xf32, 50176x196x14x1> {
+    %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : <1x256x14x14xf32, 50176x196x14x1>, <256x256x3x3xf32, 2304x9x3x1> -> <1x256x14x14xf32, 50176x196x14x1>
+    %2 = migraphx.add %1, %arg0 : <1x256x14x14xf32, 50176x196x14x1>, <1x256x14x14xf32, 0x1x0x0> -> <1x256x14x14xf32, 50176x196x14x1>
+    %3 = migraphx.relu %2 : <1x256x14x14xf32, 50176x196x14x1> -> <1x256x14x14xf32, 50176x196x14x1>
+    return %3 : !migraphx.shaped<1x256x14x14xf32, 50176x196x14x1>
   }
 }

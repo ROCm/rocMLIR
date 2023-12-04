@@ -17,7 +17,7 @@ target_link_libraries(MLIRGPUToMIGraphX
   MLIRPass
   MLIRSupport
   MLIRGPUDialect
-  MLIRMIGraphX
+  MLIRMIGraphXDialect
   MLIRGPUToGPURuntimeTransforms
   MLIRGPUToROCDLTransforms
 )

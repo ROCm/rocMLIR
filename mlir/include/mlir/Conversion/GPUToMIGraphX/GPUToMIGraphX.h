@@ -14,7 +14,7 @@
 #ifndef MLIR_CONVERSION_GPUTOMIGRAPHX_GPUTOMIGRAPHX_H
 #define MLIR_CONVERSION_GPUTOMIGRAPHX_GPUTOMIGRAPHX_H
 
-#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 

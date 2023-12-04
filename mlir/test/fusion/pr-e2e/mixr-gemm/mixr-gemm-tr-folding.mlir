@@ -2,25 +2,25 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_transpose_reshape_dot(%arg0: tensor<2x8x4x4xf32> {func.read_access}, %arg1: tensor<1x8x8xf32> {func.read_access}) -> (tensor<2x16x8xf32> {func.write_access}) {
-    %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [2, 8, 8]} : (tensor<1x8x8xf32>) -> tensor<2x8x8xf32>
-    %1 = migraphx.transpose(%arg0) {permutation = [0, 2, 3, 1]} : (tensor<2x8x4x4xf32>) -> tensor<2x4x4x8xf32>
-    %2 = migraphx.reshape(%1) {dims = [2, 16, 8]} : (tensor<2x4x4x8xf32>) -> tensor<2x16x8xf32>
-    %3 = migraphx.dot(%2, %0) : (tensor<2x16x8xf32>, tensor<2x8x8xf32>) -> tensor<2x16x8xf32>
-    return %3 : tensor<2x16x8xf32>
+  func.func private @mlir_transpose_reshape_dot(%arg0: !migraphx.shaped<2x8x4x4xf32, 128x16x4x1> {func.read_access}, %arg1: !migraphx.shaped<1x8x8xf32, 64x8x1> {func.read_access}) -> (!migraphx.shaped<2x16x8xf32, 128x8x1> {func.write_access}) {
+    %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [2, 8, 8]} : <1x8x8xf32, 64x8x1> -> <2x8x8xf32, 0x8x1>
+    %1 = migraphx.transpose %arg0 {permutation = [0, 2, 3, 1]} : <2x8x4x4xf32, 128x16x4x1> -> <2x4x4x8xf32, 128x32x8x1>
+    %2 = migraphx.reshape %1 {dims = [2, 16, 8]} : <2x4x4x8xf32, 128x32x8x1> -> <2x16x8xf32, 128x8x1>
+    %3 = migraphx.dot %2, %0 : <2x16x8xf32, 128x8x1>, <2x8x8xf32, 0x8x1> -> <2x16x8xf32, 128x8x1>
+    return %3 : !migraphx.shaped<2x16x8xf32, 128x8x1>
   }
-  func.func @mlir_transpose_reshape_dot_wrapper(%arg0: tensor<2x8x4x4xf32>, %arg1: tensor<1x8x8xf32> ) -> tensor<2x16x8xf32> {
-    %token, %results = mhal.launch @mlir_transpose_reshape_dot (%arg0, %arg1) : (tensor<2x8x4x4xf32>, tensor<1x8x8xf32>) -> tensor<2x16x8xf32>
+  func.func @mlir_transpose_reshape_dot_wrapper(%arg0: !migraphx.shaped<2x8x4x4xf32, 128x16x4x1>, %arg1: !migraphx.shaped<1x8x8xf32, 64x8x1> ) -> !migraphx.shaped<2x16x8xf32, 128x8x1> {
+    %token, %results = mhal.launch @mlir_transpose_reshape_dot (%arg0, %arg1) : (!migraphx.shaped<2x8x4x4xf32, 128x16x4x1>, !migraphx.shaped<1x8x8xf32, 64x8x1>) -> !migraphx.shaped<2x16x8xf32, 128x8x1>
     mhal.await %token : !mhal.token
-    return %results : tensor<2x16x8xf32> 
+    return %results : !migraphx.shaped<2x16x8xf32, 128x8x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_transpose_reshape_dot(%arg0: tensor<2x8x4x4xf32> {func.read_access}, %arg1: tensor<1x8x8xf32> {func.read_access}) -> (tensor<2x16x8xf32> {func.write_access}) attributes {kernel, original_func = @mlir_transpose_reshape_dot} {
-      %0 = migraphx.multibroadcast(%arg1) {out_dyn_dims = [], out_lens = [2, 8, 8]} : (tensor<1x8x8xf32>) -> tensor<2x8x8xf32>
-      %1 = migraphx.transpose(%arg0) {permutation = [0, 2, 3, 1]} : (tensor<2x8x4x4xf32>) -> tensor<2x4x4x8xf32>
-      %2 = migraphx.reshape(%1) {dims = [2, 16, 8]} : (tensor<2x4x4x8xf32>) -> tensor<2x16x8xf32>
-      %3 = migraphx.dot(%2, %0) : (tensor<2x16x8xf32>, tensor<2x8x8xf32>) -> tensor<2x16x8xf32>
-      return %3 : tensor<2x16x8xf32>
+    func.func private @mlir_transpose_reshape_dot(%arg0: !migraphx.shaped<2x8x4x4xf32, 128x16x4x1> {func.read_access}, %arg1: !migraphx.shaped<1x8x8xf32, 64x8x1> {func.read_access}) -> (!migraphx.shaped<2x16x8xf32, 128x8x1> {func.write_access}) attributes {kernel, original_func = @mlir_transpose_reshape_dot} {
+      %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [2, 8, 8]} : <1x8x8xf32, 64x8x1> -> <2x8x8xf32, 0x8x1>
+      %1 = migraphx.transpose %arg0 {permutation = [0, 2, 3, 1]} : <2x8x4x4xf32, 128x16x4x1> -> <2x4x4x8xf32, 128x32x8x1>
+      %2 = migraphx.reshape %1 {dims = [2, 16, 8]} : <2x4x4x8xf32, 128x32x8x1> -> <2x16x8xf32, 128x8x1>
+      %3 = migraphx.dot %2, %0 : <2x16x8xf32, 128x8x1>, <2x8x8xf32, 0x8x1> -> <2x16x8xf32, 128x8x1>
+      return %3 : !migraphx.shaped<2x16x8xf32, 128x8x1>
     }
   }
 }

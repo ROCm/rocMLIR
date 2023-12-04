@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -88,8 +89,9 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
         ValueRange noArgs({});
 
         // offset
-        auto offsetOp = rewriter.create<mlir::migraphx::ConstantOp>(
-            loc, RankedTensorType::get({1}, rewriter.getI64Type()), noArgs);
+        auto offsetOp = rewriter.create<mlir::migraphx::LiteralOp>(
+            loc, migraphx::MIXRShapedType::get({1}, {0}, rewriter.getI64Type()),
+            noArgs);
         uint64_t zero = 0;
         offsetOp->setAttr(
             "value",
@@ -100,8 +102,10 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
         auto argType = arg.getType().cast<MemRefType>();
         auto argShape = argType.getShape();
         for (auto it = argShape.rbegin(); it != argShape.rend(); ++it) {
-          auto constOp = rewriter.create<mlir::migraphx::ConstantOp>(
-              loc, RankedTensorType::get({1}, rewriter.getI64Type()), noArgs);
+          auto constOp = rewriter.create<mlir::migraphx::LiteralOp>(
+              loc,
+              migraphx::MIXRShapedType::get({1}, {1}, rewriter.getI64Type()),
+              noArgs);
           constOp->setAttr(
               "value",
               DenseIntElementsAttr::get(
@@ -111,8 +115,10 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
         // stride
         uint64_t stride = 1;
         for (auto it = argShape.rbegin(); it != argShape.rend(); ++it) {
-          auto constOp = rewriter.create<mlir::migraphx::ConstantOp>(
-              loc, RankedTensorType::get({1}, rewriter.getI64Type()), noArgs);
+          auto constOp = rewriter.create<mlir::migraphx::LiteralOp>(
+              loc,
+              migraphx::MIXRShapedType::get({1}, {0}, rewriter.getI64Type()),
+              noArgs);
           constOp->setAttr(
               "value",
               DenseIntElementsAttr::get(

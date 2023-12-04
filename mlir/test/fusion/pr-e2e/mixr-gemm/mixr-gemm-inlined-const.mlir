@@ -3,14 +3,14 @@
 module {
   // CHECK: [1 1 1]
   // CHECK-NEXT: Unranked Memref base
-  func.func @mlir_dot(%arg0: tensor<1x1x1x1xf32>, %arg1: tensor<1x12x384x64xf32>, %arg2: tensor<1x12x384x64xf32>) -> tensor<1x12x384x384xf32> {
-    %0 = "tosa.const"() {value = dense<1.250000e-01> : tensor<1xf32>} : () -> tensor<1xf32>
-    %1 = migraphx.multibroadcast(%arg0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
-    %2 = migraphx.transpose(%arg2) {permutation = [0, 1, 3, 2]} : (tensor<1x12x384x64xf32>) -> tensor<1x12x64x384xf32>
-    %3 = migraphx.dot(%arg1, %2) : (tensor<1x12x384x64xf32>, tensor<1x12x64x384xf32>) -> tensor<1x12x384x384xf32>
-    %4 = migraphx.multibroadcast(%0) {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : (tensor<1xf32>) -> tensor<1x12x384x384xf32>
-    %5 = migraphx.mul(%3, %4) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
-    %6 = migraphx.add(%5, %1) : (tensor<1x12x384x384xf32>, tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
-    return %6 : tensor<1x12x384x384xf32>
+  func.func @mlir_dot(%arg0: !migraphx.shaped<1x1x1x1xf32, 1x1x1x1>, %arg1: !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>, %arg2: !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>) -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> {
+    %0 = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
+    %1 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : <1x1x1x1xf32, 1x1x1x1> -> <1x12x384x384xf32, 1x0x0x0>
+    %2 = migraphx.transpose %arg2 {permutation = [0, 1, 3, 2]} : <1x12x384x64xf32, 294912x24576x64x1> -> <1x12x64x384xf32, 294912x24576x384x1>
+    %3 = migraphx.dot %arg1, %2 : <1x12x384x64xf32, 294912x24576x64x1>, <1x12x64x384xf32, 294912x24576x384x1> -> <1x12x384x384xf32, 1769472x147456x384x1>
+    %4 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : <1xf32, 0> -> <1x12x384x384xf32, 0x0x0x0>
+    %5 = migraphx.mul %3, %4 : <1x12x384x384xf32, 1769472x147456x384x1>, <1x12x384x384xf32, 0x0x0x0> -> <1x12x384x384xf32, 1769472x147456x384x1>
+    %6 = migraphx.add %5, %1 : <1x12x384x384xf32, 1769472x147456x384x1>, <1x12x384x384xf32, 1x0x0x0> -> <1x12x384x384xf32, 1769472x147456x384x1>
+    return %6 : !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1>
   }
 }
