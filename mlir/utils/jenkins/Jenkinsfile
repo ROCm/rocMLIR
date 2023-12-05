@@ -22,7 +22,7 @@ void buildCK(String cmakeOpts) {
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc) device_operations'
+    sh 'cd build; make -j $(nproc)'
 }
 
 void buildMIGraphX(String cmakeOpts) {
@@ -915,7 +915,7 @@ pipeline {
                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                         -DCMAKE_BUILD_TYPE=Release
                                         ''')
-                                    sh 'cd build/library; make install; cp ../composable_kernelConfig*.cmake ${WORKSPACE}/composable_kernel/build/CKInstallDir/lib/cmake/composable_kernel'
+                                    sh 'cd build; make install'
                                     sh 'echo `git rev-parse HEAD`'
                                 }
                                 sh 'rm build/CMakeCache.txt'
