@@ -19,7 +19,7 @@ function tuna_setup
 #     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git /tmp/MITuna
 
     source /tuna-venv/bin/activate
-    export TUNA_DIR=/tmp/MITuna
+    #export TUNA_DIR=/tmp/MITuna
     export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
     if pgrep mysqld ; then
