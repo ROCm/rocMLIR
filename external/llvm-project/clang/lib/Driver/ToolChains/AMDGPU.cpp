@@ -245,7 +245,8 @@ RocmInstallationDetector::getInstallationPathCandidates() {
     // Some versions of the aomp package install to /opt/rocm/aomp/bin
     if (ParentName == "llvm" || ParentName.startswith("aomp"))
       ParentDir = llvm::sys::path::parent_path(ParentDir);
-
+    // Some versions of the aomp package install to /opt/rocm/aomp/bin
+    // and it seems ParentDir is already pointing to correct place.
     return Candidate(ParentDir.str(), /*StrictChecking=*/true);
   };
 
@@ -329,6 +330,20 @@ RocmInstallationDetector::RocmInstallationDetector(
   RocmDeviceLibPathArg =
       Args.getAllArgValues(clang::driver::options::OPT_rocm_device_lib_path_EQ);
   HIPPathArg = Args.getLastArgValue(clang::driver::options::OPT_hip_path_EQ);
+  HIPStdParPathArg =
+    Args.getLastArgValue(clang::driver::options::OPT_hipstdpar_path_EQ);
+  HasHIPStdParLibrary =
+    !HIPStdParPathArg.empty() && D.getVFS().exists(HIPStdParPathArg +
+                                                   "/hipstdpar_lib.hpp");
+  HIPRocThrustPathArg =
+    Args.getLastArgValue(clang::driver::options::OPT_hipstdpar_thrust_path_EQ);
+  HasRocThrustLibrary = !HIPRocThrustPathArg.empty() &&
+                        D.getVFS().exists(HIPRocThrustPathArg + "/thrust");
+  HIPRocPrimPathArg =
+    Args.getLastArgValue(clang::driver::options::OPT_hipstdpar_prim_path_EQ);
+  HasRocPrimLibrary = !HIPRocPrimPathArg.empty() &&
+                      D.getVFS().exists(HIPRocPrimPathArg + "/rocprim");
+
   if (auto *A = Args.getLastArg(clang::driver::options::OPT_hip_version_EQ)) {
     HIPVersionArg = A->getValue();
     unsigned Major = ~0U;
@@ -507,6 +522,7 @@ void RocmInstallationDetector::AddHIPIncludeArgs(const ArgList &DriverArgs,
                                                  ArgStringList &CC1Args) const {
   bool UsesRuntimeWrapper = VersionMajorMinor > llvm::VersionTuple(3, 5) &&
                             !DriverArgs.hasArg(options::OPT_nohipwrapperinc);
+  bool HasHipStdPar = DriverArgs.hasArg(options::OPT_hipstdpar);
 
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     // HIP header includes standard library wrapper headers under clang
@@ -529,8 +545,45 @@ void RocmInstallationDetector::AddHIPIncludeArgs(const ArgList &DriverArgs,
     CC1Args.push_back(DriverArgs.MakeArgString(P));
   }
 
-  if (DriverArgs.hasArg(options::OPT_nogpuinc))
+  const auto HandleHipStdPar = [=, &DriverArgs, &CC1Args]() {
+    if (!hasHIPStdParLibrary()) {
+      D.Diag(diag::err_drv_no_hipstdpar_lib);
+      return;
+    }
+    if (!HasRocThrustLibrary &&
+        !D.getVFS().exists(getIncludePath() + "/thrust")) {
+      D.Diag(diag::err_drv_no_hipstdpar_thrust_lib);
+      return;
+    }
+    if (!HasRocPrimLibrary &&
+        !D.getVFS().exists(getIncludePath() + "/rocprim")) {
+      D.Diag(diag::err_drv_no_hipstdpar_prim_lib);
+      return;
+    }
+
+    const char *ThrustPath;
+    if (HasRocThrustLibrary)
+      ThrustPath = DriverArgs.MakeArgString(HIPRocThrustPathArg);
+    else
+      ThrustPath = DriverArgs.MakeArgString(getIncludePath() + "/thrust");
+
+    const char *PrimPath;
+    if (HasRocPrimLibrary)
+      PrimPath = DriverArgs.MakeArgString(HIPRocPrimPathArg);
+    else
+      PrimPath = DriverArgs.MakeArgString(getIncludePath() + "/rocprim");
+
+    CC1Args.append({"-idirafter", ThrustPath, "-idirafter", PrimPath,
+                    "-idirafter", DriverArgs.MakeArgString(HIPStdParPathArg),
+                    "-include", "hipstdpar_lib.hpp"});
+  };
+
+  if (DriverArgs.hasArg(options::OPT_nogpuinc)) {
+    if (HasHipStdPar)
+      HandleHipStdPar();
+
     return;
+  }
 
   if (!hasHIPRuntime()) {
     D.Diag(diag::err_drv_no_hip_runtime);
@@ -541,6 +594,8 @@ void RocmInstallationDetector::AddHIPIncludeArgs(const ArgList &DriverArgs,
   CC1Args.push_back(DriverArgs.MakeArgString(getIncludePath()));
   if (UsesRuntimeWrapper)
     CC1Args.append({"-include", "__clang_hip_runtime_wrapper.h"});
+  if (HasHipStdPar)
+    HandleHipStdPar();
 }
 
 void amdgpu::Linker::ConstructJob(Compilation &C, const JobAction &JA,
@@ -551,7 +606,8 @@ void amdgpu::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   std::string Linker = getToolChain().GetProgramPath(getShortName());
   ArgStringList CmdArgs;
-  addLinkerCompressDebugSectionsOption(getToolChain(), Args, CmdArgs);
+    addLinkerCompressDebugSectionsOption(getToolChain(), Args, CmdArgs);
+  Args.AddAllArgs(CmdArgs, options::OPT_L);
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs, JA);
   if (C.getDriver().isUsingLTO())
     addLTOOptions(getToolChain(), Args, CmdArgs, Output, Inputs[0],
@@ -571,10 +627,15 @@ void amdgpu::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 void amdgpu::getAMDGPUTargetFeatures(const Driver &D,
                                      const llvm::Triple &Triple,
                                      const llvm::opt::ArgList &Args,
-                                     std::vector<StringRef> &Features) {
+                                     std::vector<StringRef> &Features,
+                                     StringRef TcTargetID) {
   // Add target ID features to -target-feature options. No diagnostics should
   // be emitted here since invalid target ID is diagnosed at other places.
   StringRef TargetID = Args.getLastArgValue(options::OPT_mcpu_EQ);
+
+  // Use this toolchain's TargetID if mcpu is not defined
+  if (TargetID.empty() && !TcTargetID.empty())
+    TargetID = TcTargetID;
   if (!TargetID.empty()) {
     llvm::StringMap<bool> FeatureMap;
     auto OptionalGpuArch = parseTargetID(Triple, TargetID, &FeatureMap);
@@ -597,6 +658,14 @@ void amdgpu::getAMDGPUTargetFeatures(const Driver &D,
   if (Args.hasFlag(options::OPT_mwavefrontsize64,
                    options::OPT_mno_wavefrontsize64, false))
     Features.push_back("+wavefrontsize64");
+
+  // TODO: Remove during upstreaming target id.
+  if (Args.getLastArg(options::OPT_msram_ecc_legacy)) {
+    Features.push_back("+sramecc");
+  }
+  if (Args.getLastArg(options::OPT_mno_sram_ecc_legacy)) {
+    Features.push_back("-sramecc");
+  }
 
   handleTargetFeaturesGroup(D, Triple, Args, Features,
                             options::OPT_m_amdgpu_Features_Group);
@@ -633,6 +702,27 @@ AMDGPUToolChain::TranslateArgs(const DerivedArgList &Args, StringRef BoundArch,
 
   for (Arg *A : Args)
     DAL->append(A);
+
+  // Replace -mcpu=native with detected GPU.
+  Arg *LastMCPUArg = DAL->getLastArg(options::OPT_mcpu_EQ);
+  if (LastMCPUArg && StringRef(LastMCPUArg->getValue()) == "native") {
+    DAL->eraseArg(options::OPT_mcpu_EQ);
+    auto GPUsOrErr = getSystemGPUArchs(Args);
+    if (!GPUsOrErr) {
+      getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
+          << llvm::Triple::getArchTypeName(getArch())
+          << llvm::toString(GPUsOrErr.takeError()) << "-mcpu";
+    } else {
+      auto &GPUs = *GPUsOrErr;
+      if (GPUs.size() > 1) {
+        getDriver().Diag(diag::warn_drv_multi_gpu_arch)
+            << llvm::Triple::getArchTypeName(getArch())
+            << llvm::join(GPUs, ", ") << "-mcpu";
+      }
+      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_mcpu_EQ),
+                        Args.MakeArgString(GPUs.front()));
+    }
+  }
 
   checkTargetID(*DAL);
 
@@ -874,6 +964,12 @@ RocmInstallationDetector::getCommonBitcodeLibs(
   auto AddBCLib = [&](StringRef BCFile) { BCLibs.push_back(BCFile.str()); };
 
   AddBCLib(getOCMLPath());
+  // FIXME: OpenMP has ockl and ocml contained in libomptarget.bc. However,
+  // we cannot exclude ocml here because of the crazy always-compile clang
+  // headers for cuda, hip, and openmp. A more sane approach is to use libm
+  // offload-arch-specific bitcode files as is done for FORTRAN. Currently,
+  // libomptarget-<offload-arch>.bc files is built by compiling headers with
+  // __BUILD_MATH_BUILTINS_LIB__ turning static libm functions to extern.
   AddBCLib(getOCKLPath());
   AddBCLib(getDenormalsAreZeroPath(DAZ));
   AddBCLib(getUnsafeMathPath(UnsafeMathOpt || FastRelaxedMath));
@@ -886,6 +982,49 @@ RocmInstallationDetector::getCommonBitcodeLibs(
     AddBCLib(ABIVerPath);
 
   return BCLibs;
+}
+
+bool AMDGPUToolChain::shouldSkipSanitizeOption(
+    const ToolChain &TC, const llvm::opt::ArgList &DriverArgs,
+    StringRef TargetID, const llvm::opt::Arg *A) const {
+  // For actions without targetID, do nothing.
+  if (TargetID.empty())
+    return false;
+  Option O = A->getOption();
+  if (!O.matches(options::OPT_fsanitize_EQ))
+    return false;
+
+  if (!DriverArgs.hasFlag(options::OPT_fgpu_sanitize,
+                          options::OPT_fno_gpu_sanitize, true))
+    return true;
+
+  auto &Diags = TC.getDriver().getDiags();
+
+  // For simplicity, we only allow -fsanitize=address
+  SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
+  if (K != SanitizerKind::Address)
+    return true;
+
+  llvm::StringMap<bool> FeatureMap;
+  auto OptionalGpuArch = parseTargetID(TC.getTriple(), TargetID, &FeatureMap);
+
+  assert(OptionalGpuArch && "Invalid Target ID");
+  (void)OptionalGpuArch;
+  auto Loc = FeatureMap.find("xnack");
+  if (Loc == FeatureMap.end() || !Loc->second) {
+    Diags.Report(
+        clang::diag::warn_drv_unsupported_option_for_offload_arch_req_feature)
+        << A->getAsString(DriverArgs) << TargetID << "xnack+";
+    return true;
+  }
+  return false;
+}
+
+bool AMDGPUToolChain::shouldSkipArgument(const llvm::opt::Arg *A) const {
+  Option O = A->getOption();
+  if (O.matches(options::OPT_fPIE) || O.matches(options::OPT_fpie))
+    return true;
+  return false;
 }
 
 llvm::SmallVector<std::string, 12>

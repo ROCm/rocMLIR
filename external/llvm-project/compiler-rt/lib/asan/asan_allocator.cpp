@@ -96,6 +96,7 @@ class ChunkHeader {
   // align < 8 -> 0
   // else      -> log2(min(align, 512)) - 2
   u8 user_requested_alignment_log : 3;
+  u8 device_mem : 1;
 
  private:
   u16 user_requested_size_hi;
@@ -389,7 +390,11 @@ struct Allocator {
 
   void InitLinkerInitialized(const AllocatorOptions &options) {
     SetAllocatorMayReturnNull(options.may_return_null);
+#if SANITIZER_AMDGPU
+    allocator.InitLinkerInitialized(options.release_to_os_interval_ms, 0, true);
+#else
     allocator.InitLinkerInitialized(options.release_to_os_interval_ms);
+#endif
     SharedInitCode(options);
     max_user_defined_malloc_size = common_flags()->max_allocation_size_mb
                                        ? common_flags()->max_allocation_size_mb
@@ -526,7 +531,8 @@ struct Allocator {
 
   // -------------------- Allocation/Deallocation routines ---------------
   void *Allocate(uptr size, uptr alignment, BufferedStackTrace *stack,
-                 AllocType alloc_type, bool can_fill) {
+                 AllocType alloc_type, bool can_fill,
+                 DeviceAllocationInfo *da_info = nullptr) {
     if (UNLIKELY(!asan_inited))
       AsanInitFromRtl();
     if (UNLIKELY(IsRssLimitExceeded())) {
@@ -579,11 +585,11 @@ struct Allocator {
     void *allocated;
     if (t) {
       AllocatorCache *cache = GetAllocatorCache(&t->malloc_storage());
-      allocated = allocator.Allocate(cache, needed_size, 8);
+      allocated = allocator.Allocate(cache, needed_size, 8, da_info);
     } else {
       SpinMutexLock l(&fallback_mutex);
       AllocatorCache *cache = &fallback_allocator_cache;
-      allocated = allocator.Allocate(cache, needed_size, 8);
+      allocated = allocator.Allocate(cache, needed_size, 8, da_info);
     }
     if (UNLIKELY(!allocated)) {
       SetAllocatorOutOfMemory();
@@ -602,6 +608,7 @@ struct Allocator {
     uptr chunk_beg = user_beg - kChunkHeaderSize;
     AsanChunk *m = reinterpret_cast<AsanChunk *>(chunk_beg);
     m->alloc_type = alloc_type;
+    m->device_mem = da_info ? 1 : 0;
     CHECK(size);
     m->SetUsedSize(size);
     m->user_requested_alignment_log = user_requested_alignment_log;
@@ -668,9 +675,26 @@ struct Allocator {
     if (!atomic_compare_exchange_strong(&m->chunk_state, &old_chunk_state,
                                         CHUNK_QUARANTINE,
                                         memory_order_acquire)) {
-      ReportInvalidFree(ptr, old_chunk_state, stack);
-      // It's not safe to push a chunk in quarantine on invalid free.
-      return false;
+      if (!m->device_mem) {
+        ReportInvalidFree(ptr, old_chunk_state, stack);
+        // It's not safe to push a chunk in quarantine on invalid free.
+        return false;
+      } else {
+        // Temporary patch: atomic_compare_exchange_strong will give wrong
+        // results sometimes for device memory, so just use a mutex to protect
+        // us from the possible race conditions
+        //
+        // We need a mutex, borrow fallback_mutex
+        SpinMutexLock l(&fallback_mutex);
+        old_chunk_state = atomic_load(&m->chunk_state, memory_order_relaxed);
+        if (old_chunk_state == CHUNK_ALLOCATED) {
+          atomic_store(&m->chunk_state, CHUNK_QUARANTINE, memory_order_relaxed);
+        } else {
+          ReportInvalidFree(ptr, old_chunk_state, stack);
+          // It's not safe to push a chunk in quarantine on invalid free.
+          return false;
+        }
+      }
     }
     CHECK_EQ(CHUNK_ALLOCATED, old_chunk_state);
     // It was a user data.
@@ -1265,3 +1289,109 @@ int __asan_update_allocation_context(void* addr) {
   GET_STACK_TRACE_MALLOC;
   return instance.UpdateAllocationStack((uptr)addr, &stack);
 }
+
+#if SANITIZER_AMDGPU
+DECLARE_REAL(hsa_status_t, hsa_amd_agents_allow_access, uint32_t num_agents,
+  const hsa_agent_t *agents, const uint32_t *flags, const void *ptr)
+DECLARE_REAL(hsa_status_t, hsa_amd_memory_pool_allocate,
+  hsa_amd_memory_pool_t memory_pool, size_t size, uint32_t flags,
+  void **ptr)
+DECLARE_REAL(hsa_status_t, hsa_amd_memory_pool_free, void *ptr)
+DECLARE_REAL(hsa_status_t, hsa_amd_ipc_memory_create, void *ptr, size_t len,
+  hsa_amd_ipc_memory_t *handle)
+DECLARE_REAL(hsa_status_t, hsa_amd_ipc_memory_attach,
+  const hsa_amd_ipc_memory_t *handle, size_t len, uint32_t num_agents,
+  const hsa_agent_t *mapping_agents, void **mapped_ptr)
+DECLARE_REAL(hsa_status_t, hsa_amd_ipc_memory_detach, void *mapped_ptr)
+
+namespace __asan {
+
+// Always align to page boundary to match current ROCr behavior
+static const size_t kPageSize_ = 4096;
+
+hsa_status_t asan_hsa_amd_memory_pool_allocate(
+  hsa_amd_memory_pool_t memory_pool, size_t size, uint32_t flags, void **ptr,
+  BufferedStackTrace *stack) {
+  AmdgpuAllocationInfo aa_info;
+  aa_info.alloc_func =
+    reinterpret_cast<void *>(asan_hsa_amd_memory_pool_allocate);
+  aa_info.memory_pool = memory_pool;
+  aa_info.size = size;
+  aa_info.flags = flags;
+  aa_info.ptr = nullptr;
+  SetErrnoOnNull(*ptr = instance.Allocate(size, kPageSize_, stack,
+                                          FROM_MALLOC, false, &aa_info));
+  return aa_info.status;
+}
+
+hsa_status_t asan_hsa_amd_memory_pool_free(
+  void *ptr,
+  BufferedStackTrace *stack) {
+  void *p = get_allocator().GetBlockBegin(ptr);
+  if (p) {
+    instance.Deallocate(ptr, 0, 0, stack, FROM_MALLOC);
+    return HSA_STATUS_SUCCESS;
+  } else {
+    return REAL(hsa_amd_memory_pool_free)(ptr);
+  }
+}
+
+hsa_status_t asan_hsa_amd_agents_allow_access(
+  uint32_t num_agents, const hsa_agent_t *agents, const uint32_t *flags,
+  const void *ptr,
+  BufferedStackTrace *stack) {
+  void *p = get_allocator().GetBlockBegin(ptr);
+  if (p) {
+    return REAL(hsa_amd_agents_allow_access)(num_agents, agents, flags, p);
+  } else {
+    return REAL(hsa_amd_agents_allow_access)(num_agents, agents, flags, ptr);
+  }
+}
+
+// For asan allocator, kMetadataSize is 0 and maximum redzone size is 2048. This
+// implies for device allocation, the gap between user_beg and GetBlockBegin()
+// is always one kPageSize_
+// IPC calls use static_assert to make sure kMetadataSize = 0
+//
+#if SANITIZER_CAN_USE_ALLOCATOR64
+static struct AP64<LocalAddressSpaceView> AP_;
+#else
+static struct AP32<LocalAddressSpaceView> AP_;
+#endif
+
+hsa_status_t asan_hsa_amd_ipc_memory_create(void *ptr, size_t len,
+  hsa_amd_ipc_memory_t * handle) {
+  void *ptr_;
+  size_t len_ = get_allocator().GetActuallyAllocatedSize(ptr);
+  if (len_) {
+    static_assert(AP_.kMetadataSize == 0, "Expression below requires this");
+    ptr_ = reinterpret_cast<void *>(reinterpret_cast<uptr>(ptr) - kPageSize_);
+  } else {
+    ptr_ = ptr;
+    len_ = len;
+  }
+  return REAL(hsa_amd_ipc_memory_create)(ptr_, len_, handle);
+}
+
+hsa_status_t asan_hsa_amd_ipc_memory_attach(const hsa_amd_ipc_memory_t *handle,
+  size_t len, uint32_t num_agents, const hsa_agent_t *mapping_agents,
+  void **mapped_ptr) {
+  static_assert(AP_.kMetadataSize == 0, "Expression below requires this");
+  size_t len_ = len + kPageSize_;
+  hsa_status_t status = REAL(hsa_amd_ipc_memory_attach)(
+    handle, len_, num_agents, mapping_agents, mapped_ptr);
+  if (status == HSA_STATUS_SUCCESS && mapped_ptr) {
+    *mapped_ptr = reinterpret_cast<void *>(reinterpret_cast<uptr>(*mapped_ptr) +
+                                           kPageSize_);
+  }
+  return status;
+}
+
+hsa_status_t asan_hsa_amd_ipc_memory_detach(void *mapped_ptr) {
+  static_assert(AP_.kMetadataSize == 0, "Expression below requires this");
+  void *mapped_ptr_ =
+      reinterpret_cast<void *>(reinterpret_cast<uptr>(mapped_ptr) - kPageSize_);
+  return REAL(hsa_amd_ipc_memory_detach)(mapped_ptr_);
+}
+}  // namespace __asan
+#endif

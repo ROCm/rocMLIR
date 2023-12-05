@@ -605,4 +605,3 @@ body: |
     %4:vcc(s1) = G_FCMP floatpred(true), %2, %3
     S_ENDPGM 0, implicit %4
 ...
-

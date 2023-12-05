@@ -295,10 +295,10 @@ class LLVM_MemAccessOpBase<string mnemonic, list<Trait> traits = []> :
       DeclareOpInterfaceMethods<AccessGroupOpInterface>,
       DeclareOpInterfaceMethods<AliasAnalysisOpInterface>], traits)>,
     LLVM_MemOpPatterns {
-  dag aliasAttrs = (ins OptionalAttr<SymbolRefArrayAttr>:$access_groups,
-                    OptionalAttr<SymbolRefArrayAttr>:$alias_scopes,
-                    OptionalAttr<SymbolRefArrayAttr>:$noalias_scopes,
-                    OptionalAttr<SymbolRefArrayAttr>:$tbaa);
+  dag aliasAttrs = (ins OptionalAttr<LLVM_AccessGroupArrayAttr>:$access_groups,
+                    OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                    OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                    OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 }
 
 // Base class for LLVM intrinsics operation. It is similar to LLVM_Op, but
@@ -338,12 +338,12 @@ class LLVM_IntrOpBase<Dialect dialect, string opName, string enumName,
       Results<!if(!gt(numResults, 0), (outs LLVM_Type:$res), (outs))> {
   dag aliasAttrs = !con(
         !if(!gt(requiresAccessGroup, 0),
-            (ins OptionalAttr<SymbolRefArrayAttr>:$access_groups),
+            (ins OptionalAttr<LLVM_AccessGroupArrayAttr>:$access_groups),
             (ins )),
         !if(!gt(requiresAliasAnalysis, 0),
-            (ins OptionalAttr<SymbolRefArrayAttr>:$alias_scopes,
-                 OptionalAttr<SymbolRefArrayAttr>:$noalias_scopes,
-                 OptionalAttr<SymbolRefArrayAttr>:$tbaa),
+            (ins OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                 OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                 OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa),
             (ins )));
   string resultPattern = !if(!gt(numResults, 1),
                              LLVM_IntrPatterns.structResult,

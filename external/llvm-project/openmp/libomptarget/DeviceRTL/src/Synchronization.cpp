@@ -21,6 +21,17 @@
 
 #pragma omp begin declare target device_type(nohost)
 
+namespace ompx {
+namespace synchronize {
+bool volatile omptarget_workers_done [[clang::loader_uninitialized]];
+#pragma omp allocate(omptarget_workers_done) allocator(omp_pteam_mem_alloc)
+
+bool volatile omptarget_master_ready [[clang::loader_uninitialized]];
+#pragma omp allocate(omptarget_master_ready) allocator(omp_pteam_mem_alloc)
+
+} // namespace synchronize
+} // namespace ompx
+
 using namespace ompx;
 
 namespace impl {
@@ -29,6 +40,8 @@ namespace impl {
 ///
 ///{
 /// NOTE: This function needs to be implemented by every target.
+void workersStartBarrier();
+void workersDoneBarrier();
 uint32_t atomicInc(uint32_t *Address, uint32_t Val, atomic::OrderingTy Ordering,
                    atomic::MemScopeTy MemScope);
 
@@ -113,7 +126,65 @@ uint32_t atomicExchange(uint32_t *Address, uint32_t Val,
   __atomic_exchange(Address, &Val, &R, Ordering);
   return R;
 }
-///}
+uint32_t atomicCAS(uint32_t *Address, uint32_t Compare, uint32_t Val,
+                   atomic::OrderingTy Ordering) {
+  (void)__atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
+                                  Ordering);
+  return Compare;
+}
+
+unsigned long long atomicCAS(unsigned long long *Address,
+                             unsigned long long Compare, unsigned long long Val,
+                             atomic::OrderingTy Ordering) {
+  (void)__atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
+                                  Ordering);
+  return Compare;
+}
+
+uint64_t atomicAdd(uint64_t *Address, uint64_t Val,
+                   atomic::OrderingTy Ordering) {
+  return __atomic_fetch_add(Address, Val, Ordering);
+}
+
+float unsafeAtomicAdd(float *addr, float value);
+
+#if defined(__gfx941__)
+#define ATOMIC_CAS_LOOP_MIN(TY) void atomicCASLoopMin(TY *addr, TY val);
+
+ATOMIC_CAS_LOOP_MIN(int32_t)
+ATOMIC_CAS_LOOP_MIN(uint32_t)
+ATOMIC_CAS_LOOP_MIN(int64_t)
+ATOMIC_CAS_LOOP_MIN(uint64_t)
+ATOMIC_CAS_LOOP_MIN(float);
+ATOMIC_CAS_LOOP_MIN(double);
+
+#undef ATOMIC_CAS_LOOP_MIN
+
+#define ATOMIC_CAS_LOOP_MAX(TY) void atomicCASLoopMax(TY *addr, TY val);
+
+ATOMIC_CAS_LOOP_MAX(int32_t)
+ATOMIC_CAS_LOOP_MAX(uint32_t)
+ATOMIC_CAS_LOOP_MAX(int64_t)
+ATOMIC_CAS_LOOP_MAX(uint64_t)
+ATOMIC_CAS_LOOP_MAX(float);
+ATOMIC_CAS_LOOP_MAX(double);
+
+#undef ATOMIC_CAS_LOOP_MAX
+#endif // #if defined(__gfx941__)
+
+constexpr uint32_t UNSET = 0;
+constexpr uint32_t SET = 1;
+
+// TODO: This seems to hide a bug in the declare variant handling. If it is
+// called before it is defined
+//       here the overload won't happen. Investigate lalter!
+void unsetLock(omp_lock_t *Lock) {
+  (void)atomicExchange((uint32_t *)Lock, UNSET, atomic::seq_cst);
+}
+
+int testLock(omp_lock_t *Lock) {
+  return atomicAdd((uint32_t *)Lock, 0u, atomic::seq_cst);
+}
 
 // Forward declarations defined to be defined for AMDGCN and NVPTX.
 uint32_t atomicInc(uint32_t *A, uint32_t V, atomic::OrderingTy Ordering,
@@ -124,8 +195,8 @@ void fenceTeam(atomic::OrderingTy Ordering);
 void fenceKernel(atomic::OrderingTy Ordering);
 void fenceSystem(atomic::OrderingTy Ordering);
 void syncWarp(__kmpc_impl_lanemask_t);
-void syncThreads(atomic::OrderingTy Ordering);
-void syncThreadsAligned(atomic::OrderingTy Ordering) { syncThreads(Ordering); }
+void syncThreads();
+void syncThreadsAligned() { syncThreads(); }
 void unsetLock(omp_lock_t *);
 int testLock(omp_lock_t *);
 void initLock(omp_lock_t *);
@@ -183,7 +254,7 @@ void namedBarrier() {
   // assert(NumThreads % 32 == 0);
 
   uint32_t WarpSize = mapping::getWarpSize();
-  uint32_t NumWaves = NumThreads / WarpSize;
+  uint32_t NumWaves = (NumThreads < WarpSize) ? 1 : NumThreads / WarpSize;
 
   fence::team(atomic::aquire);
 
@@ -275,26 +346,67 @@ void syncWarp(__kmpc_impl_lanemask_t) {
   // AMDGCN doesn't need to sync threads in a warp
 }
 
-void syncThreads(atomic::OrderingTy Ordering) {
-  if (Ordering != atomic::relaxed)
-    fenceTeam(Ordering == atomic::acq_rel ? atomic::release : atomic::seq_cst);
+void syncThreads() { __builtin_amdgcn_s_barrier(); }
+void syncThreadsAligned() { syncThreads(); }
 
-  __builtin_amdgcn_s_barrier();
+void initLock(omp_lock_t *Lock) { unsetLock(Lock); }
 
-  if (Ordering != atomic::relaxed)
-    fenceTeam(Ordering == atomic::acq_rel ? atomic::aquire : atomic::seq_cst);
+void destroyLock(omp_lock_t *Lock) { unsetLock(Lock); }
+
+void setLock(omp_lock_t *Lock) {
+  uint64_t lowestActiveThread = utils::ffs(mapping::activemask()) - 1;
+  if (mapping::getThreadIdInWarp() == lowestActiveThread) {
+    while (atomicCAS((uint32_t *)Lock, UNSET, SET, atomic::seq_cst) != UNSET) {
+      __builtin_amdgcn_s_sleep(0);
+    }
+  }
+  // test_lock will now return true for any thread in the warp
 }
-void syncThreadsAligned(atomic::OrderingTy Ordering) { syncThreads(Ordering); }
 
-// TODO: Don't have wavefront lane locks. Possibly can't have them.
-void unsetLock(omp_lock_t *) { __builtin_trap(); }
-int testLock(omp_lock_t *) { __builtin_trap(); }
-void initLock(omp_lock_t *) { __builtin_trap(); }
-void destroyLock(omp_lock_t *) { __builtin_trap(); }
-void setLock(omp_lock_t *) { __builtin_trap(); }
+#if defined(__gfx90a__) && __has_builtin(__builtin_amdgcn_is_shared) &&        \
+    __has_builtin(__builtin_amdgcn_is_private) &&                              \
+    __has_builtin(__builtin_amdgcn_ds_atomic_fadd_f32) &&                      \
+    __has_builtin(__builtin_amdgcn_global_atomic_fadd_f32)
+// This function is called for gfx90a only and single precision
+// floating point type
+float unsafeAtomicAdd(float *addr, float value) {
+  if (__builtin_amdgcn_is_shared(
+          (const __attribute__((address_space(0))) void *)addr))
+    return __builtin_amdgcn_ds_atomic_fadd_f32(
+        (const __attribute__((address_space(3))) float *)addr, value);
+  else if (__builtin_amdgcn_is_private(
+               (const __attribute__((address_space(0))) void *)addr)) {
+    float temp = *addr;
+    *addr = temp + value;
+    return temp;
+  }
+  return __builtin_amdgcn_global_atomic_fadd_f32(
+      (const __attribute__((address_space(1))) float *)addr, value);
+}
+#endif // if defined(gfx90a) &&
 
-constexpr uint32_t UNSET = 0;
-constexpr uint32_t SET = 1;
+void workersStartBarrier() {
+#ifdef __AMDGCN__
+  synchronize::omptarget_workers_done = true;
+  synchronize::threads();
+  while (!synchronize::omptarget_master_ready)
+    synchronize::threads();
+  synchronize::omptarget_workers_done = false;
+#else
+  synchronize::threads();
+#endif
+}
+
+void workersDoneBarrier() {
+  // This worker termination logic permits full barriers in reductions
+  // by keeping the master thread waiting at another barrier till
+  // all workers are finished.
+#ifdef __AMDGCN__
+  if (mapping::getThreadIdInBlock() == 0)
+    synchronize::omptarget_workers_done = true;
+#endif
+  synchronize::threads();
+}
 
 void unsetCriticalLock(omp_lock_t *Lock) {
   (void)atomicExchange((uint32_t *)Lock, UNSET, atomic::acq_rel);
@@ -311,6 +423,73 @@ void setCriticalLock(omp_lock_t *Lock) {
     fenceKernel(atomic::aquire);
   }
 }
+
+// atomicCAS-based implementation for certain atomic operations on gfx941
+#if defined(__gfx941__)
+
+template <typename T> void atomicCASLoopMin(T *addr, T val) {
+  unsigned long long assumed;
+  unsigned long long *addr_as_ull = (unsigned long long *)addr;
+  unsigned long long old;
+  T typed_old;
+  __atomic_load(addr, &typed_old, atomic::relaxed);
+  old = (*reinterpret_cast<unsigned long long *>(&typed_old));
+  T updated_val = val;
+  do {
+    assumed = old;
+    T t_assumed = (*reinterpret_cast<T *>(&assumed));
+    updated_val = val < t_assumed ? val : t_assumed;
+    // TODO: use intrinsic directly with release (success) and acquire (failure)
+    old = atomicCAS(addr_as_ull, assumed,
+                    (*reinterpret_cast<unsigned long long *>(&updated_val)),
+                    atomic::acq_rel);
+  } while (assumed != old);
+}
+
+#define ATOMIC_CAS_LOOP_MIN(TY)                                                \
+  void atomicCASLoopMin(TY *addr, TY val) { atomicCASLoopMin<TY>(addr, val); }
+
+ATOMIC_CAS_LOOP_MIN(int32_t)
+ATOMIC_CAS_LOOP_MIN(uint32_t)
+ATOMIC_CAS_LOOP_MIN(int64_t)
+ATOMIC_CAS_LOOP_MIN(uint64_t)
+ATOMIC_CAS_LOOP_MIN(float);
+ATOMIC_CAS_LOOP_MIN(double);
+
+#undef ATOMIC_CAS_LOOP_MIN
+
+template <typename T> void atomicCASLoopMax(T *addr, T val) {
+  unsigned long long assumed;
+  unsigned long long *addr_as_ull = (unsigned long long *)addr;
+  unsigned long long old;
+  T typed_old;
+  __atomic_load(addr, &typed_old, atomic::relaxed);
+  old = (*reinterpret_cast<unsigned long long *>(&typed_old));
+  T updated_val = val;
+  do {
+    assumed = old;
+    T t_assumed = (*reinterpret_cast<T *>(&assumed));
+    updated_val = val > t_assumed ? val : t_assumed;
+    // TODO: use intrinsic directly with release (success) and acquire (failure)
+    old = atomicCAS(addr_as_ull, assumed,
+                    (*reinterpret_cast<unsigned long long *>(&updated_val)),
+                    atomic::acq_rel);
+  } while (assumed != old);
+}
+
+#define ATOMIC_CAS_LOOP_MAX(TY)                                                \
+  void atomicCASLoopMax(TY *addr, TY val) { atomicCASLoopMax<TY>(addr, val); }
+
+ATOMIC_CAS_LOOP_MAX(int32_t)
+ATOMIC_CAS_LOOP_MAX(uint32_t)
+ATOMIC_CAS_LOOP_MAX(int64_t)
+ATOMIC_CAS_LOOP_MAX(uint64_t)
+ATOMIC_CAS_LOOP_MAX(float);
+ATOMIC_CAS_LOOP_MAX(double);
+
+#undef ATOMIC_CAS_LOOP_MAX
+
+#endif /// if defined(__gfx941__)
 
 #pragma omp end declare variant
 ///}
@@ -331,7 +510,7 @@ void namedBarrierInit() {}
 
 void namedBarrier() {
   uint32_t NumThreads = omp_get_num_threads();
-  ASSERT(NumThreads % 32 == 0);
+  ASSERT(NumThreads % 32 == 0, nullptr);
 
   // The named barrier for active parallel threads of a team in an L1 parallel
   // region to synchronize with each other.
@@ -342,24 +521,26 @@ void namedBarrier() {
                : "memory");
 }
 
-void fenceTeam(atomic::OrderingTy) { __nvvm_membar_cta(); }
+void fenceTeam(int) { __nvvm_membar_cta(); }
 
-void fenceKernel(atomic::OrderingTy) { __nvvm_membar_gl(); }
+void fenceKernel(int) { __nvvm_membar_gl(); }
 
-void fenceSystem(atomic::OrderingTy) { __nvvm_membar_sys(); }
+void fenceSystem(int) { __nvvm_membar_sys(); }
 
 void syncWarp(__kmpc_impl_lanemask_t Mask) { __nvvm_bar_warp_sync(Mask); }
 
-void syncThreads(atomic::OrderingTy Ordering) {
+void syncThreads() {
   constexpr int BarrierNo = 8;
   asm volatile("barrier.sync %0;" : : "r"(BarrierNo) : "memory");
 }
 
-void syncThreadsAligned(atomic::OrderingTy Ordering) { __syncthreads(); }
+void syncThreadsAligned() { __syncthreads(); }
+
+void workersStartBarrier() { syncThreads(); }
+
+void workersDoneBarrier() { syncThreads(); }
 
 constexpr uint32_t OMP_SPIN = 1000;
-constexpr uint32_t UNSET = 0;
-constexpr uint32_t SET = 1;
 
 // TODO: This seems to hide a bug in the declare variant handling. If it is
 // called before it is defined
@@ -392,6 +573,8 @@ void setLock(omp_lock_t *Lock) {
   } // wait for 0 to be the read value
 }
 
+float unsafeAtomicAdd(float *addr, float value) { return 0.0; }
+
 #pragma omp end declare variant
 ///}
 
@@ -404,13 +587,13 @@ void synchronize::init(bool IsSPMD) {
 
 void synchronize::warp(LaneMaskTy Mask) { impl::syncWarp(Mask); }
 
-void synchronize::threads(atomic::OrderingTy Ordering) {
-  impl::syncThreads(Ordering);
-}
+void synchronize::threads() { impl::syncThreads(); }
 
-void synchronize::threadsAligned(atomic::OrderingTy Ordering) {
-  impl::syncThreadsAligned(Ordering);
-}
+void synchronize::threadsAligned() { impl::syncThreadsAligned(); }
+
+void synchronize::workersStartBarrier() { impl::workersStartBarrier(); }
+
+void synchronize::workersDoneBarrier() { impl::workersDoneBarrier(); }
 
 void fence::team(atomic::OrderingTy Ordering) { impl::fenceTeam(Ordering); }
 
@@ -525,16 +708,18 @@ void __kmpc_barrier(IdentTy *Loc, int32_t TId) {
   impl::namedBarrier();
 }
 
+void __kmpc_impl_syncthreads() { synchronize::threads(); }
+
 __attribute__((noinline)) void __kmpc_barrier_simple_spmd(IdentTy *Loc,
                                                           int32_t TId) {
   FunctionTracingRAII();
-  synchronize::threadsAligned(atomic::OrderingTy::seq_cst);
+  synchronize::threadsAligned();
 }
 
 __attribute__((noinline)) void __kmpc_barrier_simple_generic(IdentTy *Loc,
                                                              int32_t TId) {
   FunctionTracingRAII();
-  synchronize::threads(atomic::OrderingTy::seq_cst);
+  synchronize::threads();
 }
 
 int32_t __kmpc_master(IdentTy *Loc, int32_t TId) {
@@ -566,6 +751,21 @@ void __kmpc_flush(IdentTy *Loc) {
   fence::kernel(atomic::seq_cst);
 }
 
+void __kmpc_flush_acquire(IdentTy *Loc) {
+  FunctionTracingRAII();
+  fence::kernel(atomic::aquire);
+}
+
+void __kmpc_flush_release(IdentTy *Loc) {
+  FunctionTracingRAII();
+  fence::kernel(atomic::release);
+}
+
+void __kmpc_flush_acqrel(IdentTy *Loc) {
+  FunctionTracingRAII();
+  fence::kernel(atomic::acq_rel);
+}
+
 uint64_t __kmpc_warp_active_thread_mask(void) {
   FunctionTracingRAII();
   return mapping::activemask();
@@ -595,6 +795,41 @@ void omp_set_lock(omp_lock_t *Lock) { impl::setLock(Lock); }
 void omp_unset_lock(omp_lock_t *Lock) { impl::unsetLock(Lock); }
 
 int omp_test_lock(omp_lock_t *Lock) { return impl::testLock(Lock); }
+
+float __kmpc_unsafeAtomicAdd(float *addr, float value) {
+  return impl::unsafeAtomicAdd(addr, value);
+}
+
+#if defined(__gfx941__)
+#define KMPC_ATOMIC_CAS_LOOP_MIN(TY)                                           \
+  void __kmpc_atomicCASLoopMin_##TY(TY *addr, TY val) {                        \
+    return impl::atomicCASLoopMin(addr, val);                                  \
+  }
+
+KMPC_ATOMIC_CAS_LOOP_MIN(int32_t)
+KMPC_ATOMIC_CAS_LOOP_MIN(uint32_t)
+KMPC_ATOMIC_CAS_LOOP_MIN(int64_t)
+KMPC_ATOMIC_CAS_LOOP_MIN(uint64_t)
+KMPC_ATOMIC_CAS_LOOP_MIN(float);
+KMPC_ATOMIC_CAS_LOOP_MIN(double);
+
+#undef KMPC_ATOMIC_CAS_LOOP_MIN
+
+#define KMPC_ATOMIC_CAS_LOOP_MAX(TY)                                           \
+  void __kmpc_atomicCASLoopMax_##TY(TY *addr, TY val) {                        \
+    return impl::atomicCASLoopMax(addr, val);                                  \
+  }
+
+KMPC_ATOMIC_CAS_LOOP_MAX(int32_t)
+KMPC_ATOMIC_CAS_LOOP_MAX(uint32_t)
+KMPC_ATOMIC_CAS_LOOP_MAX(int64_t)
+KMPC_ATOMIC_CAS_LOOP_MAX(uint64_t)
+KMPC_ATOMIC_CAS_LOOP_MAX(float);
+KMPC_ATOMIC_CAS_LOOP_MAX(double);
+
+#undef KMPC_ATOMIC_CAS_LOOP_MAX
+#endif // endif defined(__gfx941__)
+
 } // extern "C"
 
 #pragma omp end declare target

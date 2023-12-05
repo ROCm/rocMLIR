@@ -41,7 +41,7 @@ target triple = "x86_64--linux"
 @unknown_size_data = dso_local global [0 x i32] zeroinitializer, align 16
 
 
-define dso_local ptr @lea_static_data() #0 {
+define dso_local i32* @lea_static_data() #0 {
 ; SMALL-STATIC-LABEL: lea_static_data:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movl $static_data, %eax
@@ -78,10 +78,10 @@ define dso_local ptr @lea_static_data() #0 {
 ; LARGE-PIC-NEXT:    movabsq $static_data@GOTOFF, %rax
 ; LARGE-PIC-NEXT:    addq %rcx, %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @static_data
+  ret i32* getelementptr inbounds ([10 x i32], [10 x i32]* @static_data, i64 0, i64 0)
 }
 
-define dso_local ptr @lea_global_data() #0 {
+define dso_local i32* @lea_global_data() #0 {
 ; SMALL-STATIC-LABEL: lea_global_data:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movl $global_data, %eax
@@ -118,10 +118,10 @@ define dso_local ptr @lea_global_data() #0 {
 ; LARGE-PIC-NEXT:    movabsq $global_data@GOTOFF, %rax
 ; LARGE-PIC-NEXT:    addq %rcx, %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @global_data
+  ret i32* getelementptr inbounds ([10 x i32], [10 x i32]* @global_data, i64 0, i64 0)
 }
 
-define dso_local ptr @lea_extern_data() #0 {
+define dso_local i32* @lea_extern_data() #0 {
 ; SMALL-STATIC-LABEL: lea_extern_data:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movq extern_data@GOTPCREL(%rip), %rax
@@ -156,7 +156,7 @@ define dso_local ptr @lea_extern_data() #0 {
 ; LARGE-PIC-NEXT:    movabsq $extern_data@GOT, %rax
 ; LARGE-PIC-NEXT:    movq (%rcx,%rax), %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @extern_data
+  ret i32* getelementptr inbounds ([10 x i32], [10 x i32]* @extern_data, i64 0, i64 0)
 }
 
 define dso_local ptr @lea_unknown_size_data() #0 {
@@ -238,7 +238,7 @@ define dso_local i32 @load_global_data() #0 {
 ; LARGE-PIC-NEXT:    movabsq $global_data@GOTOFF, %rax
 ; LARGE-PIC-NEXT:    movl 8(%rcx,%rax), %eax
 ; LARGE-PIC-NEXT:    retq
-  %rv = load i32, ptr getelementptr inbounds ([10 x i32], ptr @global_data, i64 0, i64 2)
+  %rv = load i32, i32* getelementptr inbounds ([10 x i32], [10 x i32]* @global_data, i64 0, i64 2)
   ret i32 %rv
 }
 
@@ -283,7 +283,7 @@ define dso_local i32 @load_extern_data() #0 {
 ; LARGE-PIC-NEXT:    movq (%rcx,%rax), %rax
 ; LARGE-PIC-NEXT:    movl 8(%rax), %eax
 ; LARGE-PIC-NEXT:    retq
-  %rv = load i32, ptr getelementptr inbounds ([10 x i32], ptr @extern_data, i64 0, i64 2)
+  %rv = load i32, i32* getelementptr inbounds ([10 x i32], [10 x i32]* @extern_data, i64 0, i64 2)
   ret i32 %rv
 }
 
@@ -346,7 +346,7 @@ define internal void @static_fn() #0 {
 
 declare void @extern_fn()
 
-define dso_local ptr @lea_static_fn() #0 {
+define dso_local void ()* @lea_static_fn() #0 {
 ; SMALL-STATIC-LABEL: lea_static_fn:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movl $static_fn, %eax
@@ -381,10 +381,10 @@ define dso_local ptr @lea_static_fn() #0 {
 ; LARGE-PIC-NEXT:    movabsq $static_fn@GOTOFF, %rax
 ; LARGE-PIC-NEXT:    addq %rcx, %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @static_fn
+  ret void ()* @static_fn
 }
 
-define dso_local ptr @lea_global_fn() #0 {
+define dso_local void ()* @lea_global_fn() #0 {
 ; SMALL-STATIC-LABEL: lea_global_fn:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movl $global_fn, %eax
@@ -419,10 +419,10 @@ define dso_local ptr @lea_global_fn() #0 {
 ; LARGE-PIC-NEXT:    movabsq $global_fn@GOTOFF, %rax
 ; LARGE-PIC-NEXT:    addq %rcx, %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @global_fn
+  ret void ()* @global_fn
 }
 
-define dso_local ptr @lea_extern_fn() #0 {
+define dso_local void ()* @lea_extern_fn() #0 {
 ; SMALL-STATIC-LABEL: lea_extern_fn:
 ; SMALL-STATIC:       # %bb.0:
 ; SMALL-STATIC-NEXT:    movq extern_fn@GOTPCREL(%rip), %rax
@@ -457,7 +457,7 @@ define dso_local ptr @lea_extern_fn() #0 {
 ; LARGE-PIC-NEXT:    movabsq $extern_fn@GOT, %rax
 ; LARGE-PIC-NEXT:    movq (%rcx,%rax), %rax
 ; LARGE-PIC-NEXT:    retq
-  ret ptr @extern_fn
+  ret void ()* @extern_fn
 }
 
 ; FIXME: The result is same for small, medium and large model, because we
@@ -489,7 +489,7 @@ define dso_local i32 @load_thread_data() #0 {
 ; CHECK-NEXT:    movq thread_data@GOTTPOFF(%rip), %rax
 ; CHECK-NEXT:    movl %fs:(%rax), %eax
 ; CHECK-NEXT:    retq
-  %1 = load i32, ptr @thread_data, align 4
+  %1 = load i32, i32* @thread_data, align 4
   ret i32 %1
 }
 

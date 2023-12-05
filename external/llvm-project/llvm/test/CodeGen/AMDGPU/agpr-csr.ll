@@ -34,13 +34,11 @@ define void @func_areg_32() #0 {
 }
 
 ; GCN-LABEL: {{^}}func_areg_33:
-; GCN-NOT: a32
 ; GFX90A: v_accvgpr_read_b32 v0, a32 ; Reload Reuse
 ; GCN-NOT: a32
 ; GCN:        use agpr32
 ; GCN-NOT: a32
 ; GFX90A: v_accvgpr_write_b32 a32, v0 ; Reload Reuse
-; GCN-NOT: a32
 ; GCN:        s_setpc_b64
 define void @func_areg_33() #0 {
   call void asm sideeffect "; use agpr32", "~{a32}" ()

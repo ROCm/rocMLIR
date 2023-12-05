@@ -172,6 +172,13 @@ def STRICT_WQM : PseudoInstSI <(outs unknown:$vdst), (ins unknown:$src0)>;
 
 } // End let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Uses = [EXEC]
 
+def WWM_COPY : SPseudoInstSI <
+  (outs unknown:$dst), (ins unknown:$src)> {
+  let hasSideEffects = 0;
+  let isAsCheapAsAMove = 1;
+  let isConvergent = 1;
+}
+
 def ENTER_STRICT_WWM : SPseudoInstSI <(outs SReg_1:$sdst), (ins i64imm:$src0)> {
   let Uses = [EXEC];
   let Defs = [EXEC, SCC];
@@ -827,6 +834,13 @@ multiclass SI_SPILL_SGPR <RegisterClass sgpr_class> {
       let mayLoad = 0;
     }
 
+    def _CFI_SAVE : PseudoInstSI <
+      (outs),
+      (ins sgpr_class:$data, i32imm:$addr)> {
+      let mayStore = 1;
+      let mayLoad = 0;
+    }
+
     def _RESTORE : PseudoInstSI <
       (outs sgpr_class:$data),
       (ins i32imm:$addr)> {
@@ -862,6 +876,18 @@ multiclass SI_SPILL_VGPR <RegisterClass vgpr_class, bit UsesTmp = 0> {
   let UseNamedOperandTable = 1, VGPRSpill = 1,
        SchedRW = [WriteVMEM] in {
     def _SAVE : VPseudoInstSI <
+      (outs),
+      (ins vgpr_class:$vdata, i32imm:$vaddr,
+           SReg_32:$soffset, i32imm:$offset)> {
+      let mayStore = 1;
+      let mayLoad = 0;
+      // (2 * 4) + (8 * num_subregs) bytes maximum
+      int MaxSize = !add(!shl(!srl(vgpr_class.Size, 5), !add(UsesTmp, 3)), 8);
+      // Size field is unsigned char and cannot fit more.
+      let Size = !if(!le(MaxSize, 256), MaxSize, 252);
+    }
+
+    def _CFI_SAVE : VPseudoInstSI <
       (outs),
       (ins vgpr_class:$vdata, i32imm:$vaddr,
            SReg_32:$soffset, i32imm:$offset)> {
@@ -932,6 +958,9 @@ defm SI_SPILL_AV352 : SI_SPILL_VGPR <AV_352, 1>;
 defm SI_SPILL_AV384 : SI_SPILL_VGPR <AV_384, 1>;
 defm SI_SPILL_AV512 : SI_SPILL_VGPR <AV_512, 1>;
 defm SI_SPILL_AV1024 : SI_SPILL_VGPR <AV_1024, 1>;
+
+let isConvergent = 1 in
+defm SI_SPILL_WWM_V32 : SI_SPILL_VGPR <VGPR_32>;
 
 def SI_PC_ADD_REL_OFFSET : SPseudoInstSI <
   (outs SReg_64:$dst),
@@ -1366,6 +1395,66 @@ foreach Index = 0-15 in {
   >;
 }
 
+
+def : Pat <
+  (extract_subvector v4i16:$vec, (i32 0)),
+  (v2i16 (EXTRACT_SUBREG v4i16:$vec, sub0))
+>;
+
+def : Pat <
+  (extract_subvector v4i16:$vec, (i32 2)),
+  (v2i16 (EXTRACT_SUBREG v4i16:$vec, sub1))
+>;
+
+def : Pat <
+  (extract_subvector v4f16:$vec, (i32 0)),
+  (v2f16 (EXTRACT_SUBREG v4f16:$vec, sub0))
+>;
+
+def : Pat <
+  (extract_subvector v4f16:$vec, (i32 2)),
+  (v2f16 (EXTRACT_SUBREG v4f16:$vec, sub1))
+>;
+
+def : Pat <
+  (extract_subvector v8i16:$vec, (i32 0)),
+  (v4i16 (EXTRACT_SUBREG v8i16:$vec, sub0_sub1))
+>;
+
+def : Pat <
+  (extract_subvector v8i16:$vec, (i32 4)),
+  (v4i16 (EXTRACT_SUBREG v8i16:$vec, sub2_sub3))
+>;
+
+def : Pat <
+  (extract_subvector v8f16:$vec, (i32 0)),
+  (v4f16 (EXTRACT_SUBREG v8f16:$vec, sub0_sub1))
+>;
+
+def : Pat <
+  (extract_subvector v8f16:$vec, (i32 4)),
+  (v4f16 (EXTRACT_SUBREG v8f16:$vec, sub2_sub3))
+>;
+
+def : Pat <
+  (extract_subvector v16i16:$vec, (i32 0)),
+  (v8i16 (EXTRACT_SUBREG v16i16:$vec, sub0_sub1_sub2_sub3))
+>;
+
+def : Pat <
+  (extract_subvector v16i16:$vec, (i32 8)),
+  (v8i16 (EXTRACT_SUBREG v16i16:$vec, sub4_sub5_sub6_sub7))
+>;
+
+def : Pat <
+  (extract_subvector v16f16:$vec, (i32 0)),
+  (v8f16 (EXTRACT_SUBREG v16f16:$vec, sub0_sub1_sub2_sub3))
+>;
+
+def : Pat <
+  (extract_subvector v16f16:$vec, (i32 8)),
+  (v8f16 (EXTRACT_SUBREG v16f16:$vec, sub4_sub5_sub6_sub7))
+>;
 
 foreach Index = 0-31 in {
   def Extract_Element_v32i32_#Index : Extract_Element <

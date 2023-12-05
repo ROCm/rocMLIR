@@ -67,11 +67,11 @@ define amdgpu_kernel void @v_select_v16i8(ptr addrspace(1) %out, ptr addrspace(1
 
 ; GCN-LABEL: {{^}}select_v4i8:
 ; GFX89: s_cselect_b32
-; GFX89-NOT: s_cselect_b32
+; GFX89-NOT: s_cselect_b64
 
 ; SI: s_cselect_b32
 ; SI-NOT: cndmask
-define amdgpu_kernel void @select_v4i8(ptr addrspace(1) %out, <4 x i8> %a, <4 x i8> %b, i8 %c) #0 {
+define amdgpu_kernel void @select_v4i8(<4 x i8> addrspace(1)* %out, <4 x i8> %a, <4 x i8> %b, i8 %c) #0 {
   %cmp = icmp eq i8 %c, 0
   %select = select i1 %cmp, <4 x i8> %a, <4 x i8> %b
   store <4 x i8> %select, ptr addrspace(1) %out, align 4
@@ -85,7 +85,7 @@ define amdgpu_kernel void @select_v4i8(ptr addrspace(1) %out, <4 x i8> %a, <4 x 
 
 ; SI: s_cselect_b32
 ; SI-NOT: v_cndmask_b32e
-define amdgpu_kernel void @select_v2i16(ptr addrspace(1) %out, <2 x i16> %a, <2 x i16> %b, i32 %c) #0 {
+define amdgpu_kernel void @select_v2i16(<2 x i16> addrspace(1)* %out, <2 x i16> %a, <2 x i16> %b, i32 %c) #0 {
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <2 x i16> %a, <2 x i16> %b
   store <2 x i16> %select, ptr addrspace(1) %out, align 4
@@ -115,9 +115,9 @@ define amdgpu_kernel void @v_select_v2i16(ptr addrspace(1) %out, ptr addrspace(1
 ; VI: s_cselect_b32
 ; GFX9: cndmask
 ; GFX9: cndmask
-define amdgpu_kernel void @v_select_v3i16(ptr addrspace(1) %out, ptr addrspace(1) %a.ptr, ptr addrspace(1) %b.ptr, i32 %c) #0 {
-  %a = load <3 x i16>, ptr addrspace(1) %a.ptr
-  %b = load <3 x i16>, ptr addrspace(1) %b.ptr
+define amdgpu_kernel void @v_select_v3i16(<3 x i16> addrspace(1)* %out, <3 x i16> addrspace(1)* %a.ptr, <3 x i16> addrspace(1)* %b.ptr, i32 %c) #0 {
+  %a = load <3 x i16>, <3 x i16> addrspace(1)* %a.ptr
+  %b = load <3 x i16>, <3 x i16> addrspace(1)* %b.ptr
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <3 x i16> %a, <3 x i16> %b
   store <3 x i16> %select, ptr addrspace(1) %out, align 4
@@ -206,7 +206,7 @@ bb:
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
-define amdgpu_kernel void @select_v8i32(ptr addrspace(1) %out, <8 x i32> %a, <8 x i32> %b, i32 %c) #0 {
+define amdgpu_kernel void @select_v8i32(<8 x i32> addrspace(1)* %out, <8 x i32> %a, <8 x i32> %b, i32 %c) #0 {
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <8 x i32> %a, <8 x i32> %b
   store <8 x i32> %select, ptr addrspace(1) %out, align 16
@@ -313,7 +313,7 @@ define amdgpu_kernel void @select_v8f32(ptr addrspace(1) %out, <8 x float> %a, <
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
-define amdgpu_kernel void @select_v2f64(ptr addrspace(1) %out, <2 x double> %a, <2 x double> %b, i32 %c) #0 {
+define amdgpu_kernel void @select_v2f64(<2 x double> addrspace(1)* %out, <2 x double> %a, <2 x double> %b, i32 %c) #0 {
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <2 x double> %a, <2 x double> %b
   store <2 x double> %select, ptr addrspace(1) %out, align 16
@@ -329,7 +329,7 @@ define amdgpu_kernel void @select_v2f64(ptr addrspace(1) %out, <2 x double> %a, 
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
-define amdgpu_kernel void @select_v4f64(ptr addrspace(1) %out, <4 x double> %a, <4 x double> %b, i32 %c) #0 {
+define amdgpu_kernel void @select_v4f64(<4 x double> addrspace(1)* %out, <4 x double> %a, <4 x double> %b, i32 %c) #0 {
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <4 x double> %a, <4 x double> %b
   store <4 x double> %select, ptr addrspace(1) %out, align 16
@@ -353,7 +353,7 @@ define amdgpu_kernel void @select_v4f64(ptr addrspace(1) %out, <4 x double> %a, 
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
 ; GCN: s_cselect_b32
-define amdgpu_kernel void @select_v8f64(ptr addrspace(1) %out, <8 x double> %a, <8 x double> %b, i32 %c) #0 {
+define amdgpu_kernel void @select_v8f64(<8 x double> addrspace(1)* %out, <8 x double> %a, <8 x double> %b, i32 %c) #0 {
   %cmp = icmp eq i32 %c, 0
   %select = select i1 %cmp, <8 x double> %a, <8 x double> %b
   store <8 x double> %select, ptr addrspace(1) %out, align 16

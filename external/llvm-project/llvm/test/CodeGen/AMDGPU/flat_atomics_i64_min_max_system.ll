@@ -68,6 +68,7 @@ define amdgpu_kernel void @atomic_max_i64_offset(ptr %out, i64 %in) {
 ; GCN2-NEXT:    s_cbranch_execnz .LBB0_1
 ; GCN2-NEXT:  ; %bb.2: ; %atomicrmw.end
 ; GCN2-NEXT:    s_endpgm
+; DAVE-GCN2-NEXT:    s_waitcnt vmcnt(0)
 entry:
   %gep = getelementptr i64, ptr %out, i64 4
   %tmp0 = atomicrmw volatile max ptr %gep, i64 %in seq_cst

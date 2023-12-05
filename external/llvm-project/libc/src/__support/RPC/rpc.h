@@ -23,7 +23,7 @@
 #include "src/__support/CPP/functional.h"
 #include "src/__support/CPP/optional.h"
 #include "src/__support/GPU/utils.h"
-#include "src/string/memory_utils/memcpy_implementations.h"
+#include "src/string/memory_utils/inline_memcpy.h"
 
 #include <stdint.h>
 
@@ -82,10 +82,10 @@ template <bool Invert, typename Packet> struct Process {
   LIBC_INLINE Process &operator=(Process &&) = default;
   LIBC_INLINE ~Process() = default;
 
-  uint64_t port_count;
-  cpp::Atomic<uint32_t> *inbox;
-  cpp::Atomic<uint32_t> *outbox;
-  Packet *packet;
+  uint64_t port_count = 0;
+  cpp::Atomic<uint32_t> *inbox = nullptr;
+  cpp::Atomic<uint32_t> *outbox = nullptr;
+  Packet *packet = nullptr;
 
   cpp::Atomic<uint32_t> lock[DEFAULT_PORT_COUNT] = {0};
 
@@ -435,7 +435,6 @@ LIBC_INLINE void Port<T, S>::recv_and_send(W work) {
 /// thread private pointers to the underlying value.
 template <bool T, typename S>
 LIBC_INLINE void Port<T, S>::send_n(const void *src, uint64_t size) {
-  static_assert(is_process_gpu(), "Only valid when running on the GPU");
   const void **src_ptr = &src;
   uint64_t *size_ptr = &size;
   send_n(src_ptr, size_ptr);

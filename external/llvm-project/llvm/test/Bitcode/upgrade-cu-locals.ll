@@ -1,4 +1,4 @@
-; Test moving of local imports from DICompileUnit's 'imports' to DISubprogram's 'retainedNodes'
+; Test moving of local imports/enums from DICompileUnit to DISubprogram's 'retainedNodes'
 ;
 ; RUN: llvm-dis -o - %s.bc | FileCheck %s
 

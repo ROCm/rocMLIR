@@ -194,14 +194,14 @@ void test_log_clamp_f32(global float* out, float a)
 }
 
 // CHECK-LABEL: @test_ldexp_f32
-// CHECK: call float @llvm.ldexp.f32.i32
+// CHECK: call float @llvm.amdgcn.ldexp.f32
 void test_ldexp_f32(global float* out, float a, int b)
 {
   *out = __builtin_amdgcn_ldexpf(a, b);
 }
 
 // CHECK-LABEL: @test_ldexp_f64
-// CHECK: call double @llvm.ldexp.f64.i32
+// CHECK: call double @llvm.amdgcn.ldexp.f64
 void test_ldexp_f64(global double* out, double a, int b)
 {
   *out = __builtin_amdgcn_ldexp(a, b);
@@ -597,13 +597,11 @@ void test_get_local_id(int d, global int *out)
 }
 
 // CHECK-LABEL: @test_get_workgroup_size(
-// CHECK: call align 4 dereferenceable(64) ptr addrspace(4) @llvm.amdgcn.dispatch.ptr()
-// CHECK: getelementptr inbounds i8, ptr addrspace(4) %{{.*}}, i64 4
-// CHECK: load i16, ptr addrspace(4) %{{.*}}, align 4, !range [[$WS_RANGE:![0-9]*]], !invariant.load{{.*}}, !noundef
-// CHECK: getelementptr inbounds i8, ptr addrspace(4) %{{.*}}, i64 6
+// CHECK: call align 8 dereferenceable(256) ptr addrspace(4) @llvm.amdgcn.implicitarg.ptr()
+// CHECK: getelementptr inbounds i8, ptr addrspace(4) %{{.*}}, i64 14
 // CHECK: load i16, ptr addrspace(4) %{{.*}}, align 2, !range [[$WS_RANGE:![0-9]*]], !invariant.load{{.*}}, !noundef
-// CHECK: getelementptr inbounds i8, ptr addrspace(4) %{{.*}}, i64 8
-// CHECK: load i16, ptr addrspace(4) %{{.*}}, align 4, !range [[$WS_RANGE:![0-9]*]], !invariant.load{{.*}}, !noundef
+// CHECK: getelementptr inbounds i8, ptr addrspace(4) %{{.*}}, i64 16
+// CHECK: load i16, ptr addrspace(4) %{{.*}}, align 8, !range [[$WS_RANGE:![0-9]*]], !invariant.load{{.*}}, !noundef
 void test_get_workgroup_size(int d, global int *out)
 {
 	switch (d) {

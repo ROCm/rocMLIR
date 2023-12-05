@@ -23,6 +23,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <vector>
 
 #include "ExclusiveAccess.h"
 #include "omptarget.h"
@@ -68,7 +69,10 @@ struct HostDataToTargetTy {
   const uintptr_t HstPtrEnd;       // non-inclusive.
   const map_var_info_t HstPtrName; // Optional source name of mapped variable.
 
-  const uintptr_t TgtPtrBegin; // target info.
+  const uintptr_t TgtAllocBegin; // allocated target memory
+  const uintptr_t TgtPtrBegin; // mapped target memory = TgtAllocBegin + padding
+
+  const bool IsUSMAlloc; // used to track maps under USM mode (optional)
 
 private:
   static const uint64_t INFRefCount = ~(uint64_t)0;
@@ -120,16 +124,19 @@ private:
   const std::unique_ptr<StatesTy> States;
 
 public:
-  HostDataToTargetTy(uintptr_t BP, uintptr_t B, uintptr_t E, uintptr_t TB,
+  HostDataToTargetTy(uintptr_t BP, uintptr_t B, uintptr_t E,
+                     uintptr_t TgtAllocBegin, uintptr_t TgtPtrBegin,
                      bool UseHoldRefCount, map_var_info_t Name = nullptr,
-                     bool IsINF = false)
+                     bool IsINF = false, bool IsUSMAlloc = false)
       : HstPtrBase(BP), HstPtrBegin(B), HstPtrEnd(E), HstPtrName(Name),
-        TgtPtrBegin(TB), States(std::make_unique<StatesTy>(UseHoldRefCount ? 0
-                                                           : IsINF ? INFRefCount
-                                                                   : 1,
-                                                           !UseHoldRefCount ? 0
-                                                           : IsINF ? INFRefCount
-                                                                   : 1)) {}
+        TgtAllocBegin(TgtAllocBegin), TgtPtrBegin(TgtPtrBegin),
+        IsUSMAlloc(IsUSMAlloc),
+        States(std::make_unique<StatesTy>(UseHoldRefCount ? 0
+                                          : IsINF         ? INFRefCount
+                                                          : 1,
+                                          !UseHoldRefCount ? 0
+                                          : IsINF          ? INFRefCount
+                                                           : 1)) {}
 
   /// Get the total reference count.  This is smarter than just getDynRefCount()
   /// + getHoldRefCount() because it handles the case where at least one is
@@ -396,6 +403,10 @@ struct DeviceTy {
   int32_t DeviceID;
   RTLInfoTy *RTL;
   int32_t RTLDeviceID;
+  /// The physical number of processors that may concurrently execute a team
+  /// For cuda, this is number of SMs, for amdgcn, this is number of CUs.
+  /// This field is used by ompx_get_team_procs(devid).
+  int32_t TeamProcs;
 
   bool IsInit;
   std::once_flag InitFlag;
@@ -417,6 +428,10 @@ struct DeviceTy {
   PendingCtorsDtorsPerLibrary PendingCtorsDtors;
 
   std::mutex PendingGlobalsMtx;
+
+  /// Flag to force synchronous data transfers
+  /// Controlled via environment flag OMPX_FORCE_SYNC_REGIONS
+  bool ForceSynchronousTargetRegions;
 
   DeviceTy(RTLInfoTy *RTL);
   // DeviceTy is not copyable
@@ -446,8 +461,8 @@ struct DeviceTy {
   /// - Data transfer issue fails.
   TargetPointerResultTy getTargetPointer(
       HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin, void *HstPtrBase,
-      int64_t Size, map_var_info_t HstPtrName, bool HasFlagTo,
-      bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
+      int64_t TgtPadding, int64_t Size, map_var_info_t HstPtrName,
+      bool HasFlagTo, bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
       bool HasCloseModifier, bool HasPresentModifier, bool HasHoldModifier,
       AsyncInfoTy &AsyncInfo, HostDataToTargetTy *OwnedTPR = nullptr,
       bool ReleaseHDTTMap = true);
@@ -572,6 +587,9 @@ struct DeviceTy {
 
   /// Destroy the event.
   int32_t destroyEvent(void *Event);
+
+  void setTeamProcs(int32_t num_team_procs) { TeamProcs = num_team_procs; }
+  int32_t getTeamProcs() { return TeamProcs; }
   /// }
 
 private:
@@ -597,14 +615,14 @@ struct PluginManager {
   std::list<std::pair<__tgt_device_image, __tgt_image_info>> Images;
 
   /// Devices associated with RTLs
-  llvm::SmallVector<std::unique_ptr<DeviceTy>> Devices;
+  std::vector<std::unique_ptr<DeviceTy>> Devices;
   std::mutex RTLsMtx; ///< For RTLs and Devices
 
   /// Translation table retreived from the binary
   HostEntriesBeginToTransTableTy HostEntriesBeginToTransTable;
   std::mutex TrlTblMtx; ///< For Translation Table
   /// Host offload entries in order of image registration
-  llvm::SmallVector<__tgt_offload_entry *> HostEntriesBeginRegistrationOrder;
+  std::vector<__tgt_offload_entry *> HostEntriesBeginRegistrationOrder;
 
   /// Map from ptrs on the host to an entry in the Translation Table
   HostPtrToTableMapTy HostPtrToTableMap;

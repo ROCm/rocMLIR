@@ -61,7 +61,7 @@ define <32 x i8> @extract_subvector256_v64i8(<64 x i8> %x) nounwind {
   ret <32 x i8> %r1
 }
 
-define void @extract_subvector256_v8f64_store(ptr nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v8f64_store(double* nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v8f64_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -69,11 +69,12 @@ define void @extract_subvector256_v8f64_store(ptr nocapture %addr, <4 x double> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x double> %a, <4 x double> undef, <2 x i32> <i32 2, i32 3>
-  store <2 x double> %0, ptr %addr, align 1
+  %1 = bitcast double* %addr to <2 x double>*
+  store <2 x double> %0, <2 x double>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v8f32_store(ptr nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v8f32_store(float* nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v8f32_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -81,11 +82,12 @@ define void @extract_subvector256_v8f32_store(ptr nocapture %addr, <8 x float> %
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x float> %a, <8 x float> undef, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
-  store <4 x float> %0, ptr %addr, align 1
+  %1 = bitcast float* %addr to <4 x float>*
+  store <4 x float> %0, <4 x float>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v4i64_store(ptr nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4i64_store(i64* nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4i64_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -93,11 +95,12 @@ define void @extract_subvector256_v4i64_store(ptr nocapture %addr, <4 x i64> %a)
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x i64> %a, <4 x i64> undef, <2 x i32> <i32 2, i32 3>
-  store <2 x i64> %0, ptr %addr, align 1
+  %1 = bitcast i64* %addr to <2 x i64>*
+  store <2 x i64> %0, <2 x i64>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v8i32_store(ptr nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v8i32_store(i32* nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v8i32_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -105,11 +108,12 @@ define void @extract_subvector256_v8i32_store(ptr nocapture %addr, <8 x i32> %a)
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i32> %a, <8 x i32> undef, <4 x i32> <i32 4, i32 5, i32 6, i32 7>
-  store <4 x i32> %0, ptr %addr, align 1
+  %1 = bitcast i32* %addr to <4 x i32>*
+  store <4 x i32> %0, <4 x i32>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v16i16_store(ptr nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v16i16_store(i16* nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v16i16_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -117,11 +121,12 @@ define void @extract_subvector256_v16i16_store(ptr nocapture %addr, <16 x i16> %
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i16> %a, <16 x i16> undef, <8 x i32> <i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <8 x i16> %0, ptr %addr, align 1
+  %1 = bitcast i16* %addr to <8 x i16>*
+  store <8 x i16> %0, <8 x i16>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v32i8_store(ptr nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v32i8_store(i8* nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v32i8_store:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vextractf128 $1, %ymm0, (%rdi)
@@ -129,11 +134,12 @@ define void @extract_subvector256_v32i8_store(ptr nocapture %addr, <32 x i8> %a)
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i8> %a, <32 x i8> undef, <16 x i32> <i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31>
-  store <16 x i8> %0, ptr %addr, align 1
+  %1 = bitcast i8* %addr to <16 x i8>*
+  store <16 x i8> %0, <16 x i8>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v4f64_store_lo(ptr nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4f64_store_lo(double* nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4f64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -141,11 +147,12 @@ define void @extract_subvector256_v4f64_store_lo(ptr nocapture %addr, <4 x doubl
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x double> %a, <4 x double> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x double> %0, ptr %addr, align 1
+  %1 = bitcast double* %addr to <2 x double>*
+  store <2 x double> %0, <2 x double>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v4f64_store_lo_align_16(ptr nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4f64_store_lo_align_16(double* nocapture %addr, <4 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4f64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -153,11 +160,12 @@ define void @extract_subvector256_v4f64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x double> %a, <4 x double> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x double> %0, ptr %addr, align 16
+  %1 = bitcast double* %addr to <2 x double>*
+  store <2 x double> %0, <2 x double>* %1, align 16
   ret void
 }
 
-define void @extract_subvector256_v4f32_store_lo(ptr nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4f32_store_lo(float* nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4f32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -165,11 +173,12 @@ define void @extract_subvector256_v4f32_store_lo(ptr nocapture %addr, <8 x float
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x float> %a, <8 x float> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x float> %0, ptr %addr, align 1
+  %1 = bitcast float* %addr to <4 x float>*
+  store <4 x float> %0, <4 x float>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v4f32_store_lo_align_16(ptr nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4f32_store_lo_align_16(float* nocapture %addr, <8 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4f32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -177,11 +186,12 @@ define void @extract_subvector256_v4f32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x float> %a, <8 x float> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x float> %0, ptr %addr, align 16
+  %1 = bitcast float* %addr to <4 x float>*
+  store <4 x float> %0, <4 x float>* %1, align 16
   ret void
 }
 
-define void @extract_subvector256_v2i64_store_lo(ptr nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v2i64_store_lo(i64* nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v2i64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -189,11 +199,12 @@ define void @extract_subvector256_v2i64_store_lo(ptr nocapture %addr, <4 x i64> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x i64> %a, <4 x i64> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x i64> %0, ptr %addr, align 1
+  %1 = bitcast i64* %addr to <2 x i64>*
+  store <2 x i64> %0, <2 x i64>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v2i64_store_lo_align_16(ptr nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v2i64_store_lo_align_16(i64* nocapture %addr, <4 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v2i64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -201,11 +212,12 @@ define void @extract_subvector256_v2i64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <4 x i64> %a, <4 x i64> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x i64> %0, ptr %addr, align 16
+  %1 = bitcast i64* %addr to <2 x i64>*
+  store <2 x i64> %0, <2 x i64>* %1, align 16
   ret void
 }
 
-define void @extract_subvector256_v4i32_store_lo(ptr nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4i32_store_lo(i32* nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4i32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -213,11 +225,12 @@ define void @extract_subvector256_v4i32_store_lo(ptr nocapture %addr, <8 x i32> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i32> %a, <8 x i32> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i32> %0, ptr %addr, align 1
+  %1 = bitcast i32* %addr to <4 x i32>*
+  store <4 x i32> %0, <4 x i32>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v4i32_store_lo_align_16(ptr nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v4i32_store_lo_align_16(i32* nocapture %addr, <8 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v4i32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -225,11 +238,12 @@ define void @extract_subvector256_v4i32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i32> %a, <8 x i32> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i32> %0, ptr %addr, align 16
+  %1 = bitcast i32* %addr to <4 x i32>*
+  store <4 x i32> %0, <4 x i32>* %1, align 16
   ret void
 }
 
-define void @extract_subvector256_v8i16_store_lo(ptr nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v8i16_store_lo(i16* nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v8i16_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -237,11 +251,12 @@ define void @extract_subvector256_v8i16_store_lo(ptr nocapture %addr, <16 x i16>
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i16> %a, <16 x i16> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i16> %0, ptr %addr, align 1
+  %1 = bitcast i16* %addr to <8 x i16>*
+  store <8 x i16> %0, <8 x i16>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v8i16_store_lo_align_16(ptr nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v8i16_store_lo_align_16(i16* nocapture %addr, <16 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v8i16_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -249,11 +264,12 @@ define void @extract_subvector256_v8i16_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i16> %a, <16 x i16> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i16> %0, ptr %addr, align 16
+  %1 = bitcast i16* %addr to <8 x i16>*
+  store <8 x i16> %0, <8 x i16>* %1, align 16
   ret void
 }
 
-define void @extract_subvector256_v16i8_store_lo(ptr nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v16i8_store_lo(i8* nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v16i8_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -261,11 +277,12 @@ define void @extract_subvector256_v16i8_store_lo(ptr nocapture %addr, <32 x i8> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i8> %a, <32 x i8> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i8> %0, ptr %addr, align 1
+  %1 = bitcast i8* %addr to <16 x i8>*
+  store <16 x i8> %0, <16 x i8>* %1, align 1
   ret void
 }
 
-define void @extract_subvector256_v16i8_store_lo_align_16(ptr nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector256_v16i8_store_lo_align_16(i8* nocapture %addr, <32 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector256_v16i8_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -273,11 +290,12 @@ define void @extract_subvector256_v16i8_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i8> %a, <32 x i8> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i8> %0, ptr %addr, align 16
+  %1 = bitcast i8* %addr to <16 x i8>*
+  store <16 x i8> %0, <16 x i8>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v2f64_store_lo(ptr nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v2f64_store_lo(double* nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v2f64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -285,11 +303,12 @@ define void @extract_subvector512_v2f64_store_lo(ptr nocapture %addr, <8 x doubl
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x double> %a, <8 x double> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x double> %0, ptr %addr, align 1
+  %1 = bitcast double* %addr to <2 x double>*
+  store <2 x double> %0, <2 x double>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v2f64_store_lo_align_16(ptr nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v2f64_store_lo_align_16(double* nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v2f64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -297,11 +316,12 @@ define void @extract_subvector512_v2f64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x double> %a, <8 x double> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x double> %0, ptr %addr, align 16
+  %1 = bitcast double* %addr to <2 x double>*
+  store <2 x double> %0, <2 x double>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v4f32_store_lo(ptr nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4f32_store_lo(float* nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4f32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -309,11 +329,12 @@ define void @extract_subvector512_v4f32_store_lo(ptr nocapture %addr, <16 x floa
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x float> %a, <16 x float> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x float> %0, ptr %addr, align 1
+  %1 = bitcast float* %addr to <4 x float>*
+  store <4 x float> %0, <4 x float>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v4f32_store_lo_align_16(ptr nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4f32_store_lo_align_16(float* nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4f32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -321,11 +342,12 @@ define void @extract_subvector512_v4f32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x float> %a, <16 x float> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x float> %0, ptr %addr, align 16
+  %1 = bitcast float* %addr to <4 x float>*
+  store <4 x float> %0, <4 x float>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v2i64_store_lo(ptr nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v2i64_store_lo(i64* nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v2i64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -333,11 +355,12 @@ define void @extract_subvector512_v2i64_store_lo(ptr nocapture %addr, <8 x i64> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i64> %a, <8 x i64> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x i64> %0, ptr %addr, align 1
+  %1 = bitcast i64* %addr to <2 x i64>*
+  store <2 x i64> %0, <2 x i64>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v2i64_store_lo_align_16(ptr nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v2i64_store_lo_align_16(i64* nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v2i64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -345,11 +368,12 @@ define void @extract_subvector512_v2i64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i64> %a, <8 x i64> undef, <2 x i32> <i32 0, i32 1>
-  store <2 x i64> %0, ptr %addr, align 16
+  %1 = bitcast i64* %addr to <2 x i64>*
+  store <2 x i64> %0, <2 x i64>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v4i32_store_lo(ptr nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4i32_store_lo(i32* nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4i32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -357,11 +381,12 @@ define void @extract_subvector512_v4i32_store_lo(ptr nocapture %addr, <16 x i32>
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i32> %a, <16 x i32> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i32> %0, ptr %addr, align 1
+  %1 = bitcast i32* %addr to <4 x i32>*
+  store <4 x i32> %0, <4 x i32>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v4i32_store_lo_align_16(ptr nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4i32_store_lo_align_16(i32* nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4i32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -369,11 +394,12 @@ define void @extract_subvector512_v4i32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i32> %a, <16 x i32> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i32> %0, ptr %addr, align 16
+  %1 = bitcast i32* %addr to <4 x i32>*
+  store <4 x i32> %0, <4 x i32>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v8i16_store_lo(ptr nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8i16_store_lo(i16* nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8i16_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -381,11 +407,12 @@ define void @extract_subvector512_v8i16_store_lo(ptr nocapture %addr, <32 x i16>
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i16> %a, <32 x i16> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i16> %0, ptr %addr, align 1
+  %1 = bitcast i16* %addr to <8 x i16>*
+  store <8 x i16> %0, <8 x i16>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v16i8_store_lo(ptr nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v16i8_store_lo(i8* nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v16i8_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %xmm0, (%rdi)
@@ -393,11 +420,12 @@ define void @extract_subvector512_v16i8_store_lo(ptr nocapture %addr, <64 x i8> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <64 x i8> %a, <64 x i8> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i8> %0, ptr %addr, align 1
+  %1 = bitcast i8* %addr to <16 x i8>*
+  store <16 x i8> %0, <16 x i8>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v16i8_store_lo_align_16(ptr nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v16i8_store_lo_align_16(i8* nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v16i8_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %xmm0, (%rdi)
@@ -405,11 +433,12 @@ define void @extract_subvector512_v16i8_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <64 x i8> %a, <64 x i8> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i8> %0, ptr %addr, align 16
+  %1 = bitcast i8* %addr to <16 x i8>*
+  store <16 x i8> %0, <16 x i8>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v4f64_store_lo(ptr nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4f64_store_lo(double* nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4f64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -417,11 +446,12 @@ define void @extract_subvector512_v4f64_store_lo(ptr nocapture %addr, <8 x doubl
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x double> %a, <8 x double> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x double> %0, ptr %addr, align 1
+  %1 = bitcast double* %addr to <4 x double>*
+  store <4 x double> %0, <4 x double>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v4f64_store_lo_align_16(ptr nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4f64_store_lo_align_16(double* nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4f64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -429,11 +459,12 @@ define void @extract_subvector512_v4f64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x double> %a, <8 x double> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x double> %0, ptr %addr, align 16
+  %1 = bitcast double* %addr to <4 x double>*
+  store <4 x double> %0, <4 x double>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v4f64_store_lo_align_32(ptr nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4f64_store_lo_align_32(double* nocapture %addr, <8 x double> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4f64_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -441,11 +472,12 @@ define void @extract_subvector512_v4f64_store_lo_align_32(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x double> %a, <8 x double> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x double> %0, ptr %addr, align 32
+  %1 = bitcast double* %addr to <4 x double>*
+  store <4 x double> %0, <4 x double>* %1, align 32
   ret void
 }
 
-define void @extract_subvector512_v8f32_store_lo(ptr nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8f32_store_lo(float* nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8f32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -453,11 +485,12 @@ define void @extract_subvector512_v8f32_store_lo(ptr nocapture %addr, <16 x floa
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x float> %a, <16 x float> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x float> %0, ptr %addr, align 1
+  %1 = bitcast float* %addr to <8 x float>*
+  store <8 x float> %0, <8 x float>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v8f32_store_lo_align_16(ptr nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8f32_store_lo_align_16(float* nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8f32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -465,11 +498,12 @@ define void @extract_subvector512_v8f32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x float> %a, <16 x float> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x float> %0, ptr %addr, align 16
+  %1 = bitcast float* %addr to <8 x float>*
+  store <8 x float> %0, <8 x float>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v8f32_store_lo_align_32(ptr nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8f32_store_lo_align_32(float* nocapture %addr, <16 x float> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8f32_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -477,11 +511,12 @@ define void @extract_subvector512_v8f32_store_lo_align_32(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x float> %a, <16 x float> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x float> %0, ptr %addr, align 32
+  %1 = bitcast float* %addr to <8 x float>*
+  store <8 x float> %0, <8 x float>* %1, align 32
   ret void
 }
 
-define void @extract_subvector512_v4i64_store_lo(ptr nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4i64_store_lo(i64* nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4i64_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -489,11 +524,12 @@ define void @extract_subvector512_v4i64_store_lo(ptr nocapture %addr, <8 x i64> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i64> %a, <8 x i64> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i64> %0, ptr %addr, align 1
+  %1 = bitcast i64* %addr to <4 x i64>*
+  store <4 x i64> %0, <4 x i64>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v4i64_store_lo_align_16(ptr nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4i64_store_lo_align_16(i64* nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4i64_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -501,11 +537,12 @@ define void @extract_subvector512_v4i64_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i64> %a, <8 x i64> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i64> %0, ptr %addr, align 16
+  %1 = bitcast i64* %addr to <4 x i64>*
+  store <4 x i64> %0, <4 x i64>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v4i64_store_lo_align_32(ptr nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v4i64_store_lo_align_32(i64* nocapture %addr, <8 x i64> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v4i64_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -513,11 +550,12 @@ define void @extract_subvector512_v4i64_store_lo_align_32(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <8 x i64> %a, <8 x i64> undef, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  store <4 x i64> %0, ptr %addr, align 32
+  %1 = bitcast i64* %addr to <4 x i64>*
+  store <4 x i64> %0, <4 x i64>* %1, align 32
   ret void
 }
 
-define void @extract_subvector512_v8i32_store_lo(ptr nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8i32_store_lo(i32* nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8i32_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -525,11 +563,12 @@ define void @extract_subvector512_v8i32_store_lo(ptr nocapture %addr, <16 x i32>
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i32> %a, <16 x i32> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i32> %0, ptr %addr, align 1
+  %1 = bitcast i32* %addr to <8 x i32>*
+  store <8 x i32> %0, <8 x i32>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v8i32_store_lo_align_16(ptr nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8i32_store_lo_align_16(i32* nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8i32_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -537,11 +576,12 @@ define void @extract_subvector512_v8i32_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i32> %a, <16 x i32> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i32> %0, ptr %addr, align 16
+  %1 = bitcast i32* %addr to <8 x i32>*
+  store <8 x i32> %0, <8 x i32>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v8i32_store_lo_align_32(ptr nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v8i32_store_lo_align_32(i32* nocapture %addr, <16 x i32> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v8i32_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -549,11 +589,12 @@ define void @extract_subvector512_v8i32_store_lo_align_32(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <16 x i32> %a, <16 x i32> undef, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
-  store <8 x i32> %0, ptr %addr, align 32
+  %1 = bitcast i32* %addr to <8 x i32>*
+  store <8 x i32> %0, <8 x i32>* %1, align 32
   ret void
 }
 
-define void @extract_subvector512_v16i16_store_lo(ptr nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v16i16_store_lo(i16* nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v16i16_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -561,11 +602,12 @@ define void @extract_subvector512_v16i16_store_lo(ptr nocapture %addr, <32 x i16
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i16> %a, <32 x i16> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i16> %0, ptr %addr, align 1
+  %1 = bitcast i16* %addr to <16 x i16>*
+  store <16 x i16> %0, <16 x i16>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v16i16_store_lo_align_16(ptr nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v16i16_store_lo_align_16(i16* nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v16i16_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -573,11 +615,12 @@ define void @extract_subvector512_v16i16_store_lo_align_16(ptr nocapture %addr, 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i16> %a, <32 x i16> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i16> %0, ptr %addr, align 16
+  %1 = bitcast i16* %addr to <16 x i16>*
+  store <16 x i16> %0, <16 x i16>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v16i16_store_lo_align_32(ptr nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v16i16_store_lo_align_32(i16* nocapture %addr, <32 x i16> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v16i16_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -585,11 +628,12 @@ define void @extract_subvector512_v16i16_store_lo_align_32(ptr nocapture %addr, 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <32 x i16> %a, <32 x i16> undef, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
-  store <16 x i16> %0, ptr %addr, align 32
+  %1 = bitcast i16* %addr to <16 x i16>*
+  store <16 x i16> %0, <16 x i16>* %1, align 32
   ret void
 }
 
-define void @extract_subvector512_v32i8_store_lo(ptr nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v32i8_store_lo(i8* nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v32i8_store_lo:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -597,11 +641,12 @@ define void @extract_subvector512_v32i8_store_lo(ptr nocapture %addr, <64 x i8> 
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <64 x i8> %a, <64 x i8> undef, <32 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31>
-  store <32 x i8> %0, ptr %addr, align 1
+  %1 = bitcast i8* %addr to <32 x i8>*
+  store <32 x i8> %0, <32 x i8>* %1, align 1
   ret void
 }
 
-define void @extract_subvector512_v32i8_store_lo_align_16(ptr nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v32i8_store_lo_align_16(i8* nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v32i8_store_lo_align_16:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovups %ymm0, (%rdi)
@@ -609,11 +654,12 @@ define void @extract_subvector512_v32i8_store_lo_align_16(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <64 x i8> %a, <64 x i8> undef, <32 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31>
-  store <32 x i8> %0, ptr %addr, align 16
+  %1 = bitcast i8* %addr to <32 x i8>*
+  store <32 x i8> %0, <32 x i8>* %1, align 16
   ret void
 }
 
-define void @extract_subvector512_v32i8_store_lo_align_32(ptr nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
+define void @extract_subvector512_v32i8_store_lo_align_32(i8* nocapture %addr, <64 x i8> %a) nounwind uwtable ssp {
 ; SKX-LABEL: extract_subvector512_v32i8_store_lo_align_32:
 ; SKX:       ## %bb.0: ## %entry
 ; SKX-NEXT:    vmovaps %ymm0, (%rdi)
@@ -621,7 +667,8 @@ define void @extract_subvector512_v32i8_store_lo_align_32(ptr nocapture %addr, <
 ; SKX-NEXT:    retq
 entry:
   %0 = shufflevector <64 x i8> %a, <64 x i8> undef, <32 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15, i32 16, i32 17, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31>
-  store <32 x i8> %0, ptr %addr, align 32
+  %1 = bitcast i8* %addr to <32 x i8>*
+  store <32 x i8> %0, <32 x i8>* %1, align 32
   ret void
 }
 

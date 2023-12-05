@@ -72,3 +72,16 @@ func.func @vectors(%a: vector<4xf8E4M3FNUZ>) -> vector<4xf32> {
   %ret = arith.extf %b : vector<4xf8E4M3FNUZ> to vector<4xf32>
   func.return %ret : vector<4xf32>
 }
+
+// -----
+
+func.func @no_expansion(%x: f32) -> f32 {
+// CHECK-LABEL: @no_expansion
+// CHECK-SAME: [[X:%.+]]: f32
+// CHECK-DAG: [[C:%.+]] = arith.constant {{.*}} : f32
+// CHECK: [[Y:%.+]] = arith.addf [[X]], [[C]] : f32
+// CHECK: return [[Y]]
+  %c = arith.constant 1.0 : f32
+  %y = arith.addf %x, %c : f32
+  func.return %y : f32
+}

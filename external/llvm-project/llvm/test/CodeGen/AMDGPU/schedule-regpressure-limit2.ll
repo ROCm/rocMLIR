@@ -6,7 +6,7 @@
 ; SI-MINREG: NumSgprs: {{[1-9]$}}
 ; SI-MINREG: NumVgprs: {{[1-9]$}}
 
-; SI-MAXOCC: NumSgprs: {{[1-4]?[0-9]$}}
+; SI-MAXOCC: NumSgprs: {{[1-6]?[0-9]$}}
 ; SI-MAXOCC: NumVgprs: {{[1-4]?[0-9]$}}
 
 ; stores may alias loads

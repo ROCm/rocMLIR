@@ -39,10 +39,6 @@ option(COMPILER_RT_BUILD_BUILTINS "Build builtins" ON)
 mark_as_advanced(COMPILER_RT_BUILD_BUILTINS)
 option(COMPILER_RT_DISABLE_AARCH64_FMV "Disable AArch64 Function Multi Versioning support" OFF)
 mark_as_advanced(COMPILER_RT_DISABLE_AARCH64_FMV)
-option(COMPILER_RT_BUILD_CRT "Build crtbegin.o/crtend.o" ON)
-mark_as_advanced(COMPILER_RT_BUILD_CRT)
-option(COMPILER_RT_CRT_USE_EH_FRAME_REGISTRY "Use eh_frame in crtbegin.o/crtend.o" ON)
-mark_as_advanced(COMPILER_RT_CRT_USE_EH_FRAME_REGISTRY)
 option(COMPILER_RT_BUILD_SANITIZERS "Build sanitizers" ON)
 mark_as_advanced(COMPILER_RT_BUILD_SANITIZERS)
 option(COMPILER_RT_BUILD_XRAY "Build xray" ON)
@@ -391,20 +387,8 @@ if("${COMPILER_RT_DEFAULT_TARGET_ARCH}" MATCHES "s390x")
 endif()
 
 if(MSVC)
-  # Replace the /M[DT][d] flags with /MT, and strip any definitions of _DEBUG,
-  # which cause definition mismatches at link time.
   # FIXME: In fact, sanitizers should support both /MT and /MD, see PR20214.
-  if(COMPILER_RT_HAS_MT_FLAG)
-    foreach(flag_var
-      CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-      CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-      CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-      string(REGEX REPLACE "/M[DT]d" "/MT" ${flag_var} "${${flag_var}}")
-      string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-      string(REGEX REPLACE "/D_DEBUG" "" ${flag_var} "${${flag_var}}")
-    endforeach()
-  endif()
+  set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
   append_list_if(COMPILER_RT_HAS_Oy_FLAG /Oy- SANITIZER_COMMON_CFLAGS)
   append_list_if(COMPILER_RT_HAS_GS_FLAG /GS- SANITIZER_COMMON_CFLAGS)
 
@@ -477,6 +461,18 @@ elseif(COMPILER_RT_HAS_GLINE_TABLES_ONLY_FLAG AND NOT COMPILER_RT_DEBUG)
   list(APPEND SANITIZER_COMMON_CFLAGS -gline-tables-only)
 elseif(COMPILER_RT_HAS_G_FLAG)
   list(APPEND SANITIZER_COMMON_CFLAGS -g)
+endif()
+
+if(SANITIZER_AMDGPU)
+  list(APPEND SANITIZER_COMMON_CFLAGS -DSANITIZER_AMDGPU=1)
+  find_path(HSA_INCLUDE hsa.h HINTS ${SANITIZER_HSA_INCLUDE_PATH} ${CMAKE_INSTALL_PREFIX}/include/hsa ${CMAKE_INSTALL_PREFIX}/../include/hsa /opt/rocm/include/hsa PATH_SUFFIXES hsa)
+  include_directories(${HSA_INCLUDE})
+  find_path(COMgr_INCLUDE amd_comgr.h.in HINTS ${SANITIZER_COMGR_INCLUDE_PATH} ${CMAKE_INSTALL_PREFIX}/../include ${CMAKE_INSTALL_PREFIX}/include)
+  if (NOT COMgr_INCLUDE)
+    add_compile_definitions(AMD_COMGR)
+    find_path(COMgr_INCLUDE amd_comgr.h HINTS ${CMAKE_INSTALL_PREFIX}/../include ${CMAKE_INSTALL_PREFIX}/include /opt/rocm/include)
+  endif()
+  include_directories(${COMgr_INCLUDE})
 endif()
 
 if(LLVM_ENABLE_MODULES)

@@ -7,14 +7,14 @@ declare void @abort()
 
 ; CHECK-LABEL: @foo(
 ; CHECK-NOT: return:
-define void @foo(ptr %p) {
+define void @foo(i32* %p) {
 entry:
-  %p.addr = alloca ptr, align 8
+  %p.addr = alloca i32*, align 8
   call void @abort()
   unreachable
 
 return:                                           ; No predecessors!
-  store ptr %p, ptr %p.addr, align 8
+  store i32* %p, i32** %p.addr, align 8
   ret void
 }
 

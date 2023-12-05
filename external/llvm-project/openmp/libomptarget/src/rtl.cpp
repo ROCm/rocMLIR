@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Object/OffloadBinary.h"
+#include "llvm/OffloadArch/OffloadArch.h"
 
 #include "device.h"
 #include "private.h"
@@ -21,6 +22,9 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+
+#include <linux/limits.h>
+
 #include <mutex>
 #include <string>
 
@@ -30,13 +34,11 @@ using namespace llvm::omp::target;
 
 // List of all plugins that can support offloading.
 static const char *RTLNames[] = {
-    /* PowerPC target       */ "libomptarget.rtl.ppc64",
-    /* x86_64 target        */ "libomptarget.rtl.x86_64",
-    /* CUDA target          */ "libomptarget.rtl.cuda",
-    /* AArch64 target       */ "libomptarget.rtl.aarch64",
-    /* SX-Aurora VE target  */ "libomptarget.rtl.ve",
     /* AMDGPU target        */ "libomptarget.rtl.amdgpu",
-    /* Remote target        */ "libomptarget.rtl.rpc",
+    /* CUDA target          */ "libomptarget.rtl.cuda",
+    /* x86_64 target        */ "libomptarget.rtl.x86_64",
+    /* PowerPC target       */ "libomptarget.rtl.ppc64",
+    /* AArch64 target       */ "libomptarget.rtl.aarch64",
 };
 
 PluginManager *PM;
@@ -44,7 +46,7 @@ PluginManager *PM;
 static char *ProfileTraceFile = nullptr;
 
 #ifdef OMPT_SUPPORT
-extern void InitOmptLibomp();
+extern void ompt_init();
 #endif
 
 __attribute__((constructor(101))) void init() {
@@ -69,10 +71,10 @@ __attribute__((constructor(101))) void init() {
   if (ProfileTraceFile)
     timeTraceProfilerInitialize(500 /* us */, "libomptarget");
 
-  #ifdef OMPT_SUPPORT
-    // Initialize OMPT first
-    InitOmptLibomp();
-  #endif
+#ifdef OMPT_SUPPORT
+  // Initialize OMPT first
+  ompt_init();
+#endif
 
   PM->RTLs.loadRTLs();
   PM->registerDelayedLibraries();
@@ -92,6 +94,18 @@ __attribute__((destructor(101))) void deinit() {
 }
 
 void RTLsTy::loadRTLs() {
+  // FIXME this is amdgcn specific.
+  // Propogate HIP_VISIBLE_DEVICES if set to ROCR_VISIBLE_DEVICES.
+  if (char *hipVisDevs = getenv("HIP_VISIBLE_DEVICES")) {
+    if (char *rocrVisDevs = getenv("ROCR_VISIBLE_DEVICES")) {
+      if (strcmp(hipVisDevs, rocrVisDevs) != 0)
+        fprintf(stderr,
+                "Warning both HIP_VISIBLE_DEVICES %s "
+                "and ROCR_VISIBLE_DEVICES %s set\n",
+                hipVisDevs, rocrVisDevs);
+    }
+  }
+
   // Parse environment variable OMP_TARGET_OFFLOAD (if set)
   PM->TargetOffloadPolicy =
       (kmp_target_offload_kind_t)__kmpc_get_target_offload();
@@ -100,8 +114,9 @@ void RTLsTy::loadRTLs() {
   }
 
   DP("Loading RTLs...\n");
-
   BoolEnvar NextGenPlugins("LIBOMPTARGET_NEXTGEN_PLUGINS", true);
+
+  BoolEnvar UseFirstGoodRTL("LIBOMPTARGET_USE_FIRST_GOOD_RTL", false);
 
   // Attempt to open all the plugins and, if they exist, check if the interface
   // is correct and if they are supporting any devices.
@@ -112,9 +127,11 @@ void RTLsTy::loadRTLs() {
 
     const std::string BaseRTLName(Name);
     if (NextGenPlugins) {
-      if (attemptLoadRTL(BaseRTLName + ".nextgen.so", RTL))
+      if (attemptLoadRTL(BaseRTLName + ".nextgen.so", RTL)) {
+        if (UseFirstGoodRTL)
+          break;
         continue;
-
+      }
       DP("Falling back to original plugin...\n");
     }
 
@@ -161,6 +178,9 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
   if (!(*((void **)&RTL.number_of_devices) =
             DynLibrary->getAddressOfSymbol("__tgt_rtl_number_of_devices")))
     ValidPlugin = false;
+  if (!(*((void **)&RTL.number_of_team_procs) =
+            DynLibrary->getAddressOfSymbol("__tgt_rtl_number_of_team_procs")))
+    ValidPlugin = false;
   if (!(*((void **)&RTL.init_device) =
             DynLibrary->getAddressOfSymbol("__tgt_rtl_init_device")))
     ValidPlugin = false;
@@ -182,6 +202,12 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
   if (!(*((void **)&RTL.launch_kernel) =
             DynLibrary->getAddressOfSymbol("__tgt_rtl_launch_kernel")))
     ValidPlugin = false;
+  if (!(*((void **)&RTL.launch_kernel_sync) =
+            DynLibrary->getAddressOfSymbol("__tgt_rtl_launch_kernel_sync")))
+    ValidPlugin = false;
+  if (!(*((void **)&RTL.set_up_env) =
+            DynLibrary->getAddressOfSymbol("__tgt_rtl_set_up_env")))
+    ValidPlugin = false;
 
   // Invalid plugin
   if (!ValidPlugin) {
@@ -196,7 +222,7 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
     return false;
   }
 
-#ifdef LIBOMPTARGET_DEBUG
+#ifdef OMPTARGET_DEBUG
   RTL.RTLName = Name;
 #endif
 
@@ -245,6 +271,14 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
       DynLibrary->getAddressOfSymbol("__tgt_rtl_sync_event");
   *((void **)&RTL.destroy_event) =
       DynLibrary->getAddressOfSymbol("__tgt_rtl_destroy_event");
+  *((void **)&RTL.set_coarse_grain_mem_region) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_set_coarse_grain_mem_region");
+  *((void **)&RTL.query_coarse_grain_mem_region) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_query_coarse_grain_mem_region");
+  *((void **)&RTL.prepopulate_page_table) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_prepopulate_page_table");
+  *((void **)&RTL.enable_access_to_all_agents) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_enable_access_to_all_agents");
   *((void **)&RTL.release_async_info) =
       DynLibrary->getAddressOfSymbol("__tgt_rtl_release_async_info");
   *((void **)&RTL.init_async_info) =
@@ -259,6 +293,21 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
       DynLibrary->getAddressOfSymbol("__tgt_rtl_data_notify_mapped");
   *((void **)&RTL.data_notify_unmapped) =
       DynLibrary->getAddressOfSymbol("__tgt_rtl_data_notify_unmapped");
+  *((void **)&RTL.has_apu_device) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_has_apu_device");
+  *((void **)&RTL.has_USM_capable_dGPU) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_has_USM_capable_dGPU");
+  *((void **)&RTL.are_allocations_for_maps_on_apus_disabled) =
+      DynLibrary->getAddressOfSymbol(
+          "__tgt_rtl_are_allocations_for_maps_on_apus_disabled");
+  *((void **)&RTL.requested_prepopulate_gpu_page_table) =
+      DynLibrary->getAddressOfSymbol(
+          "__tgt_rtl_requested_prepopulate_gpu_page_table");
+  *((void **)&RTL.is_no_maps_check) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_is_no_maps_check");
+  *((void **)&RTL.is_fine_grained_memory_enabled) =
+      DynLibrary->getAddressOfSymbol(
+          "__tgt_rtl_is_fine_grained_memory_enabled");
 
   RTL.LibraryHandler = std::move(DynLibrary);
 
@@ -358,7 +407,6 @@ static __tgt_image_info getImageInfo(__tgt_device_image *Image) {
     consumeError(BinaryOrErr.takeError());
     return __tgt_image_info{};
   }
-
   return __tgt_image_info{(*BinaryOrErr)->getArch().data()};
 }
 
@@ -435,7 +483,23 @@ void RTLsTy::initAllRTLs() {
     initRTLonce(R);
 }
 
+std::vector<std::string> _splitstrings(char *input, const char *sep) {
+  std::vector<std::string> split_strings;
+  std::string s(input);
+  std::string delimiter(sep);
+  size_t pos = 0;
+  while ((pos = s.find(delimiter)) != std::string::npos) {
+    if (pos != 0)
+      split_strings.push_back(s.substr(0, pos));
+    s.erase(0, pos + delimiter.length());
+  }
+  if (s.length() > 1)
+    split_strings.push_back(s.substr(0, s.length()));
+  return split_strings;
+}
+
 void RTLsTy::registerLib(__tgt_bin_desc *Desc) {
+
   PM->RTLsMtx.lock();
 
   // Extract the exectuable image and extra information if availible.
@@ -443,7 +507,6 @@ void RTLsTy::registerLib(__tgt_bin_desc *Desc) {
     PM->Images.emplace_back(getExecutableImage(&Desc->DeviceImages[i]),
                             getImageInfo(&Desc->DeviceImages[i]));
 
-  // Register the images with the RTLs that understand them, if any.
   for (auto &ImageAndInfo : PM->Images) {
     // Obtain the image and information that was previously extracted.
     __tgt_device_image *Img = &ImageAndInfo.first;
@@ -454,6 +517,7 @@ void RTLsTy::registerLib(__tgt_bin_desc *Desc) {
     // Scan the RTLs that have associated images until we find one that supports
     // the current image.
     for (auto &R : AllRTLs) {
+
       if (R.is_valid_binary_info) {
         if (!R.is_valid_binary_info(Img, Info)) {
           DP("Image " DPxMOD " is NOT compatible with RTL %s!\n",
@@ -514,6 +578,7 @@ void RTLsTy::unregisterLib(__tgt_bin_desc *Desc) {
 
   PM->RTLsMtx.lock();
   // Find which RTL understands each image, if any.
+
   for (auto &ImageAndInfo : PM->Images) {
     // Obtain the image and information that was previously extracted.
     __tgt_device_image *Img = &ImageAndInfo.first;
@@ -540,7 +605,8 @@ void RTLsTy::unregisterLib(__tgt_bin_desc *Desc) {
         if (Device.PendingCtorsDtors[Desc].PendingCtors.empty()) {
           AsyncInfoTy AsyncInfo(Device);
           for (auto &Dtor : Device.PendingCtorsDtors[Desc].PendingDtors) {
-            int Rc = target(nullptr, Device, Dtor, CTorDTorKernelArgs, AsyncInfo);
+            int Rc =
+                target(nullptr, Device, Dtor, CTorDTorKernelArgs, AsyncInfo);
             if (Rc != OFFLOAD_SUCCESS) {
               DP("Running destructor " DPxMOD " failed.\n", DPxPTR(Dtor));
             }
@@ -601,4 +667,19 @@ void RTLsTy::unregisterLib(__tgt_bin_desc *Desc) {
   }
 
   DP("Done unregistering library!\n");
+}
+
+bool RTLsTy::SystemSupportManagedMemory() {
+  for (auto it : archsSupportingManagedMemory)
+    if (isHomogeneousSystemOf(it))
+      return true;
+  return false;
+}
+
+// HACK: These depricated device stubs still needs host versions for fallback
+// FIXME: Deprecate upstream, change test cases to use malloc & free directly
+extern "C" char *global_allocate(uint32_t sz) { return (char *)malloc(sz); }
+extern "C" int global_free(void *ptr) {
+  free(ptr);
+  return 0;
 }

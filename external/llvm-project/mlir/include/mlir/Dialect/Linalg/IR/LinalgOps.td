@@ -14,11 +14,13 @@
 #define LINALG_OPS
 
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
+include "mlir/Dialect/Linalg/IR/LinalgInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/TilingInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 
 // Base class for Linalg dialect ops that do not correspond to library calls.
@@ -91,7 +93,13 @@ def Linalg_IndexOp : Linalg_Op<"index", [Pure]>,
 def Linalg_SoftmaxOp : Linalg_Op<"softmax",
     [DestinationStyleOpInterface,
      PredOpTrait<"input and output have same element type", TCopVTEtIsSameAs<0, 1>>,
-     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>]> {
+     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+     DeclareOpInterfaceMethods<AggregatedOpInterface, ["decomposeOperation"]>,
+     DeclareOpInterfaceMethods<TilingInterface,
+      ["getIterationDomain",
+       "getLoopIteratorTypes",
+       "getResultTilePosition",
+       "getTiledImplementation"]>]> {
   let summary = "Softmax operator";
   let description = [{
     linalg.softmax computes a numerically stable version of softmax.
@@ -104,6 +112,12 @@ def Linalg_SoftmaxOp : Linalg_Op<"softmax",
 
     This is an aggregate linalg operation that further reduces to a small DAG of
     structured operations.
+
+    Warning: Regarding the tiling capabilities, the implementation doesn't
+    check that the provided dimensions make sense. This is the responsability
+    of the transformation calling the tiling to ensure that the provided
+    sizes for each dimension make sense with respect to the semantic of
+    softmax.
   }];
 
   let arguments = (ins AnyShaped:$input,

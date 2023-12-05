@@ -2,15 +2,15 @@
 target datalayout = "e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-pc-linux-gnu"
 
-declare void @use(ptr)
+declare void @use(<4 x i8*>*)
 
 ; Test that a frame which requires dynamic relocation produces a stack map
 ; with a size of UINT64_MAX.
-define void @test(ptr %ptr) gc "erlang" {
+define void @test(i8* %ptr) gc "erlang" {
    ; 32 byte alignment (for the alloca) is larger than the default
    ; 16 byte alignment
-   %slot = alloca <4 x ptr>
-   call void @use(ptr %slot);
+   %slot = alloca <4 x i8*>
+   call void @use(<4 x i8*>* %slot);
    ret void
 }
 

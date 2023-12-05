@@ -5,8 +5,8 @@
 ;
 ;     http://llvm.org/docs/DeveloperPolicy.html#ir-backwards-compatibility
 
-; RUN: llvm-as < %s | llvm-dis | llvm-as | llvm-dis | FileCheck %s
-; RUN: verify-uselistorder < %s
+; RUN: llvm-as  < %s | llvm-dis  | llvm-as  | llvm-dis  | FileCheck %s
+; RUN: verify-uselistorder  < %s
 
 target datalayout = "E"
 ; CHECK: target datalayout = "E"

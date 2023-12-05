@@ -73,10 +73,6 @@ MATCHER_P(writtenInclusion, Written, "") {
 }
 
 TEST(IncludeCleaner, StdlibUnused) {
-  setIncludeCleanerAnalyzesStdlib(true);
-  auto Cleanup =
-      llvm::make_scope_exit([] { setIncludeCleanerAnalyzesStdlib(false); });
-
   auto TU = TestTU::withCode(R"cpp(
     #include <list>
     #include <queue>
@@ -214,7 +210,7 @@ $insert_f[[]]$insert_vector[[]]
 })cpp");
 
   TestTU TU;
-  TU.Filename = "foo.cpp";
+  TU.Filename = "main.cpp";
   TU.AdditionalFiles["a.h"] = guard("#include \"b.h\"");
   TU.AdditionalFiles["b.h"] = guard("void b();");
 

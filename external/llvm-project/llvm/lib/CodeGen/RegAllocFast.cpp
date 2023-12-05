@@ -119,6 +119,95 @@ namespace {
     /// because they were placed after the last use of the vreg.
     DenseMap<unsigned, SmallVector<MachineInstr *, 1>> DanglingDbgValues;
 
+    /// Maps unspilled virtual registers to all DbgDefs which originally used
+    /// the virtual register as their referrer. Used to allow updating DbgDefs
+    /// which were visited before the spill occurs.
+    DenseMap<unsigned, SmallVector<MachineInstr *, 2>> VReg2NonStackDbgDefs;
+    /// Subset of VReg2NonStackDbgDefs. Maps unspilled virtual registers to
+    /// DbgDefs which occured after the last non-debug use of the virtual
+    /// register. Allows for some such "dangling" defs to be salvaged after the
+    /// block is allocated.
+    DenseMap<unsigned, SmallVector<MachineInstr *, 2>> VReg2DanglingDbgDefs;
+    /// Essentially a typed pair of MachineInstr, representing which existing
+    /// or inserted DbgKills exist for a given Lifetime.
+    class DbgKills final {
+      /// The current expected "live" DbgKill. This is either:
+      /// * Empty (if we have not seen any existing DbgKill or non-stack DbgDef
+      /// which would require us to insert one).
+      /// * An existing DbgKill, if we encounter it before the DbgDef.
+      /// * An inserted DbgKill, if we encounter the DbgDef before any existing
+      /// DbgKill, or if there is no such existing DbgKill.
+      ///
+      /// Read as `std::optional<MachineInstr>`.
+      MachineInstr *Live = nullptr;
+      /// The existing DbgKill, if one exists and we have also inserted a
+      /// DbgKill for a non-stack DbgDef. This is retained until we either:
+      /// * Spill the DbgDef, at which point we can remove our inserted DbgKill
+      /// and use the existing one.
+      /// * Finish allocating the function, at which point we can remove this
+      /// "backup" existing DbgDef instruction.
+      ///
+      /// Read as `std::optional<MachineInstr>`
+      MachineInstr *Dead = nullptr;
+      /// Flag to represent the case where we want to eliminate all future
+      /// DbgKills we encounter, as we have removed the corresponding DbgDef
+      /// (i.e. we have "dropped" this debug info).
+      bool RemoveAll = false;
+
+    public:
+      /// Update to reflect an inserted DbgKill, marking an existing DbgKill to
+      /// be removed if it exists and we have already seen it.
+      void handleNewDbgKill(MachineInstr &DbgKill) {
+        assert(!RemoveAll);
+        if (Live)
+          Dead = Live;
+        Live = &DbgKill;
+      }
+      /// Update to reflect an existing DbgKill, either marking it to be
+      /// removed (if we have already inserted a corresponding DbgKill) or
+      /// recording it in case we need to remove it when we later process a
+      /// corresponding DbgDef.
+      void handleExistingDbgKill(MachineInstr &DbgKill) {
+        if (RemoveAll) {
+          DbgKill.removeFromParent();
+          return;
+        }
+        assert(!Dead);
+        if (Live)
+          Dead = &DbgKill;
+        else
+          Live = &DbgKill;
+      }
+      /// Handle when the virtual register referrer of the corresponding DbgDef
+      /// is spilled by reverting back to an existing DbgKill if it exists.
+      void handleSpill() {
+        if (!Dead)
+          return;
+        Live->removeFromParent();
+        Live = Dead;
+        Dead = nullptr;
+      }
+      /// Update to reflect that the corresponding DbgDef has been eliminated.
+      void removeAll() {
+        RemoveAll = true;
+        if (Live)
+          Live->removeFromParent();
+        if (Dead)
+          Dead->removeFromParent();
+        Live = Dead = nullptr;
+      }
+      /// Update to reflect that allocation is complete, removing Dead if it
+      /// exists.
+      void removeDead() {
+        if (Dead)
+          Dead->removeFromParent();
+        Dead = nullptr;
+      }
+    };
+    /// Maps a lifetime (for which there can be at most one DbgDef, and up to
+    /// two DbgKills during allocation) to the DbgKills object which tracks it.
+    DenseMap<DILifetime *, DbgKills> Lifetime2DbgKills;
+
     /// Has a bit set for every virtual register for which it was determined
     /// that it is alive across blocks.
     BitVector MayLiveAcrossBlocks;
@@ -244,6 +333,8 @@ namespace {
 
     void allocateInstruction(MachineInstr &MI);
     void handleDebugValue(MachineInstr &MI);
+    void killDebugDefWithinBlock(MachineInstr &MI);
+    void handleDebugDefKill(MachineInstr &MI);
     void handleBundle(MachineInstr &MI);
 
     bool usePhysReg(MachineInstr &MI, MCPhysReg PhysReg);
@@ -267,6 +358,12 @@ namespace {
     void allocVirtRegUndef(MachineOperand &MO);
     void assignDanglingDebugValues(MachineInstr &Def, Register VirtReg,
                                    MCPhysReg Reg);
+    void removeDebugDef(MachineInstr &DbgDef) {
+      Lifetime2DbgKills[DbgDef.getDebugLifetime()].removeAll();
+      DbgDef.removeFromParent();
+    }
+    void assignDanglingDebugDefs(MachineInstr &Def, Register VirtReg,
+                                 MCPhysReg Reg);
     bool defineLiveThroughVirtReg(MachineInstr &MI, unsigned OpNum,
                                   Register VirtReg);
     bool defineVirtReg(MachineInstr &MI, unsigned OpNum, Register VirtReg,
@@ -283,7 +380,6 @@ namespace {
     Register traceCopies(Register VirtReg) const;
     Register traceCopyChain(Register Reg) const;
 
-    bool shouldAllocateRegister(const Register Reg) const;
     int getStackSpaceFor(Register VirtReg);
     void spill(MachineBasicBlock::iterator Before, Register VirtReg,
                MCPhysReg AssignedReg, bool Kill, bool LiveOut);
@@ -292,7 +388,7 @@ namespace {
 
     bool mayLiveOut(Register VirtReg);
     bool mayLiveIn(Register VirtReg);
-
+    bool shouldAllocateRegister(const Register Reg) const;
     void dumpState() const;
   };
 
@@ -486,6 +582,17 @@ void RegAllocFast::spill(MachineBasicBlock::iterator Before, Register VirtReg,
   // pointing to this register because they are all pointing to spilled value
   // now.
   LRIDbgOperands.clear();
+
+  SmallVectorImpl<MachineInstr *> &NonStackDbgDefs =
+      VReg2NonStackDbgDefs[VirtReg];
+  for (MachineInstr *DbgDef : NonStackDbgDefs) {
+    DbgDef->getDebugReferrer().ChangeToFrameIndex(FI);
+    auto I = Lifetime2DbgKills.find(DbgDef->getDebugLifetime());
+    if (I != Lifetime2DbgKills.end())
+      I->second.handleSpill();
+  }
+  NonStackDbgDefs.clear();
+  VReg2DanglingDbgDefs[VirtReg].clear();
 }
 
 /// Insert reload instruction for \p PhysReg before \p Before.
@@ -700,6 +807,42 @@ void RegAllocFast::assignDanglingDebugValues(MachineInstr &Definition,
   Dangling.clear();
 }
 
+void RegAllocFast::assignDanglingDebugDefs(MachineInstr &Definition,
+                                           Register VirtReg, MCPhysReg Reg) {
+  LLVM_DEBUG(dbgs() << "Assigning dangling DBG_DEFs for "
+                    << printReg(VirtReg, TRI) << '\n');
+  auto DanglingDbgDefsIter = VReg2DanglingDbgDefs.find(VirtReg);
+  if (DanglingDbgDefsIter == VReg2DanglingDbgDefs.end())
+    return;
+
+  SmallVectorImpl<MachineInstr *> &DanglingDbgDefs =
+      DanglingDbgDefsIter->second;
+  for (MachineInstr *DbgDef : DanglingDbgDefs) {
+    // Test whether the physreg survives from the definition to the DBG_VALUE.
+    MachineOperand &Referrer = DbgDef->getDebugReferrer();
+    bool ShouldRemove = false;
+    for (MachineBasicBlock::iterator I = std::next(Definition.getIterator()),
+                                     E = DbgDef->getIterator();
+         I != E; ++I) {
+      if (I->modifiesRegister(Reg, TRI)) {
+        LLVM_DEBUG(dbgs() << "Register did not survive for " << Referrer
+                          << '\n');
+        ShouldRemove = true;
+        break;
+      }
+    }
+    if (ShouldRemove) {
+      LLVM_DEBUG(dbgs() << "Dropping dangling DBG_DEF: " << *DbgDef << '\n');
+      removeDebugDef(*DbgDef);
+    } else {
+      Referrer.setReg(Reg);
+      Referrer.setIsRenamable();
+      killDebugDefWithinBlock(*DbgDef);
+    }
+  }
+  DanglingDbgDefs.clear();
+}
+
 /// This method updates local state so that we know that PhysReg is the
 /// proper container for VirtReg now.  The physical register must not be used
 /// for anything else when this is called.
@@ -714,6 +857,7 @@ void RegAllocFast::assignVirtToPhysReg(MachineInstr &AtMI, LiveReg &LR,
   setPhysRegState(PhysReg, VirtReg);
 
   assignDanglingDebugValues(AtMI, VirtReg, PhysReg);
+  assignDanglingDebugDefs(AtMI, VirtReg, PhysReg);
 }
 
 static bool isCoalescable(const MachineInstr &MI) {
@@ -850,6 +994,7 @@ void RegAllocFast::allocVirtReg(MachineInstr &MI, LiveReg &LR,
 void RegAllocFast::allocVirtRegUndef(MachineOperand &MO) {
   assert(MO.isUndef() && "expected undef use");
   Register VirtReg = MO.getReg();
+
   assert(VirtReg.isVirtual() && "Expected virtreg");
   if (!shouldAllocateRegister(VirtReg))
     return;
@@ -879,8 +1024,6 @@ void RegAllocFast::allocVirtRegUndef(MachineOperand &MO) {
 /// \return true if MI's MachineOperands were re-arranged/invalidated.
 bool RegAllocFast::defineLiveThroughVirtReg(MachineInstr &MI, unsigned OpNum,
                                             Register VirtReg) {
-  if (!shouldAllocateRegister(VirtReg))
-    return false;
   LiveRegMap::iterator LRI = findLiveVirtReg(VirtReg);
   if (LRI != LiveVirtRegs.end()) {
     MCPhysReg PrevReg = LRI->PhysReg;
@@ -916,8 +1059,6 @@ bool RegAllocFast::defineLiveThroughVirtReg(MachineInstr &MI, unsigned OpNum,
 bool RegAllocFast::defineVirtReg(MachineInstr &MI, unsigned OpNum,
                                  Register VirtReg, bool LookAtPhysRegUses) {
   assert(VirtReg.isVirtual() && "Not a virtual register");
-  if (!shouldAllocateRegister(VirtReg))
-    return false;
   MachineOperand &MO = MI.getOperand(OpNum);
   LiveRegMap::iterator LRI;
   bool New;
@@ -986,8 +1127,6 @@ bool RegAllocFast::defineVirtReg(MachineInstr &MI, unsigned OpNum,
 bool RegAllocFast::useVirtReg(MachineInstr &MI, unsigned OpNum,
                               Register VirtReg) {
   assert(VirtReg.isVirtual() && "Not a virtual register");
-  if (!shouldAllocateRegister(VirtReg))
-    return false;
   MachineOperand &MO = MI.getOperand(OpNum);
   LiveRegMap::iterator LRI;
   bool New;
@@ -1012,13 +1151,8 @@ bool RegAllocFast::useVirtReg(MachineInstr &MI, unsigned OpNum,
     Register Hint;
     if (MI.isCopy() && MI.getOperand(1).getSubReg() == 0) {
       Hint = MI.getOperand(0).getReg();
-      if (Hint.isVirtual()) {
-        assert(!shouldAllocateRegister(Hint));
-        Hint = Register();
-      } else {
-        assert(Hint.isPhysical() &&
-               "Copy destination should already be assigned");
-      }
+      assert(Hint.isPhysical() &&
+             "Copy destination should already be assigned");
     }
     allocVirtReg(MI, *LRI, Hint, false);
     if (LRI->Error) {
@@ -1128,8 +1262,6 @@ void RegAllocFast::addRegClassDefCounts(std::vector<unsigned> &RegClassDefCounts
   assert(RegClassDefCounts.size() == TRI->getNumRegClasses());
 
   if (Reg.isVirtual()) {
-    if (!shouldAllocateRegister(Reg))
-      return;
     const TargetRegisterClass *OpRC = MRI->getRegClass(Reg);
     for (unsigned RCIdx = 0, RCIdxEnd = TRI->getNumRegClasses();
          RCIdx != RCIdxEnd; ++RCIdx) {
@@ -1178,7 +1310,7 @@ void RegAllocFast::findAndSortDefOperandIndexes(const MachineInstr &MI) {
     }
 
     if (MO.isDef()) {
-      if (Reg.isVirtual() && shouldAllocateRegister(Reg))
+      if (Reg.isVirtual())
         DefOperandIndexes.push_back(I);
 
       addRegClassDefCounts(RegClassDefCounts, Reg);
@@ -1255,8 +1387,6 @@ void RegAllocFast::allocateInstruction(MachineInstr &MI) {
     if (MO.isReg()) {
       Register Reg = MO.getReg();
       if (Reg.isVirtual()) {
-        if (!shouldAllocateRegister(Reg))
-          continue;
         if (MO.isDef()) {
           HasDef = true;
           HasVRegDef = true;
@@ -1370,10 +1500,6 @@ void RegAllocFast::allocateInstruction(MachineInstr &MI) {
         continue;
       if (!Reg)
         continue;
-      if (Reg.isVirtual()) {
-        assert(!shouldAllocateRegister(Reg));
-        continue;
-      }
       assert(Reg.isPhysical());
       if (MRI->isReserved(Reg))
         continue;
@@ -1425,7 +1551,7 @@ void RegAllocFast::allocateInstruction(MachineInstr &MI) {
       if (!MO.isReg() || !MO.isUse())
         continue;
       Register Reg = MO.getReg();
-      if (!Reg.isVirtual() || !shouldAllocateRegister(Reg))
+      if (!Reg.isVirtual())
         continue;
 
       if (MO.isUndef()) {
@@ -1451,7 +1577,7 @@ void RegAllocFast::allocateInstruction(MachineInstr &MI) {
   if (HasUndefUse) {
     for (MachineOperand &MO : MI.all_uses()) {
       Register Reg = MO.getReg();
-      if (!Reg.isVirtual() || !shouldAllocateRegister(Reg))
+      if (!Reg.isVirtual())
         continue;
 
       assert(MO.isUndef() && "Should only have undef virtreg uses left");
@@ -1469,10 +1595,6 @@ void RegAllocFast::allocateInstruction(MachineInstr &MI) {
       Register Reg = MO.getReg();
       if (!Reg)
         continue;
-      if (Reg.isVirtual()) {
-        assert(!shouldAllocateRegister(Reg));
-        continue;
-      }
       assert(Reg.isPhysical() && "should have register assigned");
 
       // We sometimes get odd situations like:
@@ -1501,8 +1623,6 @@ void RegAllocFast::handleDebugValue(MachineInstr &MI) {
   // mostly constants and frame indices.
   for (Register Reg : MI.getUsedDebugRegs()) {
     if (!Reg.isVirtual())
-      continue;
-    if (!shouldAllocateRegister(Reg))
       continue;
 
     // Already spilled to a stackslot?
@@ -1535,6 +1655,82 @@ void RegAllocFast::handleDebugValue(MachineInstr &MI) {
   }
 }
 
+void RegAllocFast::killDebugDefWithinBlock(MachineInstr &MI) {
+  DILifetime *Lifetime = MI.getDebugLifetime();
+  MCPhysReg Reg = MI.getDebugReferrer().getReg();
+  // We have no knowledge of when PhysReg might be killed
+  // outside of this block, so we insert a DbgKill before the first of the
+  // following we encounter after the DbgDef:
+  // * An existing DbgKill in the block (if it exists; we temporarily end up
+  // with two DbgKill for this case to avoid an edge case in the Live/Dead
+  // bookkeeping in DbgKills).
+  // * A clobber of PhysReg.
+  // * The first terminator of the block.
+  // Record it in Lifetime2DbgKills so it can be removed if we later spill
+  // VirtReg.
+  MachineBasicBlock::iterator InsertBefore =
+      MI.getParent()->getFirstTerminator();
+  for (MachineBasicBlock::iterator I = std::next(MI.getIterator()),
+                                   E = InsertBefore;
+       I != E; ++I) {
+    if (I->modifiesRegister(Reg, TRI) ||
+        (I->isDebugKill() && I->getDebugLifetime() == Lifetime)) {
+      InsertBefore = std::next(I);
+      break;
+    }
+  }
+  auto *DbgDefInstr =
+      BuildMI(*MBB, InsertBefore, DebugLoc(), TII->get(TargetOpcode::DBG_KILL))
+          .getInstr();
+  DbgDefInstr->addOperand(MI.getOperand(0));
+  Lifetime2DbgKills[Lifetime].handleNewDbgKill(*DbgDefInstr);
+}
+
+void RegAllocFast::handleDebugDefKill(MachineInstr &MI) {
+  DILifetime *Lifetime = MI.getDebugLifetime();
+
+  if (MI.isDebugKill())
+    return Lifetime2DbgKills[Lifetime].handleExistingDbgKill(MI);
+
+  MachineOperand &Referrer = MI.getDebugReferrer();
+
+  // Ignore DBG_VALUEs that aren't based on virtual registers. These are
+  // mostly constants and frame indices.
+  if (!Referrer.isReg() || !Register::isVirtualRegister(Referrer.getReg()))
+    return;
+
+  Register VirtReg = Referrer.getReg();
+
+  // Already spilled to a stackslot?
+  int SS = StackSlotForVirtReg[VirtReg];
+  if (SS != -1) {
+    LLVM_DEBUG(dbgs() << "Rewrite DBG_DEF for spilled memory: " << MI);
+    Referrer.ChangeToFrameIndex(SS);
+    return;
+  }
+
+  // Record this DbgDef operand to update if we spill VirtReg.
+  VReg2NonStackDbgDefs[VirtReg].push_back(&MI);
+
+  LiveRegMap::iterator LRI = findLiveVirtReg(VirtReg);
+  if (LRI != LiveVirtRegs.end() && LRI->PhysReg) {
+    LLVM_DEBUG(dbgs() << "Record non-dangling DBG_DEF: " << MI);
+    // This VirtReg has a definition reaching this DbgDef, and is currently in
+    // LRI->PhysReg.
+    setPhysReg(MI, Referrer, LRI->PhysReg);
+    killDebugDefWithinBlock(MI);
+  } else {
+    LLVM_DEBUG(dbgs() << "Record dangling DBG_DEF: " << MI);
+    // There is no reaching definition of VirtReg (i.e. the DbgDef appears
+    // after the killing use of VirtReg, or there is no use), so we record it
+    // here as "dangling". After the block is allocated we will attempt to
+    // validate that the nearest definition of a PhysReg assigned to VirtReg
+    // reaches this DbgDef; if it does, we will update the DbgDef to that
+    // PhysReg, otherwise we will delete it.
+    VReg2DanglingDbgDefs[VirtReg].push_back(&MI);
+  }
+}
+
 void RegAllocFast::handleBundle(MachineInstr &MI) {
   MachineBasicBlock::instr_iterator BundledMI = MI.getIterator();
   ++BundledMI;
@@ -1544,7 +1740,7 @@ void RegAllocFast::handleBundle(MachineInstr &MI) {
         continue;
 
       Register Reg = MO.getReg();
-      if (!Reg.isVirtual() || !shouldAllocateRegister(Reg))
+      if (!Reg.isVirtual())
         continue;
 
       DenseMap<Register, MCPhysReg>::iterator DI;
@@ -1571,7 +1767,7 @@ void RegAllocFast::allocateBasicBlock(MachineBasicBlock &MBB) {
   Coalesced.clear();
 
   // Traverse block in reverse order allocating instructions one by one.
-  for (MachineInstr &MI : reverse(MBB)) {
+  for (MachineInstr &MI : make_early_inc_range(reverse(MBB))) {
     LLVM_DEBUG(
       dbgs() << "\n>> " << MI << "Regs:";
       dumpState()
@@ -1581,6 +1777,11 @@ void RegAllocFast::allocateBasicBlock(MachineBasicBlock &MBB) {
     // affect codegen of the other instructions in any way.
     if (MI.isDebugValue()) {
       handleDebugValue(MI);
+      continue;
+    }
+
+    if (MI.isDebugDefKill()) {
+      handleDebugDefKill(MI);
       continue;
     }
 
@@ -1621,6 +1822,11 @@ void RegAllocFast::allocateBasicBlock(MachineBasicBlock &MBB) {
   }
   DanglingDbgValues.clear();
 
+  for (auto &I : VReg2DanglingDbgDefs)
+    for (MachineInstr *DbgDef : I.second)
+      removeDebugDef(*DbgDef);
+  VReg2DanglingDbgDefs.clear();
+
   LLVM_DEBUG(MBB.dump());
 }
 
@@ -1660,6 +1866,10 @@ bool RegAllocFast::runOnMachineFunction(MachineFunction &MF) {
 
   StackSlotForVirtReg.clear();
   LiveDbgValueMap.clear();
+  VReg2NonStackDbgDefs.clear();
+  for (auto I : Lifetime2DbgKills)
+    I.second.removeDead();
+  Lifetime2DbgKills.clear();
   return true;
 }
 
@@ -1671,3 +1881,4 @@ FunctionPass *llvm::createFastRegisterAllocator(RegClassFilterFunc Ftor,
                                                 bool ClearVirtRegs) {
   return new RegAllocFast(Ftor, ClearVirtRegs);
 }
+

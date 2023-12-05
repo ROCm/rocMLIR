@@ -14,7 +14,7 @@
 // RUN: | FileCheck -check-prefixes=BIN,NRD,OLD %s
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --offload-new-driver --cuda-gpu-arch=gfx803 %s 2>&1 \
-// RUN: | FileCheck -check-prefixes=BIN,NRD,NEW %s
+// RUN: | FileCheck -check-prefixes=BIN,NRD %s
 //
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --cuda-gpu-arch=gfx803 -fgpu-rdc %s 2>&1 \
@@ -42,8 +42,9 @@
 // NRD-DAG: [[P12:[0-9]+]]: backend, {[[P11]]}, assembler, (host-[[T]])
 // NRD-DAG: [[P13:[0-9]+]]: assembler, {[[P12]]}, object, (host-[[T]])
 // OLD-DAG: [[P14:[0-9]+]]: linker, {[[P13]]}, image, (host-[[T]])
-// NEW-DAG: [[P14:[0-9]+]]: clang-linker-wrapper, {[[P13]]}, image, (host-[[T]])
-// RDC-DAG: [[P14:[0-9]+]]: linker, {[[P13]], [[P11]]}, image, (host-[[T]])
+// COM: Disabling checking for lines to be produced by new driver, till it becomes default.
+// COM: NEW-DAG: [[P14:[0-9]+]]: clang-linker-wrapper, {[[P13]]}, image, (host-[[T]])
+// COM: RDC-DAG: [[P14:[0-9]+]]: linker, {[[P13]], [[P11]]}, image, (host-[[T]])
 
 //
 // Test single gpu architecture up to the assemble phase.
@@ -219,6 +220,14 @@
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --cuda-gpu-arch=gfx803 %s --cuda-device-only 2>&1 \
 // RUN: | FileCheck -check-prefixes=DBIN %s
+//
+// Test single gpu architecture with complete compilation in device-only
+// compilation mode with an unused host linker flag.
+//
+// RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
+// RUN: --cuda-gpu-arch=gfx803 %s --cuda-device-only -Wl,--disable-new-dtags 2>&1 \
+// RUN: | FileCheck -check-prefixes=DBIN %s
+
 // DBIN-DAG: [[P0:[0-9]+]]: input, "{{.*}}hip-phases.hip", [[T:hip]], (device-[[T]], [[ARCH:gfx803]])
 // DBIN-DAG: [[P1:[0-9]+]]: preprocessor, {[[P0]]}, [[T]]-cpp-output, (device-[[T]], [[ARCH]])
 // DBIN-DAG: [[P2:[0-9]+]]: compiler, {[[P1]]}, ir, (device-[[T]], [[ARCH]])
@@ -229,6 +238,7 @@
 // DBIN-DAG: [[P7:[0-9]+]]: linker, {[[P6]]}, hip-fatbin, (device-hip, )
 // DBIN-DAG: [[P8:[0-9]+]]: offload, "device-[[T]] (amdgcn-amd-amdhsa:)" {[[P7]]}, hip-fatbin
 // DBIN-NOT: host
+
 //
 // Test single gpu architecture up to the assemble phase in device-only
 // compilation mode.
@@ -251,6 +261,11 @@
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --cuda-gpu-arch=gfx803 %s --cuda-device-only -fhip-emit-relocatable 2>&1 \
 // RUN: | FileCheck -check-prefixes=RELOC %s
+//
+// RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
+// RUN: --cuda-gpu-arch=gfx803 %s --cuda-device-only -fhip-emit-relocatable -Wl,--disable-new-dtags \
+// RUN: 2>&1 | FileCheck -check-prefixes=RELOC %s
+//
 // RELOC-DAG: [[P0:[0-9]+]]: input, "{{.*}}hip-phases.hip", [[T:hip]], (device-[[T]], [[ARCH:gfx803]])
 // RELOC-DAG: [[P1:[0-9]+]]: preprocessor, {[[P0]]}, [[T]]-cpp-output, (device-[[T]], [[ARCH]])
 // RELOC-DAG: [[P2:[0-9]+]]: compiler, {[[P1]]}, ir, (device-[[T]], [[ARCH]])
@@ -258,6 +273,7 @@
 // RELOC-DAG: [[P4:[0-9]+]]: assembler, {[[P3]]}, object, (device-[[T]], [[ARCH]])
 // RELOC-NOT: linker
 // RELOC-DAG: [[P5:[0-9]+]]: offload, "device-[[T]] (amdgcn-amd-amdhsa:[[ARCH]])" {[[P4]]}, object
+// RELOC-NOT: host
 
 //
 // Test two gpu architectures with compile to relocatable in device-only
@@ -266,6 +282,11 @@
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %s --cuda-device-only -fhip-emit-relocatable 2>&1 \
 // RUN: | FileCheck -check-prefixes=RELOC2 %s
+//
+// RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
+// RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %s --cuda-device-only -fhip-emit-relocatable \
+// RUN: -Wl,--disable-new-dtags 2>&1 | FileCheck -check-prefixes=RELOC2 %s
+//
 // RELOC2-DAG: [[P0:[0-9]+]]: input, "{{.*}}hip-phases.hip", [[T:hip]], (device-[[T]], [[ARCH:gfx803]])
 // RELOC2-DAG: [[P1:[0-9]+]]: preprocessor, {[[P0]]}, [[T]]-cpp-output, (device-[[T]], [[ARCH]])
 // RELOC2-DAG: [[P2:[0-9]+]]: compiler, {[[P1]]}, ir, (device-[[T]], [[ARCH]])
@@ -280,6 +301,7 @@
 // RELOC2-DAG: [[P10:[0-9]+]]: assembler, {[[P9]]}, object, (device-[[T]], [[ARCH2]])
 // RELOC2-NOT: linker
 // RELOC2-DAG: [[P11:[0-9]+]]: offload, "device-[[T]] (amdgcn-amd-amdhsa:[[ARCH2]])" {[[P10]]}, object
+// RELOC2-NOT: host
 
 //
 // Test two gpu architectures with complete compilation in device-only
@@ -288,6 +310,14 @@
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %s --cuda-device-only \
 // RUN: 2>&1 | FileCheck -check-prefixes=DBIN2 %s
+//
+// Test two gpu architectures with complete compilation in device-only
+// compilation mode with an unused host linker flag.
+//
+// RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
+// RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %s --cuda-device-only \
+// RUN: -Wl,--disable-new-dtags 2>&1 | FileCheck -check-prefixes=DBIN2 %s
+
 // DBIN2-DAG: [[P0:[0-9]+]]: input, "{{.*}}hip-phases.hip", [[T:hip]], (device-[[T]], [[ARCH:gfx803]])
 // DBIN2-DAG: [[P1:[0-9]+]]: preprocessor, {[[P0]]}, [[T]]-cpp-output, (device-[[T]], [[ARCH]])
 // DBIN2-DAG: [[P2:[0-9]+]]: compiler, {[[P1]]}, ir, (device-[[T]], [[ARCH]])
@@ -305,6 +335,7 @@
 // DBIN2-DAG: [[P14:[0-9]+]]: linker, {[[P6]], [[P13]]}, hip-fatbin, (device-hip, )
 // DBIN2-DAG: [[P15:[0-9]+]]: offload, "device-[[T]] (amdgcn-amd-amdhsa:)" {[[P14]]}, hip-fatbin
 // DBIN2-NOT: host
+
 //
 // Test two gpu architectures up to the assemble phase in device-only
 // compilation mode.
@@ -359,7 +390,17 @@
 
 // RUN: %clang --target=x86_64-unknown-linux-gnu -ccc-print-phases --hip-link \
 // RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %t/obj1.o %t/obj2.o \
+// RUN: -fgpu-rdc --cuda-device-only -Wl,--disable-new-dtags 2>&1 \
+// RUN: | FileCheck -check-prefixes=L2,RL2,RL2-DEV %s
+
+// RUN: %clang --target=x86_64-unknown-linux-gnu -ccc-print-phases --hip-link \
+// RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %t/obj1.o %t/obj2.o \
 // RUN: -fgpu-rdc --cuda-device-only --no-gpu-bundle-output 2>&1 \
+// RUN: | FileCheck -check-prefixes=L2,RL2,RL2-NB %s
+
+// RUN: %clang --target=x86_64-unknown-linux-gnu -ccc-print-phases --hip-link \
+// RUN: --cuda-gpu-arch=gfx803 --cuda-gpu-arch=gfx900 %t/obj1.o %t/obj2.o \
+// RUN: -fgpu-rdc --cuda-device-only --no-gpu-bundle-output -Wl,--disable-new-dtags 2>&1 \
 // RUN: | FileCheck -check-prefixes=L2,RL2,RL2-NB %s
 
 // L2-DAG: [[P0:[0-9]+]]: input, "{{.*}}obj1.o", object
@@ -381,6 +422,7 @@
 // NL2-DAG: [[P4:[0-9]+]]: linker, {[[P0]], [[P2]]}, image
 // RL2-EM-DAG: [[P4:[0-9]+]]: linker, {[[P1]], [[P3]], [[P9]]}, image, (host-[[T]])
 // RL2-DEV-NOT: linker
+// RL2-NB-NOT: host
 
 // Test one gpu architectures up to the preprocessor expansion output phase in device-only
 // compilation mode. no bundle.
@@ -587,23 +629,23 @@
 //
 // Test the bindings using the new driver in LTO-mode.
 //
-// RUN: %clang -### --target=x86_64-linux-gnu --offload-new-driver -ccc-print-phases \
-// RUN:        --offload-arch=gfx90a --offload-arch=gfx908 -foffload-lto -fgpu-rdc -c %s 2>&1 \
-// RUN: | FileCheck -check-prefix=LTO %s
+// R-UN: %clang -### --target=x86_64-linux-gnu --offload-new-driver -ccc-print-phases \
+// R-UN:        --offload-arch=gfx90a --offload-arch=gfx908 -foffload-lto -fgpu-rdc -c %s 2>&1 \
+// R-UN: | FileCheck -check-prefix=LTO %s
 //      LTO: 0: input, "[[INPUT:.+]]", hip, (host-hip)
-// LTO-NEXT: 1: preprocessor, {0}, hip-cpp-output, (host-hip)
-// LTO-NEXT: 2: compiler, {1}, ir, (host-hip)
-// LTO-NEXT: 3: input, "[[INPUT]]", hip, (device-hip, gfx908)
-// LTO-NEXT: 4: preprocessor, {3}, hip-cpp-output, (device-hip, gfx908)
-// LTO-NEXT: 5: compiler, {4}, ir, (device-hip, gfx908)
-// LTO-NEXT: 6: backend, {5}, lto-bc, (device-hip, gfx908)
-// LTO-NEXT: 7: offload, "device-hip (amdgcn-amd-amdhsa:gfx908)" {6}, lto-bc
-// LTO-NEXT: 8: input, "[[INPUT]]", hip, (device-hip, gfx90a)
-// LTO-NEXT: 9: preprocessor, {8}, hip-cpp-output, (device-hip, gfx90a)
-// LTO-NEXT: 10: compiler, {9}, ir, (device-hip, gfx90a)
-// LTO-NEXT: 11: backend, {10}, lto-bc, (device-hip, gfx90a)
-// LTO-NEXT: 12: offload, "device-hip (amdgcn-amd-amdhsa:gfx90a)" {11}, lto-bc
-// LTO-NEXT: 13: clang-offload-packager, {7, 12}, image, (device-hip)
-// LTO-NEXT: 14: offload, "host-hip (x86_64-unknown-linux-gnu)" {2}, "device-hip (x86_64-unknown-linux-gnu)" {13}, ir
-// LTO-NEXT: 15: backend, {14}, assembler, (host-hip)
-// LTO-NEXT: 16: assembler, {15}, object, (host-hip)
+// L-TO-NEXT: 1: preprocessor, {0}, hip-cpp-output, (host-hip)
+// L-TO-NEXT: 2: compiler, {1}, ir, (host-hip)
+// L-TO-NEXT: 3: input, "[[INPUT]]", hip, (device-hip, gfx908)
+// L-TO-NEXT: 4: preprocessor, {3}, hip-cpp-output, (device-hip, gfx908)
+// L-TO-NEXT: 5: compiler, {4}, ir, (device-hip, gfx908)
+// L-TO-NEXT: 6: backend, {5}, lto-bc, (device-hip, gfx908)
+// L-TO-NEXT: 7: offload, "device-hip (amdgcn-amd-amdhsa:gfx908)" {6}, lto-bc
+// L-TO-NEXT: 8: input, "[[INPUT]]", hip, (device-hip, gfx90a)
+// L-TO-NEXT: 9: preprocessor, {8}, hip-cpp-output, (device-hip, gfx90a)
+// L-TO-NEXT: 10: compiler, {9}, ir, (device-hip, gfx90a)
+// L-TO-NEXT: 11: backend, {10}, lto-bc, (device-hip, gfx90a)
+// L-TO-NEXT: 12: offload, "device-hip (amdgcn-amd-amdhsa:gfx90a)" {11}, lto-bc
+// L-TO-NEXT: 13: clang-offload-packager, {7, 12}, image, (device-hip)
+// L-TO-NEXT: 14: offload, "host-hip (x86_64-unknown-linux-gnu)" {2}, "device-hip (x86_64-unknown-linux-gnu)" {13}, ir
+// L-TO-NEXT: 15: backend, {14}, assembler, (host-hip)
+// L-TO-NEXT: 16: assembler, {15}, object, (host-hip)

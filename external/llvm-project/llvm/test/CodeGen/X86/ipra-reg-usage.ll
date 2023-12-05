@@ -10,6 +10,6 @@ define preserve_allcc void @foo()#0 {
 }
 declare void @bar2()
 
-@llvm.used = appending global [1 x ptr] [ptr @foo]
+@llvm.used = appending global [1 x i8*] [i8* bitcast (void ()* @foo to i8*)]
 
 attributes #0 = {nounwind}

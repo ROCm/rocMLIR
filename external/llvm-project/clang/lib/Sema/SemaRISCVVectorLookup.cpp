@@ -202,7 +202,6 @@ void RISCVIntrinsicManagerImpl::ConstructRVVIntrinsics(
     ArrayRef<RVVIntrinsicRecord> Recs, IntrinsicKind K) {
   const TargetInfo &TI = Context.getTargetInfo();
   bool HasRV64 = TI.hasFeature("64bit");
-  bool HasFullMultiply = TI.hasFeature("v");
   // Construction of RVVIntrinsicRecords need to sync with createRVVIntrinsics
   // in RISCVVEmitter.cpp.
   for (auto &Record : Recs) {
@@ -254,12 +253,6 @@ void RISCVIntrinsicManagerImpl::ConstructRVVIntrinsics(
       // Check requirement.
       if (((Record.RequiredExtensions & RVV_REQ_RV64) == RVV_REQ_RV64) &&
           !HasRV64)
-        continue;
-
-      if ((BaseType == BasicType::Int64) &&
-          ((Record.RequiredExtensions & RVV_REQ_FullMultiply) ==
-           RVV_REQ_FullMultiply) &&
-          !HasFullMultiply)
         continue;
 
       // Expanded with different LMUL.
@@ -362,7 +355,8 @@ void RISCVIntrinsicManagerImpl::InitRVVIntrinsic(
   std::string BuiltinName = "__builtin_rvv_" + std::string(Record.Name);
 
   RVVIntrinsic::updateNamesAndPolicy(IsMasked, HasPolicy, Name, BuiltinName,
-                                     OverloadedName, PolicyAttrs);
+                                     OverloadedName, PolicyAttrs,
+                                     Record.HasFRMRoundModeOp);
 
   // Put into IntrinsicList.
   size_t Index = IntrinsicList.size();

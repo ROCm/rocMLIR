@@ -48,19 +48,14 @@ int64_t Fortran::lower::getCollapseValue(
   return 1;
 }
 
-static const Fortran::parser::Name *
-getDesignatorNameIfDataRef(const Fortran::parser::Designator &designator) {
-  const auto *dataRef = std::get_if<Fortran::parser::DataRef>(&designator.u);
-  return dataRef ? std::get_if<Fortran::parser::Name>(&dataRef->u) : nullptr;
-}
-
 static Fortran::semantics::Symbol *
 getOmpObjectSymbol(const Fortran::parser::OmpObject &ompObject) {
   Fortran::semantics::Symbol *sym = nullptr;
   std::visit(Fortran::common::visitors{
                  [&](const Fortran::parser::Designator &designator) {
                    if (const Fortran::parser::Name *name =
-                           getDesignatorNameIfDataRef(designator)) {
+                           Fortran::semantics::getDesignatorNameIfDataRef(
+                               designator)) {
                      sym = name->symbol;
                    }
                  },
@@ -99,6 +94,7 @@ class DataSharingProcessor {
   void copyFirstPrivateSymbol(const Fortran::semantics::Symbol *sym);
   void copyLastPrivateSymbol(const Fortran::semantics::Symbol *sym,
                              mlir::OpBuilder::InsertPoint *lastPrivIP);
+  void insertDeallocs();
 
 public:
   DataSharingProcessor(Fortran::lower::AbstractConverter &converter,
@@ -114,19 +110,13 @@ public:
   // construct, for looping constructs this is just before the Operation. The
   // split into two steps was performed basically to be able to call
   // privatisation for looping constructs before the operation is created since
-  // the bounds of the MLIR OpenMP operation can be privatised. Step2 performs
-  // the copying for lastprivates. Step2 requires knowledge of the MLIR
-  // operation to insert the last private update.
-  bool process(mlir::Operation *op);
+  // the bounds of the MLIR OpenMP operation can be privatised.
+  // Step2 performs the copying for lastprivates and requires knowledge of the
+  // MLIR operation to insert the last private update. Step2 adds
+  // dealocation code as well.
   void processStep1();
-  bool processStep2(mlir::Operation *op);
+  void processStep2(mlir::Operation *op, bool is_loop);
 };
-
-bool DataSharingProcessor::process(mlir::Operation *op) {
-  processStep1();
-  assert(op && "Current MLIR operation not set");
-  return processStep2(op);
-}
 
 void DataSharingProcessor::processStep1() {
   collectSymbolsForPrivatization();
@@ -136,11 +126,29 @@ void DataSharingProcessor::processStep1() {
   insertBarrier();
 }
 
-bool DataSharingProcessor::processStep2(mlir::Operation *op) {
+void DataSharingProcessor::processStep2(mlir::Operation *op, bool is_loop) {
   insPt = firOpBuilder.saveInsertionPoint();
   copyLastPrivatize(op);
   firOpBuilder.restoreInsertionPoint(insPt);
-  return hasLastPrivateOp;
+
+  if (is_loop) {
+    // push deallocs out of the loop
+    firOpBuilder.setInsertionPointAfter(op);
+    insertDeallocs();
+  } else {
+    // insert dummy instruction to mark the insertion position
+    mlir::Value undefMarker = firOpBuilder.create<fir::UndefOp>(
+        op->getLoc(), firOpBuilder.getIndexType());
+    insertDeallocs();
+    firOpBuilder.setInsertionPointAfter(undefMarker.getDefiningOp());
+  }
+}
+
+void DataSharingProcessor::insertDeallocs() {
+  for (auto sym : privatizedSymbols)
+    if (Fortran::semantics::IsAllocatable(sym->GetUltimate())) {
+      converter.createHostAssociateVarCloneDealloc(*sym);
+    }
 }
 
 void DataSharingProcessor::cloneSymbol(const Fortran::semantics::Symbol *sym) {
@@ -694,26 +702,23 @@ createBodyOfOp(Op &op, Fortran::lower::AbstractConverter &converter,
   } else {
     firOpBuilder.create<mlir::omp::TerminatorOp>(loc);
   }
-
   // Reset the insert point to before the terminator.
   resetBeforeTerminator(firOpBuilder, storeOp, block);
 
   // Handle privatization. Do not privatize if this is the outer operation.
   if (clauses && !outerCombined) {
-    bool lastPrivateOp = false;
+    constexpr bool is_loop = std::is_same_v<Op, omp::WsLoopOp> ||
+                             std::is_same_v<Op, omp::SimdLoopOp>;
     if (!dsp) {
-      dsp = new DataSharingProcessor(converter, *clauses, eval);
-      lastPrivateOp = dsp->process(op);
-      delete dsp;
+      DataSharingProcessor proc(converter, *clauses, eval);
+      proc.processStep1();
+      proc.processStep2(op, is_loop);
     } else {
-      lastPrivateOp = dsp->processStep2(op);
+      dsp->processStep2(op, is_loop);
     }
-    // LastPrivatization, due to introduction of
-    // new control flow, changes the insertion point,
-    // thus restore it.
-    // TODO: Clean up later a bit to avoid this many sets and resets.
-    if (lastPrivateOp && !std::is_same_v<Op, omp::SectionOp>)
-      resetBeforeTerminator(firOpBuilder, storeOp, block);
+
+    if (storeOp)
+      firOpBuilder.setInsertionPointAfter(storeOp);
   }
 
   if constexpr (std::is_same_v<Op, omp::ParallelOp>) {
@@ -792,37 +797,43 @@ static void createTargetOp(Fortran::lower::AbstractConverter &converter,
   };
 
   auto addMapClause = [&](const auto &mapClause, mlir::Location &location) {
-    auto mapType = std::get<Fortran::parser::OmpMapType::Type>(
-        std::get<std::optional<Fortran::parser::OmpMapType>>(mapClause->v.t)
-            ->t);
+    const auto &oMapType =
+        std::get<std::optional<Fortran::parser::OmpMapType>>(mapClause->v.t);
     llvm::omp::OpenMPOffloadMappingFlags mapTypeBits =
         llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_NONE;
-    switch (mapType) {
-    case Fortran::parser::OmpMapType::Type::To:
-      mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
-      break;
-    case Fortran::parser::OmpMapType::Type::From:
-      mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
-      break;
-    case Fortran::parser::OmpMapType::Type::Tofrom:
+    // If the map type is specified, then process it else Tofrom is the default.
+    if (oMapType) {
+      const Fortran::parser::OmpMapType::Type &mapType =
+          std::get<Fortran::parser::OmpMapType::Type>(oMapType->t);
+      switch (mapType) {
+      case Fortran::parser::OmpMapType::Type::To:
+        mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
+        break;
+      case Fortran::parser::OmpMapType::Type::From:
+        mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
+        break;
+      case Fortran::parser::OmpMapType::Type::Tofrom:
+        mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO |
+                       llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
+        break;
+      case Fortran::parser::OmpMapType::Type::Alloc:
+      case Fortran::parser::OmpMapType::Type::Release:
+        // alloc and release is the default map_type for the Target Data Ops,
+        // i.e. if no bits for map_type is supplied then alloc/release is
+        // implicitly assumed based on the target directive. Default value for
+        // Target Data and Enter Data is alloc and for Exit Data it is release.
+        break;
+      case Fortran::parser::OmpMapType::Type::Delete:
+        mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_DELETE;
+      }
+
+      if (std::get<std::optional<Fortran::parser::OmpMapType::Always>>(
+              oMapType->t))
+        mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_ALWAYS;
+    } else {
       mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO |
                      llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
-      break;
-    case Fortran::parser::OmpMapType::Type::Alloc:
-    case Fortran::parser::OmpMapType::Type::Release:
-      // alloc and release is the default map_type for the Target Data Ops, i.e.
-      // if no bits for map_type is supplied then alloc/release is implicitly
-      // assumed based on the target directive. Default value for Target Data
-      // and Enter Data is alloc and for Exit Data it is release.
-      break;
-    case Fortran::parser::OmpMapType::Type::Delete:
-      mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_DELETE;
     }
-    if (std::get<std::optional<Fortran::parser::OmpMapType::Always>>(
-            std::get<std::optional<Fortran::parser::OmpMapType>>(mapClause->v.t)
-                ->t)
-            .has_value())
-      mapTypeBits |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_ALWAYS;
 
     // TODO: Add support MapTypeModifiers close, mapper, present, iterator
 
@@ -2165,7 +2176,9 @@ static bool checkForSingleVariableOnRHS(
       std::get_if<Fortran::common::Indirection<Fortran::parser::Designator>>(
           &expr.u);
   const Fortran::parser::Name *name =
-      designator ? getDesignatorNameIfDataRef(designator->value()) : nullptr;
+      designator
+          ? Fortran::semantics::getDesignatorNameIfDataRef(designator->value())
+          : nullptr;
   return name != nullptr;
 }
 
@@ -2312,7 +2325,8 @@ static void genOmpAtomicUpdateStatement(
           &assignmentStmtVariable.u);
   assert(varDesignator && "Variable designator for atomic update assignment "
                           "statement does not exist");
-  const auto *name = getDesignatorNameIfDataRef(varDesignator->value());
+  const auto *name =
+      Fortran::semantics::getDesignatorNameIfDataRef(varDesignator->value());
   if (!name)
     TODO(converter.getCurrentLocation(),
          "Array references as atomic update variable");
@@ -2344,16 +2358,16 @@ genOmpAtomicWrite(Fortran::lower::AbstractConverter &converter,
       std::get<2>(atomicWrite.t);
   const Fortran::parser::OmpAtomicClauseList &leftHandClauseList =
       std::get<0>(atomicWrite.t);
-  const auto &assignmentStmtExpr =
-      std::get<Fortran::parser::Expr>(std::get<3>(atomicWrite.t).statement.t);
-  const auto &assignmentStmtVariable = std::get<Fortran::parser::Variable>(
-      std::get<3>(atomicWrite.t).statement.t);
+  const Fortran::parser::AssignmentStmt &stmt =
+      std::get<3>(atomicWrite.t).statement;
+  const Fortran::evaluate::Assignment &assign = *stmt.typedAssignment->v;
   Fortran::lower::StatementContext stmtCtx;
   // Get the value and address of atomic write operands.
-  mlir::Value rhs_expr = fir::getBase(converter.genExprValue(
-      *Fortran::semantics::GetExpr(assignmentStmtExpr), stmtCtx));
-  mlir::Value lhs_addr = fir::getBase(converter.genExprAddr(
-      *Fortran::semantics::GetExpr(assignmentStmtVariable), stmtCtx));
+  mlir::Value rhs_expr =
+      fir::getBase(converter.genExprValue(assign.rhs, stmtCtx));
+
+  mlir::Value lhs_addr =
+      fir::getBase(converter.genExprAddr(assign.lhs, stmtCtx));
   genOmpAtomicWriteStatement(converter, eval, lhs_addr, rhs_expr,
                              &leftHandClauseList, &rightHandClauseList);
 }
@@ -2627,6 +2641,39 @@ void Fortran::lower::genOpenMPConstruct(
       ompConstruct.u);
 }
 
+fir::GlobalOp globalInitialization(Fortran::lower::AbstractConverter &converter,
+                                   fir::FirOpBuilder &firOpBuilder,
+                                   const Fortran::semantics::Symbol &sym,
+                                   const Fortran::lower::pft::Variable &var,
+                                   mlir::Location currentLocation) {
+  mlir::Type ty = converter.genType(sym);
+  std::string globalName = converter.mangleName(sym);
+  mlir::StringAttr linkage = firOpBuilder.createInternalLinkage();
+  fir::GlobalOp global =
+      firOpBuilder.createGlobal(currentLocation, ty, globalName, linkage);
+
+  // Create default initialization for non-character scalar.
+  if (Fortran::semantics::IsAllocatableOrPointer(sym)) {
+    mlir::Type baseAddrType = ty.dyn_cast<fir::BoxType>().getEleTy();
+    Fortran::lower::createGlobalInitialization(
+        firOpBuilder, global, [&](fir::FirOpBuilder &b) {
+          mlir::Value nullAddr =
+              b.createNullConstant(currentLocation, baseAddrType);
+          mlir::Value box =
+              b.create<fir::EmboxOp>(currentLocation, ty, nullAddr);
+          b.create<fir::HasValueOp>(currentLocation, box);
+        });
+  } else {
+    Fortran::lower::createGlobalInitialization(
+        firOpBuilder, global, [&](fir::FirOpBuilder &b) {
+          mlir::Value undef = b.create<fir::UndefOp>(currentLocation, ty);
+          b.create<fir::HasValueOp>(currentLocation, undef);
+        });
+  }
+
+  return global;
+}
+
 void Fortran::lower::genThreadprivateOp(
     Fortran::lower::AbstractConverter &converter,
     const Fortran::lower::pft::Variable &var) {
@@ -2656,30 +2703,9 @@ void Fortran::lower::genThreadprivateOp(
     // variable in main program, and it has implicit SAVE attribute. Take it as
     // with SAVE attribute, so to create GlobalOp for it to simplify the
     // translation to LLVM IR.
-    mlir::Type ty = converter.genType(sym);
-    std::string globalName = converter.mangleName(sym);
-    mlir::StringAttr linkage = firOpBuilder.createInternalLinkage();
-    fir::GlobalOp global =
-        firOpBuilder.createGlobal(currentLocation, ty, globalName, linkage);
+    fir::GlobalOp global = globalInitialization(converter, firOpBuilder, sym,
+                                                var, currentLocation);
 
-    // Create default initialization for non-character scalar.
-    if (Fortran::semantics::IsAllocatableOrPointer(sym)) {
-      mlir::Type baseAddrType = ty.dyn_cast<fir::BoxType>().getEleTy();
-      Fortran::lower::createGlobalInitialization(
-          firOpBuilder, global, [&](fir::FirOpBuilder &b) {
-            mlir::Value nullAddr =
-                b.createNullConstant(currentLocation, baseAddrType);
-            mlir::Value box =
-                b.create<fir::EmboxOp>(currentLocation, ty, nullAddr);
-            b.create<fir::HasValueOp>(currentLocation, box);
-          });
-    } else {
-      Fortran::lower::createGlobalInitialization(
-          firOpBuilder, global, [&](fir::FirOpBuilder &b) {
-            mlir::Value undef = b.create<fir::UndefOp>(currentLocation, ty);
-            b.create<fir::HasValueOp>(currentLocation, undef);
-          });
-    }
     mlir::Value symValue = firOpBuilder.create<fir::AddrOfOp>(
         currentLocation, global.resultType(), global.getSymbol());
     symThreadprivateValue = firOpBuilder.create<mlir::omp::ThreadprivateOp>(
@@ -2702,6 +2728,23 @@ void Fortran::lower::genThreadprivateOp(
   converter.bindSymbol(sym, symThreadprivateExv);
 }
 
+// This function replicates threadprivate's behaviour of generating
+// an internal fir.GlobalOp for non-global variables in the main program
+// that have the implicit SAVE attribute, to simplifiy LLVM-IR and MLIR
+// generation.
+void Fortran::lower::genDeclareTargetIntGlobal(
+    Fortran::lower::AbstractConverter &converter,
+    const Fortran::lower::pft::Variable &var) {
+  if (!var.isGlobal()) {
+    // A non-global variable which can be in a declare target directive must
+    // be a variable in the main program, and it has the implicit SAVE
+    // attribute. We create a GlobalOp for it to simplify the translation to
+    // LLVM IR.
+    globalInitialization(converter, converter.getFirOpBuilder(),
+                         var.getSymbol(), var, converter.getCurrentLocation());
+  }
+}
+
 void handleDeclareTarget(Fortran::lower::AbstractConverter &converter,
                          Fortran::lower::pft::Evaluation &eval,
                          const Fortran::parser::OpenMPDeclareTargetConstruct
@@ -2719,7 +2762,8 @@ void handleDeclareTarget(Fortran::lower::AbstractConverter &converter,
           Fortran::common::visitors{
               [&](const Fortran::parser::Designator &designator) {
                 if (const Fortran::parser::Name *name =
-                        getDesignatorNameIfDataRef(designator)) {
+                        Fortran::semantics::getDesignatorNameIfDataRef(
+                            designator)) {
                   symbolAndClause.push_back(
                       std::make_pair(clause, *name->symbol));
                 }

@@ -23,7 +23,7 @@ declare {<4 x i24>, <4 x i1>} @llvm.sadd.with.overflow.v4i24(<4 x i24>, <4 x i24
 declare {<4 x i1>, <4 x i1>} @llvm.sadd.with.overflow.v4i1(<4 x i1>, <4 x i1>)
 declare {<2 x i128>, <2 x i1>} @llvm.sadd.with.overflow.v2i128(<2 x i128>, <2 x i128>)
 
-define <1 x i32> @saddo_v1i32(<1 x i32> %a0, <1 x i32> %a1, ptr %p2) nounwind {
+define <1 x i32> @saddo_v1i32(<1 x i32> %a0, <1 x i32> %a1, <1 x i32>* %p2) nounwind {
 ; CHECK-LABEL: saddo_v1i32:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    xorl %eax, %eax
@@ -36,11 +36,11 @@ define <1 x i32> @saddo_v1i32(<1 x i32> %a0, <1 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<1 x i32>, <1 x i1>} %t, 0
   %obit = extractvalue {<1 x i32>, <1 x i1>} %t, 1
   %res = sext <1 x i1> %obit to <1 x i32>
-  store <1 x i32> %val, ptr %p2
+  store <1 x i32> %val, <1 x i32>* %p2
   ret <1 x i32> %res
 }
 
-define <2 x i32> @saddo_v2i32(<2 x i32> %a0, <2 x i32> %a1, ptr %p2) nounwind {
+define <2 x i32> @saddo_v2i32(<2 x i32> %a0, <2 x i32> %a1, <2 x i32>* %p2) nounwind {
 ; SSE-LABEL: saddo_v2i32:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    pxor %xmm2, %xmm2
@@ -76,11 +76,11 @@ define <2 x i32> @saddo_v2i32(<2 x i32> %a0, <2 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<2 x i32>, <2 x i1>} %t, 0
   %obit = extractvalue {<2 x i32>, <2 x i1>} %t, 1
   %res = sext <2 x i1> %obit to <2 x i32>
-  store <2 x i32> %val, ptr %p2
+  store <2 x i32> %val, <2 x i32>* %p2
   ret <2 x i32> %res
 }
 
-define <3 x i32> @saddo_v3i32(<3 x i32> %a0, <3 x i32> %a1, ptr %p2) nounwind {
+define <3 x i32> @saddo_v3i32(<3 x i32> %a0, <3 x i32> %a1, <3 x i32>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v3i32:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    pxor %xmm2, %xmm2
@@ -143,11 +143,11 @@ define <3 x i32> @saddo_v3i32(<3 x i32> %a0, <3 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<3 x i32>, <3 x i1>} %t, 0
   %obit = extractvalue {<3 x i32>, <3 x i1>} %t, 1
   %res = sext <3 x i1> %obit to <3 x i32>
-  store <3 x i32> %val, ptr %p2
+  store <3 x i32> %val, <3 x i32>* %p2
   ret <3 x i32> %res
 }
 
-define <4 x i32> @saddo_v4i32(<4 x i32> %a0, <4 x i32> %a1, ptr %p2) nounwind {
+define <4 x i32> @saddo_v4i32(<4 x i32> %a0, <4 x i32> %a1, <4 x i32>* %p2) nounwind {
 ; SSE-LABEL: saddo_v4i32:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    pxor %xmm2, %xmm2
@@ -183,11 +183,11 @@ define <4 x i32> @saddo_v4i32(<4 x i32> %a0, <4 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<4 x i32>, <4 x i1>} %t, 0
   %obit = extractvalue {<4 x i32>, <4 x i1>} %t, 1
   %res = sext <4 x i1> %obit to <4 x i32>
-  store <4 x i32> %val, ptr %p2
+  store <4 x i32> %val, <4 x i32>* %p2
   ret <4 x i32> %res
 }
 
-define <6 x i32> @saddo_v6i32(<6 x i32> %a0, <6 x i32> %a1, ptr %p2) nounwind {
+define <6 x i32> @saddo_v6i32(<6 x i32> %a0, <6 x i32> %a1, <6 x i32>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v6i32:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    movq %rdi, %rax
@@ -352,11 +352,11 @@ define <6 x i32> @saddo_v6i32(<6 x i32> %a0, <6 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<6 x i32>, <6 x i1>} %t, 0
   %obit = extractvalue {<6 x i32>, <6 x i1>} %t, 1
   %res = sext <6 x i1> %obit to <6 x i32>
-  store <6 x i32> %val, ptr %p2
+  store <6 x i32> %val, <6 x i32>* %p2
   ret <6 x i32> %res
 }
 
-define <8 x i32> @saddo_v8i32(<8 x i32> %a0, <8 x i32> %a1, ptr %p2) nounwind {
+define <8 x i32> @saddo_v8i32(<8 x i32> %a0, <8 x i32> %a1, <8 x i32>* %p2) nounwind {
 ; SSE-LABEL: saddo_v8i32:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    pxor %xmm4, %xmm4
@@ -416,11 +416,11 @@ define <8 x i32> @saddo_v8i32(<8 x i32> %a0, <8 x i32> %a1, ptr %p2) nounwind {
   %val = extractvalue {<8 x i32>, <8 x i1>} %t, 0
   %obit = extractvalue {<8 x i32>, <8 x i1>} %t, 1
   %res = sext <8 x i1> %obit to <8 x i32>
-  store <8 x i32> %val, ptr %p2
+  store <8 x i32> %val, <8 x i32>* %p2
   ret <8 x i32> %res
 }
 
-define <16 x i32> @saddo_v16i32(<16 x i32> %a0, <16 x i32> %a1, ptr %p2) nounwind {
+define <16 x i32> @saddo_v16i32(<16 x i32> %a0, <16 x i32> %a1, <16 x i32>* %p2) nounwind {
 ; SSE-LABEL: saddo_v16i32:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    pxor %xmm8, %xmm8
@@ -503,12 +503,9 @@ define <16 x i32> @saddo_v16i32(<16 x i32> %a0, <16 x i32> %a1, ptr %p2) nounwin
 ; AVX2-NEXT:    vpaddd %ymm2, %ymm0, %ymm2
 ; AVX2-NEXT:    vpcmpgtd %ymm2, %ymm0, %ymm0
 ; AVX2-NEXT:    vpxor %ymm0, %ymm4, %ymm0
-; AVX2-NEXT:    vextracti128 $1, %ymm0, %xmm4
-; AVX2-NEXT:    vpackssdw %xmm4, %xmm0, %xmm0
-; AVX2-NEXT:    vpacksswb %xmm0, %xmm0, %xmm0
-; AVX2-NEXT:    vpmovsxbd %xmm0, %ymm0
 ; AVX2-NEXT:    vpacksswb %xmm1, %xmm1, %xmm1
 ; AVX2-NEXT:    vpmovsxbd %xmm1, %ymm1
+; AVX2-NEXT:    vpshufb {{.*#+}} ymm0 = ymm0[0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12,16,16,16,16,20,20,20,20,24,24,24,24,28,28,28,28]
 ; AVX2-NEXT:    vmovdqa %ymm3, 32(%rdi)
 ; AVX2-NEXT:    vmovdqa %ymm2, (%rdi)
 ; AVX2-NEXT:    retq
@@ -527,11 +524,11 @@ define <16 x i32> @saddo_v16i32(<16 x i32> %a0, <16 x i32> %a1, ptr %p2) nounwin
   %val = extractvalue {<16 x i32>, <16 x i1>} %t, 0
   %obit = extractvalue {<16 x i32>, <16 x i1>} %t, 1
   %res = sext <16 x i1> %obit to <16 x i32>
-  store <16 x i32> %val, ptr %p2
+  store <16 x i32> %val, <16 x i32>* %p2
   ret <16 x i32> %res
 }
 
-define <16 x i32> @saddo_v16i8(<16 x i8> %a0, <16 x i8> %a1, ptr %p2) nounwind {
+define <16 x i32> @saddo_v16i8(<16 x i8> %a0, <16 x i8> %a1, <16 x i8>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v16i8:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    movdqa %xmm0, %xmm2
@@ -540,9 +537,9 @@ define <16 x i32> @saddo_v16i8(<16 x i8> %a0, <16 x i8> %a1, ptr %p2) nounwind {
 ; SSE2-NEXT:    pcmpeqb %xmm0, %xmm2
 ; SSE2-NEXT:    pcmpeqd %xmm3, %xmm3
 ; SSE2-NEXT:    pxor %xmm2, %xmm3
-; SSE2-NEXT:    punpcklbw {{.*#+}} xmm1 = xmm1[0],xmm3[0],xmm1[1],xmm3[1],xmm1[2],xmm3[2],xmm1[3],xmm3[3],xmm1[4],xmm3[4],xmm1[5],xmm3[5],xmm1[6],xmm3[6],xmm1[7],xmm3[7]
-; SSE2-NEXT:    punpcklwd {{.*#+}} xmm4 = xmm4[0],xmm1[0],xmm4[1],xmm1[1],xmm4[2],xmm1[2],xmm4[3],xmm1[3]
-; SSE2-NEXT:    psrad $24, %xmm4
+; SSE2-NEXT:    movdqa %xmm3, %xmm4
+; SSE2-NEXT:    punpcklbw {{.*#+}} xmm4 = xmm4[0],xmm3[0],xmm4[1],xmm3[1],xmm4[2],xmm3[2],xmm4[3],xmm3[3],xmm4[4],xmm3[4],xmm4[5],xmm3[5],xmm4[6],xmm3[6],xmm4[7],xmm3[7]
+; SSE2-NEXT:    punpcklwd {{.*#+}} xmm4 = xmm4[0,0,1,1,2,2,3,3]
 ; SSE2-NEXT:    movdqa %xmm3, %xmm1
 ; SSE2-NEXT:    punpcklbw {{.*#+}} xmm1 = xmm1[0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7]
 ; SSE2-NEXT:    punpckhwd {{.*#+}} xmm1 = xmm1[4,4,5,5,6,6,7,7]
@@ -568,9 +565,9 @@ define <16 x i32> @saddo_v16i8(<16 x i8> %a0, <16 x i8> %a1, ptr %p2) nounwind {
 ; SSSE3-NEXT:    pcmpeqb %xmm0, %xmm2
 ; SSSE3-NEXT:    pcmpeqd %xmm3, %xmm3
 ; SSSE3-NEXT:    pxor %xmm2, %xmm3
-; SSSE3-NEXT:    punpcklbw {{.*#+}} xmm1 = xmm1[0],xmm3[0],xmm1[1],xmm3[1],xmm1[2],xmm3[2],xmm1[3],xmm3[3],xmm1[4],xmm3[4],xmm1[5],xmm3[5],xmm1[6],xmm3[6],xmm1[7],xmm3[7]
-; SSSE3-NEXT:    punpcklwd {{.*#+}} xmm4 = xmm4[0],xmm1[0],xmm4[1],xmm1[1],xmm4[2],xmm1[2],xmm4[3],xmm1[3]
-; SSSE3-NEXT:    psrad $24, %xmm4
+; SSSE3-NEXT:    movdqa %xmm3, %xmm4
+; SSSE3-NEXT:    punpcklbw {{.*#+}} xmm4 = xmm4[0],xmm3[0],xmm4[1],xmm3[1],xmm4[2],xmm3[2],xmm4[3],xmm3[3],xmm4[4],xmm3[4],xmm4[5],xmm3[5],xmm4[6],xmm3[6],xmm4[7],xmm3[7]
+; SSSE3-NEXT:    punpcklwd {{.*#+}} xmm4 = xmm4[0,0,1,1,2,2,3,3]
 ; SSSE3-NEXT:    movdqa %xmm3, %xmm1
 ; SSSE3-NEXT:    punpcklbw {{.*#+}} xmm1 = xmm1[0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7]
 ; SSSE3-NEXT:    punpckhwd {{.*#+}} xmm1 = xmm1[4,4,5,5,6,6,7,7]
@@ -657,11 +654,11 @@ define <16 x i32> @saddo_v16i8(<16 x i8> %a0, <16 x i8> %a1, ptr %p2) nounwind {
   %val = extractvalue {<16 x i8>, <16 x i1>} %t, 0
   %obit = extractvalue {<16 x i8>, <16 x i1>} %t, 1
   %res = sext <16 x i1> %obit to <16 x i32>
-  store <16 x i8> %val, ptr %p2
+  store <16 x i8> %val, <16 x i8>* %p2
   ret <16 x i32> %res
 }
 
-define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, ptr %p2) nounwind {
+define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, <8 x i16>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v8i16:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    movdqa %xmm0, %xmm2
@@ -670,8 +667,8 @@ define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, ptr %p2) nounwind {
 ; SSE2-NEXT:    pcmpeqw %xmm0, %xmm2
 ; SSE2-NEXT:    pcmpeqd %xmm1, %xmm1
 ; SSE2-NEXT:    pxor %xmm2, %xmm1
+; SSE2-NEXT:    movdqa %xmm1, %xmm2
 ; SSE2-NEXT:    punpcklwd {{.*#+}} xmm2 = xmm2[0],xmm1[0],xmm2[1],xmm1[1],xmm2[2],xmm1[2],xmm2[3],xmm1[3]
-; SSE2-NEXT:    psrad $16, %xmm2
 ; SSE2-NEXT:    punpckhwd {{.*#+}} xmm1 = xmm1[4,4,5,5,6,6,7,7]
 ; SSE2-NEXT:    pslld $31, %xmm1
 ; SSE2-NEXT:    psrad $31, %xmm1
@@ -687,8 +684,8 @@ define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, ptr %p2) nounwind {
 ; SSSE3-NEXT:    pcmpeqw %xmm0, %xmm2
 ; SSSE3-NEXT:    pcmpeqd %xmm1, %xmm1
 ; SSSE3-NEXT:    pxor %xmm2, %xmm1
+; SSSE3-NEXT:    movdqa %xmm1, %xmm2
 ; SSSE3-NEXT:    punpcklwd {{.*#+}} xmm2 = xmm2[0],xmm1[0],xmm2[1],xmm1[1],xmm2[2],xmm1[2],xmm2[3],xmm1[3]
-; SSSE3-NEXT:    psrad $16, %xmm2
 ; SSSE3-NEXT:    punpckhwd {{.*#+}} xmm1 = xmm1[4,4,5,5,6,6,7,7]
 ; SSSE3-NEXT:    pslld $31, %xmm1
 ; SSSE3-NEXT:    psrad $31, %xmm1
@@ -720,8 +717,7 @@ define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, ptr %p2) nounwind {
 ; AVX1-NEXT:    vpcmpeqd %xmm2, %xmm2, %xmm2
 ; AVX1-NEXT:    vpxor %xmm2, %xmm0, %xmm0
 ; AVX1-NEXT:    vpmovsxwd %xmm0, %xmm2
-; AVX1-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[2,3,2,3]
-; AVX1-NEXT:    vpmovsxwd %xmm0, %xmm0
+; AVX1-NEXT:    vpunpckhwd {{.*#+}} xmm0 = xmm0[4,4,5,5,6,6,7,7]
 ; AVX1-NEXT:    vinsertf128 $1, %xmm0, %ymm2, %ymm0
 ; AVX1-NEXT:    vmovdqa %xmm1, (%rdi)
 ; AVX1-NEXT:    retq
@@ -750,11 +746,11 @@ define <8 x i32> @saddo_v8i16(<8 x i16> %a0, <8 x i16> %a1, ptr %p2) nounwind {
   %val = extractvalue {<8 x i16>, <8 x i1>} %t, 0
   %obit = extractvalue {<8 x i16>, <8 x i1>} %t, 1
   %res = sext <8 x i1> %obit to <8 x i32>
-  store <8 x i16> %val, ptr %p2
+  store <8 x i16> %val, <8 x i16>* %p2
   ret <8 x i32> %res
 }
 
-define <2 x i32> @saddo_v2i64(<2 x i64> %a0, <2 x i64> %a1, ptr %p2) nounwind {
+define <2 x i32> @saddo_v2i64(<2 x i64> %a0, <2 x i64> %a1, <2 x i64>* %p2) nounwind {
 ; SSE-LABEL: saddo_v2i64:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    movdqa {{.*#+}} xmm2 = [2147483648,2147483648]
@@ -804,11 +800,11 @@ define <2 x i32> @saddo_v2i64(<2 x i64> %a0, <2 x i64> %a1, ptr %p2) nounwind {
   %val = extractvalue {<2 x i64>, <2 x i1>} %t, 0
   %obit = extractvalue {<2 x i64>, <2 x i1>} %t, 1
   %res = sext <2 x i1> %obit to <2 x i32>
-  store <2 x i64> %val, ptr %p2
+  store <2 x i64> %val, <2 x i64>* %p2
   ret <2 x i32> %res
 }
 
-define <4 x i32> @saddo_v4i24(<4 x i24> %a0, <4 x i24> %a1, ptr %p2) nounwind {
+define <4 x i32> @saddo_v4i24(<4 x i24> %a0, <4 x i24> %a1, <4 x i24>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v4i24:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    movdqa %xmm0, %xmm2
@@ -973,11 +969,11 @@ define <4 x i32> @saddo_v4i24(<4 x i24> %a0, <4 x i24> %a1, ptr %p2) nounwind {
   %val = extractvalue {<4 x i24>, <4 x i1>} %t, 0
   %obit = extractvalue {<4 x i24>, <4 x i1>} %t, 1
   %res = sext <4 x i1> %obit to <4 x i32>
-  store <4 x i24> %val, ptr %p2
+  store <4 x i24> %val, <4 x i24>* %p2
   ret <4 x i32> %res
 }
 
-define <4 x i32> @saddo_v4i1(<4 x i1> %a0, <4 x i1> %a1, ptr %p2) nounwind {
+define <4 x i32> @saddo_v4i1(<4 x i1> %a0, <4 x i1> %a1, <4 x i1>* %p2) nounwind {
 ; SSE-LABEL: saddo_v4i1:
 ; SSE:       # %bb.0:
 ; SSE-NEXT:    pslld $31, %xmm1
@@ -1031,11 +1027,11 @@ define <4 x i32> @saddo_v4i1(<4 x i1> %a0, <4 x i1> %a1, ptr %p2) nounwind {
   %val = extractvalue {<4 x i1>, <4 x i1>} %t, 0
   %obit = extractvalue {<4 x i1>, <4 x i1>} %t, 1
   %res = sext <4 x i1> %obit to <4 x i32>
-  store <4 x i1> %val, ptr %p2
+  store <4 x i1> %val, <4 x i1>* %p2
   ret <4 x i32> %res
 }
 
-define <2 x i32> @saddo_v2i128(<2 x i128> %a0, <2 x i128> %a1, ptr %p2) nounwind {
+define <2 x i32> @saddo_v2i128(<2 x i128> %a0, <2 x i128> %a1, <2 x i128>* %p2) nounwind {
 ; SSE2-LABEL: saddo_v2i128:
 ; SSE2:       # %bb.0:
 ; SSE2-NEXT:    movq {{[0-9]+}}(%rsp), %rax
@@ -1147,6 +1143,6 @@ define <2 x i32> @saddo_v2i128(<2 x i128> %a0, <2 x i128> %a1, ptr %p2) nounwind
   %val = extractvalue {<2 x i128>, <2 x i1>} %t, 0
   %obit = extractvalue {<2 x i128>, <2 x i1>} %t, 1
   %res = sext <2 x i1> %obit to <2 x i32>
-  store <2 x i128> %val, ptr %p2
+  store <2 x i128> %val, <2 x i128>* %p2
   ret <2 x i32> %res
 }

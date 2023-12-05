@@ -62,6 +62,7 @@ public:
     AnalyzeJobClass,
     MigrateJobClass,
     CompileJobClass,
+    FortranFrontendJobClass,
     BackendJobClass,
     AssembleJobClass,
     LinkJobClass,
@@ -72,6 +73,7 @@ public:
     VerifyPCHJobClass,
     OffloadBundlingJobClass,
     OffloadUnbundlingJobClass,
+    OffloadWrapperJobClass,
     OffloadPackagerJobClass,
     LinkerWrapperJobClass,
     StaticLibJobClass,
@@ -481,6 +483,17 @@ public:
   }
 };
 
+class FortranFrontendJobAction : public JobAction {
+  void anchor() override;
+
+public:
+  FortranFrontendJobAction(Action *Input, types::ID OutputType);
+
+  static bool classof(const Action *A) {
+    return A->getKind() == FortranFrontendJobClass;
+  }
+};
+
 class BackendJobAction : public JobAction {
   void anchor() override;
 
@@ -639,6 +652,17 @@ public:
 
   static bool classof(const Action *A) {
     return A->getKind() == OffloadUnbundlingJobClass;
+  }
+};
+
+class OffloadWrapperJobAction : public JobAction {
+  void anchor() override;
+
+public:
+  OffloadWrapperJobAction(ActionList &Inputs, types::ID Type);
+
+  static bool classof(const Action *A) {
+    return A->getKind() == OffloadWrapperJobClass;
   }
 };
 

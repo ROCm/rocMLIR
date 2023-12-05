@@ -16,6 +16,9 @@
 
 #include "kmp.h"
 #include "ompt-specific.h"
+#if OMPD_SUPPORT
+#include "ompd-specific.h"
+#endif
 
 #if KMP_OS_UNIX
 #include <dlfcn.h>
@@ -265,7 +268,11 @@ void __ompt_lw_taskteam_init(ompt_lw_taskteam_t *lwt, kmp_info_t *thr, int gtid,
   lwt->ompt_team_info.master_return_address = codeptr;
   lwt->ompt_task_info.task_data.value = 0;
   lwt->ompt_task_info.frame.enter_frame = ompt_data_none;
+  lwt->ompt_task_info.frame.enter_frame_flags = 0;
+  ;
   lwt->ompt_task_info.frame.exit_frame = ompt_data_none;
+  lwt->ompt_task_info.frame.exit_frame_flags = 0;
+  ;
   lwt->ompt_task_info.scheduling_parent = NULL;
   lwt->heap = 0;
   lwt->parent = 0;
@@ -344,6 +351,16 @@ void __ompt_lw_taskteam_unlink(kmp_info_t *thr) {
 // task support
 //----------------------------------------------------------
 
+ompt_data_t *__ompt_get_task_data() {
+  kmp_info_t *thr = ompt_get_thread();
+  ompt_data_t *task_data = thr ? OMPT_CUR_TASK_DATA(thr) : NULL;
+  return task_data;
+}
+
+ompt_data_t *__ompt_get_target_task_data() {
+  return &__kmp_threads[__kmp_get_gtid()]->th.ompt_thread_info.target_task_data;
+}
+
 int __ompt_get_task_info_internal(int ancestor_level, int *type,
                                   ompt_data_t **task_data,
                                   ompt_frame_t **task_frame,
@@ -380,7 +397,7 @@ int __ompt_get_task_info_internal(int ancestor_level, int *type,
       // lightweight teams are exhausted
       if (!lwt && taskdata) {
         // first try scheduling parent (for explicit task scheduling)
-        if (taskdata->ompt_task_info.scheduling_parent) {
+        if (taskdata->td_flags.tasktype == TASK_EXPLICIT && taskdata->ompt_task_info.scheduling_parent) {
           taskdata = taskdata->ompt_task_info.scheduling_parent;
         } else if (next_lwt) {
           lwt = next_lwt;
@@ -482,6 +499,21 @@ int __ompt_get_task_memory_internal(void **addr, size_t *size, int blocknum) {
   *addr = ret_addr;
   *size = (size_t)ret_size;
   return 1;
+}
+
+//----------------------------------------------------------
+// target region support
+//----------------------------------------------------------
+
+int __ompt_set_frame_enter_internal(void *addr, int flags, int state) {
+  int gtid = __kmp_entry_gtid();
+  kmp_info_t *thr = __kmp_threads[gtid];
+
+  ompt_frame_t *ompt_frame = &OMPT_CUR_TASK_INFO(thr)->frame;
+  OMPT_FRAME_SET(ompt_frame, enter, addr, flags);
+  int old_state = thr->th.ompt_thread_info.state;
+  thr->th.ompt_thread_info.state = ompt_state_work_parallel;
+  return old_state;
 }
 
 //----------------------------------------------------------

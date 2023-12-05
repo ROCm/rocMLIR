@@ -358,9 +358,13 @@ void CGNVCUDARuntime::emitDeviceStubBodyNew(CodeGenFunction &CGF,
   TranslationUnitDecl *TUDecl = CGM.getContext().getTranslationUnitDecl();
   DeclContext *DC = TranslationUnitDecl::castToDeclContext(TUDecl);
   std::string KernelLaunchAPI = "LaunchKernel";
-  if (CGF.getLangOpts().HIP && CGF.getLangOpts().GPUDefaultStream ==
-                                   LangOptions::GPUDefaultStreamKind::PerThread)
-    KernelLaunchAPI = KernelLaunchAPI + "_spt";
+  if (CGF.getLangOpts().GPUDefaultStream ==
+      LangOptions::GPUDefaultStreamKind::PerThread) {
+    if (CGF.getLangOpts().HIP)
+      KernelLaunchAPI = KernelLaunchAPI + "_spt";
+    else if (CGF.getLangOpts().CUDA)
+      KernelLaunchAPI = KernelLaunchAPI + "_ptsz";
+  }
   auto LaunchKernelName = addPrefixToName(KernelLaunchAPI);
   IdentifierInfo &cudaLaunchKernelII =
       CGM.getContext().Idents.get(LaunchKernelName);
@@ -1230,7 +1234,10 @@ llvm::GlobalValue *CGNVCUDARuntime::getKernelHandle(llvm::Function *F,
   Var->setAlignment(CGM.getPointerAlign().getAsAlign());
   Var->setDSOLocal(F->isDSOLocal());
   Var->setVisibility(F->getVisibility());
-  CGM.maybeSetTrivialComdat(*GD.getDecl(), *Var);
+  auto *FD = cast<FunctionDecl>(GD.getDecl());
+  auto *FT = FD->getPrimaryTemplate();
+  if (!FT || FT->isThisDeclarationADefinition())
+    CGM.maybeSetTrivialComdat(*FD, *Var);
   KernelHandles[F->getName()] = Var;
   KernelStubs[Var] = F;
   return Var;

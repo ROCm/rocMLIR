@@ -9,6 +9,7 @@
 #include "Cuda.h"
 #include "CommonArgs.h"
 #include "clang/Basic/Cuda.h"
+#include "clang/Basic/TargetID.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Distro.h"
@@ -385,6 +386,8 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     GPUArchName = JA.getOffloadingArch();
   } else {
     GPUArchName = Args.getLastArgValue(options::OPT_march_EQ);
+    if (GPUArchName.empty())
+      GPUArchName = getProcessorFromTargetID(TC.getTriple(), TC.getTargetID());
     assert(!GPUArchName.empty() && "Must have an architecture passed in.");
   }
 
@@ -589,6 +592,9 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-v");
 
   StringRef GPUArch = Args.getLastArgValue(options::OPT_march_EQ);
+  if (GPUArch.empty())
+    GPUArch = getProcessorFromTargetID(getToolChain().getTriple(),
+                                       getToolChain().getTargetID());
   assert(!GPUArch.empty() && "At least one GPU Arch required for nvlink.");
 
   CmdArgs.push_back("-arch");
@@ -615,6 +621,10 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     // any libraries that may be valid only for the host.
     if (!II.isFilename())
       continue;
+
+    AddStaticDeviceLibsLinking(C, *this, JA, Inputs, Args, CmdArgs, "nvptx",
+                             GPUArch, /*isBitCodeSDL=*/false,
+                             /*postClangLink=*/false);
 
     // The 'nvlink' application performs RDC-mode linking when given a '.o'
     // file and device linking when given a '.cubin' file. We always want to
@@ -704,13 +714,26 @@ NVPTXToolChain::NVPTXToolChain(const Driver &D, const llvm::Triple &Triple,
                                const ArgList &Args, bool Freestanding = false)
     : ToolChain(D, Triple, Args), CudaInstallation(D, HostTriple, Args),
       Freestanding(Freestanding) {
+  if (CudaInstallation.isValid())
+    getProgramPaths().push_back(std::string(CudaInstallation.getBinPath()));
+  // Lookup binaries into the driver directory, this is used to
+  // discover the 'nvptx-arch' executable.
+  getProgramPaths().push_back(getDriver().Dir);
+}
+
+NVPTXToolChain::NVPTXToolChain(const Driver &D, const llvm::Triple &Triple,
+                               const llvm::Triple &HostTriple,
+                               const ArgList &Args,
+                               const std::string TargetID)
+    : ToolChain(D, Triple, Args), CudaInstallation(D, HostTriple, Args) {
   if (CudaInstallation.isValid()) {
     CudaInstallation.WarnIfUnsupportedVersion();
     getProgramPaths().push_back(std::string(CudaInstallation.getBinPath()));
   }
   // Lookup binaries into the driver directory, this is used to
-  // discover the 'nvptx-arch' executable.
+  // discover the clang-offload-bundler executable.
   getProgramPaths().push_back(getDriver().Dir);
+  this->TargetID = std::move(TargetID);
 }
 
 /// We only need the host triple to locate the CUDA binary utilities, use the
@@ -785,6 +808,11 @@ void NVPTXToolChain::adjustDebugInfoKind(
 /// together object files from the assembler into a single blob.
 
 CudaToolChain::CudaToolChain(const Driver &D, const llvm::Triple &Triple,
+                             const ToolChain &HostTC, const ArgList &Args,
+                             const std::string TargetID)
+    : NVPTXToolChain(D, Triple, HostTC.getTriple(), Args, TargetID), HostTC(HostTC) {}
+
+CudaToolChain::CudaToolChain(const Driver &D, const llvm::Triple &Triple,
                              const ToolChain &HostTC, const ArgList &Args)
     : NVPTXToolChain(D, Triple, HostTC.getTriple(), Args), HostTC(HostTC) {}
 
@@ -794,6 +822,8 @@ void CudaToolChain::addClangTargetOptions(
   HostTC.addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadingKind);
 
   StringRef GpuArch = DriverArgs.getLastArgValue(options::OPT_march_EQ);
+  if (GpuArch.empty())
+    GpuArch = getProcessorFromTargetID(this->getTriple(), this->getTargetID());
   assert(!GpuArch.empty() && "Must have an explicit GPU arch.");
   assert((DeviceOffloadingKind == Action::OFK_OpenMP ||
           DeviceOffloadingKind == Action::OFK_Cuda) &&
@@ -856,6 +886,9 @@ void CudaToolChain::addClangTargetOptions(
 
     addOpenMPDeviceRTL(getDriver(), DriverArgs, CC1Args, GpuArch.str(),
                        getTriple());
+    AddStaticDeviceLibsPostLinking(getDriver(), DriverArgs, CC1Args, "nvptx",
+                                   GpuArch, /*isBitCodeSDL=*/true,
+                                   /*postClangLink=*/true);
   }
 }
 
@@ -917,22 +950,14 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
       if (!llvm::is_contained(*DAL, A))
         DAL->append(A);
 
-    if (!DAL->hasArg(options::OPT_march_EQ)) {
-      StringRef Arch = BoundArch;
-      if (Arch.empty()) {
-        auto ArchsOrErr = getSystemGPUArchs(Args);
-        if (!ArchsOrErr) {
-          std::string ErrMsg =
-              llvm::formatv("{0}", llvm::fmt_consume(ArchsOrErr.takeError()));
-          getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
-              << llvm::Triple::getArchTypeName(getArch()) << ErrMsg << "-march";
-          Arch = CudaArchToString(CudaArch::CudaDefault);
-        } else {
-          Arch = Args.MakeArgString(ArchsOrErr->front());
-        }
-      }
-      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ), Arch);
-    }
+    StringRef Arch = DAL->getLastArgValue(options::OPT_march_EQ);
+    if (Arch.empty())
+      Arch = getProcessorFromTargetID(this->getTriple(), this->getTargetID());
+
+    if (Arch.empty())
+      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ),
+                        !BoundArch.empty() ? BoundArch
+                                           : CLANG_OPENMP_NVPTX_DEFAULT_ARCH);
 
     return DAL;
   }

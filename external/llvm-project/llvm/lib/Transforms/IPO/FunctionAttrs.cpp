@@ -152,7 +152,7 @@ static MemoryEffects checkFunctionMemoryAccess(Function &F, bool ThisBody,
     // If it's not an identified object, it might be an argument.
     if (!isIdentifiedObject(UO))
       ME |= MemoryEffects::argMemOnly(MR);
-    ME |= MemoryEffects(MemoryEffects::Other, MR);
+    ME |= MemoryEffects(IRMemLocation::Other, MR);
   };
   // Scan the function body for instructions that may read or write memory.
   for (Instruction &I : instructions(F)) {
@@ -179,17 +179,17 @@ static MemoryEffects checkFunctionMemoryAccess(Function &F, bool ThisBody,
       if (isa<PseudoProbeInst>(I))
         continue;
 
-      ME |= CallME.getWithoutLoc(MemoryEffects::ArgMem);
+      ME |= CallME.getWithoutLoc(IRMemLocation::ArgMem);
 
       // If the call accesses captured memory (currently part of "other") and
       // an argument is captured (currently not tracked), then it may also
       // access argument memory.
-      ModRefInfo OtherMR = CallME.getModRef(MemoryEffects::Other);
+      ModRefInfo OtherMR = CallME.getModRef(IRMemLocation::Other);
       ME |= MemoryEffects::argMemOnly(OtherMR);
 
       // Check whether all pointer arguments point to local memory, and
       // ignore calls that only access local memory.
-      ModRefInfo ArgMR = CallME.getModRef(MemoryEffects::ArgMem);
+      ModRefInfo ArgMR = CallME.getModRef(IRMemLocation::ArgMem);
       if (ArgMR != ModRefInfo::NoModRef) {
         for (const Use &U : Call->args()) {
           const Value *Arg = U;
@@ -1720,7 +1720,8 @@ static SCCNodesResult createSCCNodeSet(ArrayRef<Function *> Functions) {
 
 template <typename AARGetterT>
 static SmallSet<Function *, 8>
-deriveAttrsInPostOrder(ArrayRef<Function *> Functions, AARGetterT &&AARGetter) {
+deriveAttrsInPostOrder(ArrayRef<Function *> Functions, AARGetterT &&AARGetter,
+                       bool ArgAttrsOnly) {
   SCCNodesResult Nodes = createSCCNodeSet(Functions);
 
   // Bail if the SCC only contains optnone functions.
@@ -1728,6 +1729,10 @@ deriveAttrsInPostOrder(ArrayRef<Function *> Functions, AARGetterT &&AARGetter) {
     return {};
 
   SmallSet<Function *, 8> Changed;
+  if (ArgAttrsOnly) {
+    addArgumentAttrs(Nodes.SCCNodes, Changed);
+    return Changed;
+  }
 
   addArgumentReturnedAttrs(Nodes.SCCNodes, Changed);
   addMemoryAttrs(Nodes.SCCNodes, AARGetter, Changed);
@@ -1762,10 +1767,13 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
                                                   LazyCallGraph &CG,
                                                   CGSCCUpdateResult &) {
   // Skip non-recursive functions if requested.
+  // Only infer argument attributes for non-recursive functions, because
+  // it can affect optimization behavior in conjunction with noalias.
+  bool ArgAttrsOnly = false;
   if (C.size() == 1 && SkipNonRecursive) {
     LazyCallGraph::Node &N = *C.begin();
     if (!N->lookup(N))
-      return PreservedAnalyses::all();
+      ArgAttrsOnly = true;
   }
 
   FunctionAnalysisManager &FAM =
@@ -1782,7 +1790,8 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
     Functions.push_back(&N.getFunction());
   }
 
-  auto ChangedFunctions = deriveAttrsInPostOrder(Functions, AARGetter);
+  auto ChangedFunctions =
+      deriveAttrsInPostOrder(Functions, AARGetter, ArgAttrsOnly);
   if (ChangedFunctions.empty())
     return PreservedAnalyses::all();
 
@@ -1818,7 +1827,7 @@ void PostOrderFunctionAttrsPass::printPipeline(
   static_cast<PassInfoMixin<PostOrderFunctionAttrsPass> *>(this)->printPipeline(
       OS, MapClassName2PassName);
   if (SkipNonRecursive)
-    OS << "<skip-non-recursive>";
+    OS << "<skip-non-recursive-function-attrs>";
 }
 
 template <typename AARGetterT>

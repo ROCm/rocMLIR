@@ -116,7 +116,7 @@ define double @constpool_double(double %x) nounwind {
   ret double %1
 }
 
-define void @constpool_float_no_fp_args(ptr %x) nounwind {
+define void @constpool_float_no_fp_args(float* %x) nounwind {
 ; CHECK-LABEL: constpool_float_no_fp_args:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    movss {{.*#+}} xmm0 = mem[0],zero,zero,zero
@@ -168,13 +168,13 @@ define void @constpool_float_no_fp_args(ptr %x) nounwind {
 ; X86-LARGE-NEXT:    addss (%eax), %xmm0 ## encoding: [0xf3,0x0f,0x58,0x00]
 ; X86-LARGE-NEXT:    movss %xmm0, (%eax) ## encoding: [0xf3,0x0f,0x11,0x00]
 ; X86-LARGE-NEXT:    retl ## encoding: [0xc3]
-  %a = load float, ptr %x
+  %a = load float, float* %x
   %b = fadd float %a, 16.50e+01
-  store float %b, ptr %x
+  store float %b, float* %x
   ret void
 }
 
-define void @constpool_double_no_fp_args(ptr %x) nounwind {
+define void @constpool_double_no_fp_args(double* %x) nounwind {
 ; CHECK-LABEL: constpool_double_no_fp_args:
 ; CHECK:       ## %bb.0:
 ; CHECK-NEXT:    movsd {{.*#+}} xmm0 = mem[0],zero
@@ -226,8 +226,8 @@ define void @constpool_double_no_fp_args(ptr %x) nounwind {
 ; X86-LARGE-NEXT:    addsd (%eax), %xmm0 ## encoding: [0xf2,0x0f,0x58,0x00]
 ; X86-LARGE-NEXT:    movsd %xmm0, (%eax) ## encoding: [0xf2,0x0f,0x11,0x00]
 ; X86-LARGE-NEXT:    retl ## encoding: [0xc3]
-  %a = load double, ptr %x
+  %a = load double, double* %x
   %b = fadd double %a, 8.500000e-01
-  store double %b, ptr %x
+  store double %b, double* %x
   ret void
 }
