@@ -562,12 +562,12 @@ struct BlockwiseReduceRewritePattern
         nonReduceDimSizes.push_back(dimSize);
       }
     }
-    tensorToLDSViewBuilder.unmerge("nrDim", 1, nonReduceNameRefs,
+    tensorToLDSViewBuilder.unmerge("nrDim", 0, nonReduceNameRefs,
                                    nonReduceDimSizes);
     if (makeRDimZero) {
-      tensorToLDSViewBuilder.constDim("rDim", 0, 0, lowestShape[reduceAxis]);
+      tensorToLDSViewBuilder.constDim("rDim", 1, 0, lowestShape[reduceAxis]);
     } else {
-      tensorToLDSViewBuilder.passThrough({"rDim"}, {0},
+      tensorToLDSViewBuilder.passThrough({"rDim"}, {1},
                                          {upperNameRefs[reduceAxis]});
     }
     TransformMapAttr twoDimLDSView = tensorToLDSViewBuilder.get();
@@ -610,12 +610,12 @@ struct BlockwiseReduceRewritePattern
         nonReduceDimSizes.push_back(dimSize);
       }
     }
-    tensorToLDSViewBuilder.unmerge("nrDim", 1, nonReduceNameRefs,
+    tensorToLDSViewBuilder.unmerge("nrDim", 0, nonReduceNameRefs,
                                    nonReduceDimSizes);
     if (makeRDimZero) {
-      tensorToLDSViewBuilder.constDim("rDim", 0, 0, lowestShape[reduceAxis]);
+      tensorToLDSViewBuilder.constDim("rDim", 1, 0, lowestShape[reduceAxis]);
     } else {
-      tensorToLDSViewBuilder.passThrough({"rDim"}, {0},
+      tensorToLDSViewBuilder.passThrough({"rDim"}, {1},
                                          {upperNameRefs[reduceAxis]});
     }
     TransformMapAttr twoDimLDSView = tensorToLDSViewBuilder.get();
@@ -828,32 +828,32 @@ struct BlockwiseReduceRewritePattern
                               Location loc,
                               BlockwiseBroadcastReduceOp op,
                               Value reducedBuffer,
-                              ArrayAttr inputBlockSubTile2dView) const {
+                              ArrayAttr inputThreadSubTile2dView) const {
     Value inputRawBuffer = op.getInput();
     int64_t numElements = inputRawBuffer.getType().cast<MemRefType>().getNumElements();
     constexpr size_t nrDim = 0;
-    // Get current workitem ID.
-    WorkitemIdOp tid =
-        rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());    
+    // // Get current workitem ID.
+    // WorkitemIdOp tid =
+    //     rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());    
 
-    ArrayRef<int64_t> threadSubTileShape = getLowerShape(inputBlockSubTile2dView);
+    ArrayRef<int64_t> threadSubTileShape = getLowerShape(inputThreadSubTile2dView);
     // ArrayAttr reducedBlockView = createReducedView(rewriter, loc, inputBlockSubTileView, axis);
 
     Type elemType = inputRawBuffer.getType().cast<MemRefType>().getElementType();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{tid, zero}, {tid, zero}},
-        ArrayRef<Attribute>{inputBlockSubTile2dView, rewriter.getArrayAttr({})},
-        /*bounds=*/ArrayRef<int64_t>{1, numElements},
-        /*strides=*/ArrayRef<int64_t>{1, 1},
+        loc, ArrayRef<ValueRange>{{zero}, {zero}},
+        ArrayRef<Attribute>{inputThreadSubTile2dView, rewriter.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>{numElements},
+        /*strides=*/ArrayRef<int64_t>{1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
-      Block::BlockArgListType subtileCoords = loop.getLowerCoords(0);
       Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
+      Block::BlockArgListType subtileCoords = loop.getLowerCoords(0);
       Value ldInput = rewriter.create<InBoundsLoadOp>(
-          loc, elemType, inputRawBuffer, upperCoords[1]);
+          loc, elemType, inputRawBuffer, upperCoords);
       Value ldInputAcc = rewriter.create<InBoundsLoadOp>(
           loc, elemType, reducedBuffer, subtileCoords[nrDim]);
       Value reduced = createReducingOp(op, ldInput, ldInputAcc, rewriter);
@@ -868,14 +868,18 @@ struct BlockwiseReduceRewritePattern
                    Value reducedBuffer,
                    Value ldsBuffer,
                    ArrayAttr inputBlockSubTile2dView,
+                   ArrayAttr inputThreadSubTile2dView,
                    ArrayAttr tidSubTileSliceView,
                    ArrayAttr toFlatLDSView) const {
     Type elemType = reducedBuffer.getType().cast<MemRefType>().getElementType();
+    constexpr size_t nrDim = 0;
+    constexpr size_t rDim = 1;
     // not all of these are valid as reducedBuffer is sparse
-    int64_t nrDimLen = reducedBuffer.getType().cast<MemRefType>().getNumElements();
-    // ArrayAttr inputBlockSubTile2dViewInv = invertTransforms(rewriter, loc, inputBlockSubTile2dView);
-    ArrayRef<int64_t> upperShape =
-            inputBlockSubTile2dView[0].cast<TransformMapAttr>().getUpperBounds();
+    // int64_t nrDimLen = reducedBuffer.getType().cast<MemRefType>().getNumElements();
+    ArrayAttr inputThreadSubTile2dViewInv = invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+    ArrayRef<int64_t> threadSubTile2DShape = getLowerShape(inputThreadSubTile2dView);
+    // ArrayRef<int64_t> upperShape =
+    //         inputBlockSubTile2dView[0].cast<TransformMapAttr>().getUpperBounds();
     WorkitemIdOp tid =
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
@@ -884,40 +888,51 @@ struct BlockwiseReduceRewritePattern
         gpu::GPUDialect::getPrivateAddressSpace());
 
     auto loop = rewriter.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{tid, zero}, {tid, zero}},
-        ArrayRef<Attribute>{inputBlockSubTile2dView, rewriter.getArrayAttr({})},
-        /*bounds=*/ArrayRef<int64_t>{1, upperShape[1]},
+        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
+        ArrayRef<Attribute>{inputThreadSubTile2dViewInv, rewriter.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim], 1},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
     {
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(loop.getBody());
+        Value iter = loop.getLowerCoords(0)[0];
+        Block::BlockArgListType threadSubTile2DCoords = loop.getLowerCoords(1);
+
+        auto convertToBlockSubTile = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{tid, iter}}, 
+                                                                            ArrayRef<Attribute>{inputBlockSubTile2dView}, 
+                                                                            /*bounds=*/ArrayRef<int64_t>{1, 1}, 
+                                                                            /*strides=*/ArrayRef<int64_t>{1, 1},
+                                                                            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(convertToBlockSubTile.getBody());
+          Value blockNrDimCoord = convertToBlockSubTile.getLowerCoords(0)[nrDim];
+          Value ldReduced = rewriter.create<InBoundsLoadOp>(
+                            loc, elemType, reducedBuffer, ValueRange{threadSubTile2DCoords[0]});
+
+          auto convertToBlockSubTileTidSlice = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{tid}}, 
+                                                                            ArrayRef<Attribute>{tidSubTileSliceView}, 
+                                                                            /*bounds=*/ArrayRef<int64_t>{1}, 
+                                                                            /*strides=*/ArrayRef<int64_t>{1},
+                                                                            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+          {
             OpBuilder::InsertionGuard guard(rewriter);
-            rewriter.setInsertionPointToStart(loop.getBody());
-            Block::BlockArgListType subtile2DCoords = loop.getLowerCoords(0);
-            auto convertTidToSubtileCoords = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{tid}}, 
-                                                                  ArrayRef<Attribute>{tidSubTileSliceView}, 
-                                                                  /*bounds=*/ArrayRef<int64_t>{1}, 
-                                                                  /*strides=*/ArrayRef<int64_t>{1},
-                                                                  /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+            rewriter.setInsertionPointToStart(convertToBlockSubTileTidSlice.getBody());
+            Value blockTidSliceRDimCoord = convertToBlockSubTileTidSlice.getLowerCoords(0)[rDim];
+            auto ldsStoreloop = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{blockNrDimCoord, blockTidSliceRDimCoord}}, 
+                                                                ArrayRef<Attribute>{toFlatLDSView}, 
+                                                                /*bounds=*/ArrayRef<int64_t>{1, 1}, 
+                                                                /*strides=*/ArrayRef<int64_t>{1, 1},
+                                                                /*useIndexDiffs=*/true, /*forceUnroll=*/true);
             {
-              OpBuilder::InsertionGuard guard(rewriter);
-              rewriter.setInsertionPointToStart(convertTidToSubtileCoords.getBody());
-              Block::BlockArgListType subtileTidSliceCoords = convertTidToSubtileCoords.getLowerCoords(0);
-              Value partialRedDimCoord = subtileTidSliceCoords[1];
-              // load partially reduced value
-              Value ldReduced = rewriter.create<InBoundsLoadOp>(
-                                loc, elemType, reducedBuffer, ValueRange{subtile2DCoords[0]});
-              auto ldsStoreloop = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{subtile2DCoords[0], partialRedDimCoord}}, 
-                                                                  ArrayRef<Attribute>{toFlatLDSView}, 
-                                                                  /*bounds=*/ArrayRef<int64_t>{1, 1}, 
-                                                                  /*strides=*/ArrayRef<int64_t>{1, 1},
-                                                                  /*useIndexDiffs=*/true, /*forceUnroll=*/true);
-              {
                 OpBuilder::InsertionGuard guard(rewriter);
                 rewriter.setInsertionPointToStart(ldsStoreloop.getBody());
                 Block::BlockArgListType ldsFlatCoords = ldsStoreloop.getLowerCoords(0);
                 rewriter.create<InBoundsStoreOp>(loc, ldReduced, ldsBuffer, ldsFlatCoords);
-              }
             }
+          }
+        }
     }
   }
 
@@ -952,24 +967,30 @@ struct BlockwiseReduceRewritePattern
     int64_t nonReductionDimSizeProduct =
           calculateNonReductionDimProduct(regTensorShape, axis);
     // Allocate a partial reduction buffer.
-    auto partialRedBufferType = MemRefType::get(
-            nonReductionDimSizeProduct, elemType, AffineMap{}, privateMemoryAddressSpace);
-    Value partialRedBuffer = rewriter.create<GpuAllocOp>(loc, partialRedBufferType);
-    Value initVal = getReductionInitValue(op, rewriter);
-    rewriter.create<FillOp>(loc, partialRedBuffer, initVal);
-    mlir::ArrayAttr inputBlockSubTile2dView = createInput2DView(loc, rewriter, inputViewArrayAttr, axis);
-    doThreadwiseReductions(rewriter, loc, op, partialRedBuffer, inputBlockSubTile2dView);
-    
-    // Create partially reduced tensor shape
-    SmallVector<int64_t, 2> partialRegTensorShape = llvm::to_vector<2>(getLowerShape(inputBlockSubTile2dView));
+
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    ArrayAttr partialReduction2DView = createInput2DView(loc, rewriter, op.getPartialReductionView(), axis);
-    ArrayRef<int64_t> partialReductionLower2DShape = getLowerShape(partialReduction2DView);
+    mlir::ArrayAttr inputThreadSubTile2dView = createInput2DView(loc, rewriter, op.getIterSubTileSliceView(), axis);
+    ArrayRef<int64_t> inputThreadSubTile2dShape = getLowerShape(inputThreadSubTile2dView);
+    auto partialRedBufferType = MemRefType::get(
+            inputThreadSubTile2dShape[nrDim], elemType, AffineMap{}, privateMemoryAddressSpace);
+    Value partialRedBuffer = rewriter.create<GpuAllocOp>(loc, partialRedBufferType);
+    Value initVal = getReductionInitValue(op, rewriter);
+    rewriter.create<FillOp>(loc, partialRedBuffer, initVal);
+    doThreadwiseReductions(rewriter, loc, op, partialRedBuffer, inputThreadSubTile2dView);
+    
+    // Create partially reduced tensor shape
+    mlir::ArrayAttr inputBlockSubTile2dView = createInput2DView(loc, rewriter, inputViewArrayAttr, axis);
+    SmallVector<int64_t, 2> partialRegTensorShape = llvm::to_vector<2>(getLowerShape(inputBlockSubTile2dView));
+    ArrayAttr tidSubTileSliceView = createInput2DView(loc, rewriter, op.getTidSubTileSliceView(), axis);
+    llvm::errs() << "inputThreadSubTile2dView = " << inputThreadSubTile2dView << "\n";
+    llvm::errs() << "tidSubTileSliceView = " << tidSubTileSliceView << "\n";
+    llvm::errs() << "inputBlockSubTile2dView = " << inputBlockSubTile2dView << "\n";
+    ArrayRef<int64_t> partialReductionLower2DShape = getLowerShape(tidSubTileSliceView);
     partialRegTensorShape[rDim] = partialReductionLower2DShape[rDim];
     ArrayAttr toFlatLDSView = create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim], partialRegTensorShape[rDim]);
-    storePartialReductionstoLDS(rewriter, loc, partialRedBuffer, workspaceLDSBuffer, inputBlockSubTile2dView, partialReduction2DView, toFlatLDSView);
+    storePartialReductionstoLDS(rewriter, loc, partialRedBuffer, workspaceLDSBuffer, inputBlockSubTile2dView, inputThreadSubTile2dView, tidSubTileSliceView, toFlatLDSView);
         
     // rewriter.create<ThreadwiseWriteAllOp>(
     //     loc, inputReg, workspaceLDSBuffer,

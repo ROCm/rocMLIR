@@ -1847,9 +1847,13 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   // This view should be {tid, iter} to {d0, ... , Dr , ... , dn};
   // where {d0, ... , Dr , ... , dn} represent a blockwise tile
   // of a larger tensor that is being reduced.
-  TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
-  ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
-  ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
+  size_t inputViewArrLen = inputViewArrayAttr.size();
+  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
+  ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
+  int64_t axis = getAxis().getSExtValue();
+  size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
+  ArrayRef<int64_t> inputPartRedTensorShape = tidSubTileSliceView[tidSubTileSliceViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0].cast<TransformMapAttr>().getUpperBounds().asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
 
@@ -1903,11 +1907,16 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
     return emitError("workspace LDS buffer should be flat");
   }
 
-  int64_t blockwiseInputTensorElements = 1;
-  for (int64_t dimSize : inputTensorShape) {
-    blockwiseInputTensorElements *= dimSize;
+  int64_t blockwiseInputPartRedTensorElements = 1;
+  for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
+    if(dim == axis){
+      blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
+    }
+    else{
+      blockwiseInputPartRedTensorElements *= dimSize;
+    }
   }
-  if (blockwiseInputTensorElements > wsShape[0]) {
+  if (blockwiseInputPartRedTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block");
   }
