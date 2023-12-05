@@ -1236,9 +1236,9 @@ def Rock_BlockwiseBroadcastReduceOp:
                    MemRefOf<GemmOutputTypes>:$output,
                    Optional<MemRefOf<GemmOutputTypes>>:$extraOut,
                    IndexAttr:$axis,
-                   IndexAttr:$nrDimPerThread,
                    ReduceMethodAttr:$reduceMethod,
                    TransformMapArrayAttr:$inputRegView,
+                   TransformMapArrayAttr:$partialReductionView,
                    OptionalAttr<TransformMapArrayAttr>:$extraOutView,
                    I32Attr:$blockSize
                    )> {
@@ -1270,7 +1270,7 @@ def Rock_BlockwiseBroadcastReduceOp:
     that still needs to have upper dimensions equal to the input.
   }];
   let assemblyFormat = [{
-    $reduceMethod $inputRegView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?
+    $reduceMethod $inputRegView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $partialReductionView $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?
   }];
 
   let hasVerifier = 1;

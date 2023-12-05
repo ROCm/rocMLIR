@@ -33,8 +33,9 @@
 // CHECK: %[[LDS_LD_VAL:.*]] = rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]]
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 20] -> [20, 20]>
-func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<20xf32, #gpu.address_space<private>>,  %output_reg : memref<20xf32, #gpu.address_space<private>>, %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
-    rock.blockwise_broadcast_reduce max [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 20 : index} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32
+#inputPartialRedView = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <ConstDim{0, 1} [] at [] -> ["nr_per_thread"] at [0]>] bounds = [20] -> [1, 20]>
+func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<20xf32, #gpu.address_space<private>>,  %output_reg : memref<20xf32, #gpu.address_space<private>>, %ws_lds : memref<20xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+    rock.blockwise_broadcast_reduce max [#inputView]%input_reg into %output_reg using [#inputPartialRedView]%ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 20 : index} : memref<20xf32, #gpu.address_space<private>> using memref<20xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32
     return
 }
 
@@ -68,7 +69,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> {{.*}}[%c0] {{.*}} #gpu.address_space<private>>
 // CHECK: rock.transforming_for {{.*}}[#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 1] strides [1, 1, 1] {
 // CHECK: rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
-// CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<80xf32, #gpu.address_space<workgroup>>, index
+// CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<20xf32, #gpu.address_space<workgroup>>, index
 // CHECK: rock.lds_barrier
 
 // Partial threadwise reductions done now...
@@ -114,11 +115,12 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 // CHECK: rock.transforming_for
 // CHECK-SAME: (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %c0)
-// CHECK: rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]] : memref<80xf32, #gpu.address_space<workgroup>>, index -> f32
+// CHECK: rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]] : memref<20xf32, #gpu.address_space<workgroup>>, index -> f32
 // CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<4xf32, #gpu.address_space<private>>, index
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
-func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<4xf32, #gpu.address_space<private>>,  %output_reg : memref<4xf32, #gpu.address_space<private>>, %ws_lds : memref<80xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
-  rock.blockwise_broadcast_reduce sum [#inputView]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 4 : index} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
+#inputPartialRedView = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <ConstDim{0, 1} [] at [] -> ["nr_per_thread"] at [0]>] bounds = [20] -> [1, 20]>
+func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<4xf32, #gpu.address_space<private>>,  %output_reg : memref<4xf32, #gpu.address_space<private>>, %ws_lds : memref<20xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+  rock.blockwise_broadcast_reduce sum [#inputView]%input_reg into %output_reg using [#inputPartialRedView]%ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 4 : index} : memref<4xf32, #gpu.address_space<private>> using memref<20xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
   return
 }
