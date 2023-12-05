@@ -51,12 +51,14 @@ void getAndBuildCK(String cmakeOpts) {
 }
 
 void getTuna() {
+    echo "---> start getTuna"
     git branch: 'pf-tuna-rocmlir-3', poll: false, \
         url: 'http://github.com/ROCmSoftwarePlatform/MITuna.git'
     // sh 'mv MITuna /tmp'
     sh 'pwd'
     sh 'ls -ls'
     sh 'ls -ls /tmp'
+    echo "---> end getTuna"
 }
 
 void showEnv() {
@@ -553,30 +555,30 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
-                            dir('/tmp/MITuna') {
+                            dir('MITuna') {
                                 getTuna()
                                 dir('build') {
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
                                         // Tune gemms, fail if the DB is not created
                                         sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -f tuning_gemm.tsv
+                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
                                               [ -f tuning_gemm.tsv ]"""
                                         sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -f tuning_conv.tsv
+                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
                                               [ -f tuning_conv.tsv ]"""
                                         sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                -f tuning_attention.tsv
+                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
                                               [ -f tuning_attention.tsv ]"""
                                         sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -f quick_tuning_gemm.tsv -s quick
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
                                               [ -f quick_tuning_gemm.tsv ]"""
                                         sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -f quick_tuning_conv.tsv -s quick
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
                                               [ -f quick_tuning_conv.tsv ]"""
                                     }
                                 }
