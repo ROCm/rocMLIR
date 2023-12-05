@@ -555,37 +555,34 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
-                            dir('MITuna') {
-                                getTuna()
-                                dir('build') {
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        // Tune gemms, fail if the DB is not created
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
-                                              [ -f tuning_gemm.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
-                                              [ -f tuning_conv.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
-                                              [ -f tuning_attention.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
-                                              [ -f quick_tuning_gemm.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
-                                              [ -f quick_tuning_conv.tsv ]"""
-                                    }
+                            dir('build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    // Tune gemms, fail if the DB is not created
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                          [ -f tuning_gemm.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                          [ -f tuning_conv.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                          [ -f tuning_attention.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                          [ -f quick_tuning_gemm.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                          [ -f quick_tuning_conv.tsv ]"""
                                 }
                             }
                         }
                     }
-                    stage("Static Library: build rockMLIR packages") {
+                    stage("Static Library: build rocMLIR packages") {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.staticLib;
