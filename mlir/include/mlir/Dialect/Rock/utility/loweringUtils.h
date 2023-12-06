@@ -40,6 +40,10 @@ struct RegsAsMatrixSubTiles {
   // Using just a iterative dix, this provides access to threadwise sub-tile
   // of the matrix.
   ArrayAttr threadSubTile;
+  // This is a [tid] to a 2D subtile view.
+  // It essentially provides access to as if sliced blockSubTile
+  // just based on tid coordinate
+  std::optional<ArrayAttr> blockSubTileTidSlice;
 };
 
 // This function will create views of the register buffer of the loaded tile
