@@ -196,9 +196,9 @@ def MIGraphX_QuantizeLinearOp :
 
 def MIGraphX_DeQuantizeLinearOp :
     MIGraphX_Op<"dequantizelinear", [AllElementTypesMatch<["scale", "output"]>]>,
-    Arguments<(ins MIXRShapedOf<[AnyInteger, F8E4M3FNUZ, F8E5M2FNUZ]>:$input,
+    Arguments<(ins MIXRShapedOf<[AnyInteger, AnyFloat, F8E4M3FNUZ, F8E5M2FNUZ]>:$input,
                    MIXRShapedOf<[AnyFloat]>:$scale,
-                   Optional<MIXRShapedOf<[AnyInteger, F8E4M3FNUZ, F8E5M2FNUZ]>>:$bias)>,
+                   Optional<MIXRShapedOf<[AnyInteger, AnyFloat, F8E4M3FNUZ, F8E5M2FNUZ]>>:$bias)>,
 	  Results<(outs MIXRShapedOf<[AnyFloat]>:$output)> {
   let summary = "Channelwise dequantization";
   let description = [{
