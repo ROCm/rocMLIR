@@ -1271,7 +1271,7 @@ def Rock_BlockwiseBroadcastReduceOp:
     that still needs to have upper dimensions equal to the input.
   }];
   let assemblyFormat = [{
-    $reduceMethod $inputRegView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $tidSubTileSliceView $iterSubTileSliceView $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?
+    $reduceMethod $inputRegView $tidSubTileSliceView $iterSubTileSliceView $input `into` $output(`,` $extraOutView $extraOut^)? `using` $workspace_buffer attr-dict `:` type($input) `using` type($workspace_buffer) `into` type($output)( `,` type($extraOut)^)?
   }];
 
   let hasVerifier = 1;

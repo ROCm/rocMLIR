@@ -1909,7 +1909,7 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
 
   int64_t blockwiseInputPartRedTensorElements = 1;
   for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
-    if(dim == axis){
+    if((int64_t)dim == axis){
       blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
     }
     else{
