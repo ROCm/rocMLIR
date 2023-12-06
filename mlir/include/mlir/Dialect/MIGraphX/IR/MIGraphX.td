@@ -181,8 +181,8 @@ def MIGraphX_QuantizeLinearOp :
     MIGraphX_Op<"quantizelinear", [AllElementTypesMatch<["input", "scale"]>]>,
     Arguments<(ins MIXRShapedOf<[AnyFloat]>:$input,
                    MIXRShapedOf<[AnyFloat]>:$scale,
-                   Optional<MIXRShapedOf<[AnyInteger]>>:$bias)>,
-	  Results<(outs MIXRShapedOf<[AnyInteger]>:$output)> {
+                   Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
+	  Results<(outs MIXRShapedOf<[AnyInteger, AnyFloat]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
     Quantization tensor channelwise. It computes the following:
@@ -196,9 +196,9 @@ def MIGraphX_QuantizeLinearOp :
 
 def MIGraphX_DeQuantizeLinearOp :
     MIGraphX_Op<"dequantizelinear", [AllElementTypesMatch<["scale", "output"]>]>,
-    Arguments<(ins MIXRShapedOf<[AnyInteger]>:$input,
+    Arguments<(ins MIXRShapedOf<[AnyInteger, AnyFloat]>:$input,
                    MIXRShapedOf<[AnyFloat]>:$scale,
-                   Optional<MIXRShapedOf<[AnyInteger]>>:$bias)>,
+                   Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
 	  Results<(outs MIXRShapedOf<[AnyFloat]>:$output)> {
   let summary = "Channelwise dequantization";
   let description = [{
