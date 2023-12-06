@@ -94,7 +94,7 @@ struct AccelEmitter {
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
-                                  Value regCOffset) = 0;
+                                  ValueRange regCOffset) = 0;
 
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
@@ -139,7 +139,7 @@ struct MfmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange regCOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
@@ -170,7 +170,7 @@ struct WmmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange regCOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,

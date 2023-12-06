@@ -1838,11 +1838,44 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadB, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, n_i}, true, true);
+            int64_t kBasePerThread = accelParamsGemm0.kBasePerThread;
+            int64_t mRepeats = accelParamsGemm0.mRepeats;
+            int64_t nRepeats = accelParamsGemm0.nRepeats;
+
+            TopDownTMBuilder bufferAikTransform(rewriter, {"i", "k"},
+                                                {1, kBasePerThread}, loc);
+            bufferAikTransform.ignore("i");
+            bufferAikTransform.passThrough({"k"}, 0, {"k"});
+            auto bufferA =
+                rock::transform(rewriter, preAccelRegBufferQ,
+                                rewriter.getArrayAttr(SmallVector<Attribute>{
+                                    bufferAikTransform.get()}));
+
+            TopDownTMBuilder bufferBjkTransform(rewriter, {"j", "k"},
+                                                {1, kBasePerThread}, loc);
+            bufferBjkTransform.ignore("j");
+            bufferBjkTransform.passThrough({"k"}, 0, {"k"});
+            auto bufferB =
+                rock::transform(rewriter, preAccelRegBufferK,
+                                rewriter.getArrayAttr(SmallVector<Attribute>{
+                                    bufferBjkTransform.get()}));
+
+            TopDownTMBuilder bufferCijTransform(
+                rewriter, {"ci", "cj", "i", "j"}, {mRepeats, nRepeats, 1, 1},
+                loc);
+            bufferCijTransform.ignore("i");
+            bufferCijTransform.ignore("j");
+            bufferCijTransform.unmerge("offset", 0, {"ci", "cj"},
+                                       {mRepeats, nRepeats});
+            auto bufferC =
+                rock::transform(rewriter, accRegBufferGemm0,
+                                rewriter.getArrayAttr(SmallVector<Attribute>{
+                                    bufferCijTransform.get()}));
+
             // regsC += regsA * regsB
-            rewriter.create<AccelGemmOp>(
-                loc, mi, nLoop.getInductionVar(), preAccelRegBufferQ,
-                preAccelRegBufferK, accRegBufferGemm0, op.getArchAttr(),
-                op.getFeaturesAttr(), op.getParamsAttr());
+            rewriter.create<ThreadwiseAccelGemmOp>(
+                loc, bufferA, bufferB, bufferC, ValueRange{mi, n_i},
+                op.getArchAttr(), op.getFeaturesAttr(), op.getParamsAttr());
           }
         }
       }
