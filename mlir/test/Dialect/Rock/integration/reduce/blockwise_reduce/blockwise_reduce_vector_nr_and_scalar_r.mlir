@@ -31,7 +31,7 @@
 func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{arch = "", block_size = 64 : i32, grid_size = 24 : i32, kernel} {
   %input_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
-  %ws_lds = rock.alloc() : memref<1024xf32, #gpu.address_space<workgroup>>
+  %ws_lds = rock.alloc() : memref<64xf32, #gpu.address_space<workgroup>>
 
   %c0 = arith.constant 0 : index
   %c2 = arith.constant 2 : index
@@ -43,7 +43,7 @@ func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>, 
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map1, #transform_map2, #transform_map3](%input)[%c0, %m_block_id, %n_block_id, %tid] -> %input_reg : memref<1x64x384xf32> ->  memref<16xf32, #gpu.address_space<private>>
 
-  rock.blockwise_broadcast_reduce  sum [#transform_map21, #transform_map22, #transform_map23] %input_reg into %output_reg using [#transform_map21_tid, #transform_map22_tid, #transform_map23_tid][#transform_map21_iter, #transform_map22_iter, #transform_map23_iter] %ws_lds {axis = 0 : index, blockSize = 64 : i32} : memref<16xf32, #gpu.address_space<private>> using memref<1024xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
+  rock.blockwise_broadcast_reduce  sum [#transform_map21, #transform_map22, #transform_map23] %input_reg into %output_reg using [#transform_map21_tid, #transform_map22_tid, #transform_map23_tid][#transform_map21_iter, #transform_map22_iter, #transform_map23_iter] %ws_lds {axis = 0 : index, blockSize = 64 : i32} : memref<16xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
 
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map1, #transform_map2, #transform_map3](%output)[%c0, %m_block_id, %n_block_id, %tid] by set : memref<16xf32, #gpu.address_space<private>> -> memref<1x64x384xf32>
   return

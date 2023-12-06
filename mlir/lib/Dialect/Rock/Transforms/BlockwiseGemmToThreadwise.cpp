@@ -589,7 +589,7 @@ struct BlockwiseReduceRewritePattern
   // function on parallel.
   ArrayAttr createLDSWorkspaceView(Location loc, PatternRewriter &rewriter,
                                    ArrayAttr regTensorView, int64_t reduceAxis,
-                                   bool makeRDimZero = false) const {
+                                   bool makeRDimZero = false, std::optional<int64_t> rDimZeroLen = std::nullopt) const {
 
     TransformMapAttr lowestTr =
         regTensorView[regTensorView.size() - 1].cast<TransformMapAttr>();
@@ -597,6 +597,7 @@ struct BlockwiseReduceRewritePattern
     TopDownTMBuilder tensorToLDSViewBuilder(rewriter, lowestShape, loc);
     SmallVector<StringRef, 4> upperNameRefs;
     tensorToLDSViewBuilder.getStartNames(upperNameRefs);
+    int64_t rDimLen = rDimZeroLen.value_or(lowestShape[reduceAxis]);
 
     int64_t nonReduceMergeDimSize = 1;
     SmallVector<StringRef, 4> nonReduceNameRefs;
@@ -613,7 +614,7 @@ struct BlockwiseReduceRewritePattern
     tensorToLDSViewBuilder.unmerge("nrDim", 0, nonReduceNameRefs,
                                    nonReduceDimSizes);
     if (makeRDimZero) {
-      tensorToLDSViewBuilder.constDim("rDim", 1, 0, lowestShape[reduceAxis]);
+      tensorToLDSViewBuilder.constDim("rDim", 1, 0, rDimLen);
     } else {
       tensorToLDSViewBuilder.passThrough({"rDim"}, {1},
                                          {upperNameRefs[reduceAxis]});
@@ -624,7 +625,7 @@ struct BlockwiseReduceRewritePattern
         TopDownTMBuilder::below(tensorToLDSViewBuilder, twoDimLDSView);
     flatLDSViewBuilder.unmerge(
         "flatDim", 0, {"nrDim", "rDim"},
-        {nonReduceMergeDimSize, lowestShape[reduceAxis]});
+        {nonReduceMergeDimSize, rDimLen});
     TransformMapAttr flatLDSView = flatLDSViewBuilder.get();
     SmallVector<Attribute> threadsToLDSViewAttrs;
     for (Attribute trMap : regTensorView) {
@@ -1106,14 +1107,14 @@ struct BlockwiseReduceRewritePattern
           }
         }
         ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
-            loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+            loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
         rewriter.create<LDSBarrierOp>(loc);
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
             /*extraIndices=*/ValueRange{tid}, true, false);
         if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
-              loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+              loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, op.getExtraOut(),
               reducedldsViewArrayAttr2,
@@ -1271,14 +1272,14 @@ struct BlockwiseReduceRewritePattern
             rewriter.create<LDSBarrierOp>(loc);
           }
           ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
-              loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true);
+              loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
           rewriter.create<ThreadwiseReadIntoOp>(
               loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
               /*extraIndices=*/ValueRange{tid}, true, false);
           if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
             ArrayAttr reducedldsViewArrayAttr2 =
                 createLDSWorkspaceView(loc, rewriter, outputViewArrayAttr, axis,
-                                       /*makeRDimZero-*/ true);
+                                       /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, workspaceLDSBuffer, op.getExtraOut(),
                 reducedldsViewArrayAttr2,
