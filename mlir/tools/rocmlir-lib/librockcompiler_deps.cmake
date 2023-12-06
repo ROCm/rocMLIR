@@ -19,6 +19,7 @@ LLVMCodeGen
 LLVMCodeGenTypes
 LLVMCore
 LLVMCoroutines
+LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
 LLVMDebugInfoMSF
@@ -27,6 +28,7 @@ LLVMDemangle
 LLVMExtensions
 LLVMFrontendOpenMP
 LLVMGlobalISel
+LLVMHipStdPar
 LLVMIRPrinter
 LLVMIRReader
 LLVMInstCombine
