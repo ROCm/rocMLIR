@@ -356,6 +356,38 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   }
 
   {
+    // Create views for tid slice of blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(b, {"tid"},
+                                       {blockSize}, loc);
+    splitMemoryCoords.merge(
+        {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
+        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    auto toRowsAndCols =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    // "blkMajor" and "blkMinor" are placeholder names because we don't know
+    // if they'll be column or row until we check for broadcast-ness.
+    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
+        splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+                          {wavesInKernelBlock / nWaves, nWaves});
+    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
+    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[5]},
+                      {dimSizesM[2], dimSizesM[5]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[4]},
+                      {dimSizesN[2], dimSizesN[4]});
+
+    // Before returning the output view, if necessary, swap back the
+    // threadid/iter dimensions on both the M/N axis.
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+                                          toRowsAndColsAttr, toMatrixC.get()};
+    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
+  }
+
+  {
     // Create views as threadwise sub-tile of C
     TopDownTMBuilder splitMemoryCoords(b, {"item"}, {numElements}, loc);
     splitMemoryCoords.merge(
@@ -797,6 +829,27 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /**isBlocwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
+  }
+
+  {
+    // Create views for tid slice of blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"tid"}, {blockSize},
+        loc);
+    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
+                            {0, 1, 2, 3}, "tid",
+                            {wavesInKernelBlock / nWaves, nWaves,
+                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toMatrixC =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[4]},
+                      {dimSizesM[2], dimSizesM[4]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[3]},
+                      {dimSizesN[2], dimSizesN[3]});
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr, toMatrixC.get()};
+    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
   }
 
   {

@@ -889,6 +889,7 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // ReinterpretMultiBufferOp
 //===-----------------------------------------------------===//
+
 void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
                                      Value input, MemRefType bufferType,
                                      int64_t multibufferFactor) {
@@ -1579,6 +1580,44 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// ThreadwiseCopyOp
+//===-----------------------------------------------------===//
+SmallPtrSet<OpOperand *, 2> ThreadwiseCopyOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  int extraIndicesOpPos = (getExtraIndicesSource().empty() ? 0 : 1);
+  return {operands.begin(), operands.begin() + extraIndicesOpPos + 1};
+}
+
+std::optional<OperandRange>
+ThreadwiseCopyOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand))
+    return std::nullopt;
+  return (operand.getOperandNumber() == 0 ? getExtraIndicesSource()
+                                          : getExtraIndicesDest());
+}
+
+Operation *
+ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
+                                        Value view,
+                                        ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand))
+    return getOperation();
+
+  // Only one operand supports view
+  ThreadwiseCopyOp newOp;
+  if (operand.getOperandNumber() == 0) {
+    newOp = builder.create<ThreadwiseCopyOp>(
+        getLoc(), view, newExtraIndices, getDest(), getExtraIndicesDest(),
+        getForceUnroll(), getUseIndexDiffs());
+  } else {
+    newOp = builder.create<ThreadwiseCopyOp>(
+        getLoc(), getSource(), getExtraIndicesSource(), view, newExtraIndices,
+        getForceUnroll(), getUseIndexDiffs());
+  }
+  return newOp.getOperation();
+}
+
 LogicalResult ThreadwiseCopyOp::verify() {
   auto srcShape = getSource().getType().getShape();
   auto dstShape = getDest().getType().getShape();
@@ -1808,9 +1847,13 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   // This view should be {tid, iter} to {d0, ... , Dr , ... , dn};
   // where {d0, ... , Dr , ... , dn} represent a blockwise tile
   // of a larger tensor that is being reduced.
-  TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
-  ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
-  ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
+  size_t inputViewArrLen = inputViewArrayAttr.size();
+  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
+  ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
+  int64_t axis = getAxis().getSExtValue();
+  size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
+  ArrayRef<int64_t> inputPartRedTensorShape = tidSubTileSliceView[tidSubTileSliceViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0].cast<TransformMapAttr>().getUpperBounds().asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
 
@@ -1864,11 +1907,16 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
     return emitError("workspace LDS buffer should be flat");
   }
 
-  int64_t blockwiseInputTensorElements = 1;
-  for (int64_t dimSize : inputTensorShape) {
-    blockwiseInputTensorElements *= dimSize;
+  int64_t blockwiseInputPartRedTensorElements = 1;
+  for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
+    if((int64_t)dim == axis){
+      blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
+    }
+    else{
+      blockwiseInputPartRedTensorElements *= dimSize;
+    }
   }
-  if (blockwiseInputTensorElements > wsShape[0]) {
+  if (blockwiseInputPartRedTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block");
   }
@@ -1943,6 +1991,34 @@ LogicalResult AttentionOp::verify() {
       return emitError("scale needs to be of same rank to other inputs");
     }
   }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// StageOp
+//===-----------------------------------------------------===//
+
+void StageOp::print(OpAsmPrinter &p) {
+  // p.printOptionalArrowTypeList(getResultTypes());
+
+  p << ' ';
+  p.printRegion(getRegion(),
+                /*printEntryBlockArgs=*/false,
+                /*printBlockTerminators=*/true);
+
+  p.printOptionalAttrDict((*this)->getAttrs());
+}
+
+ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
+  if (parser.parseOptionalArrowTypeList(result.types))
+    return failure();
+
+  // Introduce the body region and parse it.
+  Region *body = result.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{}) ||
+      parser.parseOptionalAttrDict(result.attributes))
+    return failure();
 
   return success();
 }
