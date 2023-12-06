@@ -985,9 +985,6 @@ struct BlockwiseReduceRewritePattern
     mlir::ArrayAttr inputBlockSubTile2dView = createInput2DView(loc, rewriter, inputViewArrayAttr, axis);
     SmallVector<int64_t, 2> partialRegTensorShape = llvm::to_vector<2>(getLowerShape(inputBlockSubTile2dView));
     ArrayAttr tidSubTileSliceView = createInput2DView(loc, rewriter, op.getTidSubTileSliceView(), axis);
-    llvm::errs() << "inputThreadSubTile2dView = " << inputThreadSubTile2dView << "\n";
-    llvm::errs() << "tidSubTileSliceView = " << tidSubTileSliceView << "\n";
-    llvm::errs() << "inputBlockSubTile2dView = " << inputBlockSubTile2dView << "\n";
     ArrayRef<int64_t> partialReductionLower2DShape = getLowerShape(tidSubTileSliceView);
     partialRegTensorShape[rDim] = partialReductionLower2DShape[rDim];
     ArrayAttr toFlatLDSView = create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim], partialRegTensorShape[rDim]);
