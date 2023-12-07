@@ -98,21 +98,25 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK-DAG: #[[TMAP13:.*]] = #rock.transform_map<#[[MAP7]]
 
 // CHECK: func @rock_blockwise_reducesum_nr_threads_lt_blocksize
-// CHECK: %[[TID0:.*]] = rock.workitem_id : index
 
-// Skipping LDS workspace loading checks as they are quite same as above
+// CHECK-DAG: %[[ZEROFP:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK-DAG: %[[ZERO:.*]] = arith.constant 0 : index
+// CHECK-DAG: %[[TID0:.*]] = rock.workitem_id : index
+
+// Skipping threadwise first lowering checks 
+// as they are quite same as the above test
 
 // CHECK: %[[PRT_THREAD_IDX:.*]] = arith.divsi %[[TID0]], %c4
 // CHECK: %[[PRT_GROUP_IDX:.*]] = arith.remsi %[[TID0]], %c4
-// CHECK: rock.transforming_for {{.*}} (%[[LDS_LD_COORD:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 4] strides [1, 1, 4] {
-// CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD]]]
-// CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load {{.*}}[%c0]
-// CHECK: %[[SUM_REDUCE:.*]] = vector.reduction <add>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
-// CHECK: %[[ACC_NEW:.*]] = arith.addf %[[TO_REDUCE_ACC]], %[[SUM_REDUCE]]
-// CHECK: rock.in_bounds_store %[[ACC_NEW]] -> {{.*}}[%c0] {{.*}} #gpu.address_space<private>>
-// CHECK: rock.transforming_for {{.*}}[#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 1] strides [1, 1, 1] {
-// CHECK: rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
-// CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<20xf32, #gpu.address_space<workgroup>>, index
+// CHECK: rock.transforming_for {{.*}} (%[[LDS_LD_COORD:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 4] strides [1, 1, 4] {
+    // CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD]]]
+    // CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load {{.*}}[%c0]
+    // CHECK: %[[SUM_REDUCE:.*]] = vector.reduction <add>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
+    // CHECK: %[[ACC_NEW:.*]] = arith.addf %[[TO_REDUCE_ACC]], %[[SUM_REDUCE]]
+    // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> {{.*}}[%c0] {{.*}} #gpu.address_space<private>>
+// CHECK: rock.transforming_for {{.*}}[#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0) {{.*}} bounds [1, 1, 1] strides [1, 1, 1] {
+    // CHECK: rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
+    // CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<80xf32, #gpu.address_space<workgroup>>, index
 // CHECK: rock.lds_barrier
 
 // Partial threadwise reductions done now...
@@ -121,8 +125,8 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: %[[PLUS_FOUR_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_FOUR_OFFSET]], %c5
 // CHECK: scf.if %[[PLUS_FOUR_BCHECK]] {
     // CHECK: rock.transforming_for
-    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
-    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PLUS_FOUR_OFFSET]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PLUS_FOUR_OFFSET]], %c0)
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1A]]]
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1B]]]
     // CHECK: arith.addf
@@ -133,8 +137,8 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: %[[PLUS_TWO_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_TWO_OFFSET]], %c4
 // CHECK: scf.if %[[PLUS_TWO_BCHECK]] {
     // CHECK: rock.transforming_for
-    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
-    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PLUS_TWO_OFFSET]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PLUS_TWO_OFFSET]], %c0)
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1A]]]
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1B]]]
     // CHECK: arith.addf
@@ -145,8 +149,8 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 // CHECK: %[[PLUS_ONE_BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE_OFFSET]], %c2
 // CHECK: scf.if %[[PLUS_ONE_BCHECK]] {
     // CHECK: rock.transforming_for
-    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
-    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP3]], #[[TMAP4]], #[[TMAP5]], #[[TMAP1]], #[[TMAP2]]](%[[PRT_GROUP_IDX]], %[[PLUS_ONE_OFFSET]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1A:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PRT_THREAD_IDX]], %c0)
+    // CHECK-SAME: (%[[LDS_LD_COORD1B:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[PRT_GROUP_IDX]], %[[PLUS_ONE_OFFSET]], %c0)
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1A]]]
     // CHECK: rock.in_bounds_load {{.*}}[%[[LDS_LD_COORD1B]]]
     // CHECK: arith.addf
@@ -155,11 +159,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 // All reductions are done and stored for each point in joint non-reduction space.
 // Read-back the reduced values to regs
-
-// CHECK: rock.transforming_for
-// CHECK-SAME: (%[[LDS_LD_COORD:.*]]) = [#[[TMAP]], #[[TMAP6]], #[[TMAP2]]](%[[TID0]], %c0)
-// CHECK: rock.in_bounds_load %arg2[%[[LDS_LD_COORD]]] : memref<20xf32, #gpu.address_space<workgroup>>, index -> f32
-// CHECK: rock.in_bounds_store {{.*}} : f32 -> memref<4xf32, #gpu.address_space<private>>, index
+// CHECK: rock.threadwise_read_into {{.*}}(%arg2) {{.*}} -> %arg1
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 #inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
