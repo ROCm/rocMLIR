@@ -825,6 +825,8 @@ struct BlockwiseReduceRewritePattern
     return reducedView;
   }
 
+  // Perform threadwise reductions based thread subtile
+  // view and store the reduced data to reduced buffer
   void doThreadwiseReductions(PatternRewriter &rewriter,
                               Location loc,
                               BlockwiseBroadcastReduceOp op,
@@ -833,13 +835,8 @@ struct BlockwiseReduceRewritePattern
     Value inputRawBuffer = op.getInput();
     int64_t numElements = inputRawBuffer.getType().cast<MemRefType>().getNumElements();
     constexpr size_t nrDim = 0;
-    // // Get current workitem ID.
-    // WorkitemIdOp tid =
-    //     rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());    
-
+  
     ArrayRef<int64_t> threadSubTileShape = getLowerShape(inputThreadSubTile2dView);
-    // ArrayAttr reducedBlockView = createReducedView(rewriter, loc, inputBlockSubTileView, axis);
-
     Type elemType = inputRawBuffer.getType().cast<MemRefType>().getElementType();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
@@ -864,6 +861,8 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
+  // This function store partial reductions to LDS for 
+  // inter-thread reductions later on.
   void storePartialReductionstoLDS(PatternRewriter &rewriter,
                    Location loc,
                    Value reducedBuffer,
@@ -875,12 +874,8 @@ struct BlockwiseReduceRewritePattern
     Type elemType = reducedBuffer.getType().cast<MemRefType>().getElementType();
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    // not all of these are valid as reducedBuffer is sparse
-    // int64_t nrDimLen = reducedBuffer.getType().cast<MemRefType>().getNumElements();
     ArrayAttr inputThreadSubTile2dViewInv = invertTransforms(rewriter, loc, inputThreadSubTile2dView);
     ArrayRef<int64_t> threadSubTile2DShape = getLowerShape(inputThreadSubTile2dView);
-    // ArrayRef<int64_t> upperShape =
-    //         inputBlockSubTile2dView[0].cast<TransformMapAttr>().getUpperBounds();
     WorkitemIdOp tid =
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
@@ -888,6 +883,8 @@ struct BlockwiseReduceRewritePattern
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
 
+    // First we iterate thread subtile along non-reduction
+    // axis to get iter coordinate within the register
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{inputThreadSubTile2dViewInv, rewriter.getArrayAttr({})},
@@ -900,6 +897,9 @@ struct BlockwiseReduceRewritePattern
         Value iter = loop.getLowerCoords(0)[0];
         Block::BlockArgListType threadSubTile2DCoords = loop.getLowerCoords(1);
 
+        // Then we plug that iter coordinate along with tid to recover block subtile
+        // coordinates. However, we only need non-reduction dimension coordinate from 
+        // the block subtile.
         auto convertToBlockSubTile = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{tid, iter}}, 
                                                                             ArrayRef<Attribute>{inputBlockSubTile2dView}, 
                                                                             /*bounds=*/ArrayRef<int64_t>{1, 1}, 
@@ -912,6 +912,9 @@ struct BlockwiseReduceRewritePattern
           Value ldReduced = rewriter.create<InBoundsLoadOp>(
                             loc, elemType, reducedBuffer, ValueRange{threadSubTile2DCoords[0]});
 
+          // Here we plug the tid to get the sliced block subtile coordinate find a unique
+          // packed coordinate in the reduction axis per each thread to write the partial
+          // reductions to the lds.
           auto convertToBlockSubTileTidSlice = rewriter.create<TransformingForOp>(loc, ArrayRef<ValueRange>{{tid}}, 
                                                                             ArrayRef<Attribute>{tidSubTileSliceView}, 
                                                                             /*bounds=*/ArrayRef<int64_t>{1}, 
@@ -967,7 +970,6 @@ struct BlockwiseReduceRewritePattern
         llvm::to_vector<4>(lowerTrLowerBounds);
     int64_t nonReductionDimSizeProduct =
           calculateNonReductionDimProduct(regTensorShape, axis);
-    // Allocate a partial reduction buffer.
 
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;
@@ -990,13 +992,7 @@ struct BlockwiseReduceRewritePattern
     ArrayAttr toFlatLDSView = create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim], partialRegTensorShape[rDim]);
     storePartialReductionstoLDS(rewriter, loc, partialRedBuffer, workspaceLDSBuffer, inputBlockSubTile2dView, inputThreadSubTile2dView, tidSubTileSliceView, toFlatLDSView);
         
-    // rewriter.create<ThreadwiseWriteAllOp>(
-    //     loc, inputReg, workspaceLDSBuffer,
-    //     createLDSWorkspaceView(loc, rewriter, inputViewArrayAttr, axis),
-    //     /*extraIndices=*/ValueRange{tid}, rock::GemmFeatures::none,
-    //     StoreMethod::Set, true, true);
     rewriter.create<LDSBarrierOp>(loc);
-
     // Following RAII scope will create reduction loops.
     {
       int64_t nonReductionDimSizeProduct = partialRegTensorShape[nrDim];
