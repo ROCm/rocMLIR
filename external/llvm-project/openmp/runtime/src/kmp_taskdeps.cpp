@@ -9,6 +9,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+//
+//===----------------------------------------------------------------------===//
 
 //#define KMP_SUPPORT_GRAPH_OUTPUT 1
 
@@ -18,6 +21,7 @@
 #include "kmp_taskdeps.h"
 #if OMPT_SUPPORT
 #include "ompt-specific.h"
+
 #endif
 
 // TODO: Improve memory allocation? keep a list of pre-allocated structures?
@@ -643,6 +647,46 @@ static bool __kmp_check_deps(kmp_int32 gtid, kmp_depnode_t *node,
   return npredecessors > 0 ? true : false;
 }
 
+/* AOCC begin */
+/*
+ * a wrapper function to __kmpc_omp_task_with_deps
+ */
+int __kmpc_omp_task_alloc_with_deps(ident_t *loc_ref, kmp_int32 gtid, kmp_task_t *new_task,
+                                    int ndeps, int nargs, ...) {
+  int *dependinfo = (int*)malloc(nargs*sizeof(int)); 
+  va_list valist;
+  va_start(valist, nargs);
+  for (int k = 0; k < nargs; k++) {
+    dependinfo[k] = va_arg(valist, int);
+  }
+  va_end(valist);
+  kmp_depend_info_t *deplist = (kmp_depend_info_t*)malloc(ndeps*sizeof(kmp_depend_info_t));
+
+  for (int i = 0, j = 0; i < ndeps && j < ndeps*3; i++, j+=3) {
+    kmp_depend_info_t depinfo;
+    depinfo.base_addr = dependinfo[j+2];
+    depinfo.len = dependinfo[j+1];
+    int deptype = dependinfo[j];
+    depinfo.flags.mtx = 1;
+    if (deptype == DI_DEP_TYPE_INOUT) {
+      depinfo.flags.in = 1;
+      depinfo.flags.out = 1;
+    } else if (deptype == DI_DEP_TYPE_IN) {
+      depinfo.flags.in = 1;
+    } else if (deptype == DI_DEP_TYPE_OUT) {
+      depinfo.flags.out = 1;
+    }
+    deplist[i] = depinfo;
+  }
+  free(dependinfo);  
+  __kmp_assert_valid_gtid(gtid);
+
+  int ret = __kmpc_omp_task_with_deps(loc_ref, gtid, new_task, ndeps, deplist, 0, deplist);
+  free(deplist);
+  return ret;
+}
+/* AOCC end */
+
 /*!
 @ingroup TASKING
 @param loc_ref location of the original task directive
@@ -745,7 +789,9 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
 
     for (i = 0; i < ndeps; i++) {
       ompt_deps[i].variable.ptr = (void *)dep_list[i].base_addr;
-      if (dep_list[i].flags.in && dep_list[i].flags.out)
+      if (dep_list[i].base_addr == KMP_SIZE_T_MAX)
+        ompt_deps[i].dependence_type = ompt_dependence_type_out_all_memory;
+      else if (dep_list[i].flags.in && dep_list[i].flags.out)
         ompt_deps[i].dependence_type = ompt_dependence_type_inout;
       else if (dep_list[i].flags.out)
         ompt_deps[i].dependence_type = ompt_dependence_type_out;
@@ -755,10 +801,15 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
         ompt_deps[i].dependence_type = ompt_dependence_type_mutexinoutset;
       else if (dep_list[i].flags.set)
         ompt_deps[i].dependence_type = ompt_dependence_type_inoutset;
+      else if (dep_list[i].flags.all)
+        ompt_deps[i].dependence_type = ompt_dependence_type_out_all_memory;
     }
     for (i = 0; i < ndeps_noalias; i++) {
       ompt_deps[ndeps + i].variable.ptr = (void *)noalias_dep_list[i].base_addr;
-      if (noalias_dep_list[i].flags.in && noalias_dep_list[i].flags.out)
+      if (noalias_dep_list[i].base_addr == KMP_SIZE_T_MAX)
+        ompt_deps[ndeps + i].dependence_type =
+            ompt_dependence_type_out_all_memory;
+      else if (noalias_dep_list[i].flags.in && noalias_dep_list[i].flags.out)
         ompt_deps[ndeps + i].dependence_type = ompt_dependence_type_inout;
       else if (noalias_dep_list[i].flags.out)
         ompt_deps[ndeps + i].dependence_type = ompt_dependence_type_out;
@@ -769,6 +820,9 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
             ompt_dependence_type_mutexinoutset;
       else if (noalias_dep_list[i].flags.set)
         ompt_deps[ndeps + i].dependence_type = ompt_dependence_type_inoutset;
+      else if (noalias_dep_list[i].flags.all)
+        ompt_deps[ndeps + i].dependence_type =
+            ompt_dependence_type_out_all_memory;
     }
     ompt_callbacks.ompt_callback(ompt_callback_dependences)(
         &(new_taskdata->ompt_task_info.task_data), ompt_deps, ompt_ndeps);

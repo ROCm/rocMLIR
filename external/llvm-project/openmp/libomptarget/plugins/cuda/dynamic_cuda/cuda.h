@@ -24,6 +24,7 @@ typedef struct CUfunc_st *CUfunction;
 typedef struct CUstream_st *CUstream;
 typedef struct CUevent_st *CUevent;
 
+// Required by NextGen plugin
 #define CU_DEVICE_INVALID ((CUdevice)-2)
 
 typedef enum cudaError_enum {

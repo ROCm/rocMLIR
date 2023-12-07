@@ -53,6 +53,9 @@ private:
   void emitKernelDeinit(CodeGenFunction &CGF, EntryFunctionState &EST,
                         bool IsSPMD);
 
+  void GenerateMetaData(CodeGenModule &CGM, const OMPExecutableDirective &D,
+                        llvm::Function *&OutlinedFn, bool isSPMD);
+
   /// Helper for generic variables globalization prolog.
   void emitGenericVarsProlog(CodeGenFunction &CGF, SourceLocation Loc,
                              bool WithSPMDCheck = false);
@@ -119,11 +122,24 @@ public:
   explicit CGOpenMPRuntimeGPU(CodeGenModule &CGM);
   void clear() override;
 
-  bool isTargetCodegen() const override { return true; };
+  bool isGPU() const override { return true; };
 
   /// Declare generalized virtual functions which need to be defined
   /// by all specializations of OpenMPGPURuntime Targets like AMDGCN
   /// and NVPTX.
+
+  /// Check if the variable length declaration is delayed:
+  bool isDelayedVariableLengthDecl(CodeGenFunction &CGF,
+                                   const VarDecl *VD) const override;
+
+  /// Get call to __kmpc_alloc_shared
+  std::pair<llvm::Value *, llvm::Value *>
+  getKmpcAllocShared(CodeGenFunction &CGF, const VarDecl *VD) override;
+
+  /// Get call to __kmpc_free_shared
+  void getKmpcFreeShared(
+      CodeGenFunction &CGF,
+      const std::pair<llvm::Value *, llvm::Value *> &AddrSizePair) override;
 
   /// Get the GPU warp size.
   llvm::Value *getGPUWarpSize(CodeGenFunction &CGF);
@@ -133,6 +149,44 @@ public:
 
   /// Get the maximum number of threads in a block of the GPU.
   llvm::Value *getGPUNumThreads(CodeGenFunction &CGF);
+
+  /// Get the block id of the current thread on the GPU
+  llvm::Value *getGPUBlockID(CodeGenFunction &CGF);
+
+  /// Get the number of blocks on the GPU
+  llvm::Value *getGPUNumBlocks(CodeGenFunction &CGF);
+
+  /// Get the number of blocks on the GPU for special reduction
+  llvm::Value *getXteamRedBlockSize(CodeGenFunction &CGF, int BlockSize);
+
+  std::pair<llvm::Value *, llvm::Value *>
+  getXteamRedFunctionPtrs(CodeGenFunction &CGF, llvm::Type *RedVarType);
+
+  /// Call cross-team sum
+  llvm::Value *getXteamRedSum(CodeGenFunction &CGF, llvm::Value *Val,
+                              llvm::Value *SumPtr, llvm::Value *DTeamVals,
+                              llvm::Value *DTeamsDonePtr,
+                              llvm::Value *ThreadStartIndex,
+                              llvm::Value *NumTeams, int BlockSize);
+
+  /// Returns whether the current architecture supports fast FP atomics
+  bool supportFastFPAtomics() override;
+
+  // Emit call to fast FP intrinsics
+  std::pair<bool, RValue> emitFastFPAtomicCall(CodeGenFunction &CGF, LValue X,
+                                               RValue Update,
+                                               BinaryOperatorKind BO,
+                                               bool IsXBinopExpr) override;
+
+  /// Return whether the current architecture must emit CAS loop runtime call
+  /// for given type and atomic operation
+  bool mustEmitSafeAtomic(CodeGenFunction &CGF, LValue X, RValue Update,
+                          BinaryOperatorKind BO) override;
+
+  // Emit call to CAS loop
+  std::pair<bool, RValue> emitAtomicCASLoop(CodeGenFunction &CGF, LValue X,
+                                            RValue Update,
+                                            BinaryOperatorKind BO) override;
 
   /// Emit call to void __kmpc_push_proc_bind(ident_t *loc, kmp_int32
   /// global_tid, int proc_bind) to generate code for 'proc_bind' clause.
@@ -323,6 +377,11 @@ public:
   /// space.
   bool hasAllocateAttributeForGlobalVar(const VarDecl *VD, LangAS &AS) override;
 
+  /// Emit flush of the variables specified in 'omp flush' directive.
+  /// \param Vars List of variables to flush.
+  void emitFlush(CodeGenFunction &CGF, ArrayRef<const Expr *> Vars,
+                 SourceLocation Loc, llvm::AtomicOrdering AO) override;
+
 private:
   /// Track the execution mode when codegening directives within a target
   /// region. The appropriate mode (SPMD/NON-SPMD) is set on entry to the
@@ -359,6 +418,7 @@ private:
     DeclToAddrMapTy LocalVarData;
     EscapedParamsTy EscapedParameters;
     llvm::SmallVector<const ValueDecl*, 4> EscapedVariableLengthDecls;
+    llvm::SmallVector<const ValueDecl *, 4> DelayedVariableLengthDecls;
     llvm::SmallVector<std::pair<llvm::Value *, llvm::Value *>, 4>
         EscapedVariableLengthDeclsAddrs;
     std::unique_ptr<CodeGenFunction::OMPMapVars> MappedParams;

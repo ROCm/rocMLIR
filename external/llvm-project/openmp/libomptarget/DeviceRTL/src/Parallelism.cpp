@@ -69,8 +69,10 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 
 // Invoke an outlined parallel function unwrapping arguments (up to 32).
 void invokeMicrotask(int32_t global_tid, int32_t bound_tid, void *fn,
-                     void **args, int64_t nargs) {
+                     void **args, const int64_t nargs) {
+#ifdef OMPTARGET_DEBUG
   DebugEntryRAII Entry(__FILE__, __LINE__, "<OpenMP Outlined Function>");
+#endif
   switch (nargs) {
 #include "generated_microtask_cases.gen"
   default:
@@ -83,15 +85,63 @@ void invokeMicrotask(int32_t global_tid, int32_t bound_tid, void *fn,
 
 extern "C" {
 
+void __kmpc_parallel_spmd(IdentTy *ident, int32_t, int32_t if_expr,
+                          int32_t num_threads, int proc_bind, void *fn,
+                          void *wrapper_fn, void **args, const int64_t nargs) {
+  FunctionTracingRAII();
+  uint32_t TId = mapping::getThreadIdInBlock();
+  uint32_t NumThreads = determineNumberOfThreads(num_threads);
+  // Avoid the race between the read of the `icv::Level` above and the write
+  // below by synchronizing all threads here.
+  synchronize::threadsAligned();
+  {
+    // Note that the order here is important. `icv::Level` has to be updated
+    // last or the other updates will cause a thread specific state to be
+    // created.
+    state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, NumThreads,
+                                          1u, TId == 0, ident,
+                                          /* ForceTeamState */ true);
+    state::ValueRAII ActiveLevelRAII(icv::ActiveLevel, 1u, 0u, TId == 0, ident,
+                                     /* ForceTeamState */ true);
+    state::ValueRAII LevelRAII(icv::Level, 1u, 0u, TId == 0, ident,
+                               /* ForceTeamState */ true);
+
+    // Synchronize all threads after the main thread (TId == 0) set up the
+    // team state properly.
+    synchronize::threadsAligned();
+
+    state::ParallelTeamSize.assert_eq(NumThreads, ident,
+                                      /* ForceTeamState */ true);
+    icv::ActiveLevel.assert_eq(1u, ident, /* ForceTeamState */ true);
+    icv::Level.assert_eq(1u, ident, /* ForceTeamState */ true);
+
+    if (TId < NumThreads)
+      invokeMicrotask(TId, 0, fn, args, nargs);
+
+    // Synchronize all threads at the end of a parallel region.
+    synchronize::threadsAligned();
+  }
+
+  // Synchronize all threads to make sure every thread exits the scope above;
+  // otherwise the following assertions and the assumption in
+  // __kmpc_target_deinit may not hold.
+  synchronize::threadsAligned();
+
+  state::ParallelTeamSize.assert_eq(1u, ident, /* ForceTeamState */ true);
+  icv::ActiveLevel.assert_eq(0u, ident, /* ForceTeamState */ true);
+  icv::Level.assert_eq(0u, ident, /* ForceTeamState */ true);
+  return;
+}
+
 void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
                         int32_t num_threads, int proc_bind, void *fn,
-                        void *wrapper_fn, void **args, int64_t nargs) {
+                        void *wrapper_fn, void **args, const int64_t nargs) {
   FunctionTracingRAII();
 
   uint32_t TId = mapping::getThreadIdInBlock();
 
   // Assert the parallelism level is zero if disabled by the user.
-  ASSERT((config::mayUseNestedParallelism() || icv::Level == 0) &&
+  ASSERT((config::mayUseNestedParallelism() || icv::Level == 0),
          "nested parallelism while disabled");
 
   // Handle the serialized case first, same for SPMD/non-SPMD:
@@ -107,57 +157,18 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
   }
 
   // From this point forward we know that there is no thread state used.
-  ASSERT(state::HasThreadState == false);
+  ASSERT(state::HasThreadState == false, nullptr);
 
   uint32_t NumThreads = determineNumberOfThreads(num_threads);
+  uint32_t BlockSize = mapping::getBlockSize();
+  uint32_t PTeamSize = NumThreads == BlockSize ? 0 : NumThreads;
+
   if (mapping::isSPMDMode()) {
-    // Avoid the race between the read of the `icv::Level` above and the write
-    // below by synchronizing all threads here.
-    synchronize::threadsAligned(atomic::seq_cst);
-    {
-      // Note that the order here is important. `icv::Level` has to be updated
-      // last or the other updates will cause a thread specific state to be
-      // created.
-      state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, NumThreads,
-                                            1u, TId == 0, ident,
-                                            /* ForceTeamState */ true);
-      state::ValueRAII ActiveLevelRAII(icv::ActiveLevel, 1u, 0u, TId == 0,
-                                       ident, /* ForceTeamState */ true);
-      state::ValueRAII LevelRAII(icv::Level, 1u, 0u, TId == 0, ident,
-                                 /* ForceTeamState */ true);
-
-      // Synchronize all threads after the main thread (TId == 0) set up the
-      // team state properly.
-      synchronize::threadsAligned(atomic::acq_rel);
-
-      state::ParallelTeamSize.assert_eq(NumThreads, ident,
-                                        /* ForceTeamState */ true);
-      icv::ActiveLevel.assert_eq(1u, ident, /* ForceTeamState */ true);
-      icv::Level.assert_eq(1u, ident, /* ForceTeamState */ true);
-
-      // Ensure we synchronize before we run user code to avoid invalidating the
-      // assumptions above.
-      synchronize::threadsAligned(atomic::relaxed);
-
-      if (TId < NumThreads)
-        invokeMicrotask(TId, 0, fn, args, nargs);
-
-      // Synchronize all threads at the end of a parallel region.
-      synchronize::threadsAligned(atomic::seq_cst);
-    }
-
-    // Synchronize all threads to make sure every thread exits the scope above;
-    // otherwise the following assertions and the assumption in
-    // __kmpc_target_deinit may not hold.
-    synchronize::threadsAligned(atomic::acq_rel);
-
-    state::ParallelTeamSize.assert_eq(1u, ident, /* ForceTeamState */ true);
-    icv::ActiveLevel.assert_eq(0u, ident, /* ForceTeamState */ true);
-    icv::Level.assert_eq(0u, ident, /* ForceTeamState */ true);
-
-    // Ensure we synchronize to create an aligned region around the assumptions.
-    synchronize::threadsAligned(atomic::relaxed);
-
+    // This was moved to its own routine so it could be called directly
+    // in certain situations to avoid resource consumption of unused
+    // logic in parallel_51.
+    __kmpc_parallel_spmd(ident, 0, if_expr, num_threads, proc_bind, fn,
+                         wrapper_fn, args, nargs);
     return;
   }
 
@@ -239,7 +250,7 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
     // Note that the order here is important. `icv::Level` has to be updated
     // last or the other updates will cause a thread specific state to be
     // created.
-    state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, NumThreads,
+    state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, PTeamSize,
                                           1u, true, ident,
                                           /* ForceTeamState */ true);
     state::ValueRAII ParallelRegionFnRAII(state::ParallelRegionFn, wrapper_fn,
@@ -250,10 +261,21 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
     state::ValueRAII LevelRAII(icv::Level, 1u, 0u, true, ident,
                                /* ForceTeamState */ true);
 
+#ifdef __AMDGCN__
+    synchronize::omptarget_master_ready = true;
+#endif
     // Master signals work to activate workers.
-    synchronize::threads(atomic::seq_cst);
+    synchronize::threads();
     // Master waits for workers to signal.
-    synchronize::threads(atomic::seq_cst);
+    synchronize::threads();
+#ifdef __AMDGCN__
+    while (!synchronize::omptarget_workers_done)
+      synchronize::threads();
+
+    // Initialize for next parallel region
+    synchronize::omptarget_workers_done = false;
+    synchronize::omptarget_master_ready = false;
+#endif
   }
 
   if (nargs)
@@ -272,7 +294,7 @@ __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn) {
 
   // Set to true for workers participating in the parallel region.
   uint32_t TId = mapping::getThreadIdInBlock();
-  bool ThreadIsActive = TId < state::ParallelTeamSize;
+  bool ThreadIsActive = TId < state::getEffectivePTeamSize();
   return ThreadIsActive;
 }
 
@@ -280,10 +302,10 @@ __attribute__((noinline)) void __kmpc_kernel_end_parallel() {
   FunctionTracingRAII();
   // In case we have modified an ICV for this thread before a ThreadState was
   // created. We drop it now to not contaminate the next parallel region.
-  ASSERT(!mapping::isSPMDMode());
+  ASSERT(!mapping::isSPMDMode(), nullptr);
   uint32_t TId = mapping::getThreadIdInBlock();
   state::resetStateForThread(TId);
-  ASSERT(!mapping::isSPMDMode());
+  ASSERT(!mapping::isSPMDMode(), nullptr);
 }
 
 uint16_t __kmpc_parallel_level(IdentTy *, uint32_t) {

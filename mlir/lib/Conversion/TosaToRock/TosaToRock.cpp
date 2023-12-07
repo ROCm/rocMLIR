@@ -935,18 +935,13 @@ public:
     TypedValue<TensorType> out = op.getOutput();
 
     TypedValue<TensorType> bcastInput;
-    if (arith::ConstantOp maybeZero = inp1.getDefiningOp<arith::ConstantOp>()) {
-      if (isZeroAttribute(maybeZero.getValue())) {
-        bcastInput = inp2;
+    if (isConstantZero(inp1))
+      bcastInput = inp2;
+    if (isConstantZero(inp2)) {
+      if (bcastInput) {
+        return rw.notifyMatchFailure(op, "both inputs are splat zeros");
       }
-    }
-    if (arith::ConstantOp maybeZero = inp2.getDefiningOp<arith::ConstantOp>()) {
-      if (isZeroAttribute(maybeZero.getValue())) {
-        if (bcastInput) {
-          return rw.notifyMatchFailure(op, "both inputs are splat zeros");
-        }
-        bcastInput = inp1;
-      }
+      bcastInput = inp1;
     }
     if (bcastInput) {
       Value bcast =

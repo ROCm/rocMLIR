@@ -707,7 +707,7 @@ bool UnclusteredHighRPStage::initGCNSchedStage() {
     return false;
 
   SavedMutations.swap(DAG.Mutations);
-  DAG.addMutation(createIGroupLPDAGMutation());
+  DAG.addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
 
   InitialOccupancy = DAG.MinOccupancy;
   // Aggressivly try to reduce register pressure in the unclustered high RP
@@ -790,6 +790,7 @@ void UnclusteredHighRPStage::finalizeGCNSchedStage() {
   }
 
   GCNSchedStage::finalizeGCNSchedStage();
+
 }
 
 bool GCNSchedStage::initGCNRegion() {
@@ -803,7 +804,7 @@ bool GCNSchedStage::initGCNRegion() {
   // Skip empty scheduling regions (0 or 1 schedulable instructions).
   if (DAG.begin() == DAG.end() || DAG.begin() == std::prev(DAG.end()))
     return false;
-
+  
   LLVM_DEBUG(dbgs() << "********** MI Scheduling **********\n");
   LLVM_DEBUG(dbgs() << MF.getName() << ":" << printMBBReference(*CurrentMBB)
                     << " " << CurrentMBB->getName()
@@ -811,7 +812,6 @@ bool GCNSchedStage::initGCNRegion() {
              if (DAG.RegionEnd != CurrentMBB->end()) dbgs() << *DAG.RegionEnd;
              else dbgs() << "End";
              dbgs() << " RegionInstrs: " << NumRegionInstrs << '\n');
-
   // Save original instruction order before scheduling for possible revert.
   Unsched.clear();
   Unsched.reserve(DAG.NumRegionInstrs);
@@ -827,9 +827,7 @@ bool GCNSchedStage::initGCNRegion() {
     for (auto &I : DAG)
       Unsched.push_back(&I);
   }
-
   PressureBefore = DAG.Pressure[RegionIdx];
-
   LLVM_DEBUG(
       dbgs() << "Pressure before scheduling:\nRegion live-ins:"
              << print(DAG.LiveIns[RegionIdx], DAG.MRI)
@@ -844,9 +842,8 @@ bool GCNSchedStage::initGCNRegion() {
       StageID != GCNSchedStageID::UnclusteredHighRPReschedule) {
     SavedMutations.clear();
     SavedMutations.swap(DAG.Mutations);
-    DAG.addMutation(createIGroupLPDAGMutation());
+    DAG.addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
   }
-
   return true;
 }
 
@@ -1558,7 +1555,7 @@ void GCNPostScheduleDAGMILive::schedule() {
   if (HasIGLPInstrs) {
     SavedMutations.clear();
     SavedMutations.swap(Mutations);
-    addMutation(createIGroupLPDAGMutation());
+    addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/true));
   }
 
   ScheduleDAGMI::schedule();

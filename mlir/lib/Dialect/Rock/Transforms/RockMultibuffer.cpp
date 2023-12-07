@@ -79,7 +79,7 @@ MemRefType getFlatMultiBufferType(MemRefType originalType,
 /// index to be routed through the stack
 TransformMapAttr getMultiBufferTransform(MLIRContext *ctx,
                                          TransformMapAttr transform,
-                                         int64_t loopLength) {
+                                         int64_t multiBufferFactor) {
   auto ops = llvm::to_vector(transform.getOps());
   SmallVector<TransformAttr> newOps;
   // Since we are adding a PassThrough as first transformation
@@ -99,12 +99,10 @@ TransformMapAttr getMultiBufferTransform(MLIRContext *ctx,
                                         t.getLowerNames(), lowerDims));
   }
 
-  // Create and add the passthrough transform. Notice that logically
-  // every loop will have its own multibuffer. We already added
-  // a broadcast transformation on top of the transform stack
-  // to route the indices back to the real (smaller) multibuffer
-  SmallVector<int64_t, 4> multiBufferedUpperBounds{loopLength};
-  SmallVector<int64_t, 4> multiBufferedLowerBounds{loopLength};
+  // Create and add the passthrough transform to route the multibuffer
+  // index down the transform stack
+  SmallVector<int64_t, 4> multiBufferedUpperBounds{multiBufferFactor};
+  SmallVector<int64_t, 4> multiBufferedLowerBounds{multiBufferFactor};
   ArrayRef<int64_t> originalUpperBounds = transform.getUpperBounds();
   ArrayRef<int64_t> originalLowerBounds = transform.getLowerBounds();
   llvm::append_range(multiBufferedUpperBounds, originalUpperBounds);
@@ -172,14 +170,6 @@ bool acceptsViewAt(Operation *op, OpOperand &operand) {
   return acceptingViewOperands.contains(&operand);
 }
 
-/// Return true if the `transformInput` is the first of the transform stack
-bool isBottomOfTransformStack(Value transformInput) {
-  if (dyn_cast<TransformOp>(transformInput.getDefiningOp())) {
-    return false;
-  }
-  return true;
-}
-
 /// Get the multibuffer index %mb_i from the target loop
 /// mb_i = floor((%i - lowerBound)/step) % multiBufferingFactor
 /// This index is needed if we want to memref.subview into the multi-buffer
@@ -227,13 +217,13 @@ bool overrideBuffer(Operation *op, Value buffer) {
 /// As we go down the tree, we can meet
 ///    a) Transformations (rock.transform)
 ///    b) Operations that accept transformed views (e.g.,
-///    threadwise_read_into/threadwise_write_all) c) Operations that accept raw
-///    views (e.g., blockwise_gemm) d) memref.view to reinterpret the raw
-///    allocation and pass the buffer to other operations
+///       threadwise_read_into/threadwise_write_all)
+///    c) Operations that accept raw views (e.g., blockwise_gemm)
+///    d) memref.view to reinterpret the raw allocation and pass
+///       the buffer to other operations
 static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
                                         Operation *oldOp, Value val,
                                         LoopLikeOpInterface loop,
-                                        int64_t loopLength,
                                         int64_t multiBufferingFactor) {
   SmallVector<Operation *> opsToDelete;
 
@@ -248,36 +238,28 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       auto newView = rewriter.create<rock::ReinterpretMultiBufferOp>(
           loc, val, view.getType(), multiBufferingFactor);
       replaceUsesAndPropagateType(rewriter, loc, view, newView, loop,
-                                  loopLength, multiBufferingFactor);
+                                  multiBufferingFactor);
     } else if (auto transform = dyn_cast<TransformOp>(owner)) {
       // rock.transform case
       Value toTransform = val;
-      if (isBottomOfTransformStack(val) && val.getType().isa<ShapedType>()) {
-        // if this is the top of the transform stack (i.e., the input to the
-        // transform is not a transform) add a broadcast
-        auto shape = val.getType().cast<ShapedType>().getShape();
-        BottomUpTMBuilder broadcast(rewriter, shape, loc);
-        broadcast.broadcast({0}, {loopLength});
-        for (unsigned int dimIdx = 1; dimIdx < shape.size(); dimIdx++) {
-          broadcast.passThrough({dimIdx}, {dimIdx});
-        }
-        TransformMapAttr broadcastAttr = broadcast.get();
-        toTransform = rewriter.create<TransformOp>(loc, val, broadcastAttr);
-      }
       // Change the transform stack adding a passthrough for the multibuffer
       // index
-      auto newMap = getMultiBufferTransform(
-          oldOp->getContext(), transform.getTransformAttr(), loopLength);
+      auto newMap = getMultiBufferTransform(oldOp->getContext(),
+                                            transform.getTransformAttr(),
+                                            multiBufferingFactor);
       auto newTransform =
           rewriter.create<TransformOp>(loc, toTransform, newMap);
 
       replaceUsesAndPropagateType(rewriter, loc, transform, newTransform, loop,
-                                  loopLength, multiBufferingFactor);
+                                  multiBufferingFactor);
     } else if (acceptsViewAt(owner, use)) {
       // This is an operation that accepts a view at the current position:
       // Add the loop index as an additional index
       auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(owner);
-      SmallVector<Value> newExtraIndices = {*loop.getSingleInductionVar()};
+      // Compute the multi buffer index and add it as an extra-index
+      Value mbIndex =
+          getMultiBufferIndex(rewriter, loc, loop, multiBufferingFactor);
+      SmallVector<Value> newExtraIndices = {mbIndex};
       auto extraIndices = viewAcceptingOp.getExtraIndices(use);
       if (extraIndices)
         llvm::append_range(newExtraIndices, *extraIndices);
@@ -425,17 +407,9 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
       loc, mbMemRefType, ValueRange{}, allocOp->getAttrs());
   LLVM_DEBUG(DBGS() << "--multi-buffered alloc: " << mbAlloc << "\n");
 
-  // 3. Gather the loop length
-  Value lbVal = getValueOrCreateConstantIndexOp(rewriter, loc, *lowerBound);
-  Value ubVal = getValueOrCreateConstantIndexOp(rewriter, loc, *upperBound);
-  std::optional<int64_t> loopLength = computeConstDiff(lbVal, ubVal);
-
-  if (!loopLength)
-    return failure();
-
   // 4. RAUW with the particular slice, taking modular rotation into account.
   replaceUsesAndPropagateType(rewriter, loc, allocOp, mbAlloc, candidateLoop,
-                              *loopLength, multiBufferingFactor);
+                              multiBufferingFactor);
 
   // 5. Finally, erase the old allocOp.
   rewriter.eraseOp(allocOp);

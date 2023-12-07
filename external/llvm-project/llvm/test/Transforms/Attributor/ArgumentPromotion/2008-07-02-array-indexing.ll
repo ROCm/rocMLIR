@@ -39,13 +39,13 @@ define i32 @foo(ptr %A) {
 ; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
 ; TUNIT-LABEL: define {{[^@]+}}@foo
 ; TUNIT-SAME: (ptr nocapture nofree readonly [[A:%.*]]) #[[ATTR0]] {
-; TUNIT-NEXT:    [[X:%.*]] = call i32 @callee(ptr nocapture nofree readonly align 4 [[A]]) #[[ATTR1:[0-9]+]]
+; TUNIT-NEXT:    [[X:%.*]] = call i32 @callee(ptr nocapture nofree noundef readonly align 4 [[A]]) #[[ATTR1:[0-9]+]]
 ; TUNIT-NEXT:    ret i32 [[X]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: read)
 ; CGSCC-LABEL: define {{[^@]+}}@foo
 ; CGSCC-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A:%.*]]) #[[ATTR1:[0-9]+]] {
-; CGSCC-NEXT:    [[X:%.*]] = call i32 @callee(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]])
+; CGSCC-NEXT:    [[X:%.*]] = call i32 @callee(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]]) #[[ATTR2:[0-9]+]]
 ; CGSCC-NEXT:    ret i32 [[X]]
 ;
   %X = call i32 @callee(i1 false, ptr %A)             ; <i32> [#uses=1]
@@ -54,8 +54,9 @@ define i32 @foo(ptr %A) {
 
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
-; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn memory(read) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: read) }
+; CGSCC: attributes #[[ATTR2]] = { nofree willreturn memory(read) }
 ;.

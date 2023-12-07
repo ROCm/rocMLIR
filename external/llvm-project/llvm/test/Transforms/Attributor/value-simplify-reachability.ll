@@ -60,7 +60,7 @@ define void @entry1(i1 %c, i32 %v) {
 ; TUNIT:       F:
 ; TUNIT-NEXT:    [[L3:%.*]] = load i32, ptr @GInt1, align 4
 ; TUNIT-NEXT:    call void @useI32(i32 [[L3]])
-; TUNIT-NEXT:    call void @write1ToGInt1() #[[ATTR11:[0-9]+]]
+; TUNIT-NEXT:    call void @write1ToGInt1() #[[ATTR10]]
 ; TUNIT-NEXT:    [[L4:%.*]] = load i32, ptr @GInt1, align 4
 ; TUNIT-NEXT:    call void @useI32(i32 [[L4]])
 ; TUNIT-NEXT:    ret void
@@ -125,7 +125,7 @@ define void @entry2(i1 %c, i32 %v) {
 ; TUNIT:       F:
 ; TUNIT-NEXT:    [[L3:%.*]] = load i32, ptr @GInt2, align 4
 ; TUNIT-NEXT:    call void @useI32(i32 [[L3]])
-; TUNIT-NEXT:    call void @write1ToGInt2() #[[ATTR11]]
+; TUNIT-NEXT:    call void @write1ToGInt2() #[[ATTR10]]
 ; TUNIT-NEXT:    [[L4:%.*]] = load i32, ptr @GInt2, align 4
 ; TUNIT-NEXT:    call void @useI32(i32 [[L4]])
 ; TUNIT-NEXT:    ret void
@@ -418,108 +418,108 @@ define void @exclusion_set1(i1 %c1, i1 %c2, i1 %c3) {
 ; CHECK-NEXT:    ret void
 ;
 entry:
-  %call = call noalias i8* @calloc(i64 1, i64 4) norecurse
-  %gep0 = getelementptr inbounds i8, i8* %call, i64 0
-  %gep1 = getelementptr inbounds i8, i8* %call, i64 1
-  %gep2 = getelementptr inbounds i8, i8* %call, i64 2
-  %gep3 = getelementptr inbounds i8, i8* %call, i64 3
+  %call = call noalias ptr @calloc(i64 1, i64 4) norecurse
+  %gep0 = getelementptr inbounds i8, ptr %call, i64 0
+  %gep1 = getelementptr inbounds i8, ptr %call, i64 1
+  %gep2 = getelementptr inbounds i8, ptr %call, i64 2
+  %gep3 = getelementptr inbounds i8, ptr %call, i64 3
 
-  %l0_a = load i8, i8* %gep0
-  %l1_a = load i8, i8* %gep1
-  %l2_a = load i8, i8* %gep2
-  %l3_a = load i8, i8* %gep3
+  %l0_a = load i8, ptr %gep0
+  %l1_a = load i8, ptr %gep1
+  %l2_a = load i8, ptr %gep2
+  %l3_a = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_a, i8 %l1_a, i8 %l2_a, i8 %l3_a)
 
-  store i8 1, i8* %gep0, align 4
+  store i8 1, ptr %gep0, align 4
 
-  %l0_b = load i8, i8* %gep0
-  %l1_b = load i8, i8* %gep1
-  %l2_b = load i8, i8* %gep2
-  %l3_b = load i8, i8* %gep3
+  %l0_b = load i8, ptr %gep0
+  %l1_b = load i8, ptr %gep1
+  %l2_b = load i8, ptr %gep2
+  %l3_b = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_b, i8 %l1_b, i8 %l2_b, i8 %l3_b)
 
   br i1 %c1, label %if.merge1, label %if.then
 
 if.then:
-  %l0_c = load i8, i8* %gep0
-  %l1_c = load i8, i8* %gep1
-  %l2_c = load i8, i8* %gep2
-  %l3_c = load i8, i8* %gep3
+  %l0_c = load i8, ptr %gep0
+  %l1_c = load i8, ptr %gep1
+  %l2_c = load i8, ptr %gep2
+  %l3_c = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_c, i8 %l1_c, i8 %l2_c, i8 %l3_c)
 
-  store i8 2, i8* %gep1, align 4
+  store i8 2, ptr %gep1, align 4
 
-  %l0_d = load i8, i8* %gep0
-  %l1_d = load i8, i8* %gep1
-  %l2_d = load i8, i8* %gep2
-  %l3_d = load i8, i8* %gep3
+  %l0_d = load i8, ptr %gep0
+  %l1_d = load i8, ptr %gep1
+  %l2_d = load i8, ptr %gep2
+  %l3_d = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_d, i8 %l1_d, i8 %l2_d, i8 %l3_d)
 
   br i1 %c1, label %if.merge1, label %if.then2
 
 if.then2:
-  %l0_e = load i8, i8* %gep0
-  %l1_e = load i8, i8* %gep1
-  %l2_e = load i8, i8* %gep2
-  %l3_e = load i8, i8* %gep3
+  %l0_e = load i8, ptr %gep0
+  %l1_e = load i8, ptr %gep1
+  %l2_e = load i8, ptr %gep2
+  %l3_e = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_e, i8 %l1_e, i8 %l2_e, i8 %l3_e)
 
-  store i8 3, i8* %gep2, align 4
+  store i8 3, ptr %gep2, align 4
 
-  %l0_f = load i8, i8* %gep0
-  %l1_f = load i8, i8* %gep1
-  %l2_f = load i8, i8* %gep2
-  %l3_f = load i8, i8* %gep3
+  %l0_f = load i8, ptr %gep0
+  %l1_f = load i8, ptr %gep1
+  %l2_f = load i8, ptr %gep2
+  %l3_f = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_f, i8 %l1_f, i8 %l2_f, i8 %l3_f)
 
   br i1 %c2, label %if.merge2, label %if.then3
 
 if.merge1:
 
-  %l0_g = load i8, i8* %gep0
-  %l1_g = load i8, i8* %gep1
-  %l2_g = load i8, i8* %gep2
-  %l3_g = load i8, i8* %gep3
+  %l0_g = load i8, ptr %gep0
+  %l1_g = load i8, ptr %gep1
+  %l2_g = load i8, ptr %gep2
+  %l3_g = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_g, i8 %l1_g, i8 %l2_g, i8 %l3_g)
 
   br label %if.merge2
 
 if.merge2:
 
-  %l0_h = load i8, i8* %gep0
-  %l1_h = load i8, i8* %gep1
-  %l2_h = load i8, i8* %gep2
-  %l3_h = load i8, i8* %gep3
+  %l0_h = load i8, ptr %gep0
+  %l1_h = load i8, ptr %gep1
+  %l2_h = load i8, ptr %gep2
+  %l3_h = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_h, i8 %l1_h, i8 %l2_h, i8 %l3_h)
 
   br label %if.end
 
 if.then3:
 
-  %l0_i = load i8, i8* %gep0
-  %l1_i = load i8, i8* %gep1
-  %l2_i = load i8, i8* %gep2
-  %l3_i = load i8, i8* %gep3
+  %l0_i = load i8, ptr %gep0
+  %l1_i = load i8, ptr %gep1
+  %l2_i = load i8, ptr %gep2
+  %l3_i = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_i, i8 %l1_i, i8 %l2_i, i8 %l3_i)
 
-  store i8 4, i8* %gep3, align 4
+  store i8 4, ptr %gep3, align 4
 
-  %l0_j = load i8, i8* %gep0
-  %l1_j = load i8, i8* %gep1
-  %l2_j = load i8, i8* %gep2
-  %l3_j = load i8, i8* %gep3
+  %l0_j = load i8, ptr %gep0
+  %l1_j = load i8, ptr %gep1
+  %l2_j = load i8, ptr %gep2
+  %l3_j = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_j, i8 %l1_j, i8 %l2_j, i8 %l3_j)
 
   br label %if.end
 
 if.end:
-  %l0_k = load i8, i8* %gep0
-  %l1_k = load i8, i8* %gep1
-  %l2_k = load i8, i8* %gep2
-  %l3_k = load i8, i8* %gep3
+  %l0_k = load i8, ptr %gep0
+  %l1_k = load i8, ptr %gep1
+  %l2_k = load i8, ptr %gep2
+  %l3_k = load i8, ptr %gep3
   call void @use_4_i8(i8 %l0_k, i8 %l1_k, i8 %l2_k, i8 %l3_k)
 
-  call void @free(i8* %call) norecurse
+  call void @free(ptr %call) norecurse
   ret void
 }
 
@@ -770,7 +770,7 @@ define i32 @exclusion_set3(i1 %c) {
 ; TUNIT-SAME: (i1 [[C:%.*]]) #[[ATTR5]] {
 ; TUNIT-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; TUNIT-NEXT:    store i32 3, ptr [[A]], align 4
-; TUNIT-NEXT:    call void @exclusion_set3_helper(i1 [[C]], ptr noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[A]]) #[[ATTR8]]
+; TUNIT-NEXT:    call void @exclusion_set3_helper(i1 noundef [[C]], ptr noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[A]]) #[[ATTR8]]
 ; TUNIT-NEXT:    [[FINAL:%.*]] = load i32, ptr [[A]], align 4
 ; TUNIT-NEXT:    ret i32 [[FINAL]]
 ;
@@ -802,7 +802,6 @@ define i32 @exclusion_set3(i1 %c) {
 ; TUNIT: attributes #[[ATTR8]] = { nosync }
 ; TUNIT: attributes #[[ATTR9:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
 ; TUNIT: attributes #[[ATTR10]] = { nosync nounwind memory(write) }
-; TUNIT: attributes #[[ATTR11]] = { nosync nounwind }
 ;.
 ; CGSCC: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ; CGSCC: attributes #[[ATTR1:[0-9]+]] = { nocallback nosync }
@@ -814,5 +813,5 @@ define i32 @exclusion_set3(i1 %c) {
 ; CGSCC: attributes #[[ATTR7]] = { nocallback }
 ; CGSCC: attributes #[[ATTR8]] = { norecurse }
 ; CGSCC: attributes #[[ATTR9:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
-; CGSCC: attributes #[[ATTR10]] = { nounwind }
+; CGSCC: attributes #[[ATTR10]] = { nounwind memory(write) }
 ;.

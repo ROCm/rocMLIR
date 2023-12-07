@@ -12,6 +12,7 @@
 #include "ToolChains/Clang.h"
 #include "ToolChains/CommonArgs.h"
 #include "ToolChains/Flang.h"
+#include "ToolChains/AMDFlang.h"
 #include "ToolChains/InterfaceStubs.h"
 #include "clang/Basic/ObjCRuntime.h"
 #include "clang/Basic/Sanitizers.h"
@@ -26,6 +27,7 @@
 #include "clang/Driver/XRayArgs.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/llvm-config.h"
@@ -433,9 +435,9 @@ Tool *ToolChain::getClang() const {
 }
 
 Tool *ToolChain::getFlang() const {
-  if (!Flang)
-    Flang.reset(new tools::Flang(*this));
-  return Flang.get();
+  if (!AMDFlang)
+    AMDFlang.reset(new tools::AMDFlang(*this));
+  return AMDFlang.get();
 }
 
 Tool *ToolChain::buildAssembler() const {
@@ -484,6 +486,12 @@ Tool *ToolChain::getOffloadBundler() const {
   if (!OffloadBundler)
     OffloadBundler.reset(new tools::OffloadBundler(*this));
   return OffloadBundler.get();
+}
+
+Tool *ToolChain::getOffloadWrapper() const {
+  if (!OffloadWrapper)
+    OffloadWrapper.reset(new tools::OffloadWrapper(*this));
+  return OffloadWrapper.get();
 }
 
 Tool *ToolChain::getOffloadPackager() const {
@@ -535,6 +543,11 @@ Tool *ToolChain::getTool(Action::ActionClass AC) const {
   case Action::OffloadUnbundlingJobClass:
     return getOffloadBundler();
 
+  case Action::FortranFrontendJobClass:
+    return getFlang();
+
+  case Action::OffloadWrapperJobClass:
+    return getOffloadWrapper();
   case Action::OffloadPackagerJobClass:
     return getOffloadPackager();
   case Action::LinkerWrapperJobClass:
@@ -972,6 +985,14 @@ void ToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   // Each toolchain should provide the appropriate include flags.
 }
 
+void ToolChain::addActionsFromClangTargetOptions(
+    const ArgList &DriverArgs,
+    ArgStringList &CC1Args,
+    const JobAction &JA,
+    Compilation &C,
+    const InputInfoList &Inputs) const
+{}
+
 void ToolChain::addClangTargetOptions(
     const ArgList &DriverArgs, ArgStringList &CC1Args,
     Action::OffloadKind DeviceOffloadKind) const {}
@@ -1204,6 +1225,49 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
   }
 }
 
+void ToolChain::AddFortranStdlibLibArgs(const ArgList &Args,
+                                        ArgStringList &CmdArgs) const {
+  bool staticFlangLibs = false;
+  bool useOpenMP = false;
+
+  if (Args.hasArg(options::OPT_staticFlangLibs)) {
+    for (auto *A : Args.filtered(options::OPT_staticFlangLibs)) {
+      A->claim();
+      staticFlangLibs = true;
+    }
+  }
+
+  Arg *A = Args.getLastArg(options::OPT_mp, options::OPT_nomp,
+                           options::OPT_fopenmp, options::OPT_fno_openmp);
+  if (A && (A->getOption().matches(options::OPT_mp) ||
+            A->getOption().matches(options::OPT_fopenmp))) {
+    useOpenMP = true;
+  }
+
+  CmdArgs.push_back(Args.MakeArgString(StringRef("-L") + D.Dir + "/../lib"));
+
+  if (staticFlangLibs) {
+    CmdArgs.push_back("-Bstatic");
+  }
+  CmdArgs.push_back("-lpgmath");
+  CmdArgs.push_back("-lflang");
+  CmdArgs.push_back("-lflangrti");
+  if (useOpenMP) {
+    CmdArgs.push_back("-lomp");
+  } else {
+    CmdArgs.push_back("-lompstub");
+  }
+  if (staticFlangLibs) {
+    CmdArgs.push_back("-Bdynamic");
+  }
+
+  CmdArgs.push_back("-lm");
+  CmdArgs.push_back("-lrt");
+
+  // Allways link Fortran executables with Pthreads
+  CmdArgs.push_back("-lpthread");
+}
+
 void ToolChain::AddFilePathLibArgs(const ArgList &Args,
                                    ArgStringList &CmdArgs) const {
   for (const auto &LibPath : getFilePaths())
@@ -1353,6 +1417,10 @@ llvm::opt::DerivedArgList *ToolChain::TranslateOpenMPTargetArgs(
 
   // Handle -Xopenmp-target flags
   for (auto *A : Args) {
+    // -munsafe-fp-atomics applies to device toolchain
+    if (A->getOption().matches(options::OPT_munsafe_fp_atomics))
+      DAL->append(A);
+
     // Exclude flags which may only apply to the host toolchain.
     // Do not exclude flags when the host triple (AuxTriple)
     // matches the current toolchain triple. If it is not present

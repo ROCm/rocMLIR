@@ -122,6 +122,15 @@ struct SectionEntry {
 
   int16_t Index;
 
+  virtual uint64_t advanceFileOffset(const uint64_t MaxRawDataSize,
+                                     const uint64_t RawPointer) {
+    FileOffsetToData = RawPointer;
+    uint64_t NewPointer = RawPointer + Size;
+    if (NewPointer > MaxRawDataSize)
+      report_fatal_error("Section raw data overflowed this object file.");
+    return NewPointer;
+  }
+
   // XCOFF has special section numbers for symbols:
   // -2 Specifies N_DEBUG, a special symbolic debugging symbol.
   // -1 Specifies N_ABS, an absolute symbol. The symbol has a value but is not
@@ -188,6 +197,19 @@ struct DwarfSectionEntry : public SectionEntry {
   // For DWARF section, we must use real size in the section header. MemorySize
   // is for the size the DWARF section occupies including paddings.
   uint32_t MemorySize;
+
+  // TODO: Remove this override. Loadable sections (e.g., .text, .data) may need
+  // to be aligned. Other sections generally don't need any alignment, but if
+  // they're aligned, the RawPointer should be adjusted before writing the
+  // section. Then a dwarf-specific function wouldn't be needed.
+  uint64_t advanceFileOffset(const uint64_t MaxRawDataSize,
+                             const uint64_t RawPointer) override {
+    FileOffsetToData = RawPointer;
+    uint64_t NewPointer = RawPointer + MemorySize;
+    assert(NewPointer <= MaxRawDataSize &&
+           "Section raw data overflowed this object file.");
+    return NewPointer;
+  }
 
   DwarfSectionEntry(StringRef N, int32_t Flags,
                     std::unique_ptr<XCOFFSection> Sect)
@@ -626,7 +648,8 @@ void XCOFFObjectWriter::recordRelocation(MCAssembler &Asm,
 
   const uint32_t Index = getIndex(SymA, SymASec);
   if (Type == XCOFF::RelocationType::R_POS ||
-      Type == XCOFF::RelocationType::R_TLS)
+      Type == XCOFF::RelocationType::R_TLS ||
+      Type == XCOFF::RelocationType::R_TLS_LE)
     // The FixedValue should be symbol's virtual address in this object file
     // plus any constant value that we might get.
     FixedValue = getVirtualAddress(SymA, SymASec) + Target.getConstant();
@@ -664,10 +687,10 @@ void XCOFFObjectWriter::recordRelocation(MCAssembler &Asm,
     // address, fragment offset and Fixup offset.
     uint64_t BRInstrAddress =
         SectionMap[ParentSec]->Address + FixupOffsetInCsect;
-    // The FixedValue should be the difference between SymA csect address and BR
-    // instr address plus any constant value.
-    FixedValue =
-        SectionMap[SymASec]->Address - BRInstrAddress + Target.getConstant();
+    // The FixedValue should be the difference between symbol's virtual address
+    // and BR instr address plus any constant value.
+    FixedValue = getVirtualAddress(SymA, SymASec) - BRInstrAddress +
+                 Target.getConstant();
   } else if (Type == XCOFF::RelocationType::R_REF) {
     // The FixedValue and FixupOffsetInCsect should always be 0 since it
     // specifies a nonrelocating reference.
@@ -1161,29 +1184,18 @@ void XCOFFObjectWriter::finalizeSectionInfo() {
     if (Sec->Index == SectionEntry::UninitializedIndex || Sec->IsVirtual)
       continue;
 
-    Sec->FileOffsetToData = RawPointer;
-    RawPointer += Sec->Size;
-    if (RawPointer > MaxRawDataSize)
-      report_fatal_error("Section raw data overflowed this object file.");
+    RawPointer = Sec->advanceFileOffset(MaxRawDataSize, RawPointer);
   }
 
   if (!DwarfSections.empty()) {
     RawPointer += PaddingsBeforeDwarf;
     for (auto &DwarfSection : DwarfSections) {
-      DwarfSection.FileOffsetToData = RawPointer;
-      RawPointer += DwarfSection.MemorySize;
-      if (RawPointer > MaxRawDataSize)
-        report_fatal_error("Section raw data overflowed this object file.");
+      RawPointer = DwarfSection.advanceFileOffset(MaxRawDataSize, RawPointer);
     }
   }
 
-  if (hasExceptionSection()) {
-    ExceptionSection.FileOffsetToData = RawPointer;
-    RawPointer += ExceptionSection.Size;
-
-    assert(RawPointer <= MaxRawDataSize &&
-           "Section raw data overflowed this object file.");
-  }
+  if (hasExceptionSection())
+    RawPointer = ExceptionSection.advanceFileOffset(MaxRawDataSize, RawPointer);
 
   for (auto *Sec : Sections) {
     if (Sec->Index != SectionEntry::UninitializedIndex)

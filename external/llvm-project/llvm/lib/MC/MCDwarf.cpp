@@ -350,10 +350,14 @@ SmallString<0> MCDwarfLineStr::getFinalizedData() {
   return Data;
 }
 
+size_t MCDwarfLineStr::addString(StringRef Path) {
+  return LineStrings.add(Path);
+}
+
 void MCDwarfLineStr::emitRef(MCStreamer *MCOS, StringRef Path) {
   int RefSize =
       dwarf::getDwarfOffsetByteSize(MCOS->getContext().getDwarfFormat());
-  size_t Offset = LineStrings.add(Path);
+  size_t Offset = addString(Path);
   if (UseRelocs) {
     MCContext &Ctx = MCOS->getContext();
     MCOS->emitValue(makeStartPlusIntExpr(Ctx, *LineStrLabel, Offset), RefSize);
@@ -1568,6 +1572,7 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
   MCContext &context = Streamer.getContext();
   const MCRegisterInfo *MRI = context.getRegisterInfo();
   const MCObjectFileInfo *MOFI = context.getObjectFileInfo();
+  const MCAsmInfo *MAI = context.getAsmInfo();
 
   MCSymbol *sectionStart = context.createTempSymbol();
   Streamer.emitLabel(sectionStart);
@@ -1597,8 +1602,8 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
   uint8_t CIEVersion = getCIEVersion(IsEH, context.getDwarfVersion());
   Streamer.emitInt8(CIEVersion);
 
+  SmallString<8> Augmentation;
   if (IsEH) {
-    SmallString<8> Augmentation;
     Augmentation += "z";
     if (Frame.Personality)
       Augmentation += "P";
@@ -1611,8 +1616,10 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
       Augmentation += "B";
     if (Frame.IsMTETaggedFrame)
       Augmentation += "G";
-    Streamer.emitBytes(Augmentation);
   }
+  if (MAI->supportsHeterogeneousDebuggingExtensions())
+    Augmentation += "[llvm:v0.0]";
+  Streamer.emitBytes(Augmentation);
   Streamer.emitInt8(0);
 
   if (CIEVersion >= 4) {
@@ -1676,7 +1683,6 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
 
   // Initial Instructions
 
-  const MCAsmInfo *MAI = context.getAsmInfo();
   if (!Frame.IsSimple) {
     const std::vector<MCCFIInstruction> &Instructions =
         MAI->getInitialFrameState();

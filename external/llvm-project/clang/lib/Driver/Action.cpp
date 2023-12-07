@@ -30,6 +30,8 @@ const char *Action::getClassName(ActionClass AC) {
   case AnalyzeJobClass: return "analyzer";
   case MigrateJobClass: return "migrator";
   case CompileJobClass: return "compiler";
+  case FortranFrontendJobClass:
+    return "fortran-frontend";
   case BackendJobClass: return "backend";
   case AssembleJobClass: return "assembler";
   case IfsMergeJobClass: return "interface-stub-merger";
@@ -42,6 +44,8 @@ const char *Action::getClassName(ActionClass AC) {
     return "clang-offload-bundler";
   case OffloadUnbundlingJobClass:
     return "clang-offload-unbundler";
+  case OffloadWrapperJobClass:
+    return "clang-offload-wrapper";
   case OffloadPackagerJobClass:
     return "clang-offload-packager";
   case LinkerWrapperJobClass:
@@ -58,8 +62,19 @@ const char *Action::getClassName(ActionClass AC) {
 void Action::propagateDeviceOffloadInfo(OffloadKind OKind, const char *OArch,
                                         const ToolChain *OToolChain) {
   // Offload action set its own kinds on their dependences.
-  if (Kind == OffloadClass)
+  // But we still need to preserve OffloadingDeviceKind and OffloadingArch
+  // where toplevel action is an unbundle.
+  // HIP assumes offload kind and offload arch of OffloadAction to be
+  // determined by its ctor and not to be changed by subsequent actions,
+  // otherwise the following use case will break:
+  // compile -> offload -> bundle -> offload.
+  if (Kind == OffloadClass) {
+    if (OKind != OFK_HIP) {
+      OffloadingDeviceKind = OKind;
+      OffloadingArch = OArch;
+    }
     return;
+  }
   // Unbundling actions use the host kinds.
   if (Kind == OffloadUnbundlingJobClass)
     return;
@@ -215,11 +230,23 @@ OffloadAction::OffloadAction(const HostDependence &HDep,
                              const DeviceDependences &DDeps)
     : Action(OffloadClass, HDep.getAction()), HostTC(HDep.getToolChain()),
       DevToolChains(DDeps.getToolChains()) {
-  // We use the kinds of the host dependence for this action.
-  OffloadingArch = HDep.getBoundArch();
+  auto &OKinds = DDeps.getOffloadKinds();
+  auto &BArchs = DDeps.getBoundArchs();
+
+  // If all inputs agree on the same kind, use it also for this action.
+  if (llvm::all_of(OKinds, [&](OffloadKind K) { return K == OKinds.front(); }))
+    OffloadingDeviceKind = OKinds.front();
+
+  // If we have a single dependency, inherit the architecture from it.
+  if (OKinds.size() == 1)
+    OffloadingArch = BArchs.front();
+  else
+    // We use the kinds of the host dependence for this action.
+    OffloadingArch = HDep.getBoundArch();
+
   ActiveOffloadKindMask = HDep.getOffloadKinds();
   HDep.getAction()->propagateHostOffloadInfo(HDep.getOffloadKinds(),
-                                             HDep.getBoundArch());
+                                             OffloadingArch);
 
   // Add device inputs and propagate info to the device actions. Do work only if
   // we have dependencies.
@@ -377,6 +404,12 @@ void CompileJobAction::anchor() {}
 CompileJobAction::CompileJobAction(Action *Input, types::ID OutputType)
     : JobAction(CompileJobClass, Input, OutputType) {}
 
+void FortranFrontendJobAction::anchor() {}
+
+FortranFrontendJobAction::FortranFrontendJobAction(Action *Input,
+                                                   types::ID OutputType)
+    : JobAction(FortranFrontendJobClass, Input, OutputType) {}
+
 void BackendJobAction::anchor() {}
 
 BackendJobAction::BackendJobAction(Action *Input, types::ID OutputType)
@@ -436,6 +469,12 @@ void OffloadUnbundlingJobAction::anchor() {}
 
 OffloadUnbundlingJobAction::OffloadUnbundlingJobAction(Action *Input)
     : JobAction(OffloadUnbundlingJobClass, Input, Input->getType()) {}
+
+void OffloadWrapperJobAction::anchor() {}
+
+OffloadWrapperJobAction::OffloadWrapperJobAction(ActionList &Inputs,
+                                                 types::ID Type)
+  : JobAction(OffloadWrapperJobClass, Inputs, Type) {}
 
 void OffloadPackagerJobAction::anchor() {}
 

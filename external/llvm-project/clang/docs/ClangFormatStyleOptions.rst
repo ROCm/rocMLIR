@@ -239,9 +239,10 @@ the configuration (without a prefix: ``Auto``).
       )
 
 
-    .. warning::
+    .. note::
 
-     Note: This currently only applies to parentheses.
+     This currently only applies to braced initializer lists (when
+     ``Cpp11BracedListStyle`` is ``true``) and parentheses.
 
 
 
@@ -251,8 +252,11 @@ the configuration (without a prefix: ``Auto``).
   if not ``None``, when using initialization for an array of structs
   aligns the fields into columns.
 
-  NOTE: As of clang-format 15 this option only applied to arrays with equal
-  number of columns per row.
+
+  .. note::
+
+   As of clang-format 15 this option only applied to arrays with equal
+   number of columns per row.
 
   Possible values:
 
@@ -878,8 +882,11 @@ the configuration (without a prefix: ``Auto``).
 **AlignTrailingComments** (``TrailingCommentsAlignmentStyle``) :versionbadge:`clang-format 3.7` :ref:`¶ <AlignTrailingComments>`
   Control of trailing comments.
 
-  NOTE: As of clang-format 16 this option is not a bool but can be set
-  to the options. Conventional bool options still can be parsed as before.
+
+  .. note::
+
+   As of clang-format 16 this option is not a bool but can be set
+   to the options. Conventional bool options still can be parsed as before.
 
 
   .. code-block:: yaml
@@ -1676,8 +1683,11 @@ the configuration (without a prefix: ``Auto``).
       }
 
   * ``bool AfterObjCDeclaration`` Wrap ObjC definitions (interfaces, implementations...).
-    @autoreleasepool and @synchronized blocks are wrapped
-    according to `AfterControlStatement` flag.
+
+    .. note::
+
+     @autoreleasepool and @synchronized blocks are wrapped
+     according to ``AfterControlStatement`` flag.
 
   * ``bool AfterStruct`` Wrap struct definitions.
 
@@ -1793,9 +1803,10 @@ the configuration (without a prefix: ``Auto``).
 
   * ``bool SplitEmptyFunction`` If ``false``, empty function body can be put on a single line.
     This option is used only if the opening brace of the function has
-    already been wrapped, i.e. the `AfterFunction` brace wrapping mode is
+    already been wrapped, i.e. the ``AfterFunction`` brace wrapping mode is
     set, and the function could/should not be put on a single line (as per
-    `AllowShortFunctionsOnASingleLine` and constructor formatting options).
+    ``AllowShortFunctionsOnASingleLine`` and constructor formatting
+    options).
 
     .. code-block:: c++
 
@@ -1806,7 +1817,7 @@ the configuration (without a prefix: ``Auto``).
 
   * ``bool SplitEmptyRecord`` If ``false``, empty record (e.g. class, struct or union) body
     can be put on a single line. This option is used only if the opening
-    brace of the record has already been wrapped, i.e. the `AfterClass`
+    brace of the record has already been wrapped, i.e. the ``AfterClass``
     (for classes) brace wrapping mode is set.
 
     .. code-block:: c++
@@ -1818,7 +1829,7 @@ the configuration (without a prefix: ``Auto``).
 
   * ``bool SplitEmptyNamespace`` If ``false``, empty namespace body can be put on a single line.
     This option is used only if the opening brace of the namespace has
-    already been wrapped, i.e. the `AfterNamespace` brace wrapping mode is
+    already been wrapped, i.e. the ``AfterNamespace`` brace wrapping mode is
     set.
 
     .. code-block:: c++
@@ -1916,11 +1927,14 @@ the configuration (without a prefix: ``Auto``).
 .. _BreakArrays:
 
 **BreakArrays** (``Boolean``) :versionbadge:`clang-format 16` :ref:`¶ <BreakArrays>`
-  If ``true``, clang-format will always break after a Json array `[`
-  otherwise it will scan until the closing `]` to determine if it should add
-  newlines between elements (prettier compatible).
+  If ``true``, clang-format will always break after a Json array ``[``
+  otherwise it will scan until the closing ``]`` to determine if it should
+  add newlines between elements (prettier compatible).
 
-  NOTE: This is currently only for formatting JSON.
+
+  .. note::
+
+   This is currently only for formatting JSON.
 
   .. code-block:: c++
 
@@ -2432,7 +2446,7 @@ the configuration (without a prefix: ``Auto``).
       } // namespace N
 
   * ``BS_Custom`` (in configuration: ``Custom``)
-    Configure each individual brace in `BraceWrapping`.
+    Configure each individual brace in ``BraceWrapping``.
 
 
 
@@ -2876,8 +2890,11 @@ the configuration (without a prefix: ``Auto``).
   made, clang-format analyzes whether there are other bin-packed cases in
   the input file and act accordingly.
 
-  NOTE: This is an experimental flag, that might go away or be renamed. Do
-  not use this in config files, etc. Use at your own risk.
+
+  .. note::
+
+   This is an experimental flag, that might go away or be renamed. Do
+   not use this in config files, etc. Use at your own risk.
 
 .. _FixNamespaceComments:
 
@@ -3320,9 +3337,9 @@ the configuration (without a prefix: ``Auto``).
 
   .. warning::
 
-   Setting this option to `true` could lead to incorrect code formatting due
-   to clang-format's lack of complete semantic information. As such, extra
-   care should be taken to review code changes made by this option.
+   Setting this option to ``true`` could lead to incorrect code formatting
+   due to clang-format's lack of complete semantic information. As such,
+   extra care should be taken to review code changes made by this option.
 
   .. code-block:: c++
 
@@ -3730,7 +3747,7 @@ the configuration (without a prefix: ``Auto``).
     A(a*b);
 
   will usually be interpreted as a call to a function A, and the
-  multiplication expression will be formatted as `a * b`.
+  multiplication expression will be formatted as ``a * b``.
 
   If we specify the macro definition:
 
@@ -3740,7 +3757,7 @@ the configuration (without a prefix: ``Auto``).
     - A(x)=x
 
   the code will now be parsed as a declaration of the variable b of type a*,
-  and formatted as `a* b` (depending on pointer-binding rules).
+  and formatted as ``a* b`` (depending on pointer-binding rules).
 
   Features and restrictions:
    * Both function-like macros and object-like macros are supported.
@@ -4111,7 +4128,7 @@ the configuration (without a prefix: ``Auto``).
 
   .. warning::
 
-   Setting ``QualifierAlignment``  to something other than `Leave`, COULD
+   Setting ``QualifierAlignment``  to something other than ``Leave``, COULD
    lead to incorrect code formatting due to incorrect decisions made due to
    clang-formats lack of complete semantic information.
    As such extra care should be taken to review code changes made by the use
@@ -4176,10 +4193,14 @@ the configuration (without a prefix: ``Auto``).
     * restrict
     * type
 
-  Note: it MUST contain 'type'.
+
+  .. note::
+
+   it MUST contain 'type'.
+
   Items to the left of 'type' will be placed to the left of the type and
-  aligned in the order supplied. Items to the right of 'type' will be placed
-  to the right of the type and aligned in the order supplied.
+  aligned in the order supplied. Items to the right of 'type' will be
+  placed to the right of the type and aligned in the order supplied.
 
 
   .. code-block:: yaml
@@ -4291,9 +4312,9 @@ the configuration (without a prefix: ``Auto``).
 
   .. warning::
 
-   Setting this option to `true` could lead to incorrect code formatting due
-   to clang-format's lack of complete semantic information. As such, extra
-   care should be taken to review code changes made by this option.
+   Setting this option to ``true`` could lead to incorrect code formatting
+   due to clang-format's lack of complete semantic information. As such,
+   extra care should be taken to review code changes made by this option.
 
   .. code-block:: c++
 
@@ -4337,6 +4358,50 @@ the configuration (without a prefix: ``Auto``).
       }
     }
 
+.. _RemoveParentheses:
+
+**RemoveParentheses** (``RemoveParenthesesStyle``) :versionbadge:`clang-format 17` :ref:`¶ <RemoveParentheses>`
+  Remove redundant parentheses.
+
+  .. warning::
+
+   Setting this option to any value other than ``Leave`` could lead to
+   incorrect code formatting due to clang-format's lack of complete semantic
+   information. As such, extra care should be taken to review code changes
+   made by this option.
+
+  Possible values:
+
+  * ``RPS_Leave`` (in configuration: ``Leave``)
+    Do not remove parentheses.
+
+    .. code-block:: c++
+
+      class __declspec((dllimport)) X {};
+      co_return (((0)));
+      return ((a + b) - ((c + d)));
+
+  * ``RPS_MultipleParentheses`` (in configuration: ``MultipleParentheses``)
+    Replace multiple parentheses with single parentheses.
+
+    .. code-block:: c++
+
+      class __declspec(dllimport) X {};
+      co_return (0);
+      return ((a + b) - (c + d));
+
+  * ``RPS_ReturnStatement`` (in configuration: ``ReturnStatement``)
+    Also remove parentheses enclosing the expression in a
+    ``return``/``co_return`` statement.
+
+    .. code-block:: c++
+
+      class __declspec(dllimport) X {};
+      co_return 0;
+      return (a + b) - (c + d);
+
+
+
 .. _RemoveSemicolon:
 
 **RemoveSemicolon** (``Boolean``) :versionbadge:`clang-format 16` :ref:`¶ <RemoveSemicolon>`
@@ -4344,9 +4409,9 @@ the configuration (without a prefix: ``Auto``).
 
   .. warning::
 
-   Setting this option to `true` could lead to incorrect code formatting due
-   to clang-format's lack of complete semantic information. As such, extra
-   care should be taken to review code changes made by this option.
+   Setting this option to ``true`` could lead to incorrect code formatting
+   due to clang-format's lack of complete semantic information. As such,
+   extra care should be taken to review code changes made by this option.
 
   .. code-block:: c++
 
@@ -4464,7 +4529,7 @@ the configuration (without a prefix: ``Auto``).
        }
 
   * ``REI_Keyword`` (in configuration: ``Keyword``)
-    Align requires expression body relative to the `requires` keyword.
+    Align requires expression body relative to the ``requires`` keyword.
 
     .. code-block:: c++
 
@@ -4901,7 +4966,7 @@ the configuration (without a prefix: ``Auto``).
 
   * ``SBPO_Custom`` (in configuration: ``Custom``)
     Configure each individual space before parentheses in
-    `SpaceBeforeParensOptions`.
+    ``SpaceBeforeParensOptions``.
 
 
 
@@ -5290,6 +5355,16 @@ the configuration (without a prefix: ``Auto``).
 
 **TabWidth** (``Unsigned``) :versionbadge:`clang-format 3.7` :ref:`¶ <TabWidth>`
   The number of columns used for tab stops.
+
+.. _TypeNames:
+
+**TypeNames** (``List of Strings``) :versionbadge:`clang-format 17` :ref:`¶ <TypeNames>`
+  A vector of non-keyword identifiers that should be interpreted as type
+  names.
+
+  A ``*``, ``&``, or ``&&`` between a type name and another non-keyword
+  identifier is annotated as a pointer or reference token instead of a
+  binary operator.
 
 .. _TypenameMacros:
 

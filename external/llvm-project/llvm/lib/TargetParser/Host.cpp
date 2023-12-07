@@ -832,14 +832,6 @@ getIntelProcessorTypeAndSubtype(unsigned Family, unsigned Model,
       *Subtype = X86::INTEL_COREI7_ALDERLAKE;
       break;
 
-    // Graniterapids:
-    case 0xae:
-    case 0xad:
-      CPU = "graniterapids";
-      *Type = X86::INTEL_COREI7;
-      *Subtype = X86::INTEL_COREI7_GRANITERAPIDS;
-      break;
-
     // Icelake Xeon:
     case 0x6a:
     case 0x6c:
@@ -889,18 +881,6 @@ getIntelProcessorTypeAndSubtype(unsigned Family, unsigned Model,
     case 0x86:
       CPU = "tremont";
       *Type = X86::INTEL_TREMONT;
-      break;
-
-    // Sierraforest:
-    case 0xaf:
-      CPU = "sierraforest";
-      *Type = X86::INTEL_SIERRAFOREST;
-      break;
-
-    // Grandridge:
-    case 0xb6:
-      CPU = "grandridge";
-      *Type = X86::INTEL_GRANDRIDGE;
       break;
 
     // Xeon Phi (Knights Landing + Knights Mill):
@@ -1878,9 +1858,43 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
 bool sys::getHostCPUFeatures(StringMap<bool> &Features) { return false; }
 #endif
 
+#if __APPLE__
+/// \returns the \p triple, but with the Host's arch spliced in.
+static Triple withHostArch(Triple T) {
+#if defined(__arm__)
+  T.setArch(Triple::arm);
+  T.setArchName("arm");
+#elif defined(__arm64e__)
+  T.setArch(Triple::aarch64, Triple::AArch64SubArch_arm64e);
+  T.setArchName("arm64e");
+#elif defined(__aarch64__)
+  T.setArch(Triple::aarch64);
+  T.setArchName("arm64");
+#elif defined(__x86_64h__)
+  T.setArch(Triple::x86_64);
+  T.setArchName("x86_64h");
+#elif defined(__x86_64__)
+  T.setArch(Triple::x86_64);
+  T.setArchName("x86_64");
+#elif defined(__powerpc__)
+  T.setArch(Triple::ppc);
+  T.setArchName("powerpc");
+#else
+#  error "Unimplemented host arch fixup"
+#endif
+  return T;
+}
+#endif
+
 std::string sys::getProcessTriple() {
   std::string TargetTripleString = updateTripleOSVersion(LLVM_HOST_TRIPLE);
   Triple PT(Triple::normalize(TargetTripleString));
+
+#if __APPLE__
+  /// In Universal builds, LLVM_HOST_TRIPLE will have the wrong arch in one of
+  /// the slices. This fixes that up.
+  PT = withHostArch(PT);
+#endif
 
   if (sizeof(void *) == 8 && PT.isArch32Bit())
     PT = PT.get64BitArchVariant();

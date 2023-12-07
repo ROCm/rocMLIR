@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include <unordered_map>  
+
 #include "Debug.h"
 #include "DeviceEnvironment.h"
 #include "omptarget.h"
@@ -357,6 +359,7 @@ class DeviceRTLTy {
 
   std::vector<DeviceDataTy> DeviceData;
   std::vector<std::vector<CUmodule>> Modules;
+  std::vector<int> NumberOfTeamProcs;
 
   /// Vector of flags indicating the initalization status of all associated
   /// devices.
@@ -526,6 +529,7 @@ public:
 
     DeviceData.resize(NumberOfDevices);
     Modules.resize(NumberOfDevices);
+    NumberOfTeamProcs.resize(NumberOfDevices);
     StreamPool.resize(NumberOfDevices);
     EventPool.resize(NumberOfDevices);
     PeerAccessMatrix.resize(NumberOfDevices);
@@ -559,10 +563,10 @@ public:
       NumInitialStreams = std::stoi(EnvStr);
       DP("Parsed LIBOMPTARGET_NUM_INITIAL_STREAMS=%d\n", NumInitialStreams);
     }
-
+#if FIX_ISSUE
     for (int I = 0; I < NumberOfDevices; ++I)
       DeviceAllocators.emplace_back();
-
+#endif
     // Get the size threshold from environment variable
     std::pair<size_t, bool> Res = MemoryManagerTy::getSizeThresholdFromEnv();
     UseMemoryManager = Res.second;
@@ -588,6 +592,8 @@ public:
   }
 
   int getNumOfDevices() const { return NumberOfDevices; }
+
+  int getNumOfTeamProcs(int devid) const { return NumberOfTeamProcs[devid]; }
 
   void setRequiresFlag(const int64_t Flags) { this->RequiresFlags = Flags; }
 
@@ -655,6 +661,18 @@ public:
     } else {
       DP("Using %d CUDA blocks per grid\n", MaxGridDimX);
       DeviceData[DeviceId].BlocksPerGrid = MaxGridDimX;
+    }
+
+    // Query attributes to for number of SMs for ompx_get_team_procs(devid)
+    int TmpTeamProcs;
+    Err = cuDeviceGetAttribute(
+        &TmpTeamProcs, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, Device);
+    if (Err != CUDA_SUCCESS) {
+      DP("Error: on CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, using %d\n", 16);
+      NumberOfTeamProcs[DeviceId] = 16;
+    } else {
+      DP("Device %d has %d procs for team execution\n", DeviceId, TmpTeamProcs);
+      NumberOfTeamProcs[DeviceId] = TmpTeamProcs;
     }
 
     // We are only exploiting threads along the x axis.
@@ -1558,9 +1576,17 @@ int32_t __tgt_rtl_is_valid_binary(__tgt_device_image *Image) {
   return elf_check_machine(Image, /* EM_CUDA */ 190);
 }
 
+int32_t __tgt_rtl_number_of_devices() { return DeviceRTL.getNumOfDevices(); }
+
+int32_t __tgt_rtl_is_valid_binary_info(__tgt_device_image *image,
+                                       __tgt_image_info *info) {
+#if 0
+  if (!__tgt_rtl_is_valid_binary(image))
+=======
 int32_t __tgt_rtl_is_valid_binary_info(__tgt_device_image *Image,
                                        __tgt_image_info *Info) {
   if (!__tgt_rtl_is_valid_binary(Image))
+>>>>>>> 0c40651f690bab7471f4c998b4fb80bc50ac5814
     return false;
 
   // A subarchitecture was not specified. Assume it is compatible.
@@ -1594,18 +1620,24 @@ int32_t __tgt_rtl_is_valid_binary_info(__tgt_device_image *Image,
     if (Major != ImageMajor || Minor < ImageMinor)
       return false;
   }
-
-  DP("Image has compatible compute capability: %s\n", Info->Arch);
-  return true;
+<<<<<<< HEAD
+#endif
+  return false;
 }
 
-int32_t __tgt_rtl_number_of_devices() { return DeviceRTL.getNumOfDevices(); }
-
-int64_t __tgt_rtl_init_requires(int64_t RequiresFlags) {
-  DP("Init requires flags to %" PRId64 "\n", RequiresFlags);
-  DeviceRTL.setRequiresFlag(RequiresFlags);
-  return RequiresFlags;
+int32_t __tgt_rtl_number_of_team_procs(int devid) {
+  return DeviceRTL.getNumOfTeamProcs(devid);
 }
+
+  bool __tgt_rtl_has_apu_device() { return false; }
+
+  bool __tgt_rtl_has_gfx90a_device() { return false; }
+
+  int64_t __tgt_rtl_init_requires(int64_t RequiresFlags) {
+    DP("Init requires flags to %" PRId64 "\n", RequiresFlags);
+    DeviceRTL.setRequiresFlag(RequiresFlags);
+    return RequiresFlags;
+  }
 
 int32_t __tgt_rtl_is_data_exchangable(int32_t SrcDevId, int DstDevId) {
   if (DeviceRTL.isValidDeviceId(SrcDevId) &&

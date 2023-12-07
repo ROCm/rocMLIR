@@ -38,8 +38,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "${tmachine}$")
       ${LIBOMPTARGET_INCLUDE_DIR}
       ${LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIR}
 
-        LINK_LIBS 
-        PRIVATE
+        LINK_LIBS
+	PRIVATE
         elf_common
         ${LIBOMPTARGET_DEP_LIBFFI_LIBRARIES}
         ${OPENMP_PTHREAD_LIB}
@@ -50,7 +50,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "${tmachine}$")
 
     # Install plugin under the lib destination folder.
     install(TARGETS "omptarget.rtl.${tmachine_libname}"
-      LIBRARY DESTINATION "${OPENMP_INSTALL_LIBDIR}")
+	    LIBRARY DESTINATION "${RUN_PACKAGE}${OPENMP_INSTALL_LIBDIR}")
     set_target_properties("omptarget.rtl.${tmachine_libname}" PROPERTIES
       INSTALL_RPATH "$ORIGIN" BUILD_RPATH "$ORIGIN:${CMAKE_CURRENT_BINARY_DIR}/.."
       CXX_VISIBILITY_PRESET protected)
@@ -81,9 +81,7 @@ add_subdirectory(amdgpu)
 add_subdirectory(cuda)
 add_subdirectory(ppc64)
 add_subdirectory(ppc64le)
-add_subdirectory(ve)
 add_subdirectory(x86_64)
-add_subdirectory(remote)
 
 # Make sure the parent scope can see the plugins that will be created.
 set(LIBOMPTARGET_SYSTEM_TARGETS "${LIBOMPTARGET_SYSTEM_TARGETS}" PARENT_SCOPE)

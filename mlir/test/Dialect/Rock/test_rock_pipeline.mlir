@@ -24,16 +24,16 @@ func.func @rock_pipeline_3_stages_ii_1(%input : memref<16xi8, #gpu.address_space
     // CHECK: name = "S0"
     // CHECK: name = "S0"
     // CHECK: name = "S1"
-    // CHECK: lds_barrier
-    // CHECK: scf.for
+    // CHECK scf.for
+      // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: name = "S1"
       // CHECK: name = "S2"
-      // CHECK: lds_barrier
-    // CHECK: }
-    // CHECK: name = "S1"
-    // CHECK: name = "S2"
-    // CHECK: lds_barrier
+    // CHECK }
+    // CHECK: name = "__fwd_barrier__"
+    // CHECK name = "S1"
+    // CHECK name = "S2"
+    // CHECK: name = "__fwd_barrier__"
     // CHECK: name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
@@ -82,15 +82,16 @@ func.func @rock_pipeline_3_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: memref.view %[[rawRegB]]
 
     // CHECK: name = "S0"
+    // CHECK: name = "__bwd_barrier__"
     // CHECK: name = "S1"
-    // CHECK: lds_barrier
     // CHECK: scf.for
-      // CHECK: name = "S0"
-      // CHECK: name = "S2"
-      // CHECK: lds_barrier
+      // CHECK: name = "__fwd_barrier__"
+      // CHECK name = "S0"
+      // CHECK name = "S2"
+      // CHECK: name = "__bwd_barrier__"
       // CHECK: name = "S1"
-      // CHECK: lds_barrier
-    // CHECK: name = "S2"
+    // CHECK: name = "__fwd_barrier__"
+    // CHECK name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
         %a = memref.load %input[%arg3] : memref<16xi8, #gpu.address_space<global>>
@@ -137,11 +138,11 @@ func.func @rock_pipeline_3_stages_ii_3(%input : memref<16xi8, #gpu.address_space
     // CHECK: memref.view %[[rawRegB]]
 
     // CHECK: scf.for
+      // CHECK: name = "__bwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: name = "S1"
-      // CHECK: lds_barrier
+      // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S2"
-      // CHECK: lds_barrier
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
         %a = memref.load %input[%arg3] : memref<16xi8, #gpu.address_space<global>>
@@ -184,19 +185,19 @@ func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: memref.view %[[rawReg]]
 
     // CHECK: name = "S0"
-    // CHECK: lds_barrier
+    // CHECK: name = "__fwd_barrier__"
     // CHECK: name = "S1"
-    // CHECK: lds_barrier
-    // CHECK: scf.for
+    // CHECK scf.for
+      // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: name = "S2"
-      // CHECK: lds_barrier
-      // CHECK: name = "S1"
-      // CHECK: name = "S3"
-      // CHECK: lds_barrier
-    // CHECK: name = "S2"
-    // CHECK: lds_barrier
-    // CHECK: name = "S3"
+      // CHECK: name = "__fwd_barrier__"
+      // CHECK name = "S1"
+      // CHECK name = "S3"
+    // CHECK: name = "__fwd_barrier__"
+    // CHECK name = "S2"
+    // CHECK: name = "__fwd_barrier__"
+    // CHECK name = "S3"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
         %tmp = memref.load %input[%arg3] : memref<16xi8, #gpu.address_space<global>>

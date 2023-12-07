@@ -7,24 +7,100 @@
 // REQUIRES: nvptx-registered-target
 // REQUIRES: amdgpu-registered-target
 
+// UNSUPPORTED: aix
+
 /// ###########################################################################
 
 /// Check -Xopenmp-target uses one of the archs provided when several archs are used.
 // RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda \
-// RUN:          -Xopenmp-target -march=sm_35 -Xopenmp-target -march=sm_60 %s 2>&1 \
+// RUN:          -fno-openmp-new-driver -Xopenmp-target -march=sm_35 -Xopenmp-target -march=sm_60 %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=CHK-FOPENMP-TARGET-ARCHS %s
 
 // CHK-FOPENMP-TARGET-ARCHS: ptxas{{.*}}" "--gpu-name" "sm_60"
+// CHK-FOPENMP-TARGET-ARCHS: nvlink{{.*}}" "-arch" "sm_60"
 
 /// ###########################################################################
 
 /// Check -Xopenmp-target -march=sm_35 works as expected when two triples are present.
-// RUN:   %clang -### -fopenmp=libomp \
+// RUN:   %clang -### -fopenmp=libomp -fno-openmp-new-driver \
 // RUN:          -fopenmp-targets=powerpc64le-ibm-linux-gnu,nvptx64-nvidia-cuda \
 // RUN:          -Xopenmp-target=nvptx64-nvidia-cuda -march=sm_35 %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=CHK-FOPENMP-TARGET-COMPILATION %s
 
 // CHK-FOPENMP-TARGET-COMPILATION: ptxas{{.*}}" "--gpu-name" "sm_35"
+// CHK-FOPENMP-TARGET-COMPILATION: nvlink{{.*}}" "-arch" "sm_35"
+
+/// ###########################################################################
+
+/// Check cubin file generation and usage by nvlink
+// RUN:   %clang -### --target=powerpc64le-unknown-linux-gnu -fopenmp=libomp \
+// RUN:          -fno-openmp-new-driver -fopenmp-targets=nvptx64-nvidia-cuda -save-temps %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-CUBIN-NVLINK %s
+/// Check cubin file generation and usage by nvlink when toolchain has BindArchAction
+// RUN:   %clang -### --target=x86_64-apple-darwin17.0.0 -fopenmp=libomp \
+// RUN:          -fno-openmp-new-driver -fopenmp-targets=nvptx64-nvidia-cuda %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-CUBIN-NVLINK %s
+
+// CHK-CUBIN-NVLINK: clang{{.*}}" {{.*}}"-fopenmp-is-device" {{.*}}"-o" "[[PTX:.*\.s]]"
+// CHK-CUBIN-NVLINK-NEXT: ptxas{{.*}}" "--output-file" "[[CUBIN:.*\.cubin]]" {{.*}}"[[PTX]]"
+// CHK-CUBIN-NVLINK-NEXT: nvlink{{.*}}" {{.*}}"[[CUBIN]]"
+
+/// ###########################################################################
+
+/// Check unbundlink of assembly file, cubin file generation and usage by nvlink
+// RUN:   touch %t.s
+// RUN:   %clang -### --target=powerpc64le-unknown-linux-gnu -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda \
+// RUN:          -fno-openmp-new-driver -save-temps %t.s 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-UNBUNDLING-PTXAS-CUBIN-NVLINK %s
+
+/// Use DAG to ensure that assembly file has been unbundled.
+// CHK-UNBUNDLING-PTXAS-CUBIN-NVLINK-DAG: ptxas{{.*}}" "--output-file" "[[CUBIN:.*\.cubin]]" {{.*}}"[[PTX:.*\.s]]"
+// CHK-UNBUNDLING-PTXAS-CUBIN-NVLINK-DAG: clang-offload-bundler{{.*}}" "-type=s" {{.*}}"-output={{.*}}[[PTX]]
+// CHK-UNBUNDLING-PTXAS-CUBIN-NVLINK-DAG-SAME: "-unbundle"
+// CHK-UNBUNDLING-PTXAS-CUBIN-NVLINK: nvlink{{.*}}" {{.*}}"[[CUBIN]]"
+
+/// ###########################################################################
+
+/// Check cubin file generation and bundling
+// RUN:   %clang -### --target=powerpc64le-unknown-linux-gnu -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda \
+// RUN:          -fno-openmp-new-driver -save-temps %s -c 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-PTXAS-CUBIN-BUNDLING %s
+
+// CHK-PTXAS-CUBIN-BUNDLING: clang{{.*}}" "-o" "[[PTX:.*\.s]]"
+// CHK-PTXAS-CUBIN-BUNDLING-NEXT: ptxas{{.*}}" "--output-file" "[[CUBIN:.*\.cubin]]" {{.*}}"[[PTX]]"
+// CHK-PTXAS-CUBIN-BUNDLING: clang-offload-bundler{{.*}}" "-type=o" {{.*}}"-input={{.*}}[[CUBIN]]
+
+/// ###########################################################################
+
+/// Check cubin file unbundling and usage by nvlink
+// RUN:   touch %t.o
+// RUN:   %clang -### --target=powerpc64le-unknown-linux-gnu -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda \
+// RUN:          -fno-openmp-new-driver -save-temps %t.o %S/Inputs/in.so 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-CUBIN-UNBUNDLING-NVLINK %s
+
+/// Use DAG to ensure that cubin file has been unbundled.
+// CHK-CUBIN-UNBUNDLING-NVLINK-NOT: clang-offload-bundler{{.*}}" "-type=o"{{.*}}in.so
+// CHK-CUBIN-UNBUNDLING-NVLINK-DAG: nvlink{{.*}}" {{.*}}"[[CUBIN:.*\.cubin]]"
+// CHK-CUBIN-UNBUNDLING-NVLINK-DAG: clang-offload-bundler{{.*}}" "-type=o" {{.*}}"-output={{.*}}[[CUBIN]]
+// CHK-CUBIN-UNBUNDLING-NVLINK-DAG-SAME: "-unbundle"
+// CHK-CUBIN-UNBUNDLING-NVLINK-NOT: clang-offload-bundler{{.*}}" "-type=o"{{.*}}in.so
+
+/// ###########################################################################
+
+/// Check cubin file generation and usage by nvlink
+// RUN:   touch %t1.o
+// RUN:   touch %t2.o
+// RUN:   %clang -### --target=powerpc64le-unknown-linux-gnu -fopenmp=libomp \
+// RUN:          -fno-openmp-new-driver -fopenmp-targets=nvptx64-nvidia-cuda %t1.o %t2.o 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-TWOCUBIN %s
+/// Check cubin file generation and usage by nvlink when toolchain has BindArchAction
+// RUN:   %clang -### --target=x86_64-apple-darwin17.0.0 -fopenmp=libomp \
+// RUN:          -fno-openmp-new-driver -fopenmp-targets=nvptx64-nvidia-cuda %t1.o %t2.o 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-TWOCUBIN %s
+
+// CHK-TWOCUBIN: nvlink{{.*}}openmp-offload-{{.*}}.cubin" "{{.*}}openmp-offload-{{.*}}.cubin"
+
+/// ###########################################################################
 
 /// Check PTXAS is passed -c flag when offloading to an NVIDIA device using OpenMP.
 // RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda %s 2>&1 \
@@ -132,60 +208,65 @@
 // CHK-CUDA-VERSION-ERROR: NVPTX target requires CUDA 9.2 or above; CUDA 9.0 detected
 
 /// Check that debug info is emitted in dwarf-2
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O1 --no-cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O1 --no-cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=DEBUG_DIRECTIVES %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 2>&1 \
 // RUN:   | FileCheck -check-prefix=DEBUG_DIRECTIVES %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 --no-cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 --no-cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=DEBUG_DIRECTIVES %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g0 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g0 2>&1 \
 // RUN:   | FileCheck -check-prefix=NO_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb0 -O3 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb0 -O3 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=NO_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -gline-directives-only 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -gline-directives-only 2>&1 \
 // RUN:   | FileCheck -check-prefix=DEBUG_DIRECTIVES %s
 
 // DEBUG_DIRECTIVES-NOT: warning: debug
 // NO_DEBUG-NOT: warning: debug
-// NO_DEBUG: "-fopenmp-is-device"
+// NO_DEBUG: "-fopenmp-is-target-device"
 // NO_DEBUG-NOT: "-debug-info-kind=
 // NO_DEBUG: ptxas
 // DEBUG_DIRECTIVES: "-triple" "nvptx64-nvidia-cuda"
 // DEBUG_DIRECTIVES-SAME: "-debug-info-kind=line-directives-only"
-// DEBUG_DIRECTIVES-SAME: "-fopenmp-is-device"
+// DEBUG_DIRECTIVES-SAME: "-fopenmp-is-target-device"
 // DEBUG_DIRECTIVES: ptxas
 // DEBUG_DIRECTIVES: "-lineinfo"
+// NO_DEBUG-NOT: "-g"
+// NO_DEBUG: nvlink
+// NO_DEBUG-NOT: "-g"
 
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O0 --no-cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O0 --no-cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O0 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O0 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g -O3 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g2 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g2 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb2 -O0 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb2 -O0 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g3 -O3 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -g3 -O3 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb3 -O2 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb3 -O2 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -gline-tables-only 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -gline-tables-only 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
-// RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb1 -O2 --cuda-noopt-device-debug 2>&1 \
+// RUN:   %clang -### -fno-openmp-new-driver -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -ggdb1 -O2 --cuda-noopt-device-debug 2>&1 \
 // RUN:   | FileCheck -check-prefix=HAS_DEBUG %s
 
 // HAS_DEBUG-NOT: warning: debug
 // HAS_DEBUG: "-triple" "nvptx64-nvidia-cuda"
 // HAS_DEBUG-SAME: "-debug-info-kind={{constructor|line-tables-only}}"
 // HAS_DEBUG-SAME: "-dwarf-version=2"
-// HAS_DEBUG-SAME: "-fopenmp-is-device"
+// HAS_DEBUG-SAME: "-fopenmp-is-target-device"
 // HAS_DEBUG: ptxas
 // HAS_DEBUG-SAME: "-g"
 // HAS_DEBUG-SAME: "--dont-merge-basicblocks"
 // HAS_DEBUG-SAME: "--return-at-end"
+// HAS_DEBUG: nvlink
+// HAS_DEBUG-SAME: "-g"
 
 // RUN:   %clang -### -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_60 %s -fopenmp-cuda-mode 2>&1 \
 // RUN:   | FileCheck -check-prefix=CUDA_MODE %s

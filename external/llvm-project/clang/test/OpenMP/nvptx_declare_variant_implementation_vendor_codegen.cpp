@@ -1,12 +1,12 @@
 // RUN: %clang_cc1 -verify -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm-bc %s -o %t-ppc-host.bc -fopenmp-version=45
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o - -fopenmp-version=45 | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -emit-pch -o %t -fopenmp-version=45
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -include-pch %t -o - -fopenmp-version=45 | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o - -fopenmp-version=45 | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -emit-pch -o %t -fopenmp-version=45
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -include-pch %t -o - -fopenmp-version=45 | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
 
 // RUN: %clang_cc1 -verify -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm-bc %s -o %t-ppc-host.bc
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o - | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -emit-pch -o %t
-// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -include-pch %t -o - | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o - | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -emit-pch -o %t
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple nvptx64-unknown-unknown -aux-triple powerpc64le-unknown-unknown -emit-llvm %s -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host.bc -include-pch %t -o - | FileCheck %s --implicit-check-not='ret i32 {{6|7|8|9|10|12|13|14|15|17|18|19|20|21|22|23|24|26}}'
 // expected-no-diagnostics
 
 // CHECK-DAG:  ret i32 2
@@ -32,19 +32,19 @@ static int stat_used_();
 
 #pragma omp declare target
 
-#pragma omp declare variant(foo) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(foo) match(implementation = {vendor(amd)})
 int bar() { return 3; }
 
-#pragma omp declare variant(bazzz) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(bazzz) match(implementation = {vendor(amd)})
 int baz() { return 4; }
 
-#pragma omp declare variant(test) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(test) match(implementation = {vendor(amd)})
 int call() { return 5; }
 
-#pragma omp declare variant(stat_unused_) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(stat_unused_) match(implementation = {vendor(amd)})
 static int stat_unused() { return 6; }
 
-#pragma omp declare variant(stat_used_) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(stat_used_) match(implementation = {vendor(amd)})
 static int stat_used() { return 7; }
 
 #pragma omp end declare target
@@ -70,10 +70,10 @@ struct SpecialFuncs {
 
   int method_() { return 11; }
 #pragma omp declare variant(SpecialFuncs::method_) \
-    match(implementation = {vendor(llvm)})
+    match(implementation = {vendor(amd)})
   int method() { return 12; }
 #pragma omp declare variant(SpecialFuncs::method_) \
-    match(implementation = {vendor(llvm)})
+    match(implementation = {vendor(amd)})
   int Method();
 } s;
 
@@ -86,10 +86,10 @@ struct SpecSpecialFuncs {
 
   int method_();
 #pragma omp declare variant(SpecSpecialFuncs::method_) \
-    match(implementation = {vendor(llvm)})
+    match(implementation = {vendor(amd)})
   int method() { return 14; }
 #pragma omp declare variant(SpecSpecialFuncs::method_) \
-    match(implementation = {vendor(llvm)})
+    match(implementation = {vendor(amd)})
   int Method();
 } s1;
 
@@ -114,27 +114,27 @@ void xxx() {
   (void)s1.method();
 }
 
-#pragma omp declare variant(prio) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(prio) match(implementation = {vendor(amd)})
 #pragma omp declare variant(prio1) match(implementation = {vendor(score(1) \
-                                                                  : llvm)})
+                                                                  : amd)})
 int prio_() { return 25; }
 
 #pragma omp declare variant(prio4) match(implementation = {vendor(score(3) \
-                                                                  : llvm)})
+                                                                  : amd)})
 #pragma omp declare variant(prio2) match(implementation = {vendor(score(5) \
-                                                                  : llvm)})
+                                                                  : amd)})
 #pragma omp declare variant(prio3) match(implementation = {vendor(score(1) \
-                                                                  : llvm)})
+                                                                  : amd)})
 static int prio1_() { return 26; }
 
 int int_fn() { return prio1_(); }
 
 extern "C" {
-#pragma omp declare variant(fn_linkage_variant) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(fn_linkage_variant) match(implementation = {vendor(amd)})
 int fn_linkage() { return 27; }
 }
 
-#pragma omp declare variant(fn_linkage_variant1) match(implementation = {vendor(llvm)})
+#pragma omp declare variant(fn_linkage_variant1) match(implementation = {vendor(amd)})
 int fn_linkage1() { return 28; }
 
 #pragma omp declare variant(fn_variant2) match(implementation = {vendor(llvm, ibm)})

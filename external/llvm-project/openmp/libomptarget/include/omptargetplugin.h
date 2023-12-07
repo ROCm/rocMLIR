@@ -20,6 +20,10 @@
 extern "C" {
 #endif
 
+// Return the number of available physical processors to execute teams
+// supported by the RTL. AMD calls these CUs.  Nvidia calls the SMs.
+int32_t __tgt_rtl_number_of_team_procs(int32_t device_num);
+
 // First method called on the plugin
 int32_t __tgt_rtl_init_plugin();
 
@@ -29,6 +33,21 @@ int32_t __tgt_rtl_deinit_plugin();
 // Return the number of available devices of the type supported by the
 // target RTL.
 int32_t __tgt_rtl_number_of_devices(void);
+
+// Return if the system is equipped with an APU
+bool __tgt_rtl_has_apu_device(void);
+
+// Returns true, if the system is equipped with a dGPU which supports USM.
+bool __tgt_rtl_has_USM_capable_dGPU(void);
+
+bool __tgt_rtl_are_allocations_for_maps_on_apus_disabled(void);
+
+bool __tgt_rtl_is_no_maps_check(void);
+
+bool __tgt_rtl_is_fine_grained_memory_enabled(void);
+
+// Set up environement e.g. depending on the values of the env vars
+void __tgt_rtl_set_up_env(void);
 
 // Return an integer different from zero if the provided device image can be
 // supported by the runtime. The functionality is similar to comparing the

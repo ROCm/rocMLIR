@@ -434,6 +434,252 @@ public:
   }
 };
 
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Add) { return dwarf::DW_OP_plus; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Div) { return dwarf::DW_OP_div; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Mul) { return dwarf::DW_OP_mul; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Shl) { return dwarf::DW_OP_shl; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Shr) { return dwarf::DW_OP_shr; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::Sub) { return dwarf::DW_OP_minus; }
+constexpr uint8_t getEquivalentDwarfOp(DIOp::BitOffset) {
+  return dwarf::DW_OP_LLVM_bit_offset;
+}
+constexpr uint8_t getEquivalentDwarfOp(DIOp::ByteOffset) {
+  return dwarf::DW_OP_LLVM_offset;
+}
+
+class DwarfExprAST {
+protected:
+  class Node {
+  private:
+    DIOp::Variant Element;
+    // FIXME(KZHURAVL): Use pool/arena allocator instead of individual smart
+    // pointers?
+    SmallVector<std::unique_ptr<Node>> Children;
+
+    bool IsLowered = false;
+    Type *ResultType = nullptr;
+
+  public:
+    Node(DIOp::Variant Element)
+        : Element(Element) {}
+
+    const DIOp::Variant &getElement() const {
+      return Element;
+    }
+    const SmallVector<std::unique_ptr<Node>> &getChildren() const {
+      return Children;
+    }
+
+    DIOp::Variant &getElement() {
+      return Element;
+    }
+    SmallVector<std::unique_ptr<Node>> &getChildren() {
+      return Children;
+    }
+
+    const bool &isLowered() const {
+      return IsLowered;
+    }
+    const Type *getResultType() const {
+      return ResultType;
+    }
+
+    bool &isLowered() {
+      return IsLowered;
+    }
+    Type *getResultType() {
+      return ResultType;
+    }
+
+    void setIsLowered(bool IL = true) {
+      IsLowered = IL;
+    }
+    void setResultType(Type *RT) {
+      ResultType = RT;
+    }
+
+    size_t getChildrenCount() const;
+  };
+
+  const AsmPrinter &AP;
+  // An `std::optional<const TargetRegisterInfo&>` where `nullptr` represents
+  // `None`. Only present when in a function context.
+  const TargetRegisterInfo *TRI;
+  DwarfCompileUnit &CU;
+  const DILifetime &Lifetime;
+  // An `std::optional<MachineOperand>` where `nullptr` represents `None`.
+  // Only present when in a function context.
+  const MachineOperand *Referrer;
+  // An `std::optional<const DenseMap<_, _>&>` where `nullptr` represents
+  // `None`. Only present and applicable as part of an optimization for
+  // DIFragments which refer to global variable fragments.
+  const DenseMap<DIFragment *, const GlobalVariable *> *GVFragmentMap;
+  std::unique_ptr<DwarfExprAST::Node> Root;
+  // FIXME(KZHURAVL): This is a temporary boolean variable that indicates
+  // whether the lowering of this expression is supported or not. If the
+  // lowering is supported, then a valid DIE is returned, otherwise an empty
+  // DIE is returned (which indicates that there is no debug information
+  // available).
+  bool IsImplemented = true;
+
+  void buildDIExprAST();
+  void traverseAndLower(DwarfExprAST::Node *OpNode);
+  void lower(DwarfExprAST::Node *OpNode);
+  /// Attempt to perform the optimization of inlining the expression of a global
+  /// value DIFragment, referenced through a DIOpArg.
+  ///
+  /// \returns true if the optimization was performed successfully, false if it
+  /// is not applicable.
+  bool tryInlineArgObject(DIObject *ArgObject);
+  using ChildrenT = ArrayRef<std::unique_ptr<DwarfExprAST::Node>>;
+  // Each `lower` overload below will handle one or more concrete DIOp
+  // operations, and will be dispatched to by `lower(DwarfExprAST::Node*)`.
+  // These overloads return `nullptr` when they are not yet implemented, or
+  // return their result Type otherwise.
+  Type *lower(DIOp::Arg Arg, ChildrenT Children);
+  Type *lower(DIOp::Constant Constant, ChildrenT Children);
+  Type *lower(DIOp::PushLane PushLane, ChildrenT Children);
+  Type *lower(DIOp::Referrer Referrer, ChildrenT Children);
+  Type *lower(DIOp::TypeObject TypeObject, ChildrenT Children);
+  Type *lower(DIOp::AddrOf AddrOf, ChildrenT Children);
+  Type *lower(DIOp::Convert Convert, ChildrenT Children);
+  Type *lower(DIOp::Deref Deref, ChildrenT Children);
+  Type *lower(DIOp::Extend Extend, ChildrenT Children);
+  Type *lower(DIOp::Read Read, ChildrenT Children);
+  Type *lower(DIOp::Reinterpret Reinterpret, ChildrenT Children);
+  Type *lower(DIOp::Select Select, ChildrenT Children);
+  Type *lower(DIOp::Composite Composite, ChildrenT Children);
+  template <typename T>
+  std::enable_if_t<is_one_of<T, DIOp::Add, DIOp::Div, DIOp::Mul, DIOp::Shl,
+                             DIOp::Shr, DIOp::Sub>::value,
+                   Type *>
+  lower(T MathOp, ChildrenT Children) {
+    assert(Children.size() == 2 && "Expected 2 children");
+    for (auto &ChildOpNode : Children)
+      readToValue(ChildOpNode.get(), /*NeedsSwap=*/true);
+    emitDwarfOp(getEquivalentDwarfOp(MathOp));
+    emitDwarfOp(dwarf::DW_OP_stack_value);
+    return Children[0]->getResultType();
+  }
+  template <typename T>
+  std::enable_if_t<is_one_of<T, DIOp::BitOffset, DIOp::ByteOffset>::value,
+                   Type *>
+  lower(T OffsetOp, ChildrenT Children) {
+    assert(Children.size() == 2 && "Expected 2 children");
+    readToValue(Children[1].get(), /*NeedsSwap=*/false);
+    emitDwarfOp(getEquivalentDwarfOp(OffsetOp));
+    return OffsetOp.getResultType();
+  }
+
+  void readToValue(DwarfExprAST::Node *OpNode, bool NeedsSwap);
+
+  void emitReg(int32_t DwarfReg, const char *Comment = nullptr);
+  void emitSigned(int64_t SignedValue);
+  void emitUnsigned(uint64_t UnsignedValue);
+  virtual void emitDwarfData1(uint8_t Data1Value) = 0;
+  virtual void emitDwarfOp(uint8_t DwarfOpValue,
+                           const char *Comment = nullptr) = 0;
+  virtual void emitDwarfSigned(int64_t SignedValue) = 0;
+  virtual void emitDwarfUnsigned(uint64_t UnsignedValue) = 0;
+  virtual void emitDwarfAddr(const MCSymbol *Sym) = 0;
+  virtual void emitDwarfOpAddrx(unsigned Index) = 0;
+  virtual void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) = 0;
+
+public:
+  DwarfExprAST(
+      const AsmPrinter &AP, const TargetRegisterInfo *TRI, DwarfCompileUnit &CU,
+      const DILifetime &Lifetime, const MachineOperand *Referrer,
+      const DenseMap<DIFragment *, const GlobalVariable *> *GVFragmentMap)
+      : AP(AP), TRI(TRI), CU(CU), Lifetime(Lifetime), Referrer(Referrer),
+        GVFragmentMap(GVFragmentMap) {
+    buildDIExprAST();
+  }
+  virtual ~DwarfExprAST() {}
+};
+
+class DebugLocDwarfExprAST final : DwarfExprAST {
+  BufferByteStreamer &OutBS;
+
+  ByteStreamer &getActiveStreamer();
+
+  void emitDwarfData1(uint8_t Data1Value) override;
+  void emitDwarfOp(uint8_t DwarfOpValue, const char *Comment = nullptr) override;
+  void emitDwarfSigned(int64_t SignedValue) override;
+  void emitDwarfUnsigned(uint64_t UnsignedValue) override;
+  void emitDwarfAddr(const MCSymbol *Sym) override;
+  void emitDwarfOpAddrx(unsigned Index) override;
+  void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) override;
+
+  DebugLocDwarfExprAST(
+      const AsmPrinter &AP, const TargetRegisterInfo *TRI, DwarfCompileUnit &CU,
+      BufferByteStreamer &BS, const DILifetime &Lifetime,
+      const MachineOperand *Referrer,
+      const DenseMap<DIFragment *, const GlobalVariable *> *GVFragmentMap)
+      : DwarfExprAST(AP, TRI, CU, Lifetime, Referrer, GVFragmentMap),
+        OutBS(BS) {}
+
+  public:
+  DebugLocDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo &TRI,
+                       DwarfCompileUnit &CU, BufferByteStreamer &BS,
+                       const DILifetime &Lifetime,
+                       const MachineOperand &Referrer)
+      : DebugLocDwarfExprAST(AP, &TRI, CU, BS, Lifetime, &Referrer, nullptr) {}
+  DebugLocDwarfExprAST(
+      const AsmPrinter &AP, DwarfCompileUnit &CU, BufferByteStreamer &BS,
+      const DILifetime &Lifetime,
+      const DenseMap<DIFragment *, const GlobalVariable *> &GVFragmentMap)
+      : DebugLocDwarfExprAST(AP, nullptr, CU, BS, Lifetime, nullptr,
+                             &GVFragmentMap) {}
+  DebugLocDwarfExprAST(const DebugLocDwarfExprAST &) = delete;
+  ~DebugLocDwarfExprAST() {}
+
+  bool finalize() {
+    traverseAndLower(Root.get());
+    return IsImplemented;
+  }
+};
+
+// FIXME(KZHURAVL): Write documentation for DIEDwarfExprAST.
+class DIEDwarfExprAST final : DwarfExprAST {
+  DIELoc &OutDIE;
+
+  DIELoc &getActiveDIE();
+
+  void emitDwarfData1(uint8_t Data1Value) override;
+  void emitDwarfOp(uint8_t DwarfOpValue, const char *Comment = nullptr) override;
+  void emitDwarfSigned(int64_t SignedValue) override;
+  void emitDwarfUnsigned(uint64_t UnsignedValue) override;
+  void emitDwarfAddr(const MCSymbol *Sym) override;
+  void emitDwarfOpAddrx(unsigned Index) override;
+  void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) override;
+
+  DIEDwarfExprAST(
+      const AsmPrinter &AP, const TargetRegisterInfo *TRI, DwarfCompileUnit &CU,
+      DIELoc &DIE, const DILifetime &Lifetime, const MachineOperand *Referrer,
+      const DenseMap<DIFragment *, const GlobalVariable *> *GVFragmentMap)
+      : DwarfExprAST(AP, TRI, CU, Lifetime, Referrer, GVFragmentMap),
+        OutDIE(DIE) {}
+
+public:
+  DIEDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo &TRI,
+                  DwarfCompileUnit &CU, DIELoc &DIE, const DILifetime &Lifetime,
+                  const MachineOperand &Referrer)
+      : DIEDwarfExprAST(AP, &TRI, CU, DIE, Lifetime, &Referrer, nullptr) {}
+  DIEDwarfExprAST(
+      const AsmPrinter &AP, DwarfCompileUnit &CU, DIELoc &DIE,
+      const DILifetime &Lifetime,
+      const DenseMap<DIFragment *, const GlobalVariable *> &GVFragmentMap)
+      : DIEDwarfExprAST(AP, nullptr, CU, DIE, Lifetime, nullptr,
+                        &GVFragmentMap) {}
+  DIEDwarfExprAST(const DIEDwarfExprAST &) = delete;
+  ~DIEDwarfExprAST() {}
+
+  DIELoc *finalize() {
+    traverseAndLower(Root.get());
+    return IsImplemented ? &OutDIE : nullptr;
+  }
+};
+
 } // end namespace llvm
 
 #endif // LLVM_LIB_CODEGEN_ASMPRINTER_DWARFEXPRESSION_H

@@ -56,22 +56,22 @@ static constexpr const VarKind everyVarKind[] = {
     VarKind::Dimension, VarKind::Symbol, VarKind::Level};
 
 VarSet::VarSet(Ranks const &ranks) {
-  // FIXME(wrengr): will this DWIM, or do we need to worry about
-  // `reserve` causing resizing/dangling issues?
   for (const auto vk : everyVarKind)
     impl[vk].reserve(ranks.getRank(vk));
 }
 
 bool VarSet::contains(Var var) const {
-  // FIXME(wrengr): this implementation will raise assertion failure on OOB;
-  // but perhaps we'd rather have this return false on OOB?  That's
-  // necessary for consistency with the `anyCommon` implementation of
-  // `occursIn(VarSet)`.
+  // NOTE: We make sure to return false on OOB, for consistency with
+  // the `anyCommon` implementation of `VarSet::occursIn(VarSet)`.
+  // However beware that, as always with silencing OOB, this can hide
+  // bugs in client code.
   const llvm::SmallBitVector &bits = impl[var.getKind()];
-  // NOTE TO Wren: did this to avoid OOB but perhaps it is result of bug
-  if (var.getNum() >= bits.size())
-    return false;
-  return bits[var.getNum()];
+  const auto num = var.getNum();
+  // FIXME(wrengr): If we `assert(num < bits.size())` then
+  // "roundtrip_encoding.mlir" will fail.  So we need to figure out
+  // where exactly the OOB `var` is coming from, to determine whether
+  // that's a logic bug or not.
+  return num < bits.size() && bits[num];
 }
 
 bool VarSet::occursIn(VarSet const &other) const {
@@ -105,13 +105,20 @@ bool VarSet::occursIn(DimLvlExpr expr) const {
 }
 
 void VarSet::add(Var var) {
-  // FIXME(wrengr): this implementation will raise assertion failure on OOB;
-  // but perhaps we'd rather have this be a noop on OOB?  or to grow
-  // the underlying bitvectors on OOB?
+  // NOTE: `SmallBitVactor::operator[]` will raise assertion errors for OOB.
   impl[var.getKind()][var.getNum()] = true;
 }
 
-// TODO(wrengr): void VarSet::add(VarSet const& other);
+void VarSet::add(VarSet const &other) {
+  // NOTE: `SmallBitVector::operator&=` will implicitly resize
+  // the bitvector (unlike `BitVector::operator&=`), so we add an
+  // assertion against OOB for consistency with the implementation
+  // of `VarSet::add(Var)`.
+  for (const auto vk : everyVarKind) {
+    assert(impl[vk].size() >= other.impl[vk].size());
+    impl[vk] &= other.impl[vk];
+  }
+}
 
 void VarSet::add(DimLvlExpr expr) {
   if (!expr)
@@ -235,10 +242,10 @@ std::pair<VarInfo::ID, bool> VarEnv::create(StringRef name, llvm::SMLoc loc,
 }
 
 std::optional<std::pair<VarInfo::ID, bool>>
-VarEnv::lookupOrCreate(CreationPolicy policy, StringRef name, llvm::SMLoc loc,
+VarEnv::lookupOrCreate(Policy creationPolicy, StringRef name, llvm::SMLoc loc,
                        VarKind vk) {
-  switch (policy) {
-  case CreationPolicy::MustNot: {
+  switch (creationPolicy) {
+  case Policy::MustNot: {
     const auto oid = lookup(name);
     if (!oid)
       return std::nullopt; // Doesn't exist, but must not create.
@@ -247,9 +254,9 @@ VarEnv::lookupOrCreate(CreationPolicy policy, StringRef name, llvm::SMLoc loc,
 #endif // NDEBUG
     return std::make_pair(*oid, false);
   }
-  case CreationPolicy::May:
+  case Policy::May:
     return create(name, loc, vk, /*verifyUsage=*/true);
-  case CreationPolicy::Must: {
+  case Policy::Must: {
     const auto res = create(name, loc, vk, /*verifyUsage=*/false);
     // const auto id = res.first;
     const auto didCreate = res.second;
@@ -258,7 +265,7 @@ VarEnv::lookupOrCreate(CreationPolicy policy, StringRef name, llvm::SMLoc loc,
     return res;
   }
   }
-  llvm_unreachable("unknown CreationPolicy");
+  llvm_unreachable("unknown Policy");
 }
 
 Var VarEnv::bindUnusedVar(VarKind vk) { return Var(vk, nextNum[vk]++); }

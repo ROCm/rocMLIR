@@ -37,7 +37,6 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; GFX1010_W32-LABEL: mubuf_vgpr:
 ; GFX1010_W32:       ; %bb.0:
 ; GFX1010_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W32-NEXT:    s_mov_b32 s5, exec_lo
 ; GFX1010_W32-NEXT:  .LBB0_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1010_W32-NEXT:    v_readfirstlane_b32 s8, v0
@@ -63,7 +62,6 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; GFX1010_W64-LABEL: mubuf_vgpr:
 ; GFX1010_W64:       ; %bb.0:
 ; GFX1010_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W64-NEXT:    s_mov_b64 s[6:7], exec
 ; GFX1010_W64-NEXT:  .LBB0_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1010_W64-NEXT:    v_readfirstlane_b32 s8, v0
@@ -89,7 +87,6 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; GFX1100_W32-LABEL: mubuf_vgpr:
 ; GFX1100_W32:       ; %bb.0:
 ; GFX1100_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W32-NEXT:    s_mov_b32 s1, exec_lo
 ; GFX1100_W32-NEXT:  .LBB0_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1100_W32-NEXT:    v_readfirstlane_b32 s4, v0
@@ -116,7 +113,6 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; GFX1100_W64-LABEL: mubuf_vgpr:
 ; GFX1100_W64:       ; %bb.0:
 ; GFX1100_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W64-NEXT:    s_mov_b64 s[2:3], exec
 ; GFX1100_W64-NEXT:  .LBB0_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1100_W64-NEXT:    v_readfirstlane_b32 s4, v0
@@ -144,43 +140,52 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; W64-O0:       ; %bb.0:
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_store_dword v5, off, s[0:3], s32 offset:24 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:28 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:32 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
+; W64-O0-NEXT:    ; implicit-def: $vgpr5
 ; W64-O0-NEXT:    buffer_store_dword v4, off, s[0:3], s32 offset:16 ; 4-byte Folded Spill
-; W64-O0-NEXT:    v_mov_b32_e32 v6, v2
+; W64-O0-NEXT:    v_mov_b32_e32 v5, v2
 ; W64-O0-NEXT:    v_mov_b32_e32 v2, v1
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; kill: def $vgpr6 killed $vgpr6 def $vgpr6_vgpr7 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v7, v3
-; W64-O0-NEXT:    v_mov_b32_e32 v4, v7
-; W64-O0-NEXT:    ; kill: def $vgpr6 killed $vgpr6 killed $vgpr6_vgpr7 killed $exec
+; W64-O0-NEXT:    ; kill: def $vgpr5 killed $vgpr5 def $vgpr5_vgpr6 killed $exec
+; W64-O0-NEXT:    v_mov_b32_e32 v6, v3
+; W64-O0-NEXT:    v_mov_b32_e32 v4, v6
+; W64-O0-NEXT:    ; kill: def $vgpr5 killed $vgpr5 killed $vgpr5_vgpr6 killed $exec
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr0 killed $vgpr0 def $vgpr0_vgpr1 killed $exec
 ; W64-O0-NEXT:    v_mov_b32_e32 v1, v2
-; W64-O0-NEXT:    v_mov_b32_e32 v7, v1
+; W64-O0-NEXT:    v_mov_b32_e32 v6, v1
 ; W64-O0-NEXT:    ; kill: def $vgpr0 killed $vgpr0 killed $vgpr0_vgpr1 killed $exec
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr0 killed $vgpr0 def $vgpr0_vgpr1_vgpr2_vgpr3 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v1, v7
-; W64-O0-NEXT:    v_mov_b32_e32 v2, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v1, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v2, v5
 ; W64-O0-NEXT:    v_mov_b32_e32 v3, v4
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:4 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v2, off, s[0:3], s32 offset:8 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v3, off, s[0:3], s32 offset:12 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    s_mov_b32 s4, 0
-; W64-O0-NEXT:    v_writelane_b32 v5, s4, 0
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 0
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v5, s4, 1
-; W64-O0-NEXT:    v_writelane_b32 v5, s5, 2
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 1
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 2
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:24 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  .LBB0_1: ; =>This Inner Loop Header: Depth=1
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:4 ; 4-byte Folded Reload
@@ -192,6 +197,9 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; W64-O0-NEXT:    s_mov_b32 s4, s8
 ; W64-O0-NEXT:    s_mov_b32 s5, s12
 ; W64-O0-NEXT:    v_cmp_eq_u64_e64 s[4:5], s[4:5], v[0:1]
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_readfirstlane_b32 s7, v2
 ; W64-O0-NEXT:    v_readfirstlane_b32 s6, v3
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
@@ -202,22 +210,30 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; W64-O0-NEXT:    s_mov_b32 s9, s12
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
 ; W64-O0-NEXT:    s_mov_b32 s11, s6
-; W64-O0-NEXT:    v_writelane_b32 v5, s8, 3
-; W64-O0-NEXT:    v_writelane_b32 v5, s9, 4
-; W64-O0-NEXT:    v_writelane_b32 v5, s10, 5
-; W64-O0-NEXT:    v_writelane_b32 v5, s11, 6
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s8, 3
+; W64-O0-NEXT:    v_writelane_b32 v0, s9, 4
+; W64-O0-NEXT:    v_writelane_b32 v0, s10, 5
+; W64-O0-NEXT:    v_writelane_b32 v0, s11, 6
 ; W64-O0-NEXT:    s_and_saveexec_b64 s[4:5], s[4:5]
-; W64-O0-NEXT:    v_writelane_b32 v5, s4, 7
-; W64-O0-NEXT:    v_writelane_b32 v5, s5, 8
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 7
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 8
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:24 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  ; %bb.2: ; in Loop: Header=BB0_1 Depth=1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 7
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 8
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:16 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v5, 7
-; W64-O0-NEXT:    v_readlane_b32 s5, v5, 8
-; W64-O0-NEXT:    v_readlane_b32 s8, v5, 3
-; W64-O0-NEXT:    v_readlane_b32 s9, v5, 4
-; W64-O0-NEXT:    v_readlane_b32 s10, v5, 5
-; W64-O0-NEXT:    v_readlane_b32 s11, v5, 6
-; W64-O0-NEXT:    v_readlane_b32 s6, v5, 0
+; W64-O0-NEXT:    v_readlane_b32 s8, v1, 3
+; W64-O0-NEXT:    v_readlane_b32 s9, v1, 4
+; W64-O0-NEXT:    v_readlane_b32 s10, v1, 5
+; W64-O0-NEXT:    v_readlane_b32 s11, v1, 6
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 0
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_nop 3
 ; W64-O0-NEXT:    buffer_load_format_x v0, v0, s[8:11], s6 idxen
@@ -226,12 +242,20 @@ define float @mubuf_vgpr(ptr addrspace(8) %i, i32 %c) #0 {
 ; W64-O0-NEXT:    s_xor_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execnz .LBB0_1
 ; W64-O0-NEXT:  ; %bb.3:
-; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:20 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v5, 1
-; W64-O0-NEXT:    v_readlane_b32 s5, v5, 2
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 1
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 2
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:20 ; 4-byte Folded Reload
+; W64-O0-NEXT:    ; kill: killed $vgpr1
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_load_dword v5, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:28 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_nop 0
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:32 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_setpc_b64 s[30:31]
@@ -292,7 +316,6 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; GFX1010_W32-LABEL: mubuf_vgpr_adjacent_in_block:
 ; GFX1010_W32:       ; %bb.0: ; %entry
 ; GFX1010_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W32-NEXT:    s_mov_b32 s5, exec_lo
 ; GFX1010_W32-NEXT:  .LBB1_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1010_W32-NEXT:    v_readfirstlane_b32 s8, v0
@@ -339,7 +362,6 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; GFX1010_W64-LABEL: mubuf_vgpr_adjacent_in_block:
 ; GFX1010_W64:       ; %bb.0: ; %entry
 ; GFX1010_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W64-NEXT:    s_mov_b64 s[6:7], exec
 ; GFX1010_W64-NEXT:  .LBB1_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1010_W64-NEXT:    v_readfirstlane_b32 s8, v0
@@ -386,7 +408,6 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; GFX1100_W32-LABEL: mubuf_vgpr_adjacent_in_block:
 ; GFX1100_W32:       ; %bb.0: ; %entry
 ; GFX1100_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W32-NEXT:    s_mov_b32 s1, exec_lo
 ; GFX1100_W32-NEXT:  .LBB1_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1100_W32-NEXT:    v_readfirstlane_b32 s4, v0
@@ -436,7 +457,6 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; GFX1100_W64-LABEL: mubuf_vgpr_adjacent_in_block:
 ; GFX1100_W64:       ; %bb.0: ; %entry
 ; GFX1100_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W64-NEXT:    s_mov_b64 s[2:3], exec
 ; GFX1100_W64-NEXT:  .LBB1_1: ; =>This Inner Loop Header: Depth=1
 ; GFX1100_W64-NEXT:    v_readfirstlane_b32 s4, v0
@@ -487,16 +507,18 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0:       ; %bb.0: ; %entry
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_store_dword v13, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:76 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:80 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
+; W64-O0-NEXT:    ; implicit-def: $vgpr13
 ; W64-O0-NEXT:    buffer_store_dword v11, off, s[0:3], s32 offset:52 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v9, off, s[0:3], s32 offset:48 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v8, off, s[0:3], s32 offset:60 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v7, off, s[0:3], s32 offset:56 ; 4-byte Folded Spill
-; W64-O0-NEXT:    v_mov_b32_e32 v15, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v14, v6
 ; W64-O0-NEXT:    v_mov_b32_e32 v8, v5
 ; W64-O0-NEXT:    buffer_load_dword v5, off, s[0:3], s32 offset:56 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_mov_b32_e32 v14, v4
+; W64-O0-NEXT:    v_mov_b32_e32 v13, v4
 ; W64-O0-NEXT:    v_mov_b32_e32 v7, v2
 ; W64-O0-NEXT:    v_mov_b32_e32 v4, v1
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:52 ; 4-byte Folded Reload
@@ -504,30 +526,30 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:48 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; kill: def $vgpr15 killed $vgpr15 def $vgpr15_vgpr16 killed $exec
-; W64-O0-NEXT:    s_waitcnt vmcnt(2)
-; W64-O0-NEXT:    v_mov_b32_e32 v16, v5
-; W64-O0-NEXT:    v_mov_b32_e32 v5, v16
-; W64-O0-NEXT:    v_mov_b32_e32 v6, v15
-; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr14 killed $vgpr14 def $vgpr14_vgpr15 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v15, v8
-; W64-O0-NEXT:    v_mov_b32_e32 v8, v15
-; W64-O0-NEXT:    ; kill: def $vgpr14 killed $vgpr14 killed $vgpr14_vgpr15 killed $exec
+; W64-O0-NEXT:    s_waitcnt vmcnt(2)
+; W64-O0-NEXT:    v_mov_b32_e32 v15, v5
+; W64-O0-NEXT:    v_mov_b32_e32 v5, v15
+; W64-O0-NEXT:    v_mov_b32_e32 v6, v14
+; W64-O0-NEXT:    ; implicit-def: $sgpr4
+; W64-O0-NEXT:    ; implicit-def: $sgpr4
+; W64-O0-NEXT:    ; kill: def $vgpr13 killed $vgpr13 def $vgpr13_vgpr14 killed $exec
+; W64-O0-NEXT:    v_mov_b32_e32 v14, v8
+; W64-O0-NEXT:    v_mov_b32_e32 v8, v14
+; W64-O0-NEXT:    ; kill: def $vgpr13 killed $vgpr13 killed $vgpr13_vgpr14 killed $exec
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; kill: def $vgpr14 killed $vgpr14 def $vgpr14_vgpr15_vgpr16_vgpr17 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v15, v8
-; W64-O0-NEXT:    v_mov_b32_e32 v16, v6
-; W64-O0-NEXT:    v_mov_b32_e32 v17, v5
-; W64-O0-NEXT:    buffer_store_dword v14, off, s[0:3], s32 offset:32 ; 4-byte Folded Spill
+; W64-O0-NEXT:    ; kill: def $vgpr13 killed $vgpr13 def $vgpr13_vgpr14_vgpr15_vgpr16 killed $exec
+; W64-O0-NEXT:    v_mov_b32_e32 v14, v8
+; W64-O0-NEXT:    v_mov_b32_e32 v15, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v16, v5
+; W64-O0-NEXT:    buffer_store_dword v13, off, s[0:3], s32 offset:32 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
-; W64-O0-NEXT:    buffer_store_dword v15, off, s[0:3], s32 offset:36 ; 4-byte Folded Spill
-; W64-O0-NEXT:    buffer_store_dword v16, off, s[0:3], s32 offset:40 ; 4-byte Folded Spill
-; W64-O0-NEXT:    buffer_store_dword v17, off, s[0:3], s32 offset:44 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v14, off, s[0:3], s32 offset:36 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v15, off, s[0:3], s32 offset:40 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v16, off, s[0:3], s32 offset:44 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr7 killed $vgpr7 def $vgpr7_vgpr8 killed $exec
@@ -567,6 +589,9 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:4 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
@@ -574,10 +599,14 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4_sgpr5
 ; W64-O0-NEXT:    s_mov_b32 s4, 0
-; W64-O0-NEXT:    v_writelane_b32 v13, s4, 0
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 0
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v13, s4, 1
-; W64-O0-NEXT:    v_writelane_b32 v13, s5, 2
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 1
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 2
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  .LBB1_1: ; =>This Inner Loop Header: Depth=1
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:16 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:20 ; 4-byte Folded Reload
@@ -589,6 +618,9 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_mov_b32 s4, s8
 ; W64-O0-NEXT:    s_mov_b32 s5, s12
 ; W64-O0-NEXT:    v_cmp_eq_u64_e64 s[4:5], s[4:5], v[0:1]
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_readfirstlane_b32 s7, v2
 ; W64-O0-NEXT:    v_readfirstlane_b32 s6, v3
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
@@ -599,22 +631,30 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_mov_b32 s9, s12
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
 ; W64-O0-NEXT:    s_mov_b32 s11, s6
-; W64-O0-NEXT:    v_writelane_b32 v13, s8, 3
-; W64-O0-NEXT:    v_writelane_b32 v13, s9, 4
-; W64-O0-NEXT:    v_writelane_b32 v13, s10, 5
-; W64-O0-NEXT:    v_writelane_b32 v13, s11, 6
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s8, 3
+; W64-O0-NEXT:    v_writelane_b32 v0, s9, 4
+; W64-O0-NEXT:    v_writelane_b32 v0, s10, 5
+; W64-O0-NEXT:    v_writelane_b32 v0, s11, 6
 ; W64-O0-NEXT:    s_and_saveexec_b64 s[4:5], s[4:5]
-; W64-O0-NEXT:    v_writelane_b32 v13, s4, 7
-; W64-O0-NEXT:    v_writelane_b32 v13, s5, 8
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 7
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 8
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  ; %bb.2: ; in Loop: Header=BB1_1 Depth=1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 7
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 8
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:60 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v13, 7
-; W64-O0-NEXT:    v_readlane_b32 s5, v13, 8
-; W64-O0-NEXT:    v_readlane_b32 s8, v13, 3
-; W64-O0-NEXT:    v_readlane_b32 s9, v13, 4
-; W64-O0-NEXT:    v_readlane_b32 s10, v13, 5
-; W64-O0-NEXT:    v_readlane_b32 s11, v13, 6
-; W64-O0-NEXT:    v_readlane_b32 s6, v13, 0
+; W64-O0-NEXT:    v_readlane_b32 s8, v1, 3
+; W64-O0-NEXT:    v_readlane_b32 s9, v1, 4
+; W64-O0-NEXT:    v_readlane_b32 s10, v1, 5
+; W64-O0-NEXT:    v_readlane_b32 s11, v1, 6
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 0
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_nop 3
 ; W64-O0-NEXT:    buffer_load_format_x v0, v0, s[8:11], s6 idxen
@@ -623,12 +663,19 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_xor_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execnz .LBB1_1
 ; W64-O0-NEXT:  ; %bb.3:
-; W64-O0-NEXT:    v_readlane_b32 s4, v13, 1
-; W64-O0-NEXT:    v_readlane_b32 s5, v13, 2
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v0, 1
+; W64-O0-NEXT:    v_readlane_b32 s5, v0, 2
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v13, s4, 9
-; W64-O0-NEXT:    v_writelane_b32 v13, s5, 10
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 9
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 10
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  .LBB1_4: ; =>This Inner Loop Header: Depth=1
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:32 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:36 ; 4-byte Folded Reload
@@ -640,6 +687,9 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_mov_b32 s4, s8
 ; W64-O0-NEXT:    s_mov_b32 s5, s12
 ; W64-O0-NEXT:    v_cmp_eq_u64_e64 s[4:5], s[4:5], v[0:1]
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_readfirstlane_b32 s7, v2
 ; W64-O0-NEXT:    v_readfirstlane_b32 s6, v3
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
@@ -650,22 +700,30 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_mov_b32 s9, s12
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
 ; W64-O0-NEXT:    s_mov_b32 s11, s6
-; W64-O0-NEXT:    v_writelane_b32 v13, s8, 11
-; W64-O0-NEXT:    v_writelane_b32 v13, s9, 12
-; W64-O0-NEXT:    v_writelane_b32 v13, s10, 13
-; W64-O0-NEXT:    v_writelane_b32 v13, s11, 14
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s8, 11
+; W64-O0-NEXT:    v_writelane_b32 v0, s9, 12
+; W64-O0-NEXT:    v_writelane_b32 v0, s10, 13
+; W64-O0-NEXT:    v_writelane_b32 v0, s11, 14
 ; W64-O0-NEXT:    s_and_saveexec_b64 s[4:5], s[4:5]
-; W64-O0-NEXT:    v_writelane_b32 v13, s4, 15
-; W64-O0-NEXT:    v_writelane_b32 v13, s5, 16
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 15
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 16
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  ; %bb.5: ; in Loop: Header=BB1_4 Depth=1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 15
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 16
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:60 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v13, 15
-; W64-O0-NEXT:    v_readlane_b32 s5, v13, 16
-; W64-O0-NEXT:    v_readlane_b32 s8, v13, 11
-; W64-O0-NEXT:    v_readlane_b32 s9, v13, 12
-; W64-O0-NEXT:    v_readlane_b32 s10, v13, 13
-; W64-O0-NEXT:    v_readlane_b32 s11, v13, 14
-; W64-O0-NEXT:    v_readlane_b32 s6, v13, 0
+; W64-O0-NEXT:    v_readlane_b32 s8, v1, 11
+; W64-O0-NEXT:    v_readlane_b32 s9, v1, 12
+; W64-O0-NEXT:    v_readlane_b32 s10, v1, 13
+; W64-O0-NEXT:    v_readlane_b32 s11, v1, 14
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 0
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_nop 3
 ; W64-O0-NEXT:    buffer_load_format_x v0, v0, s[8:11], s6 idxen
@@ -674,22 +732,31 @@ define void @mubuf_vgpr_adjacent_in_block(ptr addrspace(8) %i, ptr addrspace(8) 
 ; W64-O0-NEXT:    s_xor_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execnz .LBB1_4
 ; W64-O0-NEXT:  ; %bb.6:
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v0, 9
+; W64-O0-NEXT:    v_readlane_b32 s5, v0, 10
+; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    buffer_load_dword v2, off, s[0:3], s32 offset:68 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:8 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:12 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v5, off, s[0:3], s32 offset:64 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v3, off, s[0:3], s32 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v4, off, s[0:3], s32 offset:4 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v13, 9
-; W64-O0-NEXT:    v_readlane_b32 s5, v13, 10
-; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    global_store_dword v[3:4], v5, off
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    global_store_dword v[0:1], v2, off
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    ; kill: killed $vgpr0
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_load_dword v13, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:76 ; 4-byte Folded Reload
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:80 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_setpc_b64 s[30:31]
@@ -764,7 +831,6 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; GFX1010_W32-LABEL: mubuf_vgpr_outside_entry:
 ; GFX1010_W32:       ; %bb.0: ; %entry
 ; GFX1010_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W32-NEXT:    ;;#ASMSTART
 ; GFX1010_W32-NEXT:    s_mov_b32 s4, 17
 ; GFX1010_W32-NEXT:    ;;#ASMEND
@@ -821,7 +887,6 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; GFX1010_W64-LABEL: mubuf_vgpr_outside_entry:
 ; GFX1010_W64:       ; %bb.0: ; %entry
 ; GFX1010_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1010_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1010_W64-NEXT:    ;;#ASMSTART
 ; GFX1010_W64-NEXT:    s_mov_b32 s4, 17
 ; GFX1010_W64-NEXT:    ;;#ASMEND
@@ -878,7 +943,6 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; GFX1100_W32-LABEL: mubuf_vgpr_outside_entry:
 ; GFX1100_W32:       ; %bb.0: ; %entry
 ; GFX1100_W32-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W32-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W32-NEXT:    ;;#ASMSTART
 ; GFX1100_W32-NEXT:    s_mov_b32 s4, 17
 ; GFX1100_W32-NEXT:    ;;#ASMEND
@@ -939,7 +1003,6 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; GFX1100_W64-LABEL: mubuf_vgpr_outside_entry:
 ; GFX1100_W64:       ; %bb.0: ; %entry
 ; GFX1100_W64-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX1100_W64-NEXT:    s_waitcnt_vscnt null, 0x0
 ; GFX1100_W64-NEXT:    ;;#ASMSTART
 ; GFX1100_W64-NEXT:    s_mov_b32 s4, 17
 ; GFX1100_W64-NEXT:    ;;#ASMEND
@@ -1001,8 +1064,10 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0:       ; %bb.0: ; %entry
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_store_dword v8, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:100 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:104 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
+; W64-O0-NEXT:    ; implicit-def: $vgpr8
 ; W64-O0-NEXT:    buffer_store_dword v31, off, s[0:3], s32 offset:60 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v11, off, s[0:3], s32 offset:44 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v6, off, s[0:3], s32 offset:56 ; 4-byte Folded Spill
@@ -1011,37 +1076,37 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    buffer_load_dword v4, off, s[0:3], s32 offset:56 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_nop 0
 ; W64-O0-NEXT:    buffer_store_dword v5, off, s[0:3], s32 offset:52 ; 4-byte Folded Spill
-; W64-O0-NEXT:    v_mov_b32_e32 v10, v2
+; W64-O0-NEXT:    v_mov_b32_e32 v9, v2
 ; W64-O0-NEXT:    buffer_load_dword v2, off, s[0:3], s32 offset:52 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    v_mov_b32_e32 v6, v1
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:48 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_mov_b32_e32 v9, v0
+; W64-O0-NEXT:    v_mov_b32_e32 v8, v0
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:44 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; kill: def $vgpr10 killed $vgpr10 def $vgpr10_vgpr11 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v11, v3
-; W64-O0-NEXT:    v_mov_b32_e32 v3, v11
-; W64-O0-NEXT:    v_mov_b32_e32 v5, v10
-; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr9 killed $vgpr9 def $vgpr9_vgpr10 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v10, v6
-; W64-O0-NEXT:    v_mov_b32_e32 v6, v10
-; W64-O0-NEXT:    v_mov_b32_e32 v13, v9
+; W64-O0-NEXT:    v_mov_b32_e32 v10, v3
+; W64-O0-NEXT:    v_mov_b32_e32 v3, v10
+; W64-O0-NEXT:    v_mov_b32_e32 v5, v9
+; W64-O0-NEXT:    ; implicit-def: $sgpr4
+; W64-O0-NEXT:    ; implicit-def: $sgpr4
+; W64-O0-NEXT:    ; kill: def $vgpr8 killed $vgpr8 def $vgpr8_vgpr9 killed $exec
+; W64-O0-NEXT:    v_mov_b32_e32 v9, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v6, v9
+; W64-O0-NEXT:    ; kill: def $vgpr8 killed $vgpr8 killed $vgpr8_vgpr9 killed $exec
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
-; W64-O0-NEXT:    ; kill: def $vgpr13 killed $vgpr13 def $vgpr13_vgpr14_vgpr15_vgpr16 killed $exec
-; W64-O0-NEXT:    v_mov_b32_e32 v14, v6
-; W64-O0-NEXT:    v_mov_b32_e32 v15, v5
-; W64-O0-NEXT:    v_mov_b32_e32 v16, v3
-; W64-O0-NEXT:    buffer_store_dword v13, off, s[0:3], s32 offset:28 ; 4-byte Folded Spill
+; W64-O0-NEXT:    ; kill: def $vgpr8 killed $vgpr8 def $vgpr8_vgpr9_vgpr10_vgpr11 killed $exec
+; W64-O0-NEXT:    v_mov_b32_e32 v9, v6
+; W64-O0-NEXT:    v_mov_b32_e32 v10, v5
+; W64-O0-NEXT:    v_mov_b32_e32 v11, v3
+; W64-O0-NEXT:    buffer_store_dword v8, off, s[0:3], s32 offset:28 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
-; W64-O0-NEXT:    buffer_store_dword v14, off, s[0:3], s32 offset:32 ; 4-byte Folded Spill
-; W64-O0-NEXT:    buffer_store_dword v15, off, s[0:3], s32 offset:36 ; 4-byte Folded Spill
-; W64-O0-NEXT:    buffer_store_dword v16, off, s[0:3], s32 offset:40 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v9, off, s[0:3], s32 offset:32 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v10, off, s[0:3], s32 offset:36 ; 4-byte Folded Spill
+; W64-O0-NEXT:    buffer_store_dword v11, off, s[0:3], s32 offset:40 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; implicit-def: $sgpr4
 ; W64-O0-NEXT:    ; kill: def $vgpr4 killed $vgpr4 def $vgpr4_vgpr5 killed $exec
@@ -1065,18 +1130,32 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:4 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:8 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    ;;#ASMSTART
 ; W64-O0-NEXT:    s_mov_b32 s4, 17
 ; W64-O0-NEXT:    ;;#ASMEND
 ; W64-O0-NEXT:    s_mov_b32 s5, s4
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 0
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 0
 ; W64-O0-NEXT:    s_mov_b32 s5, 0
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 1
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_mov_b32_e32 v0, s4
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v8, s4, 2
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 3
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 2
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 3
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  .LBB2_1: ; =>This Inner Loop Header: Depth=1
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:28 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:32 ; 4-byte Folded Reload
@@ -1088,6 +1167,9 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_mov_b32 s4, s8
 ; W64-O0-NEXT:    s_mov_b32 s5, s12
 ; W64-O0-NEXT:    v_cmp_eq_u64_e64 s[4:5], s[4:5], v[0:1]
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_readfirstlane_b32 s7, v2
 ; W64-O0-NEXT:    v_readfirstlane_b32 s6, v3
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
@@ -1098,22 +1180,30 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_mov_b32 s9, s12
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
 ; W64-O0-NEXT:    s_mov_b32 s11, s6
-; W64-O0-NEXT:    v_writelane_b32 v8, s8, 4
-; W64-O0-NEXT:    v_writelane_b32 v8, s9, 5
-; W64-O0-NEXT:    v_writelane_b32 v8, s10, 6
-; W64-O0-NEXT:    v_writelane_b32 v8, s11, 7
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s8, 4
+; W64-O0-NEXT:    v_writelane_b32 v0, s9, 5
+; W64-O0-NEXT:    v_writelane_b32 v0, s10, 6
+; W64-O0-NEXT:    v_writelane_b32 v0, s11, 7
 ; W64-O0-NEXT:    s_and_saveexec_b64 s[4:5], s[4:5]
-; W64-O0-NEXT:    v_writelane_b32 v8, s4, 8
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 9
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 8
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 9
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  ; %bb.2: ; in Loop: Header=BB2_1 Depth=1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 8
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 9
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 8
-; W64-O0-NEXT:    v_readlane_b32 s5, v8, 9
-; W64-O0-NEXT:    v_readlane_b32 s8, v8, 4
-; W64-O0-NEXT:    v_readlane_b32 s9, v8, 5
-; W64-O0-NEXT:    v_readlane_b32 s10, v8, 6
-; W64-O0-NEXT:    v_readlane_b32 s11, v8, 7
-; W64-O0-NEXT:    v_readlane_b32 s6, v8, 1
+; W64-O0-NEXT:    v_readlane_b32 s8, v1, 4
+; W64-O0-NEXT:    v_readlane_b32 s9, v1, 5
+; W64-O0-NEXT:    v_readlane_b32 s10, v1, 6
+; W64-O0-NEXT:    v_readlane_b32 s11, v1, 7
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 1
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_nop 3
 ; W64-O0-NEXT:    buffer_load_format_x v0, v0, s[8:11], s6 idxen
@@ -1122,29 +1212,44 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_xor_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execnz .LBB2_1
 ; W64-O0-NEXT:  ; %bb.3:
-; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:64 ; 4-byte Folded Reload
-; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:60 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s6, v8, 2
-; W64-O0-NEXT:    v_readlane_b32 s7, v8, 3
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 2
+; W64-O0-NEXT:    v_readlane_b32 s7, v1, 3
 ; W64-O0-NEXT:    s_mov_b64 exec, s[6:7]
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:64 ; 4-byte Folded Reload
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:60 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_mov_b32 s5, 0x3ff
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    v_and_b32_e64 v1, v1, s5
 ; W64-O0-NEXT:    v_cmp_eq_u32_e64 s[6:7], v1, s4
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:68 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v8, s4, 10
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 11
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 10
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 11
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    s_and_b64 s[4:5], s[4:5], s[6:7]
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execz .LBB2_8
 ; W64-O0-NEXT:  ; %bb.4: ; %bb1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v0, 0
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:20 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v2, off, s[0:3], s32 offset:24 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v3, off, s[0:3], s32 offset:12 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v4, off, s[0:3], s32 offset:16 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 0
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    v_mov_b32_e32 v6, v4
 ; W64-O0-NEXT:    v_mov_b32_e32 v0, v3
@@ -1163,13 +1268,27 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    buffer_store_dword v1, off, s[0:3], s32 offset:80 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v2, off, s[0:3], s32 offset:84 ; 4-byte Folded Spill
 ; W64-O0-NEXT:    buffer_store_dword v3, off, s[0:3], s32 offset:88 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    s_mov_b32 s5, 0
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 12
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 12
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_mov_b32_e32 v0, s4
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    s_mov_b64 s[4:5], exec
-; W64-O0-NEXT:    v_writelane_b32 v8, s4, 13
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 14
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 13
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 14
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  .LBB2_5: ; =>This Inner Loop Header: Depth=1
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:76 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:80 ; 4-byte Folded Reload
@@ -1181,6 +1300,9 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_mov_b32 s4, s8
 ; W64-O0-NEXT:    s_mov_b32 s5, s12
 ; W64-O0-NEXT:    v_cmp_eq_u64_e64 s[4:5], s[4:5], v[0:1]
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:    v_readfirstlane_b32 s7, v2
 ; W64-O0-NEXT:    v_readfirstlane_b32 s6, v3
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
@@ -1191,22 +1313,30 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_mov_b32 s9, s12
 ; W64-O0-NEXT:    s_mov_b32 s10, s7
 ; W64-O0-NEXT:    s_mov_b32 s11, s6
-; W64-O0-NEXT:    v_writelane_b32 v8, s8, 15
-; W64-O0-NEXT:    v_writelane_b32 v8, s9, 16
-; W64-O0-NEXT:    v_writelane_b32 v8, s10, 17
-; W64-O0-NEXT:    v_writelane_b32 v8, s11, 18
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_writelane_b32 v0, s8, 15
+; W64-O0-NEXT:    v_writelane_b32 v0, s9, 16
+; W64-O0-NEXT:    v_writelane_b32 v0, s10, 17
+; W64-O0-NEXT:    v_writelane_b32 v0, s11, 18
 ; W64-O0-NEXT:    s_and_saveexec_b64 s[4:5], s[4:5]
-; W64-O0-NEXT:    v_writelane_b32 v8, s4, 19
-; W64-O0-NEXT:    v_writelane_b32 v8, s5, 20
+; W64-O0-NEXT:    v_writelane_b32 v0, s4, 19
+; W64-O0-NEXT:    v_writelane_b32 v0, s5, 20
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Spill
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
 ; W64-O0-NEXT:  ; %bb.6: ; in Loop: Header=BB2_5 Depth=1
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v1, 19
+; W64-O0-NEXT:    v_readlane_b32 s5, v1, 20
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:72 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 19
-; W64-O0-NEXT:    v_readlane_b32 s5, v8, 20
-; W64-O0-NEXT:    v_readlane_b32 s8, v8, 15
-; W64-O0-NEXT:    v_readlane_b32 s9, v8, 16
-; W64-O0-NEXT:    v_readlane_b32 s10, v8, 17
-; W64-O0-NEXT:    v_readlane_b32 s11, v8, 18
-; W64-O0-NEXT:    v_readlane_b32 s6, v8, 12
+; W64-O0-NEXT:    v_readlane_b32 s8, v1, 15
+; W64-O0-NEXT:    v_readlane_b32 s9, v1, 16
+; W64-O0-NEXT:    v_readlane_b32 s10, v1, 17
+; W64-O0-NEXT:    v_readlane_b32 s11, v1, 18
+; W64-O0-NEXT:    v_readlane_b32 s6, v1, 12
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_nop 3
 ; W64-O0-NEXT:    buffer_load_format_x v0, v0, s[8:11], s6 idxen
@@ -1215,25 +1345,37 @@ define void @mubuf_vgpr_outside_entry(ptr addrspace(8) %i, ptr addrspace(8) %j, 
 ; W64-O0-NEXT:    s_xor_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_cbranch_execnz .LBB2_5
 ; W64-O0-NEXT:  ; %bb.7:
-; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:92 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 13
-; W64-O0-NEXT:    v_readlane_b32 s5, v8, 14
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v0, 13
+; W64-O0-NEXT:    v_readlane_b32 s5, v0, 14
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:92 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    buffer_store_dword v0, off, s[0:3], s32 offset:68 ; 4-byte Folded Spill
 ; W64-O0-NEXT:  .LBB2_8: ; %bb2
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    v_readlane_b32 s4, v0, 10
+; W64-O0-NEXT:    v_readlane_b32 s5, v0, 11
+; W64-O0-NEXT:    s_or_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:4 ; 4-byte Folded Reload
-; W64-O0-NEXT:    s_nop 0
 ; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:8 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    buffer_load_dword v2, off, s[0:3], s32 offset:68 ; 4-byte Folded Reload
-; W64-O0-NEXT:    v_readlane_b32 s4, v8, 10
-; W64-O0-NEXT:    v_readlane_b32 s5, v8, 11
-; W64-O0-NEXT:    s_or_b64 exec, exec, s[4:5]
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    global_store_dword v[0:1], v2, off
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
+; W64-O0-NEXT:    s_or_saveexec_b64 s[16:17], -1
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    s_mov_b64 exec, s[16:17]
+; W64-O0-NEXT:    ; kill: killed $vgpr0
 ; W64-O0-NEXT:    s_xor_saveexec_b64 s[4:5], -1
-; W64-O0-NEXT:    buffer_load_dword v8, off, s[0:3], s32 offset:96 ; 4-byte Folded Reload
+; W64-O0-NEXT:    buffer_load_dword v0, off, s[0:3], s32 offset:100 ; 4-byte Folded Reload
+; W64-O0-NEXT:    buffer_load_dword v1, off, s[0:3], s32 offset:104 ; 4-byte Folded Reload
 ; W64-O0-NEXT:    s_mov_b64 exec, s[4:5]
 ; W64-O0-NEXT:    s_waitcnt vmcnt(0)
 ; W64-O0-NEXT:    s_setpc_b64 s[30:31]

@@ -15,7 +15,7 @@
 #define MLIR_INITROCMLIRDIALECTS_H_
 
 // rocMLIR includes
-#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 

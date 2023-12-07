@@ -16,6 +16,7 @@ llvm_update_compile_flags(mlir-mixr-capi-test)
 target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
+  MLIRCAPIMIGraphX
   MLIRCAPIRegisterRocMLIR
 )
 

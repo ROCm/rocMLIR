@@ -31,15 +31,18 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
 
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
+  int64_t inStrides[] = {200704, 3136, 56, 1};
   int64_t filter0Dims[] = {64, 64, 1, 1};
+  int64_t filter0Strides[] = {64, 1, 1, 1};
   int64_t bias0Dims[] = {64};
+  int64_t bias0Strides[] = {1};
 
-  MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx),
-                                            mlirAttributeGetNull());
-  MlirType filter0Type = mlirRankedTensorTypeGet(
-      4, filter0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
-  MlirType bias0Type = mlirRankedTensorTypeGet(
-      1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType inType =
+      rocmlirMIXRShapedTypeGet(4, inDims, inStrides, mlirF32TypeGet(ctx));
+  MlirType filter0Type = rocmlirMIXRShapedTypeGet(
+      4, filter0Dims, filter0Strides, mlirF32TypeGet(ctx));
+  MlirType bias0Type =
+      rocmlirMIXRShapedTypeGet(1, bias0Dims, bias0Strides, mlirF32TypeGet(ctx));
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
   MlirLocation funcBodyArglocs[] = {loc, loc, loc};
   MlirRegion funcBodyRegion = mlirRegionCreate();
@@ -53,8 +56,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
   // Set func attributes
   MlirAttribute funcTypeAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString(
-               "(tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>, "
-               "tensor<64xf32>) -> (tensor<1x64x56x56xf32>)"));
+               "(!migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>, "
+               "!migraphx.shaped<64x64x1x1xf32, 64x1x1x1>, "
+               "!migraphx.shaped<64xf32, 1>) -> "
+               "(!migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>)"));
   MlirAttribute funcNameAttr =
       mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("\"main\""));
   MlirNamedAttribute funcAttrs[] = {
@@ -119,8 +124,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
 
   // Set output shape
   int64_t conv0Dims[] = {1, 64, 56, 56};
-  MlirType conv0Type = mlirRankedTensorTypeGet(
-      4, conv0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  int64_t conv0Strides[] = {200704, 3136, 56, 1};
+  MlirType conv0Type =
+      rocmlirMIXRShapedTypeGet(4, conv0Dims, conv0Strides, mlirF32TypeGet(ctx));
 
   // Set convolution op
   MlirOperationState conv0OpState = mlirOperationStateGet(
@@ -139,8 +145,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
 
   // Set relu op
   int64_t relu0Dims[] = {1, 64, 56, 56};
-  MlirType relu0Type = mlirRankedTensorTypeGet(
-      4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  int64_t relu0Strides[] = {200704, 3136, 56, 1};
+  MlirType relu0Type =
+      rocmlirMIXRShapedTypeGet(4, relu0Dims, relu0Strides, mlirF32TypeGet(ctx));
   MlirOperationState relu0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.relu"), loc);
   mlirOperationStateAddResults(&relu0State, 1, &relu0Type);

@@ -162,7 +162,6 @@ static omp::ScheduleKind getSchedKind(omp::OMPScheduleType SchedType) {
 class OpenMPIRBuilderTest : public testing::Test {
 protected:
   void SetUp() override {
-    Ctx.setOpaquePointers(true);
     M.reset(new Module("MyModule", Ctx));
     FunctionType *FTy =
         FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt32Ty(Ctx)},
@@ -1129,8 +1128,6 @@ TEST_F(OpenMPIRBuilderTest, ParallelForwardAsPointers) {
   Type *I32PtrTy = Type::getInt32PtrTy(M->getContext());
   Type *StructTy = StructType::get(I32Ty, I32PtrTy);
   Type *StructPtrTy = StructTy->getPointerTo();
-  StructType *ArgStructTy =
-      StructType::get(I32PtrTy, StructPtrTy, I32PtrTy, StructPtrTy);
   Type *VoidTy = Type::getVoidTy(M->getContext());
   FunctionCallee RetI32Func = M->getOrInsertFunction("ret_i32", I32Ty);
   FunctionCallee TakeI32Func =
@@ -1181,8 +1178,6 @@ TEST_F(OpenMPIRBuilderTest, ParallelForwardAsPointers) {
 
   Type *Arg2Type = OutlinedFn->getArg(2)->getType();
   EXPECT_TRUE(Arg2Type->isPointerTy());
-  EXPECT_TRUE(
-      cast<PointerType>(Arg2Type)->isOpaqueOrPointeeTypeMatches(ArgStructTy));
 }
 
 TEST_F(OpenMPIRBuilderTest, CanonicalLoopSimple) {
@@ -4796,10 +4791,6 @@ TEST_F(OpenMPIRBuilderTest, CreateMapperAllocas) {
   EXPECT_TRUE(MapperAllocas.ArgsBase->getAllocatedType()
                   ->getArrayElementType()
                   ->isPointerTy());
-  EXPECT_TRUE(
-      cast<PointerType>(
-          MapperAllocas.ArgsBase->getAllocatedType()->getArrayElementType())
-          ->isOpaqueOrPointeeTypeMatches(Builder.getInt8Ty()));
 
   EXPECT_TRUE(MapperAllocas.Args->getAllocatedType()->isArrayTy());
   ArrType = dyn_cast<ArrayType>(MapperAllocas.Args->getAllocatedType());
@@ -4807,9 +4798,6 @@ TEST_F(OpenMPIRBuilderTest, CreateMapperAllocas) {
   EXPECT_TRUE(MapperAllocas.Args->getAllocatedType()
                   ->getArrayElementType()
                   ->isPointerTy());
-  EXPECT_TRUE(cast<PointerType>(
-                  MapperAllocas.Args->getAllocatedType()->getArrayElementType())
-                  ->isOpaqueOrPointeeTypeMatches(Builder.getInt8Ty()));
 
   EXPECT_TRUE(MapperAllocas.ArgSizes->getAllocatedType()->isArrayTy());
   ArrType = dyn_cast<ArrayType>(MapperAllocas.ArgSizes->getAllocatedType());
@@ -4918,7 +4906,7 @@ TEST_F(OpenMPIRBuilderTest, TargetEnterData) {
       /*RequiresDevicePointerInfo=*/false,
       /*SeparateBeginEndCalls=*/true);
 
-  OMPBuilder.Config.setIsTargetCodegen(true);
+  OMPBuilder.Config.setIsGPU(true);
 
   llvm::omp::RuntimeFunction RTLFunc = OMPRTL___tgt_target_data_begin_mapper;
   Builder.restoreIP(OMPBuilder.createTargetData(
@@ -4975,7 +4963,7 @@ TEST_F(OpenMPIRBuilderTest, TargetExitData) {
       /*RequiresDevicePointerInfo=*/false,
       /*SeparateBeginEndCalls=*/true);
 
-  OMPBuilder.Config.setIsTargetCodegen(true);
+  OMPBuilder.Config.setIsGPU(true);
 
   llvm::omp::RuntimeFunction RTLFunc = OMPRTL___tgt_target_data_end_mapper;
   Builder.restoreIP(OMPBuilder.createTargetData(
@@ -5032,7 +5020,7 @@ TEST_F(OpenMPIRBuilderTest, TargetDataRegion) {
       /*RequiresDevicePointerInfo=*/false,
       /*SeparateBeginEndCalls=*/true);
 
-  OMPBuilder.Config.setIsTargetCodegen(true);
+  OMPBuilder.Config.setIsGPU(true);
 
   auto BodyCB = [&](InsertPointTy CodeGenIP, int BodyGenType) {
     if (BodyGenType == 3) {

@@ -55,8 +55,9 @@ The new requirements are as follows:
 Changes to the LLVM IR
 ----------------------
 
-* Typed pointers are no longer supported. See the `opaque pointers
-  <OpaquePointers.html>`__ documentation for migration instructions.
+* Typed pointers are no longer supported and the ``-opaque-pointers`` option
+  has been removed. See the `opaque pointers <OpaquePointers.html>`__
+  documentation for migration instructions.
 
 * The ``nofpclass`` attribute was introduced. This allows more
   optimizations around special floating point value comparisons.
@@ -69,6 +70,10 @@ Changes to the LLVM IR
   removed:
 
   * ``select``
+
+* Introduced a set of experimental `convergence control intrinsics
+  <ConvergentOperations.html>`__ to explicitly define the semantics of convergent
+  operations.
 
 Changes to LLVM infrastructure
 ------------------------------
@@ -121,38 +126,40 @@ Changes to the AMDGPU Backend
   synchronization strategies around barriers. Refer to `AMDGPU memory model
   <AMDGPUUsage.html#memory-model>`__.
 
-* Address space 7, used for *buffer fat pointers* has been added.
-  It is non-integral and has 160-bit pointers (a 128-bit raw buffer resource and a
-  32-bit offset) and 32-bit indices. This is part of ongoing work to improve
-  the usability of buffer operations. Refer to `AMDGPU address spaces
-  <AMDGPUUsage.html#address-spaces>`__.
-
-* Address space 8, used for *buffer resources* has been added.
-  It is non-integral and has 128-bit pointers, which correspond to buffer
-  resources in the underlying hardware. These pointers should not be used with
-  `getelementptr` or other LLVM memory instructions, and can be created with
-  the `llvm.amdgcn.make.buffer.rsrc` intrinsic. Refer to `AMDGPU address spaces
-  <AMDGPUUsage.html#address_spaces>`__.
-
-* New versions of the intrinsics for working with buffer resources have been added.
-  These `llvm.amdgcn.*.ptr.[t]buffer.*` intrinsics have the same semantics as
-  the old `llvm.amdgcn.*.[t]buffer.*` intrinsics, except that their `rsrc`
-  arguments are represented by a `ptr addrspace(8)` instead of a `<4 x i32>`. This
-  improves the interaction between AMDGPU buffer operations and the LLVM memory
-  model, and so the non `.ptr` intrinsics are deprecated.
-
-* Removed ``llvm.amdgcn.atomic.inc`` and ``llvm.amdgcn.atomic.dec``
-  intrinsics. :ref:`atomicrmw <i_atomicrmw>` should be used instead
-  with ``uinc_wrap`` and ``udec_wrap``.
-
-* Added llvm.amdgcn.log.f32 intrinsic. This provides direct access to
-  v_log_f32.
-
-* Added llvm.amdgcn.exp2.f32 intrinsic. This provides direct access to
-  v_exp_f32.
-
-* llvm.log2.f32 is now lowered accurately. Use llvm.amdgcn.log.f32 to
-  access the old behavior.
+* Add LLVM APFloat support for AMD fp8 and bf8 (NANOO mode). Fixes SWDEV-371135
+* Add bf16 storage support. Fixes SWDEV-360569
+* Add schedule execution metric for the UnclusteredHighRPStage. Fixes
+  SWDEV-360050
+* Improve code object v5 support, add .uniform_work_group_size metadata. Fixes
+  SWDEV-231144
+* Remove unnecessary and unwanted metadata associated with code object
+  version 5. The compiler conservatively adds metadata if it cannot prove that
+  said metadata is not required. The compiler has been extended to better track
+  when that metadata is needed. Fixes SWDEV-352586
+* Lower an idempotent atomic operation into an atomic load. Fixes: SWDEV-385135,
+  SWDEV-383669, SWDEV-382412, SWDEV-382402
+* Fix an assertion failure when folding into src2 of V_FMAC_F16. Fixes:
+  SWDEV-381519
+* Fix warning for signed conversion on LP64. An extraneous warning was emitted;
+  update the behavior to match -m32 and GCC behavior. Fixes SWDEV-380227
+* Do not apply schedule metric for regions with spilling. Fixes SWDEV-377300
+* Fix opaque pointer and other bugs in printf of constant strings.
+  Fixes SWDEV-376876
+* Fix liveness calculation when a condition register def happens past a newly
+  created use. Fixes SWDEV-374514
+* Optimization: cast sub-dword elements to i32 in concat_vectors. Fixes SWDEV-373436
+* Consider the output type to avoid type mismatches. Fixes SWDEV-372188
+* Fix crash when evaluating nested call with value-dependent arg. Fixes SWDEV-366056
+* Extend reordering data of tree entry to support PHInodes to eliminate
+  unnecessary unpack and pack instructions. Fixes SWDEV-338973
+* Change HIP driver to default to -nohipwrapperinc for .cui inputs. Fixes
+  SWDEV-332537
+* Lower ADD|SUB U64 decomposed pseudos to SDWA. Fixes SWDEV-139113
+* Add --lto-CGO[0-3] option. Fixes SWDEV-378280
+* Add heterogeneous debug information generation for LDS variables. Fixes:
+  SWDEV-313805, SWDEV-385974
+* Improved SGPR spill handling: Implementation was revised to address the
+  build failures most commonly seen in heavy workloads.
 
 Changes to the ARM Backend
 --------------------------
@@ -249,20 +256,37 @@ Changes to the RISC-V Backend
 * Assembly support was added for the experimental Zfbfmin (scalar BF16
   conversions), Zvfbfmin (vector BF16 conversions), and Zvfbfwma (vector BF16
   widening mul-add) extensions.
+* Added assembler/disassembler support for the experimental Zacas (atomic
+  compare-and-swap) extension.
+* Zvfh extension version was upgraded to 1.0 and is no longer experimental.
 
 Changes to the WebAssembly Backend
 ----------------------------------
 
-* ...
+* Function annotations (``__attribute__((annotate(<name>)))``)
+  now generate custom sections in the Wasm output file. A custom section
+  for each unique name will be created that contains each function
+  index the annotation applies to.
 
 Changes to the Windows Target
 -----------------------------
 
 Changes to the X86 Backend
 --------------------------
+* Support ISA of ``AVX-IFMA``.
+
+* Add support for the ``RDMSRLIST and WRMSRLIST`` instructions.
+* Add support for the ``WRMSRNS`` instruction.
+* Support ISA of ``AMX-FP16`` which contains ``tdpfp16ps`` instruction.
+* Support ISA of ``CMPCCXADD``.
+* Support ISA of ``AVX-VNNI-INT8``.
+* Support ISA of ``AVX-NE-CONVERT``.
+* ``-mcpu=raptorlake``, ``-mcpu=meteorlake`` and ``-mcpu=emeraldrapids`` are now supported.
+* ``-mcpu=sierraforest``, ``-mcpu=graniterapids`` and ``-mcpu=grandridge`` are now supported.
 
 * ``__builtin_unpredictable`` (unpredictable metadata in LLVM IR), is handled by X86 Backend.
   ``X86CmovConversion`` pass now respects this builtin and does not convert CMOVs to branches.
+* Add support for the ``PBNDKB`` instruction.
 
 
 Changes to the OCaml bindings

@@ -324,6 +324,22 @@ static void FixupDiagPrefixExeName(TextDiagnosticPrinter *DiagClient,
   DiagClient->setPrefix(std::string(ExeBasename));
 }
 
+// This lets us create the DiagnosticsEngine with a properly-filled-out
+// DiagnosticOptions instance.
+static DiagnosticOptions *CreateAndPopulateDiagOpts(ArrayRef<const char *> argv,
+                                                    InputArgList &Args) {
+  auto *DiagOpts = new DiagnosticOptions;
+  unsigned MissingArgIndex, MissingArgCount;
+  Args = getDriverOptTable().ParseArgs(argv.slice(1), MissingArgIndex,
+                                       MissingArgCount);
+  // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
+  // Any errors that would be diagnosed here will also be diagnosed later,
+  // when the DiagnosticsEngine actually exists.
+  (void)ParseDiagnosticArgs(*DiagOpts, Args);
+
+  return DiagOpts;
+}
+
 static void SetInstallDir(SmallVectorImpl<const char *> &argv,
                           Driver &TheDriver, bool CanonicalPrefixes) {
   // Attempt to find the original path used to invoke the driver, to determine
@@ -463,8 +479,9 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
                            .Case("-fintegrated-cc1", false)
                            .Default(UseNewCC1Process);
 
+  InputArgList ArgList;
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts =
-      CreateAndPopulateDiagOpts(Args);
+      CreateAndPopulateDiagOpts(Args, ArgList);
 
   TextDiagnosticPrinter *DiagClient
     = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
@@ -473,6 +490,12 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
+  unsigned NumParallelJobs =
+      getLastArgIntValue(ArgList, options::OPT_parallel_jobs_EQ, 1, Diags);
+  UseNewCC1Process =
+      ArgList.hasFlag(clang::driver::options::OPT_fno_integrated_cc1,
+                      clang::driver::options::OPT_fintegrated_cc1,
+                      /*Default=*/NumParallelJobs > 1 ? true : CLANG_SPAWN_CC1);
 
   if (!DiagOpts->DiagnosticSerializationFile.empty()) {
     auto SerializedConsumer =

@@ -22,9 +22,24 @@ extern "C" {
 // buffer, not an entire memref struct). Also introduces this constant.
 // Version 3: mlirMIGraphXAddBackendPipeline() to get full arch name instead of
 // split strings of triple/chip/features
-#define MLIR_MIGRAPHX_DIALECT_API_VERSION 3
+// Version 4: The MLIR shaped type is added to better represent MIGRaphX's
+// native type
+#define MLIR_MIGRAPHX_DIALECT_API_VERSION 4
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
+
+// Types
+
+MLIR_CAPI_EXPORTED MlirTypeID rocmlirMIXRShapedTypeGetTypeId(void);
+
+MLIR_CAPI_EXPORTED bool rocmlirIsAMIXRShapedType(MlirType type);
+
+MLIR_CAPI_EXPORTED MlirType rocmlirMIXRShapedTypeGet(intptr_t rank,
+                                                     const int64_t *shape,
+                                                     const int64_t *strides,
+                                                     MlirType elementType);
+
+MLIR_CAPI_EXPORTED MlirType rocmlirMIXRShapedTypeAsTensor(MlirType type);
 
 // Phase 0 functions : Assuming the given module contains only one function
 

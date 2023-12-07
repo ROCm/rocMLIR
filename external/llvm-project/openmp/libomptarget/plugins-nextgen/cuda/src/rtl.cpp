@@ -26,6 +26,21 @@
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 #include "llvm/Support/Error.h"
 
+#ifdef OMPT_SUPPORT
+void setOmptAsyncCopyProfile(bool Enable) {
+  // TODO
+}
+
+void setGlobalOmptKernelProfile(int DeviceId, int Enable) {
+  // TODO
+}
+
+uint64_t getSystemTimestampInNs() {
+  // TODO
+  return 0;
+}
+#endif
+
 namespace llvm {
 namespace omp {
 namespace target {
@@ -366,6 +381,12 @@ struct CUDADeviceTy : public GenericDeviceTy {
     return Plugin::check(Res, "Error in cuCtxSetCurrent: %s");
   }
 
+  /// We want to set up the RPC server for host services to the GPU if it is
+  /// availible.
+  bool shouldSetupRPCServer() const override {
+    return libomptargetSupportsRPC();
+  }
+
   /// Get the stream of the asynchronous info sructure or get a new one.
   CUstream getStream(AsyncInfoWrapperTy &AsyncInfoWrapper) {
     CUstream &Stream = AsyncInfoWrapper.getQueueAs<CUstream>();
@@ -464,7 +485,18 @@ struct CUDADeviceTy : public GenericDeviceTy {
   /// Synchronize current thread with the pending operations on the async info.
   Error synchronizeImpl(__tgt_async_info &AsyncInfo) override {
     CUstream Stream = reinterpret_cast<CUstream>(AsyncInfo.Queue);
-    CUresult Res = cuStreamSynchronize(Stream);
+    CUresult Res;
+    // If we have an RPC server running on this device we will continuously
+    // query it for work rather than blocking.
+    if (!getRPCHandle()) {
+      Res = cuStreamSynchronize(Stream);
+    } else {
+      do {
+        Res = cuStreamQuery(Stream);
+        if (auto Err = getRPCHandle()->runServer())
+          return Err;
+      } while (Res == CUDA_ERROR_NOT_READY);
+    }
 
     // Once the stream is synchronized, return it to stream pool and reset
     // AsyncInfo. This is to make sure the synchronization only works for its
@@ -829,6 +861,9 @@ struct CUDADeviceTy : public GenericDeviceTy {
     return ComputeCapability.str();
   }
 
+  /// Returns the clock frequency for the given NVPTX device.
+  uint64_t getClockFrequency() const override { return 1000000000; }
+
 private:
   using CUDAStreamManagerTy = GenericDeviceResourceManagerTy<CUDAStreamRef>;
   using CUDAEventManagerTy = GenericDeviceResourceManagerTy<CUDAEventRef>;
@@ -960,7 +995,9 @@ struct CUDAPluginTy final : public GenericPluginTy {
   }
 
   /// Check whether the image is compatible with the available CUDA devices.
-  Expected<bool> isImageCompatible(__tgt_image_info *Info) const override {
+  Expected<bool>
+  isImageCompatible(__tgt_image_info *Info,
+                    __tgt_device_image *TgtImage) const override {
     for (int32_t DevId = 0; DevId < getNumDevices(); ++DevId) {
       CUdevice Device;
       CUresult Res = cuDeviceGet(&Device, DevId);

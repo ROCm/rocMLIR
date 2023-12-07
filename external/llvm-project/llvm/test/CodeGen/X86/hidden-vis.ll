@@ -5,7 +5,7 @@
 
 @a = hidden global i32 0
 @b = external hidden global i32
-@c = global ptr @b
+@c = global i32* @b
 
 define weak hidden void @t1() nounwind {
 ; LINUX: .hidden t1

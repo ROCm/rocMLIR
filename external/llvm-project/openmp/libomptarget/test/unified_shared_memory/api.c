@@ -1,7 +1,9 @@
 // RUN: %libomptarget-compile-run-and-check-generic
 // XFAIL: nvptx64-nvidia-cuda
+// XFAIL: nvptx64-nvidia-cuda-oldDriver
 // XFAIL: nvptx64-nvidia-cuda-LTO
 
+// Fails on amdgcn with error: GPU Memory Error
 // Fails on amdgpu with error: GPU Memory Error
 // UNSUPPORTED: amdgcn-amd-amdhsa
 

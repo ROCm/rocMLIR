@@ -872,6 +872,12 @@ def FeatureTrigReducedRange : SubtargetFeature<"trig-reduced-range",
   "Requires use of fract on arguments to trig instructions"
 >;
 
+def FeatureKernargPreload : SubtargetFeature <"kernarg-preload",
+  "KernargPreload",
+  "true",
+  "Hardware supports preloading of kernel arguments in user SGPRs."
+>;
+
 // Alignment enforcement is controlled by a configuration register:
 // SH_MEM_CONFIG.alignment_mode
 def FeatureUnalignedAccessMode : SubtargetFeature<"unaligned-access-mode",
@@ -1164,7 +1170,8 @@ def FeatureISAVersion9_0_A : FeatureSet<
      FeatureAtomicBufferGlobalPkAddF16Insts,
      FeaturePackedTID,
      FullRate64Ops,
-     FeatureBackOffBarrier])>;
+     FeatureBackOffBarrier,
+     FeatureKernargPreload])>;
 
 def FeatureISAVersion9_0_C : FeatureSet<
   !listconcat(FeatureISAVersion9_0_Common.Features,
@@ -1205,7 +1212,8 @@ def FeatureISAVersion9_4_Common : FeatureSet<
    FeaturePackedTID,
    FeatureArchitectedFlatScratch,
    FullRate64Ops,
-   FeatureBackOffBarrier]>;
+   FeatureBackOffBarrier,
+   FeatureKernargPreload]>;
 
 def FeatureISAVersion9_4_0 : FeatureSet<
   !listconcat(FeatureISAVersion9_4_Common.Features,
@@ -1218,6 +1226,24 @@ def FeatureISAVersion9_4_1 : FeatureSet<
 def FeatureISAVersion9_4_2 : FeatureSet<
   !listconcat(FeatureISAVersion9_4_Common.Features,
     [])>;
+
+// TODO: Organize more features into groups.
+def FeatureGroup {
+  // Bugs present on gfx10.1.
+  list<SubtargetFeature> GFX10_1_Bugs = [
+    FeatureVcmpxPermlaneHazard,
+    FeatureVMEMtoScalarWriteHazard,
+    FeatureSMEMtoVectorWriteHazard,
+    FeatureInstFwdPrefetchBug,
+    FeatureVcmpxExecWARHazard,
+    FeatureLdsBranchVmemWARHazard,
+    FeatureNSAtoVMEMBug,
+    FeatureNSAClauseBug,
+    FeatureOffset3fBug,
+    FeatureFlatSegmentOffsetBug,
+    FeatureNegativeUnalignedScratchOffsetBug
+   ];
+}
 
 def FeatureISAVersion10_Common : FeatureSet<
   [FeatureGFX10,
@@ -1309,25 +1335,36 @@ def FeatureISAVersion11_Common : FeatureSet<
    FeatureImageInsts,
    FeaturePackedTID,
    FeatureVcmpxPermlaneHazard,
-   FeatureVALUTransUseHazard,
    FeatureMADIntraFwdBug]>;
 
-def FeatureISAVersion11_0_0 : FeatureSet<
+def FeatureISAVersion11_0_Common : FeatureSet<
   !listconcat(FeatureISAVersion11_Common.Features,
+    [FeatureVALUTransUseHazard])>;
+
+def FeatureISAVersion11_0_0 : FeatureSet<
+  !listconcat(FeatureISAVersion11_0_Common.Features,
     [FeatureGFX11FullVGPRs,
      FeatureUserSGPRInit16Bug])>;
 
 def FeatureISAVersion11_0_1 : FeatureSet<
-  !listconcat(FeatureISAVersion11_Common.Features,
+  !listconcat(FeatureISAVersion11_0_Common.Features,
     [FeatureGFX11FullVGPRs])>;
 
 def FeatureISAVersion11_0_2 : FeatureSet<
-  !listconcat(FeatureISAVersion11_Common.Features,
+  !listconcat(FeatureISAVersion11_0_Common.Features,
     [FeatureUserSGPRInit16Bug])>;
 
 def FeatureISAVersion11_0_3 : FeatureSet<
+  !listconcat(FeatureISAVersion11_0_Common.Features,
+    [])>;
+
+def FeatureISAVersion11_5_0 : FeatureSet<
   !listconcat(FeatureISAVersion11_Common.Features,
     [])>;
+
+def FeatureISAVersion11_5_1 : FeatureSet<
+  !listconcat(FeatureISAVersion11_Common.Features,
+    [FeatureGFX11FullVGPRs])>;
 
 //===----------------------------------------------------------------------===//
 
@@ -1824,6 +1861,9 @@ def HasUnalignedAccessMode : Predicate<"Subtarget->hasUnalignedAccessMode()">,
 def HasMADIntraFwdBug : Predicate<"Subtarget->hasMADIntraFwdBug()">;
 
 def HasNotMADIntraFwdBug : Predicate<"!Subtarget->hasMADIntraFwdBug()">;
+
+def HasCvtFP8VOP1Bug : Predicate<"Subtarget->hasCvtFP8VOP1Bug()">;
+def HasNoCvtFP8VOP1Bug : Predicate<"!Subtarget->hasCvtFP8VOP1Bug()">;
 
 // Include AMDGPU TD files
 include "SISchedule.td"

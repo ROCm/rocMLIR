@@ -14,6 +14,7 @@
 #define LLVM_TARGET_TARGETMACHINE_H
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/Allocator.h"
@@ -321,6 +322,15 @@ public:
     return false;
   }
 
+  /// Returns the DWARF address space corresponding to the given LLVM address
+  /// space, or None if no such mapping exists.
+  virtual std::optional<dwarf::AddressSpace>
+  mapToDWARFAddrSpace(unsigned LLVMAddrSpace) const {
+    if (LLVMAddrSpace == DL.getDefaultGlobalsAddressSpace())
+      return dwarf::AddressSpace::DW_ASPACE_LLVM_none;
+    return std::nullopt;
+  }
+
   void setPGOOption(std::optional<PGOOptions> PGOOpt) { PGOOption = PGOOpt; }
   const std::optional<PGOOptions> &getPGOOption() const { return PGOOption; }
 
@@ -502,6 +512,9 @@ public:
   /// The default variant to use in unqualified `asm` instructions.
   /// If this returns 0, `asm "$(foo$|bar$)"` will evaluate to `asm "foo"`.
   virtual int unqualifiedInlineAsmVariant() const { return 0; }
+
+  // MachineRegisterInfo callback function
+  virtual void registerMachineRegisterInfoCallback(MachineFunction &MF) const {}
 };
 
 /// Helper method for getting the code model, returning Default if

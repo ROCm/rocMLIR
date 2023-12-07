@@ -51,13 +51,13 @@ define i64 @const_i64_i32() {
   ret i64 -1
 }
 
-define void @main(ptr %data) {
+define void @main(i32 ** %data) {
 ; CHECK-LABEL: main:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    movq $0, %rax
 ; CHECK-NEXT:    movq %rax, (%rdi)
 ; CHECK-NEXT:    retq
-  store ptr null, ptr %data, align 8
+  store i32* null, i32** %data, align 8
   ret void
 }
 

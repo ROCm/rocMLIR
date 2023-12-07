@@ -10,19 +10,19 @@
 @external_y = thread_local global i32 7
 @internal_y = internal thread_local global i32 9
 
-define ptr @get_external_x() {
+define i32* @get_external_x() {
 entry:
-  ret ptr @external_x
+  ret i32* @external_x
 }
 
-define ptr @get_external_y() {
+define i32* @get_external_y() {
 entry:
-  ret ptr @external_y
+  ret i32* @external_y
 }
 
-define ptr @get_internal_y() {
+define i32* @get_internal_y() {
 entry:
-  ret ptr @internal_y
+  ret i32* @internal_y
 }
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 32-bit mode

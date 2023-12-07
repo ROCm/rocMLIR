@@ -14,6 +14,7 @@
 #include "clang/Basic/Sanitizers.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Multilib.h"
+#include "clang/Driver/Tool.h"
 #include "clang/Driver/Types.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -53,10 +54,10 @@ class ObjCRuntime;
 
 namespace driver {
 
+class Compilation;
 class Driver;
 class InputInfo;
 class SanitizerArgs;
-class Tool;
 class XRayArgs;
 
 /// Helper structure used to pass information extracted from clang executable
@@ -149,24 +150,29 @@ private:
   /// The list of toolchain specific path prefixes to search for programs.
   path_list ProgramPaths;
 
+  mutable std::unique_ptr<Tool> FlangFrontend;
   mutable std::unique_ptr<Tool> Clang;
   mutable std::unique_ptr<Tool> Flang;
+  mutable std::unique_ptr<Tool> AMDFlang;
   mutable std::unique_ptr<Tool> Assemble;
   mutable std::unique_ptr<Tool> Link;
   mutable std::unique_ptr<Tool> StaticLibTool;
   mutable std::unique_ptr<Tool> IfsMerge;
   mutable std::unique_ptr<Tool> OffloadBundler;
+  mutable std::unique_ptr<Tool> OffloadWrapper;
   mutable std::unique_ptr<Tool> OffloadPackager;
   mutable std::unique_ptr<Tool> LinkerWrapper;
 
   Tool *getClang() const;
   Tool *getFlang() const;
+  //   Tool *getFlangFrontend() const;
   Tool *getAssemble() const;
   Tool *getLink() const;
   Tool *getStaticLibTool() const;
   Tool *getIfsMerge() const;
   Tool *getClangAs() const;
   Tool *getOffloadBundler() const;
+  Tool *getOffloadWrapper() const;
   Tool *getOffloadPackager() const;
   Tool *getLinkerWrapper() const;
 
@@ -186,6 +192,8 @@ private:
   mutable std::optional<UnwindLibType> unwindLibType;
 
 protected:
+  // OpenMP creates a toolchain for each target arch. eg - gfx908
+  std::string TargetID;
   MultilibSet Multilibs;
   llvm::SmallVector<Multilib> SelectedMultilibs;
 
@@ -268,9 +276,7 @@ public:
     return EffectiveTriple;
   }
 
-  bool hasEffectiveTriple() const {
-    return !EffectiveTriple.getTriple().empty();
-  }
+  StringRef getTargetID() const { return TargetID; }
 
   path_list &getLibraryPaths() { return LibraryPaths; }
   const path_list &getLibraryPaths() const { return LibraryPaths; }
@@ -412,7 +418,7 @@ public:
 
   /// IsIntegratedAssemblerDefault - Does this tool chain enable -integrated-as
   /// by default.
-  virtual bool IsIntegratedAssemblerDefault() const { return false; }
+  virtual bool IsIntegratedAssemblerDefault() const { return true; }
 
   /// IsIntegratedBackendDefault - Does this tool chain enable
   /// -fintegrated-objemitter by default.
@@ -651,6 +657,22 @@ public:
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const;
 
+  /// \brief Add the flang arguments for system include paths.
+  ///
+  /// This routine is responsible for adding the -stdinc argument to
+  /// include headers and module files from standard system header directories.
+  virtual void
+  AddFlangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &Flang1Args) const {}
+
+  /// Add options that need to be passed to cc1 for this target that could add
+  /// commands to the compilation to transform an input.
+  virtual void
+  addActionsFromClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+                                   llvm::opt::ArgStringList &CC1Args,
+                                   const JobAction &JA, Compilation &C,
+                                   const InputInfoList &Inputs) const;
+
   /// Add options that need to be passed to cc1 for this target.
   virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                                      llvm::opt::ArgStringList &CC1Args,
@@ -747,6 +769,11 @@ public:
   /// On Windows, returns the MSVC compatibility version.
   virtual VersionTuple computeMSVCVersion(const Driver *D,
                                           const llvm::opt::ArgList &Args) const;
+
+  /// AddFortranStdlibLibArgs - Add the system specific linker arguments to use
+  /// for the given Fortran runtime library type.
+  virtual void AddFortranStdlibLibArgs(const llvm::opt::ArgList &Args,
+                                       llvm::opt::ArgStringList &CmdArgs) const;
 
   /// Get paths for device libraries.
   virtual llvm::SmallVector<BitCodeLibraryInfo, 12>

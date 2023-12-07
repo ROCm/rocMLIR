@@ -15,7 +15,8 @@
 #include "flang/Optimizer/Builder/Character.h"
 #include "flang/Optimizer/Builder/FIRBuilder.h"
 #include "flang/Optimizer/Builder/HLFIRTools.h"
-#include "flang/Optimizer/Builder/Runtime/Assign.h"
+#include "flang/Optimizer/Builder/MutableBox.h"
+#include "flang/Optimizer/Builder/Runtime/Allocatable.h"
 #include "flang/Optimizer/Builder/Todo.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
@@ -101,15 +102,38 @@ static mlir::Value getBufferizedExprMustFreeFlag(mlir::Value bufferizedExpr) {
 static std::pair<hlfir::Entity, mlir::Value>
 createTempFromMold(mlir::Location loc, fir::FirOpBuilder &builder,
                    hlfir::Entity mold) {
-  if (mold.isPolymorphic())
-    TODO(loc, "creating polymorphic temporary");
   llvm::SmallVector<mlir::Value> lenParams;
   hlfir::genLengthParameters(loc, builder, mold, lenParams);
   llvm::StringRef tmpName{".tmp"};
   mlir::Value alloc;
   mlir::Value isHeapAlloc;
   mlir::Value shape{};
-  if (mold.isArray()) {
+  fir::FortranVariableFlagsAttr declAttrs;
+
+  if (mold.isPolymorphic()) {
+    // Create unallocated polymorphic temporary using the dynamic type
+    // of the mold. The static type of the temporary matches
+    // the static type of the mold, but then the dynamic type
+    // of the mold is applied to the temporary's descriptor.
+
+    if (mold.isArray())
+      hlfir::genShape(loc, builder, mold);
+
+    // Create polymorphic allocatable box on the stack.
+    mlir::Type boxHeapType = fir::HeapType::get(fir::unwrapRefType(
+        mlir::cast<fir::BaseBoxType>(mold.getType()).getEleTy()));
+    // The box must be initialized, because AllocatableApplyMold
+    // may read its contents (e.g. for checking whether it is allocated).
+    alloc = fir::factory::genNullBoxStorage(builder, loc,
+                                            fir::ClassType::get(boxHeapType));
+    // The temporary is unallocated even after AllocatableApplyMold below.
+    // If the temporary is used as assignment LHS it will be automatically
+    // allocated on the heap, as long as we use Assign family
+    // runtime functions. So set MustFree to true.
+    isHeapAlloc = builder.createBool(loc, true);
+    declAttrs = fir::FortranVariableFlagsAttr::get(
+        builder.getContext(), fir::FortranVariableFlagsEnum::allocatable);
+  } else if (mold.isArray()) {
     mlir::Type sequenceType =
         hlfir::getFortranElementOrSequenceType(mold.getType());
     shape = hlfir::genShape(loc, builder, mold);
@@ -122,8 +146,17 @@ createTempFromMold(mlir::Location loc, fir::FirOpBuilder &builder,
                                     /*shape=*/std::nullopt, lenParams);
     isHeapAlloc = builder.createBool(loc, false);
   }
-  auto declareOp = builder.create<hlfir::DeclareOp>(
-      loc, alloc, tmpName, shape, lenParams, fir::FortranVariableFlagsAttr{});
+  auto declareOp = builder.create<hlfir::DeclareOp>(loc, alloc, tmpName, shape,
+                                                    lenParams, declAttrs);
+  if (mold.isPolymorphic()) {
+    int rank = mold.getRank();
+    // TODO: should probably read rank from the mold.
+    if (rank < 0)
+      TODO(loc, "create temporary for assumed rank polymorphic");
+    fir::runtime::genAllocatableApplyMold(builder, loc, alloc,
+                                          mold.getFirBase(), rank);
+  }
+
   return {hlfir::Entity{declareOp.getBase()}, isHeapAlloc};
 }
 
@@ -162,7 +195,7 @@ struct AsExprOpConversion : public mlir::OpConversionPattern<hlfir::AsExprOp> {
     // Otherwise, create a copy in a new buffer.
     hlfir::Entity source = hlfir::Entity{adaptor.getVar()};
     auto [temp, cleanup] = createTempFromMold(loc, builder, source);
-    builder.create<hlfir::AssignOp>(loc, source, temp, /*realloc=*/false,
+    builder.create<hlfir::AssignOp>(loc, source, temp, temp.isAllocatable(),
                                     /*keep_lhs_length_if_realloc=*/false,
                                     /*temporary_lhs=*/true);
     mlir::Value bufferizedExpr =
@@ -320,11 +353,53 @@ struct SetLengthOpConversion
   }
 };
 
-static bool allOtherUsesAreDestroys(mlir::Value value,
-                                    mlir::Operation *currentUse) {
+struct GetLengthOpConversion
+    : public mlir::OpConversionPattern<hlfir::GetLengthOp> {
+  using mlir::OpConversionPattern<hlfir::GetLengthOp>::OpConversionPattern;
+  explicit GetLengthOpConversion(mlir::MLIRContext *ctx)
+      : mlir::OpConversionPattern<hlfir::GetLengthOp>{ctx} {}
+  mlir::LogicalResult
+  matchAndRewrite(hlfir::GetLengthOp getLength, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::Location loc = getLength->getLoc();
+    auto module = getLength->getParentOfType<mlir::ModuleOp>();
+    fir::FirOpBuilder builder(rewriter, fir::getKindMapping(module));
+    hlfir::Entity bufferizedExpr = getBufferizedExprStorage(adaptor.getExpr());
+    mlir::Value length = hlfir::genCharLength(loc, builder, bufferizedExpr);
+    if (!length)
+      return rewriter.notifyMatchFailure(
+          getLength, "could not deduce length from GetLengthOp operand");
+    rewriter.replaceOp(getLength, length);
+    return mlir::success();
+  }
+};
+
+/// The current hlfir.associate lowering does not handle multiple uses of a
+/// non-trivial expression value because it generates the cleanup for the
+/// expression bufferization at hlfir.end_associate. If there was more than one
+/// hlfir.end_associate, it would be cleaned up multiple times, perhaps before
+/// one of the other uses.
+static bool allOtherUsesAreSafeForAssociate(mlir::Value value,
+                                            mlir::Operation *currentUse,
+                                            mlir::Operation *endAssociate) {
   for (mlir::Operation *useOp : value.getUsers())
-    if (!mlir::isa<hlfir::DestroyOp>(useOp) && useOp != currentUse)
+    if (!mlir::isa<hlfir::DestroyOp>(useOp) && useOp != currentUse) {
+      // hlfir.shape_of and hlfir.get_length will not disrupt cleanup so it is
+      // safe for hlfir.associate. These operations might read from the box and
+      // so they need to come before the hflir.end_associate (which may
+      // deallocate).
+      if (mlir::isa<hlfir::ShapeOfOp>(useOp) ||
+          mlir::isa<hlfir::GetLengthOp>(useOp)) {
+        if (!endAssociate)
+          continue;
+        // not known to occur in practice:
+        if (useOp->getBlock() != endAssociate->getBlock())
+          TODO(endAssociate->getLoc(), "Associate split over multiple blocks");
+        if (useOp->isBeforeInBlock(endAssociate))
+          continue;
+      }
       return false;
+    }
   return true;
 }
 
@@ -349,6 +424,15 @@ struct AssociateOpConversion
     mlir::Value bufferizedExpr = getBufferizedExprStorage(adaptor.getSource());
     const bool isTrivialValue = fir::isa_trivial(bufferizedExpr.getType());
 
+    auto getEndAssociate =
+        [](hlfir::AssociateOp associate) -> mlir::Operation * {
+      for (mlir::Operation *useOp : associate->getUsers())
+        if (mlir::isa<hlfir::EndAssociateOp>(useOp))
+          return useOp;
+      // happens in some hand coded mlir in tests
+      return nullptr;
+    };
+
     auto replaceWith = [&](mlir::Value hlfirVar, mlir::Value firVar,
                            mlir::Value flag) {
       // 0-dim variables may need special handling:
@@ -361,26 +445,34 @@ struct AssociateOpConversion
       //        !fir.ref<!fir.type<_T{y:i32}>>,
       //        i1)
       //
-      // !fir.box<!fir.heap<!fir.type<_T{y:i32}>>> value must be propagated
-      // as the box address !fir.ref<!fir.type<_T{y:i32}>>.
+      // !fir.box<!fir.heap<!fir.type<_T{y:i32}>>> value must be
+      // propagated as the box address !fir.ref<!fir.type<_T{y:i32}>>.
+      auto adjustVar = [&](mlir::Value sourceVar, mlir::Type assocType) {
+        if (mlir::isa<fir::ReferenceType>(sourceVar.getType()) &&
+            mlir::isa<fir::ClassType>(
+                fir::unwrapRefType(sourceVar.getType()))) {
+          // Association of a polymorphic value.
+          sourceVar = builder.create<fir::LoadOp>(loc, sourceVar);
+          assert(mlir::isa<fir::ClassType>(sourceVar.getType()) &&
+                 fir::isAllocatableType(sourceVar.getType()));
+          assert(sourceVar.getType() == assocType);
+        } else if ((sourceVar.getType().isa<fir::BaseBoxType>() &&
+                    !assocType.isa<fir::BaseBoxType>()) ||
+                   ((sourceVar.getType().isa<fir::BoxCharType>() &&
+                     !assocType.isa<fir::BoxCharType>()))) {
+          sourceVar = builder.create<fir::BoxAddrOp>(loc, assocType, sourceVar);
+        } else {
+          sourceVar = builder.createConvert(loc, assocType, sourceVar);
+        }
+        return sourceVar;
+      };
+
       mlir::Type associateHlfirVarType = associate.getResultTypes()[0];
-      if (hlfirVar.getType().isa<fir::BaseBoxType>() &&
-          !associateHlfirVarType.isa<fir::BaseBoxType>())
-        hlfirVar = builder.create<fir::BoxAddrOp>(loc, associateHlfirVarType,
-                                                  hlfirVar);
-      else
-        hlfirVar = builder.createConvert(loc, associateHlfirVarType, hlfirVar);
+      hlfirVar = adjustVar(hlfirVar, associateHlfirVarType);
       associate.getResult(0).replaceAllUsesWith(hlfirVar);
 
       mlir::Type associateFirVarType = associate.getResultTypes()[1];
-      if ((firVar.getType().isa<fir::BaseBoxType>() &&
-           !associateFirVarType.isa<fir::BaseBoxType>()) ||
-          (firVar.getType().isa<fir::BoxCharType>() &&
-           !associateFirVarType.isa<fir::BoxCharType>()))
-        firVar =
-            builder.create<fir::BoxAddrOp>(loc, associateFirVarType, firVar);
-      else
-        firVar = builder.createConvert(loc, associateFirVarType, firVar);
+      firVar = adjustVar(firVar, associateFirVarType);
       associate.getResult(1).replaceAllUsesWith(firVar);
       associate.getResult(2).replaceAllUsesWith(flag);
       rewriter.replaceOp(associate, {hlfirVar, firVar, flag});
@@ -389,8 +481,9 @@ struct AssociateOpConversion
     // If this is the last use of the expression value and this is an hlfir.expr
     // that was bufferized, re-use the storage.
     // Otherwise, create a temp and assign the storage to it.
-    if (!isTrivialValue && allOtherUsesAreDestroys(associate.getSource(),
-                                                   associate.getOperation())) {
+    if (!isTrivialValue && allOtherUsesAreSafeForAssociate(
+                               adaptor.getSource(), associate.getOperation(),
+                               getEndAssociate(associate))) {
       // Re-use hlfir.expr buffer if this is the only use of the hlfir.expr
       // outside of the hlfir.destroy. Take on the cleaning-up responsibility
       // for the related hlfir.end_associate, and erase the hlfir.destroy (if
@@ -409,7 +502,19 @@ struct AssociateOpConversion
       replaceWith(temp, temp, mustFree);
       return mlir::success();
     }
-    TODO(loc, "hlfir.associate of hlfir.expr with more than one use");
+    // non-trivial value with more than one use. We will have to make a copy and
+    // use that
+    hlfir::Entity source = hlfir::Entity{adaptor.getSource()};
+    auto [temp, cleanup] = createTempFromMold(loc, builder, source);
+    builder.create<hlfir::AssignOp>(loc, source, temp, temp.isAllocatable(),
+                                    /*keep_lhs_length_if_realloc=*/false,
+                                    /*temporary_lhs=*/true);
+    mlir::Value bufferTuple =
+        packageBufferizedExpr(loc, builder, temp, cleanup);
+    bufferizedExpr = getBufferizedExprStorage(bufferTuple);
+    replaceWith(bufferizedExpr, hlfir::Entity{bufferizedExpr}.getFirBase(),
+                getBufferizedExprMustFreeFlag(bufferTuple));
+    return mlir::success();
   }
 };
 
@@ -419,10 +524,22 @@ static void genFreeIfMustFree(mlir::Location loc, fir::FirOpBuilder &builder,
     // fir::FreeMemOp operand type must be a fir::HeapType.
     mlir::Type heapType = fir::HeapType::get(
         hlfir::getFortranElementOrSequenceType(var.getType()));
-    if (var.getType().isa<fir::BaseBoxType, fir::BoxCharType>())
+    if (mlir::isa<fir::ReferenceType>(var.getType()) &&
+        mlir::isa<fir::ClassType>(fir::unwrapRefType(var.getType()))) {
+      // A temporary for a polymorphic expression is represented
+      // via an allocatable. Variable type in this case
+      // is !fir.ref<!fir.class<!fir.heap<!fir.type<>>>>.
+      // We need to free the allocatable data, not the box
+      // that is allocated on the stack.
+      var = builder.create<fir::LoadOp>(loc, var);
+      assert(mlir::isa<fir::ClassType>(var.getType()) &&
+             fir::isAllocatableType(var.getType()));
       var = builder.create<fir::BoxAddrOp>(loc, heapType, var);
-    else if (!var.getType().isa<fir::HeapType>())
+    } else if (var.getType().isa<fir::BaseBoxType, fir::BoxCharType>()) {
+      var = builder.create<fir::BoxAddrOp>(loc, heapType, var);
+    } else if (!var.getType().isa<fir::HeapType>()) {
       var = builder.create<fir::ConvertOp>(loc, heapType, var);
+    }
     builder.create<fir::FreeMemOp>(loc, var);
   };
   if (auto cstMustFree = fir::getIntIfConstant(mustFree)) {
@@ -662,12 +779,12 @@ public:
     auto module = this->getOperation();
     auto *context = &getContext();
     mlir::RewritePatternSet patterns(context);
-    patterns
-        .insert<ApplyOpConversion, AsExprOpConversion, AssignOpConversion,
-                AssociateOpConversion, CharExtremumOpConversion,
-                ConcatOpConversion, DestroyOpConversion, ElementalOpConversion,
-                EndAssociateOpConversion, NoReassocOpConversion,
-                SetLengthOpConversion, ShapeOfOpConversion>(context);
+    patterns.insert<ApplyOpConversion, AsExprOpConversion, AssignOpConversion,
+                    AssociateOpConversion, CharExtremumOpConversion,
+                    ConcatOpConversion, DestroyOpConversion,
+                    ElementalOpConversion, EndAssociateOpConversion,
+                    NoReassocOpConversion, SetLengthOpConversion,
+                    ShapeOfOpConversion, GetLengthOpConversion>(context);
     mlir::ConversionTarget target(*context);
     // Note that YieldElementOp is not marked as an illegal operation.
     // It must be erased by its parent converter and there is no explicit

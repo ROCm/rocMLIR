@@ -7,7 +7,7 @@
 
 // RUN: rm -rf %t && mkdir %t
 // RUN: touch %t/dummy.bc
-// RUN: mkdir hipBundled
+// RUN: mkdir -p hipBundled
 // RUN: llvm-ar cr %t/libhipBundled.a %t/dummy.bc
 // RUN: %clang -### --offload-arch=gfx906 --offload-arch=gfx1030 \
 // RUN:   --target=x86_64-unknown-linux-gnu \
@@ -76,6 +76,7 @@
 // GNU2: "{{.*}}clang-offload-bundler" "-unbundle" "-type=a" "-input={{.*}}[[LIB:libhipBundled\.a\.5\.2]]" "-targets=hip-amdgcn-amd-amdhsa-gfx1030" "-output=[[A1030:.*\.a]]" "-allow-missing-bundles"
 // GNU: "{{.*}}lld{{.*}}" {{.*}}"-plugin-opt=mcpu=gfx1030" {{.*}} "[[A1030]]"
 // GNU: "{{.*}}clang-offload-bundler" "-unbundle" "-type=a" "-input={{.*}}[[LIB]]" "-targets=hip-amdgcn-amd-amdhsa-gfx906" "-output=[[A906:.*\.a]]" "-allow-missing-bundles"
+
 // GNU: "{{.*}}lld{{.*}}" {{.*}}"-plugin-opt=mcpu=gfx906" {{.*}} "[[A906]]"
 // GNU-L: "{{.*}}ld{{.*}}" {{.*}}"-o" "a.out" {{.*}}"-lhipBundled"
 // GNU-LA: "{{.*}}ld{{.*}}" {{.*}}"-o" "a.out" {{.*}}"-l:libhipBundled.a"

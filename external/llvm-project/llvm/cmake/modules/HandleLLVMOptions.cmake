@@ -494,6 +494,11 @@ if( MSVC )
       message(ERROR "LLVM_WINSYSROOT requires clang-cl")
     endif()
     append("/winsysroot${LLVM_WINSYSROOT}" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    if (LINKER_IS_LLD_LINK)
+      append("/winsysroot:${LLVM_WINSYSROOT}"
+          CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS
+          CMAKE_SHARED_LINKER_FLAGS)
+    endif()
   endif()
 
   if (LLVM_ENABLE_WERROR)
@@ -605,7 +610,8 @@ if ( LLVM_COMPILER_IS_GCC_COMPATIBLE )
   # crash if LLVM is built with GCC and LTO enabled (#57740).  Until
   # these bugs are fixed, we need to disable dead store eliminations
   # based on object lifetime.
-  add_flag_if_supported("-fno-lifetime-dse" CMAKE_CXX_FLAGS)
+  # ASO has trouble digesting the flag: -fno-lifetime-dse
+  #add_flag_if_supported("-fno-lifetime-dse" CMAKE_CXX_FLAGS)
 endif ( LLVM_COMPILER_IS_GCC_COMPATIBLE )
 
 # Modules enablement for GCC-compatible compilers:
@@ -736,7 +742,7 @@ if (LLVM_ENABLE_WARNINGS AND (LLVM_COMPILER_IS_GCC_COMPATIBLE OR CLANG_CL))
   endif()
 
   append("-Wextra -Wno-unused-parameter -Wwrite-strings" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-  append("-Wcast-qual" CMAKE_CXX_FLAGS)
+  append("-Wcast-qual" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
 
   # Turn off missing field initializer warnings for gcc to avoid noise from
   # false positives with empty {}. Turn them on otherwise (they're off by
@@ -1316,6 +1322,9 @@ endif()
 
 set(LLVM_THIRD_PARTY_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../third-party CACHE STRING
     "Directory containing third party software used by LLVM (e.g. googletest)")
+
+set(LLVM_UNITTEST_LINK_FLAGS "" CACHE STRING
+    "Additional linker flags for unit tests")
 
 if(LLVM_ENABLE_LLVM_LIBC)
   check_library_exists(llvmlibc printf "" HAVE_LLVM_LIBC)

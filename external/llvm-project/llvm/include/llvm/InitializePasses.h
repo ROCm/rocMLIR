@@ -131,6 +131,7 @@ void initializeGlobalMergePass(PassRegistry&);
 void initializeGlobalsAAWrapperPassPass(PassRegistry&);
 void initializeGuardWideningLegacyPassPass(PassRegistry&);
 void initializeHardwareLoopsLegacyPass(PassRegistry&);
+void initializeHeterogeneousDebugVerifyLegacyPass(PassRegistry &);
 void initializeMIRProfileLoaderPassPass(PassRegistry &);
 void initializeIRSimilarityIdentifierWrapperPassPass(PassRegistry&);
 void initializeIRTranslatorPass(PassRegistry&);

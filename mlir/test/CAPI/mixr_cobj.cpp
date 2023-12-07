@@ -22,7 +22,7 @@
 #include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/MIGraphX/Pipeline.h"
+#include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/InitRocMLIRDialects.h"

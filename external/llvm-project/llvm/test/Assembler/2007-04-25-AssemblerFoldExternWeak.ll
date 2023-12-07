@@ -1,5 +1,5 @@
-; RUN: llvm-as < %s | llvm-dis | FileCheck %s
-; RUN: verify-uselistorder %s
+; RUN: llvm-as  < %s | llvm-dis  | FileCheck %s
+; RUN: verify-uselistorder  %s
 ; PR1358
 
 ; CHECK: icmp ne (ptr @test_weak, ptr null)

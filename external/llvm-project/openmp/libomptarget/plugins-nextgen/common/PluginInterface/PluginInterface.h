@@ -24,6 +24,7 @@
 #include "GlobalHandler.h"
 #include "JIT.h"
 #include "MemoryManager.h"
+#include "RPC.h"
 #include "Utilities.h"
 #include "omptarget.h"
 
@@ -238,8 +239,8 @@ public:
 struct GenericKernelTy {
   /// Construct a kernel with a name and a execution mode.
   GenericKernelTy(const char *Name, OMPTgtExecModeFlags ExecutionMode)
-      : Name(Name), ExecutionMode(ExecutionMode),
-        PreferredNumThreads(0), MaxNumThreads(0) {}
+      : Name(Name), ExecutionMode(ExecutionMode), PreferredNumThreads(0),
+        MaxNumThreads(0) {}
 
   virtual ~GenericKernelTy() {}
 
@@ -254,8 +255,8 @@ struct GenericKernelTy {
                ptrdiff_t *ArgOffsets, KernelArgsTy &KernelArgs,
                AsyncInfoWrapperTy &AsyncInfoWrapper) const;
   virtual Error launchImpl(GenericDeviceTy &GenericDevice, uint32_t NumThreads,
-                           uint64_t NumBlocks,
-                           KernelArgsTy &KernelArgs, void *Args,
+                           uint64_t NumBlocks, KernelArgsTy &KernelArgs,
+                           void *Args,
                            AsyncInfoWrapperTy &AsyncInfoWrapper) const = 0;
 
   /// Get the kernel name.
@@ -268,8 +269,16 @@ struct GenericKernelTy {
     case OMP_TGT_EXEC_MODE_GENERIC:
     case OMP_TGT_EXEC_MODE_GENERIC_SPMD:
       return true;
+    // AMD-only execution modes
+    case OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP:
+    case OMP_TGT_EXEC_MODE_SPMD_NO_LOOP:
+    case OMP_TGT_EXEC_MODE_XTEAM_RED:
+      DP("AMD-only execution mode\n");
+      return true;
+    default:
+      llvm_unreachable("ExecutionMode not supported yet.");
+      return false;
     }
-    return false;
   }
 
 protected:
@@ -282,9 +291,18 @@ protected:
       return "Generic";
     case OMP_TGT_EXEC_MODE_GENERIC_SPMD:
       return "Generic-SPMD";
+    // AMD-only execution modes
+    case OMP_TGT_EXEC_MODE_SPMD_NO_LOOP:
+      return "SPMD-No-Loop";
+    case OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP:
+      return "SPMD-Big-Jump-Loop";
+    case OMP_TGT_EXEC_MODE_XTEAM_RED:
+      return "XTeam-Reductions";
     }
     llvm_unreachable("Unknown execution mode!");
   }
+
+  OMPTgtExecModeFlags getExecutionModeFlags() const { return ExecutionMode; }
 
   /// Prints generic kernel launch information.
   Error printLaunchInfo(GenericDeviceTy &GenericDevice,
@@ -309,24 +327,22 @@ private:
   virtual uint32_t getDefaultNumThreads(GenericDeviceTy &Device) const = 0;
   virtual uint32_t getDefaultNumBlocks(GenericDeviceTy &Device) const = 0;
 
+  /// Lower number of threads if tripcount is low.
+  virtual std::pair<bool, uint32_t>
+  adjustNumThreadsForLowTripCount(GenericDeviceTy &GenericDevice,
+                                  uint32_t BlockSize, uint64_t LoopTripCount,
+                                  uint32_t ThreadLimitClause[3]) const {
+    return std::make_pair(false, BlockSize);
+  }
+
   /// Get the number of threads and blocks for the kernel based on the
   /// user-defined threads and block clauses.
-  uint32_t getNumThreads(GenericDeviceTy &GenericDevice,
-                         uint32_t ThreadLimitClause[3]) const;
-
-  /// The number of threads \p NumThreads can be adjusted by this method.
-  uint64_t getNumBlocks(GenericDeviceTy &GenericDevice,
-                        uint32_t BlockLimitClause[3], uint64_t LoopTripCount,
-                        uint32_t &NumThreads) const;
-
-  /// Indicate if the kernel works in Generic SPMD, Generic or SPMD mode.
-  bool isGenericSPMDMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC_SPMD;
-  }
-  bool isGenericMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC;
-  }
-  bool isSPMDMode() const { return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD; }
+  virtual uint32_t getNumThreads(GenericDeviceTy &GenericDevice,
+                                 uint32_t ThreadLimitClause[3]) const;
+  virtual uint64_t getNumBlocks(GenericDeviceTy &GenericDevice,
+                                uint32_t BlockLimitClause[3],
+                                uint64_t LoopTripCount,
+                                uint32_t NumThreads) const;
 
   /// The kernel name.
   const char *Name;
@@ -340,6 +356,26 @@ protected:
 
   /// The maximum number of threads which the kernel could leverage.
   uint32_t MaxNumThreads;
+
+  /// Indicate if the kernel works in Generic SPMD, Generic or SPMD mode.
+  bool isGenericSPMDMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC_SPMD;
+  }
+  bool isGenericMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC;
+  }
+  bool isSPMDMode() const { return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD; }
+
+  /// AMD-only execution modes
+  bool isBigJumpLoopMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP;
+  }
+  bool isNoLoopMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
+  }
+  bool isXTeamReductionsMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_XTEAM_RED;
+  }
 };
 
 /// Class representing a map of host pinned allocations. We track these pinned
@@ -586,7 +622,7 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// Deinitialize the device and free all its resources. After this call, the
   /// device is no longer considered ready, so no queries or modifications are
   /// allowed.
-  Error deinit();
+  Error deinit(GenericPluginTy &Plugin);
   virtual Error deinitImpl() = 0;
 
   /// Load the binary image into the device and return the target table.
@@ -599,6 +635,11 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// on some plugins. By default, it will be executed, but plugins can change
   /// this behavior by overriding the shouldSetupDeviceEnvironment function.
   Error setupDeviceEnvironment(GenericPluginTy &Plugin, DeviceImageTy &Image);
+
+  // Setup the RPC server for this device if needed. This may not run on some
+  // plugins like the CPU targets. By default, it will not be executed so it is
+  // up to the target to override this using the shouldSetupRPCServer function.
+  Error setupRPCServer(GenericPluginTy &Plugin, DeviceImageTy &Image);
 
   /// Register the offload entries for a specific image on the device.
   Error registerOffloadEntries(DeviceImageTy &Image);
@@ -694,6 +735,22 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   Error initDeviceInfo(__tgt_device_info *DeviceInfo);
   virtual Error initDeviceInfoImpl(__tgt_device_info *DeviceInfo) = 0;
 
+  // Switch memory region to coarse grain mode
+  Error setCoarseGrainMemory(void *ptr, int64_t size);
+  virtual Error setCoarseGrainMemoryImpl(void *ptr, int64_t size) {
+    return Error::success();
+  }
+
+  // Query if memory region is coarse grained
+  uint32_t queryCoarseGrainMemory(const void *ptr, int64_t size);
+  virtual uint32_t queryCoarseGrainMemoryImpl(const void *ptr, int64_t size) { return 0; }
+
+  // Prepopulate GPU page table
+  Error prepopulatePageTable(void *ptr, int64_t size);
+  virtual Error prepopulatePageTableImpl(void *ptr, int64_t size) {
+    return Error::success();
+  }
+
   /// Create an event.
   Error createEvent(void **EventPtrStorage);
   virtual Error createEventImpl(void **EventPtrStorage) = 0;
@@ -731,10 +788,25 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   uint32_t getDefaultNumBlocks() const {
     return GridValues.GV_Default_Num_Teams;
   }
+
+  int32_t getOMPNumTeams() const { return OMP_NumTeams; }
+  int32_t getOMPTeamsThreadLimit() const { return OMP_TeamsThreadLimit; }
+
   uint32_t getDynamicMemorySize() const { return OMPX_SharedMemorySize; }
+  virtual uint64_t getClockFrequency() const { return CLOCKS_PER_SEC; }
+
+  virtual uint32_t getOMPXLowTripCount() const {
+    llvm_unreachable("Unimplemented");
+  }
+  virtual uint32_t getOMPXSmallBlockSize() const {
+    llvm_unreachable("Unimplemented");
+  }
 
   /// Get target compute unit kind (e.g., sm_80, or gfx908).
   virtual std::string getComputeUnitKind() const { return "unknown"; }
+
+  /// Get the number of compute units
+  virtual uint32_t getNumComputeUnits() const { return 0; }
 
   /// Post processing after jit backend. The ownership of \p MB will be taken.
   virtual Expected<std::unique_ptr<MemoryBuffer>>
@@ -742,13 +814,9 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
     return std::move(MB);
   }
 
-  /// The minimum number of threads we use for a low-trip count combined loop.
-  /// Instead of using more threads we increase the outer (block/team)
-  /// parallelism.
-  /// @see OMPX_MinThreadsForLowTripCount
-  virtual uint32_t getMinThreadsForLowTripCountLoop() {
-    return OMPX_MinThreadsForLowTripCount;
-  }
+
+  /// Get the RPC server running on this device.
+  RPCHandleTy *getRPCHandle() const { return RPCHandle; }
 
 private:
   /// Register offload entry for global variable.
@@ -779,6 +847,10 @@ private:
   /// setupDeviceEnvironment() function.
   virtual bool shouldSetupDeviceEnvironment() const { return true; }
 
+  /// Indicate whether or not the device should setup the RPC server. This is
+  /// only necessary for unhosted targets like the GPU.
+  virtual bool shouldSetupRPCServer() const { return false; }
+
   /// Pointer to the memory manager or nullptr if not available.
   MemoryManagerTy *MemoryManager;
 
@@ -792,12 +864,6 @@ private:
   UInt32Envar OMPX_SharedMemorySize;
   UInt64Envar OMPX_TargetStackSize;
   UInt64Envar OMPX_TargetHeapSize;
-
-  /// Environment flag to set the minimum number of threads we use for a
-  /// low-trip count combined loop. Instead of using more threads we increase
-  /// the outer (block/team) parallelism.
-  UInt32Envar OMPX_MinThreadsForLowTripCount =
-      UInt32Envar("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 32);
 
 protected:
   /// Return the execution mode used for kernel \p Name.
@@ -836,6 +902,10 @@ protected:
 
   /// Map of host pinned allocations used for optimize device transfers.
   PinnedAllocationMapTy PinnedAllocs;
+
+  /// A pointer to an RPC server instance attached to this device if present.
+  /// This is used to run the RPC server during task synchronization.
+  RPCHandleTy *RPCHandle;
 };
 
 /// Class implementing common functionalities of offload plugins. Each plugin
@@ -870,6 +940,24 @@ struct GenericPluginTy {
   /// Get the number of active devices.
   int32_t getNumDevices() const { return NumDevices; }
 
+  // Returns true if the system is equipped with an APU.
+  virtual bool hasAPUDevice() { return false; }
+
+  // Returns true if the system is equipped with a dGPU that supports USM
+  virtual bool hasDGpuWithUsmSupport() { return false; }
+
+  virtual bool AreAllocationsForMapsOnApusDisabled() { return false; }
+
+  virtual bool requestedPrepopulateGPUPageTable() { return false; }
+
+  virtual bool IsNoMapsCheck() { return false; }
+
+  virtual bool IsFineGrainedMemoryEnabled() { return false; }
+
+  virtual void setUpEnv() {}
+  virtual void
+  checkAndAdjustUsmModeForTargetImage(const __tgt_device_image *TgtImage) {}
+
   /// Get the ELF code to recognize the binary image of this plugin.
   virtual uint16_t getMagicElfBits() const = 0;
 
@@ -890,6 +978,12 @@ struct GenericPluginTy {
   /// Get the reference to the JIT used for all devices connected to this
   /// plugin.
   JITEngine &getJIT() { return JIT; }
+
+  /// Get a reference to the RPC server used to provide host services.
+  RPCServerTy &getRPCServer() {
+    assert(RPCServer && "RPC server not initialized");
+    return *RPCServer;
+  }
 
   /// Get the OpenMP requires flags set for this plugin.
   int64_t getRequiresFlags() const { return RequiresFlags; }
@@ -913,7 +1007,9 @@ struct GenericPluginTy {
   /// Indicate if an image is compatible with the plugin devices. Notice that
   /// this function may be called before actually initializing the devices. So
   /// we could not move this function into GenericDeviceTy.
-  virtual Expected<bool> isImageCompatible(__tgt_image_info *Info) const = 0;
+  virtual Expected<bool>
+  isImageCompatible(__tgt_image_info *Info,
+                    __tgt_device_image *TgtImage) const = 0;
 
   /// Indicate whether the plugin supports empty images.
   virtual bool supportsEmptyImages() const { return false; }
@@ -945,6 +1041,9 @@ private:
 
   /// The JIT engine shared by all devices connected to this plugin.
   JITEngine JIT;
+
+  /// The interface between the plugin and the GPU for host services.
+  RPCServerTy *RPCServer;
 };
 
 /// Class for simplifying the getter operation of the plugin. Anywhere on the
@@ -1207,6 +1306,9 @@ private:
   /// The actual resource pool.
   std::deque<ResourceRef> ResourcePool;
 };
+
+/// A static check on whether or not we support RPC in libomptarget.
+const bool libomptargetSupportsRPC();
 
 } // namespace plugin
 } // namespace target

@@ -37,11 +37,11 @@ define void @f2(i32 %p, ...) "frame-pointer"="all" {
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
   %ap = alloca i8, align 8
-  call void @llvm.va_start(ptr %ap)
+  call void @llvm.va_start(i8* %ap)
   ret void
 }
 
-define ptr @f3() "frame-pointer"="all" {
+define i8* @f3() "frame-pointer"="all" {
 ; CHECK-LABEL: f3:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rbp
@@ -53,11 +53,11 @@ define ptr @f3() "frame-pointer"="all" {
 ; CHECK-NEXT:    popq %rbp
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
-  %ra = call ptr @llvm.returnaddress(i32 0)
-  ret ptr %ra
+  %ra = call i8* @llvm.returnaddress(i32 0)
+  ret i8* %ra
 }
 
-define ptr @f4() "frame-pointer"="all" {
+define i8* @f4() "frame-pointer"="all" {
 ; CHECK-LABEL: f4:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rbp
@@ -73,11 +73,11 @@ define ptr @f4() "frame-pointer"="all" {
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
   alloca [300 x i8]
-  %ra = call ptr @llvm.returnaddress(i32 0)
-  ret ptr %ra
+  %ra = call i8* @llvm.returnaddress(i32 0)
+  ret i8* %ra
 }
 
-declare void @external(ptr)
+declare void @external(i8*)
 
 define void @f5() "frame-pointer"="all" {
 ; CHECK-LABEL: f5:
@@ -97,7 +97,8 @@ define void @f5() "frame-pointer"="all" {
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
   %a = alloca [300 x i8]
-  call void @external(ptr %a)
+  %gep = getelementptr [300 x i8], [300 x i8]* %a, i32 0, i32 0
+  call void @external(i8* %gep)
   ret void
 }
 
@@ -119,7 +120,8 @@ define void @f6(i32 %p, ...) "frame-pointer"="all" {
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
   %a = alloca [300 x i8]
-  call void @external(ptr %a)
+  %gep = getelementptr [300 x i8], [300 x i8]* %a, i32 0, i32 0
+  call void @external(i8* %gep)
   ret void
 }
 
@@ -178,7 +180,8 @@ define i32 @f8(i32 %a, i32 %b, i32 %c, i32 %d, i32 %e) "frame-pointer"="all" {
 ; CHECK-NEXT:    .seh_endproc
   %alloca = alloca [300 x i8], align 64
   alloca i32, i32 %a
-  call void @external(ptr %alloca)
+  %gep = getelementptr [300 x i8], [300 x i8]* %alloca, i32 0, i32 0
+  call void @external(i8* %gep)
   ret i32 %e
 }
 
@@ -202,7 +205,7 @@ entry:
 
 declare i64 @dummy()
 
-define i64 @f10(ptr %foo, i64 %bar, i64 %baz) {
+define i64 @f10(i64* %foo, i64 %bar, i64 %baz) {
 ; CHECK-LABEL: f10:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rsi
@@ -224,7 +227,7 @@ define i64 @f10(ptr %foo, i64 %bar, i64 %baz) {
 ; CHECK-NEXT:    popq %rsi
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
-  %cx = cmpxchg ptr %foo, i64 %bar, i64 %baz seq_cst seq_cst
+  %cx = cmpxchg i64* %foo, i64 %bar, i64 %baz seq_cst seq_cst
   %v = extractvalue { i64, i1 } %cx, 0
   %p = extractvalue { i64, i1 } %cx, 1
   %call = call i64 @dummy()
@@ -232,7 +235,7 @@ define i64 @f10(ptr %foo, i64 %bar, i64 %baz) {
   ret i64 %sel
 }
 
-define ptr @f11() "frame-pointer"="all" {
+define i8* @f11() "frame-pointer"="all" {
 ; CHECK-LABEL: f11:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rbp
@@ -244,20 +247,20 @@ define ptr @f11() "frame-pointer"="all" {
 ; CHECK-NEXT:    popq %rbp
 ; CHECK-NEXT:    retq
 ; CHECK-NEXT:    .seh_endproc
-  %aora = call ptr @llvm.addressofreturnaddress()
-  ret ptr %aora
+  %aora = call i8* @llvm.addressofreturnaddress()
+  ret i8* %aora
 }
 
-define ptr @f12() {
+define i8* @f12() {
 ; CHECK-LABEL: f12:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    movq %rsp, %rax
 ; CHECK-NEXT:    retq
-  %aora = call ptr @llvm.addressofreturnaddress()
-  ret ptr %aora
+  %aora = call i8* @llvm.addressofreturnaddress()
+  ret i8* %aora
 }
 
-declare ptr @llvm.returnaddress(i32) nounwind readnone
-declare ptr @llvm.addressofreturnaddress() nounwind readnone
+declare i8* @llvm.returnaddress(i32) nounwind readnone
+declare i8* @llvm.addressofreturnaddress() nounwind readnone
 declare i64 @llvm.x86.flags.read.u64()
-declare void @llvm.va_start(ptr) nounwind
+declare void @llvm.va_start(i8*) nounwind

@@ -116,6 +116,7 @@ private:
 
   bool isGlobalAddr(const Value *V) const;
   bool isLocalAddr(const Value *V) const;
+  bool isConstantAddr(const Value *V) const;
   bool isGlobalLoadUsedInBB(const Instruction &) const;
 };
 
@@ -153,7 +154,7 @@ bool AMDGPUPerfHint::isIndirectAccess(const Instruction *Inst) const {
 
     if (auto LD = dyn_cast<LoadInst>(V)) {
       auto M = LD->getPointerOperand();
-      if (isGlobalAddr(M)) {
+      if (isGlobalAddr(M) || isLocalAddr(M) || isConstantAddr(M)) {
         LLVM_DEBUG(dbgs() << "    is IA\n");
         return true;
       }
@@ -345,6 +346,15 @@ bool AMDGPUPerfHint::isGlobalAddr(const Value *V) const {
 bool AMDGPUPerfHint::isLocalAddr(const Value *V) const {
   if (auto PT = dyn_cast<PointerType>(V->getType()))
     return PT->getAddressSpace() == AMDGPUAS::LOCAL_ADDRESS;
+  return false;
+}
+
+bool AMDGPUPerfHint::isConstantAddr(const Value *V) const {
+  if (auto PT = dyn_cast<PointerType>(V->getType())) {
+    unsigned As = PT->getAddressSpace();
+    return As == AMDGPUAS::CONSTANT_ADDRESS ||
+           As == AMDGPUAS::CONSTANT_ADDRESS_32BIT;
+  }
   return false;
 }
 

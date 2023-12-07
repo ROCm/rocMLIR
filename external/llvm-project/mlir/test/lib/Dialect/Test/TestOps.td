@@ -771,6 +771,12 @@ def OpWithInferTypeInterfaceOp : TEST_Op<"op_with_infer_type_if", [
   let results = (outs AnyTensor);
 }
 
+def OpWithInferTypeAdaptorInterfaceOp : TEST_Op<"op_with_infer_type_adaptor_if", [
+    InferTypeOpAdaptor]> {
+  let arguments = (ins AnyTensor:$x, AnyTensor:$y);
+  let results = (outs AnyTensor);
+}
+
 def OpWithRefineTypeInterfaceOp : TEST_Op<"op_with_refine_type_if", [
     DeclareOpInterfaceMethods<InferTypeOpInterface,
         ["refineReturnTypes"]>]> {
@@ -3352,6 +3358,16 @@ def TestOpWithWrappedProperties : TEST_Op<"with_wrapped_properties"> {
   let arguments = (ins
     MyStructProperty:$prop
   );
+}
+
+def TestOpUsingPropertyInCustom : TEST_Op<"using_property_in_custom"> {
+  let assemblyFormat = "custom<UsingPropertyInCustom>($prop) attr-dict";
+  let arguments = (ins ArrayProperty<"int64_t", 3>:$prop);
+}
+
+def TestOpUsingPropertyRefInCustom : TEST_Op<"using_property_ref_in_custom"> {
+  let assemblyFormat = "custom<IntProperty>($first) `+` custom<SumProperty>($second, ref($first)) attr-dict";
+  let arguments = (ins IntProperty<"int64_t">:$first, IntProperty<"int64_t">:$second);
 }
 
 // Op with a properties struct defined out-of-line. The struct has custom

@@ -69,12 +69,13 @@ macro(set_enable_per_target_runtime_dir)
     else()
       set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ON)
     endif()
-  endif()
+		endif()
 endmacro()
 
 function(builtin_default_target compiler_rt_path)
   cmake_parse_arguments(ARG "" "" "DEPENDS" ${ARGN})
 
+  set_enable_per_target_runtime_dir()
   set_enable_per_target_runtime_dir()
 
   llvm_ExternalProject_Add(builtins
@@ -331,6 +332,8 @@ function(runtime_register_target name)
       endif()
     endforeach()
   endforeach()
+
+  set_enable_per_target_runtime_dir()
 
   set_enable_per_target_runtime_dir()
 

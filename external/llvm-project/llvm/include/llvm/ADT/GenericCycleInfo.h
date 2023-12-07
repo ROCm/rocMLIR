@@ -255,6 +255,7 @@ public:
 
   void clear();
   void compute(FunctionT &F);
+  void splitCriticalEdge(BlockT *Pred, BlockT *Succ, BlockT *New);
 
   FunctionT *getFunction() const { return Context.getFunction(); }
   const ContextT &getSSAContext() const { return Context; }
@@ -270,6 +271,7 @@ public:
 #endif
   void print(raw_ostream &Out) const;
   void dump() const { print(dbgs()); }
+  Printable print(const CycleT *Cycle) { return Cycle->print(Context); }
   //@}
 
   /// Iteration over top-level cycles.

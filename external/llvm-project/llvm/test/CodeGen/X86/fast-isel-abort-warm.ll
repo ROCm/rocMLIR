@@ -16,10 +16,10 @@ entry:
 
 ; CHECK: remark: <unknown>:0:0: FastISel missed:   store i128
 ; CHECK: warning: Instruction selection used fallback path for test_instruction_fallback
-define void @test_instruction_fallback(ptr %ptr){
-  %v1 = load i128, ptr %ptr
+define void @test_instruction_fallback(i128* %ptr){
+  %v1 = load i128, i128* %ptr
   %result = add i128 %v1, %v1
-  store i128 %result, ptr %ptr
+  store i128 %result, i128 * %ptr
   ret void
 }
 
