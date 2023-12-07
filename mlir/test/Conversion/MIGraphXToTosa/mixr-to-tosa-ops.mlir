@@ -10,6 +10,14 @@ module  {
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
+  // CHECK-LABEL: func @dequantize_f32_scale
+  // CHECK-NOT: tosa.sub
+  // CHECK: tosa.mul
+  func.func @dequantize_f32_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+  }
+
   // CHECK-LABEL: func @dequantize_scale_f16
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.cast{{.*}}f16
@@ -48,6 +56,15 @@ module  {
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
+  // CHECK-LABEL: func @dequantize_wide_bias_fp8
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.sub{{.*}}f32
+  // CHECK: tosa.mul
+  func.func @dequantize_wide_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+  }
+
   // CHECK-LABEL: func @quantize_scale
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
@@ -56,7 +73,17 @@ module  {
   func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
     %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
-}
+  }
+
+  // CHECK-LABEL: func @quantize_scale_fp8
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  // CHECK: tosa.cast{{.*}}f8E4M3FNUZ
+  // CHECK-NOT: tosa.add
+  func.func @quantize_scale_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
+  }
 
   // CHECK-LABEL: func @quantize_scale_bias
   // CHECK: tosa.reciprocal
@@ -71,6 +98,21 @@ module  {
   func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
     %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi8, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
+  }
+
+  // CHECK-LABEL: func @quantize_scale_bias_fp8
+  // CHECK: tosa.reciprocal
+  // CHECK: tosa.mul
+  // CHECK: tosa.cast{{.*}}f8E4M3FNUZ{{.*}}f32
+  // CHECK: tosa.cast{{.*}}f32{{.*}}f32
+  // CHECK: tosa.add
+  // CHECK: tosa.clamp
+  // CHECK-SAME: max_fp = 2.400000e+02
+  // CHECK-SAME: min_fp = -2.400000e+02
+  // CHECK: tosa.cast{{.*}}f8E4M3FNUZ
+  func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf8E4M3FNUZ, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf8E4M3FNUZ, 1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @quantize_scale_bias_f16
