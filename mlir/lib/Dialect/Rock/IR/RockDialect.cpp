@@ -1848,12 +1848,22 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   // where {d0, ... , Dr , ... , dn} represent a blockwise tile
   // of a larger tensor that is being reduced.
   size_t inputViewArrLen = inputViewArrayAttr.size();
-  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
+  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1]
+                                           .cast<TransformMapAttr>()
+                                           .getLowerBounds()
+                                           .asArrayRef();
   ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
   int64_t axis = getAxis().getSExtValue();
   size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
-  ArrayRef<int64_t> inputPartRedTensorShape = tidSubTileSliceView[tidSubTileSliceViewArrLen - 1].cast<TransformMapAttr>().getLowerBounds().asArrayRef();
-  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0].cast<TransformMapAttr>().getUpperBounds().asArrayRef();
+  ArrayRef<int64_t> inputPartRedTensorShape =
+      tidSubTileSliceView[tidSubTileSliceViewArrLen - 1]
+          .cast<TransformMapAttr>()
+          .getLowerBounds()
+          .asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0]
+                                          .cast<TransformMapAttr>()
+                                          .getUpperBounds()
+                                          .asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
 
@@ -1909,10 +1919,9 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
 
   int64_t blockwiseInputPartRedTensorElements = 1;
   for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
-    if((int64_t)dim == axis){
+    if ((int64_t)dim == axis) {
       blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
-    }
-    else{
+    } else {
       blockwiseInputPartRedTensorElements *= dimSize;
     }
   }

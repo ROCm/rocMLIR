@@ -1897,7 +1897,10 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
-          gemm0OutSubTileViews.blockSubTile, gemm0OutSubTileViews.blockSubTileTidSlice.value(), gemm0OutSubTileViews.threadSubTile, /*extraViews=*/nullptr, blockSize);
+          gemm0OutSubTileViews.blockSubTile,
+          gemm0OutSubTileViews.blockSubTileTidSlice.value(),
+          gemm0OutSubTileViews.threadSubTile, /*extraViews=*/nullptr,
+          blockSize);
       // softmax normalization.
       Value gemm0MNThreadwiseView = transform(
           rewriter, gemm0OutBuffer,
@@ -1917,7 +1920,9 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
-          rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile, gemm0OutSubTileViews.blockSubTileTidSlice.value(), gemm0OutSubTileViews.threadSubTile,
+          rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
+          gemm0OutSubTileViews.blockSubTileTidSlice.value(),
+          gemm0OutSubTileViews.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
