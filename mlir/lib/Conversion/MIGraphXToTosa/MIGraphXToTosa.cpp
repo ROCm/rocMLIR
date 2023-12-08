@@ -25,6 +25,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Debug.h"
 
 using namespace mlir;
@@ -807,35 +808,55 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
 
   Type outputType = getShapedElementTy(output);
   // If there is a bias, we upcast to the larger of the bias type and int32_t
-  // (which is what the bias type is in dequantize, the MLIR quantization
-  // implementation, and other ML frameworks) and then do a clamping
-  // truncation to the output type so that adding a bias saturates
+  // or float (which is what the bias type is in dequantize, the MLIR
+  // quantization implementation, and other ML frameworks) and then do a
+  // clamping truncation to the output type so that adding a bias saturates
   // instead of overflowing.
   Type biasType = outputType;
   if (bias) {
     biasType = getShapedElementTy(bias);
     if (biasType.getIntOrFloatBitWidth() < 32) {
-      biasType = rewriter.getI32Type();
+      biasType = isa<IntegerType>(biasType) ? cast<Type>(rewriter.getI32Type())
+                                            : cast<Type>(rewriter.getF32Type());
       bias = createCastOp(rewriter, loc, biasType, bias);
     }
   }
-  Value asInt = createCastOp(rewriter, loc, biasType, scaled);
-  Value biased = asInt;
+  Value asShort = createCastOp(rewriter, loc, biasType, scaled);
+  Value biased = asShort;
   if (bias)
     biased =
-        createOpAndInfer<tosa::AddOp>(rewriter, loc, biasType, asInt, bias);
+        createOpAndInfer<tosa::AddOp>(rewriter, loc, biasType, asShort, bias);
 
   Value result = biased;
   if (biasType != outputType) {
     unsigned width = outputType.getIntOrFloatBitWidth();
-    auto min = APInt::getSignedMinValue(width);
-    auto max = APInt::getSignedMaxValue(width);
+    APInt minI(width, 0), maxI(width, 0);
+    // Must be floats because tosa.clamp expects a f32 attribute specifically.
     APFloat minF(0.0f), maxF(0.0f);
-    minF.convertFromAPInt(min, /*IsSigned=*/true, APFloat::rmNearestTiesToEven);
-    maxF.convertFromAPInt(max, /*IsSigned=*/true, APFloat::rmNearestTiesToEven);
+    if (auto outFloatType = dyn_cast<FloatType>(outputType)) {
+      const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
+      const llvm::fltSemantics &biasSem =
+          cast<FloatType>(biasType).getFloatSemantics();
+      minF = APFloat::getLargest(outSem, /*Negative=*/true);
+      maxF = APFloat::getLargest(outSem, /*Negative=*/false);
+      bool itsExtendNoWayWeCanLoseInfo = false;
+      std::ignore = minF.convert(biasSem, APFloat::rmNearestTiesToEven,
+                                 &itsExtendNoWayWeCanLoseInfo);
+      std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
+                                 &itsExtendNoWayWeCanLoseInfo);
+      minI = APInt(64, (int64_t)(minF.convertToFloat()));
+      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
+    } else {
+      minI = APInt::getSignedMinValue(width);
+      maxI = APInt::getSignedMaxValue(width);
+      minF.convertFromAPInt(minI, /*IsSigned=*/true,
+                            APFloat::rmNearestTiesToEven);
+      maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
+                            APFloat::rmNearestTiesToEven);
+    }
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
-                                             min.getSExtValue(),
-                                             max.getSExtValue(), minF, maxF);
+                                             minI.getSExtValue(),
+                                             maxI.getSExtValue(), minF, maxF);
     result = createCastOp(rewriter, loc, outputType, result);
   }
   rewriter.replaceOp(op, result);
