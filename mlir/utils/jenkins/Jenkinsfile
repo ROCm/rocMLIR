@@ -58,6 +58,7 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
     sh 'id'
+    sh 'printenv'
 }
 
 String dockerArgs() {
@@ -198,7 +199,7 @@ String getLabelFromChip(String chip) {
         case "gfx906":
             return getLabelFromCodepath("vanilla")
         case "gfx908":
-            return "mlir && gfx908"
+            return "mlir && gfx908 && multi_gpu"
         case "gfx90a":
             return "mlir && gfx90a"
         case "gfx1030":
@@ -306,7 +307,7 @@ void check_randomE2ETests(String codepath) {
 void parameterSweep(String CONFIG, String codepath) {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
+            sh """python3 ./bin/parameterSweeps.py -q -j 5 ${CONFIG}"""
         }
     }
 }
@@ -544,33 +545,36 @@ pipeline {
                         steps {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
+                                sh """rm -rf ${WORKSPACE}/MITuna
+                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
-                                    sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            --output=tuning_gemm.tsv
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
                                           [ -f tuning_gemm.tsv ]"""
-                                    sh """python3 ./bin/tuningRunner.py --operation conv \
-                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            --output=tuning_conv.tsv
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
                                           [ -f tuning_conv.tsv ]"""
-                                    sh """python3 ./bin/tuningRunner.py --operation attention \
-                                        --configs_file=../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                        --output=tuning_attention.tsv --verify-mode none
-                                        [ -f tuning_conv.tsv ]"""
-                                    sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
-                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            --output=quick_tuning_gemm.tsv
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                          [ -f tuning_attention.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
                                           [ -f quick_tuning_gemm.tsv ]"""
-                                    sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
-                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            --output=quick_tuning_conv.tsv
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
                                           [ -f quick_tuning_conv.tsv ]"""
                                 }
                             }
                         }
                     }
-                    stage("Static Library: build rockMLIR packages") {
+                    stage("Static Library: build rocMLIR packages") {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.staticLib;
@@ -711,37 +715,33 @@ pipeline {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
+                                sh """rm -rf ${WORKSPACE}/MITuna
+                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
                                 // Tune gemms with default datatypes, fail if the DB is not created
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv
+                                // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        -c ../mlir/utils/performance/gemm-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
-                                // Tune gemms int8xint8->int8 for performance comparisons against CK.
-                                // Ideally, this'll be removed in the future.
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
                                 // Tune resnet50 and unet configs
-                                sh """python3 ./bin/tuningRunner.py --operation conv \
-                                        --configs_file=../mlir/utils/performance/conv-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv"""
+                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        -c ../mlir/utils/performance/conv-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune attention configs
-                                sh """python3 ./bin/tuningRunner.py --operation attention \
-                                        --configs_file=../mlir/utils/performance/attention-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
+                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                        -c ../mlir/utils/performance/attention-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --output=mlir_quick_tuning_${ARCH}.tsv
+                                // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        -c ../mlir/utils/performance/gemm-configs -s quick \
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
                                       [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
-                                // Tune gemms int8xint8->int8 for performance comparisons against CK. (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --data-type i8_i8 --output=mlir_quick_tuning_${ARCH}.tsv"""
                                 // Tune resnet50 and unet configs (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
-                                        --configs_file=../mlir/utils/performance/conv-configs \
-                                        --output=mlir_quick_tuning_${ARCH}.tsv"""
+                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        -c ../mlir/utils/performance/conv-configs -s quick \
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
                     }

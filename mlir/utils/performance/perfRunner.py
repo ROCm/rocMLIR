@@ -172,14 +172,17 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                     continue
                 entries = line.split('\t')
 
-                # note: legecy format has 3 entries
+                # note: legacy format has 3 entries
                 if len(entries) == 3:
                     arch, config, perfConfig = entries
                     ret[arch, config] = perfConfig
-
                 # note: new format has 4 entries
-                if len(entries) == 4:
+                elif len(entries) == 4:
                     arch, _, config, perfConfig = entries
+                    ret[arch, config] = perfConfig
+                # note: 5-entry form includes tflops at end
+                elif len(entries) == 5:
+                    arch, _, config, perfConfig, _ = entries
                     ret[arch, config] = perfConfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
@@ -341,6 +344,9 @@ class ConvConfiguration(PerfConfiguration):
     inputLayoutMap = {'N':'n', 'C':'c', 'H':'h', 'W':'w', 'G':'g'}
     outputLayoutMap = {'N':'n', 'C':'k', 'H':'h', 'W':'w', 'G':'g'}
 
+    INVERSE_FILTER_LAYOUTS = {v: k for k, v in MLIR_FILTER_LAYOUTS.items()}
+    INVERSE_OUTPUT_LAYOUTS = {v: k for k, v in MLIR_OUTPUT_LAYOUTS.items()}
+
     @classmethod
     def fromCommandLine(cls, argv, arch, numCU):
         # determine dataType from argv[1]
@@ -429,6 +435,16 @@ class ConvConfiguration(PerfConfiguration):
         return cls(dataType, direction, filterLayout, inputLayout, outputLayout, n, c, hi, wi, k, y, x,
             convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
                    group, arch, numCU)
+
+    def toCommandLine(self):
+        return (f"conv{ {'f32':'', 'f16':'fp16', 'bf16':'bfp16', 'i8':'int8'}[self.dataType]} "
+                + f"-F { {'fwd':1, 'bwd':2, 'wrw':4}[self.direction]} "
+                + f"-f {self.INVERSE_FILTER_LAYOUTS[self.filterLayout]} -I {self.inputLayout.upper()} "
+                + f"-O {self.INVERSE_OUTPUT_LAYOUTS[self.outputLayout]} "
+                + f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} "
+                + f"-y {self.y} -x {self.x} -p {self.paddingH} -q {self.paddingW} "
+                + f"-u {self.convStrideH} -v {self.convStrideW} -l {self.dilationH} "
+                + f"-j {self.dilationW} -m conv -g {self.group} -t 1")
 
     def __init__(self, dtype: str, direction: str, filterLayout: str, inputLayout:str, outputLayout:str,
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
@@ -667,6 +683,11 @@ class GemmConfiguration(PerfConfiguration):
                 raise ValueError("Incomplete GEMM configuration")
 
         return cls(dtype, outDataType, g, m, k, n, transA, transB, arch, numCU, perf_config)
+
+    def toCommandLine(self):
+        return (f"-t {self.dataType} -out_datatype {self.outDataType} "
+                + f"-transA {str(self.transA).lower()} -transB {str(self.transB).lower()} "
+                + f"-g {self.g} -m {self.m} -k {self.k} -n {self.n}")
 
     def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
                  transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
@@ -925,7 +946,7 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
 # Benchmarking function.
 def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
     config = confClass.fromCommandLine(commandLine, arch, numCU)
-    configStr = ' '.join(commandLine)
+    configStr = config.toCommandLine()
     if tuningDb:
         if (arch, configStr) in tuningDb:
             config.setPerfConfig(tuningDb[arch, configStr])
