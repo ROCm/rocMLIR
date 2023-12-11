@@ -840,6 +840,13 @@ class AttentionConfiguration(PerfConfiguration):
 
         return cls(dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
 
+    def toCommandLine(self):
+        return (f"-transO {str(self.transO).lower()} -transV {str(self.transV).lower()} "
+                + f"-transK {str(self.transK).lower()} -transQ {str(self.transQ).lower()} "
+                + f"-t {self.dataType} -g {self.g} "
+                + f"-seq_len {str(self.seq_len)} -head_dim {str(self.head_dim)} "
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()}")
+
 
 class RocBLASGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "rocBLAS"
