@@ -1367,7 +1367,7 @@ struct GridwiseAttentionAccelRewritePattern
     viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
                                              paddedShape[2] - prePadGemmN});
     TransformMapAttr padMap = viewBuilder.get();
-                                            
+
     ArrayAttr transforms =
         prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
                           rewriter.getArrayAttr({padMap}));
