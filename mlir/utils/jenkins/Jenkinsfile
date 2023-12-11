@@ -307,7 +307,7 @@ void check_randomE2ETests(String codepath) {
 void parameterSweep(String CONFIG, String codepath) {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -q -j 5 ${CONFIG}"""
+            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
         }
     }
 }
