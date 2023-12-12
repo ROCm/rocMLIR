@@ -8,20 +8,20 @@ module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [4] strides = [1] data =
 // CHECK-NEXT: 0.0320586,  0.236883,  0.643914,  0.0871443
 
-  func.func @create_test_tensor() -> tensor<4xf32> {
-    %0 = "tosa.const"() {value = dense<[0.0, 2.0, 3.0, 1.0]> : tensor<4xf32>} : () -> tensor<4xf32>
-      return %0 : tensor<4xf32>
+  func.func @create_test_tensor() -> !migraphx.shaped<4xf32, 1> {
+    %0 = migraphx.literal (dense<[0.0, 2.0, 3.0, 1.0]> : tensor<4xf32>) : <4xf32, 1>
+    return %0 : !migraphx.shaped<4xf32, 1>
   }
 
-  func.func @softmax(%arg0: tensor<4xf32>) -> tensor<4xf32> {
-    %0 = "migraphx.softmax"(%arg0) {axis = 0 : i64} : (tensor<4xf32>) -> tensor<4xf32>
-     return %0 : tensor<4xf32>
+  func.func @softmax(%arg0: !migraphx.shaped<4xf32, 1>) -> !migraphx.shaped<4xf32, 1> {
+    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : <4xf32, 1> -> <4xf32, 1>
+     return %0 : !migraphx.shaped<4xf32, 1>
   }
 
-  func.func @test() -> tensor<4xf32> {
-    %0 = call @create_test_tensor() : () -> (tensor<4xf32>)
-    %1 = call @softmax(%0) : (tensor<4xf32>) -> (tensor<4xf32>)
-     return %1 : tensor<4xf32>
+  func.func @test() -> !migraphx.shaped<4xf32, 1> {
+    %0 = call @create_test_tensor() : () -> (!migraphx.shaped<4xf32, 1>)
+    %1 = call @softmax(%0) : (!migraphx.shaped<4xf32, 1>) -> (!migraphx.shaped<4xf32, 1>)
+     return %1 : !migraphx.shaped<4xf32, 1>
   }
 }
 

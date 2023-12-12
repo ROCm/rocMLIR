@@ -617,6 +617,14 @@ static unsigned getOptimizationLevelSize(ArgList &Args) {
   return 0;
 }
 
+/// Assume no thread state at -Ofast
+static bool isOFastUsed(const ArgList &Args) {
+  if (Arg *A = Args.getLastArg(options::OPT_O_Group))
+    if (A->getOption().matches(options::OPT_Ofast))
+      return true;
+  return false;
+}
+
 static void GenerateArg(SmallVectorImpl<const char *> &Args,
                         llvm::opt::OptSpecifier OptSpecifier,
                         CompilerInvocation::StringAllocator SA) {
@@ -1056,15 +1064,6 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
 
       A->claim();
       Opts.Config[key] = std::string(val);
-
-      // FIXME: Remove this hunk after clang-17 released.
-      constexpr auto SingleFAM =
-          "consider-single-element-arrays-as-flexible-array-members";
-      if (key == SingleFAM) {
-        Diags.Report(diag::warn_analyzer_deprecated_option_with_alternative)
-            << SingleFAM << "clang-17"
-            << "-fstrict-flex-arrays=<N>";
-      }
     }
   }
 
@@ -1776,6 +1775,8 @@ bool CompilerInvocation::ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args,
       Opts.PrepareForThinLTO = true;
     else if (S != "full")
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << S;
+    if (Args.hasArg(OPT_funified_lto))
+      Opts.PrepareForThinLTO = true;
   }
   if (Arg *A = Args.getLastArg(OPT_fthinlto_index_EQ)) {
     if (IK.getLanguage() != Language::LLVM_IR)
@@ -3410,8 +3411,8 @@ void CompilerInvocation::GenerateLangArgs(const LangOptions &Opts,
     if (!Opts.OpenMPUseTLS)
       GenerateArg(Args, OPT_fnoopenmp_use_tls, SA);
 
-    if (Opts.OpenMPIsDevice)
-      GenerateArg(Args, OPT_fopenmp_is_device, SA);
+    if (Opts.OpenMPIsTargetDevice)
+      GenerateArg(Args, OPT_fopenmp_is_target_device, SA);
 
     if (Opts.OpenMPIRBuilder)
       GenerateArg(Args, OPT_fopenmp_enable_irbuilder, SA);
@@ -3424,11 +3425,41 @@ void CompilerInvocation::GenerateLangArgs(const LangOptions &Opts,
       GenerateArg(Args, OPT_fopenmp_version_EQ, Twine(Opts.OpenMP), SA);
   }
 
+  if (Opts.OpenMPTargetIgnoreEnvVars)
+    GenerateArg(Args, OPT_fopenmp_target_ignore_env_vars, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_target_ignore_env_vars, SA);
+
+  if (Opts.OpenMPTargetBigJumpLoop)
+    GenerateArg(Args, OPT_fopenmp_target_big_jump_loop, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_target_big_jump_loop, SA);
+
+  if (Opts.OpenMPTargetNoLoop)
+    GenerateArg(Args, OPT_fopenmp_target_no_loop, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_target_no_loop, SA);
+
+  if (Opts.OpenMPTargetXteamReduction)
+    GenerateArg(Args, OPT_fopenmp_target_xteam_reduction, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_target_xteam_reduction, SA);
+
   if (Opts.OpenMPThreadSubscription)
     GenerateArg(Args, OPT_fopenmp_assume_threads_oversubscription, SA);
 
   if (Opts.OpenMPTeamSubscription)
     GenerateArg(Args, OPT_fopenmp_assume_teams_oversubscription, SA);
+
+  if (Opts.OpenMPNoThreadState)
+    GenerateArg(Args, OPT_fopenmp_assume_no_thread_state, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_assume_no_thread_state, SA);
+
+  if (Opts.OpenMPNoNestedParallelism)
+    GenerateArg(Args, OPT_fopenmp_assume_no_nested_parallelism, SA);
+  else
+    GenerateArg(Args, OPT_fno_openmp_assume_no_nested_parallelism, SA);
 
   if (Opts.OpenMPTargetDebug != 0)
     GenerateArg(Args, OPT_fopenmp_target_debug_EQ,
@@ -3445,6 +3476,14 @@ void CompilerInvocation::GenerateLangArgs(const LangOptions &Opts,
   if (Opts.OpenMPCUDAReductionBufNum != 1024)
     GenerateArg(Args, OPT_fopenmp_cuda_teams_reduction_recs_num_EQ,
                 Twine(Opts.OpenMPCUDAReductionBufNum), SA);
+
+  if (Opts.OpenMPGPUThreadsPerTeam != 256)
+    GenerateArg(Args, OPT_fopenmp_gpu_threads_per_team_EQ,
+                Twine(Opts.OpenMPGPUThreadsPerTeam), SA);
+
+  if (Opts.OpenMPTargetXteamReductionBlockSize != 1024)
+    GenerateArg(Args, OPT_fopenmp_target_xteam_reduction_blocksize_EQ,
+                Twine(Opts.OpenMPTargetXteamReductionBlockSize), SA);
 
   if (!Opts.OMPTargetTriples.empty()) {
     std::string Targets;
@@ -3796,14 +3835,14 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
   Opts.OpenMPSimd = !Opts.OpenMP && IsSimdSpecified;
   Opts.OpenMPUseTLS =
       Opts.OpenMP && !Args.hasArg(options::OPT_fnoopenmp_use_tls);
-  Opts.OpenMPIsDevice =
-      Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_is_device);
+  Opts.OpenMPIsTargetDevice =
+      Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_is_target_device);
   Opts.OpenMPIRBuilder =
       Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_enable_irbuilder);
   bool IsTargetSpecified =
-      Opts.OpenMPIsDevice || Args.hasArg(options::OPT_fopenmp_targets_EQ);
-
-  Opts.ConvergentFunctions = Opts.ConvergentFunctions || Opts.OpenMPIsDevice;
+      Opts.OpenMPIsTargetDevice || Args.hasArg(options::OPT_fopenmp_targets_EQ);
+  Opts.ConvergentFunctions =
+      Opts.ConvergentFunctions || Opts.OpenMPIsTargetDevice;
 
   if (Opts.OpenMP || Opts.OpenMPSimd) {
     if (int Version = getLastArgIntValue(
@@ -3812,7 +3851,7 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
       Opts.OpenMP = Version;
     // Provide diagnostic when a given target is not expected to be an OpenMP
     // device or host.
-    if (!Opts.OpenMPIsDevice) {
+    if (!Opts.OpenMPIsTargetDevice) {
       switch (T.getArch()) {
       default:
         break;
@@ -3827,13 +3866,13 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   // Set the flag to prevent the implementation from emitting device exception
   // handling code for those requiring so.
-  if ((Opts.OpenMPIsDevice && (T.isNVPTX() || T.isAMDGCN())) ||
+  if ((Opts.OpenMPIsTargetDevice && (T.isNVPTX() || T.isAMDGCN())) ||
       Opts.OpenCLCPlusPlus) {
 
     Opts.Exceptions = 0;
     Opts.CXXExceptions = 0;
   }
-  if (Opts.OpenMPIsDevice && T.isNVPTX()) {
+  if (Opts.OpenMPIsTargetDevice && T.isNVPTX()) {
     Opts.OpenMPCUDANumSMs =
         getLastArgIntValue(Args, options::OPT_fopenmp_cuda_number_of_sm_EQ,
                            Opts.OpenMPCUDANumSMs, Diags);
@@ -3845,22 +3884,56 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
         Opts.OpenMPCUDAReductionBufNum, Diags);
   }
 
+  Opts.OpenMPGPUThreadsPerTeam =
+      getLastArgIntValue(Args, options::OPT_fopenmp_gpu_threads_per_team_EQ,
+                         Opts.OpenMPGPUThreadsPerTeam, Diags);
+
+  Opts.OpenMPTargetXteamReductionBlockSize = getLastArgIntValue(
+      Args, options::OPT_fopenmp_target_xteam_reduction_blocksize_EQ,
+      Opts.OpenMPTargetXteamReductionBlockSize, Diags);
+
+  Opts.OpenMPTargetIgnoreEnvVars =
+      Args.hasFlag(options::OPT_fopenmp_target_ignore_env_vars,
+                   options::OPT_fno_openmp_target_ignore_env_vars, false);
+
+  Opts.OpenMPTargetBigJumpLoop =
+      Args.hasFlag(options::OPT_fopenmp_target_big_jump_loop,
+                   options::OPT_fno_openmp_target_big_jump_loop, true);
+
+  Opts.OpenMPTargetNoLoop =
+      Args.hasFlag(options::OPT_fopenmp_target_no_loop,
+                   options::OPT_fno_openmp_target_no_loop, true);
+
+  Opts.OpenMPTargetXteamReduction =
+      Args.hasFlag(options::OPT_fopenmp_target_xteam_reduction,
+                   options::OPT_fno_openmp_target_xteam_reduction, true);
+
   // Set the value of the debugging flag used in the new offloading device RTL.
   // Set either by a specific value or to a default if not specified.
-  if (Opts.OpenMPIsDevice && (Args.hasArg(OPT_fopenmp_target_debug) ||
-                              Args.hasArg(OPT_fopenmp_target_debug_EQ))) {
+  if (Opts.OpenMPIsTargetDevice && (Args.hasArg(OPT_fopenmp_target_debug) ||
+                                    Args.hasArg(OPT_fopenmp_target_debug_EQ))) {
     Opts.OpenMPTargetDebug = getLastArgIntValue(
         Args, OPT_fopenmp_target_debug_EQ, Opts.OpenMPTargetDebug, Diags);
     if (!Opts.OpenMPTargetDebug && Args.hasArg(OPT_fopenmp_target_debug))
       Opts.OpenMPTargetDebug = 1;
   }
 
-  if (Opts.OpenMPIsDevice) {
+  if (Opts.OpenMPIsTargetDevice) {
     if (Args.hasArg(OPT_fopenmp_assume_teams_oversubscription))
       Opts.OpenMPTeamSubscription = true;
     if (Args.hasArg(OPT_fopenmp_assume_threads_oversubscription))
       Opts.OpenMPThreadSubscription = true;
   }
+
+  // Turn ON at -Ofast
+  Opts.OpenMPNoThreadState = Args.hasFlag(
+      options::OPT_fopenmp_assume_no_thread_state,
+      options::OPT_fno_openmp_assume_no_thread_state, isOFastUsed(Args));
+
+  // Turn ON at -Ofast
+  Opts.OpenMPNoNestedParallelism = Args.hasFlag(
+      options::OPT_fopenmp_assume_no_nested_parallelism,
+      options::OPT_fno_openmp_assume_no_nested_parallelism, isOFastUsed(Args));
 
   // Get the OpenMP target triples if any.
   if (Arg *A = Args.getLastArg(options::OPT_fopenmp_targets_EQ)) {
@@ -3903,7 +3976,8 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
   }
 
   // Set CUDA mode for OpenMP target NVPTX/AMDGCN if specified in options
-  Opts.OpenMPCUDAMode = Opts.OpenMPIsDevice && (T.isNVPTX() || T.isAMDGCN()) &&
+  Opts.OpenMPCUDAMode = Opts.OpenMPIsTargetDevice &&
+                        (T.isNVPTX() || T.isAMDGCN()) &&
                         Args.hasArg(options::OPT_fopenmp_cuda_mode);
 
   // FIXME: Eliminate this dependency.
@@ -4441,7 +4515,7 @@ bool CompilerInvocation::CreateFromArgsImpl(
   }
 
   // Set the triple of the host for OpenMP device compile.
-  if (LangOpts.OpenMPIsDevice)
+  if (LangOpts.OpenMPIsTargetDevice)
     Res.getTargetOpts().HostTriple = Res.getFrontendOpts().AuxTriple;
 
   ParseCodeGenArgs(Res.getCodeGenOpts(), Args, DashX, Diags, T,

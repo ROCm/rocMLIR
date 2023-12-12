@@ -6,9 +6,9 @@ module {
   // CHECK-NEXT: [-1,     1,     -1],
   // CHECK-NEXT: [0,     -1,     -1],
   // CHECK-NEXT: [0,     -1,     -1]
-  func.func @dot_add(%arg0: tensor<1x5x4xf16>, %arg1: tensor<1x4x3xf16>) -> tensor<1x5x3xf16> attributes{kernel, arch = ""} {
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4xf16>, tensor<1x4x3xf16>) -> tensor<1x5x3xf16>
-    %2 = "migraphx.erf"(%0) : (tensor<1x5x3xf16>)-> tensor<1x5x3xf16>
-    return %2 : tensor<1x5x3xf16>
+  func.func @dot_add(%arg0: !migraphx.shaped<1x5x4xf16, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf16, 12x3x1>) -> !migraphx.shaped<1x5x3xf16, 15x3x1> attributes{kernel, arch = ""} {
+    %0 = migraphx.dot %arg0, %arg1 : <1x5x4xf16, 20x4x1>, <1x4x3xf16, 12x3x1> -> <1x5x3xf16, 15x3x1>
+    %2 = migraphx.erf %0 : <1x5x3xf16, 15x3x1> -> <1x5x3xf16, 15x3x1>
+    return %2 : !migraphx.shaped<1x5x3xf16, 15x3x1>
   }
 }

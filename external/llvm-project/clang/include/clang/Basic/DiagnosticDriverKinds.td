@@ -67,9 +67,22 @@ def err_drv_no_rocm_device_lib : Error<
   "cannot find ROCm device library%select{| for %1|for ABI version %1}0; provide its path via "
   "'--rocm-path' or '--rocm-device-lib-path', or pass '-nogpulib' to build "
   "without ROCm device library">;
+def err_drv_no_asan_rt_lib : Error<
+  "AMDGPU address sanitizer runtime library (asanrtl) not found. "
+  "Please install ROCm device library which supports address sanitizer">;
 def err_drv_no_hip_runtime : Error<
   "cannot find HIP runtime; provide its path via '--rocm-path', or pass "
   "'-nogpuinc' to build without HIP runtime">;
+def err_drv_no_hipstdpar_lib : Error<
+  "cannot find HIP Standard Parallelism Acceleration library; provide it via "
+  "'--hipstdpar-path'">;
+def err_drv_no_hipstdpar_thrust_lib : Error<
+  "cannot find rocThrust, which is required by the HIP Standard Parallelism "
+  "Acceleration library; provide it via "
+  "'--hipstdpar-thrust-path'">;
+def err_drv_no_hipstdpar_prim_lib : Error<
+  "cannot find rocPrim, which is required by the HIP Standard Parallelism "
+  "Acceleration library; provide it via '--hipstdpar-prim-path'">;
 
 def err_drv_no_hipspv_device_lib : Error<
   "cannot find HIP device library%select{| for %1}0; provide its path via "
@@ -82,6 +95,9 @@ def err_drv_hipspv_no_hip_path : Error<
 def err_drv_undetermined_gpu_arch : Error<
   "cannot determine %0 architecture: %1; consider passing it via "
   "'%2'">;
+def warn_drv_multi_gpu_arch : Warning<
+  "multiple %0 architectures are detected: %1; only the first one is used for "
+  "'%2'">, InGroup<MultiGPU>;
 def err_drv_cuda_version_unsupported : Error<
   "GPU arch %0 is supported by CUDA versions between %1 and %2 (inclusive), "
   "but installation at %3 is %4; use '--cuda-path' to specify a different CUDA "
@@ -128,6 +144,10 @@ def err_drv_invalid_linker_name : Error<
   "invalid linker name in argument '%0'">;
 def err_drv_invalid_rtlib_name : Error<
   "invalid runtime library name in argument '%0'">;
+def err_drv_invalid_allocatable_mode : Error<
+  "invalid semantic mode for assignments to allocatables in argument '%0'">;
+def err_drv_unsupported_fixed_line_length : Error<
+  "unsupported fixed-format line length in argument '%0'">;
 def err_drv_unsupported_rtlib_for_platform : Error<
   "unsupported runtime library '%0' for platform '%1'">;
 def err_drv_invalid_unwindlib_name : Error<
@@ -161,6 +181,12 @@ def err_drv_invalid_diagnotics_misexpect_tolerance : Error<
   "invalid argument in '%0', only integers are supported">;
 def err_drv_missing_argument : Error<
   "argument to '%0' is missing (expected %1 value%s1)">;
+def err_drv_missing_Xopenmptarget_or_march: Error<
+  "The option -fopenmp-targets= requires additional options -Xopenmp-target= and -march= .">,
+  DefaultFatal;
+def warn_drv_missing_flang_exec : Warning<
+  "%0 not found, 'openmp-extras' package from ROCm may be missing.">,
+  InGroup<InvalidCommandLineArgument>;
 def err_drv_invalid_Xarch_argument_with_args : Error<
   "invalid Xarch argument: '%0', options requiring arguments are unsupported">;
 def err_drv_Xopenmp_target_missing_triple : Error<
@@ -327,9 +353,9 @@ def err_drv_omp_host_ir_file_not_found : Error<
   "target regions but cannot be found">;
 def err_drv_omp_host_target_not_supported : Error<
   "target '%0' is not a supported OpenMP host target">;
-def err_drv_expecting_fopenmp_with_fopenmp_targets : Error<
+def Err_drv_expecting_fopenmp_with_fopenmp_targets : Error<
   "'-fopenmp-targets' must be used in conjunction with a '-fopenmp' option "
-  "compatible with offloading; e.g., '-fopenmp=libomp' or '-fopenmp=libiomp5'">;
+  "compatible with offloading; e.g., '-fopenmp=libomp' or '-fopenmp=libiomp5' or '-fopenmp=libbolt'">;
 def err_drv_failed_to_deduce_target_from_arch : Error<
   "failed to deduce triple for target architecture '%0'; specify the triple "
   "using '-fopenmp-targets' and '-Xopenmp-target' instead.">;
@@ -416,10 +442,10 @@ def warn_drv_assuming_mfloat_abi_is : Warning<
   "unknown platform, assuming -mfloat-abi=%0">;
 def warn_drv_unsupported_float_abi_by_lib : Warning<
   "float ABI '%0' is not supported by current library">,
-  InGroup<DiagGroup<"unsupported-abi">>;
+  InGroup<UnsupportedABI>;
 def warn_drv_no_floating_point_registers: Warning<
-  "'%0': selected processor lacks floating point registers; flag ignored">,
-  InGroup<OptionIgnored>;
+  "'%0': selected processor lacks floating point registers">,
+  InGroup<UnsupportedABI>;
 def warn_ignoring_ftabstop_value : Warning<
   "ignoring invalid -ftabstop value '%0', using default value %1">;
 def warn_drv_overriding_flag_option : Warning<
@@ -572,16 +598,12 @@ def err_drv_unsupported_fpatchable_function_entry_argument : Error<
   "the second argument of '-fpatchable-function-entry' must be smaller than the first argument">;
 
 def warn_drv_unable_to_find_directory_expected : Warning<
-  "unable to find %0 directory, expected to be in '%1'">,
+  "unable to find %0 directory, expected to be in '%1' found via %2">,
   InGroup<InvalidOrNonExistentDirectory>, DefaultIgnore;
 
 def warn_drv_ps_force_pic : Warning<
   "option '%0' was ignored by the %1 toolchain, using '-fPIC'">,
   InGroup<OptionIgnored>;
-
-def warn_drv_ps_sdk_dir : Warning<
-  "environment variable '%0' is set, but points to invalid or nonexistent directory '%1'">,
-  InGroup<InvalidOrNonExistentDirectory>;
 
 def err_drv_defsym_invalid_format : Error<"defsym must be of the form: sym=value: %0">;
 def err_drv_defsym_invalid_symval : Error<"value is not an integer: %0">;
@@ -609,6 +631,10 @@ def warn_drv_global_isel_incomplete : Warning<
 def warn_drv_global_isel_incomplete_opt : Warning<
   "-fglobal-isel support is incomplete for this architecture at the current optimization level">,
   InGroup<GlobalISel>;
+
+def warn_drv_amd_opt_not_found : Warning<
+  "The [AMD] proprietary optimization compiler installation was not found">,
+  InGroup<UnusedCommandLineArgument>;
 
 def warn_drv_moutline_unsupported_opt : Warning<
   "'%0' does not support '-moutline'; flag ignored">,

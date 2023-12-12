@@ -2368,12 +2368,12 @@ let Predicates = [HasSVEorSME] in {
   defm : ld1rq_pat<nxv4i32, AArch64ld1rq_z, LD1RQ_W, am_sve_regreg_lsl2>;
   defm : ld1rq_pat<nxv2i64, AArch64ld1rq_z, LD1RQ_D, am_sve_regreg_lsl3>;
 
-  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i32), (SXTW_ZPmZ_UNDEF_D (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
-  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i16), (SXTH_ZPmZ_UNDEF_D (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
-  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i8),  (SXTB_ZPmZ_UNDEF_D (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
-  def : Pat<(sext_inreg (nxv4i32 ZPR:$Zs), nxv4i16), (SXTH_ZPmZ_UNDEF_S (IMPLICIT_DEF), (PTRUE_S 31), ZPR:$Zs)>;
-  def : Pat<(sext_inreg (nxv4i32 ZPR:$Zs), nxv4i8),  (SXTB_ZPmZ_UNDEF_S (IMPLICIT_DEF), (PTRUE_S 31), ZPR:$Zs)>;
-  def : Pat<(sext_inreg (nxv8i16 ZPR:$Zs), nxv8i8),  (SXTB_ZPmZ_UNDEF_H (IMPLICIT_DEF), (PTRUE_H 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i32), (SXTW_ZPmZ_D_UNDEF (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i16), (SXTH_ZPmZ_D_UNDEF (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv2i64 ZPR:$Zs), nxv2i8),  (SXTB_ZPmZ_D_UNDEF (IMPLICIT_DEF), (PTRUE_D 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv4i32 ZPR:$Zs), nxv4i16), (SXTH_ZPmZ_S_UNDEF (IMPLICIT_DEF), (PTRUE_S 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv4i32 ZPR:$Zs), nxv4i8),  (SXTB_ZPmZ_S_UNDEF (IMPLICIT_DEF), (PTRUE_S 31), ZPR:$Zs)>;
+  def : Pat<(sext_inreg (nxv8i16 ZPR:$Zs), nxv8i8),  (SXTB_ZPmZ_H_UNDEF (IMPLICIT_DEF), (PTRUE_H 31), ZPR:$Zs)>;
 
   // General case that we ideally never want to match.
   def : Pat<(vscale GPR64:$scale), (MADDXrrr (UBFMXri (RDVLI_XI 1), 4, 63), $scale, XZR)>;
@@ -3159,7 +3159,7 @@ let Predicates = [HasSVEorSME] in {
             (EXTRACT_SUBREG (DUP_ZZI_D ZPR:$vec, sve_elm_idx_extdup_d:$index), dsub)>;
 
   // Extract element from vector with immediate index that's within the bottom 128-bits.
-  let Predicates = [NotInStreamingSVEMode], AddedComplexity = 1 in {
+  let Predicates = [IsNeonAvailable], AddedComplexity = 1 in {
   def : Pat<(i32 (vector_extract (nxv16i8 ZPR:$vec), VectorIndexB:$index)),
             (i32 (UMOVvi8 (v16i8 (EXTRACT_SUBREG ZPR:$vec, zsub)), VectorIndexB:$index))>;
   def : Pat<(i32 (vector_extract (nxv8i16 ZPR:$vec), VectorIndexH:$index)),
@@ -3168,9 +3168,9 @@ let Predicates = [HasSVEorSME] in {
             (i32 (UMOVvi32 (v4i32 (EXTRACT_SUBREG ZPR:$vec, zsub)), VectorIndexS:$index))>;
   def : Pat<(i64 (vector_extract (nxv2i64 ZPR:$vec), VectorIndexD:$index)),
             (i64 (UMOVvi64 (v2i64 (EXTRACT_SUBREG ZPR:$vec, zsub)), VectorIndexD:$index))>;
-  } // End NotInStreamingSVEMode
+  } // End IsNeonAvailable
 
-  let Predicates = [NotInStreamingSVEMode] in {
+  let Predicates = [IsNeonAvailable] in {
   def : Pat<(sext_inreg (vector_extract (nxv16i8 ZPR:$vec), VectorIndexB:$index), i8),
             (i32 (SMOVvi8to32 (v16i8 (EXTRACT_SUBREG ZPR:$vec, zsub)), VectorIndexB:$index))>;
   def : Pat<(sext_inreg (anyext (i32 (vector_extract (nxv16i8 ZPR:$vec), VectorIndexB:$index))), i8),
@@ -3183,7 +3183,7 @@ let Predicates = [HasSVEorSME] in {
 
   def : Pat<(sext (i32 (vector_extract (nxv4i32 ZPR:$vec), VectorIndexS:$index))),
             (i64 (SMOVvi32to64 (v4i32 (EXTRACT_SUBREG ZPR:$vec, zsub)), VectorIndexS:$index))>;
-  } // End NotInStreamingSVEMode
+  } // End IsNeonAvailable
 
   // Extract first element from vector.
   let AddedComplexity = 2 in {

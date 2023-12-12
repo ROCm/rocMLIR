@@ -1,25 +1,17 @@
-file(GLOB globbed *.c *.cpp)
-add_rocmlir_dialect_library(MLIRMIGraphX
-  ${globbed}
+add_rocmlir_dialect_library(MLIRMIGraphXDialect
+  IR/MIGraphX.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIGraphX
 
   DEPENDS
   MLIRMIGraphXTypeIncGen
-  MLIRMIGraphXOpsIncGen
-  MLIRMIGraphXPassIncGen
-  MLIRFuncOpsIncGen
+  MLIRMIGraphXIncGen
 
-  )
-target_link_libraries(MLIRMIGraphX
-  PUBLIC
+  LINK_LIBS PUBLIC
   MLIRIR
-  LLVMSupport
-  MLIRPass
-  MLIRFuncDialect
-  MLIRTransforms
   MLIRSupport
 )
 
+add_subdirectory(Transforms)
 add_subdirectory(Pipeline)

@@ -5,7 +5,7 @@ declare void @__gxx_personality_seh0(...)
 declare void @__gcc_personality_seh0(...)
 
 define void @use_gxx_seh()
-    personality ptr @__gxx_personality_seh0 {
+    personality void (...)* @__gxx_personality_seh0 {
 entry:
   call void @throwit()
   unreachable
@@ -18,7 +18,7 @@ entry:
 ; CHECK: .seh_endproc
 
 define void @use_gcc_seh()
-    personality ptr @__gcc_personality_seh0 {
+    personality void (...)* @__gcc_personality_seh0 {
 entry:
   call void @throwit()
   unreachable

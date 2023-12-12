@@ -376,8 +376,8 @@ void PEI::calculateCallFrameInfo(MachineFunction &MF) {
       }
 
   assert(!MFI.isMaxCallFrameSizeComputed() ||
-         (MFI.getMaxCallFrameSize() == MaxCallFrameSize &&
-          MFI.adjustsStack() == AdjustsStack));
+         (MFI.getMaxCallFrameSize() >= MaxCallFrameSize &&
+          !(AdjustsStack && !MFI.adjustsStack())));
   MFI.setAdjustsStack(AdjustsStack);
   MFI.setMaxCallFrameSize(MaxCallFrameSize);
 
@@ -1376,6 +1376,48 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
                                       unsigned OpIdx, int SPAdj) {
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  const DataLayout &DL = MF.getDataLayout();
+  LLVMContext &Context = MF.getMMI().getModule()->getContext();
+
+  if (MI.isDebugDef()) {
+    MachineOperand &Op = MI.getOperand(OpIdx);
+    assert(MI.isDebugOperand(&Op) &&
+           "Frame indices can only appear as a debug operand in a DBG_DEF"
+           " machine instruction");
+    assert(&Op == &MI.getDebugReferrer() &&
+           "Frame indices can only appear as the referrer of DBG_DEF "
+           "machine instructions");
+    Register Reg;
+    unsigned FrameIdx = Op.getIndex();
+    StackOffset Offset = TFI->getFrameIndexReference(MF, FrameIdx, Reg);
+
+    if (Reg) {
+      Op.ChangeToRegister(Reg, false /*isDef*/);
+      Op.setIsDebug();
+    } else {
+      Op.ChangeToImmediate(0);
+    }
+
+    DILifetime *Lifetime = MI.getDebugLifetime();
+    DIExprBuilder Builder = Lifetime->getLocation()->builder();
+    for (auto &&I = Builder.begin(); I != Builder.end(); ++I) {
+      if (auto *Referrer = std::get_if<DIOp::Referrer>(&*I)) {
+        Type *ResultType = Referrer->getResultType();
+        unsigned PointerSizeInBits =
+            DL.getPointerSizeInBits(DL.getAllocaAddrSpace());
+        ConstantData *C =
+            ConstantInt::get(IntegerType::get(Context, PointerSizeInBits),
+                             Offset.getFixed(), true);
+        std::initializer_list<DIOp::Variant> IL = {
+            DIOp::Constant(C), DIOp::ByteOffset(ResultType)};
+        I = TFI->insertFrameLocation(
+            MF, Builder, Builder.insert(Builder.erase(I), IL), ResultType);
+      }
+    }
+    Lifetime->setLocation(Builder.intoExpr());
+    return true;
+  }
+
   if (MI.isDebugValue()) {
 
     MachineOperand &Op = MI.getOperand(OpIdx);
@@ -1459,14 +1501,24 @@ void PEI::replaceFrameIndicesBackward(MachineBasicBlock *BB,
   assert(MF.getSubtarget().getRegisterInfo() &&
          "getRegisterInfo() must be implemented!");
 
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  const TargetFrameLowering &TFI = *MF.getSubtarget().getFrameLowering();
 
-  RS->enterBasicBlockEnd(*BB);
+  RegScavenger *LocalRS = FrameIndexEliminationScavenging ? RS : nullptr;
+  if (LocalRS)
+    LocalRS->enterBasicBlockEnd(*BB);
 
   for (MachineInstr &MI : make_early_inc_range(reverse(*BB))) {
+    if (TII.isFrameInstr(MI)) {
+      TFI.eliminateCallFramePseudoInstr(MF, *BB, &MI);
+      continue;
+    }
 
-    // Register scavenger backward step
-    MachineBasicBlock::iterator Step(MI);
+    // Step backwards to get the liveness state at (immedately after) MI.
+    if (LocalRS)
+      LocalRS->backward(MI);
+
     for (unsigned i = 0; i != MI.getNumOperands(); ++i) {
       if (!MI.getOperand(i).isFI())
         continue;
@@ -1474,49 +1526,20 @@ void PEI::replaceFrameIndicesBackward(MachineBasicBlock *BB,
       if (replaceFrameIndexDebugInstr(MF, MI, i, SPAdj))
         continue;
 
-      // If this instruction has a FrameIndex operand, we need to
-      // use that target machine register info object to eliminate
-      // it.
-
-      // TRI.eliminateFrameIndex may lower the frame index to a sequence of
-      // instructions. It also can remove/change instructions passed by the
-      // iterator and invalidate the iterator. We have to take care of this. For
-      // that we support two iterators: *Step* - points to the position up to
-      // which the scavenger should scan by the next iteration to have liveness
-      // information up to date. *Curr* - keeps track of the correct RS->MBBI -
-      // the scan start point. It points to the currently processed instruction
-      // right before the frame lowering.
+      // Eliminate this FrameIndex operand.
       //
-      // ITERATORS WORK AS FOLLOWS:
-      // *Step* is shifted one step back right before the frame lowering and
-      // one step forward right after it. No matter how many instructions were
-      // inserted, *Step* will be right after the position which is going to be
-      // processed in the next iteration, thus, in the correct position for the
-      // scavenger to go up to.
-      // *Curr* is shifted one step forward right before calling
-      // TRI.eliminateFrameIndex and one step backward after. Thus, we make sure
-      // it points right to the position that is the correct starting point for
-      // the scavenger to scan.
-      MachineBasicBlock::iterator Curr = ++RS->getCurrentPosition();
-
-      // Shift back
-      --Step;
-
+      // Save and restore the scavenger's position around the call to
+      // eliminateFrameIndex in case it erases MI and invalidates the iterator.
+      MachineBasicBlock::iterator Save;
+      if (LocalRS)
+	Save = std::next(LocalRS->getCurrentPosition());
       bool Removed = TRI.eliminateFrameIndex(MI, SPAdj, i, RS);
-      // Restore to unify logic with a shift back that happens in the end of
-      // the outer loop.
-      ++Step;
-      RS->skipTo(--Curr);
+      if (LocalRS)
+	LocalRS->skipTo(std::prev(Save));
+
       if (Removed)
         break;
     }
-
-    // Shift it to make RS collect reg info up to the current instruction.
-    if (Step != BB->begin())
-      Step--;
-
-    // Update register states.
-    RS->backward(Step);
   }
 }
 
@@ -1528,7 +1551,7 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
 
-  if (RS && TRI.supportsBackwardScavenger())
+  if (TRI.supportsBackwardScavenger())
     return replaceFrameIndicesBackward(BB, MF, SPAdj);
 
   if (RS && FrameIndexEliminationScavenging)

@@ -21,6 +21,7 @@
 ; CHECK-NEXT: Default Regalloc Eviction Advisor
 ; CHECK-NEXT: Default Regalloc Priority Advisor
 ; CHECK-NEXT:   ModulePass Manager
+; CHECK-NEXT:     Verify Heterogeneous Debug Preconditions
 ; CHECK-NEXT:     Pre-ISel Intrinsic Lowering
 ; CHECK-NEXT:     FunctionPass Manager
 ; CHECK-NEXT:       Expand large div/rem
@@ -179,6 +180,7 @@
 ; CHECK-NEXT:       Machine Optimization Remark Emitter
 ; CHECK-NEXT:       Stack Frame Layout Analysis
 ; CHECK-NEXT:       RISC-V Zcmp move merging pass
+; CHECK-NEXT:       RISC-V Zcmp Push/Pop optimization pass 
 ; CHECK-NEXT:       RISC-V pseudo instruction expansion pass
 ; CHECK-NEXT:       RISC-V atomic pseudo instruction expansion pass
 ; CHECK-NEXT:       Unpack machine instruction bundles

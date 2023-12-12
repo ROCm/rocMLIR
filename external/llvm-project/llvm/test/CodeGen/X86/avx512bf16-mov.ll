@@ -9,8 +9,14 @@ define dso_local void @funbf16(ptr readonly %src, ptr writeonly %dst) {
 ; X64-NEXT:    vmovups %xmm0, (%rsi)
 ; X64-NEXT:    vmovaps (%rdi), %xmm0
 ; X64-NEXT:    vmovaps %xmm0, (%rsi)
-; X64-NEXT:    vmovups (%rdi), %ymm0
-; X64-NEXT:    vmovups %ymm0, (%rsi)
+; X64-NEXT:    movl (%rdi), %eax
+; X64-NEXT:    vmovups 4(%rdi), %xmm0
+; X64-NEXT:    movq 20(%rdi), %rcx
+; X64-NEXT:    movl 28(%rdi), %edx
+; X64-NEXT:    movl %edx, 28(%rsi)
+; X64-NEXT:    movq %rcx, 20(%rsi)
+; X64-NEXT:    vmovups %xmm0, 4(%rsi)
+; X64-NEXT:    movl %eax, (%rsi)
 ; X64-NEXT:    vmovaps (%rdi), %ymm0
 ; X64-NEXT:    vmovaps %ymm0, (%rsi)
 ; X64-NEXT:    vzeroupper
@@ -18,16 +24,39 @@ define dso_local void @funbf16(ptr readonly %src, ptr writeonly %dst) {
 ;
 ; X86-LABEL: funbf16:
 ; X86:       # %bb.0: # %entry
+; X86-NEXT:    pushl %ebx
+; X86-NEXT:    .cfi_def_cfa_offset 8
+; X86-NEXT:    pushl %edi
+; X86-NEXT:    .cfi_def_cfa_offset 12
+; X86-NEXT:    pushl %esi
+; X86-NEXT:    .cfi_def_cfa_offset 16
+; X86-NEXT:    .cfi_offset %esi, -16
+; X86-NEXT:    .cfi_offset %edi, -12
+; X86-NEXT:    .cfi_offset %ebx, -8
 ; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
 ; X86-NEXT:    movl {{[0-9]+}}(%esp), %ecx
 ; X86-NEXT:    vmovups (%ecx), %xmm0
 ; X86-NEXT:    vmovups %xmm0, (%eax)
 ; X86-NEXT:    vmovaps (%ecx), %xmm0
 ; X86-NEXT:    vmovaps %xmm0, (%eax)
-; X86-NEXT:    vmovups (%ecx), %ymm0
-; X86-NEXT:    vmovups %ymm0, (%eax)
+; X86-NEXT:    movl (%ecx), %edx
+; X86-NEXT:    vmovups 4(%ecx), %xmm0
+; X86-NEXT:    movl 20(%ecx), %esi
+; X86-NEXT:    movl 24(%ecx), %edi
+; X86-NEXT:    movl 28(%ecx), %ebx
+; X86-NEXT:    movl %ebx, 28(%eax)
+; X86-NEXT:    movl %edi, 24(%eax)
+; X86-NEXT:    movl %esi, 20(%eax)
+; X86-NEXT:    vmovups %xmm0, 4(%eax)
+; X86-NEXT:    movl %edx, (%eax)
 ; X86-NEXT:    vmovaps (%ecx), %ymm0
 ; X86-NEXT:    vmovaps %ymm0, (%eax)
+; X86-NEXT:    popl %esi
+; X86-NEXT:    .cfi_def_cfa_offset 12
+; X86-NEXT:    popl %edi
+; X86-NEXT:    .cfi_def_cfa_offset 8
+; X86-NEXT:    popl %ebx
+; X86-NEXT:    .cfi_def_cfa_offset 4
 ; X86-NEXT:    vzeroupper
 ; X86-NEXT:    retl
 entry:

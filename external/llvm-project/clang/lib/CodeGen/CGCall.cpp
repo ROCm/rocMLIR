@@ -760,8 +760,9 @@ CodeGenTypes::arrangeLLVMFunctionInfo(CanQualType resultType,
                                       FunctionType::ExtInfo info,
                      ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
                                       RequiredArgs required) {
-  assert(llvm::all_of(argTypes,
-                      [](CanQualType T) { return T.isCanonicalAsParam(); }));
+  if (!getContext().getLangOpts().OpenMP)
+    assert(llvm::all_of(argTypes,
+                        [](CanQualType T) { return T.isCanonicalAsParam(); }));
 
   // Lookup or create unique function info.
   llvm::FoldingSetNodeID ID;
@@ -1311,7 +1312,7 @@ static llvm::Value *CreateCoercedLoad(Address Src, llvm::Type *Ty,
         auto *UndefVec = llvm::UndefValue::get(ScalableDst);
         auto *Zero = llvm::Constant::getNullValue(CGF.CGM.Int64Ty);
         llvm::Value *Result = CGF.Builder.CreateInsertVector(
-            ScalableDst, UndefVec, Load, Zero, "castScalableSve");
+            ScalableDst, UndefVec, Load, Zero, "cast.scalable");
         if (NeedsBitcast)
           Result = CGF.Builder.CreateBitCast(Result, OrigType);
         return Result;
@@ -1846,9 +1847,8 @@ addMergableDefaultFunctionAttributes(const CodeGenOptions &CodeGenOpts,
                        FuncAttrs);
 }
 
-static void getTrivialDefaultFunctionAttributes(
-    StringRef Name, bool HasOptnone, const CodeGenOptions &CodeGenOpts,
-    const LangOptions &LangOpts, bool AttrOnCallSite,
+void CodeGenModule::getTrivialDefaultFunctionAttributes(
+    StringRef Name, bool HasOptnone, bool AttrOnCallSite,
     llvm::AttrBuilder &FuncAttrs) {
   // OptimizeNoneAttr takes precedence over -Os or -Oz. No warning needed.
   if (!HasOptnone) {
@@ -1969,7 +1969,7 @@ static void getTrivialDefaultFunctionAttributes(
     }
   }
 
-  if (LangOpts.assumeFunctionsAreConvergent()) {
+  if (getLangOpts().assumeFunctionsAreConvergent()) {
     // Conservatively, mark all functions and calls in CUDA and OpenCL as
     // convergent (meaning, they may call an intrinsically convergent op, such
     // as __syncthreads() / barrier(), and so can't have certain optimizations
@@ -1980,8 +1980,8 @@ static void getTrivialDefaultFunctionAttributes(
 
   // TODO: NoUnwind attribute should be added for other GPU modes HIP,
   // OpenMP offload. AFAIK, neither of them support exceptions in device code.
-  if ((LangOpts.CUDA && LangOpts.CUDAIsDevice) || LangOpts.OpenCL ||
-      LangOpts.SYCLIsDevice) {
+  if ((getLangOpts().CUDA && getLangOpts().CUDAIsDevice) ||
+      getLangOpts().OpenCL || getLangOpts().SYCLIsDevice) {
     FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
   }
 
@@ -1992,25 +1992,36 @@ static void getTrivialDefaultFunctionAttributes(
   }
 }
 
-/// Adds attributes to \p F according to our \p CodeGenOpts and \p LangOpts, as
-/// though we had emitted it ourselves. We remove any attributes on F that
-/// conflict with the attributes we add here.
-static void mergeDefaultFunctionDefinitionAttributes(
-    llvm::Function &F, const CodeGenOptions CodeGenOpts,
-    const LangOptions &LangOpts, const TargetOptions &TargetOpts,
-    bool WillInternalize) {
+void CodeGenModule::getDefaultFunctionAttributes(StringRef Name,
+                                                 bool HasOptnone,
+                                                 bool AttrOnCallSite,
+                                                 llvm::AttrBuilder &FuncAttrs) {
+  getTrivialDefaultFunctionAttributes(Name, HasOptnone, AttrOnCallSite,
+                                      FuncAttrs);
+  if (!AttrOnCallSite) {
+    // If we're just getting the default, get the default values for mergeable
+    // attributes.
+    addMergableDefaultFunctionAttributes(CodeGenOpts, FuncAttrs);
+  }
+}
 
+void CodeGenModule::addDefaultFunctionDefinitionAttributes(llvm::Function &F) {
   llvm::AttrBuilder FuncAttrs(F.getContext());
-  // Here we only extract the options that are relevant compared to the version
-  // from GetCPUAndFeaturesAttributes.
-  if (!TargetOpts.CPU.empty())
-    FuncAttrs.addAttribute("target-cpu", TargetOpts.CPU);
-  if (!TargetOpts.TuneCPU.empty())
-    FuncAttrs.addAttribute("tune-cpu", TargetOpts.TuneCPU);
+  getDefaultFunctionAttributes(F.getName(), F.hasOptNone(),
+                               /* AttrOnCallSite = */ false, FuncAttrs);
+  // TODO: call GetCPUAndFeaturesAttributes?
+  F.addFnAttrs(FuncAttrs);
+}
 
-  ::getTrivialDefaultFunctionAttributes(F.getName(), F.hasOptNone(),
-                                        CodeGenOpts, LangOpts,
-                                        /*AttrOnCallSite=*/false, FuncAttrs);
+/// Apply default attributes to \p F, accounting for merge semantics of
+/// attributes that should not overwrite existing attributes.
+void CodeGenModule::mergeDefaultFunctionDefinitionAttributes(
+    llvm::Function &F, bool WillInternalize) {
+  llvm::AttrBuilder FuncAttrs(F.getContext());
+  getTrivialDefaultFunctionAttributes(F.getName(), F.hasOptNone(),
+                                      /*AttrOnCallSite=*/false, FuncAttrs);
+  GetCPUAndFeaturesAttributes(GlobalDecl(), FuncAttrs,
+                              /*AddTargetFeatures=*/false);
 
   if (!WillInternalize && F.isInterposable()) {
     // Do not promote "dynamic" denormal-fp-math to this translation unit's
@@ -2053,52 +2064,6 @@ static void mergeDefaultFunctionDefinitionAttributes(
   F.removeFnAttrs(AttrsToRemove);
   addDenormalModeAttrs(Merged, MergedF32, FuncAttrs);
   F.addFnAttrs(FuncAttrs);
-}
-
-void clang::CodeGen::mergeDefaultFunctionDefinitionAttributes(
-    llvm::Function &F, const CodeGenOptions CodeGenOpts,
-    const LangOptions &LangOpts, const TargetOptions &TargetOpts,
-    bool WillInternalize) {
-
-  ::mergeDefaultFunctionDefinitionAttributes(F, CodeGenOpts, LangOpts,
-                                             TargetOpts, WillInternalize);
-}
-
-void CodeGenModule::getTrivialDefaultFunctionAttributes(
-    StringRef Name, bool HasOptnone, bool AttrOnCallSite,
-    llvm::AttrBuilder &FuncAttrs) {
-  ::getTrivialDefaultFunctionAttributes(Name, HasOptnone, getCodeGenOpts(),
-                                        getLangOpts(), AttrOnCallSite,
-                                        FuncAttrs);
-}
-
-void CodeGenModule::getDefaultFunctionAttributes(StringRef Name,
-                                                 bool HasOptnone,
-                                                 bool AttrOnCallSite,
-                                                 llvm::AttrBuilder &FuncAttrs) {
-  getTrivialDefaultFunctionAttributes(Name, HasOptnone, AttrOnCallSite,
-                                      FuncAttrs);
-  // If we're just getting the default, get the default values for mergeable
-  // attributes.
-  if (!AttrOnCallSite)
-    addMergableDefaultFunctionAttributes(CodeGenOpts, FuncAttrs);
-}
-
-void CodeGenModule::addDefaultFunctionDefinitionAttributes(llvm::Function &F) {
-  llvm::AttrBuilder FuncAttrs(F.getContext());
-  getDefaultFunctionAttributes(F.getName(), F.hasOptNone(),
-                               /* AttrOnCallSite = */ false, FuncAttrs);
-  // TODO: call GetCPUAndFeaturesAttributes?
-  F.addFnAttrs(FuncAttrs);
-}
-
-/// Apply default attributes to \p F, accounting for merge semantics of
-/// attributes that should not overwrite existing attributes.
-void CodeGenModule::mergeDefaultFunctionDefinitionAttributes(
-    llvm::Function &F, bool WillInternalize) {
-  ::mergeDefaultFunctionDefinitionAttributes(F, getCodeGenOpts(), getLangOpts(),
-                                             getTarget().getTargetOpts(),
-                                             WillInternalize);
 }
 
 void CodeGenModule::addDefaultFunctionDefinitionAttributes(
@@ -2398,10 +2363,15 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
         // to the compiler that the global work-size be a multiple of
         // the work-group size specified to clEnqueueNDRangeKernel
         // (i.e. work groups are uniform).
-        FuncAttrs.addAttribute("uniform-work-group-size",
-                               llvm::toStringRef(CodeGenOpts.UniformWGSize));
+        FuncAttrs.addAttribute(
+            "uniform-work-group-size",
+            llvm::toStringRef(getLangOpts().OffloadUniformBlock));
       }
     }
+
+    if (TargetDecl->hasAttr<CUDAGlobalAttr>() &&
+        getLangOpts().OffloadUniformBlock)
+      FuncAttrs.addAttribute("uniform-work-group-size", "true");
   }
 
   // Attach "no-builtins" attributes to:
@@ -2498,6 +2468,11 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   QualType RetTy = FI.getReturnType();
   const ABIArgInfo &RetAI = FI.getReturnInfo();
   const llvm::DataLayout &DL = getDataLayout();
+
+  // Enable noundef attribute based on codegen options and
+  // skip adding the attribute to HIP device functions.
+  bool EnableNoundefAttrs = CodeGenOpts.EnableNoundefAttrs &&
+                            !(getLangOpts().HIP && getLangOpts().CUDAIsDevice);
 
   // Determine if the return type could be partially undef
   if (CodeGenOpts.EnableNoundefAttrs &&
@@ -2638,8 +2613,7 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     }
 
     // Decide whether the argument we're handling could be partially undef
-    if (CodeGenOpts.EnableNoundefAttrs &&
-        DetermineNoUndef(ParamType, getTypes(), DL, AI)) {
+    if (EnableNoundefAttrs && DetermineNoUndef(ParamType, getTypes(), DL, AI)) {
       Attrs.addAttribute(llvm::Attribute::NoUndef);
     }
 
@@ -2945,6 +2919,9 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
       if (ArgI.getInAllocaIndirect())
         V = Address(Builder.CreateLoad(V), ConvertTypeForMem(Ty),
                     getContext().getTypeAlignInChars(Ty));
+      // FIXME: It seems like we would want to represent inalloca via
+      // ParamValue more directly, so the debug information can reflect it
+      // directly.
       ArgVals.push_back(ParamValue::forIndirect(V));
       break;
     }
@@ -2961,8 +2938,9 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
         // may be aliased, copy it to ensure that the parameter variable is
         // mutable and has a unique adress, as C requires.
         Address V = ParamAddr;
+        Address DebugAddr = ParamAddr;
         if (ArgI.getIndirectRealign() || ArgI.isIndirectAliased()) {
-          Address AlignedTemp = CreateMemTemp(Ty, "coerce");
+          Address AlignedTemp = CreateMemTemp(Ty, "coerce", &DebugAddr);
 
           // Copy from the incoming argument pointer to the temporary with the
           // appropriate alignment.
@@ -2976,7 +2954,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
               llvm::ConstantInt::get(IntPtrTy, Size.getQuantity()));
           V = AlignedTemp;
         }
-        ArgVals.push_back(ParamValue::forIndirect(V));
+        ArgVals.push_back(ParamValue::forIndirect(V, DebugAddr));
       } else {
         // Load scalar value from indirect argument.
         llvm::Value *V =
@@ -3146,14 +3124,18 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
             assert(NumIRArgs == 1);
             Coerced->setName(Arg->getName() + ".coerce");
             ArgVals.push_back(ParamValue::forDirect(Builder.CreateExtractVector(
-                VecTyTo, Coerced, Zero, "castFixedSve")));
+                VecTyTo, Coerced, Zero, "cast.fixed")));
             break;
           }
         }
       }
 
+      Address DebugAddr = Address::invalid();
       Address Alloca = CreateMemTemp(Ty, getContext().getDeclAlign(Arg),
-                                     Arg->getName());
+                                     Arg->getName(), &DebugAddr);
+
+      // FIXME: Need to represent this offset via ParamValue to support debug
+      // info?
 
       // Pointer to store into.
       Address Ptr = emitAddressAtOffset(*this, Alloca, ArgI);
@@ -3224,15 +3206,17 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
           V = emitArgumentDemotion(*this, Arg, V);
         ArgVals.push_back(ParamValue::forDirect(V));
       } else {
-        ArgVals.push_back(ParamValue::forIndirect(Alloca));
+        ArgVals.push_back(ParamValue::forIndirect(Alloca, DebugAddr));
       }
       break;
     }
 
     case ABIArgInfo::CoerceAndExpand: {
       // Reconstruct into a temporary.
-      Address alloca = CreateMemTemp(Ty, getContext().getDeclAlign(Arg));
-      ArgVals.push_back(ParamValue::forIndirect(alloca));
+      Address DebugAddr = Address::invalid();
+      Address alloca =
+          CreateMemTemp(Ty, getContext().getDeclAlign(Arg), "tmp", &DebugAddr);
+      ArgVals.push_back(ParamValue::forIndirect(alloca, DebugAddr));
 
       auto coercionType = ArgI.getCoerceAndExpandType();
       alloca = alloca.withElementType(coercionType);
@@ -3255,9 +3239,11 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
       // If this structure was expanded into multiple arguments then
       // we need to create a temporary and reconstruct it from the
       // arguments.
-      Address Alloca = CreateMemTemp(Ty, getContext().getDeclAlign(Arg));
+      Address DebugAddr = Address::invalid();
+      Address Alloca =
+          CreateMemTemp(Ty, getContext().getDeclAlign(Arg), "tmp", &DebugAddr);
       LValue LV = MakeAddrLValue(Alloca, Ty);
-      ArgVals.push_back(ParamValue::forIndirect(Alloca));
+      ArgVals.push_back(ParamValue::forIndirect(Alloca, DebugAddr));
 
       auto FnArgIter = Fn->arg_begin() + FirstIRArg;
       ExpandTypeFromArgs(Ty, LV, FnArgIter);
@@ -3273,7 +3259,9 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
       assert(NumIRArgs == 0);
       // Initialize the local variable appropriately.
       if (!hasScalarEvaluationKind(Ty)) {
-        ArgVals.push_back(ParamValue::forIndirect(CreateMemTemp(Ty)));
+        Address DebugAddr = Address::invalid();
+        Address Alloca = CreateMemTemp(Ty, "tmp", &DebugAddr);
+        ArgVals.push_back(ParamValue::forIndirect(Alloca, DebugAddr));
       } else {
         llvm::Value *U = llvm::UndefValue::get(ConvertType(Arg->getType()));
         ArgVals.push_back(ParamValue::forDirect(U));
@@ -5741,6 +5729,20 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         }
         }
         llvm_unreachable("bad evaluation kind");
+      }
+
+      // If coercing a fixed vector from a scalable vector for ABI
+      // compatibility, and the types match, use the llvm.vector.extract
+      // intrinsic to perform the conversion.
+      if (auto *FixedDst = dyn_cast<llvm::FixedVectorType>(RetIRTy)) {
+        llvm::Value *V = CI;
+        if (auto *ScalableSrc = dyn_cast<llvm::ScalableVectorType>(V->getType())) {
+          if (FixedDst->getElementType() == ScalableSrc->getElementType()) {
+            llvm::Value *Zero = llvm::Constant::getNullValue(CGM.Int64Ty);
+            V = Builder.CreateExtractVector(FixedDst, V, Zero, "cast.fixed");
+            return RValue::get(V);
+          }
+        }
       }
 
       Address DestPtr = ReturnValue.getValue();

@@ -13,9 +13,10 @@
 
 #include "llvm-c-test.h"
 #include "llvm-c/DebugInfo.h"
+
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 
 static LLVMMetadataRef
 declare_objc_class(LLVMDIBuilderRef DIB, LLVMMetadataRef File) {
@@ -61,9 +62,9 @@ int llvm_test_dibuilder(void) {
   LLVMMetadataRef ClassTy = declare_objc_class(DIB, File);
   LLVMMetadataRef GlobalClassValueExpr =
       LLVMDIBuilderCreateConstantValueExpression(DIB, 0);
-  LLVMDIBuilderCreateGlobalVariableExpression(
-      DIB, Module, "globalClass", 11, "", 0, File, 1, ClassTy, true,
-      GlobalClassValueExpr, NULL, 0);
+  LLVMDIBuilderCreateGlobalVariableExpression(DIB, Module, "globalClass", 11,
+                                              "", 0, File, 1, ClassTy, true,
+                                              GlobalClassValueExpr, NULL, 0, 0);
 
   LLVMMetadataRef Int64Ty =
       LLVMDIBuilderCreateBasicType(DIB, "Int64", 5, 64, 0, LLVMDIFlagZero);
@@ -72,9 +73,9 @@ int llvm_test_dibuilder(void) {
 
   LLVMMetadataRef GlobalVarValueExpr =
       LLVMDIBuilderCreateConstantValueExpression(DIB, 0);
-  LLVMDIBuilderCreateGlobalVariableExpression(
-      DIB, Module, "global", 6, "", 0, File, 1, Int64TypeDef, true,
-      GlobalVarValueExpr, NULL, 0);
+  LLVMDIBuilderCreateGlobalVariableExpression(DIB, Module, "global", 6, "", 0,
+                                              File, 1, Int64TypeDef, true,
+                                              GlobalVarValueExpr, NULL, 0, 0);
 
   LLVMMetadataRef NameSpace =
       LLVMDIBuilderCreateNameSpace(DIB, Module, "NameSpace", 9, false);
@@ -86,7 +87,7 @@ int llvm_test_dibuilder(void) {
     LLVMDWARFSourceLanguageC, NULL, "MyStruct", 8);
 
   LLVMMetadataRef StructDbgPtrTy =
-    LLVMDIBuilderCreatePointerType(DIB, StructDbgTy, 192, 0, 0, "", 0);
+      LLVMDIBuilderCreatePointerType(DIB, StructDbgTy, 192, 0, 0, 0, "", 0);
 
   LLVMAddNamedMetadataOperand(M, "FooType",
     LLVMMetadataAsValue(LLVMGetModuleContext(M), StructDbgPtrTy));
@@ -159,9 +160,8 @@ int llvm_test_dibuilder(void) {
   LLVMMetadataRef FooVarsLocation =
     LLVMDIBuilderCreateDebugLocation(LLVMGetGlobalContext(), 43, 0,
                                      FunctionMetadata, NULL);
-  LLVMMetadataRef FooVar1 =
-    LLVMDIBuilderCreateAutoVariable(DIB, FooLexicalBlock, "d", 1, File,
-                                    43, Int64Ty, true, 0, 0);
+  LLVMMetadataRef FooVar1 = LLVMDIBuilderCreateAutoVariable(
+      DIB, FooLexicalBlock, "d", 1, File, 43, Int64Ty, true, 0, 0, 0);
   LLVMValueRef FooVal1 = LLVMConstInt(LLVMInt64Type(), 0, false);
   LLVMMetadataRef FooVarValueExpr =
     LLVMDIBuilderCreateConstantValueExpression(DIB, 0);
@@ -203,30 +203,55 @@ int llvm_test_dibuilder(void) {
 }
 
 int llvm_get_di_tag(void) {
-  LLVMModuleRef m = LLVMModuleCreateWithName("Mod");
-  LLVMContextRef context = LLVMGetModuleContext(m);
+  LLVMModuleRef M = LLVMModuleCreateWithName("Mod");
+  LLVMContextRef Context = LLVMGetModuleContext(M);
 
-  LLVMMetadataRef metas[] = {LLVMMDStringInContext2(context, "foo", 3)};
-  LLVMMetadataRef md = LLVMMDNodeInContext2(context, metas, 1);
-  uint16_t tag0 = LLVMGetDINodeTag(md);
+  const char String[] = "foo";
+  LLVMMetadataRef StringMD =
+      LLVMMDStringInContext2(Context, String, strlen(String));
+  LLVMMetadataRef NodeMD = LLVMMDNodeInContext2(Context, &StringMD, 1);
+  assert(LLVMGetDINodeTag(NodeMD) == 0);
+  (void)NodeMD;
 
-  assert(tag0 == 0);
-  (void)tag0;
-
-  const char *filename = "metadata.c";
-  LLVMDIBuilderRef builder = LLVMCreateDIBuilder(m);
-  LLVMMetadataRef file =
-      LLVMDIBuilderCreateFile(builder, filename, strlen(filename), ".", 1);
-  LLVMMetadataRef decl = LLVMDIBuilderCreateStructType(
-      builder, file, "TestClass", 9, file, 42, 64, 0,
+  LLVMDIBuilderRef Builder = LLVMCreateDIBuilder(M);
+  const char Filename[] = "metadata.c";
+  const char Directory[] = ".";
+  LLVMMetadataRef File = LLVMDIBuilderCreateFile(
+      Builder, Filename, strlen(Filename), Directory, strlen(Directory));
+  const char Name[] = "TestClass";
+  LLVMMetadataRef Struct = LLVMDIBuilderCreateStructType(
+      Builder, File, Name, strlen(Name), File, 42, 64, 0,
       LLVMDIFlagObjcClassComplete, NULL, NULL, 0, 0, NULL, NULL, 0);
-  uint16_t tag1 = LLVMGetDINodeTag(decl);
+  assert(LLVMGetDINodeTag(Struct) == 0x13);
+  (void)Struct;
 
-  assert(tag1 == 0x13);
-  (void)tag1;
+  LLVMDisposeDIBuilder(Builder);
+  LLVMDisposeModule(M);
 
-  LLVMDisposeDIBuilder(builder);
-  LLVMDisposeModule(m);
+  return 0;
+}
+
+int llvm_di_type_get_name(void) {
+  LLVMModuleRef M = LLVMModuleCreateWithName("Mod");
+
+  LLVMDIBuilderRef Builder = LLVMCreateDIBuilder(M);
+  const char Filename[] = "metadata.c";
+  const char Directory[] = ".";
+  LLVMMetadataRef File = LLVMDIBuilderCreateFile(
+      Builder, Filename, strlen(Filename), Directory, strlen(Directory));
+  const char Name[] = "TestClass";
+  LLVMMetadataRef Struct = LLVMDIBuilderCreateStructType(
+      Builder, File, Name, strlen(Name), File, 42, 64, 0,
+      LLVMDIFlagObjcClassComplete, NULL, NULL, 0, 0, NULL, NULL, 0);
+
+  size_t Len;
+  const char *TypeName = LLVMDITypeGetName(Struct, &Len);
+  assert(Len == strlen(Name));
+  assert(strncmp(TypeName, Name, Len) == 0);
+  (void)TypeName;
+
+  LLVMDisposeDIBuilder(Builder);
+  LLVMDisposeModule(M);
 
   return 0;
 }

@@ -762,7 +762,6 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(
   case X86::AVX_SET0:
   case X86::FsFLD0SD:
   case X86::FsFLD0SS:
-  case X86::FsFLD0SH:
   case X86::FsFLD0F128:
   case X86::KSET0D:
   case X86::KSET0Q:
@@ -971,18 +970,19 @@ static bool findRedundantFlagInstr(MachineInstr &CmpInstr,
                                    MachineInstr **AndInstr,
                                    const TargetRegisterInfo *TRI,
                                    bool &NoSignFlag, bool &ClearsOverflowFlag) {
-  if (CmpValDefInstr.getOpcode() != X86::SUBREG_TO_REG)
+  if (!(CmpValDefInstr.getOpcode() == X86::SUBREG_TO_REG &&
+        CmpInstr.getOpcode() == X86::TEST64rr) &&
+      !(CmpValDefInstr.getOpcode() == X86::COPY &&
+        CmpInstr.getOpcode() == X86::TEST16rr))
     return false;
 
-  if (CmpInstr.getOpcode() != X86::TEST64rr)
-    return false;
-
-  // CmpInstr is a TEST64rr instruction, and `X86InstrInfo::analyzeCompare`
-  // guarantees that it's analyzable only if two registers are identical.
-  assert(
-      (CmpInstr.getOperand(0).getReg() == CmpInstr.getOperand(1).getReg()) &&
-      "CmpInstr is an analyzable TEST64rr, and `X86InstrInfo::analyzeCompare` "
-      "requires two reg operands are the same.");
+  // CmpInstr is a TEST16rr/TEST64rr instruction, and
+  // `X86InstrInfo::analyzeCompare` guarantees that it's analyzable only if two
+  // registers are identical.
+  assert((CmpInstr.getOperand(0).getReg() == CmpInstr.getOperand(1).getReg()) &&
+         "CmpInstr is an analyzable TEST16rr/TEST64rr, and "
+         "`X86InstrInfo::analyzeCompare` requires two reg operands are the"
+         "same.");
 
   // Caller (`X86InstrInfo::optimizeCompareInstr`) guarantees that
   // `CmpValDefInstr` defines the value that's used by `CmpInstr`; in this case
@@ -990,20 +990,37 @@ static bool findRedundantFlagInstr(MachineInstr &CmpInstr,
   // redundant.
   assert(
       (MRI->getVRegDef(CmpInstr.getOperand(0).getReg()) == &CmpValDefInstr) &&
-      "Caller guarantees that TEST64rr is a user of SUBREG_TO_REG.");
+      "Caller guarantees that TEST64rr is a user of SUBREG_TO_REG or TEST16rr "
+      "is a user of COPY sub16bit.");
+  MachineInstr *VregDefInstr = nullptr;
+  if (CmpInstr.getOpcode() == X86::TEST16rr) {
+    if (!CmpValDefInstr.getOperand(1).getReg().isVirtual())
+      return false;
+    VregDefInstr = MRI->getVRegDef(CmpValDefInstr.getOperand(1).getReg());
+    if (!VregDefInstr)
+      return false;
+    // We can only remove test when AND32ri or AND64ri32 whose imm can fit 16bit
+    // size, others 32/64 bit ops would test higher bits which test16rr don't
+    // want to.
+    if (!((VregDefInstr->getOpcode() == X86::AND32ri ||
+           VregDefInstr->getOpcode() == X86::AND64ri32) &&
+          isUInt<16>(VregDefInstr->getOperand(2).getImm())))
+      return false;
+  }
 
-  // As seen in X86 td files, CmpValDefInstr.getOperand(1).getImm() is typically
-  // 0.
-  if (CmpValDefInstr.getOperand(1).getImm() != 0)
-    return false;
+  if (CmpInstr.getOpcode() == X86::TEST64rr) {
+    // As seen in X86 td files, CmpValDefInstr.getOperand(1).getImm() is
+    // typically 0.
+    if (CmpValDefInstr.getOperand(1).getImm() != 0)
+      return false;
 
-  // As seen in X86 td files, CmpValDefInstr.getOperand(3) is typically
-  // sub_32bit or sub_xmm.
-  if (CmpValDefInstr.getOperand(3).getImm() != X86::sub_32bit)
-    return false;
+    // As seen in X86 td files, CmpValDefInstr.getOperand(3) is typically
+    // sub_32bit or sub_xmm.
+    if (CmpValDefInstr.getOperand(3).getImm() != X86::sub_32bit)
+      return false;
 
-  MachineInstr *VregDefInstr =
-      MRI->getVRegDef(CmpValDefInstr.getOperand(2).getReg());
+    VregDefInstr = MRI->getVRegDef(CmpValDefInstr.getOperand(2).getReg());
+  }
 
   assert(VregDefInstr && "Must have a definition (SSA)");
 
@@ -1021,6 +1038,11 @@ static bool findRedundantFlagInstr(MachineInstr &CmpInstr,
     //   ...                                // EFLAGS not changed
     //   %extended_reg = subreg_to_reg 0, %reg, %subreg.sub_32bit
     //   test64rr %extended_reg, %extended_reg, implicit-def $eflags
+    // or
+    //   %reg = and32* ...
+    //   ...                         // EFLAGS not changed.
+    //   %src_reg = copy %reg.sub_16bit:gr32
+    //   test16rr %src_reg, %src_reg, implicit-def $eflags
     //
     // If subsequent readers use a subset of bits that don't change
     // after `and*` instructions, it's likely that the test64rr could
@@ -3662,6 +3684,10 @@ static unsigned getLoadStoreRegOpcode(Register Reg,
   case 2:
     if (X86::VK16RegClass.hasSubClassEq(RC))
       return Load ? X86::KMOVWkm : X86::KMOVWmk;
+    if (X86::FR16XRegClass.hasSubClassEq(RC)) {
+      assert(STI.hasFP16());
+      return Load ? X86::VMOVSHZrm_alt : X86::VMOVSHZmr;
+    }
     assert(X86::GR16RegClass.hasSubClassEq(RC) && "Unknown 2-byte regclass");
     return Load ? X86::MOV16rm : X86::MOV16mr;
   case 4:
@@ -3689,9 +3715,6 @@ static unsigned getLoadStoreRegOpcode(Register Reg,
         X86::VK8PAIRRegClass.hasSubClassEq(RC) ||
         X86::VK16PAIRRegClass.hasSubClassEq(RC))
       return Load ? X86::MASKPAIR16LOAD : X86::MASKPAIR16STORE;
-    if (X86::FR16RegClass.hasSubClassEq(RC) ||
-        X86::FR16XRegClass.hasSubClassEq(RC))
-      return getLoadStoreOpcodeForFP16(Load, STI);
     llvm_unreachable("Unknown 4-byte regclass");
   case 8:
     if (X86::GR64RegClass.hasSubClassEq(RC))
@@ -3981,18 +4004,27 @@ void X86InstrInfo::storeRegToStackSlot(
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   assert(MFI.getObjectSize(FrameIdx) >= TRI->getSpillSize(*RC) &&
          "Stack slot too small for store");
-
-  unsigned Alignment = std::max<uint32_t>(TRI->getSpillSize(*RC), 16);
-  bool isAligned =
-      (Subtarget.getFrameLowering()->getStackAlign() >= Alignment) ||
-      (RI.canRealignStack(MF) && !MFI.isFixedObjectIndex(FrameIdx));
-
-  unsigned Opc = getStoreRegOpcode(SrcReg, RC, isAligned, Subtarget);
-  if (isAMXOpcode(Opc))
-    loadStoreTileReg(MBB, MI, Opc, SrcReg, FrameIdx, isKill);
-  else
+  if (RC->getID() == X86::TILERegClassID) {
+    unsigned Opc = X86::TILESTORED;
+    // tilestored %tmm, (%sp, %idx)
+    MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
+    Register VirtReg = RegInfo.createVirtualRegister(&X86::GR64_NOSPRegClass);
+    BuildMI(MBB, MI, DebugLoc(), get(X86::MOV64ri), VirtReg).addImm(64);
+    MachineInstr *NewMI =
+        addFrameReference(BuildMI(MBB, MI, DebugLoc(), get(Opc)), FrameIdx)
+            .addReg(SrcReg, getKillRegState(isKill));
+    MachineOperand &MO = NewMI->getOperand(2);
+    MO.setReg(VirtReg);
+    MO.setIsKill(true);
+  } else {
+    unsigned Alignment = std::max<uint32_t>(TRI->getSpillSize(*RC), 16);
+    bool isAligned =
+        (Subtarget.getFrameLowering()->getStackAlign() >= Alignment) ||
+        (RI.canRealignStack(MF) && !MFI.isFixedObjectIndex(FrameIdx));
+    unsigned Opc = getStoreRegOpcode(SrcReg, RC, isAligned, Subtarget);
     addFrameReference(BuildMI(MBB, MI, DebugLoc(), get(Opc)), FrameIdx)
         .addReg(SrcReg, getKillRegState(isKill));
+  }
 }
 
 void X86InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -4005,17 +4037,27 @@ void X86InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   assert(MFI.getObjectSize(FrameIdx) >= TRI->getSpillSize(*RC) &&
          "Load size exceeds stack slot");
-  unsigned Alignment = std::max<uint32_t>(TRI->getSpillSize(*RC), 16);
-  bool isAligned =
-      (Subtarget.getFrameLowering()->getStackAlign() >= Alignment) ||
-      (RI.canRealignStack(MF) && !MFI.isFixedObjectIndex(FrameIdx));
-
-  unsigned Opc = getLoadRegOpcode(DestReg, RC, isAligned, Subtarget);
-  if (isAMXOpcode(Opc))
-    loadStoreTileReg(MBB, MI, Opc, DestReg, FrameIdx);
-  else
+  if (RC->getID() == X86::TILERegClassID) {
+    unsigned Opc = X86::TILELOADD;
+    // tileloadd (%sp, %idx), %tmm
+    MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
+    Register VirtReg = RegInfo.createVirtualRegister(&X86::GR64_NOSPRegClass);
+    MachineInstr *NewMI =
+        BuildMI(MBB, MI, DebugLoc(), get(X86::MOV64ri), VirtReg).addImm(64);
+    NewMI = addFrameReference(BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg),
+                              FrameIdx);
+    MachineOperand &MO = NewMI->getOperand(3);
+    MO.setReg(VirtReg);
+    MO.setIsKill(true);
+  } else {
+    unsigned Alignment = std::max<uint32_t>(TRI->getSpillSize(*RC), 16);
+    bool isAligned =
+        (Subtarget.getFrameLowering()->getStackAlign() >= Alignment) ||
+        (RI.canRealignStack(MF) && !MFI.isFixedObjectIndex(FrameIdx));
+    unsigned Opc = getLoadRegOpcode(DestReg, RC, isAligned, Subtarget);
     addFrameReference(BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg),
                       FrameIdx);
+  }
 }
 
 bool X86InstrInfo::analyzeCompare(const MachineInstr &MI, Register &SrcReg,
@@ -4421,10 +4463,15 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
           break;
         }
 
-        // Look back for the following pattern, in which case the test64rr
-        // instruction could be erased.
+        // Look back for the following pattern, in which case the
+        // test16rr/test64rr instruction could be erased.
         //
-        // Example:
+        // Example for test16rr:
+        //  %reg = and32ri %in_reg, 5
+        //  ...                         // EFLAGS not changed.
+        //  %src_reg = copy %reg.sub_16bit:gr32
+        //  test16rr %src_reg, %src_reg, implicit-def $eflags
+        // Example for test64rr:
         //  %reg = and32ri %in_reg, 5
         //  ...                         // EFLAGS not changed.
         //  %src_reg = subreg_to_reg 0, %reg, %subreg.sub_index
@@ -4960,7 +5007,6 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case X86::V_SET0:
   case X86::FsFLD0SS:
   case X86::FsFLD0SD:
-  case X86::FsFLD0SH:
   case X86::FsFLD0F128:
     return Expand2AddrUndef(MIB, get(HasAVX ? X86::VXORPSrr : X86::XORPSrr));
   case X86::AVX_SET0: {
@@ -6734,7 +6780,6 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
     case X86::AVX512_FsFLD0SS:
       Alignment = Align(4);
       break;
-    case X86::FsFLD0SH:
     case X86::AVX512_FsFLD0SH:
       Alignment = Align(2);
       break;
@@ -6773,7 +6818,6 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
   case X86::AVX512_256_SET0:
   case X86::AVX512_512_SET0:
   case X86::AVX512_512_SETALLONES:
-  case X86::FsFLD0SH:
   case X86::AVX512_FsFLD0SH:
   case X86::FsFLD0SD:
   case X86::AVX512_FsFLD0SD:
@@ -6813,7 +6857,7 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
       Ty = Type::getDoubleTy(MF.getFunction().getContext());
     else if (Opc == X86::FsFLD0F128 || Opc == X86::AVX512_FsFLD0F128)
       Ty = Type::getFP128Ty(MF.getFunction().getContext());
-    else if (Opc == X86::FsFLD0SH || Opc == X86::AVX512_FsFLD0SH)
+    else if (Opc == X86::AVX512_FsFLD0SH)
       Ty = Type::getHalfTy(MF.getFunction().getContext());
     else if (Opc == X86::AVX512_512_SET0 || Opc == X86::AVX512_512_SETALLONES)
       Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),

@@ -20,7 +20,8 @@ class Pass;
 #include "mlir/Conversion/Passes.h.inc"
 
 namespace arith {
-void populateArithToAMDGPUConversionPatterns(RewritePatternSet &patterns);
+void populateArithToAMDGPUConversionPatterns(RewritePatternSet &patterns,
+                                             bool saturateFP8Truncf);
 } // namespace arith
 } // namespace mlir
 

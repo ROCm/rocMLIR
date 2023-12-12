@@ -96,26 +96,6 @@ static bool UpgradeX86MaskedFPCompare(Function *F, Intrinsic::ID IID,
   return true;
 }
 
-static bool UpgradeX86BF16Intrinsic(Function *F, Intrinsic::ID IID,
-                                    Function *&NewFn) {
-  if (F->getReturnType()->getScalarType()->isBFloatTy())
-    return false;
-
-  rename(F);
-  NewFn = Intrinsic::getDeclaration(F->getParent(), IID);
-  return true;
-}
-
-static bool UpgradeX86BF16DPIntrinsic(Function *F, Intrinsic::ID IID,
-                                      Function *&NewFn) {
-  if (F->getFunctionType()->getParamType(1)->getScalarType()->isBFloatTy())
-    return false;
-
-  rename(F);
-  NewFn = Intrinsic::getDeclaration(F->getParent(), IID);
-  return true;
-}
-
 static bool ShouldUpgradeX86Intrinsic(Function *F, StringRef Name) {
   // All of the intrinsics matches below should be marked with which llvm
   // version started autoupgrading them. At some point in the future we would
@@ -522,33 +502,6 @@ static bool UpgradeX86IntrinsicFunction(Function *F, StringRef Name,
   if (Name == "avx512.mask.cmp.ps.512") // Added in 7.0
     return UpgradeX86MaskedFPCompare(F, Intrinsic::x86_avx512_mask_cmp_ps_512,
                                      NewFn);
-  if (Name == "avx512bf16.cvtne2ps2bf16.128") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_cvtne2ps2bf16_128, NewFn);
-  if (Name == "avx512bf16.cvtne2ps2bf16.256") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_cvtne2ps2bf16_256, NewFn);
-  if (Name == "avx512bf16.cvtne2ps2bf16.512") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_cvtne2ps2bf16_512, NewFn);
-  if (Name == "avx512bf16.mask.cvtneps2bf16.128") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_mask_cvtneps2bf16_128, NewFn);
-  if (Name == "avx512bf16.cvtneps2bf16.256") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_cvtneps2bf16_256, NewFn);
-  if (Name == "avx512bf16.cvtneps2bf16.512") // Added in 9.0
-    return UpgradeX86BF16Intrinsic(
-        F, Intrinsic::x86_avx512bf16_cvtneps2bf16_512, NewFn);
-  if (Name == "avx512bf16.dpbf16ps.128") // Added in 9.0
-    return UpgradeX86BF16DPIntrinsic(
-        F, Intrinsic::x86_avx512bf16_dpbf16ps_128, NewFn);
-  if (Name == "avx512bf16.dpbf16ps.256") // Added in 9.0
-    return UpgradeX86BF16DPIntrinsic(
-        F, Intrinsic::x86_avx512bf16_dpbf16ps_256, NewFn);
-  if (Name == "avx512bf16.dpbf16ps.512") // Added in 9.0
-    return UpgradeX86BF16DPIntrinsic(
-        F, Intrinsic::x86_avx512bf16_dpbf16ps_512, NewFn);
 
   // frcz.ss/sd may need to have an argument dropped. Added in 3.2
   if (Name.startswith("xop.vfrcz.ss") && F->arg_size() == 2) {
@@ -1235,17 +1188,57 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
       return true;
     }
     if (Name.startswith("riscv.sm4ks") &&
-        !F->getFunctionType()->getParamType(2)->isIntegerTy(32)) {
+        (!F->getFunctionType()->getParamType(2)->isIntegerTy(32) ||
+         F->getFunctionType()->getReturnType()->isIntegerTy(64))) {
       rename(F);
-      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm4ks,
-                                        F->getReturnType());
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm4ks);
       return true;
     }
     if (Name.startswith("riscv.sm4ed") &&
-        !F->getFunctionType()->getParamType(2)->isIntegerTy(32)) {
+        (!F->getFunctionType()->getParamType(2)->isIntegerTy(32) ||
+         F->getFunctionType()->getReturnType()->isIntegerTy(64))) {
       rename(F);
-      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm4ed,
-                                        F->getReturnType());
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm4ed);
+      return true;
+    }
+    if (Name.startswith("riscv.sha256sig0") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                        Intrinsic::riscv_sha256sig0);
+      return true;
+    }
+    if (Name.startswith("riscv.sha256sig1") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                        Intrinsic::riscv_sha256sig1);
+      return true;
+    }
+    if (Name.startswith("riscv.sha256sum0") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                        Intrinsic::riscv_sha256sum0);
+      return true;
+    }
+    if (Name.startswith("riscv.sha256sum1") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                        Intrinsic::riscv_sha256sum1);
+      return true;
+    }
+    if (Name.startswith("riscv.sm3p0") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm3p0);
+      return true;
+    }
+    if (Name.startswith("riscv.sm3p1") &&
+        F->getFunctionType()->getReturnType()->isIntegerTy(64)) {
+      rename(F);
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::riscv_sm3p1);
       return true;
     }
     break;
@@ -4426,15 +4419,51 @@ void llvm::UpgradeIntrinsicCall(CallBase *CI, Function *NewFn) {
   case Intrinsic::riscv_sm4ks:
   case Intrinsic::riscv_sm4ed: {
     // The last argument to these intrinsics used to be i8 and changed to i32.
+    // The type overload for sm4ks and sm4ed was removed.
     Value *Arg2 = CI->getArgOperand(2);
-    if (Arg2->getType()->isIntegerTy(32))
+    if (Arg2->getType()->isIntegerTy(32) && !CI->getType()->isIntegerTy(64))
       return;
 
-    Arg2 = ConstantInt::get(Type::getInt32Ty(C), cast<ConstantInt>(Arg2)->getZExtValue());
+    Value *Arg0 = CI->getArgOperand(0);
+    Value *Arg1 = CI->getArgOperand(1);
+    if (CI->getType()->isIntegerTy(64)) {
+      Arg0 = Builder.CreateTrunc(Arg0, Builder.getInt32Ty());
+      Arg1 = Builder.CreateTrunc(Arg1, Builder.getInt32Ty());
+    }
 
-    NewCall = Builder.CreateCall(NewFn, {CI->getArgOperand(0),
-                                 CI->getArgOperand(1), Arg2});
-    break;
+    Arg2 = ConstantInt::get(Type::getInt32Ty(C),
+                            cast<ConstantInt>(Arg2)->getZExtValue());
+
+    NewCall = Builder.CreateCall(NewFn, {Arg0, Arg1, Arg2});
+    Value *Res = NewCall;
+    if (Res->getType() != CI->getType())
+      Res = Builder.CreateIntCast(NewCall, CI->getType(), /*isSigned*/ true);
+    NewCall->takeName(CI);
+    CI->replaceAllUsesWith(Res);
+    CI->eraseFromParent();
+    return;
+  }
+  case Intrinsic::riscv_sha256sig0:
+  case Intrinsic::riscv_sha256sig1:
+  case Intrinsic::riscv_sha256sum0:
+  case Intrinsic::riscv_sha256sum1:
+  case Intrinsic::riscv_sm3p0:
+  case Intrinsic::riscv_sm3p1: {
+    // The last argument to these intrinsics used to be i8 and changed to i32.
+    // The type overload for sm4ks and sm4ed was removed.
+    if (!CI->getType()->isIntegerTy(64))
+      return;
+
+    Value *Arg =
+        Builder.CreateTrunc(CI->getArgOperand(0), Builder.getInt32Ty());
+
+    NewCall = Builder.CreateCall(NewFn, Arg);
+    Value *Res =
+        Builder.CreateIntCast(NewCall, CI->getType(), /*isSigned*/ true);
+    NewCall->takeName(CI);
+    CI->replaceAllUsesWith(Res);
+    CI->eraseFromParent();
+    return;
   }
 
   case Intrinsic::x86_xop_vfrcz_ss:
@@ -4533,43 +4562,6 @@ void llvm::UpgradeIntrinsicCall(CallBase *CI, Function *NewFn) {
     CI->replaceAllUsesWith(Res);
     CI->eraseFromParent();
     return;
-  }
-
-  case Intrinsic::x86_avx512bf16_cvtne2ps2bf16_128:
-  case Intrinsic::x86_avx512bf16_cvtne2ps2bf16_256:
-  case Intrinsic::x86_avx512bf16_cvtne2ps2bf16_512:
-  case Intrinsic::x86_avx512bf16_mask_cvtneps2bf16_128:
-  case Intrinsic::x86_avx512bf16_cvtneps2bf16_256:
-  case Intrinsic::x86_avx512bf16_cvtneps2bf16_512: {
-    SmallVector<Value *, 4> Args(CI->args());
-    unsigned NumElts = cast<FixedVectorType>(CI->getType())->getNumElements();
-    if (NewFn->getIntrinsicID() ==
-        Intrinsic::x86_avx512bf16_mask_cvtneps2bf16_128)
-      Args[1] = Builder.CreateBitCast(
-          Args[1], FixedVectorType::get(Builder.getBFloatTy(), NumElts));
-
-    NewCall = Builder.CreateCall(NewFn, Args);
-    Value *Res = Builder.CreateBitCast(
-        NewCall, FixedVectorType::get(Builder.getInt16Ty(), NumElts));
-
-    NewCall->takeName(CI);
-    CI->replaceAllUsesWith(Res);
-    CI->eraseFromParent();
-    return;
-  }
-  case Intrinsic::x86_avx512bf16_dpbf16ps_128:
-  case Intrinsic::x86_avx512bf16_dpbf16ps_256:
-  case Intrinsic::x86_avx512bf16_dpbf16ps_512:{
-    SmallVector<Value *, 4> Args(CI->args());
-    unsigned NumElts =
-        cast<FixedVectorType>(CI->getType())->getNumElements() * 2;
-    Args[1] = Builder.CreateBitCast(
-        Args[1], FixedVectorType::get(Builder.getBFloatTy(), NumElts));
-    Args[2] = Builder.CreateBitCast(
-        Args[2], FixedVectorType::get(Builder.getBFloatTy(), NumElts));
-
-    NewCall = Builder.CreateCall(NewFn, Args);
-    break;
   }
 
   case Intrinsic::thread_pointer: {
@@ -4728,7 +4720,9 @@ bool llvm::UpgradeDebugInfo(Module &M) {
     return false;
 
   unsigned Version = getDebugMetadataVersionFromModule(M);
-  if (Version == DEBUG_METADATA_VERSION) {
+  bool VersionSupported = Version == DEBUG_METADATA_VERSION ||
+                          Version == DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF;
+  if (VersionSupported) {
     bool BrokenDebugInfo = false;
     if (verifyModule(M, &llvm::errs(), &BrokenDebugInfo))
       report_fatal_error("Broken module found, compilation aborted!");
@@ -4742,7 +4736,7 @@ bool llvm::UpgradeDebugInfo(Module &M) {
     }
   }
   bool Modified = StripDebugInfo(M);
-  if (Modified && Version != DEBUG_METADATA_VERSION) {
+  if (Modified && !VersionSupported) {
     // Diagnose a version mismatch.
     DiagnosticInfoDebugMetadataVersion DiagVersion(M, Version);
     M.getContext().diagnose(DiagVersion);

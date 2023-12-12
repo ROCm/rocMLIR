@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -20,6 +21,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <optional>
 
 namespace mlir::arith {
@@ -82,9 +84,12 @@ void EmulateFloatPattern::rewrite(Operation *op, ArrayRef<Value> operands,
   Location loc = op->getLoc();
   TypeConverter *converter = getTypeConverter();
   SmallVector<Type> resultTypes;
-  assert(
-      succeeded(converter->convertTypes(op->getResultTypes(), resultTypes)) &&
-      "type conversions shouldn't fail in this pass");
+  if (failed(converter->convertTypes(op->getResultTypes(), resultTypes))) {
+    // Note to anyone looking for this error message: this is a "can't happen".
+    // If you're seeing it, there's a bug.
+    op->emitOpError("type conversion failed in float emulation");
+    return;
+  }
   Operation *expandedOp =
       rewriter.create(loc, op->getName().getIdentifier(), operands, resultTypes,
                       op->getAttrs(), op->getSuccessors(), /*regions=*/{});
@@ -124,7 +129,7 @@ void mlir::arith::populateEmulateUnsupportedFloatsLegality(
     ConversionTarget &target, TypeConverter &converter) {
   // Don't try to legalize functions and other ops that don't need expansion.
   target.markUnknownOpDynamicallyLegal([](Operation *op) { return true; });
-  target.addDynamicallyLegalDialect<arith::ArithDialect>(
+  target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
       });

@@ -105,6 +105,12 @@ def ArithToAMDGPUConversionPass : Pass<"convert-arith-to-amdgpu"> {
   }];
 
   let dependentDialects = ["amdgpu::AMDGPUDialect", "vector::VectorDialect"];
+
+  let options = [
+    Option<"saturateFP8Truncf", "saturate-fp8-truncf", "bool",
+           /*default=*/"false",
+           "Whether truncation to 8-bit float types should be saturating">,
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -182,7 +188,8 @@ def ConvertAsyncToLLVMPass : Pass<"convert-async-to-llvm", "ModuleOp"> {
 // BufferizationToMemRef
 //===----------------------------------------------------------------------===//
 
-def ConvertBufferizationToMemRef : Pass<"convert-bufferization-to-memref"> {
+def ConvertBufferizationToMemRef : Pass<"convert-bufferization-to-memref",
+                                        "mlir::ModuleOp"> {
   let summary = "Convert operations from the Bufferization dialect to the "
                 "MemRef dialect";
   let description = [{
@@ -210,7 +217,10 @@ def ConvertBufferizationToMemRef : Pass<"convert-bufferization-to-memref"> {
 
   }];
   let constructor = "mlir::createBufferizationToMemRefPass()";
-  let dependentDialects = ["arith::ArithDialect", "memref::MemRefDialect"];
+  let dependentDialects = [
+    "arith::ArithDialect", "memref::MemRefDialect", "scf::SCFDialect",
+    "func::FuncDialect"
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -725,6 +735,21 @@ def ConvertMemRefToSPIRV : Pass<"convert-memref-to-spirv"> {
 }
 
 //===----------------------------------------------------------------------===//
+// NVVMToLLVM
+//===----------------------------------------------------------------------===//
+
+def ConvertNVVMToLLVMPass : Pass<"convert-nvvm-to-llvm"> {
+  let summary = "Convert NVVM dialect to LLVM dialect";
+  let description = [{
+    This pass generates inline assembly for the NVVM ops which is not 
+    implemented in LLVM core.
+  }];
+  let dependentDialects = [
+    "NVVM::NVVMDialect",
+  ];  
+}
+
+//===----------------------------------------------------------------------===//
 // NVGPUToNVVM
 //===----------------------------------------------------------------------===//
 
@@ -1074,6 +1099,20 @@ def ConvertVectorToSCF : Pass<"convert-vector-to-scf"> {
     Option<"lowerTensors", "lower-tensors", "bool", /*default=*/"false",
            "Lower transfer ops that operate on tensors">
   ];
+}
+
+//===----------------------------------------------------------------------===//
+// VectorToArmSME
+//===----------------------------------------------------------------------===//
+
+def ConvertVectorToArmSME : Pass<"convert-vector-to-arm-sme"> {
+  let summary = "Lower the operations from the vector dialect into the ArmSME "
+                "dialect";
+  let description = [{
+    Pass that converts vector dialect operations into equivalent ArmSME dialect
+    operations.
+  }];
+  let dependentDialects = ["arm_sme::ArmSMEDialect"];
 }
 
 //===----------------------------------------------------------------------===//

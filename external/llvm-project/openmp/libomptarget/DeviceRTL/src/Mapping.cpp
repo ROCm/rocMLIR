@@ -48,7 +48,7 @@ const llvm::omp::GV &getGridValue() {
 }
 
 uint32_t getNumHardwareThreadsInBlock() {
-  return __builtin_amdgcn_workgroup_size_x();
+    return external_get_local_size(0);
 }
 
 LaneMaskTy activemask() { return __builtin_amdgcn_read_exec(); }
@@ -80,7 +80,7 @@ uint32_t getKernelSize() { return __builtin_amdgcn_grid_size_x(); }
 uint32_t getBlockId() { return __builtin_amdgcn_workgroup_id_x(); }
 
 uint32_t getNumberOfBlocks() {
-  return __builtin_amdgcn_grid_size_x() / __builtin_amdgcn_workgroup_size_x();
+    return external_get_num_groups(0);
 }
 
 uint32_t getWarpId() {
@@ -199,13 +199,12 @@ LaneMaskTy mapping::lanemaskGT() { return impl::lanemaskGT(); }
 
 uint32_t mapping::getThreadIdInWarp() {
   uint32_t ThreadIdInWarp = impl::getThreadIdInWarp();
-  ASSERT(ThreadIdInWarp < impl::getWarpSize());
+  ASSERT(ThreadIdInWarp < impl::getWarpSize(), nullptr);
   return ThreadIdInWarp;
 }
 
 uint32_t mapping::getThreadIdInBlock() {
   uint32_t ThreadIdInBlock = impl::getThreadIdInBlock();
-  ASSERT(ThreadIdInBlock < impl::getNumHardwareThreadsInBlock());
   return ThreadIdInBlock;
 }
 
@@ -224,31 +223,31 @@ uint32_t mapping::getKernelSize() { return impl::getKernelSize(); }
 
 uint32_t mapping::getWarpId() {
   uint32_t WarpID = impl::getWarpId();
-  ASSERT(WarpID < impl::getNumberOfWarpsInBlock());
+  ASSERT(WarpID < impl::getNumberOfWarpsInBlock(), nullptr);
   return WarpID;
 }
 
 uint32_t mapping::getBlockId() {
   uint32_t BlockId = impl::getBlockId();
-  ASSERT(BlockId < impl::getNumberOfBlocks());
+  ASSERT(BlockId < impl::getNumberOfBlocks(), nullptr);
   return BlockId;
 }
 
 uint32_t mapping::getNumberOfWarpsInBlock() {
   uint32_t NumberOfWarpsInBlocks = impl::getNumberOfWarpsInBlock();
-  ASSERT(impl::getWarpId() < NumberOfWarpsInBlocks);
+  ASSERT(impl::getWarpId() < NumberOfWarpsInBlocks, nullptr);
   return NumberOfWarpsInBlocks;
 }
 
 uint32_t mapping::getNumberOfBlocks() {
   uint32_t NumberOfBlocks = impl::getNumberOfBlocks();
-  ASSERT(impl::getBlockId() < NumberOfBlocks);
+  ASSERT(impl::getBlockId() < NumberOfBlocks, nullptr);
   return NumberOfBlocks;
 }
 
 uint32_t mapping::getNumberOfProcessorElements() {
   uint32_t NumberOfProcessorElements = impl::getNumHardwareThreadsInBlock();
-  ASSERT(impl::getThreadIdInBlock() < NumberOfProcessorElements);
+  ASSERT(impl::getThreadIdInBlock() < NumberOfProcessorElements, nullptr);
   return NumberOfProcessorElements;
 }
 
@@ -260,7 +259,7 @@ uint32_t mapping::getNumberOfProcessorElements() {
 
 // TODO: This is a workaround for initialization coming from kernels outside of
 //       the TU. We will need to solve this more correctly in the future.
-int __attribute__((weak)) SHARED(IsSPMDMode);
+int __attribute__((weak)) KEEP_ALIVE SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
   if (mapping::isInitialThreadInLevel0(IsSPMD))
@@ -286,6 +285,11 @@ __attribute__((noinline)) uint32_t __kmpc_get_hardware_num_threads_in_block() {
 __attribute__((noinline)) uint32_t __kmpc_get_warp_size() {
   FunctionTracingRAII();
   return impl::getWarpSize();
+}
+
+__attribute__((noinline)) uint32_t __kmpc_get_hardware_num_blocks() {
+  FunctionTracingRAII();
+  return impl::getNumberOfBlocks();
 }
 }
 #pragma omp end declare target

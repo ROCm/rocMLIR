@@ -1,6 +1,8 @@
 // RUN: %clang_cc1 %s -ffreestanding -triple x86_64-apple-darwin -emit-llvm -o - | FileCheck %s --check-prefix=CHECK-64
 // RUN: %clang_cc1 %s -ffreestanding -triple i386 -emit-llvm -o - | FileCheck %s --check-prefix=CHECK-32
 
+// XFAIL:* 
+
 #include <cpuid.h>
 #include <cpuid.h> // Make sure multiple inclusion protection works.
 

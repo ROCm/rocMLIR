@@ -20,6 +20,10 @@
 
 #include <cstdint>
 
+#define DI_DEP_TYPE_IN 11
+#define DI_DEP_TYPE_OUT 12
+#define DI_DEP_TYPE_INOUT 13
+
 extern int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                            void **ArgsBase, void **Args, int64_t *ArgSizes,
                            int64_t *ArgTypes, map_var_info_t *ArgNames,
@@ -49,6 +53,9 @@ extern int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
 
 extern void handleTargetOutcome(bool Success, ident_t *Loc);
 extern bool checkDeviceAndCtors(int64_t &DeviceID, ident_t *Loc);
+extern void *targetLockExplicit(void *ptr, size_t size, int device_num,
+                                const char *name);
+extern void targetUnlockExplicit(void *ptr, int device_num, const char *name);
 extern void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
                                  const char *Name);
 extern void targetFreeExplicit(void *DevicePtr, int DeviceNum, int Kind,
@@ -75,7 +82,7 @@ struct MapComponentInfoTy {
 // components are dynamically decided, so we utilize C++ STL vector
 // implementation here.
 struct MapperComponentsTy {
-  llvm::SmallVector<MapComponentInfoTy> Components;
+  std::vector<MapComponentInfoTy> Components;
   int32_t size() { return Components.size(); }
 };
 
@@ -257,7 +264,9 @@ struct TargetMemcpyArgsTy {
 #endif
 
 #define TARGET_NAME Libomptarget
+#ifndef DEBUG_PREFIX
 #define DEBUG_PREFIX GETNAME(TARGET_NAME)
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 /// dump a table of all the host-target pointer pairs on failure

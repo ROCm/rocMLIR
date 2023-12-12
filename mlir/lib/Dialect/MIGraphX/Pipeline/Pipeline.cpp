@@ -20,7 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIGraphX/Pipeline.h"
+#include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"

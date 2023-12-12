@@ -7,7 +7,7 @@ target triple = "x86_64-unknown-linux-gnu"
 @global = external global i32
 declare void @func()
 
-define ptr @global_addr() #0 {
+define i32* @global_addr() #0 {
   ; CHECK-LABEL: global_addr:
   ; CHECK: movq global@GOTPCREL_NORELAX(%rip), %rax
   ; CHECK: retq
@@ -16,7 +16,7 @@ define ptr @global_addr() #0 {
   ; OBJ: movq (%rip),
   ; OBJ-NEXT: R_X86_64_GOTPCREL global
 
-  ret ptr @global
+  ret i32* @global
 }
 
 define i32 @global_load() #0 {
@@ -29,7 +29,7 @@ define i32 @global_load() #0 {
   ; OBJ: movq (%rip),
   ; OBJ-NEXT: R_X86_64_GOTPCREL global
 
-  %load = load i32, ptr @global
+  %load = load i32, i32* @global
   ret i32 %load
 }
 
@@ -43,11 +43,11 @@ define void @global_store() #0 {
   ; OBJ: movq (%rip),
   ; OBJ-NEXT: R_X86_64_GOTPCREL global
 
-  store i32 0, ptr @global
+  store i32 0, i32* @global
   ret void
 }
 
-define ptr @func_addr() #0 {
+define void ()* @func_addr() #0 {
   ; CHECK-LABEL: func_addr:
   ; CHECK: movq func@GOTPCREL(%rip), %rax
   ; CHECK: retq
@@ -56,7 +56,7 @@ define ptr @func_addr() #0 {
   ; OBJ: movq (%rip),
   ; OBJ-NEXT: R_X86_64_REX_GOTPCRELX func
 
-  ret ptr @func
+  ret void ()* @func
 }
 
 ; Jump tables shouldn't go through the GOT.

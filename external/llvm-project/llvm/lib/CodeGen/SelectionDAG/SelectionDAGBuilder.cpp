@@ -2478,10 +2478,12 @@ void SelectionDAGBuilder::visitBr(const BranchInst &I) {
 
     // If this is not a fall-through branch or optimizations are switched off,
     // emit the branch.
-    if (Succ0MBB != NextBlock(BrMBB) || TM.getOptLevel() == CodeGenOpt::None)
-      DAG.setRoot(DAG.getNode(ISD::BR, getCurSDLoc(),
-                              MVT::Other, getControlRoot(),
-                              DAG.getBasicBlock(Succ0MBB)));
+    if (Succ0MBB != NextBlock(BrMBB) || TM.getOptLevel() == CodeGenOpt::None) {
+      auto Br = DAG.getNode(ISD::BR, getCurSDLoc(), MVT::Other,
+                            getControlRoot(), DAG.getBasicBlock(Succ0MBB));
+      setValue(&I, Br);
+      DAG.setRoot(Br);
+    }
 
     return;
   }
@@ -6227,6 +6229,48 @@ void SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I,
     }
     return;
   }
+  case Intrinsic::dbg_def:
+  case Intrinsic::dbg_kill: {
+    const DbgDefKillIntrinsic &DDKI = cast<DbgDefKillIntrinsic>(I);
+    const bool IsDef = Intrinsic == Intrinsic::dbg_def;
+    SDDbgDefKill *SDDK = nullptr;
+    if (IsDef) {
+      const Value *Referrer = cast<DbgDefInst>(DDKI).getReferrer();
+      assert(Referrer);
+      SDValue N = NodeMap[Referrer];
+
+      SDDK = DAG.getDbgDef(DDKI.getLifetime(), SDNodeOrder, Referrer,
+                           DDKI.getDebugLoc());
+      SDDbgDef *Def = cast<SDDbgDef>(SDDK);
+      // If the Value is a frame index, we can create a FrameIndex debug value
+      // without relying on the DAG at all.
+      if (const AllocaInst *AI = dyn_cast<AllocaInst>(Referrer)) {
+        auto SI = FuncInfo.StaticAllocaMap.find(AI);
+        if (SI != FuncInfo.StaticAllocaMap.end()) {
+          cast<SDDbgDef>(SDDK)->SaveFI(SI->second);
+        }
+      } else if (isa<Argument>(Referrer)) {
+        if (!N.getNode())
+          N = UnusedArgNodeMap[Referrer];
+        if (N.getNode()) {
+          Def->setReferrerOrder(N.getNode()->getIROrder());
+          if (N.getOpcode() == ISD::CopyFromReg) {
+            if (RegisterSDNode *RegN =
+                    dyn_cast<RegisterSDNode>(N.getOperand(1))) {
+              Def->SaveReg(RegN->getReg());
+            }
+          }
+        }
+      } else {
+        cast<SDDbgDef>(SDDK)->setSDValue(N);
+      }
+    } else {
+      SDDK =
+          DAG.getDbgKill(DDKI.getLifetime(), SDNodeOrder, DDKI.getDebugLoc());
+    }
+    DAG.AddDbgDefKill(SDDK);
+    return;
+  }
   case Intrinsic::dbg_label: {
     const DbgLabelInst &DI = cast<DbgLabelInst>(I);
     DILabel *Label = DI.getLabel();
@@ -9368,10 +9412,6 @@ void SelectionDAGBuilder::visitInlineAsm(const CallBase &Call,
       }
 
       if (OpInfo.ConstraintType == TargetLowering::C_Address) {
-        assert(InOperandVal.getValueType() ==
-                   TLI.getPointerTy(DAG.getDataLayout()) &&
-               "Address operands expect pointer values");
-
         unsigned ConstraintID =
             TLI.getInlineAsmMemConstraint(OpInfo.ConstraintCode);
         assert(ConstraintID != InlineAsm::Constraint_Unknown &&

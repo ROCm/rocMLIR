@@ -79,7 +79,8 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
 
 defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 // This can be extended for quantization.
-defvar GemmOutputTypes = [F32, F16, BF16, I32, I8];
+defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ];
+defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
 def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
@@ -379,7 +380,7 @@ def Rock_GridwiseGemmOp :
     Rock_Op<"gridwise_gemm">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
-                   MemRefRankOf<GemmOutputTypes, [3]>:$c,
+                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$numCU,
                    I32Attr:$gridSize,
@@ -399,7 +400,7 @@ def Rock_GridwiseGemmAccelOp :
     Rock_Op<"gridwise_gemm_accel">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
-                   MemRefRankOf<GemmOutputTypes, [3]>:$c,
+                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
                    StrAttr:$arch,
                    I32Attr:$numCU,
                    Rock_GemmFeaturesAttr:$features,
@@ -1106,7 +1107,7 @@ def Rock_BlockwiseGemmOp:
     Rock_Op<"blockwise_gemm", [DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmOutputTypes, [2]>:$matrixC,
+                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC,
                    I32Attr:$inMPerThread,
                    I32Attr:$inNPerThread,
                    UnitAttr:$rotateMWithK,
@@ -1185,9 +1186,9 @@ def Rock_BlockwiseGemmAccelOp:
 def Rock_ThreadwiseGemmOp:
     Rock_Op<"threadwise_gemm",
       [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
-    Arguments<(ins MemRefRankOf<GemmOutputTypes, [3]>:$matrixA,
-                   MemRefRankOf<GemmOutputTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmOutputTypes, [2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixA,
+                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixB,
+                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non accelerated version";
   let description = [{
     The `rock.threadwise_gemm` op does GEMM at thread level.

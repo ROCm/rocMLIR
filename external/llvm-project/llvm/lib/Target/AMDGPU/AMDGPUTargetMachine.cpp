@@ -50,6 +50,7 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/Transforms/HipStdPar/HipStdPar.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/GlobalDCE.h"
@@ -349,9 +350,14 @@ static cl::opt<bool> EnableRewritePartialRegUses(
     cl::desc("Enable rewrite partial reg uses pass"), cl::init(false),
     cl::Hidden);
 
+static cl::opt<bool> EnableHipStdPar(
+  "amdgpu-enable-hipstdpar",
+  cl::desc("Enable HIP Standard Parallelism Offload support"), cl::init(false),
+  cl::Hidden);
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   // Register the target
-  RegisterTargetMachine<R600TargetMachine> X(getTheAMDGPUTarget());
+  RegisterTargetMachine<R600TargetMachine> X(getTheR600Target());
   RegisterTargetMachine<GCNTargetMachine> Y(getTheGCNTarget());
 
   PassRegistry *PR = PassRegistry::getPassRegistry();
@@ -364,12 +370,14 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUDAGToDAGISelPass(*PR);
   initializeGCNDPPCombinePass(*PR);
   initializeSILowerI1CopiesPass(*PR);
+  initializeSILowerWWMCopiesPass(*PR);
   initializeSILowerSGPRSpillsPass(*PR);
   initializeSIFixSGPRCopiesPass(*PR);
   initializeSIFixVGPRCopiesPass(*PR);
   initializeSIFoldOperandsPass(*PR);
   initializeSIPeepholeSDWAPass(*PR);
   initializeSIShrinkInstructionsPass(*PR);
+  initializeSISimplifyPredicatedCopiesPass(*PR);
   initializeSIOptimizeExecMaskingPreRAPass(*PR);
   initializeSIOptimizeVGPRLiveRangePass(*PR);
   initializeSILoadStoreOptimizerPass(*PR);
@@ -418,6 +426,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUUseNativeCallsPass(*PR);
   initializeAMDGPUSimplifyLibCallsPass(*PR);
   initializeAMDGPUPrintfRuntimeBindingPass(*PR);
+  initializeAMDGPULowerKernelCallsPass(*PR);
   initializeAMDGPUResourceUsageAnalysisPass(*PR);
   initializeGCNNSAReassignPass(*PR);
   initializeGCNPreRAOptimizationsPass(*PR);
@@ -441,7 +450,7 @@ createGCNMaxOccupancyMachineScheduler(MachineSchedContext *C) {
   DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
   if (ST.shouldClusterStores())
     DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
-  DAG->addMutation(createIGroupLPDAGMutation());
+  DAG->addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
   DAG->addMutation(createAMDGPUMacroFusionDAGMutation());
   DAG->addMutation(createAMDGPUExportClusteringDAGMutation());
   return DAG;
@@ -451,7 +460,7 @@ static ScheduleDAGInstrs *
 createGCNMaxILPMachineScheduler(MachineSchedContext *C) {
   ScheduleDAGMILive *DAG =
       new GCNScheduleDAGMILive(C, std::make_unique<GCNMaxILPSchedStrategy>(C));
-  DAG->addMutation(createIGroupLPDAGMutation());
+  DAG->addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
   return DAG;
 }
 
@@ -688,6 +697,8 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         if (EnableLibCallSimplify && Level != OptimizationLevel::O0)
           FPM.addPass(AMDGPUSimplifyLibCallsPass(*this));
         PM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+        if (EnableHipStdPar)
+          PM.addPass(HipStdParAcceleratorCodeSelectionPass());
       });
 
   PB.registerPipelineEarlySimplificationEPCallback(
@@ -753,6 +764,32 @@ bool AMDGPUTargetMachine::isNoopAddrSpaceCast(unsigned SrcAS,
                                               unsigned DestAS) const {
   return AMDGPU::isFlatGlobalAddrSpace(SrcAS) &&
          AMDGPU::isFlatGlobalAddrSpace(DestAS);
+}
+
+std::optional<dwarf::AddressSpace>
+AMDGPUTargetMachine::mapToDWARFAddrSpace(unsigned LLVMAddrSpace) const {
+  using AS = dwarf::AddressSpace;
+
+  static_assert(
+      AMDGPUAS::FLAT_ADDRESS == 0 && AMDGPUAS::GLOBAL_ADDRESS == 1 &&
+          AMDGPUAS::REGION_ADDRESS == 2 && AMDGPUAS::LOCAL_ADDRESS == 3 &&
+          AMDGPUAS::CONSTANT_ADDRESS == 4 && AMDGPUAS::PRIVATE_ADDRESS == 5,
+      "LLVMToDwarfAddrSpaceMapping entries must be in the same order as the "
+      "associated DWARF address-space values.");
+
+  // FIXME: This mapping should likely be driven from tablegen or an ".inc"
+  // header.
+  static const dwarf::AddressSpace LLVMToDWARFAddrSpaceMapping[] = {
+      AS::DW_ASPACE_LLVM_AMDGPU_generic,
+      AS::DW_ASPACE_LLVM_none,
+      AS::DW_ASPACE_LLVM_AMDGPU_region,
+      AS::DW_ASPACE_LLVM_AMDGPU_local,
+      AS::DW_ASPACE_LLVM_none,
+      AS::DW_ASPACE_LLVM_AMDGPU_private_lane};
+
+  if (LLVMAddrSpace < std::size(LLVMToDWARFAddrSpaceMapping))
+    return LLVMToDWARFAddrSpaceMapping[LLVMAddrSpace];
+  return std::nullopt;
 }
 
 unsigned AMDGPUTargetMachine::getAssumedAddrSpace(const Value *V) const {
@@ -894,7 +931,7 @@ public:
     if (ST.shouldClusterStores())
       DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
     DAG->addMutation(ST.createFillMFMAShadowMutation(DAG->TII));
-    DAG->addMutation(createIGroupLPDAGMutation());
+    DAG->addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/true));
     if (isPassEnabled(EnableVOPD, CodeGenOpt::Less))
       DAG->addMutation(createVOPDPairingMutation());
     return DAG;
@@ -975,6 +1012,9 @@ void AMDGPUPassConfig::addIRPasses() {
   if (LowerCtorDtor)
     addPass(createAMDGPUCtorDtorLoweringLegacyPass());
 
+  // this pass should be performed on linked module
+  addPass(createAMDGPULowerKernelCallsPass());
+
   // Function calls are not supported, so make sure we inline everything.
   addPass(createAMDGPUAlwaysInlinePass());
   addPass(createAlwaysInlinerLegacyPass());
@@ -998,6 +1038,13 @@ void AMDGPUPassConfig::addIRPasses() {
 
   if (TM.getOptLevel() > CodeGenOpt::None)
     addPass(createInferAddressSpacesPass());
+
+  // Run atomic optimizer before Atomic Expand
+  if ((TM.getTargetTriple().getArch() == Triple::amdgcn) &&
+      (TM.getOptLevel() >= CodeGenOpt::Less) &&
+      (AMDGPUAtomicOptimizerStrategy != ScanOptions::None)) {
+    addPass(createAMDGPUAtomicOptimizerPass(AMDGPUAtomicOptimizerStrategy));
+  }
 
   addPass(createAtomicExpandPass());
 
@@ -1296,6 +1343,7 @@ void GCNPassConfig::addOptimizedRegAlloc() {
 }
 
 bool GCNPassConfig::addPreRewrite() {
+  addPass(&SILowerWWMCopiesID);
   if (EnableRegReassign)
     addPass(&GCNNSAReassignID);
   return true;
@@ -1350,6 +1398,8 @@ bool GCNPassConfig::addRegAssignAndRewriteFast() {
   addPass(&SILowerSGPRSpillsID);
 
   addPass(createVGPRAllocPass(false));
+
+  addPass(&SILowerWWMCopiesID);
   return true;
 }
 
@@ -1427,6 +1477,12 @@ TargetPassConfig *GCNTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new GCNPassConfig(*this, PM);
 }
 
+void GCNTargetMachine::registerMachineRegisterInfoCallback(
+    MachineFunction &MF) const {
+  SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
+  MF.getRegInfo().addDelegate(MFI);
+}
+
 MachineFunctionInfo *GCNTargetMachine::createMachineFunctionInfo(
     BumpPtrAllocator &Allocator, const Function &F,
     const TargetSubtargetInfo *STI) const {
@@ -1479,6 +1535,9 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
   };
 
   if (parseOptionalRegister(YamlMFI.VGPRForAGPRCopy, MFI->VGPRForAGPRCopy))
+    return true;
+
+  if (parseOptionalRegister(YamlMFI.SGPRForEXECCopy, MFI->SGPRForEXECCopy))
     return true;
 
   if (parseOptionalRegister(YamlMFI.LongBranchReservedReg,

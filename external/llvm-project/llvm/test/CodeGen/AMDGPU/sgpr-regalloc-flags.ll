@@ -3,15 +3,6 @@
 ; RUN: llc -verify-machineinstrs=0 -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=DEFAULT %s
 ; RUN: llc -verify-machineinstrs=0 -sgpr-regalloc=greedy -vgpr-regalloc=greedy -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=DEFAULT %s
 
-; RUN: llc -verify-machineinstrs=0 -O0 -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=O0 %s
-
-; RUN: llc -verify-machineinstrs=0 -vgpr-regalloc=basic -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=DEFAULT-BASIC %s
-; RUN: llc -verify-machineinstrs=0 -sgpr-regalloc=basic -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=BASIC-DEFAULT %s
-; RUN: llc -verify-machineinstrs=0 -sgpr-regalloc=basic -vgpr-regalloc=basic -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=BASIC-BASIC %s
-
-; RUN: not --crash llc -verify-machineinstrs=0 -regalloc=basic -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=REGALLOC %s
-; RUN: not --crash llc -verify-machineinstrs=0 -regalloc=fast -O0 -mtriple=amdgcn-amd-amdhsa -debug-pass=Structure -o /dev/null %s 2>&1 | FileCheck -check-prefix=REGALLOC %s
-
 
 ; REGALLOC: -regalloc not supported with amdgcn. Use -sgpr-regalloc and -vgpr-regalloc
 
@@ -21,6 +12,7 @@
 ; DEFAULT-NEXT: Virtual Register Map
 ; DEFAULT-NEXT: Live Register Matrix
 ; DEFAULT-NEXT: Greedy Register Allocator
+; DEFAULT-NEXT: SI Lower WWM Copies
 ; DEFAULT-NEXT: GCN NSA Reassign
 ; DEFAULT-NEXT: Virtual Register Rewriter
 ; DEFAULT-NEXT: Stack Slot Coloring
@@ -28,6 +20,7 @@
 ; O0: Fast Register Allocator
 ; O0-NEXT: SI lower SGPR spill instructions
 ; O0-NEXT: Fast Register Allocator
+; O0-NEXT: SI Lower WWM Copies
 ; O0-NEXT: SI Fix VGPR copies
 
 
@@ -49,6 +42,7 @@
 ; BASIC-DEFAULT-NEXT: Lazy Machine Block Frequency Analysis
 ; BASIC-DEFAULT-NEXT: Machine Optimization Remark Emitter
 ; BASIC-DEFAULT-NEXT: Greedy Register Allocator
+; BASIC-DEFAULT-NEXT: SI Lower WWM Copies
 ; BASIC-DEFAULT-NEXT: GCN NSA Reassign
 ; BASIC-DEFAULT-NEXT: Virtual Register Rewriter
 ; BASIC-DEFAULT-NEXT: Stack Slot Coloring
@@ -61,6 +55,7 @@
 ; DEFAULT-BASIC-NEXT: Virtual Register Map
 ; DEFAULT-BASIC-NEXT: Live Register Matrix
 ; DEFAULT-BASIC-NEXT: Basic Register Allocator
+; DEFAULT-BASIC-NEXT: SI Lower WWM Copies
 ; DEFAULT-BASIC-NEXT: GCN NSA Reassign
 ; DEFAULT-BASIC-NEXT: Virtual Register Rewriter
 ; DEFAULT-BASIC-NEXT: Stack Slot Coloring
@@ -79,6 +74,7 @@
 ; BASIC-BASIC-NEXT: Virtual Register Map
 ; BASIC-BASIC-NEXT: Live Register Matrix
 ; BASIC-BASIC-NEXT: Basic Register Allocator
+; BASIC-BASIC-NEXT: SI Lower WWM Copies
 ; BASIC-BASIC-NEXT: GCN NSA Reassign
 ; BASIC-BASIC-NEXT: Virtual Register Rewriter
 ; BASIC-BASIC-NEXT: Stack Slot Coloring

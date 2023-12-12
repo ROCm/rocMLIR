@@ -140,6 +140,22 @@ Resolutions to C++ Defect Reports
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 - Implemented `DR2397 <https://wg21.link/CWG2397>`_ which allows ``auto`` specifier for pointers
   and reference to arrays.
+- Implemented `CWG2521 <https://wg21.link/CWG2521>`_ which reserves using ``__`` in user-defined
+  literal suffixes and deprecates literal operator function declarations using an identifier.
+  Taught ``-Wuser-defined-literals`` for the former, on by default, and added
+  ``-Wdeprecated-literal-operator`` for the latter, off by default for now.
+
+  .. code-block:: c++
+
+    // What follows is warned by -Wuser-defined-literals
+    // albeit "ill-formed, no diagnostic required".
+    // Its behavior is undefined, [reserved.names.general]p2.
+    string operator ""__i18n(const char*, std::size_t);
+
+    // Assume this declaration is not in the global namespace.
+    // -Wdeprecated-literal-operator diagnoses the extra space.
+    string operator "" _i18n(const char*, std::size_t);
+    //                ^ an extra space
 
 C Language Changes
 ------------------
@@ -191,7 +207,17 @@ C2x Feature Support
   in Jan and Feb 2023. This should complete the implementation of ``nullptr``
   and ``nullptr_t`` in C. The specific changes are:
 
-  .. code-block:: c
+- Clang's resource dir used to include the full clang version. It will now
+  include only the major version. The new resource directory is
+  ``$prefix/lib/clang/$CLANG_MAJOR_VERSION`` and can be queried using
+  ``clang -print-resource-dir``, just like before.
+
+What's New in Clang |release|?
+==============================
+Some of the major new features and improvements to Clang are listed
+here. Generic improvements to Clang as a whole or to its underlying
+infrastructure are described first, followed by language-specific
+sections with improvements to Clang's support for those languages.
 
     void func(nullptr_t);
     func(0); // Previously required to be rejected, is now accepted.
@@ -202,6 +228,9 @@ C2x Feature Support
     val = (void *)0; // Previously required to be rejected, is now accepted.
 
     bool b = nullptr; // Was incorrectly rejected by Clang, is now accepted.
+
+- Implemented `WG14 N3124 <https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3124.pdf>_`,
+  which allows any universal character name to appear in character and string literals.
 
 
 Non-comprehensive list of changes in this release
@@ -261,6 +290,10 @@ Modified Compiler Flags
   ``.dwo`` file at ``obj/x-a.dwo``, instead of a file in the temporary
   directory (``/tmp`` on \*NIX systems, if none of the environment variables
   TMPDIR, TMP, and TEMP are specified).
+
+- ``-ffat-lto-objects`` can now be used to emit object files with both object
+  code and LLVM bitcode. Previously this flag was ignored for GCC compatibility.
+  (`See related patch <https://reviews.llvm.org/D146777>`_).
 
 Removed Compiler Flags
 -------------------------
@@ -379,10 +412,54 @@ Improvements to Clang's diagnostics
   (`#57081: <https://github.com/llvm/llvm-project/issues/57081>`_)
 - Clang no longer emits inappropriate notes about the loss of ``__unaligned`` qualifier
   on overload resolution, when the actual reason for the failure is loss of other qualifiers.
+- Clang's notes about unconvertible types in overload resolution failure now covers
+  the source range of parameter declaration of the candidate function declaration.
+
+  *Example Code*:
+
+  .. code-block:: c++
+
+     void func(int aa, int bb);
+     void test() { func(1, "two"); }
+
+  *BEFORE*:
+
+  .. code-block:: text
+
+    source:2:15: error: no matching function for call to 'func'
+    void test() { func(1, "two");  }
+                  ^~~~
+    source:1:6: note: candidate function not viable: no known conversion from 'const char[4]' to 'int' for 2nd argument
+    void func(int aa, int bb);
+         ^
+
+  *AFTER*:
+
+  .. code-block:: text
+
+    source:2:15: error: no matching function for call to 'func'
+    void test() { func(1, "two");  }
+                  ^~~~
+    source:1:6: note: candidate function not viable: no known conversion from 'const char[4]' to 'int' for 2nd argument
+    void func(int aa, int bb);
+         ^            ~~~~~~
+
+- ``-Wformat`` cast fix-its will now suggest ``static_cast`` instead of C-style casts
+  for C++ code.
+- ``-Wformat`` will no longer suggest a no-op fix-it for fixing scoped enum format
+  warnings. Instead, it will suggest casting the enum object to the type specified
+  in the format string.
+- Clang now emits ``-Wconstant-logical-operand`` warning even when constant logical
+  operand is on left side.
+  (`#37919 <https://github.com/llvm/llvm-project/issues/37919>`_)
 
 Bug Fixes in This Version
 -------------------------
 
+- Added a new diagnostic warning group
+  ``-Wdeprecated-redundant-constexpr-static-def``, under the existing
+  ``-Wdeprecated`` group. This controls warnings about out-of-line definitions
+  of 'static constexpr' data members that are unnecessary from C++17 onwards.
 - Fix segfault while running clang-rename on a non existing file.
   (`#36471 <https://github.com/llvm/llvm-project/issues/36471>`_)
 - Fix crash when diagnosing incorrect usage of ``_Nullable`` involving alias
@@ -563,6 +640,29 @@ Bug Fixes in This Version
   (`#60709 <https://github.com/llvm/llvm-project/issues/60709>`_).
 - Fixed a missed integer overflow warning with temporary values.
   (`#63629 <https://github.com/llvm/llvm-project/issues/63629>`_)
+- Fixed parsing of elaborated type specifier inside of a new expression.
+  (`#34341 <https://github.com/llvm/llvm-project/issues/34341>`_)
+- Clang now correctly evaluates ``__has_extension (cxx_defaulted_functions)``
+  and ``__has_extension (cxx_default_function_template_args)`` to 1.
+  (`#61758 <https://github.com/llvm/llvm-project/issues/61758>`_)
+- Stop evaluating a constant expression if the condition expression which in
+  switch statement contains errors.
+  (`#63453 <https://github.com/llvm/llvm-project/issues/63453>_`)
+- Fixed false positive error diagnostic when pack expansion appears in template
+  parameters of a member expression.
+  (`#48731 <https://github.com/llvm/llvm-project/issues/48731>`_)
+- Fix the contains-errors bit not being set for DeclRefExpr that refers to a
+  VarDecl with invalid initializer. This fixes:
+  (`#50236 <https://github.com/llvm/llvm-project/issues/50236>`_),
+  (`#50243 <https://github.com/llvm/llvm-project/issues/50243>`_),
+  (`#48636 <https://github.com/llvm/llvm-project/issues/48636>`_),
+  (`#50320 <https://github.com/llvm/llvm-project/issues/50320>`_).
+- Fix an assertion when using ``\u0024`` (``$``) as an identifier, by disallowing
+  that construct (`#62133 <https://github.com/llvm/llvm-project/issues/38717>_`).
+- Fix crash caused by PseudoObjectExprBitfields: NumSubExprs overflow.
+  (`#63169 <https://github.com/llvm/llvm-project/issues/63169>_`)
+- Fix crash when casting an object to an array type.
+  (`#63758 <https://github.com/llvm/llvm-project/issues/63758>_`)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -630,6 +730,56 @@ Bug Fixes to C++ Support
 - Allow abstract parameter and return types in functions that are
   either deleted or not defined.
   (`#63012 <https://github.com/llvm/llvm-project/issues/63012>`_)
+- Fix handling of using-declarations in the init statements of for
+  loop declarations.
+  (`#63627 <https://github.com/llvm/llvm-project/issues/63627>`_)
+- Fix crash when emitting diagnostic for out of order designated initializers
+  in C++.
+  (`#63605 <https://github.com/llvm/llvm-project/issues/63605>`_)
+- Fix crash when using standard C++ modules with OpenMP.
+  (`#62359 <https://github.com/llvm/llvm-project/issues/62359>`_)
+- Fix crash when using consteval non static data member initialization in
+  standard C++ modules.
+  (`#60275 <https://github.com/llvm/llvm-project/issues/60275>`_)
+- Fix handling of ADL for dependent expressions in standard C++ modules.
+  (`#60488 <https://github.com/llvm/llvm-project/issues/60488>`_)
+- Fix crash when combining `-ftime-trace` within standard C++ modules.
+  (`#60544 <https://github.com/llvm/llvm-project/issues/60544>`_)
+- Don't generate template specializations when importing standard C++ modules.
+  (`#60693 <https://github.com/llvm/llvm-project/issues/60693>`_)
+- Fix the visibility of `initializer list` in the importer of standard C++
+  modules. This addresses
+  (`#60775 <https://github.com/llvm/llvm-project/issues/60775>`_)
+- Allow the use of constrained friend in standard C++ modules.
+  (`#60890 <https://github.com/llvm/llvm-project/issues/60890>`_)
+- Don't evaluate initializer of used variables in every importer of standard
+  C++ modules.
+  (`#61040 <https://github.com/llvm/llvm-project/issues/61040>`_)
+- Fix the issue that the default `operator==` in standard C++ modules will
+  cause duplicate symbol linker error.
+  (`#61067 <https://github.com/llvm/llvm-project/issues/61067>`_)
+- Fix the false positive ODR check for template names. This addresses the issue
+  that we can't include `<ranges>` in multiple module units.
+  (`#61317 <https://github.com/llvm/llvm-project/issues/61317>`_)
+- Fix crash for inconsistent exported declarations in standard C++ modules.
+  (`#61321 <https://github.com/llvm/llvm-project/issues/61321>`_)
+- Fix ignoring `#pragma comment` and `#pragma detect_mismatch` directives in
+  standard C++ modules.
+  (`#61733 <https://github.com/llvm/llvm-project/issues/61733>`_)
+- Don't generate virtual tables if the class is defined in another module units
+  for Itanium ABI.
+  (`#61940 <https://github.com/llvm/llvm-project/issues/61940>`_)
+- Fix false postive check for constrained satisfaction in standard C++ modules.
+  (`#62589 <https://github.com/llvm/llvm-project/issues/62589>`_)
+- Serialize the evaluated constant values for variable declarations in standard
+  C++ modules.
+  (`#62796 <https://github.com/llvm/llvm-project/issues/62796>`_)
+- Merge lambdas in require expressions in standard C++ modules.
+  (`#63544 <https://github.com/llvm/llvm-project/issues/63544>`_)
+
+- Fix location of default member initialization in parenthesized aggregate
+  initialization.
+  (`#63903 <https://github.com/llvm/llvm-project/issues/63903>`_)
 
 Bug Fixes to AST Handling
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -728,6 +878,9 @@ RISC-V Support
 
 CUDA/HIP Language Changes
 ^^^^^^^^^^^^^^^^^^^^^^^^^
+- Clang has been updated to align its default language standard for CUDA/HIP with
+  that of C++. The standard has now been enhanced to gnu++17, supplanting the
+  previously used c++14.
 
 CUDA Support
 ^^^^^^^^^^^^
@@ -796,6 +949,8 @@ clang-format
 - Add ``BracedInitializerIndentWidth`` which can be used to configure
   the indentation level of the contents of braced init lists.
 - Add ``KeepEmptyLinesAtEOF`` to keep empty lines at end of file.
+- Add ``RemoveParentheses`` to remove redundant parentheses.
+- Add ``TypeNames`` to treat listed non-keyword identifiers as type names.
 
 libclang
 --------

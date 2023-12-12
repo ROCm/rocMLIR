@@ -382,6 +382,8 @@ private:
   bool ForceEmitZeroWaitcnts;
   bool ForceEmitWaitcnt[NUM_INST_CNTS];
 
+  bool OptNone;
+
   // S_ENDPGM instructions before which we should insert a DEALLOC_VGPRS
   // message.
   DenseSet<MachineInstr *> ReleaseVGPRInsts;
@@ -417,10 +419,6 @@ public:
       if (ForceEmitWaitcnt[T])
         return true;
     return false;
-  }
-
-  AMDGPU::Waitcnt allZeroWaitcnt() const {
-    return AMDGPU::Waitcnt::allZero(ST->hasVscnt());
   }
 
   void setForceEmitWaitcnt() {
@@ -1036,7 +1034,7 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(MachineInstr &MI,
       MI.getOpcode() == AMDGPU::SI_RETURN ||
       MI.getOpcode() == AMDGPU::S_SETPC_B64_return ||
       (MI.isReturn() && MI.isCall() && !callWaitsOnFunctionEntry(MI))) {
-    Wait = Wait.combined(allZeroWaitcnt());
+    Wait = Wait.combined(AMDGPU::Waitcnt::allZeroExceptVsCnt());
   }
   // Identify S_ENDPGM instructions which may have to wait for outstanding VMEM
   // stores. In this case it can be useful to send a message to explicitly
@@ -1047,6 +1045,15 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(MachineInstr &MI,
     if (ST->getGeneration() >= AMDGPUSubtarget::GFX11 &&
         ScoreBrackets.getScoreRange(VS_CNT) != 0 &&
         !ScoreBrackets.hasPendingEvent(SCRATCH_WRITE_ACCESS))
+      ReleaseVGPRInsts.insert(&MI);
+  }
+  // Identify S_ENDPGM instructions which may have to wait for outstanding VMEM
+  // stores. In this case it can be useful to send a message to explicitly
+  // release all VGPRs before the stores have completed.
+  else if (MI.getOpcode() == AMDGPU::S_ENDPGM ||
+           MI.getOpcode() == AMDGPU::S_ENDPGM_SAVED) {
+    if (ST->getGeneration() >= AMDGPUSubtarget::GFX11 && !OptNone &&
+        ScoreBrackets.getScoreRange(VS_CNT) != 0)
       ReleaseVGPRInsts.insert(&MI);
   }
   // Resolve vm waits before gs-done.
@@ -1232,7 +1239,7 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(MachineInstr &MI,
   // cause an exception. Otherwise, insert an explicit S_WAITCNT 0 here.
   if (MI.getOpcode() == AMDGPU::S_BARRIER &&
       !ST->hasAutoWaitcntBeforeBarrier() && !ST->supportsBackOffBarrier()) {
-    Wait = Wait.combined(allZeroWaitcnt());
+    Wait = Wait.combined(AMDGPU::Waitcnt::allZero(ST->hasVscnt()));
   }
 
   // TODO: Remove this work-around, enable the assert for Bug 457939
@@ -1248,7 +1255,7 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(MachineInstr &MI,
   ScoreBrackets.simplifyWaitcnt(Wait);
 
   if (ForceEmitZeroWaitcnts)
-    Wait = allZeroWaitcnt();
+    Wait = AMDGPU::Waitcnt::allZeroExceptVsCnt();
 
   if (ForceEmitWaitcnt[VM_CNT])
     Wait.VmCnt = 0;
@@ -1256,8 +1263,6 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(MachineInstr &MI,
     Wait.ExpCnt = 0;
   if (ForceEmitWaitcnt[LGKM_CNT])
     Wait.LgkmCnt = 0;
-  if (ForceEmitWaitcnt[VS_CNT])
-    Wait.VsCnt = 0;
 
   if (FlushVmCnt) {
     if (ScoreBrackets.hasPendingEvent(VM_CNT))
@@ -1480,7 +1485,7 @@ void SIInsertWaitcnts::updateEventWaitcntAfter(MachineInstr &Inst,
   } else if (Inst.isCall()) {
     if (callWaitsOnFunctionReturn(Inst)) {
       // Act as a wait on everything
-      ScoreBrackets->applyWaitcnt(allZeroWaitcnt());
+      ScoreBrackets->applyWaitcnt(AMDGPU::Waitcnt::allZeroExceptVsCnt());
     } else {
       // May need to way wait for anything.
       ScoreBrackets->applyWaitcnt(AMDGPU::Waitcnt());
@@ -1828,6 +1833,9 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
   for (auto T : inst_counter_types())
     ForceEmitWaitcnt[T] = false;
 
+  OptNone = MF.getFunction().hasOptNone() ||
+            MF.getTarget().getOptLevel() == CodeGenOpt::None;
+
   HardwareLimits Limits = {};
   Limits.VmcntMax = AMDGPU::getVmcntBitMask(IV);
   Limits.ExpcntMax = AMDGPU::getExpcntBitMask(IV);
@@ -1862,10 +1870,6 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
          I != E && (I->isPHI() || I->isMetaInstruction()); ++I)
       ;
     BuildMI(EntryBB, I, DebugLoc(), TII->get(AMDGPU::S_WAITCNT)).addImm(0);
-    if (ST->hasVscnt())
-      BuildMI(EntryBB, I, DebugLoc(), TII->get(AMDGPU::S_WAITCNT_VSCNT))
-          .addReg(AMDGPU::SGPR_NULL, RegState::Undef)
-          .addImm(0);
 
     Modified = true;
   }
@@ -1977,6 +1981,10 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
   // Insert DEALLOC_VGPR messages before previously identified S_ENDPGM
   // instructions.
   for (MachineInstr *MI : ReleaseVGPRInsts) {
+    if (ST->requiresNopBeforeDeallocVGPRs()) {
+      BuildMI(*MI->getParent(), MI, DebugLoc(), TII->get(AMDGPU::S_NOP))
+          .addImm(0);
+    }
     BuildMI(*MI->getParent(), MI, DebugLoc(), TII->get(AMDGPU::S_SENDMSG))
         .addImm(AMDGPU::SendMsg::ID_DEALLOC_VGPRS_GFX11Plus);
     Modified = true;

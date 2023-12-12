@@ -51,17 +51,16 @@ public:
   // TODO: Add error checking from ClangOffloadBundler.cpp
   OffloadBundler(const OffloadBundlerConfig &BC) : BundlerConfig(BC) {}
 
-  // List bundle IDs. Return true if an error was found.
-  static llvm::Error
-  ListBundleIDsInFile(llvm::StringRef InputFileName,
-                      const OffloadBundlerConfig &BundlerConfig);
-
   llvm::Error BundleFiles();
   llvm::Error UnbundleFiles();
   llvm::Error UnbundleArchive();
+
+  // List bundle IDs. Return true if an error was found.
+  static llvm::Error ListBundleIDsInFile(llvm::StringRef InputFileName,
+                                const OffloadBundlerConfig &BundlerConfig);
 };
 
-/// Obtain the offload kind, real machine triple, and an optional GPUArch
+/// Obtain the offload kind, real machine triple, and an optional TargetID
 /// out of the target information specified by the user.
 /// Bundle Entry ID (or, Offload Target String) has following components:
 ///  * Offload Kind - Host, OpenMP, or HIP
@@ -74,8 +73,7 @@ struct OffloadTargetInfo {
 
   const OffloadBundlerConfig &BundlerConfig;
 
-  OffloadTargetInfo(const llvm::StringRef Target,
-                    const OffloadBundlerConfig &BC);
+  OffloadTargetInfo(const llvm::StringRef Target, const OffloadBundlerConfig &BC);
   bool hasHostKind() const;
   bool isOffloadKindValid() const;
   bool isOffloadKindCompatible(const llvm::StringRef TargetOffloadKind) const;

@@ -12,6 +12,7 @@
 
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
+#include "CGOpenMPRuntimeGPU.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
@@ -51,6 +52,530 @@ void CodeGenFunction::EmitStopPoint(const Stmt *S) {
 
     LastStopPoint = Loc;
   }
+}
+
+llvm::Value *CodeGenFunction::applyNoLoopInc(const Expr *Inc,
+                                             const VarDecl *IVDecl,
+                                             llvm::Value *CurrVal) {
+  // If we reach here, it must be a unary increment or a binary
+  // step expression. For a binary expression, generate myid = step * myid
+  const Expr *StepExpr = CGM.getBinaryExprStep(Inc, IVDecl);
+  if (StepExpr == nullptr)
+    return CurrVal; // nothing to do
+  llvm::Value *StepVal = EmitScalarExpr(StepExpr);
+  return Builder.CreateMul(
+      Builder.CreateIntCast(CurrVal, ConvertTypeForMem(StepExpr->getType()),
+                            false),
+      StepVal);
+}
+
+std::pair<const VarDecl *, Address>
+CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.isXteamRedKernel(&FStmt) ? CGM.getXteamRedNestDirs(&FStmt)
+                                   : CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+  std::pair<const VarDecl *, Address> IVPair = EmitNoLoopIV(LD);
+  const VarDecl *LoopVD = IVPair.first;
+  Address IvAddr = IVPair.second;
+
+  // Generate idx = workgroup_id * workgroup_size + workitem_id
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // workitem_id
+  llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
+
+  // workgroup_size
+  llvm::Value *WorkGroupSize =
+      CGM.isXteamRedKernel(&FStmt)
+          ? RT.getXteamRedBlockSize(*this, CGM.getXteamRedBlockSize(&FStmt))
+          : RT.getGPUNumThreads(*this);
+
+  // workgroup_id
+  llvm::Value *WorkGroupId = RT.getGPUBlockID(*this);
+
+  llvm::Value *WorkGroup = Builder.CreateMul(WorkGroupId, WorkGroupSize);
+  llvm::Value *GlobalGpuThreadId = Builder.CreateAdd(WorkGroup, GpuThreadId);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), LoopVD) && "Loop incr check failed");
+
+  // Handle stride
+  GlobalGpuThreadId = applyNoLoopInc(LD.getInc(), LoopVD, GlobalGpuThreadId);
+
+  // Generate my_index = my_index + myid. Note that my_index was already
+  // initialized
+  llvm::Value *Gtid =
+      Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
+  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+
+  if (CGM.isXteamRedKernel(&FStmt)) {
+    // Cache the thread specific initial loop iteration value and the number of
+    // teams
+    llvm::Value *NumTeams = RT.getGPUNumBlocks(*this);
+    CGM.updateXteamRedKernel(&FStmt, Builder.CreateIntCast(Iv, Int64Ty, false),
+                             NumTeams);
+  }
+  // Set the initial value of the loop iteration
+  Builder.CreateStore(Iv, IvAddr);
+
+  return std::make_pair(LoopVD, IvAddr);
+}
+
+void CodeGenFunction::EmitBigJumpLoopUpdates(const ForStmt &FStmt) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.isXteamRedKernel(&FStmt) ? CGM.getXteamRedNestDirs(&FStmt)
+                                   : CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+  // Emit updates of the original loop indices
+  for (const Expr *UE : LD.updates())
+    EmitIgnoredExpr(UE);
+}
+
+void CodeGenFunction::EmitBigJumpLoopInc(const ForStmt &FStmt,
+                                         const VarDecl *LoopVD,
+                                         const Address &NoLoopIvAddr) {
+  const CodeGenModule::OptKernelNestDirectives &Directives =
+      CGM.isXteamRedKernel(&FStmt) ? CGM.getXteamRedNestDirs(&FStmt)
+                                   : CGM.getBigJumpLoopNestDirs(&FStmt);
+  assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+         "Appropriate directive not found");
+  const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
+
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  llvm::Value *BlockSize =
+      CGM.isXteamRedKernel(&FStmt)
+          ? RT.getXteamRedBlockSize(*this, CGM.getXteamRedBlockSize(&FStmt))
+          : RT.getGPUNumThreads(*this);
+
+  llvm::Value *NumBlocks = CGM.isXteamRedKernel(&FStmt)
+                               ? CGM.getXteamRedNumTeams(&FStmt)
+                               : RT.getGPUNumBlocks(*this);
+  assert(NumBlocks && "Number of blocks cannot be null");
+  // prod = block_size * num_blocks
+  llvm::Value *Prod = Builder.CreateMul(BlockSize, NumBlocks);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), LoopVD) && "Loop incr check failed");
+
+  // Handle stride
+  Prod = applyNoLoopInc(LD.getInc(), LoopVD, Prod);
+
+  // *iv = *iv + prod
+  llvm::Value *ProdRes =
+      Builder.CreateIntCast(Prod, NoLoopIvAddr.getElementType(), false);
+  llvm::Value *NoLoopInc =
+      Builder.CreateAdd(ProdRes, Builder.CreateLoad(NoLoopIvAddr));
+  Builder.CreateStore(NoLoopInc, NoLoopIvAddr);
+}
+
+std::pair<const VarDecl *, Address>
+CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
+  // Emit the original loop indices
+  for (const Expr *CE : LD.counters()) {
+    const auto *CEDecl = cast<VarDecl>(cast<DeclRefExpr>(CE)->getDecl());
+    if (!hasAddrOfLocalVar(CEDecl)) {
+      if (CEDecl->hasLocalStorage())
+        EmitVarDecl(*CEDecl);
+      else {
+        llvm::Type *CEDeclType = ConvertTypeForMem(CEDecl->getType());
+        llvm::AllocaInst *LocalForGlobal =
+            Builder.CreateAlloca(CEDeclType, nullptr, "lglobal");
+        setAddrOfLocalVar(CEDecl, Address(LocalForGlobal, CEDeclType,
+                                          getContext().getTypeAlignInChars(
+                                              CEDecl->getType())));
+      }
+    }
+  }
+
+  // Emit the preinits
+  const DeclStmt *PreInits = cast_or_null<DeclStmt>(LD.getPreInits());
+  if (PreInits) {
+    for (const auto *I : PreInits->decls()) {
+      EmitVarDecl(cast<VarDecl>(*I));
+    }
+  }
+
+  // Emit the inits of original loop indices
+  for (const Expr *CIE : LD.inits()) {
+    EmitIgnoredExpr(CIE);
+  }
+
+  // Emit the lower and upper bounds
+  const auto *LBDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getLowerBoundVariable())->getDecl());
+  EmitVarDecl(*LBDecl);
+  const auto *UBDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getUpperBoundVariable())->getDecl());
+  EmitVarDecl(*UBDecl);
+
+  // Emit the iteration variable of the loop
+  const auto *IVDecl =
+      cast<VarDecl>(cast<DeclRefExpr>(LD.getIterationVariable())->getDecl());
+  EmitVarDecl(*IVDecl);
+
+  // Emit init of the iteration variable
+  EmitIgnoredExpr(LD.getInit());
+  return std::make_pair(IVDecl, GetAddrOfLocalVar(IVDecl));
+}
+
+const CodeGenModule::OptKernelNestDirectives &
+CodeGenModule::getOptKernelDirectives(
+    const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode) {
+  assert(OptKernelMode ==
+             llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP ||
+         OptKernelMode == llvm::omp::OMPTgtExecModeFlags::
+                              OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP ||
+         OptKernelMode ==
+             llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_XTEAM_RED);
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
+    return getNoLoopNestDirs(CapturedForStmt);
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP)
+    return getBigJumpLoopNestDirs(CapturedForStmt);
+  return getXteamRedNestDirs(CapturedForStmt);
+}
+
+void CodeGenFunction::EmitOptKernel(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode, SourceLocation Loc,
+    const FunctionArgList *Args) {
+  if (!HaveInsertPoint())
+    EnsureInsertPoint();
+
+  assert(CapturedForStmt && "Cannot generate kernel for null captured stmt");
+  const CodeGenModule::OptKernelNestDirectives &NestDirs =
+      CGM.getOptKernelDirectives(CapturedForStmt, OptKernelMode);
+
+  // We support at most 3 levels of nesting.
+  assert((NestDirs.size() > 0 && NestDirs.size() < 4) &&
+         "Unexpected number of nested directives for optimized kernel codegen");
+
+  // No private scope must be destroyed before the kernel codegen is done.
+  if (NestDirs.size() == 1) {
+    OMPPrivateScope PrivateScope(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScope);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScope);
+    (void)PrivateScope.Privatize();
+
+    EmitOptKernelCode(*NestDirs[0], CapturedForStmt, OptKernelMode, Loc, Args);
+  } else if (NestDirs.size() == 2) {
+    OMPPrivateScope PrivateScopeZero(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScopeZero);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScopeZero);
+    (void)PrivateScopeZero.Privatize();
+
+    OMPPrivateScope PrivateScopeOne(*this);
+    EmitOMPFirstprivateClause(*NestDirs[1], PrivateScopeOne);
+    EmitOMPPrivateClause(*NestDirs[1], PrivateScopeOne);
+    (void)PrivateScopeOne.Privatize();
+
+    EmitOptKernelCode(*NestDirs[1], CapturedForStmt, OptKernelMode, Loc, Args);
+  } else {
+    OMPPrivateScope PrivateScopeZero(*this);
+    EmitOMPFirstprivateClause(*NestDirs[0], PrivateScopeZero);
+    EmitOMPPrivateClause(*NestDirs[0], PrivateScopeZero);
+    (void)PrivateScopeZero.Privatize();
+
+    OMPPrivateScope PrivateScopeOne(*this);
+    EmitOMPFirstprivateClause(*NestDirs[1], PrivateScopeOne);
+    EmitOMPPrivateClause(*NestDirs[1], PrivateScopeOne);
+    (void)PrivateScopeOne.Privatize();
+
+    OMPPrivateScope PrivateScopeTwo(*this);
+    EmitOMPFirstprivateClause(*NestDirs[2], PrivateScopeTwo);
+    EmitOMPPrivateClause(*NestDirs[2], PrivateScopeTwo);
+    (void)PrivateScopeTwo.Privatize();
+
+    EmitOptKernelCode(*NestDirs[2], CapturedForStmt, OptKernelMode, Loc, Args);
+  }
+}
+
+void CodeGenFunction::EmitOptKernelCode(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    llvm::omp::OMPTgtExecModeFlags OptKernelMode, SourceLocation Loc,
+    const FunctionArgList *Args) {
+  assert(OptKernelMode ==
+             llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP ||
+         OptKernelMode == llvm::omp::OMPTgtExecModeFlags::
+                              OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP ||
+         OptKernelMode ==
+             llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_XTEAM_RED);
+  if (OptKernelMode ==
+      llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
+    EmitNoLoopCode(D, CapturedForStmt, Loc);
+  else if (OptKernelMode ==
+           llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP)
+    EmitBigJumpLoopCode(D, CapturedForStmt, Loc);
+  else
+    EmitXteamRedCode(D, CapturedForStmt, Loc, Args);
+}
+
+void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
+                                     const ForStmt *CapturedForStmt,
+                                     SourceLocation Loc) {
+  assert(isa<OMPLoopDirective>(D) && "Unexpected directive");
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+
+  auto IVPair = EmitNoLoopIV(LD);
+  const VarDecl *IVDecl = IVPair.first;
+  Address IvAddr = IVPair.second;
+
+  // Generate myid = workgroup_id * workgroup_size + workitem_id
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // workitem_id
+  llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
+
+  // workgroup_size
+  assert(CGM.isNoLoopKernel(D) && "Unexpected optimized kernel type");
+  llvm::Value *WorkGroupSize = RT.getGPUNumThreads(*this);
+
+  // workgroup_id
+  llvm::Value *WorkGroupId = RT.getGPUBlockID(*this);
+
+  llvm::Value *WorkGroup = Builder.CreateMul(WorkGroupId, WorkGroupSize);
+  llvm::Value *GlobalGpuThreadId = Builder.CreateAdd(WorkGroup, GpuThreadId);
+
+  // Check the loop increment
+  assert(CGM.checkLoopStep(LD.getInc(), IVDecl) && "Loop incr check failed");
+
+  // Handle stride
+  GlobalGpuThreadId = applyNoLoopInc(LD.getInc(), IVDecl, GlobalGpuThreadId);
+
+  // Generate my_index = my_index + myid. Note that my_index was already
+  // initialized
+  llvm::Value *Gtid =
+      Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
+  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+  Builder.CreateStore(Iv, IvAddr);
+
+  // Emit updates of the original loop indices
+  for (const Expr *UE : LD.updates())
+    EmitIgnoredExpr(UE);
+
+  // Branch to end if original loop condition not satisfied
+  llvm::Value *IvCmp = EvaluateExprAsBool(LD.getCond());
+
+  llvm::BasicBlock *ExecBB = createBasicBlock("omp.kernel.body");
+  llvm::BasicBlock *DoneBB = createBasicBlock("omp.kernel.done");
+
+  Builder.CreateCondBr(IvCmp, ExecBB, DoneBB);
+
+  // On a continue in the body, jump to the end.
+  // A break is not allowed in this scope but it would be the end anyways
+  JumpDest Continue = getJumpDestInCurrentScope(DoneBB);
+  BreakContinueStack.push_back(BreakContinue(Continue, Continue));
+
+  // Emit the kernel body block
+  EmitBlock(ExecBB);
+  EmitOMPNoLoopBody(LD);
+  EmitBranch(DoneBB);
+
+  EmitBlock(DoneBB);
+  Builder.CreateRetVoid();
+  Builder.ClearInsertionPoint();
+  BreakContinueStack.pop_back();
+}
+
+void CodeGenFunction::EmitBigJumpLoopCode(const OMPExecutableDirective &D,
+                                          const ForStmt *CapturedForStmt,
+                                          SourceLocation Loc) {
+  EmitStmt(CapturedForStmt);
+}
+
+void CodeGenFunction::EmitXteamRedCode(const OMPExecutableDirective &D,
+                                       const ForStmt *CapturedForStmt,
+                                       SourceLocation Loc,
+                                       const FunctionArgList *Args) {
+  // This is the top level ForStmt for which Xteam reduction code is being
+  // generated
+  CGM.setCurrentXteamRedStmt(CapturedForStmt);
+
+  EmitXteamLocalAggregator(CapturedForStmt);
+
+  // Now emit the modified loop. If there is a statement in the loop with a
+  // reduction, the reduction variable will be replaced with the local
+  // aggregator variable.
+  EmitStmt(CapturedForStmt);
+
+  // Now emit the calls to xteam_sum, one for each reduction variable
+  EmitXteamRedSum(CapturedForStmt, *Args, CGM.getXteamRedBlockSize(D));
+
+  // Xteam codegen done
+  CGM.setCurrentXteamRedStmt(nullptr);
+}
+
+/// If the provided For Stmt has metadata for reduction variables, emit
+/// an initializer for each of them
+void CodeGenFunction::EmitXteamLocalAggregator(const ForStmt *FStmt) {
+  const CodeGenModule::XteamRedVarMap &RedVarMap = CGM.getXteamRedVarMap(FStmt);
+  auto XteamOrdVars = CGM.getXteamOrderedRedVar(FStmt);
+  // Always emit thread-local reduction variables  in the same order as
+  // user-specified reduction variables.
+  for (auto XteamVD : XteamOrdVars) {
+    auto Itr = RedVarMap.find(XteamVD);
+    assert(Itr != RedVarMap.end() && "Metadata not found");
+    const Expr *RedVarExpr = Itr->second.RedVarExpr;
+    llvm::Type *RedVarType = ConvertTypeForMem(RedVarExpr->getType());
+    assert((RedVarType->isFloatTy() || RedVarType->isDoubleTy() ||
+            RedVarType->isIntegerTy()) &&
+           "Unhandled type");
+    llvm::AllocaInst *XteamRedInst = Builder.CreateAlloca(RedVarType);
+    llvm::Value *InitVal = nullptr;
+    if (RedVarType->isFloatTy() || RedVarType->isDoubleTy())
+      InitVal = llvm::ConstantFP::getZero(RedVarType);
+    else if (RedVarType->isIntegerTy())
+      InitVal = llvm::ConstantInt::get(RedVarType, 0);
+    else
+      llvm_unreachable("Unhandled type");
+    Address XteamRedVarAddr(
+        XteamRedInst, RedVarType,
+        getContext().getTypeAlignInChars(RedVarExpr->getType()));
+    Builder.CreateStore(InitVal, XteamRedVarAddr);
+
+    // Update the map with the local aggregator address
+    // TODO update only the address, the expression is already there
+    // TODO don't do a lookup again, use the element avail here
+    CGM.updateXteamRedVarMap(FStmt, XteamVD, RedVarExpr, XteamRedVarAddr);
+  }
+}
+
+// Emit __kmpc_xteam_sum(*xteam_red_local_addr, red_var_addr) for each reduction
+// in the helper map for the given For Stmt
+void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
+                                      const FunctionArgList &Args,
+                                      int BlockSize) {
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  const CodeGenModule::XteamRedVarMap &RedVarMap = CGM.getXteamRedVarMap(FStmt);
+
+  llvm::Value *ThreadStartIdx = CGM.getXteamRedThreadStartIndex(FStmt);
+  assert(ThreadStartIdx && "Thread start index cannot be null");
+  llvm::Value *NumTeams = CGM.getXteamRedNumTeams(FStmt);
+  assert(NumTeams && "Number of teams cannot be null");
+
+  auto XteamOrdVars = CGM.getXteamOrderedRedVar(FStmt);
+  // Always emit calls to Xteam device functions in the same order as
+  // user-specified reduction variables.
+  for (auto XteamVD : XteamOrdVars) {
+    auto Itr = RedVarMap.find(XteamVD);
+    assert(Itr != RedVarMap.end() && "Metadata not found");
+
+    const CodeGenModule::XteamRedVarInfo &RVI = Itr->second;
+
+    assert(RVI.ArgPos + 1 < Args.size() && "Arg position beyond bounds");
+
+    Address XteamRedSumArg1 = GetAddrOfLocalVar(Args[RVI.ArgPos]);
+    llvm::Value *DTeamVals = Builder.CreateLoad(XteamRedSumArg1);
+
+    Address XteamRedSumArg2 = GetAddrOfLocalVar(Args[RVI.ArgPos + 1]);
+    llvm::Value *DTeamsDonePtr = Builder.CreateLoad(XteamRedSumArg2);
+
+    const Expr *OrigRedVarExpr = RVI.RedVarExpr;
+    const DeclRefExpr *DRE = cast<DeclRefExpr>(OrigRedVarExpr);
+    Address OrigRedVarAddr = EmitLValue(DRE).getAddress(*this);
+    // Pass in OrigRedVarAddr.getPointer to kmpc_xteam_sum
+    RT.getXteamRedSum(*this, Builder.CreateLoad(RVI.RedVarAddr),
+                      OrigRedVarAddr.getPointer(), DTeamVals, DTeamsDonePtr,
+                      ThreadStartIdx, NumTeams, BlockSize);
+  }
+}
+
+// Emit reduction into local aggregator for a statement within the reduced loop
+// where applicable
+bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
+  if (CGM.getCurrentXteamRedStmt() == nullptr)
+    return false;
+  if (!isa<BinaryOperator>(S))
+    return false;
+
+  auto getRedVarDecl =
+      [](const Expr *E,
+         const CodeGenModule::XteamRedVarMap &RVM) -> const VarDecl * {
+    if (!isa<DeclRefExpr>(E))
+      return nullptr;
+    const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+    if (!isa<VarDecl>(ValDecl))
+      return nullptr;
+    const VarDecl *VD = cast<VarDecl>(ValDecl);
+    if (RVM.find(VD) == RVM.end())
+      return nullptr;
+    return VD;
+  };
+
+  const BinaryOperator *RedBO = cast<BinaryOperator>(S);
+  const CodeGenModule::XteamRedVarMap &RedVarMap =
+      CGM.getXteamRedVarMap(CGM.getCurrentXteamRedStmt());
+
+  // Is a reduction variable the lhs?
+  const VarDecl *RedVarDecl =
+      getRedVarDecl(RedBO->getLHS()->IgnoreImpCasts(), RedVarMap);
+  if (RedVarDecl == nullptr)
+    return false;
+
+  // For now, we handle only sum reduction
+  assert(
+      (RedBO->getOpcode() == BO_AddAssign || RedBO->getOpcode() == BO_Assign) &&
+      "Unexpected operator during Xteam CodeGen");
+
+  auto isRedVarExpr = [](const Expr *E, const VarDecl *RedVarDecl) {
+    if (!isa<DeclRefExpr>(E))
+      return false;
+    const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+    if (!isa<VarDecl>(ValDecl))
+      return false;
+    const VarDecl *VD = cast<VarDecl>(ValDecl);
+    return VD == RedVarDecl;
+  };
+
+  // Extract the rhs for the reduction.
+  const Expr *RedRHSExpr = nullptr;
+  auto OpcRedBO = RedBO->getOpcode();
+  if (OpcRedBO == BO_AddAssign) {
+    RedRHSExpr = RedBO->getRHS()->IgnoreImpCasts();
+  } else {
+    const Expr *L1RhsExpr = RedBO->getRHS();
+    assert(isa<BinaryOperator>(L1RhsExpr) &&
+           "Expected rhs to be a binary operator");
+    const BinaryOperator *L2BO = cast<BinaryOperator>(L1RhsExpr);
+    auto OpcL2BO = L2BO->getOpcode();
+    assert(OpcL2BO == BO_Add && "Unexpected operator");
+    // If the redvar is lhs, use the rhs in the generated reduction statement
+    // and vice-versa.
+    if (isRedVarExpr(L2BO->getLHS()->IgnoreImpCasts(), RedVarDecl))
+      RedRHSExpr = L2BO->getRHS();
+    else if (isRedVarExpr(L2BO->getRHS()->IgnoreImpCasts(), RedVarDecl))
+      RedRHSExpr = L2BO->getLHS();
+    else
+      llvm_unreachable("Unhandled add expression during xteam reduction");
+  }
+  assert(RedRHSExpr != nullptr && "Did not find a valid reduction rhs");
+  llvm::Value *RHSValue = EmitScalarExpr(RedRHSExpr);
+  Address XteamRedLocalAddr = RedVarMap.find(RedVarDecl)->second.RedVarAddr;
+  // Compute *xteam_red_local_addr + rhs_value
+  llvm::Value *RedRHS = nullptr;
+  llvm::Type *RedVarType = ConvertTypeForMem(RedVarDecl->getType());
+  if (RedVarType->isFloatTy() || RedVarType->isDoubleTy()) {
+    auto RHSOp = RHSValue->getType()->isIntegerTy()
+                     ? Builder.CreateUIToFP(RHSValue, RedVarType)
+                     : Builder.CreateFPCast(RHSValue, RedVarType);
+    RedRHS = Builder.CreateFAdd(Builder.CreateLoad(XteamRedLocalAddr), RHSOp);
+  } else if (RedVarType->isIntegerTy()) {
+    auto RHSOp = RHSValue->getType()->isIntegerTy()
+                     ? Builder.CreateIntCast(RHSValue, RedVarType, false)
+                     : Builder.CreateFPToUI(RHSValue, RedVarType);
+    RedRHS = Builder.CreateAdd(Builder.CreateLoad(XteamRedLocalAddr), RHSOp);
+  } else
+    llvm_unreachable("Unhandled type");
+  // *xteam_red_local_addr = *xteam_red_local_addr + rhs_value
+  Builder.CreateStore(RedRHS, XteamRedLocalAddr);
+  return true;
 }
 
 void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
@@ -121,7 +646,8 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     llvm::BasicBlock *incoming = Builder.GetInsertBlock();
     assert(incoming && "expression emission must have an insertion point");
 
-    EmitIgnoredExpr(cast<Expr>(S));
+    if (!EmitXteamRedStmt(S))
+      EmitIgnoredExpr(cast<Expr>(S));
 
     llvm::BasicBlock *outgoing = Builder.GetInsertBlock();
     assert(outgoing && "expression emission cleared block!");
@@ -416,16 +942,19 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     EmitOMPGenericLoopDirective(cast<OMPGenericLoopDirective>(*S));
     break;
   case Stmt::OMPTeamsGenericLoopDirectiveClass:
-    llvm_unreachable("teams loop directive not supported yet.");
+    EmitOMPTeamsGenericLoopDirective(cast<OMPTeamsGenericLoopDirective>(*S));
     break;
   case Stmt::OMPTargetTeamsGenericLoopDirectiveClass:
-    llvm_unreachable("target teams loop directive not supported yet.");
+    EmitOMPTargetTeamsGenericLoopDirective(
+        cast<OMPTargetTeamsGenericLoopDirective>(*S));
     break;
   case Stmt::OMPParallelGenericLoopDirectiveClass:
-    llvm_unreachable("parallel loop directive not supported yet.");
+    EmitOMPParallelGenericLoopDirective(
+        cast<OMPParallelGenericLoopDirective>(*S));
     break;
   case Stmt::OMPTargetParallelGenericLoopDirectiveClass:
-    llvm_unreachable("target parallel loop directive not supported yet.");
+    EmitOMPTargetParallelGenericLoopDirective(
+        cast<OMPTargetParallelGenericLoopDirective>(*S));
     break;
   case Stmt::OMPParallelMaskedDirectiveClass:
     EmitOMPParallelMaskedDirective(cast<OMPParallelMaskedDirective>(*S));
@@ -1031,9 +1560,29 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 
   LexicalScope ForScope(*this, S.getSourceRange());
 
-  // Evaluate the first part before the loop.
-  if (S.getInit())
-    EmitStmt(S.getInit());
+  Address BigJumpLoopIvAddr = Address::invalid();
+  const VarDecl *LoopVar = nullptr;
+  const OMPLoopDirective *BigJumpLoopLD = nullptr;
+  if (CGM.getLangOpts().OpenMPIsTargetDevice &&
+      (CGM.isXteamRedKernel(&S) || CGM.isBigJumpLoopKernel(&S))) {
+    const CodeGenModule::OptKernelNestDirectives &Directives =
+        CGM.isXteamRedKernel(&S) ? CGM.getXteamRedNestDirs(&S)
+                                 : CGM.getBigJumpLoopNestDirs(&S);
+    assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
+           "Appropriate directive not found");
+    BigJumpLoopLD = cast<OMPLoopDirective>(Directives.back());
+
+    std::pair<const VarDecl *, Address> LoopVarInfo =
+        EmitBigJumpLoopStartingIndex(S);
+    LoopVar = LoopVarInfo.first;
+    BigJumpLoopIvAddr = LoopVarInfo.second;
+  } else {
+    // Evaluate the first part before the loop.
+    if (S.getInit())
+      EmitStmt(S.getInit());
+  }
+
+  const Expr *CondExpr = BigJumpLoopLD ? BigJumpLoopLD->getCond() : S.getCond();
 
   // Start the loop with a block that tests the condition.
   // If there's an increment, the continue scope will be overwritten
@@ -1044,7 +1593,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 
   Expr::EvalResult Result;
   bool CondIsConstInt =
-      !S.getCond() || S.getCond()->EvaluateAsInt(Result, getContext());
+      !CondExpr || CondExpr->EvaluateAsInt(Result, getContext());
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
@@ -1069,7 +1618,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     Continue = getJumpDestInCurrentScope("for.inc");
   BreakContinueStack.push_back(BreakContinue(LoopExit, Continue));
 
-  if (S.getCond()) {
+  if (CondExpr) {
     // If the for statement has a condition scope, emit the local variable
     // declaration.
     if (S.getConditionVariable()) {
@@ -1092,9 +1641,9 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 
     // C99 6.8.5p2/p4: The first substatement is executed if the expression
     // compares unequal to 0.  The condition must be a scalar type.
-    llvm::Value *BoolCondVal = EvaluateExprAsBool(S.getCond());
+    llvm::Value *BoolCondVal = EvaluateExprAsBool(CondExpr);
     llvm::MDNode *Weights =
-        createProfileWeightsForLoop(S.getCond(), getProfileCount(S.getBody()));
+        createProfileWeightsForLoop(CondExpr, getProfileCount(S.getBody()));
     if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
       BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
           BoolCondVal, Stmt::getLikelihood(S.getBody()));
@@ -1117,13 +1666,28 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     // Create a separate cleanup scope for the body, in case it is not
     // a compound statement.
     RunCleanupsScope BodyScope(*this);
-    EmitStmt(S.getBody());
+
+    if (CGM.getLangOpts().OpenMPIsTargetDevice &&
+        (CGM.isXteamRedKernel(&S) || CGM.isBigJumpLoopKernel(&S))) {
+      EmitBigJumpLoopUpdates(S);
+      EmitOMPNoLoopBody(*BigJumpLoopLD);
+    } else {
+      EmitStmt(S.getBody());
+    }
   }
 
-  // If there is an increment, emit it next.
-  if (S.getInc()) {
+  if (CGM.getLangOpts().OpenMPIsTargetDevice &&
+      (CGM.isXteamRedKernel(&S) || CGM.isBigJumpLoopKernel(&S))) {
     EmitBlock(Continue.getBlock());
-    EmitStmt(S.getInc());
+    EmitBigJumpLoopInc(
+        S, LoopVar,
+        BigJumpLoopIvAddr); // *iv = *iv + num_teams * num_threads
+  } else {
+    // If there is an increment, emit it next.
+    if (S.getInc()) {
+      EmitBlock(Continue.getBlock());
+      EmitStmt(S.getInc());
+    }
   }
 
   BreakContinueStack.pop_back();
@@ -2415,6 +2979,24 @@ EmitAsmStores(CodeGenFunction &CGF, const AsmStmt &S,
   }
 }
 
+static void EmitHipStdParUnsupportedAsm(CodeGenFunction *CGF,
+                                        const AsmStmt &S) {
+  constexpr auto Name = "__ASM__hipstdpar_unsupported";
+
+  StringRef Asm;
+  if (auto GCCAsm = dyn_cast<GCCAsmStmt>(&S))
+    Asm = GCCAsm->getAsmString()->getString();
+
+  auto &Ctx = CGF->CGM.getLLVMContext();
+
+  auto StrTy = llvm::ConstantDataArray::getString(Ctx, Asm);
+  auto FnTy = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx),
+                                      {StrTy->getType()}, false);
+  auto UBF = CGF->CGM.getModule().getOrInsertFunction(Name, FnTy);
+
+  CGF->Builder.CreateCall(UBF, {StrTy});
+}
+
 void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   // Pop all cleanup blocks at the end of the asm statement.
   CodeGenFunction::RunCleanupsScope Cleanups(*this);
@@ -2426,26 +3008,37 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   SmallVector<TargetInfo::ConstraintInfo, 4> OutputConstraintInfos;
   SmallVector<TargetInfo::ConstraintInfo, 4> InputConstraintInfos;
 
-  for (unsigned i = 0, e = S.getNumOutputs(); i != e; i++) {
+  bool IsHipStdPar = getLangOpts().HIPStdPar && getLangOpts().CUDAIsDevice;
+  bool IsValidTargetAsm = true;
+  for (unsigned i = 0, e = S.getNumOutputs(); i != e && IsValidTargetAsm; i++) {
     StringRef Name;
     if (const GCCAsmStmt *GAS = dyn_cast<GCCAsmStmt>(&S))
       Name = GAS->getOutputName(i);
     TargetInfo::ConstraintInfo Info(S.getOutputConstraint(i), Name);
     bool IsValid = getTarget().validateOutputConstraint(Info); (void)IsValid;
-    assert(IsValid && "Failed to parse output constraint");
+    if (IsHipStdPar && !IsValid)
+      IsValidTargetAsm = false;
+    else
+      assert(IsValid && "Failed to parse output constraint");
     OutputConstraintInfos.push_back(Info);
   }
 
-  for (unsigned i = 0, e = S.getNumInputs(); i != e; i++) {
+  for (unsigned i = 0, e = S.getNumInputs(); i != e && IsValidTargetAsm; i++) {
     StringRef Name;
     if (const GCCAsmStmt *GAS = dyn_cast<GCCAsmStmt>(&S))
       Name = GAS->getInputName(i);
     TargetInfo::ConstraintInfo Info(S.getInputConstraint(i), Name);
     bool IsValid =
       getTarget().validateInputConstraint(OutputConstraintInfos, Info);
-    assert(IsValid && "Failed to parse input constraint"); (void)IsValid;
+    if (IsHipStdPar && !IsValid)
+      IsValidTargetAsm = false;
+    else
+      assert(IsValid && "Failed to parse input constraint");
     InputConstraintInfos.push_back(Info);
   }
+
+  if (!IsValidTargetAsm)
+    return EmitHipStdParUnsupportedAsm(this, S);
 
   std::string Constraints;
 

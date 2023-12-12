@@ -3,19 +3,19 @@
 
 ; CHECK-LABEL: append
 
-define ptr @append() gc "ocaml" {
+define i32* @append() gc "ocaml" {
 entry:
   switch i32 0, label %L2 [i32 0, label %L1]
 L1:
-  %var8 = alloca ptr
-  call void @llvm.gcroot(ptr %var8,ptr null)
+  %var8 = alloca i8*
+  call void @llvm.gcroot(i8** %var8,i8* null)
   br label %L3
 L2:
   call ccc void @oread_runtime_casenotcovered()
   unreachable
 L3:
-  ret ptr null
+  ret i32* null
 }
 
 declare ccc void @oread_runtime_casenotcovered()
-declare void @llvm.gcroot(ptr,ptr)
+declare void @llvm.gcroot(i8**,i8*)

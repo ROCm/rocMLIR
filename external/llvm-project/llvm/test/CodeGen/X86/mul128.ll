@@ -126,11 +126,11 @@ define void @PR13897() nounwind {
 ; X86-NEXT:    movl %eax, aaa
 ; X86-NEXT:    retl
 "0x0":
-  %0 = load i128, ptr @bbb
+  %0 = load i128, i128* @bbb
   %1 = and i128 %0, 4294967295
   %2 = shl i128 %0, 96
   %3 = mul i128 %1, 18446744078004518913
   %4 = add i128 %3, %2
-  store i128 %4, ptr @aaa
+  store i128 %4, i128* @aaa
   ret void
 }

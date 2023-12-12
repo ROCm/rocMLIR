@@ -1317,6 +1317,12 @@ static void __kmp_stg_parse_use_hidden_helper(char const *name,
          ("__kmp_stg_parse_use_hidden_helper: Disable hidden helper task on "
           "non-Linux platform although it is enabled by user explicitly.\n"));
 #endif
+  // Set the number to 0 if hidden helper task is disabled
+  if (__kmp_enable_hidden_helper == FALSE) {
+    __kmp_hidden_helper_threads_num = 0;
+  } else {
+    __kmp_hidden_helper_threads_num = 8;
+  }
 } // __kmp_stg_parse_use_hidden_helper
 
 static void __kmp_stg_print_use_hidden_helper(kmp_str_buf_t *buffer,
@@ -1467,7 +1473,7 @@ static void __kmp_stg_print_max_task_priority(kmp_str_buf_t *buffer,
 // taskloop threshold to switch from recursive to linear tasks creation
 static void __kmp_stg_parse_taskloop_min_tasks(char const *name,
                                                char const *value, void *data) {
-  int tmp;
+  int tmp = 0;
   __kmp_stg_parse_int(name, value, 0, INT_MAX, &tmp);
   __kmp_taskloop_min_tasks = tmp;
 } // __kmp_stg_parse_taskloop_min_tasks

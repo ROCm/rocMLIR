@@ -188,3 +188,6 @@ declare align 4 ptr addrspace(4) @llvm.amdgcn.kernarg.segment.ptr() #0
 declare i64 @llvm.amdgcn.dispatch.id() #0
 
 attributes #0 = { nounwind readnone speculatable willreturn }
+
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"amdgpu_code_object_version", i32 400}

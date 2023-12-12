@@ -25,7 +25,7 @@
 #include "mlir/Dialect/Rock/Transforms/RockMultibuffer.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/SCF/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -94,36 +94,6 @@ AddressSpace getAddressSpace(rock::GpuAllocOp alloc) {
   return gpu::AddressSpace::Global;
 }
 
-// Simple rewrite pass to remove the stages
-struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
-  using OpRewritePattern<rock::StageOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(rock::StageOp op,
-                                PatternRewriter &rw) const override {
-    Block *sourceBlock = &op.getRegion().front();
-    rw.eraseOp(sourceBlock->getTerminator());
-    if (!sourceBlock->empty()) {
-      rw.inlineBlockBefore(sourceBlock, op);
-    }
-    rw.eraseOp(op);
-    return failure();
-  }
-};
-
-struct RemoveBackToBackBarriersRewritePattern
-    : public OpRewritePattern<rock::LDSBarrierOp> {
-  using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
-                                PatternRewriter &rw) const override {
-    if (dyn_cast<rock::LDSBarrierOp>(op->getNextNode())) {
-      op->getNextNode()->erase();
-      return success();
-    }
-    return failure();
-  }
-};
-
 // Given an operation and its operand, find out what kind of access (if any)
 // the operation does on the operand
 MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
@@ -135,6 +105,81 @@ MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
     return MemoryAccessType::UNKNOWN;
   }
 }
+
+// Simple rewrite pass to remove the stages and backward barriers in the
+// prologue and in the Epilogue
+struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
+  using OpRewritePattern<rock::StageOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::StageOp op,
+                                PatternRewriter &rw) const override {
+    Block *sourceBlock = &op.getRegion().front();
+    rw.eraseOp(sourceBlock->getTerminator());
+    bool isRemovableBarrier = (op.getName() == "__bwd_barrier__" &&
+                               !dyn_cast<scf::ForOp>(op->getParentOp()));
+    if (!sourceBlock->empty() && !isRemovableBarrier) {
+      rw.inlineBlockBefore(sourceBlock, op);
+    }
+    rw.eraseOp(op);
+    return failure();
+  }
+};
+
+// Simple rewrite pass to remove back-to-back barriers
+struct RemoveBackToBackBarriersRewritePattern
+    : public OpRewritePattern<rock::LDSBarrierOp> {
+  using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
+                                PatternRewriter &rw) const override {
+    if (dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
+      op->getNextNode()->erase();
+      return success();
+    }
+    return failure();
+  }
+};
+
+// Simple rewrite pass to hoist operations that do not
+// access LDS before the barriers
+struct PushBarrierDownRewritePattern
+    : public OpRewritePattern<rock::LDSBarrierOp> {
+  using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
+                                PatternRewriter &rw) const override {
+    Operation *nextOp = op->getNextNode();
+
+    // Make sure that there is a nextOp
+    if (!nextOp)
+      return failure();
+
+    // Don't go over the terminator
+    if (!nextOp->getNextNode())
+      return failure();
+
+    // We assume that operations that have a body may modify LDS
+    if (nextOp->getNumRegions() > 0)
+      return failure();
+
+    bool moveDown = true;
+    // Make sure that the "nextOp" doesn't modify LDS
+    for (Value operand : nextOp->getOperands()) {
+      auto maybeAlloc = rock::findAlloc(operand);
+      if (succeeded(maybeAlloc) &&
+          getAddressSpace(*maybeAlloc) == AddressSpace::Workgroup)
+        moveDown = false;
+    }
+
+    if (moveDown) {
+      rw.setInsertionPointAfter(nextOp);
+      rw.create<rock::LDSBarrierOp>(nextOp->getLoc());
+      rw.eraseOp(op);
+      return success();
+    }
+    return failure();
+  }
+};
 
 // Create a dependency graph of the given set of stages. The
 // idea is to represent the dependencies through a DAG with
@@ -307,13 +352,10 @@ DagType pruneGraph(DagType dag) {
 // empty stage will contain an `lds_barrier` if `isBarrier` is set to true
 rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
                               rock::StageOp stage, bool isBarrier,
-                              bool isBefore) {
+                              StringRef name) {
   PatternRewriter::InsertionGuard guard(rewriter);
-  if (isBefore)
-    rewriter.setInsertionPoint(stage);
-  else
-    rewriter.setInsertionPointAfter(stage);
-  auto barrierStage = rewriter.create<rock::StageOp>(loc, "barrier");
+  rewriter.setInsertionPoint(stage);
+  auto barrierStage = rewriter.create<rock::StageOp>(loc, name);
   rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
   if (isBarrier) {
     rewriter.create<rock::LDSBarrierOp>(loc);
@@ -336,28 +378,79 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
   DagType dag = createDependencyGraph(stages, allocs);
   dag = pruneGraph(dag);
 
-  extendedStages.push_back(stages[0]);
-  for (size_t i = 0; i < stages.size() - 1; i++) {
-    bool placeBarrier = dag[stages[i]].contains(stages[i + 1]);
-    bool before = true;
-    auto barrierStage =
-        placeEmptyStage(rewriter, loc, stages[i + 1], placeBarrier, before);
-    extendedStages.push_back(barrierStage);
-    extendedStages.push_back(stages[i + 1]);
-  }
-  // Place a barrier after the last stage. This barrier is necessary to take
-  // into consideration the loop carried dependencies when pipelining. However,
-  // this might introduce an unnecessary barrier as the last operation of the
-  // epilogue. We will take care of removing this barrier at the end of the pass
   auto maybeNumIterations =
       rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
-  if (!maybeNumIterations.has_value() ||
-      (maybeNumIterations.has_value() && maybeNumIterations.value() > 1)) {
-    const bool placeBarrier = true;
-    const bool after = false;
-    extendedStages.push_back(
-        placeEmptyStage(rewriter, loc, stages.back(), placeBarrier, after));
+
+  // If there is a loop, we probably need a backward barrier, i.e.,
+  // an LDS barrier that takes the loop dependency into account
+  const bool addBackwardBarrier =
+      (!maybeNumIterations.has_value() ||
+       (maybeNumIterations.has_value() && maybeNumIterations.value() > 1));
+
+  DenseMap<rock::StageOp, int> timeSlotMap;
+  int timeSlot = 0;
+  for (auto stage : stages) {
+    timeSlotMap[stage] = (timeSlot % initiationInterval);
+    timeSlot++;
   }
+
+  // Algorithm for barrier placment:
+  // a. Add forward barriers to address the dependency in the basic block
+  // b. Add backward barriers to account for loop carried dependency
+  // c. Add empty stages to make the pipeline balanced, so that we can double up
+  //    the initiation interval and let the pipeline transformation automaticall
+  //    do the work for us
+  DenseSet<rock::StageOp> forwardStages;
+
+  // a. Place forward barriers
+  for (auto [source, edges] : dag) {
+    for (auto [sink, deps] : edges) {
+      if (!forwardStages.contains(sink)) {
+        forwardStages.insert(sink);
+      }
+    }
+  }
+
+  // b. If necessary, place a single backward barrier
+  rock::StageOp backwardStage;
+  if (addBackwardBarrier) {
+    // b.1 find the last sink of a dependendency
+    rock::StageOp lastSink;
+    for (auto stage : llvm::reverse(stages)) {
+      if (forwardStages.contains(stage)) {
+        lastSink = stage;
+        break;
+      }
+    }
+
+    // b.2 find the first stage not in the same timeslot. This will be
+    // the placement for the backward barrier.
+    for (auto stage : stages) {
+      if (timeSlotMap[stage] != timeSlotMap[lastSink]) {
+        backwardStage = stage;
+        break;
+      }
+    }
+  }
+
+  // c. Insert fwd/bwd barriers or empty stages
+  for (auto stage : stages) {
+    rock::StageOp additionalStage;
+    if (forwardStages.contains(stage)) {
+      additionalStage = placeEmptyStage(rewriter, loc, stage,
+                                        /**isBarrier=*/true, "__fwd_barrier__");
+    } else if (backwardStage == stage) {
+      additionalStage = placeEmptyStage(rewriter, loc, stage,
+                                        /**isBarrier=*/true, "__bwd_barrier__");
+    } else {
+      additionalStage = placeEmptyStage(
+          rewriter, loc, stage, /**isBarrier=*/false, "__empty_stage__");
+    }
+    extendedStages.push_back(additionalStage);
+    extendedStages.push_back(stage);
+  }
+
+  // d. Update the initiation interval
   initiationInterval *= 2;
 }
 
@@ -385,7 +478,6 @@ void RockPipeline::runOnOperation() {
 
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
   llvm::DenseMap<scf::ForOp, ScheduleType> scheduleMap;
-  llvm::DenseMap<scf::ForOp, Operation *> nextOpMap;
   for (auto res : allocs)
     multiBufferFactors[res] = 1;
 
@@ -434,8 +526,6 @@ void RockPipeline::runOnOperation() {
     // Annotate the operation that defines the boundary of the `forOp`. This
     // is because, at the end of the pass, we will remove any barrier at the
     // boundary (because they are not useful)
-    nextOpMap[forOp] = forOp->getNextNode();
-
     return WalkResult::advance();
   });
 
@@ -480,15 +570,9 @@ void RockPipeline::runOnOperation() {
   {
     if (removeStages) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<RemoveStagesRewritePattern,
-                   RemoveBackToBackBarriersRewritePattern>(&getContext());
+      patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern>(
+          &getContext());
       (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
     }
-  }
-
-  // Cleanup unwanted barriers
-  for (auto [forOp, nextOp] : nextOpMap) {
-    if (dyn_cast<rock::LDSBarrierOp>(nextOp->getPrevNode()))
-      nextOp->getPrevNode()->erase();
   }
 }

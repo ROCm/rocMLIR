@@ -11,24 +11,24 @@
 @internal_y = internal thread_local global i32 9
 @internal_y0 = internal thread_local global i32 0
 
-define ptr @get_external_x() {
+define i32* @get_external_x() {
 entry:
-  ret ptr @external_x
+  ret i32* @external_x
 }
 
-define ptr @get_external_y() {
+define i32* @get_external_y() {
 entry:
-  ret ptr @external_y
+  ret i32* @external_y
 }
 
-define ptr @get_internal_y() {
+define i32* @get_internal_y() {
 entry:
-  ret ptr @internal_y
+  ret i32* @internal_y
 }
 
-define ptr @get_internal_y0() {
+define i32* @get_internal_y0() {
 entry:
-  ret ptr @internal_y0
+  ret i32* @internal_y0
 }
 
 ; no direct access to emulated TLS variables.

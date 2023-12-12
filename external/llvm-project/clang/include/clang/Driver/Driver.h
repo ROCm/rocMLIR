@@ -30,6 +30,7 @@
 
 #include <list>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -137,7 +138,10 @@ public:
     /// The legacy name for the LLVM OpenMP runtime from when it was the Intel
     /// OpenMP runtime. We support this mode for users with existing
     /// dependencies on this runtime library name.
-    OMPRT_IOMP5
+    OMPRT_IOMP5,
+
+    /// The LLVM BOLT OpenMP runtime. See https://github.com/pmodels/bolt
+    OMPRT_BOLT
   };
 
   // Diag - Forwarding function for diagnostics.
@@ -328,6 +332,8 @@ private:
   /// stored in it, and will clean them up when torn down.
   mutable llvm::StringMap<std::unique_ptr<ToolChain>> ToolChains;
 
+  /// Number of parallel jobs.
+  unsigned NumParallelJobs;
   /// Cache of known offloading architectures for the ToolChain already derived.
   /// This should only be modified when we first initialize the offloading
   /// toolchains.
@@ -705,6 +711,12 @@ public:
     return IsOffload ? OffloadLTOMode : LTOMode;
   }
 
+  /// Get the number of parallel jobs.
+  unsigned getNumberOfParallelJobs() const { return NumParallelJobs; }
+
+  /// Set the number of parallel jobs.
+  void setNumberOfParallelJobs(unsigned N) { NumParallelJobs = N; }
+
 private:
 
   /// Tries to load options from configuration files.
@@ -775,6 +787,24 @@ private:
   static const char *getExecutableForDriverMode(DriverMode Mode);
 
 public:
+  ///  Add string to OffloadArchs set for each '--offload-arch=' arg
+  ///
+  /// \param C - The compilation that is being built.
+  /// \param OffloadArchs - The mutable set of strings, one per Offloading arch
+  bool
+  GetTargetInfoFromOffloadArchOpts(Compilation &C,
+                                   std::set<std::string> &OffloadArchs) const;
+
+  ///  Add string to OffloadArchs set for each offloading arch specified
+  ///  with legacy args. Unlike the newer, '--offload-arch' arg, specifying
+  ///  an offload arch with legacy args required three args:
+  ///    '-fopenmp-targets=', '-Xopenmp-target=', and '-march=' .
+  ///
+  /// \param C - The compilation that is being built.
+  /// \param OffloadArchs - The mutable set of strings, one per Offloading arch
+  bool GetTargetInfoFromMarch(Compilation &C,
+                              std::set<std::string> &OffloadArchs) const;
+
   /// GetReleaseVersion - Parse (([0-9]+)(.([0-9]+)(.([0-9]+)?))?)? and
   /// return the grouped values as integers. Numbers which are not
   /// provided are set to 0.

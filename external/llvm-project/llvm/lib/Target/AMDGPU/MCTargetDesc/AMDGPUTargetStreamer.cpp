@@ -124,6 +124,8 @@ StringRef AMDGPUTargetStreamer::getArchNameFromElfMach(unsigned ElfMach) {
   case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1101: AK = GK_GFX1101; break;
   case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1102: AK = GK_GFX1102; break;
   case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1103: AK = GK_GFX1103; break;
+  case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1150: AK = GK_GFX1150; break;
+  case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1151: AK = GK_GFX1151; break;
   case ELF::EF_AMDGPU_MACH_NONE:           AK = GK_NONE;    break;
   }
 
@@ -195,6 +197,8 @@ unsigned AMDGPUTargetStreamer::getElfMach(StringRef GPU) {
   case GK_GFX1101: return ELF::EF_AMDGPU_MACH_AMDGCN_GFX1101;
   case GK_GFX1102: return ELF::EF_AMDGPU_MACH_AMDGCN_GFX1102;
   case GK_GFX1103: return ELF::EF_AMDGPU_MACH_AMDGCN_GFX1103;
+  case GK_GFX1150: return ELF::EF_AMDGPU_MACH_AMDGCN_GFX1150;
+  case GK_GFX1151: return ELF::EF_AMDGPU_MACH_AMDGCN_GFX1151;
   case GK_NONE:    return ELF::EF_AMDGPU_MACH_NONE;
   }
 
@@ -364,6 +368,12 @@ void AMDGPUTargetAsmStreamer::EmitAmdhsaKernelDescriptor(
     PRINT_FIELD(OS, ".amdhsa_user_sgpr_flat_scratch_init", KD,
                 kernel_code_properties,
                 amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_FLAT_SCRATCH_INIT);
+  if (hasKernargPreload(STI)) {
+    PRINT_FIELD(OS, ".amdhsa_user_sgpr_kernarg_preload_length ", KD,
+                kernarg_preload, amdhsa::KERNARG_PRELOAD_SPEC_LENGTH);
+    PRINT_FIELD(OS, ".amdhsa_user_sgpr_kernarg_preload_offset ", KD,
+                kernarg_preload, amdhsa::KERNARG_PRELOAD_SPEC_OFFSET);
+  }
   PRINT_FIELD(OS, ".amdhsa_user_sgpr_private_segment_size", KD,
               kernel_code_properties,
               amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_PRIVATE_SEGMENT_SIZE);
@@ -823,6 +833,24 @@ bool AMDGPUTargetELFStreamer::EmitHSAMetadata(
   return true;
 }
 
+bool AMDGPUTargetAsmStreamer::EmitKernargPreloadHeader(
+    const MCSubtargetInfo &STI) {
+  for (int i = 0; i < 64; ++i) {
+    OS << "\ts_nop 0\n";
+  }
+  return true;
+}
+
+bool AMDGPUTargetELFStreamer::EmitKernargPreloadHeader(
+    const MCSubtargetInfo &STI) {
+  const uint32_t Encoded_s_nop = 0xbf800000;
+  MCStreamer &OS = getStreamer();
+  for (int i = 0; i < 64; ++i) {
+    OS.emitInt32(Encoded_s_nop);
+  }
+  return true;
+}
+
 bool AMDGPUTargetELFStreamer::EmitCodeEnd(const MCSubtargetInfo &STI) {
   const uint32_t Encoded_s_code_end = 0xbf9f0000;
   const uint32_t Encoded_s_nop = 0xbf800000;
@@ -902,6 +930,7 @@ void AMDGPUTargetELFStreamer::EmitAmdhsaKernelDescriptor(
   Streamer.emitInt32(KernelDescriptor.compute_pgm_rsrc1);
   Streamer.emitInt32(KernelDescriptor.compute_pgm_rsrc2);
   Streamer.emitInt16(KernelDescriptor.kernel_code_properties);
-  for (uint8_t Res : KernelDescriptor.reserved2)
+  Streamer.emitInt16(KernelDescriptor.kernarg_preload);
+  for (uint8_t Res : KernelDescriptor.reserved3)
     Streamer.emitInt8(Res);
 }

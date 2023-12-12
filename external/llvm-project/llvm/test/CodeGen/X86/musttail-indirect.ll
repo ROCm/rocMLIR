@@ -22,18 +22,19 @@
 ; Each member pointer creates a thunk.  The ones with inalloca are required to
 ; tail calls by the ABI, even at O0.
 
-%struct.B = type { ptr }
+%struct.B = type { i32 (...)** }
 %struct.A = type { i32 }
 
 ; CHECK-LABEL: f_thunk:
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc i32 @f_thunk(ptr %this, i32) {
+define x86_thiscallcc i32 @f_thunk(%struct.B* %this, i32) {
 entry:
-  %vtable = load ptr, ptr %this
-  %1 = load ptr, ptr %vtable
-  %2 = musttail call x86_thiscallcc i32 %1(ptr %this, i32 %0)
-  ret i32 %2
+  %1 = bitcast %struct.B* %this to i32 (%struct.B*, i32)***
+  %vtable = load i32 (%struct.B*, i32)**, i32 (%struct.B*, i32)*** %1
+  %2 = load i32 (%struct.B*, i32)*, i32 (%struct.B*, i32)** %vtable
+  %3 = musttail call x86_thiscallcc i32 %2(%struct.B* %this, i32 %0)
+  ret i32 %3
 }
 
 ; Inalloca thunks shouldn't require any stores to the stack.
@@ -41,13 +42,14 @@ entry:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc i32 @g_thunk(ptr %this, ptr inalloca(<{ %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc i32 @g_thunk(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_thiscallcc i32 %1(ptr %this, ptr inalloca(<{ %struct.A, i32, %struct.A }>) %0)
-  ret i32 %2
+  %1 = bitcast %struct.B* %this to i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)***
+  %vtable = load i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)**, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vfn
+  %3 = musttail call x86_thiscallcc i32 %2(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A, i32, %struct.A }>) %0)
+  ret i32 %3
 }
 
 ; Preallocated thunks shouldn't require any stores to the stack.
@@ -55,25 +57,27 @@ entry:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc i32 @g_thunk_preallocated(ptr %this, ptr preallocated(<{ %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc i32 @g_thunk_preallocated(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_thiscallcc i32 %1(ptr %this, ptr preallocated(<{ %struct.A, i32, %struct.A }>) %0)
-  ret i32 %2
+  %1 = bitcast %struct.B* %this to i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)***
+  %vtable = load i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)**, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vfn
+  %3 = musttail call x86_thiscallcc i32 %2(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A, i32, %struct.A }>) %0)
+  ret i32 %3
 }
 
 ; CHECK-LABEL: h_thunk:
 ; CHECK: jmpl
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK-NOT: ret
-define x86_thiscallcc void @h_thunk(ptr %this, ptr inalloca(<{ %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc void @h_thunk(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 2
-  %1 = load ptr, ptr %vfn
-  musttail call x86_thiscallcc void %1(ptr %this, ptr inalloca(<{ %struct.A, i32, %struct.A }>) %0)
+  %1 = bitcast %struct.B* %this to void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)***
+  %vtable = load void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)**, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vtable, i32 2
+  %2 = load void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vfn
+  musttail call x86_thiscallcc void %2(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A, i32, %struct.A }>) %0)
   ret void
 }
 
@@ -81,12 +85,13 @@ entry:
 ; CHECK: jmpl
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK-NOT: ret
-define x86_thiscallcc void @h_thunk_preallocated(ptr %this, ptr preallocated(<{ %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc void @h_thunk_preallocated(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 2
-  %1 = load ptr, ptr %vfn
-  musttail call x86_thiscallcc void %1(ptr %this, ptr preallocated(<{ %struct.A, i32, %struct.A }>) %0)
+  %1 = bitcast %struct.B* %this to void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)***
+  %vtable = load void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)**, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vtable, i32 2
+  %2 = load void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)*, void (%struct.B*, <{ %struct.A, i32, %struct.A }>*)** %vfn
+  musttail call x86_thiscallcc void %2(%struct.B* %this, <{ %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A, i32, %struct.A }>) %0)
   ret void
 }
 
@@ -94,37 +99,40 @@ entry:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc ptr @i_thunk(ptr %this, ptr inalloca(<{ ptr, %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc %struct.A* @i_thunk(%struct.B* %this, <{ %struct.A*, %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A*, %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 3
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_thiscallcc ptr %1(ptr %this, ptr inalloca(<{ ptr, %struct.A, i32, %struct.A }>) %0)
-  ret ptr %2
+  %1 = bitcast %struct.B* %this to %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)***
+  %vtable = load %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)**, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)** %vtable, i32 3
+  %2 = load %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)** %vfn
+  %3 = musttail call x86_thiscallcc %struct.A* %2(%struct.B* %this, <{ %struct.A*, %struct.A, i32, %struct.A }>* inalloca(<{ %struct.A*, %struct.A, i32, %struct.A }>) %0)
+  ret %struct.A* %3
 }
 
 ; CHECK-LABEL: i_thunk_preallocated:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc ptr @i_thunk_preallocated(ptr %this, ptr preallocated(<{ ptr, %struct.A, i32, %struct.A }>)) {
+define x86_thiscallcc %struct.A* @i_thunk_preallocated(%struct.B* %this, <{ %struct.A*, %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A*, %struct.A, i32, %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 3
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_thiscallcc ptr %1(ptr %this, ptr preallocated(<{ ptr, %struct.A, i32, %struct.A }>) %0)
-  ret ptr %2
+  %1 = bitcast %struct.B* %this to %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)***
+  %vtable = load %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)**, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)** %vtable, i32 3
+  %2 = load %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)*, %struct.A* (%struct.B*, <{ %struct.A*, %struct.A, i32, %struct.A }>*)** %vfn
+  %3 = musttail call x86_thiscallcc %struct.A* %2(%struct.B* %this, <{ %struct.A*, %struct.A, i32, %struct.A }>* preallocated(<{ %struct.A*, %struct.A, i32, %struct.A }>) %0)
+  ret %struct.A* %3
 }
 
 ; CHECK-LABEL: j_thunk:
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_thiscallcc void @j_thunk(ptr noalias sret(%struct.A) %agg.result, ptr %this, i32) {
+define x86_thiscallcc void @j_thunk(%struct.A* noalias sret(%struct.A) %agg.result, %struct.B* %this, i32) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 4
-  %1 = load ptr, ptr %vfn
-  musttail call x86_thiscallcc void %1(ptr sret(%struct.A) %agg.result, ptr %this, i32 %0)
+  %1 = bitcast %struct.B* %this to void (%struct.A*, %struct.B*, i32)***
+  %vtable = load void (%struct.A*, %struct.B*, i32)**, void (%struct.A*, %struct.B*, i32)*** %1
+  %vfn = getelementptr inbounds void (%struct.A*, %struct.B*, i32)*, void (%struct.A*, %struct.B*, i32)** %vtable, i32 4
+  %2 = load void (%struct.A*, %struct.B*, i32)*, void (%struct.A*, %struct.B*, i32)** %vfn
+  musttail call x86_thiscallcc void %2(%struct.A* sret(%struct.A) %agg.result, %struct.B* %this, i32 %0)
   ret void
 }
 
@@ -132,54 +140,58 @@ entry:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_stdcallcc i32 @stdcall_thunk(ptr inalloca(<{ ptr, %struct.A }>)) {
+define x86_stdcallcc i32 @stdcall_thunk(<{ %struct.B*, %struct.A }>* inalloca(<{ %struct.B*, %struct.A }>)) {
 entry:
-  %this_ptr = getelementptr inbounds <{ ptr, %struct.A }>, ptr %0, i32 0, i32 0
-  %this = load ptr, ptr %this_ptr
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_stdcallcc i32 %1(ptr inalloca(<{ ptr, %struct.A }>) %0)
-  ret i32 %2
+  %this_ptr = getelementptr inbounds <{ %struct.B*, %struct.A }>, <{ %struct.B*, %struct.A }>* %0, i32 0, i32 0
+  %this = load %struct.B*, %struct.B** %this_ptr
+  %1 = bitcast %struct.B* %this to i32 (<{ %struct.B*, %struct.A }>*)***
+  %vtable = load i32 (<{ %struct.B*, %struct.A }>*)**, i32 (<{ %struct.B*, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (<{ %struct.B*, %struct.A }>*)*, i32 (<{ %struct.B*, %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (<{ %struct.B*, %struct.A }>*)*, i32 (<{ %struct.B*, %struct.A }>*)** %vfn
+  %3 = musttail call x86_stdcallcc i32 %2(<{ %struct.B*, %struct.A }>* inalloca(<{ %struct.B*, %struct.A }>) %0)
+  ret i32 %3
 }
 
 ; CHECK-LABEL: _stdcall_thunk_preallocated@8:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_stdcallcc i32 @stdcall_thunk_preallocated(ptr preallocated(<{ ptr, %struct.A }>)) {
+define x86_stdcallcc i32 @stdcall_thunk_preallocated(<{ %struct.B*, %struct.A }>* preallocated(<{ %struct.B*, %struct.A }>)) {
 entry:
-  %this_ptr = getelementptr inbounds <{ ptr, %struct.A }>, ptr %0, i32 0, i32 0
-  %this = load ptr, ptr %this_ptr
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_stdcallcc i32 %1(ptr preallocated(<{ ptr, %struct.A }>) %0)
-  ret i32 %2
+  %this_ptr = getelementptr inbounds <{ %struct.B*, %struct.A }>, <{ %struct.B*, %struct.A }>* %0, i32 0, i32 0
+  %this = load %struct.B*, %struct.B** %this_ptr
+  %1 = bitcast %struct.B* %this to i32 (<{ %struct.B*, %struct.A }>*)***
+  %vtable = load i32 (<{ %struct.B*, %struct.A }>*)**, i32 (<{ %struct.B*, %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (<{ %struct.B*, %struct.A }>*)*, i32 (<{ %struct.B*, %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (<{ %struct.B*, %struct.A }>*)*, i32 (<{ %struct.B*, %struct.A }>*)** %vfn
+  %3 = musttail call x86_stdcallcc i32 %2(<{ %struct.B*, %struct.A }>* preallocated(<{ %struct.B*, %struct.A }>) %0)
+  ret i32 %3
 }
 
 ; CHECK-LABEL: @fastcall_thunk@8:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_fastcallcc i32 @fastcall_thunk(ptr inreg %this, ptr inalloca(<{ %struct.A }>)) {
+define x86_fastcallcc i32 @fastcall_thunk(%struct.B* inreg %this, <{ %struct.A }>* inalloca(<{ %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_fastcallcc i32 %1(ptr inreg %this, ptr inalloca(<{ %struct.A }>) %0)
-  ret i32 %2
+  %1 = bitcast %struct.B* %this to i32 (%struct.B*, <{ %struct.A }>*)***
+  %vtable = load i32 (%struct.B*, <{ %struct.A }>*)**, i32 (%struct.B*, <{ %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (%struct.B*, <{ %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (%struct.B*, <{ %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A }>*)** %vfn
+  %3 = musttail call x86_fastcallcc i32 %2(%struct.B* inreg %this, <{ %struct.A }>* inalloca(<{ %struct.A }>) %0)
+  ret i32 %3
 }
 
 ; CHECK-LABEL: @fastcall_thunk_preallocated@8:
 ; CHECK-NOT: mov %{{.*}}, {{.*(.*esp.*)}}
 ; CHECK: jmpl
 ; CHECK-NOT: ret
-define x86_fastcallcc i32 @fastcall_thunk_preallocated(ptr inreg %this, ptr preallocated(<{ %struct.A }>)) {
+define x86_fastcallcc i32 @fastcall_thunk_preallocated(%struct.B* inreg %this, <{ %struct.A }>* preallocated(<{ %struct.A }>)) {
 entry:
-  %vtable = load ptr, ptr %this
-  %vfn = getelementptr inbounds ptr, ptr %vtable, i32 1
-  %1 = load ptr, ptr %vfn
-  %2 = musttail call x86_fastcallcc i32 %1(ptr inreg %this, ptr preallocated(<{ %struct.A }>) %0)
-  ret i32 %2
+  %1 = bitcast %struct.B* %this to i32 (%struct.B*, <{ %struct.A }>*)***
+  %vtable = load i32 (%struct.B*, <{ %struct.A }>*)**, i32 (%struct.B*, <{ %struct.A }>*)*** %1
+  %vfn = getelementptr inbounds i32 (%struct.B*, <{ %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A }>*)** %vtable, i32 1
+  %2 = load i32 (%struct.B*, <{ %struct.A }>*)*, i32 (%struct.B*, <{ %struct.A }>*)** %vfn
+  %3 = musttail call x86_fastcallcc i32 %2(%struct.B* inreg %this, <{ %struct.A }>* preallocated(<{ %struct.A }>) %0)
+  ret i32 %3
 }

@@ -82,6 +82,18 @@ defm split_stack_adjust_size
 
 def O: JoinedOrSeparate<["-"], "O">, HelpText<"Optimize output file size">;
 
+def cmse_implib: FF<"cmse-implib">,
+  HelpText<"Make the output library to be a CMSE secure code import library">;
+
+defm in_implib: EEq<"in-implib",
+    "Read an existing CMSE secure code import library and preserve entry function addresses in the "
+    "resulting new CMSE secure code import library (optional when creating a CMSE secure image)">,
+  MetaVarName<"<file>">;
+
+defm out_implib: EEq<"out-implib",
+    "Output the CMSE secure code import library to <file> (required when creating a CMSE secure image)">,
+  MetaVarName<"<file>">;
+
 defm Tbss: Eq<"Tbss", "Same as --section-start with .bss as the sectionname">;
 
 defm Tdata: Eq<"Tdata", "Same as --section-start with .data as the sectionname">;
@@ -460,7 +472,7 @@ defm unresolved_symbols:
   Eq<"unresolved-symbols", "Determine how to handle unresolved symbols">;
 
 defm undefined_version: B<"undefined-version",
-  "Allow unused version in version script (disabled by default)",
+  "Allow unused version in version script (default)",
   "Report version scripts that refer undefined symbols">;
 
 defm rsp_quoting: EEq<"rsp-quoting", "Quoting style for response files">,
@@ -565,6 +577,9 @@ def: JoinedOrSeparate<["-"], "u">, Alias<undefined>, HelpText<"Alias for --undef
 def: Flag<["-"], "V">, Alias<v>, HelpText<"Alias for -v">;
 
 // LTO-related options.
+
+def lto: JJ<"lto=">, HelpText<"Set LTO backend">,
+                 MetaVarName<"[full,thin]">;
 def lto_aa_pipeline: JJ<"lto-aa-pipeline=">,
   HelpText<"AA pipeline to run during LTO. Used in conjunction with -lto-newpm-passes">;
 def lto_debug_pass_manager: FF<"lto-debug-pass-manager">,

@@ -1,7 +1,3 @@
-set(LLVM_TARGET_DEFINITIONS MIGraphXToTosa.td)
-mlir_tablegen(MIGraphXToTosa.cpp.inc -gen-rewriters)
-add_public_tablegen_target(MLIRMIGraphXToTosaConversionIncGen)
-
 add_rocmlir_conversion_library(MLIRMIGraphXToTosa
   MIGraphXToTosa.cpp
   MIGraphXToTosaPass.cpp
@@ -13,15 +9,15 @@ add_rocmlir_conversion_library(MLIRMIGraphXToTosa
   DEPENDS
   MLIRConversionPassIncGen
   RocMLIRConversionPassIncGen
-  MLIRMIGraphXToTosaConversionIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
   MLIRTosaDialect
+  MLIRMHAL
   MLIRTosaTransforms
   MLIRRockTransforms
   MLIRTransforms
   MLIRSupport
-  MLIRMIGraphX
+  MLIRMIGraphXDialect
   )

@@ -3,10 +3,10 @@
 ; Test that the "returned" attribute "works" even if there is a bitcast between
 ; the argument and return value.
 
-declare ptr @bar(ptr returned)
+declare double* @bar(i8* returned)
 
-define ptr @foo(ptr) {
-  %r = tail call ptr @bar(ptr %0)
+define double* @foo(i8*) {
+  %r = tail call double* @bar(i8* %0)
 ; CHECK: jmp    bar
-  ret ptr %r
+  ret double* %r
 }

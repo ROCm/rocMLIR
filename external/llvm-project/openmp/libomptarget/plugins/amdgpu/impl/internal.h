@@ -26,7 +26,7 @@
 #include "impl_runtime.h"
 
 #ifndef TARGET_NAME
-#error "Missing TARGET_NAME macro"
+#define TARGET_NAME AMDGPU
 #endif
 #define DEBUG_PREFIX "Target " GETNAME(TARGET_NAME) " RTL"
 #include "Debug.h"
@@ -45,6 +45,7 @@ typedef struct atl_kernel_info_s {
   uint32_t kernel_segment_size;
   uint32_t explicit_argument_count;
   uint32_t implicit_argument_count;
+  std::string kind;
 } atl_kernel_info_t;
 
 typedef struct atl_symbol_info_s {

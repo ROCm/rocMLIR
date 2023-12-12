@@ -1527,7 +1527,7 @@ define double @extract_extract01_v8f64_fsub_f64_commute(<8 x double> %x) {
 
 ; Check output when 1 or both extracts have extra uses.
 
-define float @extract_extract01_v4f32_fadd_f32_uses1(<4 x float> %x, ptr %p) {
+define float @extract_extract01_v4f32_fadd_f32_uses1(<4 x float> %x, float* %p) {
 ; SSE3-SLOW-LABEL: extract_extract01_v4f32_fadd_f32_uses1:
 ; SSE3-SLOW:       # %bb.0:
 ; SSE3-SLOW-NEXT:    movss %xmm0, (%rdi)
@@ -1554,13 +1554,13 @@ define float @extract_extract01_v4f32_fadd_f32_uses1(<4 x float> %x, ptr %p) {
 ; AVX-FAST-NEXT:    vhaddps %xmm0, %xmm0, %xmm0
 ; AVX-FAST-NEXT:    retq
   %x0 = extractelement <4 x float> %x, i32 0
-  store float %x0, ptr %p
+  store float %x0, float* %p
   %x1 = extractelement <4 x float> %x, i32 1
   %x01 = fadd float %x0, %x1
   ret float %x01
 }
 
-define float @extract_extract01_v4f32_fadd_f32_uses2(<4 x float> %x, ptr %p) {
+define float @extract_extract01_v4f32_fadd_f32_uses2(<4 x float> %x, float* %p) {
 ; SSE3-SLOW-LABEL: extract_extract01_v4f32_fadd_f32_uses2:
 ; SSE3-SLOW:       # %bb.0:
 ; SSE3-SLOW-NEXT:    movshdup {{.*#+}} xmm1 = xmm0[1,1,3,3]
@@ -1589,12 +1589,12 @@ define float @extract_extract01_v4f32_fadd_f32_uses2(<4 x float> %x, ptr %p) {
 ; AVX-FAST-NEXT:    retq
   %x0 = extractelement <4 x float> %x, i32 0
   %x1 = extractelement <4 x float> %x, i32 1
-  store float %x1, ptr %p
+  store float %x1, float* %p
   %x01 = fadd float %x0, %x1
   ret float %x01
 }
 
-define float @extract_extract01_v4f32_fadd_f32_uses3(<4 x float> %x, ptr %p1, ptr %p2) {
+define float @extract_extract01_v4f32_fadd_f32_uses3(<4 x float> %x, float* %p1, float* %p2) {
 ; SSE3-LABEL: extract_extract01_v4f32_fadd_f32_uses3:
 ; SSE3:       # %bb.0:
 ; SSE3-NEXT:    movss %xmm0, (%rdi)
@@ -1611,9 +1611,9 @@ define float @extract_extract01_v4f32_fadd_f32_uses3(<4 x float> %x, ptr %p1, pt
 ; AVX-NEXT:    vaddss %xmm1, %xmm0, %xmm0
 ; AVX-NEXT:    retq
   %x0 = extractelement <4 x float> %x, i32 0
-  store float %x0, ptr %p1
+  store float %x0, float* %p1
   %x1 = extractelement <4 x float> %x, i32 1
-  store float %x1, ptr %p2
+  store float %x1, float* %p2
   %x01 = fadd float %x0, %x1
   ret float %x01
 }

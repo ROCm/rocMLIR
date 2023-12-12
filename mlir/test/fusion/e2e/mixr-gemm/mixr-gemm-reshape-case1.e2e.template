@@ -5,9 +5,9 @@ module {{
   // CHECK:  [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
-  func.func @dot_reshape_1(%arg0: tensor<1x5x4x{type}>, %arg1: tensor<1x4x3x{type}>, %arg2: tensor<1x5x3x{type}>) -> tensor<1x15x{type}> attributes{{kernel, arch = ""}} {{
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4x{type}>, tensor<1x4x3x{type}>) -> tensor<1x5x3x{type}>
-    %2 = "migraphx.reshape"(%0) {{dims = [1:i64, 15:i64]}} : (tensor<1x5x3x{type}>)-> tensor<1x15x{type}>
-    return %2 : tensor<1x15x{type}>
+  func.func @dot_reshape_1(%arg0: !migraphx.shaped<1x5x4x{type}, 20x4x1>, %arg1: !migraphx.shaped<1x4x3x{type}, 12x3x1>, %arg2: !migraphx.shaped<1x5x3x{type}, 15x3x1>) -> !migraphx.shaped<1x15x{type}, 15x1> attributes{{kernel, arch = ""}} {{
+    %0 = migraphx.dot %arg0, %arg1 : <1x5x4x{type}, 20x4x1>, <1x4x3x{type}, 12x3x1> -> <1x5x3x{type}, 15x3x1>
+    %2 = migraphx.reshape %0 {{dims = [1:i64, 15:i64]}} : <1x5x3x{type}, 15x3x1> -> <1x15x{type}, 15x1>
+    return %2 : !migraphx.shaped<1x15x{type}, 15x1>
   }}
 }}

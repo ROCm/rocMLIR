@@ -11,10 +11,10 @@ module {{
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
 
-  func.func @dot_broadcast_add(%arg0: tensor<1x5x4x{type}>, %arg1: tensor<1x4x3x{type}>, %arg2: tensor<3x{type}>) -> tensor<1x5x3x{type}> attributes{{kernel, arch = ""}} {{
-    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<1x5x4x{type}>, tensor<1x4x3x{type}>) -> tensor<1x5x3x{type}>
-    %1 = "migraphx.broadcast"(%arg2) {{axis = 2:i64, out_lens= [1:i64, 5:i64, 3:i64] }} : (tensor<3x{type}>)-> tensor<1x5x3x{type}>
-    %2 = "migraphx.add"(%0, %1) {{}} : (tensor<1x5x3x{type}>, tensor<1x5x3x{type}>)-> tensor<1x5x3x{type}>
-    return %2 : tensor<1x5x3x{type}>
+  func.func @dot_broadcast_add(%arg0: !migraphx.shaped<1x5x4x{type}, 20x4x1>, %arg1: !migraphx.shaped<1x4x3x{type}, 12x3x1>, %arg2: !migraphx.shaped<3x{type}, 1>) -> !migraphx.shaped<1x5x3x{type}, 15x3x1> attributes{{kernel, arch = ""}} {{
+    %0 = migraphx.dot %arg0, %arg1 : <1x5x4x{type}, 20x4x1>, <1x4x3x{type}, 12x3x1> -> <1x5x3x{type}, 15x3x1>
+    %1 = migraphx.broadcast %arg2 {{axis = 2:i64, out_lens= [1:i64, 5:i64, 3:i64] }} : <3x{type}, 1> -> <1x5x3x{type}, 0x0x1>
+    %2 = migraphx.add %0, %1 {{}} : <1x5x3x{type}, 15x3x1>, <1x5x3x{type}, 0x0x1> -> <1x5x3x{type}, 15x3x1>
+    return %2 : !migraphx.shaped<1x5x3x{type}, 15x3x1>
   }}
 }}

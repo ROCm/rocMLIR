@@ -89,7 +89,11 @@ def Tosa_QuantizedInt	: AnyTypeOf<[ Tosa_QuantizedType<"uint8", [8], 0>,
 def Tosa_Float : AnyTypeOf<[
                             F32,
 			    F16,
-			    BF16]>;
+			    BF16,
+          F8E4M3FN,
+          F8E5M2,
+          F8E4M3FNUZ,
+          F8E5M2FNUZ]>;
 
 //===----------------------------------------------------------------------===//
 // Multi-category types.

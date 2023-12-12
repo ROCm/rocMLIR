@@ -70,6 +70,14 @@ public:
     return SpillSGPRToVGPR;
   }
 
+  bool isCFISavedRegsSpillEnabled() const;
+
+  /// Return the largest available SGPR aligned to \p Align for the register
+  /// class \p RC.
+  MCRegister getAlignedHighSGPRForRC(const MachineFunction &MF,
+                                     const unsigned Align,
+                                     const TargetRegisterClass *RC) const;
+
   /// Return the end register initially reserved for the scratch buffer in case
   /// spilling is needed.
   MCRegister reservedPrivateSegmentBufferReg(const MachineFunction &MF) const;
@@ -136,14 +144,17 @@ public:
   void buildVGPRSpillLoadStore(SGPRSpillBuilder &SB, int Index, int Offset,
                                bool IsLoad, bool IsKill = true) const;
 
-  /// If \p OnlyToVGPR is true, this will only succeed if this
+  /// If \p OnlyToVGPR is true, this will only succeed if this manages to find a
+  /// free VGPR lane to spill.
   bool spillSGPR(MachineBasicBlock::iterator MI, int FI, RegScavenger *RS,
                  SlotIndexes *Indexes = nullptr, LiveIntervals *LIS = nullptr,
-                 bool OnlyToVGPR = false) const;
+                 bool OnlyToVGPR = false, bool SpillToPhysVGPRLane = false,
+                 bool NeedsCFI = false) const;
 
   bool restoreSGPR(MachineBasicBlock::iterator MI, int FI, RegScavenger *RS,
                    SlotIndexes *Indexes = nullptr, LiveIntervals *LIS = nullptr,
-                   bool OnlyToVGPR = false) const;
+                   bool OnlyToVGPR = false,
+                   bool SpillToPhysVGPRLane = false) const;
 
   bool spillEmergencySGPR(MachineBasicBlock::iterator MI,
                           MachineBasicBlock &RestoreMBB, Register SGPR,
@@ -157,10 +168,10 @@ public:
                            unsigned FIOperandNum,
                            RegScavenger *RS) const override;
 
-  bool eliminateSGPRToVGPRSpillFrameIndex(MachineBasicBlock::iterator MI,
-                                          int FI, RegScavenger *RS,
-                                          SlotIndexes *Indexes = nullptr,
-                                          LiveIntervals *LIS = nullptr) const;
+  bool eliminateSGPRToVGPRSpillFrameIndex(
+      MachineBasicBlock::iterator MI, int FI, RegScavenger *RS,
+      SlotIndexes *Indexes = nullptr, LiveIntervals *LIS = nullptr,
+      bool SpillToPhysVGPRLane = false) const;
 
   StringRef getRegAsmName(MCRegister Reg) const override;
 
@@ -416,8 +427,8 @@ public:
                            unsigned LoadStoreOp, int Index, Register ValueReg,
                            bool ValueIsKill, MCRegister ScratchOffsetReg,
                            int64_t InstrOffset, MachineMemOperand *MMO,
-                           RegScavenger *RS,
-                           LivePhysRegs *LiveRegs = nullptr) const;
+                           RegScavenger *RS, LivePhysRegs *LiveRegs = nullptr,
+                           bool NeedsCFI = false) const;
 
   // Return alignment in register file of first register in a register tuple.
   unsigned getRegClassAlignmentNumBits(const TargetRegisterClass *RC) const {

@@ -2,7 +2,7 @@
 ; RUN: llc < %s -mtriple=x86_64-linux -mattr=+cldemote | FileCheck %s --check-prefix=X64
 ; RUN: llc < %s -mtriple=i386-pc-linux -mattr=+cldemote | FileCheck %s --check-prefix=X32
 
-define void @test_cldemote(ptr %p) {
+define void @test_cldemote(i8* %p) {
 ; X64-LABEL: test_cldemote:
 ; X64:       # %bb.0: # %entry
 ; X64-NEXT:    cldemote (%rdi)
@@ -14,8 +14,8 @@ define void @test_cldemote(ptr %p) {
 ; X32-NEXT:    cldemote (%eax)
 ; X32-NEXT:    retl
 entry:
-  tail call void @llvm.x86.cldemote(ptr %p)
+  tail call void @llvm.x86.cldemote(i8* %p)
   ret void
 }
 
-declare void @llvm.x86.cldemote(ptr)
+declare void @llvm.x86.cldemote(i8*)

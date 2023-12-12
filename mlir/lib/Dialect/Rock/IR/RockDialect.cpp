@@ -630,9 +630,9 @@ GemmSize Conv2DOp::getGemmSize() {
 
 GemmSize Conv2DBwdDataOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
-  auto padding = extractFromI64ArrayAttr(this->getPadding());
-  auto strides = extractFromI64ArrayAttr(this->getStrides());
-  auto dilations = extractFromI64ArrayAttr(this->getDilations());
+  auto padding = extractFromIntegerArrayAttr<int64_t>(this->getPadding());
+  auto strides = extractFromIntegerArrayAttr<int64_t>(this->getStrides());
+  auto dilations = extractFromIntegerArrayAttr<int64_t>(this->getDilations());
   int64_t kernelId = getKernelId().getSExtValue();
 
   int64_t strideH = strides[0];

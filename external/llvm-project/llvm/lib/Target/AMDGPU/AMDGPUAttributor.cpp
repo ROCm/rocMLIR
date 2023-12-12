@@ -28,6 +28,10 @@ void initializeCycleInfoWrapperPassPass(PassRegistry &);
 
 using namespace llvm;
 
+static cl::opt<unsigned> KernargPreloadCount(
+    "amdgpu-kernarg-preload-count",
+    cl::desc("How many kernel arguments to preload onto SGPRs"), cl::init(0));
+
 #define AMDGPU_ATTRIBUTE(Name, Str) Name##_POS,
 
 enum ImplicitArgumentPositions {
@@ -208,7 +212,8 @@ private:
   }
 
   /// Get the constant access bitmap for \p C.
-  uint8_t getConstantAccess(const Constant *C) {
+  uint8_t getConstantAccess(const Constant *C,
+                            SmallPtrSetImpl<const Constant *> &Visited) {
     auto It = ConstantStatus.find(C);
     if (It != ConstantStatus.end())
       return It->second;
@@ -223,10 +228,10 @@ private:
 
     for (const Use &U : C->operands()) {
       const auto *OpC = dyn_cast<Constant>(U);
-      if (!OpC)
+      if (!OpC || !Visited.insert(OpC).second)
         continue;
 
-      Result |= getConstantAccess(OpC);
+      Result |= getConstantAccess(OpC, Visited);
     }
     return Result;
   }
@@ -241,7 +246,8 @@ public:
     if (!IsNonEntryFunc && HasAperture)
       return false;
 
-    uint8_t Access = getConstantAccess(C);
+    SmallPtrSet<const Constant *, 8> Visited;
+    uint8_t Access = getConstantAccess(C, Visited);
 
     // We need to trap on DS globals in non-entry functions.
     if (IsNonEntryFunc && (Access & DS_GLOBAL))
@@ -368,8 +374,8 @@ struct AAUniformWorkGroupSizeFunction : public AAUniformWorkGroupSize {
 
     AttrList.push_back(Attribute::get(Ctx, "uniform-work-group-size",
                                       getAssumed() ? "true" : "false"));
-    return IRAttributeManifest::manifestAttrs(A, getIRPosition(), AttrList,
-                                              /* ForceReplace */ true);
+    return A.manifestAttrs(getIRPosition(), AttrList,
+                           /* ForceReplace */ true);
   }
 
   bool isValidState() const override {
@@ -377,7 +383,7 @@ struct AAUniformWorkGroupSizeFunction : public AAUniformWorkGroupSize {
     return true;
   }
 
-  const std::string getAsStr() const override {
+  const std::string getAsStr(Attributor *) const override {
     return "AMDWorkGroupSize[" + std::to_string(getAssumed()) + "]";
   }
 
@@ -526,11 +532,11 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
         AttrList.push_back(Attribute::get(Ctx, Attr.second));
     }
 
-    return IRAttributeManifest::manifestAttrs(A, getIRPosition(), AttrList,
-                                              /* ForceReplace */ true);
+    return A.manifestAttrs(getIRPosition(), AttrList,
+                           /* ForceReplace */ true);
   }
 
-  const std::string getAsStr() const override {
+  const std::string getAsStr(Attributor *) const override {
     std::string Str;
     raw_string_ostream OS(Str);
     OS << "AMDInfo[";
@@ -732,12 +738,12 @@ struct AAAMDSizeRangeAttribute
     SmallString<10> Buffer;
     raw_svector_ostream OS(Buffer);
     OS << getAssumed().getLower() << ',' << getAssumed().getUpper() - 1;
-    return IRAttributeManifest::manifestAttrs(
-        A, getIRPosition(), {Attribute::get(Ctx, AttrName, OS.str())},
-        /* ForceReplace */ true);
+    return A.manifestAttrs(getIRPosition(),
+                           {Attribute::get(Ctx, AttrName, OS.str())},
+                           /* ForceReplace */ true);
   }
 
-  const std::string getAsStr() const override {
+  const std::string getAsStr(Attributor *) const override {
     std::string Str;
     raw_string_ostream OS(Str);
     OS << getName() << '[';
@@ -807,6 +813,21 @@ AAAMDFlatWorkGroupSize::createForPosition(const IRPosition &IRP,
     return *new (A.Allocator) AAAMDFlatWorkGroupSize(IRP, A);
   llvm_unreachable(
       "AAAMDFlatWorkGroupSize is only valid for function position");
+}
+
+static void addPreloadKernArgHint(Function &F, TargetMachine &TM) {
+  const GCNSubtarget &ST = TM.getSubtarget<GCNSubtarget>(F);
+  for (unsigned I = 0;
+       I < F.arg_size() &&
+       I < std::min(KernargPreloadCount.getValue(), ST.getMaxNumUserSGPRs());
+       ++I) {
+    Argument &Arg = *F.getArg(I);
+    // Check for incompatible attributes.
+    if (Arg.hasByRefAttr() || Arg.hasNestAttr())
+      break;
+
+    Arg.addAttr(Attribute::InReg);
+  }
 }
 
 /// Propagate amdgpu-waves-per-eu attribute.
@@ -958,9 +979,11 @@ public:
       if (!F.isIntrinsic()) {
         A.getOrCreateAAFor<AAAMDAttributes>(IRPosition::function(F));
         A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(F));
-        if (!AMDGPU::isEntryFunctionCC(F.getCallingConv())) {
+        CallingConv::ID CC = F.getCallingConv();
+        if (!AMDGPU::isEntryFunctionCC(CC)) {
           A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(F));
-          A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(F));
+        } else if (CC == CallingConv::AMDGPU_KERNEL) {
+          addPreloadKernArgHint(F, *TM);
         }
       }
     }

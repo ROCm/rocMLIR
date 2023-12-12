@@ -1,3 +1,4 @@
+
 //===----- CGOpenMPRuntime.h - Interface to OpenMP Runtimes -----*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -688,7 +689,26 @@ public:
           SizeEmitter);
 
   /// Returns true if the current target is a GPU.
-  virtual bool isTargetCodegen() const { return false; }
+  virtual bool isGPU() const { return false; }
+
+  /// Check if the variable length declaration is delayed:
+  virtual bool isDelayedVariableLengthDecl(CodeGenFunction &CGF,
+                                           const VarDecl *VD) const {
+    return false;
+  };
+
+  /// Get call to __kmpc_alloc_shared
+  virtual std::pair<llvm::Value *, llvm::Value *>
+  getKmpcAllocShared(CodeGenFunction &CGF, const VarDecl *VD) {
+    llvm_unreachable("not implemented");
+  }
+
+  /// Get call to __kmpc_free_shared
+  virtual void getKmpcFreeShared(
+      CodeGenFunction &CGF,
+      const std::pair<llvm::Value *, llvm::Value *> &AddrSizePair) {
+    llvm_unreachable("not implemented");
+  }
 
   /// Emits code for OpenMP 'if' clause using specified \a CodeGen
   /// function. Here is the logic:
@@ -1439,9 +1459,9 @@ public:
                             bool SeparateBeginEndCalls)
         : llvm::OpenMPIRBuilder::TargetDataInfo(RequiresDevicePointerInfo,
                                                 SeparateBeginEndCalls) {}
-    /// Map between the a declaration of a capture and the corresponding base
-    /// pointer address where the runtime returns the device pointers.
-    llvm::DenseMap<const ValueDecl *, Address> CaptureDeviceAddrMap;
+    /// Map between the a declaration of a capture and the corresponding new
+    /// llvm address where the runtime returns the device pointers.
+    llvm::DenseMap<const ValueDecl *, llvm::Value *> CaptureDeviceAddrMap;
   };
 
   /// Emit the target data mapping code associated with \a D.
@@ -1486,6 +1506,11 @@ public:
   /// \param C 'depend' clause with 'sink|source' dependency kind.
   virtual void emitDoacrossOrdered(CodeGenFunction &CGF,
                                    const OMPDependClause *C);
+
+  /// Emit code for doacross ordered directive with 'doacross' clause.
+  /// \param C 'doacross' clause with 'sink|source' dependence type.
+  virtual void emitDoacrossOrdered(CodeGenFunction &CGF,
+                                   const OMPDoacrossClause *C);
 
   /// Translates the native parameter of outlined function if this is required
   /// for target.
@@ -1653,6 +1678,33 @@ public:
 
   /// Returns true if the variable is a local variable in untied task.
   bool isLocalVarInUntiedTask(CodeGenFunction &CGF, const VarDecl *VD) const;
+
+  /// Returns whether the current architecture supports fast FP atomics
+  virtual bool supportFastFPAtomics() { return false; }
+
+  /// Used for AMDGPU architectures where certain fast FP atomics are defined as
+  /// instrinsic functions.
+  virtual std::pair<bool, RValue> emitFastFPAtomicCall(CodeGenFunction &CGF,
+                                                       LValue X, RValue Update,
+                                                       BinaryOperatorKind BO,
+                                                       bool IsXBinopExpr) {
+    return std::make_pair(false, RValue::get(nullptr));
+  }
+
+  /// Return whether the current architecture must emit CAS loop runtime call
+  /// for given type and atomic operation
+  virtual bool mustEmitSafeAtomic(CodeGenFunction &CGF, LValue X, RValue Update,
+                                  BinaryOperatorKind BO) {
+    return false;
+  }
+
+  /// Used for AMDGPU architectures where certain atomics must be lowered
+  /// to a CAS loop.
+  virtual std::pair<bool, RValue> emitAtomicCASLoop(CodeGenFunction &CGF,
+                                                    LValue X, RValue Update,
+                                                    BinaryOperatorKind BO) {
+    return std::make_pair(false, RValue::get(nullptr));
+  }
 };
 
 /// Class supports emissionof SIMD-only code.
@@ -2240,6 +2292,11 @@ public:
   void emitDoacrossOrdered(CodeGenFunction &CGF,
                            const OMPDependClause *C) override;
 
+  /// Emit code for doacross ordered directive with 'doacross' clause.
+  /// \param C 'doacross' clause with 'sink|source' dependence type.
+  void emitDoacrossOrdered(CodeGenFunction &CGF,
+                           const OMPDoacrossClause *C) override;
+
   /// Translates the native parameter of outlined function if this is required
   /// for target.
   /// \param FD Field decl from captured record for the parameter.
@@ -2261,7 +2318,58 @@ public:
   }
 };
 
+class HintClause {
+public:
+  /// Hint enum values for atomic and critical constructs (these enumerators are
+  /// taken from the enum omp_sync_hint_t in omp.h).
+  enum OpenMPSyncHintExpr {
+    OMP_sync_hint_none = 0,
+    OMP_lock_hint_none = OMP_sync_hint_none,
+    OMP_sync_hint_uncontended = 1,
+    OMP_lock_hint_uncontended = OMP_sync_hint_uncontended,
+    OMP_sync_hint_contended = (1 << 1),
+    OMP_lock_hint_contended = OMP_sync_hint_contended,
+    OMP_sync_hint_nonspeculative = (1 << 2),
+    OMP_lock_hint_nonspeculative = OMP_sync_hint_nonspeculative,
+    OMP_sync_hint_speculative = (1 << 3),
+    OMP_lock_hint_speculative = OMP_sync_hint_speculative,
+    kmp_lock_hint_hle = (1 << 16),
+    kmp_lock_hint_rtm = (1 << 17),
+    kmp_lock_hint_adaptive = (1 << 18),
+    AMD_fast_fp_atomics = (1 << 19),
+    AMD_safe_fp_atomics = (1 << 20)
+  };
+};
+
 } // namespace CodeGen
+// Utility for openmp doacross clause kind
+namespace {
+template <typename T> class OMPDoacrossKind {
+public:
+  bool isSink(const T *) { return false; }
+  bool isSource(const T *) { return false; }
+};
+template <> class OMPDoacrossKind<OMPDependClause> {
+public:
+  bool isSink(const OMPDependClause *C) {
+    return C->getDependencyKind() == OMPC_DEPEND_sink;
+  }
+  bool isSource(const OMPDependClause *C) {
+    return C->getDependencyKind() == OMPC_DEPEND_source;
+  }
+};
+template <> class OMPDoacrossKind<OMPDoacrossClause> {
+public:
+  bool isSource(const OMPDoacrossClause *C) {
+    return C->getDependenceType() == OMPC_DOACROSS_source ||
+           C->getDependenceType() == OMPC_DOACROSS_source_omp_cur_iteration;
+  }
+  bool isSink(const OMPDoacrossClause *C) {
+    return C->getDependenceType() == OMPC_DOACROSS_sink ||
+           C->getDependenceType() == OMPC_DOACROSS_sink_omp_cur_iteration;
+  }
+};
+} // namespace
 } // namespace clang
 
 #endif

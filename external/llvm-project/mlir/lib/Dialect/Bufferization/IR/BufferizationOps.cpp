@@ -11,7 +11,6 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/Utils/MemRefUtils.h"
 #include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Matchers.h"
@@ -745,6 +744,26 @@ std::optional<Operation *> CloneOp::buildDealloc(OpBuilder &builder,
 
 std::optional<Value> CloneOp::buildClone(OpBuilder &builder, Value alloc) {
   return builder.create<CloneOp>(alloc.getLoc(), alloc).getResult();
+}
+
+//===----------------------------------------------------------------------===//
+// DeallocOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult DeallocOp::inferReturnTypes(
+    MLIRContext *context, std::optional<::mlir::Location> location,
+    ValueRange operands, DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, SmallVectorImpl<Type> &inferredReturnTypes) {
+  DeallocOpAdaptor adaptor(operands, attributes, properties, regions);
+  inferredReturnTypes = SmallVector<Type>(adaptor.getConditions().getTypes());
+  return success();
+}
+
+LogicalResult DeallocOp::verify() {
+  if (getMemrefs().size() != getConditions().size())
+    return emitOpError(
+        "must have the same number of conditions as memrefs to deallocate");
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

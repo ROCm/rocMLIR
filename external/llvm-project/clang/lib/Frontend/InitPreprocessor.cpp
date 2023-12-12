@@ -574,6 +574,9 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
       Builder.defineMacro("__CLANG_RDC__");
     if (!LangOpts.HIP)
       Builder.defineMacro("__CUDA__");
+    if (LangOpts.GPUDefaultStream ==
+        LangOptions::GPUDefaultStreamKind::PerThread)
+      Builder.defineMacro("CUDA_API_PER_THREAD_DEFAULT_STREAM");
   }
   if (LangOpts.HIP) {
     Builder.defineMacro("__HIP__");
@@ -583,14 +586,25 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
     Builder.defineMacro("__HIP_MEMORY_SCOPE_WORKGROUP", "3");
     Builder.defineMacro("__HIP_MEMORY_SCOPE_AGENT", "4");
     Builder.defineMacro("__HIP_MEMORY_SCOPE_SYSTEM", "5");
+    if (LangOpts.HIPStdPar) {
+      Builder.defineMacro("__HIPSTDPAR__");
+      if (LangOpts.HIPStdParInterposeAlloc)
+        Builder.defineMacro("__HIPSTDPAR_INTERPOSE_ALLOC__");
+    }
     if (LangOpts.CUDAIsDevice) {
       Builder.defineMacro("__HIP_DEVICE_COMPILE__");
-      if (!TI.hasHIPImageSupport())
+      if (!TI.hasHIPImageSupport()) {
+        Builder.defineMacro("__HIP_NO_IMAGE_SUPPORT__", "1");
+        // Deprecated.
         Builder.defineMacro("__HIP_NO_IMAGE_SUPPORT", "1");
+      }
     }
     if (LangOpts.GPUDefaultStream ==
-        LangOptions::GPUDefaultStreamKind::PerThread)
+        LangOptions::GPUDefaultStreamKind::PerThread) {
+      Builder.defineMacro("__HIP_API_PER_THREAD_DEFAULT_STREAM__");
+      // Deprecated.
       Builder.defineMacro("HIP_API_PER_THREAD_DEFAULT_STREAM");
+    }
   }
 }
 
@@ -1343,7 +1357,8 @@ void clang::InitializePreprocessor(
   if (InitOpts.UsePredefines) {
     // FIXME: This will create multiple definitions for most of the predefined
     // macros. This is not the right way to handle this.
-    if ((LangOpts.CUDA || LangOpts.OpenMPIsDevice || LangOpts.SYCLIsDevice) &&
+    if ((LangOpts.CUDA || LangOpts.OpenMPIsTargetDevice ||
+         LangOpts.SYCLIsDevice) &&
         PP.getAuxTargetInfo())
       InitializePredefinedMacros(*PP.getAuxTargetInfo(), LangOpts, FEOpts,
                                  PP.getPreprocessorOpts(), Builder);

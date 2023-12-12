@@ -3,7 +3,7 @@
 
 ; TODO: We If we stored ymm0 before ymm1, then we could execute 2nd load and 1st store in
 ; parallel.
-define void @test_01(ptr %src, ptr %dest) {
+define void @test_01(i8* %src, i8* %dest) {
 ; CHECK-LABEL: test_01:
 ; CHECK:       # %bb.0: # %entry
 ; CHECK-NEXT:    vmovups (%rdi), %ymm0
@@ -13,7 +13,9 @@ define void @test_01(ptr %src, ptr %dest) {
 ; CHECK-NEXT:    vzeroupper
 ; CHECK-NEXT:    retq
 entry:
-  %value = load <64 x i8>, ptr %src, align 1
-  store <64 x i8> %value, ptr %dest, align 1
+  %read = bitcast i8* %src to <64 x i8>*
+  %value = load <64 x i8>, <64 x i8>* %read, align 1
+  %write = bitcast i8* %dest to <64 x i8>*
+  store <64 x i8> %value, <64 x i8>* %write, align 1
   ret void
 }

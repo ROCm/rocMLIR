@@ -310,14 +310,9 @@ private:
       // If faced with "a.operator*(argument)" or "a->operator*(argument)",
       // i.e. the operator is called as a member function,
       // then the argument must be an expression.
-      // If faced with "operator+(argument)", i.e. the operator is called as
-      // a free function, then the argument is an expression only if the current
-      // line can't be a declaration.
-      bool IsOperatorCallSite =
-          (Prev->Previous &&
-           Prev->Previous->isOneOf(tok::period, tok::arrow)) ||
-          (!Line.MustBeDeclaration && !Line.InMacroBody);
-      Contexts.back().IsExpression = IsOperatorCallSite;
+      bool OperatorCalledAsMemberFunction =
+          Prev->Previous && Prev->Previous->isOneOf(tok::period, tok::arrow);
+      Contexts.back().IsExpression = OperatorCalledAsMemberFunction;
     } else if (OpeningParen.is(TT_VerilogInstancePortLParen)) {
       Contexts.back().IsExpression = true;
       Contexts.back().ContextType = Context::VerilogInstancePortList;
@@ -427,6 +422,7 @@ private:
           FormatToken *PrevPrev = Prev->getPreviousNonComment();
           FormatToken *Next = CurrentToken->Next;
           if (PrevPrev && PrevPrev->is(tok::identifier) &&
+              PrevPrev->isNot(TT_TypeName) &&
               Prev->isOneOf(tok::star, tok::amp, tok::ampamp) &&
               CurrentToken->is(tok::identifier) && Next->isNot(tok::equal)) {
             Prev->setType(TT_BinaryOperator);
@@ -2513,6 +2509,8 @@ private:
     const FormatToken *PrevToken = Tok.getPreviousNonComment();
     if (!PrevToken)
       return TT_UnaryOperator;
+    if (PrevToken->is(TT_TypeName))
+      return TT_PointerOrReference;
 
     const FormatToken *NextToken = Tok.getNextNonComment();
 
@@ -2960,8 +2958,8 @@ private:
         Tok = Next;
         if (Tok)
           Tok = Tok->getNextNonComment();
-      } else if ((Keywords.isVerilogQualifier(*Tok) ||
-                  Keywords.isVerilogIdentifier(*Tok))) {
+      } else if (Keywords.isVerilogQualifier(*Tok) ||
+                 Keywords.isVerilogIdentifier(*Tok)) {
         First = Tok;
         Tok = Next;
         // The name may have dots like `interface_foo.modport_foo`.
@@ -3133,6 +3131,10 @@ void TokenAnnotator::annotate(AnnotatedLine &Line) {
 // function declaration.
 static bool isFunctionDeclarationName(bool IsCpp, const FormatToken &Current,
                                       const AnnotatedLine &Line) {
+  assert(Current.Previous);
+  if (!Current.Tok.getIdentifierInfo())
+    return false;
+
   auto skipOperatorName = [](const FormatToken *Next) -> const FormatToken * {
     for (; Next; Next = Next->Next) {
       if (Next->is(TT_OverloadedOperatorLParen))
@@ -3171,7 +3173,12 @@ static bool isFunctionDeclarationName(bool IsCpp, const FormatToken &Current,
   // Find parentheses of parameter list.
   const FormatToken *Next = Current.Next;
   if (Current.is(tok::kw_operator)) {
-    if (Current.Previous && Current.Previous->is(tok::coloncolon))
+    const auto *Previous = Current.Previous;
+    if (Previous->Tok.getIdentifierInfo() &&
+        !Previous->isOneOf(tok::kw_return, tok::kw_co_return)) {
+      return true;
+    }
+    if (!Previous->isOneOf(tok::star, tok::amp, tok::ampamp, TT_TemplateCloser))
       return false;
     Next = skipOperatorName(Next);
   } else {
@@ -3302,9 +3309,11 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) const {
   if (AlignArrayOfStructures)
     calculateArrayInitializerColumnList(Line);
 
+  bool LineIsFunctionDeclaration = false;
   for (FormatToken *Tok = Current, *AfterLastAttribute = nullptr; Tok;
        Tok = Tok->Next) {
     if (isFunctionDeclarationName(Style.isCpp(), *Tok, Line)) {
+      LineIsFunctionDeclaration = true;
       Tok->setType(TT_FunctionDeclarationName);
       if (AfterLastAttribute &&
           mustBreakAfterAttributes(*AfterLastAttribute, Style)) {
@@ -3315,6 +3324,33 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) const {
     }
     if (Tok->Previous->EndsCppAttributeGroup)
       AfterLastAttribute = Tok;
+  }
+
+  if (Style.isCpp() && !LineIsFunctionDeclaration) {
+    // Annotate */&/&& in `operator` function calls as binary operators.
+    for (const auto *Tok = Line.First; Tok; Tok = Tok->Next) {
+      if (Tok->isNot(tok::kw_operator))
+        continue;
+      do {
+        Tok = Tok->Next;
+      } while (Tok && Tok->isNot(TT_OverloadedOperatorLParen));
+      if (!Tok)
+        break;
+      const auto *LeftParen = Tok;
+      for (Tok = Tok->Next; Tok && Tok != LeftParen->MatchingParen;
+           Tok = Tok->Next) {
+        if (Tok->isNot(tok::identifier))
+          continue;
+        auto *Next = Tok->Next;
+        const bool NextIsBinaryOperator =
+            Next && Next->isOneOf(tok::star, tok::amp, tok::ampamp) &&
+            Next->Next && Next->Next->is(tok::identifier);
+        if (!NextIsBinaryOperator)
+          continue;
+        Next->setType(TT_BinaryOperator);
+        Tok = Next;
+      }
+    }
   }
 
   while (Current) {
@@ -5452,8 +5488,10 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
 
   // We only break before r_brace if there was a corresponding break before
   // the l_brace, which is tracked by BreakBeforeClosingBrace.
-  if (Right.is(tok::r_brace))
-    return Right.MatchingParen && Right.MatchingParen->is(BK_Block);
+  if (Right.is(tok::r_brace)) {
+    return Right.MatchingParen && (Right.MatchingParen->is(BK_Block) ||
+                                   (Right.isBlockIndentedInitRBrace(Style)));
+  }
 
   // We only break before r_paren if we're in a block indented context.
   if (Right.is(tok::r_paren)) {
