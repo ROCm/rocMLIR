@@ -1031,7 +1031,7 @@ struct BlockwiseReduceRewritePattern
           Value nrIter;
           if (threadViewShape[nrIterDim] > 1) {
             AffineForOp nrIterLoop = rewriter.create<AffineForOp>(
-                loc, 0, threadViewShape[nrIterDim] - 1, nrIterVectorLen);
+                loc, 0, threadViewShape[nrIterDim], nrIterVectorLen);
             // inside the loop.
             rewriter.setInsertionPointToStart(nrIterLoop.getBody());
             nrIter = nrIterLoop.getInductionVar();

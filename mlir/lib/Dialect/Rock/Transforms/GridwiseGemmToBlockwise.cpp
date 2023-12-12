@@ -1379,11 +1379,14 @@ struct GridwiseAttentionAccelRewritePattern
     TopDownTMBuilder viewBuilder{
         rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
     viewBuilder.passThrough("g");
-    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[0] - prePadGemmM, 0,
-                                             paddedShape[1] - prePadGemmN});
+    // paddedShape is G x M x N
+    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
+                                             paddedShape[2] - prePadGemmN});
+    TransformMapAttr padMap = viewBuilder.get();
+
     ArrayAttr transforms =
         prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
-                          rewriter.getArrayAttr({viewBuilder.get()}));
+                          rewriter.getArrayAttr({padMap}));
 
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
