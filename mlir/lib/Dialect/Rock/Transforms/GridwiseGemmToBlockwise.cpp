@@ -1498,7 +1498,6 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName, false);
     int64_t repeats =
         dName == "m" ? accelParams.mRepeats : accelParams.nRepeats;
-    llvm::errs() << "loadGemmOperandsFromLDSToRegs::repeats = " << repeats << "\n";
     affine::AffineForOp mRepeatsLoop =
         rewriter.create<affine::AffineForOp>(loc, 0, repeats, 1);
     {
@@ -1618,8 +1617,6 @@ struct GridwiseAttentionAccelRewritePattern
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
     // because we wont be prefetching that.
-    llvm::errs() << "accelParamsGemm0.nRepeats = " << accelParamsGemm0.nRepeats << "\n";
-    llvm::errs() << "accelParamsGemm0.mRepeats = " << accelParamsGemm0.mRepeats << "\n";
     auto [preAccelRegBufferK, preAccelRegBuffersQ] =
         createRegInterrimBufferForAccel(loc, accelParamsGemm0, rewriter, 1,
                                         accelParamsGemm0.nRepeats);
