@@ -340,11 +340,12 @@ public:
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
                                   const InitParamsAccel &params) override;
 
-protected:
   virtual LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
                                              Type dataTypeA, Type dataTypeB,
                                              StringRef arch,
                                              uint32_t blockSize) = 0;
+
+protected:
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk.
@@ -396,12 +397,12 @@ public:
   Attribute
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
-
-protected:
   LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch,
                                      uint32_t blockSize) override;
+
+protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;
@@ -430,12 +431,12 @@ public:
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
 
-protected:
   LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch,
                                      uint32_t blockSize) override;
 
+protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;

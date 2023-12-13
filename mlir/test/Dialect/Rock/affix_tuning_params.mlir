@@ -368,3 +368,13 @@ func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memre
   } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FNUZ> * memref<1x72x115200xf8E5M2FNUZ>
   return
 }
+
+// CHECK-LABEL: func.func @rock_attention_default
+// CHECK-SAME: block_size = 32
+// CHECK-SAME: grid_size = 24
+func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // CHECK: rock.attention
+  // CHECK-SAME: #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+  rock.attention(%arg0, %arg1, %arg2, %arg3) features =  dot|atomic_add|atomic_fmax_f32|wmma {arch = "amdgcn-amd-amdhsa:gfx1100", kTransposed} : memref<1x384x64xf16>, memref<1x384x64xf16>, memref<1x384x64xf16>, memref<1x384x64xf16>
+  return
+}
