@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | FileCheck %s
 
-// CHECK: rock.conv2d({{.*}}) {{.*}} {{{.*}}, filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "ci", "hi", "wi", "gi"], output_layout = ["no", "ko", "ho", "wo", "go"]{{.*}}}
+// CHECK: rock.conv2d({{.*}}) {{.*}} {{{.*}}, filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]{{.*}}}
 
 module {
   func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> {
@@ -16,4 +16,3 @@ module {
     return %5 : tensor<1x512x28x28xf32>
   }
 }
-
