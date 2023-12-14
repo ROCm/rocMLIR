@@ -94,7 +94,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK: affine.for
         // CHECK: affine.for
           // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0BStoreTr3]]) {{.*}} -> %[[preAccelRegB:.+]] :
-          // CHECK: rock.accel_gemm %[[gemm0AccBuf]] += %[[preAccelRegA]]{{.*}} * %[[preAccelRegB]]{{.*}}
+          // CHECK: rock.accel_gemm %[[gemm0AccBuf]] += %[[preAccelRegB]]{{.*}} * %[[preAccelRegA]]{{.*}}
 
     // End of inner gemm0 KpacksPerBlock loop
     // CHECK: }
@@ -142,15 +142,13 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[gemm0NormExpTr0:.+]] = rock.transform %[[gemm0NormExp]]
     // CHECK-DAG: %[[gemm0NormExpTr1:.+]] = rock.transform %[[gemm0NormExpTr0]]
     // CHECK-DAG: %[[gemm0NormExpTr2:.+]] = rock.transform %[[gemm0NormExpTr1]]
-    // CHECK-DAG: %[[gemm0NormExpTr3:.+]] = rock.transform %[[gemm0NormExpTr2]]
 
     // Viewing another set of register with kPack packing
     // CHECK: %[[G1AregsKpackTr0:.+]] = rock.transform %[[G1AregsKpack:.+]] by
     // CHECK-DAG: %[[G1AregsKpackTr1:.+]] = rock.transform %[[G1AregsKpackTr0]] by
     // CHECK-DAG: %[[G1AregsKpackTr2:.+]] = rock.transform %[[G1AregsKpackTr1]] by
-    // CHECK-DAG: %[[G1AregsKpackTr3:.+]] = rock.transform %[[G1AregsKpackTr2]] by
 
-    // CHECK-DAG: rock.threadwise_copy %[[gemm0NormExpTr3]] -> %[[G1AregsKpackTr3]]
+    // CHECK-DAG: rock.threadwise_copy %[[gemm0NormExpTr2]] -> %[[G1AregsKpackTr2]]
 
     // Viewing G1 LDS A tile buffer
     // CHECK-DAG: %[[viewG1AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -161,10 +159,9 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[viewG1AStoreTr4:.+]] = rock.transform %[[viewG1AStoreTr3]]
     // CHECK-DAG: %[[viewG1AStoreTr5:.+]] = rock.transform %[[viewG1AStoreTr4]]
     // CHECK-DAG: %[[viewG1AStoreTr6:.+]] = rock.transform %[[viewG1AStoreTr5]]
-    // CHECK-DAG: %[[viewG1AStoreTr7:.+]] = rock.transform %[[viewG1AStoreTr6]]
 
     // Store to LDS G1A tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
+    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr6]])
     // CHECK-DAG: %[[view2G1AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
     // Load G1B tile from global to regs
@@ -192,7 +189,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
     // Gemm1
     // CHECK-DAG: rock.lds_barrier
-    // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += {{.*}} from %[[view2G1AStore]] * {{.*}} from %[[view2G1BStore]]
+    // CHECK-DAG: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += {{.*}} from %[[view2G1BStore]] * {{.*}} from %[[view2G1AStore]]
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
       // CHECK: rock.in_bounds_store %[[tmp1]] -> %[[gemm1AccBufScalar:.+]][
@@ -217,7 +214,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
       blockSize = 64 : i32,
       gridSize = 24 : i32,
-      params = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+      params0 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>,
+      params1 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
     } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
     return
   }
