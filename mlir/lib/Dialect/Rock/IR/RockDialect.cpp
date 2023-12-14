@@ -1692,7 +1692,7 @@ LogicalResult AccelGemmOp::verify() {
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
 LogicalResult GridwiseAttentionAccelOp::verify() {
-  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams();
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
   int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();

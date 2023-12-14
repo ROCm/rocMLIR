@@ -217,7 +217,8 @@ def Rock_AttentionOp :
     UnitAttr:$oTransposed,
     StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
-    OptionalAttr<RockTuningParamAttrInterface>:$params
+    OptionalAttr<RockTuningParamAttrInterface>:$params0,
+    OptionalAttr<RockTuningParamAttrInterface>:$params1
   )>,
   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
   let summary = "Attention operation of transformer models";
@@ -432,7 +433,8 @@ def Rock_GridwiseAttentionAccelOp :
                    I32Attr:$gridSize,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
-                   RockAccelTuningParamAttrInterface:$params)> {
+                   RockAccelTuningParamAttrInterface:$params0,
+                   RockAccelTuningParamAttrInterface:$params1)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.

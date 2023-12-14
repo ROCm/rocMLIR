@@ -1225,20 +1225,20 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  RockAccelTuningParamAttrInterface
-  deriveGemm1TuningParams(PatternRewriter &rewriter,
-                          RockAccelTuningParamAttrInterface gemm0TuningParams,
-                          GemmFeatures features) const {
-    int64_t gemm1KPack = gemm0TuningParams.getKpack();
-    return rewriter.getAttr<XdlopsGemmParamsAttr>(
-        /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
-        /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-        /*gemmKPack=*/gemm1KPack,
-        /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
-        /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
-        /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
-  }
+//   RockAccelTuningParamAttrInterface
+//   deriveGemm1TuningParams(PatternRewriter &rewriter,
+//                           RockAccelTuningParamAttrInterface gemm0TuningParams,
+//                           GemmFeatures features) const {
+//     int64_t gemm1KPack = gemm0TuningParams.getKpack();
+//     return rewriter.getAttr<XdlopsGemmParamsAttr>(
+//         /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
+//         /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
+//         /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
+//         /*gemmKPack=*/gemm1KPack,
+//         /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
+//         /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
+//         /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
+//   }
 
   // The rows and columns of subtile view needs to
   // be transposed depending on which operand of
@@ -1293,7 +1293,8 @@ struct GridwiseAttentionAccelRewritePattern
     else{
         return RegsAsMatrixSubTiles{rewriter.getArrayAttr(gridSubTileMaps),
                                     rewriter.getArrayAttr(blockSubTileMaps),
-                                    rewriter.getArrayAttr(threadSubTileMaps)};
+                                    rewriter.getArrayAttr(threadSubTileMaps),
+                                    std::nullopt};
     }
   }
 
@@ -1561,7 +1562,8 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1M = outShape[1];
     int64_t gemm1N = outShape[2];
 
-    RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
+    RockAccelTuningParamAttrInterface gemm1TuningParams = op.getParams1();
     int64_t gemm0kpack = gemm0TuningParams.getKpack();
     int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
     int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
@@ -1570,8 +1572,8 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
 
-    RockAccelTuningParamAttrInterface gemm1TuningParams =
-        deriveGemm1TuningParams(rewriter, gemm0TuningParams, op.getFeatures());
+    // RockAccelTuningParamAttrInterface gemm1TuningParams =
+    //     deriveGemm1TuningParams(rewriter, gemm0TuningParams, op.getFeatures());
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
@@ -1868,7 +1870,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<AccelGemmOp>(
                 loc, mi, ni, preAccelRegBufferK,
                 preAccelRegBufferQ, accRegBufferGemm0, op.getArchAttr(),
-                op.getFeaturesAttr(), op.getParamsAttr());
+                op.getFeaturesAttr(), op.getParams0Attr());
           }
         }
       }

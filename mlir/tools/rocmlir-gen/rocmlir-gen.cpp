@@ -2255,7 +2255,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, scale, output, transposeQ,
       transposeK, transposeV, transposeO, archAttr, params.features,
-      /*params=*/nullptr);
+      /*params0=*/nullptr, /*params1=*/nullptr);
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
