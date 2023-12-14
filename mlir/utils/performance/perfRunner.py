@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 
-from typing import NamedTuple
-import reportUtils
-from perfCommonUtils import Operation, GEMMLibrary
-
 import csv
 from collections import OrderedDict
 import getopt
@@ -16,12 +12,15 @@ from datetime import date
 from pathlib import Path
 import glob
 import argparse
-
-import numpy as np
-import pandas as pd
 import re
+
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
+import numpy as np
+import pandas as pd
+
+import reportUtils
+from perfCommonUtils import Operation, GEMMLibrary
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprof'
@@ -155,7 +154,7 @@ def getBankConflict(fileName):
 
         result = []
         for row in reader:
-                result.append(float(row['LDSBankConflict']))
+            result.append(float(row['LDSBankConflict']))
         csv_file.close()
         result_average = sum(result) / len(result)
         return result_average
@@ -212,22 +211,25 @@ class PerfConfiguration:
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
         raise NotImplementedError()
 
-    def setPerfConfig(self, perfConfig):
+    def setPerfConfig(self, perf_config):
         raise NotImplementedError()
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU) -> 'self':
+    def fromCommandLine(cls, argv, arch, numCU):
+        raise NotImplementedError()
+
+    def toCommandLine(self):
         raise NotImplementedError()
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs=dict()):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
         raise NotImplementedError()
 
     EXTERNAL_NAME = "unknown"
 
 # convolution configurations.
 def getConvConfigurations(fileName):
-    configs = [];
+    configs = []
     if fileName:
         with open(fileName, 'r') as configFile:
             lines = configFile.readlines()
@@ -368,13 +370,12 @@ class ConvConfiguration(PerfConfiguration):
         elif argv[0] == 'convbf8_bf8':
             dataType = 'bf8_bf8'
 
-        layout = None
         try:
             # TBD:
             # implement -m ?
             # implement -t ?
-            opts, args = getopt.getopt(argv[1:], "F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
-        except getopt.GetOptError:
+            opts, _ = getopt.getopt(argv[1:], "F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
+        except getopt.GetoptError:
             print('getopt error')
             sys.exit(1)
 
@@ -489,7 +490,7 @@ class ConvConfiguration(PerfConfiguration):
         self.perfConfig = ''
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs=dict()):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
         os.system("rm -f "+BENCHMARKING_METRICS_FILE_NAME)
         config = cls.fromCommandLine(commandLine, arch, numCU)
         MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
@@ -520,7 +521,6 @@ class ConvConfiguration(PerfConfiguration):
 
 def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
     configs = []
-    outDataType = None
 
     if fileName:
         with open(fileName, 'r') as configFile:
@@ -555,7 +555,7 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
                 # Skip out_datatype if already in
                 outDataTypeString = ""
                 if "-out_datatype" not in line:
-                     outDataTypeString = "-out_datatype " + outDataTypeMap.get(datatype, datatype) + " "
+                    outDataTypeString = "-out_datatype " + outDataTypeMap.get(datatype, datatype) + " "
 
                 # Strip to avoid spurious spaces
                 oneConfig = f"{dataTypeString}{outDataTypeString}{transAString}{transBString}{line}".strip()
@@ -751,7 +751,7 @@ class AttentionConfiguration(PerfConfiguration):
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
-        result = dict()
+        result = {}
         values = [
             self.dataType,
             self.chip,
@@ -840,12 +840,19 @@ class AttentionConfiguration(PerfConfiguration):
 
         return cls(dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
 
+    def toCommandLine(self):
+        return (f"-transO {str(self.transO).lower()} -transV {str(self.transV).lower()} "
+                + f"-transK {str(self.transK).lower()} -transQ {str(self.transQ).lower()} "
+                + f"-t {self.dataType} -g {self.g} "
+                + f"-seq_len {str(self.seq_len)} -head_dim {str(self.head_dim)} "
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()}")
+
 
 class RocBLASGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "rocBLAS"
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs=dict()):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
         config = cls.fromCommandLine(commandLine, arch, numCU)
         if not paths.mlir_paths.rocblas_benchmark_driver_path:
             raise ValueError("rocblas-benchmark-driver not built")
@@ -862,23 +869,23 @@ class RocBLASGemmConfig(GemmConfiguration):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # get output.
         try:
-            outs, errs = p.communicate(timeout=60)
+            _, errs = p.communicate(timeout=60)
             if len(errs) > 0:
                 print("Test printed errors: ", errs.decode('utf-8'))
                 print("Failing command line: ", profilerCommand)
-                if p1.returncode != 0:
+                if p.returncode != 0:
                     raise OSError(errs.decode('utf-8'))
         except subprocess.TimeoutExpired:
             print("Test timed out: ", profilerCommand)
             p.kill()
-            outs, errs = p.communicate()
+            _, errs = p.communicate()
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         return config.tableEntry(nanoSeconds)
 
 class CKGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "CK"
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs=dict()):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
         config = cls.fromCommandLine(commandLine, arch, numCU)
         if not paths.mlir_paths.ck_benchmark_driver_path:
             raise ValueError("ck-benchmark-driver not built")
@@ -899,7 +906,7 @@ class CKGemmConfig(GemmConfiguration):
             if len(errs) > 0:
                 print("Test printed errors: ", errs.decode('utf-8'))
                 print("Failing command line: ", profilerCommand)
-                if p1.returncode != 0:
+                if p.returncode != 0:
                     raise OSError(errs.decode('utf-8'))
         except subprocess.TimeoutExpired:
             print("Test timed out: ", profilerCommand)
@@ -932,7 +939,7 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
     p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
     # get output.
     try:
-        outs, errs = p3.communicate(timeout=60)
+        _, errs = p3.communicate(timeout=60)
         if len(errs) > 0:
             print("Test printed errors: ", errs.decode('utf-8'))
             print("Failing command line: ", rocmlirGenCommand)
@@ -941,7 +948,7 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
     except subprocess.TimeoutExpired:
         print("Test timed out: ", rocmlirGenCommand)
         p3.kill()
-        outs, errs = p3.communicate()
+        _, errs = p3.communicate()
 
 # Benchmarking function.
 def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
@@ -1016,13 +1023,13 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
 def getSolverName(testVector, arch, numCU):
     config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch, numCU)
     if config.direction == 'fwd':
-       solverName = 'ConvMlirIgemmFwd'
+        solverName = 'ConvMlirIgemmFwd'
     elif config.direction == 'bwd':
-       solverName = 'ConvMlirIgemmBwd'
+        solverName = 'ConvMlirIgemmBwd'
     else:
-       solverName = 'ConvMlirIgemmWrW'
-    if config.chip == 'gfx908' or config.chip == 'gfx90a':
-       solverName+='Xdlops'
+        solverName = 'ConvMlirIgemmWrW'
+    if config.chip in ['gfx908', 'gfx90a']:
+        solverName+='Xdlops'
     return solverName
 
 RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:(.*)")
@@ -1136,14 +1143,14 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
 
     # Get output.
     try:
-        outs, errs = profiling.communicate(timeout=60)
+        _, errs = profiling.communicate(timeout=60)
         if len(errs) > 0:
             print("Test printed errors: ", errs.decode('utf-8'))
             print("Failing: ", filename)
     except subprocess.TimeoutExpired:
         print("Test timed out: ", filename)
         profiling.kill()
-        outs, errs = profiling.communicate()
+        _, errs = profiling.communicate()
 
 
 # Generate fusion vs. gemm/conv performance results
@@ -1176,27 +1183,25 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         commandLine = testVector.split(sep=' ')
         if commandLine[0].startswith('conv'):
             op = 'conv'
-            confClass = ConvConfiguration
             config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
         else:
             op = 'gemm'
-            confClass = GemmConfiguration
             config = GemmConfiguration.fromCommandLine(commandLine, arch, numCU)
 
         # Find the best perf_config
         bestPerf =""
         if tuningDb:
             if (arch, testVector) in tuningDb:
-               bestPerf = tuningDb[arch, testVector]
-               config.setPerfConfig(bestPerf)
+                bestPerf = tuningDb[arch, testVector]
+                config.setPerfConfig(bestPerf)
             else: # Tuning DB present but doesn't contain config, add a NaN entry
-               if not testVector in perfResults:
-                   oneEntry = config.tableEntry(np.nan)
-                   oneEntry['FileName'] = filename
-                   oneEntry['MLIR TFlops'] = np.nan
-                   oneEntry['Fusion/MLIR'] = np.nan
-                   perfResults[testVector] = oneEntry
-               continue;
+                if not testVector in perfResults:
+                    oneEntry = config.tableEntry(np.nan)
+                    oneEntry['FileName'] = filename
+                    oneEntry['MLIR TFlops'] = np.nan
+                    oneEntry['Fusion/MLIR'] = np.nan
+                    perfResults[testVector] = oneEntry
+                continue
 
         # Run fusion test
         rocmlirGenArgs = ['-ph', '-fut='+futName+'_wrapper', '--perf_config='+bestPerf, '-']
@@ -1223,29 +1228,35 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 #Tune MIOpen with MLIR kernels
-def tuneMLIRKernels(configs, paths: Paths, arch, numCU):
-    solver_names = {testVector : getSolverName(testVector, arch, numCU) for testVector in configs}
+def tuneMLIRKernels(configs, arch, numCU):
+    solver_names = {
+        testVector: getSolverName(testVector, arch, numCU)
+        for testVector in configs
+    }
 
     envs = os.environ.copy()
     envs['MIOPEN_FIND_ENFORCE'] = '4'
     envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
     for testVector in configs:
-        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
+        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[testVector]
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
         if config.inputLayout == 'nchw':
-            MIOpenDriverCommand = [MIOPENDRIVER, *commandLine,'-V', '0']
+            MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0']
             print(' '.join(MIOpenDriverCommand))
-            p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
+            p1 = subprocess.Popen(MIOpenDriverCommand,
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE,
+                                  env=envs)
             # get output.
             try:
-               outs, errs = p1.communicate(timeout=300)
-               if len(errs) > 0 and p1.returncode != 0:
-                   raise OSError(errs.decode('utf-8'))
+                _, errs = p1.communicate(timeout=300)
+                if len(errs) > 0 and p1.returncode != 0:
+                    raise OSError(errs.decode('utf-8'))
             except subprocess.TimeoutExpired:
                 p1.kill()
                 print("MIOpen tuning timed out")
-                outs, errs = p1.communicate()
+                _, errs = p1.communicate()
 
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
@@ -1253,7 +1264,8 @@ def is_xdlops_present() -> bool:
     xdlop_supported_gpus_str = xdlop_supported_gpus[0]
     for gpu in xdlop_supported_gpus[1:]:
         xdlop_supported_gpus_str += '|' + gpu
-    r = subprocess.run(f"/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -q -E '{xdlop_supported_gpus_str}'", shell=True)
+    r = subprocess.run(f"/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -q -E '{xdlop_supported_gpus_str}'",
+                       check=True, shell=True)
     if r.returncode == 0:
         return True
     return False
@@ -1272,7 +1284,7 @@ def getArch():
 
 def parseDataTypes(data_types):
     if not data_types:
-        return DATA_TYPES_GEMM, OUTPUT_DATA_TYPE_MAP
+        return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
 
     datatypes = []
     outMap = {}
@@ -1508,7 +1520,7 @@ def main(args=None):
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, quickTuningDb, rocmlir_gen_flags)
     elif parsed_args.tuning:
-        tuneMLIRKernels(configs, paths, arch, numCU)
+        tuneMLIRKernels(configs, arch, numCU)
     elif opType == Operation.FUSION:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")

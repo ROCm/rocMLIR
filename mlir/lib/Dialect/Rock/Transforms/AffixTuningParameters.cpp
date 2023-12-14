@@ -186,30 +186,36 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
+  Value queries = op.getQueries();
+  Value keys = op.getKeys();
+  Value values = op.getValues();
+  Type elemType = queries.getType().cast<MemRefType>().getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
     op.emitError("Currently, attention op is only supported on GPUs "
                  "with matrix accelerator extentions");
     signalPassFailure();
+    return;
   }
   Attribute params = op.getParams().value_or(nullptr);
+  // set a default one if params is not provided
+  std::string perfConfigStr = "32,32,32,32,32,1,1,1";
+  InitParamsAccel initAccelParams;
   if (!params) {
     if (StringAttr perfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
-      InitParamsAccel accelParams;
-      if (accelParams.deserialize(perfConfigStrAttr.str())) {
-        GemmFeatures features = op.getFeatures();
-        auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-        params =
-            populateParamsAccelPtr->getGemmParamsAttr(builder, accelParams);
-      }
-    } else {
-      // set a default one for now until the tuning flow is set up properly.
-      params = builder.getAttr<XdlopsGemmParamsAttr>(
-          /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-          /*nPerBlock=*/32, /*kpack=*/1,
-          /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true);
+      perfConfigStr = perfConfigStrAttr.str();
     }
+  }
+  GemmFeatures features = op.getFeatures();
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  if (initAccelParams.deserialize(perfConfigStr)) {
+    params =
+        populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams);
+  } else {
+    op.emitError("perf config string has an incorrect format.");
+    signalPassFailure();
+    return;
   }
   auto accelParams = params.cast<RockAccelTuningParamAttrInterface>();
   op.setParamsAttr(accelParams);
@@ -217,11 +223,16 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   int64_t blockSize = waveSize * accelParams.getNPerBlock() *
                       accelParams.getMPerBlock() /
                       (accelParams.getMPerWave() * accelParams.getNPerWave());
+  LogicalResult isValidBlockwiseGemm =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          initAccelParams, elemType, elemType, op.getArch(), blockSize);
+  if (isValidBlockwiseGemm.failed()) {
+    op.emitError("The provided perf config is not valid");
+    signalPassFailure();
+    return;
+  }
 
   // Calculate (padded) grid size
-  Value queries = op.getQueries();
-  Value keys = op.getKeys();
-  Value values = op.getValues();
   SmallVector<int64_t, 3> queriesShape =
       llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
   // Note: the gridwise ops take K x M and K x N, so Q must be transposed if

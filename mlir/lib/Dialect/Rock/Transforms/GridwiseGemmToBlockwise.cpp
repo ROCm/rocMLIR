@@ -1363,11 +1363,14 @@ struct GridwiseAttentionAccelRewritePattern
     TopDownTMBuilder viewBuilder{
         rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
     viewBuilder.passThrough("g");
-    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[0] - prePadGemmM, 0,
-                                             paddedShape[1] - prePadGemmN});
+    // paddedShape is G x M x N
+    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
+                                             paddedShape[2] - prePadGemmN});
+    TransformMapAttr padMap = viewBuilder.get();
+
     ArrayAttr transforms =
         prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
-                          rewriter.getArrayAttr({viewBuilder.get()}));
+                          rewriter.getArrayAttr({padMap}));
 
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
@@ -1867,11 +1870,13 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
                                              elemTypeQxK, 1.44269504);
       scaleFirstGemmSplat(
           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
           ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
+#endif
 
       // Handle padding
       bool hasPadding =
