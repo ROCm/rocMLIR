@@ -742,6 +742,7 @@ PopulateParamsWmma::initParametersFp16[PopulateParamsWmma::nInitParametersFp16] 
   {128, 64, 4, 64, 32, 8, true, true},
   {128, 64, 4, 32, 64, 8, true, true},
   {128, 32, 4, 32, 32, 8, true, true},
+  {128, 16, 8, 32, 16, 8, true, true},
   {64, 256, 4, 64, 64, 8, true, true},
   {64, 256, 2, 64, 64, 8, true, true},
   {64, 128, 4, 64, 32, 8, true, true},
