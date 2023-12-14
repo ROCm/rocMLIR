@@ -1225,21 +1225,6 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-//   RockAccelTuningParamAttrInterface
-//   deriveGemm1TuningParams(PatternRewriter &rewriter,
-//                           RockAccelTuningParamAttrInterface gemm0TuningParams,
-//                           GemmFeatures features) const {
-//     int64_t gemm1KPack = gemm0TuningParams.getKpack();
-//     return rewriter.getAttr<XdlopsGemmParamsAttr>(
-//         /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-//         /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
-//         /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-//         /*gemmKPack=*/gemm1KPack,
-//         /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
-//         /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
-//         /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
-//   }
-
   // The rows and columns of subtile view needs to
   // be transposed depending on which operand of
   // gemm the view is going to be.
@@ -1572,8 +1557,6 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
 
-    // RockAccelTuningParamAttrInterface gemm1TuningParams =
-    //     deriveGemm1TuningParams(rewriter, gemm0TuningParams, op.getFeatures());
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(

@@ -211,8 +211,14 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     return op.emitError("Currently, attention op is only supported on GPUs "
                         "with matrix accelerator extentions");
   }
+  if(!op.getParams0().has_value()){
+    return op.emitError("gemm0 params is missing and it should've been assigned by affix-tuing-params");
+  }
   RockAccelTuningParamAttrInterface params0 =
       op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
+  if(!op.getParams1().has_value()){
+    return op.emitError("gemm1 params is missing and it should've been assigned by affix-tuing-params");
+  }
   RockAccelTuningParamAttrInterface params1 =
       op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
 
