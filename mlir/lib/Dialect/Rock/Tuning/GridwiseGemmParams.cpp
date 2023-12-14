@@ -597,7 +597,7 @@ PopulateParamsXDL::initParametersForward8Bit[
 LogicalResult
 PopulateParamsXDL::isValidBlockwiseGemm(const InitParamsAccel &param,
                                         Type dataTypeA, Type dataTypeB,
-                                        StringRef arch, uint32_t blockSize) {
+                                        StringRef arch, uint32_t blockSize, bool enableBlockSizeUpperLimit) {
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   // TBD: support fp16/bf16
@@ -634,19 +634,27 @@ PopulateParamsXDL::isValidBlockwiseGemm(const InitParamsAccel &param,
                      return (param.gemmMPerWave == validMPerWave) &&
                             (param.gemmNPerWave == validNPerWave) &&
                             (param.gemmKPerBlock % validKPerWave == 0);
-                   }))
+                   })){
     return failure();
+  }
+
+  if (blockSize < waveSize){
+    return failure();
+  }
 
   // fail with blockSize >= 512
-  /// \todo fix the issue with blockSize >= 512
-  if (blockSize < waveSize || blockSize > 4 * waveSize)
+  // \todo fix the issue with blockSize >= 512
+  if(enableBlockSizeUpperLimit && blockSize > 4 * waveSize){
     return failure();
+  }
 
-  if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
+  if ((param.gemmMPerBlock % param.gemmMPerWave) != 0){
     return failure();
+  }
 
-  if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
+  if ((param.gemmNPerBlock % param.gemmNPerWave) != 0){
     return failure();
+  }
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
@@ -800,7 +808,7 @@ PopulateParamsWmma::initParametersForward8Bit[
 LogicalResult
 PopulateParamsWmma::isValidBlockwiseGemm(const InitParamsAccel &param,
                                          Type dataTypeA, Type dataTypeB,
-                                         StringRef arch, uint32_t blockSize) {
+                                         StringRef arch, uint32_t blockSize, bool enableBlockSizeUpperLimit) {
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
 
@@ -833,8 +841,14 @@ PopulateParamsWmma::isValidBlockwiseGemm(const InitParamsAccel &param,
                    }))
     return failure();
 
-  if (blockSize < waveSize || blockSize > 4 * waveSize)
+  if (blockSize < waveSize)
     return failure();
+
+  // fail with blockSize >= 512
+  // \todo fix the issue with blockSize >= 512
+  if(enableBlockSizeUpperLimit && blockSize > 4 * waveSize){
+    return failure();
+  }
 
   if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
     return failure();
