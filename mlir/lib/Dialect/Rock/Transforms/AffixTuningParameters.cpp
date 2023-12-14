@@ -185,18 +185,18 @@ void AffixTuningParameters::affixTuningParametersImpl(
 }
 
 static RockAccelTuningParamAttrInterface
-  deriveGemm1TuningParams(OpBuilder &builder,
-                          RockAccelTuningParamAttrInterface gemm0TuningParams,
-                          GemmFeatures features) {
-    int64_t gemm1KPack = gemm0TuningParams.getKpack();
-    return builder.getAttr<XdlopsGemmParamsAttr>(
-        /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
-        /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-        /*gemmKPack=*/gemm1KPack,
-        /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
-        /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
-        /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
+deriveGemm1TuningParams(OpBuilder &builder,
+                        RockAccelTuningParamAttrInterface gemm0TuningParams,
+                        GemmFeatures features) {
+  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  return builder.getAttr<XdlopsGemmParamsAttr>(
+      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
+      /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
+      /*gemmKPack=*/gemm1KPack,
+      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
+      /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
+      /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
@@ -234,7 +234,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
   op.setParams0Attr(accelParams0);
-  auto accelParams1 = deriveGemm1TuningParams(builder, accelParams0, op.getFeatures());
+  auto accelParams1 =
+      deriveGemm1TuningParams(builder, accelParams0, op.getFeatures());
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
