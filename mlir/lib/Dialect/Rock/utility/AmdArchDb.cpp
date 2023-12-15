@@ -16,24 +16,41 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64,
-                                     /*minNumCU=*/80,
-                                     /*hasFp8ConversionInstrs=*/false),
+static constexpr AmdArchInfo
+    gcnInfo(GemmFeatures::none, /*waveSize=*/64,
+            /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
+            /*totalVGPRPerEU*/ 256, /*totalSharedMem*/ 65536,
+            /*numEUPerCU=*/4, /*minNumCU=*/80,
+            /*hasFp8ConversionInstrs=*/false),
+    cdna50Info(GemmFeatures::dot, /*waveSize=*/64, /*maxWavesPerEU*/ 8,
+               /*totalSGPRPerEU*/ 512, /*totalVGPRPerEU*/ 256,
+               /*totalSharedMemPerCU*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/10,
+               /*hasFp8ConversionInstrs=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
-             /*waveSize=*/64, /*minNumCU=*/110,
+             /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 512,
+             /*totalVGPRPerEU*/ 512, /*totalSharedMem*/ 65536,
+             /*numEUPerCU=*/4, /*minNumCU=*/110,
              /*hasFp8ConversionInstrs=*/false),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
-              /*waveSize=*/64, /*minNumCU=*/228,
+              /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
+              /*totalVGPRPerEU*/ 512, /*totalSharedMem*/ 65536,
+              /*numEUPerCU=*/4, /*minNumCU=*/228,
               /*hasFp8ConversionInstrs=*/true),
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
-                  /*minNumCU=*/80,
+                  /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
+                  /*totalVGPRPerEU*/ 1024, /*totalSharedMem*/ 65536,
+                  /*numEUPerCU=*/2, /*minNumCU=*/72,
                   /*hasFp8ConversionInstrs=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
-             /*waveSize=*/32, /*minNumCU=*/80,
+             /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
+             /*totalVGPRPerEU*/ 1024, /*totalSharedMem*/ 65536,
+             /*numEUPerCU=*/2, /*minNumCU=*/80,
              /*hasFp8ConversionInstrs=*/false),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
-              /*waveSize=*/32, /*minNumCU=*/96,
+              /*waveSize=*/32, /*maxWavesPerEU*/ 20, /*totalSGPRPerEU*/ 512,
+              /*totalVGPRPerEU*/ 1536, /*totalSharedMem*/ 65536,
+              /*numEUPerCU=*/2, /*minNumCU=*/96,
               /*hasFp8ConversionInstrs=*/false);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
@@ -53,8 +70,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         .Cases("08", "0a", cdnaInfo)
         .Cases("40", "41", "42", cdna3Info)
         // gfx906 has the dot product instructions, uniquely
-        .Case("06", AmdArchInfo(GemmFeatures::dot, /*waveSize=*/64, 10,
-                                /*hasFp8ConversionInstrs=*/false))
+        .Case("06", cdna50Info)
         .Default(gcnInfo);
   }
   if (major == "gfx10") {

@@ -230,11 +230,35 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   return transform(b, typedBuffer, asMatrix);
 }
 
-template <typename OpT>
-static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
+static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
+  auto func = op->getParentOfType<func::FuncOp>();
+
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  return success(ldsBytes <= 64 * 1024);
+  // Set sharedMemSize attribute for this kernel
+  int64_t totalLDS = ldsBytes;
+  if (auto ldsAttr =
+          func->getAttrOfType<IntegerAttr>("rock.shared_buffer_size")) {
+    totalLDS += ldsAttr.getInt();
+  }
+  auto intTy = IntegerType::get(func->getContext(), 32);
+  func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
+
+  // Check for arch limitations exceeded
+  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
+  if (!arch)
+    arch = func->getAttrOfType<StringAttr>("mhal.arch");
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
+  }
+
+  if (arch) {
+    const int64_t ldsSize = rock::lookupArchInfo(arch).totalSharedMemPerCU;
+
+    return success(ldsBytes <= ldsSize);
+  }
+  return success();
 }
 
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,

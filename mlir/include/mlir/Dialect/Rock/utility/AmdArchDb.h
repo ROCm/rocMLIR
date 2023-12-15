@@ -18,13 +18,24 @@ namespace rock {
 struct AmdArchInfo {
   GemmFeatures defaultFeatures;
   int64_t waveSize;
+  int64_t maxWavesPerEU;
+  int64_t totalSGPRPerEU;
+  int64_t totalVGPRPerEU;
+  int64_t totalSharedMemPerCU;
+  int64_t numEUPerCU;
   int64_t minNumCU;
   bool hasFp8ConversionInstrs;
 
   constexpr AmdArchInfo(GemmFeatures defaultFeatures, int64_t waveSize,
-                        int64_t minNumCU, bool hasFp8ConversionInstrs)
+                        int64_t maxWavesPerEU, int64_t totalSGPRPerEU,
+                        int64_t totalVGPRPerEU, int64_t sharedMemPerCU,
+                        int64_t numEUPerCU, int64_t minNumCU,
+                        bool hasFp8ConversionInstrs)
       : defaultFeatures(defaultFeatures), waveSize(waveSize),
-        minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs) {}
+        maxWavesPerEU(maxWavesPerEU), totalSGPRPerEU(totalSGPRPerEU),
+        totalVGPRPerEU(totalVGPRPerEU), totalSharedMemPerCU(sharedMemPerCU),
+        numEUPerCU(numEUPerCU), minNumCU(minNumCU),
+        hasFp8ConversionInstrs(hasFp8ConversionInstrs) {}
 
   /// Get the default features for the pari <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
