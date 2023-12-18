@@ -21,7 +21,8 @@ namespace mlir {
 namespace rock {
 
 // The full space is a brute-force search for attention kernels
-void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, TuningParamSetKind kind){
+void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
+                             TuningParamSetKind kind) {
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
@@ -29,8 +30,7 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, Tunin
       {32, 64},
       {32, 64},
       {4, 8, 16},
-      {1}
-  };
+      {1}};
   OpBuilder b(attnOp.getContext());
   for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
     for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
@@ -39,15 +39,17 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp, Tunin
           for (uint32_t gemmNPerWave : validRangeAccelGemmParams[4]) {
             for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
               for (uint32_t forceUnroll : validRangeAccelGemmParams[6]) {
-                if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
-                    InitParamsAccel gemmParams(
-                    gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                    gemmNPerWave, gemmKPack, forceUnroll, true);
-                    GemmFeatures features = attnOp.getFeatures();
-                    auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-                    Attribute params =
-                        populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
-                    newSpace->tuningRange.push_back(
+                if (gemmMPerBlock >= gemmMPerWave &&
+                    gemmNPerBlock >= gemmNPerWave) {
+                  InitParamsAccel gemmParams(
+                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmNPerWave, gemmKPack, forceUnroll, true);
+                  GemmFeatures features = attnOp.getFeatures();
+                  auto populateParamsAccelPtr =
+                      PopulateParamsAccel::select(features);
+                  Attribute params =
+                      populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
+                  newSpace->tuningRange.push_back(
                       cast<RockTuningParamAttrInterface>(params));
                 }
               }
@@ -327,12 +329,12 @@ TuningParamSet *createTunableParamSpace(ModuleOp &mod,
   WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
     // createTuningRange(newSpace, op);
     switch (kind) {
-        case TuningParamSetKind::Full:
-        case TuningParamSetKind::Exhaustive:
-          createAttnTuningRangeBF(newSpace, op, kind);
-          break;
-        case TuningParamSetKind::Quick:
-          createTuningRange(newSpace, op);
+    case TuningParamSetKind::Full:
+    case TuningParamSetKind::Exhaustive:
+      createAttnTuningRangeBF(newSpace, op, kind);
+      break;
+    case TuningParamSetKind::Quick:
+      createTuningRange(newSpace, op);
     }
     return WalkResult::interrupt();
   });
