@@ -187,6 +187,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       }
     }
 
+    if (auto attr = theFunc->getAttr("rock.shared_buffer_size")) {
+      gpuFunc->setAttr("rock.shared_buffer_size", attr);
+    }
+
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
       indexWidth = 64;

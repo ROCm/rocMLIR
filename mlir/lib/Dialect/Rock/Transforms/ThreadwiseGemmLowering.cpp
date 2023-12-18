@@ -203,10 +203,55 @@ struct ThreadwiseGemmRewritePattern
 //===----------------------------------------------------------------------===//
 // AccelGemm lowering.
 //===----------------------------------------------------------------------===//
-struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
-  using OpConversionPattern<AccelGemmOp>::OpConversionPattern;
+struct ThreadwiseAccelGemmRewritePattern
+    : public OpConversionPattern<ThreadwiseAccelGemmOp> {
+  using OpConversionPattern<ThreadwiseAccelGemmOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(AccelGemmOp op, AccelGemmOpAdaptor adaptor,
+  // Create a normalized view `[startShape, sizes]`. Then convert this to a
+  // "real" view by ignoring some of the indices and letting the rest pass
+  // through.
+  TransformMapAttr normalizeView(OpBuilder &b, Location loc,
+                                 ArrayRef<int64_t> startShape,
+                                 ArrayRef<StringRef> names,
+                                 ArrayRef<int64_t> sizes, bool ignoreStartShape,
+                                 DenseSet<StringRef> ignoreNames) const {
+    // Create the full view [startShape, sizes]
+    SmallVector<int64_t> normalizedShape(startShape);
+    llvm::append_range(normalizedShape, sizes);
+
+    // Create names for the start shape
+    SmallVector<SmallString<8>> normalizedNames;
+    SmallVector<StringRef> normalizedNamesRef;
+    for (size_t i = 0; i < startShape.size(); i++) {
+      SmallString<8> normName(Twine("extra_" + Twine(i)).str());
+      normalizedNames.push_back(normName);
+      normalizedNamesRef.push_back(normalizedNames.back());
+      // If we are ignoring the start names, add them into the ignoreNames
+      // set
+      if (ignoreStartShape)
+        ignoreNames.insert(normalizedNames.back());
+    }
+
+    // Add the other names in
+    llvm::append_range(normalizedNamesRef, names);
+
+    unsigned pos = 0;
+    unsigned newPos = 0;
+    TopDownTMBuilder td(b, normalizedNamesRef, normalizedShape, loc);
+    // Convert the normalizedView to a real view by ignoring
+    // the names contained in `ignoreNames` and letting the rest pass through
+    for (pos = 0; pos < normalizedNamesRef.size(); pos++) {
+      if (ignoreNames.contains(normalizedNamesRef[pos])) {
+        td.ignore(normalizedNamesRef[pos]);
+      } else {
+        td.passThrough({newPos++}, {pos});
+      }
+    }
+    return td.get();
+  }
+
+  LogicalResult matchAndRewrite(ThreadwiseAccelGemmOp op,
+                                ThreadwiseAccelGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -227,14 +272,20 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
     Value bufferB = adaptor.getMatrixB();
     Value bufferC = adaptor.getMatrixC();
 
+    auto bufferAShape = op.getMatrixA().getType().getShape();
+    auto bufferCShape = op.getMatrixC().getType().getShape();
+
+    size_t extraIndicesCSize = op.getExtraIndicesC().size();
+    SmallVector<int64_t> extraIndicesCShape;
+    for (size_t i = 0; i < extraIndicesCSize; i++) {
+      extraIndicesCShape.push_back(bufferCShape[i]);
+    }
+
     auto emitter = rock::accel::AccelEmitter::select(
         op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
 
     // Extract relevant accel emitter parameters
     rock::accel::AccelEmitterParams params = emitter->getParams();
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-    int64_t nResultVectors = params.nResultVectors;
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
 
@@ -245,38 +296,63 @@ struct AccelGemmV2RewritePattern : public OpConversionPattern<AccelGemmOp> {
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
 
-    auto generateAccelOnKDim = [&](Value regCOffset) {
-      auto accelLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-          ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/ArrayRef<int64_t>{kBasePerThread},
-          /*strides=*/ArrayRef<int64_t>{1},
-          /*forceUnroll=*/false, /*useIndexDiffs=*/false);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(accelLoop.getBody());
-        Value coord = accelLoop.getLowerCoords(/*domain=*/0)[0];
-        Value argA = b.create<memref::LoadOp>(loc, argTypeA, bufferA, coord);
-        Value argB = b.create<memref::LoadOp>(loc, argTypeB, bufferB, coord);
-        emitter->emitThreadwiseLoop(b, loc, argA, argB, bufferC, regCOffset);
-      }
-    };
+    // Sizes of the [i,j,k] axis
+    int64_t iLen = *(bufferCShape.end() - 2);
+    int64_t jLen = bufferCShape.back();
+    int64_t kLen = bufferAShape.back();
 
-    auto mRepeat = op.getMRepeat();
-    auto nRepeat = op.getNRepeat();
+    // All the view need to be `[extraIndices, i, j, k]` so that
+    // we can iterate within the `transforming_for` later. This means that we
+    // want to `ignore` some of the indices, e.g, since A is [i,k] we will
+    // ignore index `j` and the `extraIndices`
+    TransformMapAttr normalizedViewA =
+        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
+                      {iLen, jLen, kLen}, true, {"j"});
+    TransformMapAttr normalizedViewB =
+        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
+                      {iLen, jLen, kLen}, true, {"i"});
+    TransformMapAttr normalizedViewC =
+        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
+                      {iLen, jLen, kLen}, false, {"k"});
 
-    Value nResultVectorsConstantOp =
-        b.createOrFold<ConstantIndexOp>(loc, nResultVectors);
-    Value nRepeatsConstantOp = b.create<ConstantIndexOp>(loc, nRepeats);
+    auto [rawBufferA, bufferViewA, sourceANeeds64BitIdx] =
+        untransform(b, bufferA, normalizedViewA);
+    auto [rawBufferB, bufferViewB, sourceBNeeds64BitIdx] =
+        untransform(b, bufferB, normalizedViewB);
+    auto [rawBufferC, bufferViewC, dstNeeds64BitIdx] =
+        untransform(b, bufferC, normalizedViewC);
 
-    Value regCOffset = b.create<MulIOp>(
-        loc,
-        b.create<AddIOp>(
-            loc, b.create<MulIOp>(loc, mRepeat, nRepeatsConstantOp), nRepeat),
-        nResultVectorsConstantOp);
+    assert(!sourceANeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+    assert(!sourceBNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+    assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
 
-    generateAccelOnKDim(regCOffset);
+    // Loop properties
+    auto extendedBounds = SmallVector<int64_t>(extraIndicesCSize, 1);
+    llvm::append_range(extendedBounds, ArrayRef<int64_t>{iLen, jLen, kLen});
+    auto extendedStride = SmallVector<int64_t>(extendedBounds.size(), 1);
+    auto extendedStart = llvm::to_vector(op.getExtraIndicesC());
+    llvm::append_range(
+        extendedStart,
+        ArrayRef<Value>{zeroConstantOp, zeroConstantOp, zeroConstantOp});
 
+    // Emit the loop
+    auto accelLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{extendedStart, extendedStart, extendedStart},
+        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
+        /*bounds=*/extendedBounds,
+        /*strides=*/extendedStride,
+        /*forceUnroll=*/false, /*useIndexDiffs=*/false);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(accelLoop.getBody());
+      auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
+      auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+      auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+
+      Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
+      Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+      emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+    }
     b.eraseOp(op);
     return success();
   }
@@ -743,14 +819,15 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::AccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, AccelGemmV2RewritePattern>(ctx);
+  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
+      ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();
 }

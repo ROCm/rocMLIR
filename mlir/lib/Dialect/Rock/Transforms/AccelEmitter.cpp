@@ -134,17 +134,22 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
 
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     Value regCOffset) {
+                                     ValueRange regCOffset) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
+  Value nResultVectorsConst = b.create<ConstantIndexOp>(loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
+  auto outputOffset = llvm::to_vector(regCOffset);
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-    offset = b.create<AddIOp>(loc, offset, regCOffset);
-
-    auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
+    offset = b.create<AddIOp>(
+        loc, offset,
+        b.create<MulIOp>(loc, outputOffset.back(), nResultVectorsConst));
+    outputOffset.back() = offset;
+    auto vectorC =
+        b.create<memref::LoadOp>(loc, vectorType, bufferC, outputOffset);
     auto mfma = b.create<amdgpu::MFMAOp>(
         loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
         mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
@@ -153,7 +158,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
         /*negateB=*/false, /*negateC=*/false);
     auto vectorD = mfma.getDestD();
 
-    b.create<memref::StoreOp>(loc, vectorD, bufferC, offset);
+    b.create<memref::StoreOp>(loc, vectorD, bufferC, outputOffset);
   }
 }
 
@@ -688,7 +693,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     Value regCOffset) {
+                                     ValueRange regCOffset) {
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, regCOffset);
 

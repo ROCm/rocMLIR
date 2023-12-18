@@ -781,7 +781,8 @@ GemmSize GemmOp::getGemmSize() {
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
-template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
+template <typename GridOp>
+static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
@@ -1677,14 +1678,21 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// AccelGemmOp
+// ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult AccelGemmOp::verify() {
+LogicalResult ThreadwiseAccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape();
+                    bShape = getMatrixB().getType().getShape(),
+                    cShape = getMatrixC().getType().getShape();
 
-  if (aShape != bShape)
-    return emitOpError("K dimensions don't match");
+  if (aShape.size() != 2)
+    return emitOpError("A shape should be [M,K]");
+  if (bShape.size() != 2)
+    return emitOpError("B shape should be [N,K]");
+  if (aShape.back() != bShape.back())
+    return emitOpError("A and B K dimensions don't match");
+  if (cShape.size() != 2 + getExtraIndicesC().size())
+    return emitOpError("C shape should be [extraIndices, M,N]");
   return success();
 }
 

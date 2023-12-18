@@ -208,9 +208,11 @@ void rock::buildBackendPipeline(OpPassManager &pm,
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true));
   gpuPm.addPass(rock::createRockPrepareLLVMPass());
-  if (options.compile)
+  if (options.compile) {
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel));
+    gpuPm.addPass(createRockCheckResidencyPass());
+  }
   // Quick hack around the facct that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That
   // pass will ideally be nicely implemented and upstreamed Later (tm).

@@ -364,9 +364,54 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   return ret;
 }
 
+/// Parse amdhsa specific metadata from the isa string.
+/// Note: the backend provides no other way to capture this data.
+/// TODO(sjw): add backend pass to collect structured metadata.
+static void applyMetadata(Operation *op, const std::string &isa) {
+  std::istringstream iss(isa);
+  OpBuilder b(op);
+  SmallVector<NamedAttribute, 32> fields;
+  bool foundKernel = false;
+  while (iss) {
+    std::string line;
+    if (std::getline(iss, line)) {
+      std::istringstream issl(line);
+      std::string token;
+      issl >> token;
+      if (!foundKernel) {
+        /// look for entry token
+        if (token == ".amdhsa_kernel") {
+          foundKernel = true;
+          // Must be only one metadata section
+          assert(fields.empty());
+        }
+      } else {
+        if (token == ".end_amdhsa_kernel") {
+          foundKernel = false;
+        } else {
+          std::string value;
+          issl >> value;
+          if (!value.empty()) {
+            // drop leading '.'
+            fields.push_back(b.getNamedAttr(
+                token.c_str() + 1, b.getI32IntegerAttr(std::stoi(value))));
+          }
+        }
+      }
+    } else
+      break;
+  }
+  // Attach metadata as a DictionaryAttr
+  if (fields.size())
+    op->setAttr("rocdl.metadata", b.getDictionaryAttr(fields));
+}
+
 std::unique_ptr<SmallVectorImpl<char>>
 SerializeToHsacoPass::assembleIsa(const std::string &isa) {
   auto loc = getOperation().getLoc();
+
+  // Collect kernel metadata
+  applyMetadata(getOperation(), isa);
 
   SmallVector<char, 0> result;
   llvm::raw_svector_ostream os(result);

@@ -94,7 +94,10 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK: affine.for
         // CHECK: affine.for
           // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0BStoreTr3]]) {{.*}} -> %[[preAccelRegB:.+]] :
-          // CHECK: rock.accel_gemm %[[gemm0AccBuf]] += %[[preAccelRegA]]{{.*}} * %[[preAccelRegB]]{{.*}}
+          // CHECK: %[[bufferA:.*]] = rock.transform %[[preAccelRegA]]
+          // CHECK: %[[bufferB:.*]] = rock.transform %[[preAccelRegB]]
+          // CHECK: %[[bufferC:.*]] = rock.transform %[[gemm0AccBuf]]
+          // CHECK: rock.threadwise_accel_gemm %[[bufferC]]{{.*}} += %[[bufferA:.*]] * %[[bufferB:.*]]
 
     // End of inner gemm0 KpacksPerBlock loop
     // CHECK: }
@@ -206,7 +209,6 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
       // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
       // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[attnOutBuf]]
-      
     // CHECK : }
   // CHECK : }
   // CHECK : rock.threadwise_write_all {{.*}} %[[attnOutBuf]] -> {{.*}}(%[[O]])
