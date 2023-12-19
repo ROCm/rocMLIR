@@ -490,39 +490,12 @@ struct BlockwiseGemmAccelRewritePattern
                                        op.getBufferB(), b.getArrayAttr({}),
                                        ValueRange{tid, n_i}, true, true);
 
-        // A view: A buffer is [0, K] so we can ignore `i`
-        TopDownTMBuilder bufferAikTransform(b, {"i", "k"}, {1, kBasePerThread},
-                                            loc);
-        bufferAikTransform.ignore("i");
-        bufferAikTransform.passThrough({"k"}, 0, {"k"});
-        auto bufferA = rock::transform(
-            b, adaptor.getBufferA(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
-
-        // B view: B buffer is [0, K] so we can ignore `j`
-        TopDownTMBuilder bufferBjkTransform(b, {"j", "k"}, {1, kBasePerThread},
-                                            loc);
-        bufferBjkTransform.ignore("j");
-        bufferBjkTransform.passThrough({"k"}, 0, {"k"});
-        auto bufferB = rock::transform(
-            b, adaptor.getBufferB(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
-
-        // C view: C buffer is [mRepeats,nRepeats] and we need to write in
-        // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
-        // of `i` and `j` as extra indices.
-        TopDownTMBuilder bufferCijTransform(b, {"ci", "cj", "i", "j"},
-                                            {mRepeats, nRepeats, 1, 1}, loc);
-        bufferCijTransform.ignore("i");
-        bufferCijTransform.ignore("j");
-        bufferCijTransform.unmerge("offset", 0, {"ci", "cj"},
-                                   {mRepeats, nRepeats});
-        auto bufferC = rock::transform(
-            b, adaptor.getMatrixC(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferCijTransform.get()}));
+        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, adaptor.getBufferA());
+        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, adaptor.getBufferB());
+        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(b, loc, adaptor.getMatrixC());
 
         // regsC += regsA * regsB
-        b.create<ThreadwiseAccelGemmOp>(loc, bufferA, bufferB, bufferC,
+        b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
                                         ValueRange{m_i, n_i}, arch,
                                         op.getFeaturesAttr(), tuningParams);
       }
