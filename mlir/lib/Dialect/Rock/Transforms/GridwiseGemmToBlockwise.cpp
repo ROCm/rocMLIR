@@ -1866,14 +1866,17 @@ struct GridwiseAttentionAccelRewritePattern
             int64_t mRepeats = accelParamsGemm0.mRepeats;
             int64_t nRepeats = accelParamsGemm0.nRepeats;
 
-            Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(rewriter, loc, preAccelRegBufferQ);
-            Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(rewriter, loc, preAccelRegBufferK);
-            Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(rewriter, loc, accRegBufferGemm0);
+            Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
+                rewriter, loc, preAccelRegBufferQ);
+            Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(
+                rewriter, loc, preAccelRegBufferK);
+            Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(
+                rewriter, loc, accRegBufferGemm0);
 
             // regsC += regsA * regsB
             rewriter.create<ThreadwiseAccelGemmOp>(
-                loc, viewA, viewB, viewC, ValueRange{mi, n_i},
-                op.getArchAttr(), op.getFeaturesAttr(), op.getParamsAttr());
+                loc, viewA, viewB, viewC, ValueRange{mi, n_i}, op.getArchAttr(),
+                op.getFeaturesAttr(), op.getParamsAttr());
           }
         }
       }

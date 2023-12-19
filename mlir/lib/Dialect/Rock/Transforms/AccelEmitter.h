@@ -122,13 +122,16 @@ struct AccelEmitter {
                                Value convertedC, bool forceUnroll);
 
   // A view: A buffer is [0, K] so we can ignore `i`
-  Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc, Value rawBufferA);
+  Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
+                                      Value rawBufferA);
   // B view: B buffer is [0, K] so we can ignore `j`
-  Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc, Value rawBufferB);
+  Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc,
+                                      Value rawBufferB);
   // C view: C buffer is [mRepeats,nRepeats] and we need to write in
   // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
   // of `i` and `j` as extra indices.
-  Value generateThreadwiseViewBufferC(PatternRewriter &b, Location loc, Value rawBufferC);
+  Value generateThreadwiseViewBufferC(PatternRewriter &b, Location loc,
+                                      Value rawBufferC);
 
   /// Return the accelerator parameters
   AccelEmitterParams getParams() const { return accelEmitterParams; }

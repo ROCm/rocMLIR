@@ -490,9 +490,12 @@ struct BlockwiseGemmAccelRewritePattern
                                        op.getBufferB(), b.getArrayAttr({}),
                                        ValueRange{tid, n_i}, true, true);
 
-        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, adaptor.getBufferA());
-        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, adaptor.getBufferB());
-        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(b, loc, adaptor.getMatrixC());
+        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+            b, loc, adaptor.getBufferA());
+        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+            b, loc, adaptor.getBufferB());
+        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+            b, loc, adaptor.getMatrixC());
 
         // regsC += regsA * regsB
         b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
