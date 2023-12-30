@@ -350,14 +350,28 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-        if (params.disableNavi21 == false)
-            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        withCredentials([sshUserPrivateKey(credentialsId: 'rocmlir-ixt-rack-15',
+                                           keyFileVariable: 'KEY_FILE')]) {
+            sh '''cat ${KEY_FILE} > ./keyfile
+                  chmod 600 ./keyfile'''
+            if (params.canXdlops) {
+//                unstash name: "MLIR-PerfDB-gfx908"
+//                sh """${WORKSPACE}/mlir/utils/tuna/tuna-upload.sh gfx908 && rm -f *.csv"""
+                unstash name: "MLIR-PerfDB-gfx90a"
+                sh """${WORKSPACE}/mlir/utils/tuna/tuna-upload.sh gfx90a && rm -f *.csv"""
+                if (params.disableNavi21 == false) {
+                    unstash name: "MLIR-PerfDB-gfx1030"
+                    sh """${WORKSPACE}/mlir/utils/tuna/tuna-upload.sh gfx1030 && rm -f *.csv"""
+                }
+            } else {
+                unstash name: "MLIR-PerfDB-gfx906"
+                sh """${WORKSPACE}/mlir/utils/tuna/tuna-upload.sh gfx906 && rm -f *.csv"""
+            }
+            sh """rm ./keyfile"""
+        }
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
-    archiveArtifacts artifacts: 'build/perfDB/**',\
-    onlyIfSuccessful: true
+    archiveArtifacts artifacts: 'build/perfDB/**', onlyIfSuccessful: true
 }
 
 boolean shouldRunBuildAndTest(String codepath) {
@@ -672,7 +686,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx90a'   // 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -716,49 +730,49 @@ pipeline {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
+                                        -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv -u
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
+                                        -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv -u"""
                                 // Tune attention configs
-                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/attention-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
-                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
-                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
-                                // Tune resnet50 and unet configs (quick tuning)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
+                                sh """../mlir/utils/tuna/tuna-script.sh -o attention  \
+                                        -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv -u"""
+//                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+//                                // (Includes int8xint8->int8 for performance comparisons against CK.)
+//                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm  \
+//                                        -c ../mlir/utils/performance/gemm-configs -s quick \
+//                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
+//                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+//                                // Tune resnet50 and unet configs (quick tuning)
+//                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+//                                        -c ../mlir/utils/performance/conv-configs -s quick \
+//                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
                     }
-                    stage("Tune Fusion") {
-                        steps {
-                            dir('build') {
-                                // Tune resnet50
-                                sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv"""
-
-                                // Tune bert
-                                sh """python3 ./bin/tuningRunner.py --op fusion \
---test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
-                            }
-                            sh 'rm -f build/CMakeCache.txt'
-                        }
-                    }
+//                    stage("Tune Fusion") {
+//                        steps {
+//                            dir('build') {
+//                                // Tune resnet50
+//                                sh """python3 ./bin/tuningRunner.py --op fusion \
+//--test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv"""
+//
+//                                // Tune bert
+//                                sh """python3 ./bin/tuningRunner.py --op fusion \
+//--test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
+//                            }
+//                            sh 'rm build/CMakeCache.txt'
+//                        }
+//                    }
                     stage("Stash Databases") {
                         steps {
                             // Save user database for nightly jobs
                             dir ('build') {
-                                stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
+                                stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv,*.csv"
                             }
                         }
                     }
@@ -776,10 +790,11 @@ pipeline {
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
             }
-            agent any
-            options {
-                skipDefaultCheckout()
-            }
+//            agent any
+            agent { label 'build-only' }
+//            options {
+//                skipDefaultCheckout()
+//            }
             steps {
                 archivePerfDB()
             }

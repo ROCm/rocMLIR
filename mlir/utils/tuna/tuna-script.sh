@@ -6,7 +6,7 @@ function mysql_setup_generic
     # Note that all this happens without privileges.
     export PATH=$PATH:/usr/mysql/bin
     mysqld --initialize-insecure --datadir=/tmp/mysql-data
-    mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
+    mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log --secure-file-priv=''
 
     # Using this name should force socket access, which we want.
     TUNA_DB_HOSTNAME=localhost
@@ -59,7 +59,7 @@ function tuna_run
         factor="--load_factor ${LOAD_FACTOR}"
     fi
     (cd "${ROCMLIR_DIR}"/build/ || exit 1 ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id "$session" $factor)
-    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id "$session" --append -f "$OUT_FILE"
+    ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id "$session" --append -f "$OUT_FILE" $CSV
 }
 
 
@@ -74,6 +74,7 @@ export OUT_FILE=results.tsv
 export OP=convolution
 export TUNING_SPACE=exhaustive
 export LOAD_FACTOR=
+export CSV=
 
 # -c configs
 # -t tunadir
@@ -82,7 +83,7 @@ export LOAD_FACTOR=
 # -o operation
 # -s tuning space
 # -l load factor
-while getopts ":hc:t:r:f:o:s:l:" arg; do
+while getopts ":hc:t:r:f:o:s:l:u" arg; do
   case $arg in
     o) # Operation (convolution or gemm [default convolution])
       OP=${OPTARG}
@@ -106,6 +107,9 @@ while getopts ":hc:t:r:f:o:s:l:" arg; do
       ;;
     l) # Load factor (default 1.0)
       LOAD_FACTOR="${OPTARG}"
+      ;;
+    u) # Also export as .csv for upload.
+      CSV="--csv"
       ;;
     h | *) # Display help.
       usage
