@@ -759,7 +759,8 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
                               outLoop.getValidity(/*domain=*/1),
                               outLoop.getLowerCoords(/*domain=*/1),
                               needs64BitIdx ? b.getUnitAttr() : nullptr,
-                              /*canStoreOffEnd=*/nullptr);
+                              /*canStoreOffEnd=*/nullptr,
+                              /*nontemporal=*/b.getBoolAttr(false));
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
@@ -806,17 +807,6 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
                                       std::move(writeAllPatterns))))
       signalPassFailure();
   }
-  WalkResult kernelNeeds64Bit = getOperation().walk([](Operation *op) {
-    if (auto globalLoad = dyn_cast<GlobalLoadOp>(op))
-      return globalLoad.getNeeds64BitIdx() ? WalkResult::interrupt()
-                                           : WalkResult::advance();
-    if (auto globalStore = dyn_cast<GlobalStoreOp>(op))
-      return globalStore.getNeeds64BitIdx() ? WalkResult::interrupt()
-                                            : WalkResult::advance();
-    return WalkResult::advance();
-  });
-  if (kernelNeeds64Bit.wasInterrupted())
-    getOperation()->setAttr("rock.64bitindex", UnitAttr::get(&getContext()));
 
   ConversionTarget target(*ctx);
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();

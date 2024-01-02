@@ -928,7 +928,10 @@ def Rock_GlobalStoreOp :
                    I1:$valid,
                    Variadic<Index>:$destCoord,
                    UnitAttr:$needs64BitIdx,
-                   UnitAttr:$canStoreOffEnd)> {
+                   UnitAttr:$canStoreOffEnd,
+                   // Boolean attribute added here so we know it exists, will be set
+                   // by -analyze-memory-use if applicable.
+                   DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal)> {
   let summary = "Store data into global memory from a source";
   let description = [{
     `global_store` reads `length` elements starting at `%source[%sourceCoord]`

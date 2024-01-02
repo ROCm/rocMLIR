@@ -1614,7 +1614,8 @@ def Vector_LoadOp : Vector_Op<"load"> {
 
   let arguments = (ins Arg<AnyMemRef, "the reference to load from",
       [MemRead]>:$base,
-      Variadic<Index>:$indices);
+      Variadic<Index>:$indices,
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal);
   let results = (outs AnyVector:$result);
 
   let extraClassDeclaration = [{
@@ -1692,7 +1693,8 @@ def Vector_StoreOp : Vector_Op<"store"> {
   let arguments = (ins AnyVector:$valueToStore,
       Arg<AnyMemRef, "the reference to store to",
       [MemWrite]>:$base,
-      Variadic<Index>:$indices);
+      Variadic<Index>:$indices,
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal);
 
   let extraClassDeclaration = [{
     MemRefType getMemRefType() {

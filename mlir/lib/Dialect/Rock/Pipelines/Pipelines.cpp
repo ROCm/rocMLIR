@@ -32,6 +32,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -156,11 +157,12 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // rock lowering (block to thread)
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
      *   --canonicalize --rock-threadwise-gemm-lowering
-     *   --rock-sugar-to-loops --rock-clean-math --rock-buffer-load-merge
-     *   --rock-transform-to-memref --rock-loops-to-cf
-     *   --convert-rock-to-gpu
+     *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
+     *   --rock-buffer-load-merge --rock-transform-to-memref
+     *   --rock-loops-to-cf --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
+    funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
     funcPm.addPass(rock::createRockBufferLoadMergePass());
@@ -207,7 +209,13 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true));
-  gpuPm.addPass(rock::createRockPrepareLLVMPass());
+  // Ensure we only run passes on LLVM functions inside GPU modules.
+  auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
+  // -canonicalize -cse so that we don't have to crawl through memref
+  // descriptors. (Mainly we want the `extractvalue` fold).
+  llvmFuncPm.addPass(createCanonicalizerPass());
+  llvmFuncPm.addPass(createCSEPass());
+  llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel));

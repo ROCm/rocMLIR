@@ -1173,11 +1173,12 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     }
     Value data =
         b.create<InBoundsLoadOp>(loc, storeTy, op.getSource(), sourceStart);
+    bool nontemporal = op.getNontemporal();
     if (!useBufferOps) {
       if (isa<VectorType>(storeTy))
-        b.create<vector::StoreOp>(loc, data, dest, coords);
+        b.create<vector::StoreOp>(loc, data, dest, coords, nontemporal);
       else
-        b.create<memref::StoreOp>(loc, data, dest, coords);
+        b.create<memref::StoreOp>(loc, data, dest, coords, nontemporal);
     } else {
       perHardwareOp(storeTy, [&](int64_t offset, Type thisStoreTy) {
         Value offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, offset);

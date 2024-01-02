@@ -157,14 +157,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     int32_t gridSize = 0;
     int32_t blockSize = 0;
 
-    // Set noalias to memref argument.
-    for (auto arg : gpuFunc.getArguments()) {
-      if (arg.getType().isa<MemRefType>()) {
-        gpuFunc.setArgAttr(arg.getArgNumber(),
-                           LLVM::LLVMDialect::getNoAliasAttrName(),
-                           b.getUnitAttr());
-      }
-    }
+    // Copy over argument attributes
+    auto argAttrs = theFunc.getArgAttrs();
+    if (argAttrs)
+      gpuFunc.setAllArgAttrs(*argAttrs);
 
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
     if (auto attr = theFunc->getAttr("block_size")) {

@@ -5,7 +5,7 @@
 // CHECK-NEXT: gpu.func @emptykernel(%{{.*}}: memref<?x?x?x?xf32> {llvm.noalias}) kernel
 
 module {
-  func.func @emptykernel(%arg0: memref<?x?x?x?xf32>) attributes {kernel = 0 : i32} {
+  func.func @emptykernel(%arg0: memref<?x?x?x?xf32> {llvm.noalias}) attributes {kernel = 0 : i32} {
     return
   }
 }
