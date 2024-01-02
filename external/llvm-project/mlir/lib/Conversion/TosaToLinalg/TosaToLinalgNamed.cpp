@@ -210,12 +210,13 @@ public:
     if (group > 1 && isConv2DOp &&
         !std::is_same<LinalgConvOp, linalg::Conv2DNhwgcGfhwcOp>::value)
       return rewriter.notifyMatchFailure(
-          op, "tosa.conv ops should map to grouped convolution ops");
+          op,
+          "grouped tosa.conv2d ops should map to linalg::Conv2DNhwgcGfhwcOp");
 
     if (group == 1 && isConv2DOp &&
         !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value)
       return rewriter.notifyMatchFailure(
-          op, "tosa.conv ops should map to non-grouped convolution ops");
+          op, "tosa.conv2d ops should map to linalg::Conv2DNhwcHwcfOp");
 
     if (!weightTy.hasStaticShape() || !biasTy.hasStaticShape())
       return rewriter.notifyMatchFailure(
@@ -267,7 +268,6 @@ public:
     SmallVector<int64_t> weightPerm;
 
     auto resultShape = resultTy.getShape();
-    auto newResultTy = resultTy;
 
     if (isConv2DOp && group > 1) {
       // Map 4D-tensors to 5D tensors
@@ -306,23 +306,22 @@ public:
                                                   weightPermValue);
     }
 
-    auto resultZeroAttr = rewriter.getZeroAttr(resultETy);
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, resultShape, resultETy, filteredDims);
-    Value zero = rewriter.create<arith::ConstantOp>(loc, resultZeroAttr);
-    Value zeroTensor = rewriter
-                           .create<linalg::FillOp>(loc, ValueRange{zero},
-                                                   ValueRange{emptyTensor})
-                           .result();
+    auto newResultTy = resultTy;
     if (isConv2DOp && group > 1) {
       SmallVector<int64_t, 5> newResultShape{resultShape[0], resultShape[1],
                                              resultShape[2], group,
                                              resultShape[3] / group};
       newResultTy = RankedTensorType::get(newResultShape, resultETy);
-      zeroTensor = rewriter.create<tosa::ReshapeOp>(
-          loc, newResultTy, zeroTensor,
-          rewriter.getDenseI64ArrayAttr(newResultShape));
     }
+
+    auto resultZeroAttr = rewriter.getZeroAttr(resultETy);
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+        loc, newResultTy.getShape(), resultETy, filteredDims);
+    Value zero = rewriter.create<arith::ConstantOp>(loc, resultZeroAttr);
+    Value zeroTensor = rewriter
+                           .create<linalg::FillOp>(loc, ValueRange{zero},
+                                                   ValueRange{emptyTensor})
+                           .result();
 
     // Extract the attributes for convolution.
     ArrayRef<int64_t> stride = strideTosaAttr;
@@ -357,7 +356,7 @@ public:
                   loc, newResultTy, ValueRange{input, weight, iZpVal, kZpVal},
                   ValueRange{zeroTensor}, strideAttr, dilationAttr)
               ->getResult(0);
-      if (isConv2DOp && group > 1) {
+      if (group > 1) {
         conv = rewriter.create<tosa::ReshapeOp>(
             loc, RankedTensorType::get(resultShape, resultETy), conv,
             rewriter.getDenseI64ArrayAttr(resultShape));
@@ -375,7 +374,7 @@ public:
                          ValueRange{zeroTensor}, strideAttr, dilationAttr)
                      ->getResult(0);
 
-    if (isConv2DOp && group > 1) {
+    if (group > 1) {
       conv = rewriter.create<tosa::ReshapeOp>(
           loc, RankedTensorType::get(resultShape, resultETy), conv,
           rewriter.getDenseI64ArrayAttr(resultShape));
