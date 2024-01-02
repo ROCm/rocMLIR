@@ -88,6 +88,49 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
   }
 }
 
+Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferA) {
+  TopDownTMBuilder bufferAikTransform(
+      b, {"i", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
+  bufferAikTransform.ignore("i");
+  bufferAikTransform.passThrough({"k"}, 0, {"k"});
+  auto viewA = rock::transform(
+      b, rawBufferA,
+      b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
+  return viewA;
+}
+
+Value AccelEmitter::generateThreadwiseViewBufferB(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferB) {
+  TopDownTMBuilder bufferBjkTransform(
+      b, {"j", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
+  bufferBjkTransform.ignore("j");
+  bufferBjkTransform.passThrough({"k"}, 0, {"k"});
+  auto viewB = rock::transform(
+      b, rawBufferB,
+      b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
+  return viewB;
+}
+
+Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferC) {
+  TopDownTMBuilder bufferCijTransform(
+      b, {"ci", "cj", "i", "j"},
+      {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats, 1, 1}, loc);
+  bufferCijTransform.ignore("i");
+  bufferCijTransform.ignore("j");
+  bufferCijTransform.unmerge(
+      "offset", 0, {"ci", "cj"},
+      {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats});
+  auto viewC = rock::transform(
+      b, rawBufferC,
+      b.getArrayAttr(SmallVector<Attribute>{bufferCijTransform.get()}));
+  return viewC;
+}
+
 // **************************
 // Mfma accelerator interface
 // **************************
