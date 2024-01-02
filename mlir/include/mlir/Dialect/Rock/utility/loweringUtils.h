@@ -41,8 +41,10 @@ struct RegsAsMatrixSubTiles {
   // of the matrix.
   ArrayAttr threadSubTile;
   // This is a [tid] to a 2D subtile view.
-  // It essentially provides access to as if sliced blockSubTile
-  // just based on tid coordinate
+  // i.e. [tid] --> [m_tid, n_tid]
+  // where |m_tid| x |n_tid| == workgroup size.
+  // It is equivalent to removing all iter-dependent components from
+  // blockSubTile.
   std::optional<ArrayAttr> blockSubTileTidSlice;
 };
 

@@ -1863,7 +1863,7 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
   int64_t axis = getAxis().getSExtValue();
   size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
-  ArrayRef<int64_t> inputPartRedTensorShape =
+  ArrayRef<int64_t> inputPartialReductionTensorShape =
       tidSubTileSliceView[tidSubTileSliceViewArrLen - 1]
           .cast<TransformMapAttr>()
           .getLowerBounds()
@@ -1925,15 +1925,16 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
     return emitError("workspace LDS buffer should be flat");
   }
 
-  int64_t blockwiseInputPartRedTensorElements = 1;
+  int64_t blockwiseInputPartialReductionTensorElements = 1;
   for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
     if ((int64_t)dim == axis) {
-      blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
+      blockwiseInputPartialReductionTensorElements *=
+          inputPartialReductionTensorShape[axis];
     } else {
-      blockwiseInputPartRedTensorElements *= dimSize;
+      blockwiseInputPartialReductionTensorElements *= dimSize;
     }
   }
-  if (blockwiseInputPartRedTensorElements > wsShape[0]) {
+  if (blockwiseInputPartialReductionTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block");
   }

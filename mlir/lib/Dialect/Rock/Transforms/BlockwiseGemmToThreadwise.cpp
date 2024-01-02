@@ -1015,34 +1015,34 @@ struct BlockwiseReduceRewritePattern
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    mlir::ArrayAttr inputThreadSubTile2dView =
+    ArrayAttr inputThreadSubTile2dView =
         createInput2DView(loc, rewriter, op.getIterSubTileSliceView(), axis);
     ArrayRef<int64_t> inputThreadSubTile2dShape =
         getLowerShape(inputThreadSubTile2dView);
-    auto partialRedBufferType =
+    auto partialReductionBufferType =
         MemRefType::get(inputThreadSubTile2dShape[nrDim], elemType, AffineMap{},
                         privateMemoryAddressSpace);
-    Value partialRedBuffer =
-        rewriter.create<GpuAllocOp>(loc, partialRedBufferType);
+    Value partialReductionBuffer =
+        rewriter.create<GpuAllocOp>(loc, partialReductionBufferType);
     Value initVal = getReductionInitValue(op, rewriter);
-    rewriter.create<FillOp>(loc, partialRedBuffer, initVal);
-    doThreadwiseReductions(rewriter, loc, op, partialRedBuffer,
+    rewriter.create<FillOp>(loc, partialReductionBuffer, initVal);
+    doThreadwiseReductions(rewriter, loc, op, partialReductionBuffer,
                            inputThreadSubTile2dView);
 
     // Create partially reduced tensor shape
-    mlir::ArrayAttr inputBlockSubTile2dView =
+    ArrayAttr inputBlockSubTile2dView =
         createInput2DView(loc, rewriter, inputViewArrayAttr, axis);
     SmallVector<int64_t, 2> partialRegTensorShape =
         llvm::to_vector<2>(getLowerShape(inputBlockSubTile2dView));
     ArrayAttr tidSubTileSliceView =
         createInput2DView(loc, rewriter, op.getTidSubTileSliceView(), axis);
-    ArrayRef<int64_t> partialReductionLower2DShape =
+    ArrayRef<int64_t> partialReductionuctionLower2DShape =
         getLowerShape(tidSubTileSliceView);
-    partialRegTensorShape[rDim] = partialReductionLower2DShape[rDim];
+    partialRegTensorShape[rDim] = partialReductionuctionLower2DShape[rDim];
     ArrayAttr toFlatLDSView =
         create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim],
                               partialRegTensorShape[rDim]);
-    storePartialReductionstoLDS(rewriter, loc, partialRedBuffer,
+    storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
                                 workspaceLDSBuffer, inputBlockSubTile2dView,
                                 inputThreadSubTile2dView, tidSubTileSliceView,
                                 toFlatLDSView);
