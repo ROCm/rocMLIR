@@ -1866,40 +1866,17 @@ struct GridwiseAttentionAccelRewritePattern
             int64_t mRepeats = accelParamsGemm0.mRepeats;
             int64_t nRepeats = accelParamsGemm0.nRepeats;
 
-            TopDownTMBuilder bufferAikTransform(rewriter, {"i", "k"},
-                                                {1, kBasePerThread}, loc);
-            bufferAikTransform.ignore("i");
-            bufferAikTransform.passThrough({"k"}, 0, {"k"});
-            auto bufferA =
-                rock::transform(rewriter, preAccelRegBufferQ,
-                                rewriter.getArrayAttr(SmallVector<Attribute>{
-                                    bufferAikTransform.get()}));
-
-            TopDownTMBuilder bufferBjkTransform(rewriter, {"j", "k"},
-                                                {1, kBasePerThread}, loc);
-            bufferBjkTransform.ignore("j");
-            bufferBjkTransform.passThrough({"k"}, 0, {"k"});
-            auto bufferB =
-                rock::transform(rewriter, preAccelRegBufferK,
-                                rewriter.getArrayAttr(SmallVector<Attribute>{
-                                    bufferBjkTransform.get()}));
-
-            TopDownTMBuilder bufferCijTransform(
-                rewriter, {"ci", "cj", "i", "j"}, {mRepeats, nRepeats, 1, 1},
-                loc);
-            bufferCijTransform.ignore("i");
-            bufferCijTransform.ignore("j");
-            bufferCijTransform.unmerge("offset", 0, {"ci", "cj"},
-                                       {mRepeats, nRepeats});
-            auto bufferC =
-                rock::transform(rewriter, accRegBufferGemm0,
-                                rewriter.getArrayAttr(SmallVector<Attribute>{
-                                    bufferCijTransform.get()}));
+            Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
+                rewriter, loc, preAccelRegBufferQ);
+            Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(
+                rewriter, loc, preAccelRegBufferK);
+            Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(
+                rewriter, loc, accRegBufferGemm0);
 
             // regsC += regsA * regsB
             rewriter.create<ThreadwiseAccelGemmOp>(
-                loc, bufferA, bufferB, bufferC, ValueRange{mi, n_i},
-                op.getArchAttr(), op.getFeaturesAttr(), op.getParamsAttr());
+                loc, viewA, viewB, viewC, ValueRange{mi, n_i}, op.getArchAttr(),
+                op.getFeaturesAttr(), op.getParamsAttr());
           }
         }
       }
