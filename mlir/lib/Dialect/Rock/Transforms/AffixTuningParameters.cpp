@@ -51,7 +51,8 @@ private:
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(AttentionOp op);
 
-  template <typename T> void setUtilityKernelSizes(Value arg, T utilityOp);
+  template <typename T>
+  void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
 
@@ -106,6 +107,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (auto perfConfigAttr =
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
+  } else if (op.getGemmParams().has_value()) {
+    // Recover the perfConfig string from the gemm parameters (if they are set)
+    RockTuningParamAttrInterface params = op.getGemmParams().value();
+    SmallString<64> perfConfigTmp;
+    params.getPerfConfigStr(perfConfigTmp);
+    perfConfig = std::string(perfConfigTmp);
   }
   GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {

@@ -251,6 +251,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
     validParams = params;
     break;
   }
+  LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
 
   return res;
 }
