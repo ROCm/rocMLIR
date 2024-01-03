@@ -522,7 +522,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         // do the same for the last set of indices too
         // where it does not match upto the rank of the input.
         ReassociationIndices &lastIndices = newReassocIndicesSorted.back();
-        while (lastIndices.back() + 1 < inShape.size()) {
+        while (lastIndices.back() + 1 < (int64_t)inShape.size()) {
           lastIndices.push_back(lastIndices.back() + 1);
         }
 
