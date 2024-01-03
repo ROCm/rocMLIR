@@ -211,8 +211,18 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     return op.emitError("Currently, attention op is only supported on GPUs "
                         "with matrix accelerator extentions");
   }
-  RockAccelTuningParamAttrInterface params =
-      op.getParamsAttr().cast<RockAccelTuningParamAttrInterface>();
+  if (!op.getParams0().has_value()) {
+    return op.emitError("gemm0 params is missing and it should've been "
+                        "assigned by affix-tuing-params");
+  }
+  RockAccelTuningParamAttrInterface params0 =
+      op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
+  if (!op.getParams1().has_value()) {
+    return op.emitError("gemm1 params is missing and it should've been "
+                        "assigned by affix-tuing-params");
+  }
+  RockAccelTuningParamAttrInterface params1 =
+      op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
 
   Value queries = adaptor.getQueries();
   Value keys = adaptor.getKeys();
@@ -235,30 +245,34 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   ArrayRef<int64_t> keysShape = keys.getType().cast<MemRefType>().getShape();
   ArrayRef<int64_t> valuesShape =
       values.getType().cast<MemRefType>().getShape();
-  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
                      /*k=*/queriesShape[1],
-                     /*n=*/keysShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm0ExtraPad =
-      requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+      requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
                      /*k=*/valuesShape[1],
-                     /*n=*/valuesShape[2]);
+                     /*n=*/keysShape[2]);
   GemmSize gemm1ExtraPad =
-      requiredPadding(params, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
+      requiredPadding(params1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
 
-  queries = padMatrix(queries, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
-                      gemm0ExtraPad.m);
-  keys = padMatrix(keys, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
-                   gemm0ExtraPad.n);
-  values = padMatrix(values, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1N",
-                     gemm1ExtraPad.n);
-  out = padMatrix(out, rw, loc, "gemm1M", gemm1ExtraPad.m, "gemm1N",
-                  gemm1ExtraPad.n);
+  queries = padMatrix(queries, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
+                      gemm0ExtraPad.n);
+  keys = padMatrix(keys, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
+                   gemm0ExtraPad.m);
+  values = padMatrix(values, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1M",
+                     gemm1ExtraPad.m);
+  // In the transposed layout, from a tuning params point of view
+  // the output dimensions are swapped. Though we will only be
+  // swapping them inside gridwise lowering to keep the surrounding
+  // fusions legit. So the extra pad needs to be swapped and applied.
+  out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
+                  gemm1ExtraPad.m);
 
   Value scale = nullptr;
   if (Value scaleUnpadded = adaptor.getScale()) {
-    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1M", gemm0ExtraPad.m,
-                      "gemm1N", gemm0ExtraPad.n);
+    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n,
+                      "gemm1M", gemm0ExtraPad.m);
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
@@ -274,7 +288,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
       op, queries, keys, values, scale, out, op.getArchAttr(),
       op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr, prePadG0MAttr,
-      prePadG0NAttr, params);
+      prePadG0NAttr, params0, params1);
   return success();
 }
 

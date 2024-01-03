@@ -340,10 +340,10 @@ public:
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
                                   const InitParamsAccel &params) override;
 
-  virtual LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
-                                             Type dataTypeA, Type dataTypeB,
-                                             StringRef arch,
-                                             uint32_t blockSize) = 0;
+  virtual LogicalResult
+  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+                       bool enableBlockSizeUpperLimit = true) = 0;
 
 protected:
   // if can't select config from above , use this config to do
@@ -397,10 +397,10 @@ public:
   Attribute
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
-  LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
-                                     Type dataTypeA, Type dataTypeB,
-                                     StringRef arch,
-                                     uint32_t blockSize) override;
+  LogicalResult
+  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+                       bool enableBlockSizeUpperLimit = true) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
@@ -431,10 +431,10 @@ public:
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
 
-  LogicalResult isValidBlockwiseGemm(const InitParamsAccel &param,
-                                     Type dataTypeA, Type dataTypeB,
-                                     StringRef arch,
-                                     uint32_t blockSize) override;
+  LogicalResult
+  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+                       bool enableBlockSizeUpperLimit = true) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,

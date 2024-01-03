@@ -184,6 +184,21 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
 }
 
+static RockAccelTuningParamAttrInterface
+deriveGemm1TuningParams(OpBuilder &builder,
+                        RockAccelTuningParamAttrInterface gemm0TuningParams,
+                        GemmFeatures features) {
+  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  return builder.getAttr<XdlopsGemmParamsAttr>(
+      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
+      /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
+      /*gemmKPack=*/gemm1KPack,
+      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
+      /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
+      /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
+}
+
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
   Value queries = op.getQueries();
@@ -197,11 +212,11 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     signalPassFailure();
     return;
   }
-  Attribute params = op.getParams().value_or(nullptr);
+  Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
   std::string perfConfigStr = "32,32,32,32,32,1,1,1";
   InitParamsAccel initAccelParams;
-  if (!params) {
+  if (!params0) {
     if (StringAttr perfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
       perfConfigStr = perfConfigStrAttr.str();
@@ -210,22 +225,26 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   GemmFeatures features = op.getFeatures();
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   if (initAccelParams.deserialize(perfConfigStr)) {
-    params =
+    params0 =
         populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams);
   } else {
     op.emitError("perf config string has an incorrect format.");
     signalPassFailure();
     return;
   }
-  auto accelParams = params.cast<RockAccelTuningParamAttrInterface>();
-  op.setParamsAttr(accelParams);
+  auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+  op.setParams0Attr(accelParams0);
+  auto accelParams1 =
+      deriveGemm1TuningParams(builder, accelParams0, op.getFeatures());
+  op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
-  int64_t blockSize = waveSize * accelParams.getNPerBlock() *
-                      accelParams.getMPerBlock() /
-                      (accelParams.getMPerWave() * accelParams.getNPerWave());
+  int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
+                      accelParams0.getMPerBlock() /
+                      (accelParams0.getMPerWave() * accelParams0.getNPerWave());
   LogicalResult isValidBlockwiseGemm =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams, elemType, elemType, op.getArch(), blockSize);
+          initAccelParams, elemType, elemType, op.getArch(), blockSize,
+          /*enableBlockSizeUpperLimit=*/false);
   if (isValidBlockwiseGemm.failed()) {
     op.emitError("The provided perf config is not valid");
     signalPassFailure();
@@ -250,20 +269,20 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   if (op.getVTransposed()) {
     std::iter_swap(valuesShape.rbegin(), valuesShape.rbegin() + 1);
   }
-  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
                      /*k=*/queriesShape[1],
-                     /*n=*/keysShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm0ExtraPad =
-      requiredPadding(params, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/queriesShape[2],
+      requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
                      /*k=*/valuesShape[1],
-                     /*n=*/valuesShape[2]);
+                     /*n=*/keysShape[2]);
   GemmSize gemm1ExtraPad =
-      requiredPadding(params, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
+      requiredPadding(accelParams1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
 
   int64_t gridSize =
-      ((gemm0Size.m + gemm0ExtraPad.m) / accelParams.getMPerBlock()) *
-      ((gemm1Size.n + gemm1ExtraPad.n) / accelParams.getNPerBlock()) *
+      ((gemm0Size.n + gemm0ExtraPad.n) / accelParams0.getNPerBlock()) *
+      ((gemm1Size.m + gemm1ExtraPad.m) / accelParams1.getMPerBlock()) *
       gemm0Size.g;
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
   IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);
