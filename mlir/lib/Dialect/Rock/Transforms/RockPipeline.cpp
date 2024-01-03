@@ -530,7 +530,7 @@ void RockPipeline::runOnOperation() {
   });
 
   if (isNestedPipelining) {
-    llvm::errs() << "Nested pipelining is not supported yet!\n";
+    emitError(loc, "Nested pipelining is not supported yet!\n");
     return signalPassFailure();
   }
 
@@ -545,7 +545,7 @@ void RockPipeline::runOnOperation() {
     }
   }
   if (isMultiBufferingFailed) {
-    llvm::errs() << "Multi buffering failed to apply!\n";
+    emitError(loc, "Multi buffering failed to apply!\n");
     return signalPassFailure();
   }
 
@@ -557,7 +557,7 @@ void RockPipeline::runOnOperation() {
   });
 
   if (gpuMemoryBytes[AddressSpace::Workgroup] > size_t(64 * 1024)) {
-    llvm::errs() << "LDS consumption is more than 64K!\n";
+    emitError(loc, "LDS consumption is more than 64K!\n");
     return signalPassFailure();
   }
 
