@@ -781,7 +781,8 @@ GemmSize GemmOp::getGemmSize() {
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
-template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
+template <typename GridOp>
+static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
@@ -1677,14 +1678,21 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// AccelGemmOp
+// ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
-LogicalResult AccelGemmOp::verify() {
+LogicalResult ThreadwiseAccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape();
+                    bShape = getMatrixB().getType().getShape(),
+                    cShape = getMatrixC().getType().getShape();
 
-  if (aShape != bShape)
-    return emitOpError("K dimensions don't match");
+  if (aShape.size() != 2)
+    return emitOpError("A shape should be [M,K]");
+  if (bShape.size() != 2)
+    return emitOpError("B shape should be [N,K]");
+  if (aShape.back() != bShape.back())
+    return emitOpError("A and B K dimensions don't match");
+  if (cShape.size() != 2 + getExtraIndicesC().size())
+    return emitOpError("C shape should be [extraIndices, M,N]");
   return success();
 }
 
@@ -1847,9 +1855,23 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   // This view should be {tid, iter} to {d0, ... , Dr , ... , dn};
   // where {d0, ... , Dr , ... , dn} represent a blockwise tile
   // of a larger tensor that is being reduced.
-  TransformMapAttr inputView = inputViewArrayAttr[0].cast<TransformMapAttr>();
-  ArrayRef<int64_t> inputTensorShape = inputView.getLowerBounds().asArrayRef();
-  ArrayRef<int64_t> inputThreadView = inputView.getUpperBounds().asArrayRef();
+  size_t inputViewArrLen = inputViewArrayAttr.size();
+  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1]
+                                           .cast<TransformMapAttr>()
+                                           .getLowerBounds()
+                                           .asArrayRef();
+  ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
+  int64_t axis = getAxis().getSExtValue();
+  size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
+  ArrayRef<int64_t> inputPartialReductionTensorShape =
+      tidSubTileSliceView[tidSubTileSliceViewArrLen - 1]
+          .cast<TransformMapAttr>()
+          .getLowerBounds()
+          .asArrayRef();
+  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0]
+                                          .cast<TransformMapAttr>()
+                                          .getUpperBounds()
+                                          .asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
 
@@ -1903,11 +1925,16 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
     return emitError("workspace LDS buffer should be flat");
   }
 
-  int64_t blockwiseInputTensorElements = 1;
-  for (int64_t dimSize : inputTensorShape) {
-    blockwiseInputTensorElements *= dimSize;
+  int64_t blockwiseInputPartialReductionTensorElements = 1;
+  for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
+    if ((int64_t)dim == axis) {
+      blockwiseInputPartialReductionTensorElements *=
+          inputPartialReductionTensorShape[axis];
+    } else {
+      blockwiseInputPartialReductionTensorElements *= dimSize;
+    }
   }
-  if (blockwiseInputTensorElements > wsShape[0]) {
+  if (blockwiseInputPartialReductionTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block");
   }

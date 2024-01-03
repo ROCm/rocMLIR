@@ -88,6 +88,49 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
   }
 }
 
+Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferA) {
+  TopDownTMBuilder bufferAikTransform(
+      b, {"i", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
+  bufferAikTransform.ignore("i");
+  bufferAikTransform.passThrough({"k"}, 0, {"k"});
+  auto viewA = rock::transform(
+      b, rawBufferA,
+      b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
+  return viewA;
+}
+
+Value AccelEmitter::generateThreadwiseViewBufferB(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferB) {
+  TopDownTMBuilder bufferBjkTransform(
+      b, {"j", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
+  bufferBjkTransform.ignore("j");
+  bufferBjkTransform.passThrough({"k"}, 0, {"k"});
+  auto viewB = rock::transform(
+      b, rawBufferB,
+      b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
+  return viewB;
+}
+
+Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
+                                                  Location loc,
+                                                  Value rawBufferC) {
+  TopDownTMBuilder bufferCijTransform(
+      b, {"ci", "cj", "i", "j"},
+      {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats, 1, 1}, loc);
+  bufferCijTransform.ignore("i");
+  bufferCijTransform.ignore("j");
+  bufferCijTransform.unmerge(
+      "offset", 0, {"ci", "cj"},
+      {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats});
+  auto viewC = rock::transform(
+      b, rawBufferC,
+      b.getArrayAttr(SmallVector<Attribute>{bufferCijTransform.get()}));
+  return viewC;
+}
+
 // **************************
 // Mfma accelerator interface
 // **************************
@@ -134,17 +177,22 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
 
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     Value regCOffset) {
+                                     ValueRange regCOffset) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
+  Value nResultVectorsConst = b.create<ConstantIndexOp>(loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
+  auto outputOffset = llvm::to_vector(regCOffset);
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-    offset = b.create<AddIOp>(loc, offset, regCOffset);
-
-    auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
+    offset = b.create<AddIOp>(
+        loc, offset,
+        b.create<MulIOp>(loc, outputOffset.back(), nResultVectorsConst));
+    outputOffset.back() = offset;
+    auto vectorC =
+        b.create<memref::LoadOp>(loc, vectorType, bufferC, outputOffset);
     auto mfma = b.create<amdgpu::MFMAOp>(
         loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
         mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
@@ -153,7 +201,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
         /*negateB=*/false, /*negateC=*/false);
     auto vectorD = mfma.getDestD();
 
-    b.create<memref::StoreOp>(loc, vectorD, bufferC, offset);
+    b.create<memref::StoreOp>(loc, vectorD, bufferC, outputOffset);
   }
 }
 
@@ -353,6 +401,37 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /*isBlockwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
+  }
+
+  {
+    // Create views for tid slice of blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
+    splitMemoryCoords.merge(
+        {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
+        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    auto toRowsAndCols =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    // "blkMajor" and "blkMinor" are placeholder names because we don't know
+    // if they'll be column or row until we check for broadcast-ness.
+    llvm::StringMap<uint32_t> rowsAndColsIdxs =
+        expandNamesInPlace(splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+                          {wavesInKernelBlock / nWaves, nWaves});
+    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
+    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[5]},
+                      {dimSizesM[2], dimSizesM[5]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[4]},
+                      {dimSizesN[2], dimSizesN[4]});
+
+    // Before returning the output view, if necessary, swap back the
+    // threadid/iter dimensions on both the M/N axis.
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+                                          toRowsAndColsAttr, toMatrixC.get()};
+    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
   }
 
   {
@@ -657,7 +736,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     Value regCOffset) {
+                                     ValueRange regCOffset) {
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, regCOffset);
 
@@ -797,6 +876,26 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /**isBlocwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
+  }
+
+  {
+    // Create views for tid slice of blockwise sub-tile of C
+    TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
+    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
+                            {0, 1, 2, 3}, "tid",
+                            {wavesInKernelBlock / nWaves, nWaves,
+                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toMatrixC =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[4]},
+                      {dimSizesM[2], dimSizesM[4]});
+    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[3]},
+                      {dimSizesN[2], dimSizesN[3]});
+    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+                                          toMatrixC.get()};
+    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
   }
 
   {

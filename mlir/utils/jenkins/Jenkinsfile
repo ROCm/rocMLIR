@@ -909,7 +909,7 @@ pipeline {
                                 dir('composable_kernel') {
                                     sh 'rm -rf composable_kernel'
                                     getAndBuildCK('''
-                                        -DGPU_TARGETS="gfx1030;gfx908;gfx90a"
+                                        -DGPU_TARGETS=${CHIP}
                                         -DCMAKE_CXX_FLAGS="-O3"
                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir

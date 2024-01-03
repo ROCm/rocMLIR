@@ -2,9 +2,11 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   AccelEmitter.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
+  AnalyzeMemoryUse.cpp
   BlockwiseGemmToThreadwise.cpp
   BufferLoadMerge.cpp
   BufferizableOpInterfaceImpl.cpp
+  CheckResidency.cpp
   CleanMath.cpp
   ConvToGemm.cpp
   GemmToGridwise.cpp

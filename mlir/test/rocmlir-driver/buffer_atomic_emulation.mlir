@@ -10,9 +10,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK-DAG: %[[prevInt:.+]] = llvm.bitcast %[[prev]] : f32 to i32
 // CHECK-DAG: %[[addInt:.+]] = llvm.bitcast %[[add]] : f32 to i32
 // CHECK: %[[resInt:.+]] = rocdl.raw.ptr.buffer.atomic.cmpswap %[[addInt]], %[[prevInt]]
-// CHECK-DAG: %[[res:.+]] = llvm.bitcast %[[resInt]] : i32 to f32
-// CHECK-DAG: %[[prevInt_2:.+]] = llvm.bitcast %[[prev]] : f32 to i32
-// CHECK: %[[cond:.+]] = llvm.icmp "eq" %[[resInt]], %[[prevInt_2]]
+// CHECK: %[[res:.+]] = llvm.bitcast %[[resInt]] : i32 to f32
+// CHECK: %[[cond:.+]] = llvm.icmp "eq" %[[resInt]], %[[prevInt]]
 // CHECK: llvm.cond_br %[[cond]], ^{{.*}}, ^[[bb]](%[[res]] : f32)
 func.func @add_scalar(%val: f32, %mem: memref<4xf32>) attributes {kernel} {
   %c0 = arith.constant 0 : i32

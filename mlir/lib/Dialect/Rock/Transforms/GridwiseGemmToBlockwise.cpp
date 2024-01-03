@@ -230,11 +230,35 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   return transform(b, typedBuffer, asMatrix);
 }
 
-template <typename OpT>
-static LogicalResult checkLDSSize(OpT op, int64_t aBufferBytes,
+static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
+  auto func = op->getParentOfType<func::FuncOp>();
+
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  return success(ldsBytes <= 64 * 1024);
+  // Set sharedMemSize attribute for this kernel
+  int64_t totalLDS = ldsBytes;
+  if (auto ldsAttr =
+          func->getAttrOfType<IntegerAttr>("rock.shared_buffer_size")) {
+    totalLDS += ldsAttr.getInt();
+  }
+  auto intTy = IntegerType::get(func->getContext(), 32);
+  func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
+
+  // Check for arch limitations exceeded
+  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
+  if (!arch)
+    arch = func->getAttrOfType<StringAttr>("mhal.arch");
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
+  }
+
+  if (arch) {
+    const int64_t ldsSize = rock::lookupArchInfo(arch).totalSharedMemPerCU;
+
+    return success(ldsBytes <= ldsSize);
+  }
+  return success();
 }
 
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
@@ -1363,11 +1387,14 @@ struct GridwiseAttentionAccelRewritePattern
     TopDownTMBuilder viewBuilder{
         rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
     viewBuilder.passThrough("g");
-    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[0] - prePadGemmM, 0,
-                                             paddedShape[1] - prePadGemmN});
+    // paddedShape is G x M x N
+    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
+                                             paddedShape[2] - prePadGemmN});
+    TransformMapAttr padMap = viewBuilder.get();
+
     ArrayAttr transforms =
         prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
-                          rewriter.getArrayAttr({viewBuilder.get()}));
+                          rewriter.getArrayAttr({padMap}));
 
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
@@ -1835,10 +1862,20 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadB, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, n_i}, true, true);
+            int64_t kBasePerThread = accelParamsGemm0.kBasePerThread;
+            int64_t mRepeats = accelParamsGemm0.mRepeats;
+            int64_t nRepeats = accelParamsGemm0.nRepeats;
+
+            Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
+                rewriter, loc, preAccelRegBufferQ);
+            Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(
+                rewriter, loc, preAccelRegBufferK);
+            Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(
+                rewriter, loc, accRegBufferGemm0);
+
             // regsC += regsA * regsB
-            rewriter.create<AccelGemmOp>(
-                loc, mi, nLoop.getInductionVar(), preAccelRegBufferQ,
-                preAccelRegBufferK, accRegBufferGemm0, op.getArchAttr(),
+            rewriter.create<ThreadwiseAccelGemmOp>(
+                loc, viewA, viewB, viewC, ValueRange{mi, n_i}, op.getArchAttr(),
                 op.getFeaturesAttr(), op.getParamsAttr());
           }
         }
@@ -1867,11 +1904,13 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
                                              elemTypeQxK, 1.44269504);
       scaleFirstGemmSplat(
           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
           ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
+#endif
 
       // Handle padding
       bool hasPadding =
@@ -1891,12 +1930,16 @@ struct GridwiseAttentionAccelRewritePattern
       }
 
       APInt reductionAxis = APInt(64, 1);
+      APInt nrDimPerThread = APInt(64, gemm0MPerBlock / gemm0MPerThread);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
-          gemm0OutSubTileViews.blockSubTile, /*extraViews=*/nullptr, blockSize);
+          gemm0OutSubTileViews.blockSubTile,
+          gemm0OutSubTileViews.blockSubTileTidSlice.value(),
+          gemm0OutSubTileViews.threadSubTile, /*extraViews=*/nullptr,
+          blockSize);
       // softmax normalization.
       Value gemm0MNThreadwiseView = transform(
           rewriter, gemm0OutBuffer,
@@ -1917,6 +1960,8 @@ struct GridwiseAttentionAccelRewritePattern
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
           rock::ReduceMethod::Sum, gemm0OutSubTileViews.blockSubTile,
+          gemm0OutSubTileViews.blockSubTileTidSlice.value(),
+          gemm0OutSubTileViews.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);

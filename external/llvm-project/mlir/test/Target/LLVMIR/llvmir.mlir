@@ -1730,6 +1730,15 @@ llvm.func @passthrough() attributes {passthrough = ["noinline", ["alignstack", "
 
 // -----
 
+// CHECK-LABEL: @my_allocator
+// CHECK: #[[ALLOC_ATTRS:[0-9]*]]
+llvm.func @my_allocator(i64) attributes {passthrough = [["allocsize", "4294967295"]]}
+
+// CHECK: attributes #[[ALLOC_ATTRS]] = {
+// CHECK-DAG: allocsize(0)
+
+// -----
+
 // CHECK-LABEL: @functionEntryCount
 // CHECK-SAME: !prof ![[PROF_ID:[0-9]*]]
 llvm.func @functionEntryCount() attributes {function_entry_count = 4242 : i64} {
@@ -1874,6 +1883,17 @@ llvm.func @nontemporal_store_and_load() {
 }
 
 // CHECK: ![[NODE]] = !{i32 1}
+
+// -----
+
+// Check that invariantLoad attribute is exported as metadata node.
+llvm.func @nontemporal_store_and_load(%ptr : !llvm.ptr) -> i32 {
+  // CHECK: !invariant.load ![[NODE:[0-9]+]]
+  %1 = llvm.load %ptr {invariantLoad} : !llvm.ptr -> i32
+  llvm.return %1 : i32
+}
+
+// CHECK: ![[NODE]] = !{}
 
 // -----
 

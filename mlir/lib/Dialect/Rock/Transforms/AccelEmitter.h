@@ -94,7 +94,7 @@ struct AccelEmitter {
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
-                                  Value regCOffset) = 0;
+                                  ValueRange regCOffset) = 0;
 
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
@@ -121,6 +121,18 @@ struct AccelEmitter {
   void computeOutputConversion(PatternRewriter &b, Location loc, Value regDest,
                                Value convertedC, bool forceUnroll);
 
+  // A view: A buffer is [0, K] so we can ignore `i`
+  Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
+                                      Value rawBufferA);
+  // B view: B buffer is [0, K] so we can ignore `j`
+  Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc,
+                                      Value rawBufferB);
+  // C view: C buffer is [mRepeats,nRepeats] and we need to write in
+  // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
+  // of `i` and `j` as extra indices.
+  Value generateThreadwiseViewBufferC(PatternRewriter &b, Location loc,
+                                      Value rawBufferC);
+
   /// Return the accelerator parameters
   AccelEmitterParams getParams() const { return accelEmitterParams; }
 
@@ -139,7 +151,7 @@ struct MfmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange regCOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
@@ -170,7 +182,7 @@ struct WmmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, Value regCOffset) override;
+                          Value bufferC, ValueRange regCOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,

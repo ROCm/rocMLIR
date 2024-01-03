@@ -189,18 +189,22 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
   // Get memref type from function arguments and set the noalias to
   // pointer arguments.
   for (const auto &en : llvm::enumerate(gpuFuncOp.getArgumentTypes())) {
-    auto memrefTy = en.value().dyn_cast<MemRefType>();
+    auto remapping = signatureConversion.getInputMapping(en.index());
     NamedAttrList argAttr = argAttrs
                                 ? argAttrs[en.index()].cast<DictionaryAttr>()
                                 : NamedAttrList();
-
+    auto copyAttribute = [&](StringRef attrName) {
+      Attribute attr = argAttr.erase(attrName);
+      if (!attr)
+        return;
+      for (size_t i = 0, e = remapping->size; i < e; ++i)
+        llvmFuncOp.setArgAttr(remapping->inputNo + i, attrName, attr);
+    };
     auto copyPointerAttribute = [&](StringRef attrName) {
       Attribute attr = argAttr.erase(attrName);
 
-      // This is a proxy for the bare pointer calling convention.
       if (!attr)
         return;
-      auto remapping = signatureConversion.getInputMapping(en.index());
       if (remapping->size > 1 &&
           attrName == LLVM::LLVMDialect::getNoAliasAttrName()) {
         emitWarning(llvmFuncOp.getLoc(),
@@ -219,10 +223,23 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
     if (argAttr.empty())
       continue;
 
-    if (memrefTy) {
+    copyAttribute(LLVM::LLVMDialect::getReturnedAttrName());
+    copyAttribute(LLVM::LLVMDialect::getNoUndefAttrName());
+    copyAttribute(LLVM::LLVMDialect::getInRegAttrName());
+    bool lowersToPointer = false;
+    for (size_t i = 0, e = remapping->size; i < e; ++i) {
+      lowersToPointer |= isa<LLVM::LLVMPointerType>(
+          llvmFuncOp.getArgument(remapping->inputNo + i).getType());
+    }
+
+    if (lowersToPointer) {
       copyPointerAttribute(LLVM::LLVMDialect::getNoAliasAttrName());
+      copyPointerAttribute(LLVM::LLVMDialect::getNoCaptureAttrName());
+      copyPointerAttribute(LLVM::LLVMDialect::getNoFreeAttrName());
+      copyPointerAttribute(LLVM::LLVMDialect::getAlignAttrName());
       copyPointerAttribute(LLVM::LLVMDialect::getReadonlyAttrName());
       copyPointerAttribute(LLVM::LLVMDialect::getWriteOnlyAttrName());
+      copyPointerAttribute(LLVM::LLVMDialect::getReadnoneAttrName());
       copyPointerAttribute(LLVM::LLVMDialect::getNonNullAttrName());
       copyPointerAttribute(LLVM::LLVMDialect::getDereferenceableAttrName());
       copyPointerAttribute(

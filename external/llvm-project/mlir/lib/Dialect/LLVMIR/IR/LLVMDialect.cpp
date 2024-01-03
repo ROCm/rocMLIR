@@ -826,20 +826,22 @@ LogicalResult LoadOp::verify() {
 }
 
 void LoadOp::build(OpBuilder &builder, OperationState &state, Value addr,
-                   unsigned alignment, bool isVolatile, bool isNonTemporal) {
+                   unsigned alignment, bool isVolatile, bool isNonTemporal,
+                   bool isInvariantLoad) {
   auto type = llvm::cast<LLVMPointerType>(addr.getType()).getElementType();
   assert(type && "must provide explicit element type to the constructor "
                  "when the pointer type is opaque");
-  build(builder, state, type, addr, alignment, isVolatile, isNonTemporal);
+  build(builder, state, type, addr, alignment, isVolatile, isNonTemporal,
+        isInvariantLoad);
 }
 
 void LoadOp::build(OpBuilder &builder, OperationState &state, Type type,
                    Value addr, unsigned alignment, bool isVolatile,
-                   bool isNonTemporal, AtomicOrdering ordering,
-                   StringRef syncscope) {
+                   bool isNonTemporal, bool isInvariantLoad,
+                   AtomicOrdering ordering, StringRef syncscope) {
   build(builder, state, type, addr,
         alignment ? builder.getI64IntegerAttr(alignment) : nullptr, isVolatile,
-        isNonTemporal, ordering,
+        isNonTemporal, isInvariantLoad, ordering,
         syncscope.empty() ? nullptr : builder.getStringAttr(syncscope),
         /*access_groups=*/nullptr,
         /*alias_scopes=*/nullptr, /*noalias_scopes=*/nullptr,
