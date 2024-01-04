@@ -519,6 +519,13 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
             theseIndices.push_back(theseIndices.back() + 1);
           }
         }
+        // do the same for the last set of indices too
+        // where it does not match upto the rank of the input.
+        ReassociationIndices &lastIndices = newReassocIndicesSorted.back();
+        while (lastIndices.back() + 1 < (int64_t)inShape.size()) {
+          lastIndices.push_back(lastIndices.back() + 1);
+        }
+
         for (size_t i = 0; i < newDims.size(); i++) {
           newDims[i] = dimMap[newDims[i]];
         }

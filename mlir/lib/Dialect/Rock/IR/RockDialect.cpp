@@ -781,7 +781,8 @@ GemmSize GemmOp::getGemmSize() {
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
-template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
+template <typename GridOp>
+static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
