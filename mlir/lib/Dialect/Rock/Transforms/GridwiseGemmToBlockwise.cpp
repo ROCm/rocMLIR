@@ -2051,37 +2051,38 @@ struct GridwiseAttentionAccelRewritePattern
         affine::AffineForOp nRepeatsLoop = rewriter.create<affine::AffineForOp>(
             loc, 0, accelParamsGemm1.nRepeats, 1);
         {
+          PatternRewriter::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
+          affine::AffineForOp mRepeatsLoop =
+              rewriter.create<affine::AffineForOp>(
+                  loc, 0, accelParamsGemm1.mRepeats, 1);
+          {
             PatternRewriter::InsertionGuard guard(rewriter);
-            rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
-            affine::AffineForOp mRepeatsLoop = rewriter.create<affine::AffineForOp>(
-            loc, 0, accelParamsGemm1.mRepeats, 1);
-            {
-                PatternRewriter::InsertionGuard guard(rewriter);
-                rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
-                Value ni = nRepeatsLoop.getInductionVar();
-                Value mi = mRepeatsLoop.getInductionVar();
+            rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
+            Value ni = nRepeatsLoop.getInductionVar();
+            Value mi = mRepeatsLoop.getInductionVar();
 
-                // regsA = read A from LDS
-                rewriter.create<ThreadwiseReadIntoOp>(
-                    loc, wrappedLDSBufferForLoadA, preAccelRegBufferV,
-                    rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
-                // regsB = read B from LDS
-                rewriter.create<ThreadwiseReadIntoOp>(
-                    loc, wrappedLDSBufferForLoadB, preAccelRegBufferQxK,
-                    rewriter.getArrayAttr({}), ValueRange{tid, ni}, true, true);
+            // regsA = read A from LDS
+            rewriter.create<ThreadwiseReadIntoOp>(
+                loc, wrappedLDSBufferForLoadA, preAccelRegBufferV,
+                rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
+            // regsB = read B from LDS
+            rewriter.create<ThreadwiseReadIntoOp>(
+                loc, wrappedLDSBufferForLoadB, preAccelRegBufferQxK,
+                rewriter.getArrayAttr({}), ValueRange{tid, ni}, true, true);
 
-                Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
+            Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
                 rewriter, loc, preAccelRegBufferV);
-                Value viewB = accelEmitterPtrGemm1->generateThreadwiseViewBufferB(
-                    rewriter, loc, preAccelRegBufferQxK);
-                Value viewC = accelEmitterPtrGemm1->generateThreadwiseViewBufferC(
-                    rewriter, loc, accRegBufferGemm1);
+            Value viewB = accelEmitterPtrGemm1->generateThreadwiseViewBufferB(
+                rewriter, loc, preAccelRegBufferQxK);
+            Value viewC = accelEmitterPtrGemm1->generateThreadwiseViewBufferC(
+                rewriter, loc, accRegBufferGemm1);
 
-                // regsC += regsA * regsB
-                rewriter.create<ThreadwiseAccelGemmOp>(
-                    loc, viewA, viewB, viewC, ValueRange{mi, ni}, op.getArchAttr(),
-                    op.getFeaturesAttr(), op.getParams1Attr());
-            }
+            // regsC += regsA * regsB
+            rewriter.create<ThreadwiseAccelGemmOp>(
+                loc, viewA, viewB, viewC, ValueRange{mi, ni}, op.getArchAttr(),
+                op.getFeaturesAttr(), op.getParams1Attr());
+          }
         }
 
         // There is no second k-loop
