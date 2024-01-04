@@ -1877,9 +1877,6 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadA, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
-            int64_t kBasePerThread = accelParamsGemm0.kBasePerThread;
-            int64_t mRepeats = accelParamsGemm0.mRepeats;
-            int64_t nRepeats = accelParamsGemm0.nRepeats;
 
             Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
                 rewriter, loc, preAccelRegBufferK);
@@ -2042,15 +2039,51 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, ldsByteBufferV, vectorTypeOrSelf(elemTypeV, gemm1kpack));
         // LDS barrier.
         rewriter.create<LDSBarrierOp>(loc);
-        // Emit blockwise GEMM 1.
-        rewriter.create<BlockwiseGemmAccelOp>(
-            loc, ldsTileBufferV, gemm1LDSBufferB,
-            rewriter.getI32IntegerAttr(gemm1InMPerThread),
-            rewriter.getI32IntegerAttr(gemm1InNPerThread),
-            /*rotateMWithK=*/nullptr,
-            /*rotateNWithK=*/nullptr, preAccelRegBufferV, preAccelRegBufferQxK,
-            accRegBufferGemm1, op.getArchAttr(), op.getFeaturesAttr(),
-            op.getBlockSizeAttr(), gemm1TuningParams);
+        // Emit GEMM 1.
+        Value wrappedLDSBufferForLoadA =
+            accelEmitterPtrGemm1->wrapLDSBufferForLoad(
+                rewriter, loc, ldsTileBufferV, op.getBlockSize(),
+                gemm1InMPerThread, "m", false);
+        Value wrappedLDSBufferForLoadB =
+            accelEmitterPtrGemm1->wrapLDSBufferForLoad(
+                rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
+                gemm1InNPerThread, "n", false);
+        affine::AffineForOp nRepeatsLoop = rewriter.create<affine::AffineForOp>(
+            loc, 0, accelParamsGemm1.nRepeats, 1);
+        {
+            PatternRewriter::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
+            affine::AffineForOp mRepeatsLoop = rewriter.create<affine::AffineForOp>(
+            loc, 0, accelParamsGemm1.mRepeats, 1);
+            {
+                PatternRewriter::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
+                Value ni = nRepeatsLoop.getInductionVar();
+                Value mi = mRepeatsLoop.getInductionVar();
+
+                // regsA = read A from LDS
+                rewriter.create<ThreadwiseReadIntoOp>(
+                    loc, wrappedLDSBufferForLoadA, preAccelRegBufferV,
+                    rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
+                // regsB = read B from LDS
+                rewriter.create<ThreadwiseReadIntoOp>(
+                    loc, wrappedLDSBufferForLoadB, preAccelRegBufferQxK,
+                    rewriter.getArrayAttr({}), ValueRange{tid, ni}, true, true);
+
+                Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
+                rewriter, loc, preAccelRegBufferV);
+                Value viewB = accelEmitterPtrGemm1->generateThreadwiseViewBufferB(
+                    rewriter, loc, preAccelRegBufferQxK);
+                Value viewC = accelEmitterPtrGemm1->generateThreadwiseViewBufferC(
+                    rewriter, loc, accRegBufferGemm1);
+
+                // regsC += regsA * regsB
+                rewriter.create<ThreadwiseAccelGemmOp>(
+                    loc, viewA, viewB, viewC, ValueRange{mi, ni}, op.getArchAttr(),
+                    op.getFeaturesAttr(), op.getParams1Attr());
+            }
+        }
+
         // There is no second k-loop
         // Therefore can get the output straight away
         accelEmitterPtrGemm1->computeOutputConversion(
