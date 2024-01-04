@@ -249,6 +249,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
       dilationAttr[0].template dyn_cast<IntegerAttr>().getInt();
   int64_t dilationWidth =
       dilationAttr[1].template dyn_cast<IntegerAttr>().getInt();
+  int64_t group = op.getGroup();
 
   // convolution config attributes
 
@@ -258,6 +259,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                rewriter.getDenseI64ArrayAttr({strideHeight, strideWidth}));
   cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(
                           {padTop, padBottom, padLeft, padRight}));
+  cop->setAttr("group", rewriter.getI64IntegerAttr(group));
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

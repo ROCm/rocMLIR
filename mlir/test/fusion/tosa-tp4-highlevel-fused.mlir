@@ -9,7 +9,7 @@ module {
     %a = "tosa.transpose"(%arg0, %cst_t) : (tensor<256x28x28x128xf32>, tensor<4xi64>) -> tensor<256x128x28x28xf32>
     %a2 = "tosa.transpose"(%a, %cst) : (tensor<256x128x28x28xf32>, tensor<4xi64>) -> tensor<256x28x28x128xf32>
     %b = "tosa.transpose"(%arg1, %cst) : (tensor<64x128x3x3xf32>, tensor<4xi64>) -> tensor<64x3x3x128xf32>
-    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], output_layout = ["no", "ho", "wo", "ko", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x28x28x64x1xf32>
+    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %c0 = "tosa.conv2d"(%a2, %b, %cst_0) {dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<256x28x28x128xf32>, tensor<64x3x3x128xf32>, tensor<1xf32>) -> tensor<256x28x28x64xf32>
@@ -31,7 +31,7 @@ module {
     %a2 = "tosa.transpose"(%a, %cst) : (tensor<1x256x128x28x28xf32>, tensor<5xi64>) -> tensor<1x256x28x28x128xf32>
     %b = "tosa.transpose"(%arg1, %cst) : (tensor<1x64x128x3x3xf32>, tensor<5xi64>) -> tensor<1x64x3x3x128xf32>
 
-    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], output_layout = ["no", "ho", "wo", "ko", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x28x28x64x1xf32>
+    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %a2_rshp = "tosa.reshape"(%a2) {new_shape = array<i64: 256, 28, 28, 128>} : (tensor<1x256x28x28x128xf32>) -> tensor<256x28x28x128xf32>
@@ -56,7 +56,7 @@ module {
     %a2 = "tosa.transpose"(%a, %cst) : (tensor<256x128x28x28x1xf32>, tensor<5xi64>) -> tensor<256x28x28x128x1xf32>
     %b = "tosa.transpose"(%arg1, %cst) : (tensor<64x128x3x3x1xf32>, tensor<5xi64>) -> tensor<64x3x3x128x1xf32>
 
-    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], output_layout = ["no", "ho", "wo", "ko", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x28x28x64x1xf32>
+    // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %a2_rshp = "tosa.reshape"(%a2) {new_shape = array<i64: 256, 28, 28, 128>} : (tensor<256x28x28x128x1xf32>) -> tensor<256x28x28x128xf32>

@@ -57,7 +57,8 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, uint32_t idx = 4) {
+                          Value operand, SmallString<5> &layout,
+                          StringRef lowerName, int64_t g, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape()) {
@@ -69,13 +70,36 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
 
   SmallVector<uint32_t, 8> endDims;
   SmallVector<uint32_t, 8> startDims;
+  SmallVector<StringRef, 8> startNames;
+
+  // find the lower dimension that encodes the g dimension
+  std::optional<uint32_t> groupFoldedDim = std::nullopt;
+
   for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
-    startDims.push_back(i);
-    endDims.push_back(i < idx ? i : i + 1);
+    startNames.push_back(layout.substr(i, 1));
+    if (layout[i] == lowerName[0]) {
+      groupFoldedDim = i;
+    } else {
+      startDims.push_back(i);
+      endDims.push_back(groupFoldedDim.has_value() ? i + 1 : i);
+    }
   }
-  rock::BottomUpTMBuilder transform(rw, shape, loc);
+
+  if (!groupFoldedDim.has_value()) {
+    (void)rw.notifyMatchFailure(op, "tosa conv has an invalid layout");
+    return Value();
+  }
+
+  uint32_t lowerDim = groupFoldedDim.value();
+  // insert 'g' dimension into layout
+  rock::BottomUpTMBuilder transform(rw, ArrayRef<StringRef>(startNames), shape,
+                                    loc);
   transform.passThrough(endDims, startDims);
-  transform.addDim("g", idx, 1);
+  transform.unmerge({"g", lowerName}, {lowerDim, lowerDim + 1}, lowerName,
+                    {{g, shape[lowerDim] / g}});
+  layout = Twine(layout.substr(0, lowerDim) + "g" +
+                 layout.substr(lowerDim, layout.size() - lowerDim))
+               .str();
 
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
@@ -119,16 +143,28 @@ getArchAttributes(Operation *op, Type inputType) {
 
 static FailureOr<rock::Conv2DOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
-               StringRef inputLayout, Value filter, StringRef filterLayout,
-               Value output, StringRef outputLayout,
-               const DenseI64ArrayAttr &pad, const DenseI64ArrayAttr &stride,
-               const DenseI64ArrayAttr &dilation) {
+               // StringRef inputLayout, Value filter, StringRef filterLayout,
+               // Value output, StringRef outputLayout,
+               Value filter, Value output, const DenseI64ArrayAttr &pad,
+               const DenseI64ArrayAttr &stride,
+               const DenseI64ArrayAttr &dilation, int64_t group) {
   Location loc = op->getLoc();
 
+  SmallString<5> filterLayout("kyxc");
+  if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
+    filterLayout = attr.getValue();
+  SmallString<5> inputLayout("nhwc");
+  if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
+    inputLayout = attr.getValue();
+  SmallString<5> outputLayout("nhwk");
+  if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
+    outputLayout = attr.getValue();
+
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-  auto inputExp = expandTensor(rw, op, input);
-  auto filterExp = expandTensor(rw, op, filter);
-  auto outputExp = expandTensor(rw, op, output);
+  // and add 'g into the layout
+  auto inputExp = expandTensor(rw, op, input, inputLayout, "c", group);
+  auto filterExp = expandTensor(rw, op, filter, filterLayout, "k", group);
+  auto outputExp = expandTensor(rw, op, output, outputLayout, "k", group);
 
   StringAttr arch;
   std::optional<uint32_t> num_cu;
@@ -184,7 +220,6 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   cop->setAttr("output_layout",
                rw.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end())));
-
   return cop;
 }
 
@@ -206,19 +241,12 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
-    SmallString<5> filterLayout("kyxcg");
-    if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
-      filterLayout = Twine(attr.getValue() + "g").str();
-    SmallString<5> inputLayout("nhwcg");
-    if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
-      inputLayout = Twine(attr.getValue() + "g").str();
-    SmallString<5> outputLayout("nhwkg");
-    if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
-      outputLayout = Twine(attr.getValue() + "g").str();
-
-    FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
-        rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
-        op.getPadAttr(), op.getStrideAttr(), op.getDilationAttr());
+    int64_t group = 1;
+    if (op.getGroup().has_value())
+      group = *op.getGroup();
+    FailureOr<rock::Conv2DOp> rockConv =
+        makeRockConv2D(rw, op, input, filter, output, op.getPadAttr(),
+                       op.getStrideAttr(), op.getDilationAttr(), group);
     if (failed(rockConv))
       return failure();
 
