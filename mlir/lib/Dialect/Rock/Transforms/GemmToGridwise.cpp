@@ -160,10 +160,17 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
-    rw.create<GridwiseGemmAccelOp>(
+    auto gridwieseGemmOp = rw.create<GridwiseGemmAccelOp>(
         loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
         op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
         params.cast<RockAccelTuningParamAttrInterface>());
+
+    if (auto splitkAttr =
+            op->template getAttrOfType<StringAttr>("split-k-factor")) {
+      std::string splitkFactor = splitkAttr.getValue().str();
+      gridwieseGemmOp->setAttr("split-k-factor",
+                               rw.getStringAttr(llvm::StringRef(splitkFactor)));
+    }
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
                               numCUAttr, gridSize,

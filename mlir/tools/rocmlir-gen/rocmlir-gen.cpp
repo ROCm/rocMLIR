@@ -282,6 +282,10 @@ static llvm::cl::opt<rock::StoreMethod> storeMethod(
                    "atomically add results to values in matrix C")),
     llvm::cl::init(rock::StoreMethod::Set));
 
+static llvm::cl::opt<int64_t>
+    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
+                 llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
 // A toggle to control whether a feature should be added to the feature list
 enum class FeatureToggle : uint32_t { infer, on, off };
 
@@ -2197,6 +2201,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
+  gemm->setAttr("split-k-factor",
+                b.getStringAttr(llvm::StringRef(std::to_string(splitkFactor))));
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);

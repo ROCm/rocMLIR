@@ -2117,6 +2117,12 @@ struct GridwiseGemmAccelRewritePattern
     int64_t M = aShape[2];
     int64_t N = bShape[2];
 
+    int64_t splitkFactor{1};
+    if (auto splitKAttr =
+            op->template getAttrOfType<StringAttr>("split-k-factor")) {
+      splitkFactor = std::stoi(splitKAttr.getValue().str());
+    }
+
     // Obtain critical tuning parameters.
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
@@ -2214,7 +2220,9 @@ struct GridwiseGemmAccelRewritePattern
     Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
 
     // Get current workgroup ID.
-    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+    auto origBid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+    auto splikConstantOp = b.create<ConstantIndexOp>(loc, splitkFactor);
+    auto bid = b.create<arith::DivUIOp>(loc, origBid, splikConstantOp);
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
@@ -2396,9 +2404,22 @@ struct GridwiseGemmAccelRewritePattern
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
-    Value nIterations = b.create<ConstantIndexOp>(loc, K / kPerBlock);
+    auto kBlockIdx = b.create<arith::RemUIOp>(loc, origBid, splikConstantOp);
+
+    Value totalNumKBlocks = b.create<ConstantIndexOp>(loc, K / kPerBlock);
+
+    Value kRange = b.create<ConstantIndexOp>(
+        loc, (K + kPerBlock * splitkFactor - 1) / (kPerBlock * splitkFactor));
+    Value kBegin = b.create<arith::MulIOp>(loc, kRange, kBlockIdx);
+    Value kEnd = b.create<arith::AddIOp>(loc, kBegin, kRange);
+    kEnd = b.create<arith::MinSIOp>(loc, kEnd, totalNumKBlocks);
+
+    Value nIterations = b.create<arith::SubIOp>(loc, kEnd, kBegin);
+
     Value step = b.create<ConstantIndexOp>(loc, 1);
     BlockwiseGemmAccelOp blockwiseGemmAccelOp;
+
+    Value shiftK = b.create<arith::MulIOp>(loc, kRange, kBlockIdx);
 
     auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
     loopOp->setAttr(PipelineAttr::getMnemonic(),
@@ -2407,11 +2428,15 @@ struct GridwiseGemmAccelRewritePattern
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 
-      Value iv = loopOp.getInductionVar();
+      auto origIv = loopOp.getInductionVar();
+
       auto stage0 = b.create<StageOp>(loc, "GlobalRead");
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
+
+        Value iv = b.create<arith::AddIOp>(loc, origIv, shiftK);
+
         b.create<ThreadwiseReadIntoOp>(
             loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
