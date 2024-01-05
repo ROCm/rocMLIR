@@ -251,6 +251,37 @@ func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<privat
     return
 }
 
+// CHECK-LABEL: func.func @add_scalar_to_scalar_valid
+// CHECK-SAME: (%[[source:.*]]: memref<1xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<f32>)
+func.func @add_scalar_to_scalar_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>) {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
+    // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
+    // CHECK-NOT: scf.if
+    // CHECK: memref.atomic_rmw addf %[[val]], %[[cast]]
+    rock.global_store atomic_add %source[%c0] -> %mem[] if %true
+        features = none {length = 1 : index}
+        : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
+    return
+}
+
+// CHECK-LABEL: func.func @add_scalar_to_scalar_maybe_valid
+// CHECK-SAME: (%[[source:.*]]: memref<1xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<f32>, %[[valid:.*]]: i1)
+func.func @add_scalar_to_scalar_maybe_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>, %valid: i1) {
+    %c0 = arith.constant 0 : index
+    // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
+    // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
+    // CHECK-DAG: scf.if %[[valid]]
+    // CHECK: memref.atomic_rmw addf %[[val]], %[[cast]]
+    rock.global_store atomic_add %source[%c0] -> %mem[] if %valid
+        features = none {length = 1 : index}
+        : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
+    return
+}
+
 // CHECK-LABEL: func.func @native_fmax_scalar_in_bounds
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) {
