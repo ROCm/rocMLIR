@@ -961,7 +961,188 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const {
+  StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
+  StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
+  StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
+  int64_t thisDimNumBlocks = dName == "m" ? bidGridLengths[1] : bidGridLengths[2];
+                                    
+  // Extract relevant tuning parameters
+  int64_t mPerBlock = tuningParams.getMPerBlock();
+  int64_t nPerBlock = tuningParams.getNPerBlock();
+  int64_t kPackPerBlock = tuningParams.getKpackPerBlock();
+  int64_t mPerWave = tuningParams.getMPerWave();
+  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t kPack = tuningParams.getKpack();
+
+  MemRefType matrixType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> matrixShape = matrixType.getShape();
+  int64_t kGlobal = matrixShape[1];
+  int64_t kIters = kGlobal / (kPackPerBlock * kPack);
+
+  // Extract relevant emitter parameters
+  int64_t inputLen = wmmaInsn.inputLen;
+  int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
+                                   : accelEmitterParams.nRepeats);
+  int64_t dPerAccel = (dName == "m" ? accelEmitterParams.mPerAccel
+                                    : accelEmitterParams.nPerAccel);
+
+  // Extract relevant derived parameters
+  int64_t dWaves = (dName == "m" ? mPerBlock / mPerWave : nPerBlock / nPerWave);
+  int64_t dPerBlock = (dName == "m" ? mPerBlock : nPerBlock);
+  int64_t mWaves = mPerBlock / mPerWave;
+  int64_t nWaves = nPerBlock / nPerWave;
+              
    RegsAsMatrixSubTiles ret;
+   //compute grid sub tile transforms
+    {
+      SmallVector<Attribute> transformAttrs;
+      //First coordinate transform
+      TopDownTMBuilder splitTid(
+          b, {"k_loop", "g_block", "m_block", "n_block", "tid", "drepeat", "kpack_iter"},
+          {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
+          dRepeats, kpackPerThread},
+          loc);
+      {
+        splitTid.passThrough({"k_loop", "g_block"});
+        splitTid.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        splitTid.merge({"wave_id", "lane_id"}, {3, 4}, "tid",
+                        {blockSize / waveSize, waveSize});
+        splitTid.passThrough({"d_iter", "k_iter"}, {5, 6}, {"d_iter", "k_iter"});
+      }
+      TransformMapAttr splitTidAttr = splitTid.get();
+      transformAttrs.push_back(splitTidAttr);
+      //Second coordinate transform
+      TopDownTMBuilder splitWaveId =
+        TopDownTMBuilder::below(splitTid, splitTidAttr);
+      {
+        splitWaveId.passThrough({"k_loop", "g_block"});
+        splitWaveId.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        splitWaveId.merge({"wave_m", "wave_n"}, {3, 4}, "wave_id", {mWaves, nWaves});
+        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {5, 6, 7},
+                                {"lane_id", "d_iter", "k_iter"});
+      }
+      TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+      transformAttrs.push_back(splitWaveIdAttr);
+      //Third coordinate transform
+      TopDownTMBuilder replicateLanes =
+        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+      {
+        replicateLanes.passThrough({"k_loop", "g_block"});
+        replicateLanes.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
+                             {3, 4, 7, 8},
+                             {"wave_m", "wave_n", "d_iter", "k_iter"});
+
+        replicateLanes.merge({"block_id", "block_td"}, {5, 6}, "lane_id",
+                            {waveSize / inputLen, inputLen});
+      }
+      TransformMapAttr replicateLanesAttr = replicateLanes.get();
+      transformAttrs.push_back(replicateLanesAttr);
+      //Fourth coordinate transform
+      TopDownTMBuilder toLDSRowCol =
+        TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
+      {
+        toLDSRowCol.passThrough({"k_loop", "g_block"});
+        toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        toLDSRowCol.passThrough({"k"}, {4}, {"k_iter"});
+        toLDSRowCol.ignore("block_id");
+        toLDSRowCol.ignore(otherWaveDim);
+        toLDSRowCol.unmerge("d", 3, {"d_iter", thisWaveDim, "block_td"},
+                            {dRepeats, dWaves, dPerAccel});
+      }
+      TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+      transformAttrs.push_back(toLDSRowColAttr);
+      //Fifth coordinate transform
+      {
+        int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+        auto offset =
+            rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+                    dPerBlock, 3, "k", kPackPerBlock, {"k_loop", "g_block", thisBlockDim}, {"k"}, transformAttrs);
+        offset.passThrough({"G"}, {0}, {"g_block"});
+        offset.unmerge({"K"}, 1, {"k_loop", "k"}, {kIters, kPackPerBlock});
+        offset.unmerge("D", 2, {thisBlockDim, "d"}, {thisDimNumBlocks, dPerBlock});
+        TransformMapAttr offsetAttr = offset.get();
+        transformAttrs.push_back(offsetAttr);
+      }
+      ret.gridSubTile = b.getArrayAttr(transformAttrs);
+    }
+    //compute block sub tile transforms
+    {
+      SmallVector<Attribute> transformAttrs;
+      //First coordinate transform
+      TopDownTMBuilder splitTid(
+          b, {"tid", "drepeat", "kpack_iter"},
+          {blockSize, dRepeats, kpackPerThread},
+          loc);
+      {
+        splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+                        {blockSize / waveSize, waveSize});
+        splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+      }
+      TransformMapAttr splitTidAttr = splitTid.get();
+      transformAttrs.push_back(splitTidAttr);
+      //Second coordinate transform
+      TopDownTMBuilder splitWaveId =
+        TopDownTMBuilder::below(splitTid, splitTidAttr);
+      {
+        splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id", {mWaves, nWaves});
+        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
+                                {"lane_id", "d_iter", "k_iter"});
+      }
+      TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+      transformAttrs.push_back(splitWaveIdAttr);
+      //Third coordinate transform
+      TopDownTMBuilder replicateLanes =
+        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+      {
+        replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
+                             {0, 1, 4, 5},
+                             {"wave_m", "wave_n", "d_iter", "k_iter"});
+
+        replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
+                            {waveSize / inputLen, inputLen});
+      }
+      TransformMapAttr replicateLanesAttr = replicateLanes.get();
+      transformAttrs.push_back(replicateLanesAttr);
+      //Fourth coordinate transform
+      TopDownTMBuilder toLDSRowCol =
+        TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
+      {
+        toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
+        toLDSRowCol.ignore("block_id");
+        toLDSRowCol.ignore(otherWaveDim);
+        toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
+                            {dRepeats, dWaves, dPerAccel});
+      }
+      TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+      transformAttrs.push_back(toLDSRowColAttr);
+      //Fifth coordinate transform
+      {
+        int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+        auto offset =
+          rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+                  dPerBlock, 0, "k", kPackPerBlock, {}, {"k"}, transformAttrs);
+        offset.passThrough({"K"}, {0}, {"k_iter"});
+        offset.passThrough({"D"}, {1}, {"d"});
+        TransformMapAttr offsetAttr = offset.get();
+        transformAttrs.push_back(offsetAttr);
+      }
+      ret.blockSubTile = b.getArrayAttr(transformAttrs);
+    }
+    //compute thread sub tile transforms
+    {
+      SmallVector<Attribute> transformAttrs;
+      //First coordinate transform
+      TopDownTMBuilder threadPassThru(
+        b, {"drepeat", "kpack_iter"},
+        {dRepeats, kpackPerThread},
+        loc);
+      threadPassThru.passThrough({"K", "D"}, {0, 1}, {"kpack_iter", "drepeat"});
+      TransformMapAttr threadPassThruAttr = threadPassThru.get();
+      transformAttrs.push_back(threadPassThruAttr);
+      ret.threadSubTile = b.getArrayAttr(transformAttrs);
+    }
    return ret;                                   
 }
 
