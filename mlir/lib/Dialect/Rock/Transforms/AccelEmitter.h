@@ -105,6 +105,12 @@ struct AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const = 0;
 
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                     ArrayRef<int64_t> bidGridLengths,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) const = 0;
+
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
 
@@ -158,6 +164,12 @@ struct MfmaEmitter : public AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
 
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                     ArrayRef<int64_t> bidGridLengths,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) const override;
+
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
@@ -185,6 +197,12 @@ struct WmmaEmitter : public AccelEmitter {
                           Value bufferC, ValueRange regCOffset) override;
 
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                                     int64_t blockSize,
+                                     int64_t dInCopyPerThread, StringRef dName,
+                                     bool rotateDWithK) const override;
+
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                     ArrayRef<int64_t> bidGridLengths,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
