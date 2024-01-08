@@ -85,6 +85,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm2.addPass(createLinalgElementwiseOpFusionPass());
   funcPm2.addPass(createLinalgFoldUnitExtentDimsPass());
   funcPm2.addPass(rock::createRockViewToTransformPass());
+  funcPm2.addPass(rock::createRockFoldBroadcastPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
@@ -132,10 +133,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       rock::RockAffixTuningParametersPassOptions{0, 0,
                                                  options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
-  funcPm.addPass(rock::createRockFoldBroadcastPass());
-  funcPm.addPass(rock::createRockAffixTuningParametersPass(
-      rock::RockAffixTuningParametersPassOptions{0, 0,
-                                                 options.tuningFallback}));
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());

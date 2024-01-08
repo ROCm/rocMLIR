@@ -1,6 +1,6 @@
-//===- Regularize.cpp - rewrites to allow Rock kernel fusion  ------===//
+//===- FoldBroadcast.cpp - fold a broadcasted batch dim  ------===//
 //
-// Copyright 2022 Advanced Micro Devices.
+// Copyright 2024 Advanced Micro Devices.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -40,7 +39,7 @@ namespace rock {
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "rock-canonicalize-gemm"
+#define DEBUG_TYPE "rock-fold-broadcast"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -49,6 +48,71 @@ namespace {
 
 struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
   using OpRewritePattern<rock::GemmOp>::OpRewritePattern;
+
+  // Analze the stack to verify if the batch size is a broadcast
+  bool isBatchDimFoldableInTheTransformStack(ArrayAttr views) const {
+    // We start from the batch-size dimension (which is always the 0-th
+    // dimension in gemm)
+    DenseSet<uint32_t> workList{0};
+
+    // Let's walk the transform stack backwards (from top to bottom)
+    size_t level = 0;
+
+    while (!workList.empty() && level < views.size()) {
+      auto curMap = views[level++].cast<TransformMapAttr>();
+      auto ops = curMap.getOps();
+      DenseSet<uint32_t> newWorkList;
+      // Let's consider all the operations of the current transform map
+      for (auto tr : ops) {
+        for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
+          // If the current operation is transforming one of the dimensions
+          // we are looking for, then dive into the operation to decide what to
+          // do
+          if (workList.contains(upperDim)) {
+            switch (tr.getType()) {
+            // If it is a single-length broadcast, don't do
+            // anything, otherwise we need to be sure that the new
+            // dimension is a single-length broadcast
+            case rock::TransformType::Broadcast:
+              if (tr.getParams().back() != 1)
+                newWorkList.insert(tr.getLowerDims().back());
+              break;
+            // AddDim and ConstDim are basically broadcasts. No
+            // need to go further
+            case rock::TransformType::AddDim:
+            case rock::TransformType::ConstDim:
+              break;
+            // Follow the indices for the transformation that reroute them
+            case rock::TransformType::PassThrough:
+            case rock::TransformType::Slice:
+            case rock::TransformType::Pad:
+              newWorkList.insert(tr.getLowerDims()[idx]);
+              break;
+            // For a merge to be a valid broadcast
+            // we need to ensure that all their (lower) dimensions
+            // bigger than 1 lead to broadcasts
+            case rock::TransformType::Merge:
+              for (auto dim : tr.getLowerDims()) {
+                if (tr.getParams()[dim] != 1)
+                  newWorkList.insert(dim);
+              }
+              break;
+            // For an umerge/embed, just follow the single dimension
+            // down.
+            case rock::TransformType::Unmerge:
+            case rock::TransformType::Embed:
+              newWorkList.insert(tr.getLowerDims().back());
+              break;
+            }
+          }
+        }
+      }
+      workList = newWorkList;
+    }
+    // If we want top/down and we determined that the batch dimension
+    // led to a broadcast, then return true.
+    return workList.empty();
+  }
 
   // Determine if the first dimension of a view is a broadcast
   bool isBatchDimFoldable(PatternRewriter &rw, Value aView) const {
@@ -64,35 +128,25 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     if (trMap.getUpperBounds().size() != 3)
       return false;
 
-    auto ops = trMap.getOps();
-
-    // Look for a `Broadcast{1} at [0]` transformation
-    for (auto op : ops)
-      if (op.getType() == rock::TransformType::Broadcast &&
-          op.getUpperDims().back() == 0 && op.getParams().back() == 1)
-        return true;
-
-    return false;
+    return isBatchDimFoldableInTheTransformStack(views);
   }
 
   // Merge the batch dimension into either M or N, i.e., transform (d0, d1, d2)
   // into (d0*d1, d2) or (d1, d0*d2)
   Value mergeBatch(PatternRewriter &rw, Location loc,
                    TypedValue<ShapedType> buffer, bool isTransposed) const {
-    auto shapeA = buffer.getType().getShape();
+    auto shape = buffer.getType().getShape();
     ArrayAttr mergeBatchAttr;
     if (isTransposed) {
       rock::TopDownTMBuilder mergeBatchBuilder(
-          rw, {"d0", "gd1"}, {shapeA[1], shapeA[0] * shapeA[2]}, loc);
-      mergeBatchBuilder.merge({"g", "d1"}, {0, 2}, "gd1",
-                              {shapeA[0], shapeA[2]});
+          rw, {"d0", "gd1"}, {shape[1], shape[0] * shape[2]}, loc);
+      mergeBatchBuilder.merge({"g", "d1"}, {0, 2}, "gd1", {shape[0], shape[2]});
       mergeBatchBuilder.passThrough({"d0"}, {1}, {"d0"});
       mergeBatchAttr = rw.getArrayAttr({mergeBatchBuilder.get()});
     } else {
       rock::TopDownTMBuilder mergeBatchBuilder(
-          rw, {"gd0", "d1"}, {shapeA[0] * shapeA[1], shapeA[2]}, loc);
-      mergeBatchBuilder.merge({"g", "d0"}, {0, 1}, "gd0",
-                              {shapeA[0], shapeA[1]});
+          rw, {"gd0", "d1"}, {shape[0] * shape[1], shape[2]}, loc);
+      mergeBatchBuilder.merge({"g", "d0"}, {0, 1}, "gd0", {shape[0], shape[1]});
       mergeBatchBuilder.passThrough({"d1"}, {2}, {"d1"});
       mergeBatchAttr = rw.getArrayAttr({mergeBatchBuilder.get()});
     }
@@ -101,14 +155,13 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
 
   // Select the 0th slice from a broadcast, de facto removing the broadcast
   // dimension
-  Value unbroadcast(PatternRewriter &rw, Location loc,
-                    TypedValue<ShapedType> buffer) const {
+  Value unbroadcastBatch(PatternRewriter &rw, Location loc,
+                         TypedValue<ShapedType> buffer) const {
     auto shape = buffer.getType().getShape();
     rock::TopDownTMBuilder unbroadcastBuilder(rw, {"d0", "d1"},
                                               {shape[1], shape[2]}, loc);
     unbroadcastBuilder.constDim({"g"}, 0, 0, shape[0]);
-    unbroadcastBuilder.passThrough({"d0"}, {1}, {"d0"});
-    unbroadcastBuilder.passThrough({"d1"}, {2}, {"d1"});
+    unbroadcastBuilder.passThrough({"d0", "d1"}, {1, 2}, {"d0", "d1"});
     return rock::transform(rw, buffer,
                            rw.getArrayAttr({unbroadcastBuilder.get()}));
   }
@@ -126,27 +179,33 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     if (isBBatchBroadcast && isABatchBroadcast) {
       // If both B and C are canonicalizable, simply
       // remove the broadcast from A,B and C
-      newA = unbroadcast(rw, loc, op.getA());
-      newB = unbroadcast(rw, loc, op.getB());
-      newC = unbroadcast(rw, loc, op.getC());
+      newA = unbroadcastBatch(rw, loc, op.getA());
+      newB = unbroadcastBatch(rw, loc, op.getB());
+      newC = unbroadcastBatch(rw, loc, op.getC());
     } else if (isBBatchBroadcast) {
       newA = mergeBatch(rw, loc, op.getA(), op.getATransposed());
-      newB = unbroadcast(rw, loc, op.getB());
+      newB = unbroadcastBatch(rw, loc, op.getB());
       newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());
     } else { // isABatchBroadcast
-      newA = unbroadcast(rw, loc, op.getA());
+      newA = unbroadcastBatch(rw, loc, op.getA());
       newB = mergeBatch(rw, loc, op.getB(), op.getBTransposed());
       newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());
     }
 
     // Create the new GemmOp
-    rw.create<rock::GemmOp>(
-        op.getLoc(), op.getResultTypes(), newA, newB, newC, op.getATransposed(),
+    auto gemm = rw.create<rock::GemmOp>(
+        op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
         op.getBTransposed(), op.getCTransposed(), op.getArch(),
         op.getNumCUAttr(), op.getFeatures(), op.getStoreMethod(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
 
-    rw.eraseOp(op);
+    // Remove dummy transforms from the gemm output and use it to replace the
+    // original op through all the IR
+    Value result = rw.create<rock::TensorUntransformCastOp>(
+        loc, op.getC().getType().cast<RankedTensorType>(), gemm.getResult(),
+        gemm.getC());
+    rw.replaceOp(op, result);
+
     return success();
   }
 };
