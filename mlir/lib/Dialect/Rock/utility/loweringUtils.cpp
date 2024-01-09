@@ -535,3 +535,62 @@ std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
   }
   return std::nullopt;
 }
+
+// The rows and columns of subtile view needs to
+// be transposed depending on which operand of
+// gemm the view is going to be.
+  RegsAsMatrixSubTiles
+  mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
+                        RegsAsMatrixSubTiles subTileViews) {
+    ArrayAttr threadSubTile = subTileViews.threadSubTile;
+    SmallVector<Attribute, 4> threadSubTileMaps =
+        llvm::to_vector<4>(threadSubTile.getAsRange<Attribute>());
+    {
+      ArrayRef<int64_t> subTileShape = getLowerShape(threadSubTile);
+      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+      viewBuilder.passThrough({0, 1}, {1, 0});
+      threadSubTileMaps.push_back(viewBuilder.get());
+    }
+
+    ArrayAttr blockSubTile = subTileViews.blockSubTile;
+    SmallVector<Attribute, 4> blockSubTileMaps =
+        llvm::to_vector<4>(blockSubTile.getAsRange<Attribute>());
+    {
+      ArrayRef<int64_t> subTileShape = getLowerShape(blockSubTile);
+      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+      viewBuilder.passThrough({0, 1}, {1, 0});
+      blockSubTileMaps.push_back(viewBuilder.get());
+    }
+
+    ArrayAttr gridSubTile = subTileViews.gridSubTile;
+    SmallVector<Attribute, 4> gridSubTileMaps =
+        llvm::to_vector<4>(gridSubTile.getAsRange<Attribute>());
+    {
+      ArrayRef<int64_t> subTileShape = getLowerShape(gridSubTile);
+      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+      viewBuilder.passThrough({0, 1, 2}, {0, 2, 1});
+      gridSubTileMaps.push_back(viewBuilder.get());
+    }
+
+    if (subTileViews.blockSubTileTidSlice.has_value()) {
+      SmallVector<Attribute, 4> blockSubTileTidSliceMaps = llvm::to_vector<4>(
+          subTileViews.blockSubTileTidSlice.value().getAsRange<Attribute>());
+      {
+        ArrayRef<int64_t> subTileShape =
+            getLowerShape(subTileViews.blockSubTileTidSlice.value());
+        TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+        viewBuilder.passThrough({0, 1}, {1, 0});
+        blockSubTileTidSliceMaps.push_back(viewBuilder.get());
+      }
+      return RegsAsMatrixSubTiles{
+          rewriter.getArrayAttr(gridSubTileMaps),
+          rewriter.getArrayAttr(blockSubTileMaps),
+          rewriter.getArrayAttr(threadSubTileMaps),
+          rewriter.getArrayAttr(blockSubTileTidSliceMaps)};
+    } else {
+      return RegsAsMatrixSubTiles{rewriter.getArrayAttr(gridSubTileMaps),
+                                  rewriter.getArrayAttr(blockSubTileMaps),
+                                  rewriter.getArrayAttr(threadSubTileMaps),
+                                  std::nullopt};
+    }
+  }

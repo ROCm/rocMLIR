@@ -789,12 +789,20 @@ struct GridwiseAttentionAccelRewritePattern
   LogicalResult loadAndStoreGemmInputTile(
       Location loc, Value in, Value kIter,
       rock::layout::GridCoordinates gridCoords, Value fromGlobalRegBuffer,
-      Value toLDSRegBuffer, Value ldsTileByteBuffer, StringRef nonKDimName,
+      Value toLDSRegBuffer, Value destBuffer, StringRef nonKDimName,
       int64_t kpack, int64_t kpacksPerBlock, int64_t dPerBlock,
       uint32_t blockSize, uint32_t gridSize, ArrayRef<StringRef> bidGridOrder,
       ArrayRef<int64_t> bidGridLengths, bool forceUnroll,
       PatternRewriter &rewriter,
+      const accel::AccelEmitter& accelEmitter,
       std::optional<int64_t> forceKPerThread = std::nullopt) const {
+
+    MemRefType destBufferType = destBuffer.getType().cast<MemRefType>();
+    mlir::gpu::AddressSpace destBufferAddrSpace = destBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
+    bool isDestBufferLDS = destBufferAddrSpace == gpu::AddressSpace::Workgroup;
+    if(!isDestBufferLDS && destBufferAddrSpace != gpu::AddressSpace::Private){
+        return emitError(loc) << "the destination buffer to load global input tile should either be LDS or Regs.\n";
+    }
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
@@ -822,10 +830,19 @@ struct GridwiseAttentionAccelRewritePattern
     std::tie(vectorDim, vectorLen) = bestGlobalVectorization(
         rewriter, in, copyDPerThread, copyKPerThread, vectorTiebreaker,
         kPerBlock, dPerBlock, elemType);
-    FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews = getLoadRegsAsTileViews(
-        rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, dPerBlock, copyKPerThread, copyDPerThread,
-        vectorDim == GemmDimension::K);
+    FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
+    if(!isDestBufferLDS){
+        maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
+            rewriter, loc, in, bidGridLengths, blockSize, copyDPerThread, nonKDimName,
+            vectorDim == GemmDimension::K, false
+        );
+    }
+    else{
+        maybeInBufferViews = getLoadRegsAsTileViews(
+            rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths, blockSize,
+            kPerBlock, dPerBlock, copyKPerThread, copyDPerThread,
+            vectorDim == GemmDimension::K);
+    }
     if (failed(maybeInBufferViews)) {
       return failure();
     }
@@ -837,28 +854,53 @@ struct GridwiseAttentionAccelRewritePattern
         ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                    gridCoords.n_block, tid},
         forceUnroll, true);
-    // threadwiseView is iter --> K,D
-    // Hence we invert to create the reg buffer to be viewed
-    // as K x D memref
-    ArrayAttr loadBufferViews =
-        invertTransforms(rewriter, loc, maybeInBufferViews->threadSubTile);
-    Value viewLoadBuffer =
-        transform(rewriter, fromGlobalRegBuffer, loadBufferViews);
+    if(isDestBufferLDS){
+        // threadwiseView is iter --> K,D
+        // Hence we invert to create the reg buffer to be viewed
+        // as K x D memref
+        ArrayAttr loadBufferViews =
+            invertTransforms(rewriter, loc, maybeInBufferViews->threadSubTile);
+        Value viewLoadBuffer =
+            transform(rewriter, fromGlobalRegBuffer, loadBufferViews);
 
-    FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
-        getPackedRegsAsTileViews(rewriter, loc, in, nonKDimName, bidGridOrder,
-                                 bidGridLengths, blockSize, kPerBlock,
-                                 dPerBlock, copyKPerThread, copyDPerThread,
-                                 kpack, vectorDim == GemmDimension::K);
-    if (failed(maybeLdsStoreViews)) {
-      return failure();
+        FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
+            getPackedRegsAsTileViews(rewriter, loc, in, nonKDimName, bidGridOrder,
+                                    bidGridLengths, blockSize, kPerBlock,
+                                    dPerBlock, copyKPerThread, copyDPerThread,
+                                    kpack, vectorDim == GemmDimension::K);
+        if (failed(maybeLdsStoreViews)) {
+            return failure();
+        }
+        LogicalResult storeGemmTileStatus = storeGemmInputTile(
+            rewriter, loc, kpack, viewLoadBuffer, maybeLdsStoreViews.value(),
+            toLDSRegBuffer, destBuffer, kpacksPerBlock, nonKDimName,
+            kPerBlock, dPerBlock, copyKPerThread, copyDPerThread, forceUnroll);
+        if (failed(storeGemmTileStatus)) {
+        return failure();
+        }
     }
-    LogicalResult storeGemmTileStatus = storeGemmInputTile(
-        rewriter, loc, kpack, viewLoadBuffer, maybeLdsStoreViews.value(),
-        toLDSRegBuffer, ldsTileByteBuffer, kpacksPerBlock, nonKDimName,
-        kPerBlock, dPerBlock, copyKPerThread, copyDPerThread, forceUnroll);
-    if (failed(storeGemmTileStatus)) {
-      return failure();
+    else{
+        accel::AccelEmitterParams accelEmitterParams = accelEmitter.getParams();
+        int64_t dRepeats = (nonKDimName == "m" ? accelEmitterParams.mRepeats
+                                                 : accelEmitterParams.nRepeats);
+        affine::AffineForOp dRepeatsLoop =
+        rewriter.create<affine::AffineForOp>(loc, 0, dRepeats, 1);
+        {
+            PatternRewriter::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(dRepeatsLoop.getBody());
+            Value di = dRepeatsLoop.getInductionVar();
+            Value subview = destBuffer;
+            if (dRepeats > 1) {
+                subview = createSliceOfFirstDim(rewriter, loc, destBuffer, di);
+            }
+            //InBufferViews provide --> K x D subtile views.
+            //Since we are iterating on D dimension, we need to transpose it.
+            RegsAsMatrixSubTiles inBufferViewsTr = transposeSubTileViews(rewriter, loc, maybeInBufferViews.value());
+            Value viewLoadedBuffer = transform(rewriter, fromGlobalRegBuffer, inBufferViewsTr.threadSubTile);
+            rewriter.create<ThreadwiseCopyOp>(loc, viewLoadedBuffer, ValueRange{di},
+                                      subview, ValueRange{}, false,
+                                      false);
+        }
     }
     return success();
   }
@@ -1249,65 +1291,6 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  // The rows and columns of subtile view needs to
-  // be transposed depending on which operand of
-  // gemm the view is going to be.
-  RegsAsMatrixSubTiles
-  transposeSubTileViews(PatternRewriter &rewriter, Location loc,
-                        RegsAsMatrixSubTiles subTileViews) const {
-    ArrayAttr threadSubTile = subTileViews.threadSubTile;
-    SmallVector<Attribute, 4> threadSubTileMaps =
-        llvm::to_vector<4>(threadSubTile.getAsRange<Attribute>());
-    {
-      ArrayRef<int64_t> subTileShape = getLowerShape(threadSubTile);
-      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
-      viewBuilder.passThrough({0, 1}, {1, 0});
-      threadSubTileMaps.push_back(viewBuilder.get());
-    }
-
-    ArrayAttr blockSubTile = subTileViews.blockSubTile;
-    SmallVector<Attribute, 4> blockSubTileMaps =
-        llvm::to_vector<4>(blockSubTile.getAsRange<Attribute>());
-    {
-      ArrayRef<int64_t> subTileShape = getLowerShape(blockSubTile);
-      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
-      viewBuilder.passThrough({0, 1}, {1, 0});
-      blockSubTileMaps.push_back(viewBuilder.get());
-    }
-
-    ArrayAttr gridSubTile = subTileViews.gridSubTile;
-    SmallVector<Attribute, 4> gridSubTileMaps =
-        llvm::to_vector<4>(gridSubTile.getAsRange<Attribute>());
-    {
-      ArrayRef<int64_t> subTileShape = getLowerShape(gridSubTile);
-      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
-      viewBuilder.passThrough({0, 1, 2}, {0, 2, 1});
-      gridSubTileMaps.push_back(viewBuilder.get());
-    }
-
-    if (subTileViews.blockSubTileTidSlice.has_value()) {
-      SmallVector<Attribute, 4> blockSubTileTidSliceMaps = llvm::to_vector<4>(
-          subTileViews.blockSubTileTidSlice.value().getAsRange<Attribute>());
-      {
-        ArrayRef<int64_t> subTileShape =
-            getLowerShape(subTileViews.blockSubTileTidSlice.value());
-        TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
-        viewBuilder.passThrough({0, 1}, {1, 0});
-        blockSubTileTidSliceMaps.push_back(viewBuilder.get());
-      }
-      return RegsAsMatrixSubTiles{
-          rewriter.getArrayAttr(gridSubTileMaps),
-          rewriter.getArrayAttr(blockSubTileMaps),
-          rewriter.getArrayAttr(threadSubTileMaps),
-          rewriter.getArrayAttr(blockSubTileTidSliceMaps)};
-    } else {
-      return RegsAsMatrixSubTiles{rewriter.getArrayAttr(gridSubTileMaps),
-                                  rewriter.getArrayAttr(blockSubTileMaps),
-                                  rewriter.getArrayAttr(threadSubTileMaps),
-                                  std::nullopt};
-    }
-  }
-
   // This function will take a view stack that has lower view as m x n.
   // Then append a view to make it : m x n --> m --> m x constDim(0, n).
   // This is used to get corresponding 0th col idx in between two matrices
@@ -1608,9 +1591,13 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KPerBlock = gemm0MPerBlock;
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
+    int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
+    if (gemm0K == gemm0KPerBlock) {
+        ldsByteBufferQSize = 1;
+    }
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
         rewriter, loc,
-        {gemm0KPerBlock * gemm0NPerBlock, gemm0MPerBlock * gemm0NPerBlock,
+        {ldsByteBufferQSize, gemm0MPerBlock * gemm0NPerBlock,
          gemm1KPerBlock * gemm1NPerBlock},
         {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsB[0];
@@ -1772,19 +1759,12 @@ struct GridwiseAttentionAccelRewritePattern
       Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
       LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
           loc, inQ, /*kiter=*/zero, gridCoordsGemm1, fromGlobalRegBufferQ,
-          toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack, gemm0KpacksPerBlock,
+          toLDSRegBufferQ, preAccelRegBuffersQ, "n", gemm0kpack, gemm0KpacksPerBlock,
           gemm0NPerBlock, blockSize, gridSize, bidGridOrder,
-          gemm0BidGridLengths, forceUnroll, rewriter);
+          gemm0BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm0.get());
       if (failed(statusLoadQTile)) {
         return failure();
       }
-      ldsTileBufferQ = viewBufferAs(rewriter, ldsByteBufferQ,
-                                    vectorTypeOrSelf(elemTypeQ, gemm0kpack));
-      // LDS barrier.
-      rewriter.create<LDSBarrierOp>(loc);
-      loadGemmOperandsFromLDSToRegs(
-          rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n", blockSize,
-          gemm0InNPerThread, *accelEmitterPtrGemm0.get());
     }
 
     affine::AffineForOp mLoopOp =
@@ -1817,7 +1797,7 @@ struct GridwiseAttentionAccelRewritePattern
               loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
               toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
               gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
-              bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
+              bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm0.get());
           if (failed(statusLoadQTile)) {
             return failure();
           }
@@ -1829,7 +1809,7 @@ struct GridwiseAttentionAccelRewritePattern
             loc, inK, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
             gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
-            bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter);
+            bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm0.get());
         if (failed(statusLoadKTile)) {
           return failure();
         }
@@ -2031,7 +2011,7 @@ struct GridwiseAttentionAccelRewritePattern
             /*kIter=*/mLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
             toLDSRegBufferV, ldsByteBufferV, "m", gemm1kpack,
             gemm1KpacksPerBlock, gemm1MPerBlock, blockSize, gridSize,
-            bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter);
+            bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm1.get());
         if (failed(statusLoadVTile)) {
           return failure();
         }

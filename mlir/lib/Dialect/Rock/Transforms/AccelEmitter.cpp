@@ -842,14 +842,21 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
           {blockSize, dRepeats * kpackPerThread}, loc);
       {
         if(isKContigousDim){
-          splitIter.merge({"D", "K"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"d_iter", "k_iter"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
         }
         else{
-          splitIter.merge({"K", "D"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"k_iter", "d_iter"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
       transformAttrs.push_back(splitIterAttr);
+      // Second coordinate transform
+      TopDownTMBuilder transposeKD =
+          TopDownTMBuilder::below(splitIter, splitIterAttr);
+      {
+        transposeKD.passThrough({"K"}, {0}, {"k_iter"});
+        transposeKD.passThrough({"D"}, {1}, {"d_iter"});
+      }
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
     }
     return ret;
@@ -1201,14 +1208,21 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
           {blockSize, dRepeats * kpackPerThread}, loc);
       {
         if(isKContigousDim){
-          splitIter.merge({"D", "K"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"d_iter", "k_iter"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
         }
         else{
-          splitIter.merge({"K", "D"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"k_iter", "d_iter"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
       transformAttrs.push_back(splitIterAttr);
+      // Second coordinate transform
+      TopDownTMBuilder transposeKD =
+          TopDownTMBuilder::below(splitIter, splitIterAttr);
+      {
+        transposeKD.passThrough({"K"}, {0}, {"k_iter"});
+        transposeKD.passThrough({"D"}, {1}, {"d_iter"});
+      }
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
     }
    return ret;                                   
