@@ -51,7 +51,8 @@ private:
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(AttentionOp op);
 
-  template <typename T> void setUtilityKernelSizes(Value arg, T utilityOp);
+  template <typename T>
+  void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
 

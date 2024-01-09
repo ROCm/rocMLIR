@@ -7,6 +7,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   BufferizableOpInterfaceImpl.cpp
   CleanMath.cpp
   ConvToGemm.cpp
+  FoldBroadcast.cpp
   GemmToGridwise.cpp
   RockMultibuffer.cpp
   RockPipeline.cpp
