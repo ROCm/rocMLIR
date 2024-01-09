@@ -903,6 +903,18 @@ static Value asGlobal(PatternRewriter &b, Value memref) {
                                                    memref);
 }
 
+/// The buffer coordinate oob trick requires having at least one coordinate, so
+/// this function takes 0D memrefs and adds a single unit-length dimension
+/// so all the IR validates.
+static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
+  auto type = cast<MemRefType>(memref.getType());
+  auto oneDType = MemRefType::get({1}, type.getElementType(), nullptr,
+                                  type.getMemorySpace());
+  ArrayAttr expansions = b.getArrayAttr({});
+  return b.createOrFold<memref::ExpandShapeOp>(memref.getLoc(), oneDType,
+                                               memref, expansions);
+}
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -921,9 +933,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     Value numElems = computeMemRefNumElements(b, loc, source);
     APInt numElemsConst(64, 0);
     bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
-    bool isScalar = isStaticSize && numElemsConst.isOne();
     bool emitOobChecks =
-        (!isScalar && !isAlwaysValid) || (hasI64Idx && op.getCanReadOffEnd());
+        !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
     APInt numBytes =
         numElemsConst *
@@ -935,8 +946,13 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
                                        emitOobChecks || op.getCanReadOffEnd());
 
-    if (!useBufferOps)
+    if (!useBufferOps) {
       source = asGlobal(b, source);
+    } else if (useBufferOps && emitOobChecks && coords.empty()) {
+      source = zeroDMemrefAsOneD(b, source);
+      coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
+    }
+
     PatternRewriter::InsertionGuard insertGuard(b);
     if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
@@ -962,11 +978,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
           c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
-        if (!coords.empty()) {
-          Value &lastCoord = coords.back();
-          lastCoord =
-              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
-        }
+        Value &lastCoord = coords.back();
+        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
         c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
@@ -1092,9 +1105,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     APInt numElemsConst(64, 0);
     matchPattern(numElems, m_ConstantInt(&numElemsConst));
     bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
-    bool isScalar = isStaticSize && numElemsConst.isOne();
-    bool emitOobChecks =
-        (!isScalar && !isAlwaysValid) || (hasI64Idx && op.getCanStoreOffEnd());
+    bool emitOobChecks = !isStaticSize || !isAlwaysValid ||
+                         (hasI64Idx && op.getCanStoreOffEnd());
 
     APInt numBytes =
         numElemsConst *
@@ -1111,19 +1123,12 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
 
-    // The buffer paths's "send the last coordinate out of bounds" trick
-    // won't work with conditionally-valid atomic writes becasue there's
-    // no coordinate to adjust. Conditional stores are uniform across
-    // all executions on pain of bad things happening, though, so we can
-    // elide the bound checks instead.
-    if (isAtomic && coords.empty() &&
-        (!isAlwaysValid || op.getCanStoreOffEnd())) {
-      useBufferOps = false;
-      emitOobChecks = true;
-    }
-
-    if (!useBufferOps)
+    if (!useBufferOps) {
       dest = asGlobal(b, dest);
+    } else if (useBufferOps && emitOobChecks && coords.empty()) {
+      dest = zeroDMemrefAsOneD(b, dest);
+      coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
+    }
     PatternRewriter::InsertionGuard insertGuard(b);
     if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
@@ -1142,11 +1147,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
           c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
-        if (!coords.empty()) {
-          Value &lastCoord = coords.back();
-          lastCoord =
-              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
-        }
+        Value &lastCoord = coords.back();
+        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
         c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
