@@ -158,6 +158,18 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
+          Get the tuning parameters attribute of this operation
+        }],
+        /*retType=*/"std::optional<RockTuningParamAttrInterface>",
+        /*methodName=*/"getGemmParams",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          return $_op.getParams();
+        }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
           Get the value of the derived block size attribute if it is set.
         }],
         /*retType=*/"std::optional<uint32_t>",

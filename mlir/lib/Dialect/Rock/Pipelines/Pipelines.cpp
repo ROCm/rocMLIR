@@ -85,6 +85,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm2.addPass(createLinalgElementwiseOpFusionPass());
   funcPm2.addPass(createLinalgFoldUnitExtentDimsPass());
   funcPm2.addPass(rock::createRockViewToTransformPass());
+  funcPm2.addPass(rock::createRockFoldBroadcastPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
@@ -124,8 +125,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
-   *   --rock-gemm-to-gridwise --rock-regularize
-   *   --rock-gridwise-gemm-to-blockwise
+   *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
+   *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
