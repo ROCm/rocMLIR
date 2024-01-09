@@ -109,6 +109,7 @@ struct AccelEmitter {
                                      ArrayRef<int64_t> bidGridLengths,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
+                                     bool isKContigousDim,
                                      bool rotateDWithK) const = 0;
 
   /// Validate the accelerator structure
@@ -168,6 +169,7 @@ struct MfmaEmitter : public AccelEmitter {
                                      ArrayRef<int64_t> bidGridLengths,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
+                                     bool isKContigousDim,
                                      bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
@@ -205,6 +207,7 @@ struct WmmaEmitter : public AccelEmitter {
                                      ArrayRef<int64_t> bidGridLengths,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
+                                     bool isKContigousDim,
                                      bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
