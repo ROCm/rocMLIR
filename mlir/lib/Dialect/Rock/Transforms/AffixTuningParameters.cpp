@@ -70,7 +70,7 @@ void AffixTuningParameters::runOnOperation() {
     }
   });
   func.walk(
-      [&](ZeroInitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
+      [&](InitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
     setUtilityKernelSizes(op.getInput(), op);
   });
