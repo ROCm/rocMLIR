@@ -16,6 +16,8 @@ target_link_libraries(RocmlirEmulateFp8ExtTrunc
   MLIRTransformUtils
   MLIRSupport
   MLIRArithDialect
+  MLIRControlFlowDialect
+  MLIRFuncDialect
   MLIRMemRefDialect
   MLIRVectorDialect
 )

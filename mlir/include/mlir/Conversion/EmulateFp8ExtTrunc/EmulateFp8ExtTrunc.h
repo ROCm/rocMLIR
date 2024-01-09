@@ -18,11 +18,17 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+class FlatSymbolRefAttr;
 
 #define GEN_PASS_DECL_EMULATEFP8EXTTRUNCPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 
-void addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns);
+// The arguments are functions for converting a float (fp32) to the relevant
+// type. If the attribute is `nullptr`, then that truncation pattern is
+// disabled.
+void addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns,
+                                   FlatSymbolRefAttr f8E4M3FNUZTruncFunc,
+                                   FlatSymbolRefAttr f8E5M2FNUZTruncFunc);
 
 } // namespace mlir
 

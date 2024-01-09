@@ -88,10 +88,15 @@ def GPUToMIGraphXPass : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
 //===----------------------------------------------------------------------===//
 
 def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
-  let summary = "Lower arith.extf on fp8 types to table lookup";
+  let summary = "Emulate arith.extf/truncf on fp8 types";
   let description = [{
-    Pass that converts arith.extf on 8-bit float types to a lookup in a
-    constant table.
+    Pass that emulates arith.extf and arith.truncf on 8-bit float types
+    so as to allow testing on non-MI-300 platforms.
+
+    arith.extf is converted into lookups in a table generated at
+    code generation-time.
+
+    arith.truncf gets converted to calls to functions which this pass inserts.
 
     This is a quick implementation that provides the mimimal functionality to
     test 8-bit float kernels.
@@ -102,6 +107,8 @@ def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
 
   let dependentDialects = [
     "arith::ArithDialect",
+    "cf::ControlFlowDialect",
+    "func::FuncDialect",
     "memref::MemRefDialect",
     "vector::VectorDialect",
   ];
