@@ -876,7 +876,7 @@ struct GridwiseAttentionAccelRewritePattern
             toLDSRegBuffer, destBuffer, kpacksPerBlock, nonKDimName,
             kPerBlock, dPerBlock, copyKPerThread, copyDPerThread, forceUnroll);
         if (failed(storeGemmTileStatus)) {
-        return failure();
+            return failure();
         }
     }
     else{
@@ -896,7 +896,7 @@ struct GridwiseAttentionAccelRewritePattern
             //InBufferViews provide --> K x D subtile views.
             //Since we are iterating on D dimension, we need to transpose it.
             RegsAsMatrixSubTiles inBufferViewsTr = transposeSubTileViews(rewriter, loc, maybeInBufferViews.value());
-            Value viewLoadedBuffer = transform(rewriter, fromGlobalRegBuffer, inBufferViewsTr.threadSubTile);
+            Value viewLoadedBuffer = transform(rewriter, fromGlobalRegBuffer, invertTransforms(rewriter, loc, inBufferViewsTr.threadSubTile));
             rewriter.create<ThreadwiseCopyOp>(loc, viewLoadedBuffer, ValueRange{di},
                                       subview, ValueRange{}, false,
                                       false);

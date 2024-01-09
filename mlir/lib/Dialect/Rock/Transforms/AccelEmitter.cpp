@@ -650,15 +650,15 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitIter(
           b, {"k_loop", "g_block", "m_block", "n_block", "tid", "iter"},
           {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
-          dRepeats * kpackPerThread},
+          dRepeats * kpackPerThread * kPack},
           loc);
       {
         splitIter.passThrough({"k_loop", "g_block", "m_block", "n_block", "tid"});
         if(isKContigousDim){
-          splitIter.merge({"drepeat", "kpack_iter"}, {5, 6}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "drepeat"}, {5, 6}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {5, 6, 7}, "iter", {kpackPerThread, kPack, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -670,16 +670,17 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         unsigned int dims = 0;
         splitTid.passThrough({"k_loop", "g_block"});
         splitTid.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        splitTid.passThrough({"kpack"}, {3}, {"kpack"});
         if(isKReduction){
           splitTid.merge(
-            {"wave_id", "blk_id", "blk_td"}, {3, 4, 5}, "tid",
+            {"wave_id", "blk_id", "blk_td"}, {4, 5, 6}, "tid",
             {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
-          dims = 6;
+          dims = 7;
         }
         else{
-          splitTid.merge({"wave_id", "lane_id"}, {3, 4}, "tid",
+          splitTid.merge({"wave_id", "lane_id"}, {4, 5}, "tid",
                     {blockSize / waveSize, waveSize});
-          dims = 5;
+          dims = 6;
         }
         splitTid.passThrough({"d_iter", "k_iter"}, {dims, dims + 1}, {"drepeat", "kpack_iter"});
       }
@@ -691,14 +692,15 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       {
         splitWaveId.passThrough({"k_loop", "g_block"});
         splitWaveId.passThrough({thisBlockDim}, {2}, {thisBlockDim});
-        splitWaveId.merge({"wave_m", "wave_n"}, {3, 4}, "wave_id",
+        splitWaveId.passThrough({"kpack"}, {3}, {"kpack"});
+        splitWaveId.merge({"wave_m", "wave_n"}, {4, 5}, "wave_id",
                           {mWaves, nWaves});
         if(isKReduction){
-          splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"}, {5, 6, 7, 8},
+          splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"}, {6, 7, 8, 9},
                                   {"blk_id", "blk_td", "d_iter", "k_iter"});
         }
         else{
-          splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {5, 6, 7},
+          splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {6, 7, 8},
                                   {"lane_id", "d_iter", "k_iter"});
         }
       }
@@ -710,20 +712,21 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       {
         toLDSRowCol.passThrough({"k_loop", "g_block"});
         toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
         if(isKReduction){
           // d = blk_td + d_i * waveOffset
-          toLDSRowCol.unmerge("d", 3, {"d_iter", thisWaveDim, "blk_td"},
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "blk_td"},
                               {dRepeats, dWaves, inputSpanLen});
           // k = k_i + kpackPerBlock * blk_id
-          toLDSRowCol.unmerge("k", 4, {"blk_id", "k_iter"},
+          toLDSRowCol.unmerge("k", 5, {"blk_id", "k_iter"},
                               {waveSize / inputSpanLen, kpackPerThread});
         }
         else{
           // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
-          toLDSRowCol.unmerge("d", 3, {"d_iter", thisWaveDim, "lane_id"},
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "lane_id"},
                               {dRepeats, dWaves, dPerAccel});
           // k = k_i
-          toLDSRowCol.passThrough({"k"}, 4, {"k_iter"});
+          toLDSRowCol.passThrough({"k"}, 5, {"k_iter"});
         }
         toLDSRowCol.ignore(otherWaveDim);
       }
@@ -734,9 +737,9 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
         auto offset =
             rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-                    dPerBlock, 3, "k", kPackPerBlock, {"k_loop", "g_block", thisBlockDim}, {"k"}, transformAttrs);
+                    dPerBlock, 3, "k", kPackPerBlock, {"k_loop", "g_block", thisBlockDim, "kpack"}, {"k"}, transformAttrs);
         offset.passThrough({"G"}, {0}, {"g_block"});
-        offset.unmerge({"K"}, 1, {"k_loop", "k"}, {kIters, kPackPerBlock});
+        offset.unmerge({"K"}, 1, {"k_loop", "k", "kpack"}, {kIters, kPackPerBlock, kPack});
         offset.unmerge("D", 2, {thisBlockDim, "d"}, {thisDimNumBlocks, dPerBlock});
         TransformMapAttr offsetAttr = offset.get();
         transformAttrs.push_back(offsetAttr);
@@ -749,14 +752,14 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       //First coordinate transform
       TopDownTMBuilder splitIter(
           b, {"tid", "iter"},
-          {blockSize, dRepeats * kpackPerThread}, loc);
+          {blockSize, dRepeats * kpackPerThread * kPack}, loc);
       {
         splitIter.passThrough("tid");
         if(isKContigousDim){
-          splitIter.merge({"drepeat", "kpack_iter"}, {1, 2}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "drepeat"}, {1, 2}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {1, 2, 3}, "iter", {kpackPerThread, dRepeats, kPack});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -765,17 +768,18 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitTid=
         TopDownTMBuilder::below(splitIter, splitIterAttr);
       {
+        splitTid.passThrough({"kpack"}, {0}, {"kpack"});
         unsigned int dims = 0;
         if(!isKReduction){
-          splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+          splitTid.merge({"wave_id", "lane_id"}, {1, 2}, "tid",
                       {blockSize / waveSize, waveSize});
-          dims = 2;
+          dims = 3;
         }
         else{
           splitTid.merge(
-          {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
+          {"wave_id", "blk_id", "blk_td"}, {1, 2, 3}, "tid",
           {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
-          dims = 3;
+          dims = 4;
         }
         splitTid.passThrough({"d_iter", "k_iter"}, {dims, dims+1}, {"drepeat", "kpack_iter"});
       }
@@ -785,15 +789,16 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitWaveId =
         TopDownTMBuilder::below(splitTid, splitTidAttr);
       {
-        splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
+        splitWaveId.passThrough({"kpack"}, {0}, {"kpack"});
+        splitWaveId.merge({"wave_m", "wave_n"}, {1, 2}, "wave_id",
                           {mWaves, nWaves});
         if(!isKReduction){
-          splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
+          splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {3, 4, 5},
                                   {"lane_id", "d_iter", "k_iter"});
         }
         else{
           splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"},
-                            {2, 3, 4, 5},
+                            {3, 4, 5, 6},
                             {"blk_id", "blk_td", "d_iter", "k_iter"});
         }
       }
@@ -803,19 +808,20 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder toLDSRowCol =
           TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
       {
+        toLDSRowCol.passThrough({"kpack"}, {0}, {"kpack"});
         if(!isKReduction){
           // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
-          toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "lane_id"},
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "lane_id"},
                               {dRepeats, dWaves, dPerAccel});
           // k = k_i
-          toLDSRowCol.passThrough({"k"}, 1, {"k_iter"});
+          toLDSRowCol.passThrough({"k"}, 2, {"k_iter"});
         }
         else{
           // d = blk_td + d_i * waveOffset
-          toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
                               {dRepeats, dWaves, inputSpanLen});
           // k = k_i + kpackPerBlock * blk_id
-          toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
+          toLDSRowCol.unmerge("k", 2, {"blk_id", "k_iter"},
                               {waveSize / inputSpanLen, kpackPerThread});
         }
         toLDSRowCol.ignore(otherWaveDim);
@@ -826,8 +832,8 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
       auto offset =
           rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-                  dPerBlock, 0, "k", kPackPerBlock, {}, {"k"}, transformAttrs);
-      offset.passThrough({"K"}, {0}, {"k_iter"});
+                  dPerBlock, 0, "k", kPackPerBlock, {"kpack"}, {"k"}, transformAttrs);
+      offset.unmerge({"K"}, {0}, {"k", "kpack"}, {kPackPerBlock, kPack});
       offset.passThrough({"D"}, {1}, {"d"});
       TransformMapAttr offsetAttr = offset.get();
       transformAttrs.push_back(offsetAttr);
@@ -839,13 +845,13 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       //First coordinate transform
       TopDownTMBuilder splitIter(
           b, {"iter"},
-          {blockSize, dRepeats * kpackPerThread}, loc);
+          {dRepeats * kpackPerThread * kPack}, loc);
       {
         if(isKContigousDim){
-          splitIter.merge({"d_iter", "k_iter"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"k_iter", "d_iter"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"k_iter", "kpack", "d_iter"}, {0, 1, 2}, "iter", {kpackPerThread, kPack, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -854,7 +860,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder transposeKD =
           TopDownTMBuilder::below(splitIter, splitIterAttr);
       {
-        transposeKD.passThrough({"K"}, {0}, {"k_iter"});
+        transposeKD.unmerge({"K"}, {0}, {"k_iter", "kpack"}, {kpackPerThread, kPack});
         transposeKD.passThrough({"D"}, {1}, {"d_iter"});
       }
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
@@ -1043,15 +1049,15 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitIter(
           b, {"k_loop", "g_block", "m_block", "n_block", "tid", "iter"},
           {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
-          dRepeats * kpackPerThread},
+          dRepeats * kpackPerThread * kPack},
           loc);
       {
         splitIter.passThrough({"k_loop", "g_block", "m_block", "n_block", "tid"});
         if(isKContigousDim){
-          splitIter.merge({"drepeat", "kpack_iter"}, {5, 6}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "drepeat"}, {5, 6}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {5, 6, 7}, "iter", {kpackPerThread, kPack, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -1062,9 +1068,10 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       {
         splitTid.passThrough({"k_loop", "g_block"});
         splitTid.passThrough({thisBlockDim}, {2}, {thisBlockDim});
-        splitTid.merge({"wave_id", "lane_id"}, {3, 4}, "tid",
+        splitTid.passThrough({"kpack"}, {3}, {"kpack"});
+        splitTid.merge({"wave_id", "lane_id"}, {4, 5}, "tid",
                         {blockSize / waveSize, waveSize});
-        splitTid.passThrough({"d_iter", "k_iter"}, {5, 6}, {"d_iter", "k_iter"});
+        splitTid.passThrough({"d_iter", "k_iter"}, {6, 7}, {"d_iter", "k_iter"});
       }
       TransformMapAttr splitTidAttr = splitTid.get();
       transformAttrs.push_back(splitTidAttr);
@@ -1074,8 +1081,9 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       {
         splitWaveId.passThrough({"k_loop", "g_block"});
         splitWaveId.passThrough({thisBlockDim}, {2}, {thisBlockDim});
-        splitWaveId.merge({"wave_m", "wave_n"}, {3, 4}, "wave_id", {mWaves, nWaves});
-        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {5, 6, 7},
+        splitWaveId.passThrough({"kpack"}, {3}, {"kpack"});
+        splitWaveId.merge({"wave_m", "wave_n"}, {4, 5}, "wave_id", {mWaves, nWaves});
+        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {6, 7, 8},
                                 {"lane_id", "d_iter", "k_iter"});
       }
       TransformMapAttr splitWaveIdAttr = splitWaveId.get();
@@ -1086,11 +1094,12 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       {
         replicateLanes.passThrough({"k_loop", "g_block"});
         replicateLanes.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+        replicateLanes.passThrough({"kpack"}, {3}, {"kpack"});
         replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
-                             {3, 4, 7, 8},
+                             {4, 5, 8, 9},
                              {"wave_m", "wave_n", "d_iter", "k_iter"});
 
-        replicateLanes.merge({"block_id", "block_td"}, {5, 6}, "lane_id",
+        replicateLanes.merge({"block_id", "block_td"}, {6, 7}, "lane_id",
                             {waveSize / inputLen, inputLen});
       }
       TransformMapAttr replicateLanesAttr = replicateLanes.get();
@@ -1101,10 +1110,11 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       {
         toLDSRowCol.passThrough({"k_loop", "g_block"});
         toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
-        toLDSRowCol.passThrough({"k"}, {4}, {"k_iter"});
+        toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
+        toLDSRowCol.passThrough({"k"}, {5}, {"k_iter"});
         toLDSRowCol.ignore("block_id");
         toLDSRowCol.ignore(otherWaveDim);
-        toLDSRowCol.unmerge("d", 3, {"d_iter", thisWaveDim, "block_td"},
+        toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "block_td"},
                             {dRepeats, dWaves, dPerAccel});
       }
       TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
@@ -1114,9 +1124,9 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
         auto offset =
             rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-                    dPerBlock, 3, "k", kPackPerBlock, {"k_loop", "g_block", thisBlockDim}, {"k"}, transformAttrs);
+                    dPerBlock, 3, "k", kPackPerBlock, {"k_loop", "g_block", thisBlockDim, "kpack"}, {"k"}, transformAttrs);
         offset.passThrough({"G"}, {0}, {"g_block"});
-        offset.unmerge({"K"}, 1, {"k_loop", "k"}, {kIters, kPackPerBlock});
+        offset.unmerge({"K"}, 1, {"k_loop", "k", "kpack"}, {kIters, kPackPerBlock, kPack});
         offset.unmerge("D", 2, {thisBlockDim, "d"}, {thisDimNumBlocks, dPerBlock});
         TransformMapAttr offsetAttr = offset.get();
         transformAttrs.push_back(offsetAttr);
@@ -1129,14 +1139,14 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       //First coordinate transform
       TopDownTMBuilder splitIter(
           b, {"tid", "iter"},
-          {blockSize, dRepeats * kpackPerThread}, loc);
+          {blockSize, dRepeats * kpackPerThread * kPack}, loc);
       {
         splitIter.passThrough("tid");
         if(isKContigousDim){
-          splitIter.merge({"drepeat", "kpack_iter"}, {1, 2}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "drepeat"}, {1, 2}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {1, 2, 3}, "iter", {kpackPerThread, kPack, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -1145,9 +1155,10 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitTid=
         TopDownTMBuilder::below(splitIter, splitIterAttr);
       {
-        splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+        splitTid.passThrough({"kpack"}, {0}, {"kpack"});
+        splitTid.merge({"wave_id", "lane_id"}, {1, 2}, "tid",
                         {blockSize / waveSize, waveSize});
-        splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+        splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"d_iter", "k_iter"});
       }
       TransformMapAttr splitTidAttr = splitTid.get();
       transformAttrs.push_back(splitTidAttr);
@@ -1155,8 +1166,9 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder splitWaveId =
         TopDownTMBuilder::below(splitTid, splitTidAttr);
       {
-        splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id", {mWaves, nWaves});
-        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
+        splitWaveId.passThrough({"kpack"}, {0}, {"kpack"});
+        splitWaveId.merge({"wave_m", "wave_n"}, {1, 2}, "wave_id", {mWaves, nWaves});
+        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {3, 4, 5},
                                 {"lane_id", "d_iter", "k_iter"});
       }
       TransformMapAttr splitWaveIdAttr = splitWaveId.get();
@@ -1165,11 +1177,12 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder replicateLanes =
         TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
       {
+        replicateLanes.passThrough({"kpack"}, {0}, {"kpack"});
         replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
-                             {0, 1, 4, 5},
+                             {1, 2, 5, 6},
                              {"wave_m", "wave_n", "d_iter", "k_iter"});
 
-        replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
+        replicateLanes.merge({"block_id", "block_td"}, {3, 4}, "lane_id",
                             {waveSize / inputLen, inputLen});
       }
       TransformMapAttr replicateLanesAttr = replicateLanes.get();
@@ -1178,10 +1191,11 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder toLDSRowCol =
         TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
       {
-        toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
+        toLDSRowCol.passThrough({"kpack"}, {0}, {"kpack"});
+        toLDSRowCol.passThrough({"k"}, {2}, {"k_iter"});
         toLDSRowCol.ignore("block_id");
         toLDSRowCol.ignore(otherWaveDim);
-        toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
+        toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "block_td"},
                             {dRepeats, dWaves, dPerAccel});
       }
       TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
@@ -1191,8 +1205,8 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
         auto offset =
           rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-                  dPerBlock, 0, "k", kPackPerBlock, {}, {"k"}, transformAttrs);
-        offset.passThrough({"K"}, {0}, {"k_iter"});
+                  dPerBlock, 0, "k", kPackPerBlock, {"kpack"}, {"k"}, transformAttrs);
+        offset.unmerge("K", 0, {"k", "kpack"}, {kPackPerBlock, kPack});
         offset.passThrough({"D"}, {1}, {"d"});
         TransformMapAttr offsetAttr = offset.get();
         transformAttrs.push_back(offsetAttr);
@@ -1205,13 +1219,13 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       //First coordinate transform
       TopDownTMBuilder splitIter(
           b, {"iter"},
-          {blockSize, dRepeats * kpackPerThread}, loc);
+          {dRepeats * kpackPerThread * kPack}, loc);
       {
         if(isKContigousDim){
-          splitIter.merge({"d_iter", "k_iter"}, {0, 1}, "iter", {dRepeats, kpackPerThread});
+          splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"k_iter", "d_iter"}, {0, 1}, "iter", {kpackPerThread, dRepeats});
+          splitIter.merge({"k_iter", "kpack", "d_iter"}, {0, 1, 2}, "iter", {kpackPerThread, kPack, dRepeats});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -1220,7 +1234,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder transposeKD =
           TopDownTMBuilder::below(splitIter, splitIterAttr);
       {
-        transposeKD.passThrough({"K"}, {0}, {"k_iter"});
+        transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
         transposeKD.passThrough({"D"}, {1}, {"d_iter"});
       }
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
