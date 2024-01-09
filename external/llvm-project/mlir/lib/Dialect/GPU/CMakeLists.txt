@@ -167,19 +167,15 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
     # printf(), which we use the hip version of anyway.
     list(REMOVE_ITEM device_lib_targets "opencl")
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Transforms)
-    add_custom_command(OUTPUT Transforms/AmdDeviceLibs.cpp.inc
-      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/AmdDeviceLibsIncGen.py
-      ARGS
-        ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc
-        ${AMD_DEVICE_LIBS_PREFIX}
-        ${device_lib_targets}
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/AmdDeviceLibsIncGen.py ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc ${AMD_DEVICE_LIBS_PREFIX} ${device_lib_targets}
       DEPENDS
         AmdDeviceLibsIncGen.py
         ${AMD_DEVICE_LIBS_TARGETS}
       COMMENT "Generating device libraries include package"
     )
-    set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES Transforms/AmdDeviceLibs.cpp.inc)
-    add_custom_target(AmdDeviceLibsIncGen DEPENDS Transforms/AmdDeviceLibs.cpp.inc)
+    set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc)
+    add_custom_target(AmdDeviceLibsIncGen DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc)
     set_property(SOURCE Transforms/SerializeToHsaco.cpp APPEND
       PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Transforms/AmdDeviceLibs.cpp.inc)
     add_dependencies(obj.MLIRGPUTransforms AmdDeviceLibsIncGen)
