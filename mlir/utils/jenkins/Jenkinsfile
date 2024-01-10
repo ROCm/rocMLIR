@@ -1087,6 +1087,7 @@ pipeline {
                 }
                 stages {
                     stage ("body") {
+                      def do_coverage() {
                         steps {
                             // Build with profiling on, and just code-generation tests.
                             sh 'rm -f build/CMakeCache.txt'
@@ -1116,6 +1117,8 @@ pipeline {
                             }
                             archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.info, build/coverage*.html', onlyIfSuccessful: true
                         }
+                      }
+                    do_coverage()
                     }
                 }
             }
