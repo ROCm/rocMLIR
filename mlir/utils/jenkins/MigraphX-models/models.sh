@@ -1,7 +1,7 @@
 #!/bin/bash
 
 docker run -itd --device=/dev/kfd --device=/dev/dri  -v \${sshfs_local_path}:/models --group-add video --hostname migraphx --name migraphx rocm/mlir-migraphx-ci:latest 
-docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCmSoftwarePlatform/rocMLIR.git"
+docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/stefankoncarevic/rocMLIR"
 docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git"
 
 docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
