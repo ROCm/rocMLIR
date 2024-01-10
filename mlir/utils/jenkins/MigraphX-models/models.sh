@@ -29,11 +29,35 @@ echo "Data type flags:"
 printf -- '- %s\n' "\${datatypes[@]}"
 echo "$list_tier1_p0"
 echo "Collecting models:"
-tier1_p0_models=()
-tier1_p1_models=()
+tier1_p0_models=(
+"/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64"
+"/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
+"/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
+"/models/onnx-model-zoo/gpt2-10.onnx"
+"/models/mlperf/resnet50_v1.onnx")
+echo "prosao"
+tier1_p1_models=(
+"/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482"
+"/models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482"
+"/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384"
+"/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384"   
+"/models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024")
 other_models=()
+echo "prosao1"
 OLD_IFS="\$IFS"
+echo "prosao2"
 IFS=\$'\n'
+echo "prosao3"
 for model in "$list_tier1_p0"; do
 tier1_p0_models+=(\$model)
 done
@@ -45,7 +69,7 @@ other_models+=(\$model)
 done
 IFS="\$OLD_IFS"
 
-
+echo  "PROSOAOO"
 # Function to test different list of models
 function test_models(){
   array_name=\$1[@]
