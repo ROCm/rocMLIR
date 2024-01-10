@@ -411,9 +411,6 @@ pipeline {
             }
         }
         stage("Build and Test") {
-            when {
-                beforeAgent true
-            }
             matrix {
                 axes {
                     axis {
