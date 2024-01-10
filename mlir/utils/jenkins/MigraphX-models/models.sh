@@ -8,10 +8,10 @@ rm -f \$SUMMARY
 echo "###########################################" >>  \$LOGFILE
 echo "New Run \$(pwd)" >>  \$LOGFILE
 date >> \$LOGFILE
-echo "GPU: \$(docker exec migraphx rocminfo |grep -o -m 1 'gfx.*')" >> \$LOGFILE
-echo "MIGX: \$(docker exec migraphx /AMDMIGraphX/build/bin/migraphx-driver --version)" >> \$LOGFILE
-echo "MIGX Commit: \$(docker exec migraphx git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> \$LOGFILE
-docker exec migraphx ls -l /etc/alternatives |grep "rocm ->" >> \$LOGFILE
+echo "GPU: \$(rocminfo |grep -o -m 1 'gfx.*')" >> \$LOGFILE
+echo "MIGX: \$(/AMDMIGraphX/build/bin/migraphx-driver --version)" >> \$LOGFILE
+echo "MIGX Commit: \$(git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> \$LOGFILE
+ls -l /etc/alternatives |grep "rocm ->" >> \$LOGFILE
 echo "###########################################" >>  \$LOGFILE
 
 datatypes=()
