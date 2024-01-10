@@ -1,15 +1,5 @@
 #!/bin/bash
 
-docker run -itd --device=/dev/kfd --device=/dev/dri  -v \${sshfs_local_path}:/models --group-add video --hostname migraphx --name migraphx rocm/mlir-migraphx-ci:latest 
-docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/stefankoncarevic/rocMLIR"
-docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git"
-
-docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
-docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang .. && ninja package && cmake --install . --prefix /MIGraphXDeps"
-
-docker exec -w /AMDMIGraphX migraphx bash -c 'cmake . -G \"Unix Makefiles\" -B build -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_PREFIX_PATH=/MIGraphXDeps -DGPU_TARGETS="gfx900;gfx906;gfx908;gfx90a;gfx940;gfx941;gfx942;gfx1030;gfx1031;gfx1100;gfx1101;gfx1102" -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++'
-docker exec -w /AMDMIGraphX/build migraphx bash -c "make -j driver test_gpu_mlir"
-
 SUMMARY=summary.log
 LOGFILE=generic.log
 rm -f \$LOGFILE
