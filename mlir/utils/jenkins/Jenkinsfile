@@ -391,6 +391,43 @@ def do_coverage() {
 //    }
 }
 
+def tuneRocMLIR() {
+    buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+    dir('build') {
+        // Tune gemms with default datatypes, fail if the DB is not created
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --output=mlir_tuning_${ARCH}.tsv
+              [ -f mlir_tuning_${ARCH}.tsv ]"""
+        // Tune gemms int8xint8->int8 for performance comparisons against CK.
+        // Ideally, this'll be removed in the future.
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
+        // Tune resnet50 and unet configs
+        sh """python3 ./bin/tuningRunner.py --operation conv \
+                --configs_file=../mlir/utils/performance/conv-configs \
+                --output=mlir_tuning_${ARCH}.tsv"""
+        // Tune attention configs
+        sh """python3 ./bin/tuningRunner.py --operation attention \
+                --configs_file=../mlir/utils/performance/attention-configs \
+                --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
+        // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --output=mlir_quick_tuning_${ARCH}.tsv
+              [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+        // Tune gemms int8xint8->int8 for performance comparisons against CK. (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --data-type i8_i8 --output=mlir_quick_tuning_${ARCH}.tsv"""
+        // Tune resnet50 and unet configs (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
+                --configs_file=../mlir/utils/performance/conv-configs \
+                --output=mlir_quick_tuning_${ARCH}.tsv"""
+    }
+}
+
 
 pipeline {
     agent none
@@ -743,43 +780,7 @@ pipeline {
                     }
                     stage("Tune rocMLIR") {
                         steps {
-                          def tuneRocMLIR() {
-                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                            dir('build') {
-                                // Tune gemms with default datatypes, fail if the DB is not created
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv
-                                      [ -f mlir_tuning_${ARCH}.tsv ]"""
-                                // Tune gemms int8xint8->int8 for performance comparisons against CK.
-                                // Ideally, this'll be removed in the future.
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
-                                // Tune resnet50 and unet configs
-                                sh """python3 ./bin/tuningRunner.py --operation conv \
-                                        --configs_file=../mlir/utils/performance/conv-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv"""
-                                // Tune attention configs
-                                sh """python3 ./bin/tuningRunner.py --operation attention \
-                                        --configs_file=../mlir/utils/performance/attention-configs \
-                                        --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
-                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --output=mlir_quick_tuning_${ARCH}.tsv
-                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
-                                // Tune gemms int8xint8->int8 for performance comparisons against CK. (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                        --configs_file=../mlir/utils/performance/gemm-configs \
-                                        --data-type i8_i8 --output=mlir_quick_tuning_${ARCH}.tsv"""
-                                // Tune resnet50 and unet configs (quick tuning)
-                                sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
-                                        --configs_file=../mlir/utils/performance/conv-configs \
-                                        --output=mlir_quick_tuning_${ARCH}.tsv"""
-                            }
-                          }
-                          tuneRocMLIR()
+                            tuneRocMLIR()
                         }
                     }
                     stage("Tune Fusion") {
