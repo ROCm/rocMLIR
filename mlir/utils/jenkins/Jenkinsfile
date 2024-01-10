@@ -361,7 +361,7 @@ void archivePerfDB() {
 }
 
 def do_coverage() {
-    steps {
+//    steps {
         // Build with profiling on, and just code-generation tests.
         sh 'rm -f build/CMakeCache.txt'
         sh 'rm -f build/*.profraw'
@@ -389,7 +389,7 @@ def do_coverage() {
             }
         }
         archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.info, build/coverage*.html', onlyIfSuccessful: true
-    }
+//    }
 }
 
 
@@ -1120,7 +1120,9 @@ pipeline {
                 }
                 stages {
                     stage ("body") {
-                        do_coverage()
+                        steps {
+                            do_coverage()
+                        }
                     }
                 }
             }
