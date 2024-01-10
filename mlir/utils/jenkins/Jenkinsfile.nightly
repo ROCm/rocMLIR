@@ -1,0 +1,760 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+void buildProject(String target, String cmakeOpts) {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        cmakeBuild generator: 'Ninja',\
+            buildDir: 'build',\
+            buildType: 'RelWithDebInfo',\
+            installation: 'InSearchPath',\
+            steps: [[args: target]],\
+            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+              ${cmakeOpts}"""
+    }
+}
+
+void buildCK(String cmakeOpts) {
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
+    sh 'cd build; make -j $(nproc) device_operations'
+}
+
+void buildMIGraphX(String cmakeOpts) {
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
+    sh 'cd build; make -j $(nproc)'
+}
+
+void getAndBuildMIGraphX(String cmakeOpts) {
+    git branch: params.MIGraphXBranch, poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+    buildMIGraphX(cmakeOpts)
+}
+
+void getAndBuildCK(String cmakeOpts) {
+    git branch: params.CKBranch, poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/composable_kernel.git'
+    buildCK(cmakeOpts)
+}
+
+void showEnv() {
+    echo "$env.NODE_NAME"
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    // Ignore rocm-smi failures in ixt-sjc2-05
+    sh '/opt/rocm/bin/rocm-smi || true'
+    sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh 'id'
+}
+
+String dockerArgs() {
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+}
+
+String dockerImage() {
+    // If this is being changed please change Dockerfile.migraphx-ci's base image as well
+    return 'rocm/mlir:rocm5.7-latest'
+}
+
+String dockerImageCIMIGraphX() {
+    return 'rocm/mlir-migraphx-ci:rocm5.7-latest'
+}
+
+void preMergeCheck(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    {
+        echo "Static Test step skipped"
+    }
+}
+
+void preMergeCheckPackage(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    {
+        echo "Skipping fat library target list check"
+    }
+}
+
+void postProcessPerfRes(String chip) {
+    publishHTML (target: [
+        allowMissing: false,
+        alwaysLinkToLastBuild: false,
+        keepAll: true,
+        reportDir: 'build/reports',
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportName: "Performance report for ${chip}"
+    ])
+
+  if (fileExists("build/${chip}_mlir_vs_miopen_perf_for_plot.csv")) {
+    plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, Conv",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+  }
+  if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
+    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, GEMM",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+  }
+    // Save results for future comparison
+    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
+}
+
+//Get the GPU name of architecture
+def get_gpu_architecture() {
+    try {
+        def result = sh(script: 'rocminfo', returnStdout: true).trim()
+        def arch_pattern = /gfx\d+\w*/
+        def matches = (result =~ arch_pattern)
+        if (matches) {
+            return matches[0]
+        }
+        return 'N/A'
+    } catch (Exception e) {
+        echo "Error getting GPU architecture name: ${e}"
+        return 'N/A'
+    }
+}
+
+//makes sure multiple builds are not triggered for branch indexing
+def resetBuild() {
+    if (currentBuild.getPreviousBuild() == null
+        || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int;
+        if (buildNumber > 1)
+            milestone(buildNumber - 1);
+        milestone(buildNumber)
+    }
+}
+
+void setHeartbeat() {
+    script {
+        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+    }
+}
+
+String getLabelFromCodepath(String codepath) {
+    echo "codepath is ${codepath}"
+    if (codepath == "mfma") {
+        label = 'mlir && (gfx908 || gfx90a)'
+    } else if (codepath == "navi21") {
+        // For non-performance related testing, use both workstations (gfx1030w)
+        // and server nodes (gfx1030)
+        label = 'mlir && ( gfx1030w || gfx1030 )'
+    } else if (codepath == "vanilla"){
+        label = 'mlir && gfx906'
+    } else if (codepath == "navi3x") {
+        label = 'mlir && ( gfx1100 || gfx1101 )'
+    } else {
+        echo "${codepath} is not supported"
+        label = 'wrongLabel'
+    }
+    echo "label is ${label}"
+    return label
+}
+
+String getLabelFromChip(String chip) {
+    switch (chip) {
+        case "gfx906":
+            return getLabelFromCodepath("vanilla")
+        case "gfx908":
+            return "mlir && gfx908"
+        case "gfx90a":
+            return "mlir && gfx90a"
+        case "gfx1030":
+            // For [Tune MLIR Kernels] and [Performance report] stages,
+            // fix the vm-5 workstation for testing
+            return "mlir && vm-5"
+        case "gfx1100":
+            return "mlir && gfx1100"
+        case "gfx1101":
+            return "mlir && gfx1101"
+    }
+}
+
+def rebootNode() {
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
+void build_fixedE2ETests(String codepath) {
+    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
+    limit_lit_workers = false
+    if ( (codepath == 'navi21') ) {
+        limit_lit_workers = true
+    }
+    // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
+    filter_out_tests = false
+    if ( codepath == 'navi3x') {
+        filter_out_tests = true
+    }
+    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+              -DROCK_E2E_TEST_ENABLED=1
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' } ${ filter_out_tests ? '--filter-out=dense_output_bf16.mlir' : ' '}'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
+    sh '[ ! -d build ] || rm -rf build'
+    buildProject('check-rocmlir', """
+             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+             -DROCK_E2E_TEST_ENABLED=1
+             -DROCK_E2E_TEST_SUITES=${testSuite}
+             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+     """)
+}
+
+
+void check_RockE2ETests_Navi3x(boolean fixed) {
+
+    // Run PR CI tests; Skip Static Test on Novi3x
+    {
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-mlir check-rocmlir', """
+             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+             -DROCK_E2E_TEST_ENABLED=1
+             -DROCK_E2E_TEST_SUITES='part1'
+             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
+             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+        """)
+        checkRocmlirOnNavi3x(fixed, 'part2')
+        checkRocmlirOnNavi3x(fixed, 'part3')
+        checkRocmlirOnNavi3x(fixed, 'part4')
+        checkRocmlirOnNavi3x(fixed, 'part5')
+    }
+}
+
+void check_randomE2ETests(String codepath) {
+    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
+    limit_lit_workers = false
+    if ( (codepath == 'navi21') ) {
+        limit_lit_workers = true
+    }
+    buildProject('check-rocmlir', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+              -DROCK_E2E_TEST_ENABLED=1
+              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void parameterSweep(String CONFIG, String codepath) {
+    timeout(time: 300, activity: true, unit: 'MINUTES') {
+        dir('build') {
+            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
+        }
+    }
+}
+
+boolean shouldRunFromCodepath(String codepath) {
+    // Run vanilla on public CI
+    if ((codepath == "vanilla") && (params.canXdlops == false)) {
+        return true
+    }
+    // Run mfma on private CI
+    if ((codepath == "mfma") && params.canXdlops) {
+        return true
+    }
+    // Run navi21 on private CI only if it is not disabled
+    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
+        return true
+    }
+    // Run navi3x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+        return true
+    }
+    return false
+}
+
+boolean shouldRunFromChip(String chip) {
+    switch (chip) {
+        case "gfx906":
+            return shouldRunFromCodepath("vanilla")
+        case "gfx908":
+        case "gfx90a":
+            return shouldRunFromCodepath("mfma")
+        case "gfx1030":
+            return shouldRunFromCodepath("navi21")
+        case "gfx1100":
+        case "gfx1101":
+            return shouldRunFromCodepath("navi3x")
+    }
+}
+
+void archivePerfDB() {
+    // Note: add additional architectures here
+    dir ('build/perfDB') {
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
+        if (params.disableNavi21 == false)
+            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        sh 'date --utc +%Y-%m-%d >tuning-date'
+    }
+    archiveArtifacts artifacts: 'build/perfDB/**',\
+    onlyIfSuccessful: true
+}
+
+
+def tuneRocMLIR() {
+    buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+    dir('build') {
+        // Tune gemms with default datatypes, fail if the DB is not created
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --output=mlir_tuning_${ARCH}.tsv
+              [ -f mlir_tuning_${ARCH}.tsv ]"""
+        // Tune gemms int8xint8->int8 for performance comparisons against CK.
+        // Ideally, this'll be removed in the future.
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --data-type i8_i8 --output=mlir_tuning_${ARCH}.tsv"""
+        // Tune resnet50 and unet configs
+        sh """python3 ./bin/tuningRunner.py --operation conv \
+                --configs_file=../mlir/utils/performance/conv-configs \
+                --output=mlir_tuning_${ARCH}.tsv"""
+        // Tune attention configs
+        sh """python3 ./bin/tuningRunner.py --operation attention \
+                --configs_file=../mlir/utils/performance/attention-configs \
+                --output=mlir_tuning_${ARCH}.tsv --verify-mode none"""
+        // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation gemm --tuning-space=quick \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --output=mlir_quick_tuning_${ARCH}.tsv
+              [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+        // Tune gemms int8xint8->int8 for performance comparisons against CK. (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation gemm \
+                --configs_file=../mlir/utils/performance/gemm-configs \
+                --data-type i8_i8 --output=mlir_quick_tuning_${ARCH}.tsv"""
+        // Tune resnet50 and unet configs (quick tuning)
+        sh """python3 ./bin/tuningRunner.py --operation conv --tuning-space=quick \
+                --configs_file=../mlir/utils/performance/conv-configs \
+                --output=mlir_quick_tuning_${ARCH}.tsv"""
+    }
+}
+
+
+pipeline {
+    agent none
+    parameters {
+        // Below should be set statically by Jenkins job
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
+                     description: 'Can this CI instance use xdlops (no for public server)')
+        // Temporary change to MIGraphX branch because of upstream merge.
+        string(name: 'MIGraphXBranch', defaultValue: 'develop',
+               description: 'The MIGraphX branch/commit to verify against.')
+        string(name: 'CKBranch', defaultValue: 'develop',
+            description: 'The Composable Kernel branch to be used with the job')
+
+
+        // Each below control whether to run a individual stage from parallel run
+        // They default to true or empty but developer can toggle them for debugging purpose
+        booleanParam(name: 'sharedLib', defaultValue: true,
+                     description: 'Run the shared library stage')
+        booleanParam(name: 'staticLib', defaultValue: true,
+                     description: 'Run the static library stage')
+        booleanParam(name: 'perfTest', defaultValue: true,
+                     description: 'Run the performance testing stage')
+        booleanParam(name: 'checkMIGraphX', defaultValue: false,
+                     description: 'Run the MIGraphX integration tests')
+        booleanParam(name: 'checkCK', defaultValue: true,
+                     description: 'Compare performance against CK')
+        booleanParam(name: 'runCodeCoverage', defaultValue: false,
+                     description: 'Collect and upload code-coverage info.')
+
+        // choose the codepath for testing
+        choice(name: 'codepath',
+               choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
+               description: 'Choose the codepath to test')
+        // option to disable navi21 cells in case nodes are offline
+        booleanParam(name: 'disableNavi21', defaultValue: false,
+                     description: 'Disable testing on Navi21')
+        // option to disable navi3x cells in case nodes are offline
+        booleanParam(name: 'disableNavi3x', defaultValue: false,
+                     description: 'Disable testing on Navi3x')
+
+        // option only to be used with upstream merges
+        booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
+                     description: 'Ignore linting on files in external/')
+
+        // choose the task to run in weekly
+        choice(name: 'weeklyTasks',
+               choices: ['default', 'parameterSweeps', 'Tuning'],
+               description: 'Choose the weekly tasks')
+    }
+    stages {
+        stage("Set System Property") {
+            steps {
+                setHeartbeat()
+            }
+        }
+        stage("Build and Test") {
+            when {
+                beforeAgent true
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        // When default codepath is selected, we test mfma, navi21 and navi3x on
+                        // private CI and vanilla on public CI
+                        allOf {
+                            equals expected: "default", actual: params.codepath;
+                            expression { return shouldRunFromCodepath("$CODEPATH")}
+                        }
+                        // When a particular codepath is selected, we only test the codepath
+                        // on private CI
+                        allOf {
+                            anyOf {
+                                equals expected: "mfma", actual: params.codepath;
+                                allOf {
+                                    equals expected: "navi21", actual: params.codepath;
+                                    equals expected: false, actual: params.disableNavi21;
+                                }
+                                equals expected: "vanilla", actual: params.codepath;
+                                allOf {
+                                    equals expected: "navi3x", actual: params.codepath;
+                                    equals expected: false, actual: params.disableNavi3x;
+                                }
+                            }
+                            equals expected: "${CODEPATH}", actual: params.codepath;
+                            equals expected: true, actual: params.canXdlops;
+                        }
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Shared Library: fixed E2E tests") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.sharedLib;
+                        }
+                        steps {
+                            script {
+                                if ( "${CODEPATH}" == 'navi3x' ) {
+                                    try {
+                                        check_RockE2ETests_Navi3x(true)
+                                    } catch (Exception e) {
+                                        currentBuild.result = 'SUCCESS'
+                                    }
+                                }
+                                else {
+                                    build_fixedE2ETests("${CODEPATH}")
+                                    preMergeCheck("${CODEPATH}")
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        sh 'cd build; ninja check-mlir check-rocmlir'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    stage("Shared Library: random E2E tests") {
+                        when {
+                            beforeAgent true;
+                            allOf {
+                                equals expected: true, actual: params.sharedLib;
+                            }
+                        }
+                        steps {
+                            script {
+                                if ( "${CODEPATH}" == 'navi3x') {
+                                    try {
+                                        check_RockE2ETests_Navi3x(false)
+                                    } catch (Exception e) {
+                                        currentBuild.result = 'SUCCESS'
+                                    }
+                                }
+                                else
+                                    check_randomE2ETests("${CODEPATH}")
+                            }
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        // FIXME: run perf tests on both gfx90a and gfx908
+        stage("Benchmark and Report Performance") {
+            matrix {
+                axes {
+                    axis {
+                        name 'CHIP'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                    }
+                }
+                when {
+                    beforeAgent true;
+                    equals expected: true, actual: params.perfTest;
+                    expression { return shouldRunFromChip("${CHIP}")}
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromChip("${CHIP}")
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage("Environment") {
+                        steps {
+                            echo "chip is ${CHIP}"
+                            showEnv()
+                        }
+                    }
+                    stage("Copy tuning database") {
+                        steps {
+                            copyArtifacts filter: 'build/perfDB/**',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/MLIR/mlir-weekly",\
+                                selector: lastSuccessful(),\
+                                target: 'build'
+                                sh 'ls build'
+                                sh 'cat build/tuning-date'
+                        }
+                    }
+                    stage("Build MLIR") {
+                        steps {
+                            // Clean up build settings to disable static library and allow
+                            // ROCm testing
+                            buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                         ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                            -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
+                        }
+                    }
+                    stage("Copy earlier performance results") {
+                        steps {
+                            copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/${JOB_NAME}",\
+                                selector: lastSuccessful(),\
+                                target: 'build/oldData'
+                        }
+                    }
+                    stage("Test MLIR vs MIOpen/rocBLAS") {
+                        steps {
+                            script {
+                                benchmark.vs_miopen_rocblas()
+                            }
+                        }
+                    }
+                    stage("Test Fusion") {
+                        steps {
+                            script {
+                                benchmark.fusion()
+                            }
+                        }
+                    }
+                    stage("Test Attention") {
+                        steps {
+                            script {
+                                benchmark.attention()
+                            }
+                        }
+                    }
+                    stage("Test MLIR vs CK") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.checkCK;
+                        }
+                        steps {
+                            catchError (buildResult: null) { // This is an optional stage
+                                script {
+                                    benchmark.mlir_vs_ck()
+                                }
+                            }
+                        }
+                    }
+                    stage("Create performance reports") {
+                        steps {
+                            script {
+                                benchmark.reports()
+                            }
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage ("MIGraphX") {
+            when {
+                beforeAgent true;
+                anyOf {
+                    equals expected: true, actual: params.checkMIGraphX;
+                }
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImageCIMIGraphX()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                    PYTHONPATH="${WORKSPACE}/MIGraphX/build/lib:$PYTHONPATH"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Install MIGraphX Dependencies") {
+                        steps {
+                            // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
+                        }
+                    }
+                    stage("Build MIGraphX with MLIR") {
+                        steps {
+                            script {
+                                migraphx.build()
+                            }
+                        }
+                    }
+                    stage("Verify MIGraphX with MLIR") {
+                        steps {
+                            script {
+                                migraphx.verify()
+                            }
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+
+        stage ("Code coverage") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.runCodeCoverage;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CHIP'
+                        values 'gfx908', 'gfx90a'    //, 'gfx1030', 'gfx1100'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromChip("${CHIP}")
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                    // Note the %m to avoid issues with threads and dynamic libraries.
+                    LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                }
+                stages {
+                    stage ("body") {
+                        steps {
+                            script {
+                                codecov.do_coverage()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+}
