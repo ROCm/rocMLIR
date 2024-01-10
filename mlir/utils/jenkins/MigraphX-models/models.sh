@@ -29,7 +29,7 @@ echo "Data type flags:"
 printf -- '- %s\n' "\${datatypes[@]}"
 echo "$list_tier1_p0"
 echo "Collecting models:"
-list_tier1_p0 = "/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+list_tier1_p0="/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
     /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
     /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
