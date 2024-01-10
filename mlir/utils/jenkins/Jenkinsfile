@@ -747,6 +747,7 @@ pipeline {
                     }
                     stage("Tune rocMLIR") {
                         steps {
+                          def tuneRocMLIR() {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
@@ -777,6 +778,8 @@ pipeline {
                                         -c ../mlir/utils/performance/conv-configs -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
+                          }
+                          tuneRocMLIR()
                         }
                     }
                     stage("Tune Fusion") {
