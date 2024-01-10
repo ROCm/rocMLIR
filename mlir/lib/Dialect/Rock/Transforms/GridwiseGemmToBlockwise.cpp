@@ -897,9 +897,8 @@ struct GridwiseAttentionAccelRewritePattern
             //Since we are iterating on D dimension, we need to transpose it.
             RegsAsMatrixSubTiles inBufferViewsTr = transposeSubTileViews(rewriter, loc, maybeInBufferViews.value());
             Value viewLoadedBuffer = transform(rewriter, fromGlobalRegBuffer, invertTransforms(rewriter, loc, inBufferViewsTr.threadSubTile));
-            rewriter.create<ThreadwiseCopyOp>(loc, viewLoadedBuffer, ValueRange{di},
-                                      subview, ValueRange{}, false,
-                                      false);
+            rewriter.create<ThreadwiseReadIntoOp>(loc, viewLoadedBuffer, subview, rewriter.getArrayAttr({}),
+                                                  ValueRange{di}, true, true);
         }
     }
     return success();

@@ -658,7 +658,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
           splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {5, 6, 7}, "iter", {kpackPerThread, kPack, dRepeats});
+          splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {5, 6, 7}, "iter", {kpackPerThread, dRepeats, kPack});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -863,6 +863,8 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         transposeKD.unmerge({"K"}, {0}, {"k_iter", "kpack"}, {kpackPerThread, kPack});
         transposeKD.passThrough({"D"}, {1}, {"d_iter"});
       }
+      TransformMapAttr transposeKDAttr = transposeKD.get();
+      transformAttrs.push_back(transposeKDAttr);
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
     }
     return ret;
@@ -1057,7 +1059,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
           splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {5, 6, 7}, "iter", {kpackPerThread, kPack, dRepeats});
+          splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {5, 6, 7}, "iter", {kpackPerThread, dRepeats, kPack});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -1146,7 +1148,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
           splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter", {dRepeats, kpackPerThread, kPack});
         }
         else{
-          splitIter.merge({"kpack_iter", "kpack", "drepeat"}, {1, 2, 3}, "iter", {kpackPerThread, kPack, dRepeats});
+          splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {1, 2, 3}, "iter", {kpackPerThread, dRepeats, kPack});
         }
       }
       TransformMapAttr splitIterAttr = splitIter.get();
@@ -1237,6 +1239,8 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
         transposeKD.passThrough({"D"}, {1}, {"d_iter"});
       }
+      TransformMapAttr transposeKDAttr = transposeKD.get();
+      transformAttrs.push_back(transposeKDAttr);
       ret.threadSubTile = b.getArrayAttr(transformAttrs);
     }
    return ret;                                   
