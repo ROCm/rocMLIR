@@ -1096,41 +1096,6 @@ pipeline {
             }
         }
 
-        stage ("Code coverage") {
-            when {
-                beforeAgent true;
-                equals expected: true, actual: params.runCodeCoverage;
-            }
-            matrix {
-                axes {
-                    axis {
-                        name 'CHIP'
-                        values 'gfx908', 'gfx90a'    //, 'gfx1030', 'gfx1100'
-                    }
-                }
-                agent {
-                    docker {
-                        image dockerImage()
-                        args dockerArgs()
-                        label getLabelFromChip("${CHIP}")
-                        alwaysPull true
-                    }
-                }
-                environment {
-                    PATH="/opt/rocm/llvm/bin:$PATH"
-                    HOME="${WORKSPACE}"
-                    // Note the %m to avoid issues with threads and dynamic libraries.
-                    LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
-                }
-                stages {
-                    stage ("body") {
-                        steps {
-                            do_coverage()
-                        }
-                    }
-                }
-            }
-        }
 
     }
 }
