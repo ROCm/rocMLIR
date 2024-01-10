@@ -1094,7 +1094,9 @@ pipeline {
                 stages {
                     stage ("body") {
                         steps {
-                            codecov.do_coverage()
+                            script {
+                                codecov.do_coverage()
+                            }
                         }
                     }
                 }
