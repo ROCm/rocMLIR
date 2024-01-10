@@ -29,22 +29,22 @@ echo "Data type flags:"
 printf -- '- %s\n' "\${datatypes[@]}"
 echo "$list_tier1_p0"
 echo "Collecting models:"
-tier1_p0_models=(
-"/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64"
-"/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1"
-"/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64"
-"/models/onnx-model-zoo/gpt2-10.onnx"
-"/models/mlperf/resnet50_v1.onnx")
+list_tier1_p0 = "/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64
+    /models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+    /models/onnx-model-zoo/gpt2-10.onnx
+    /models/mlperf/resnet50_v1.onnx"
+echo "prosao"
 tier1_p1_models=(
 "/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482"
 "/models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482"
