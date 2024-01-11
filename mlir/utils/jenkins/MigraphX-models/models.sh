@@ -88,22 +88,25 @@ function test_models(){
       
       for datatype in "\${datatypes[@]}"; do
           echo "Testing: \$testcase \$datatype" >> \$out_log_file
-          timeout 1h exec -e MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout 1h env MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
           timeout_status=\$?
-          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
-          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
+          echo "prvi"
+          cat raw_log.txt |sed -n '/Summary:/,$p'  >>  $out_log_file
+          cat raw_log.txt |sed -n '/FAILED:/,$p'  >>  $out_log_file
           result="DONE"
+          echo "prvi111"
           if [[ \$timeout_status -eq 124 ]]; then
                   result="TIMEOUT"
+                  echo "prvi22222"
           fi
           echo "\$result Testing: \$testcase \$datatype" >> \$out_log_file
           echo "\$testcase \$datatype \$result" >> \$SUMMARY
           
           echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          timeout 1h exec -e MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout 1h env MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
           timeout_status=\$?
-          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
-          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
+          cat raw_log.txt |sed -n '/Summary:/,$p'  >>  $out_log_file
+          cat raw_log.txt |sed -n '/FAILED:/,$p'  >>  $out_log_file
           result="DONE"
           if [[ \$timeout_status -eq 124 ]]; then
                   result="TIMEOUT"
