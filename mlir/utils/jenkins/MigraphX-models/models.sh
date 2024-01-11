@@ -1,5 +1,7 @@
 #!/bin/bash
 
+checkFor="perf"
+
 SUMMARY=summary.log
 LOGFILE=generic.log
 rm -f \$LOGFILE
@@ -86,7 +88,7 @@ function test_models(){
       
       for datatype in "\${datatypes[@]}"; do
           echo "Testing: \$testcase \$datatype" >> \$out_log_file
-          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver $checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout 1h exec -e MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
           timeout_status=\$?
           cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
           cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
@@ -98,7 +100,7 @@ function test_models(){
           echo "\$testcase \$datatype \$result" >> \$SUMMARY
           
           echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
+          timeout 1h exec -e MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver \$checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
           timeout_status=\$?
           cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
           cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
