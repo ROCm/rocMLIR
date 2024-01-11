@@ -45,12 +45,12 @@ list_tier1_p0="/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim 
     /models/onnx-model-zoo/gpt2-10.onnx
     /models/mlperf/resnet50_v1.onnx"
 echo "prosao"
-tier1_p1_models=(
-"/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482"
-"/models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482"
-"/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384"
-"/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384"   
-"/models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024")
+list_tier1_p1="/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482
+    /models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482
+    /models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
+    /models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384  
+    /models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024"
+tier1_p1_models=()
 other_models=()
 echo "prosao1"
 OLD_IFS="\$IFS"
