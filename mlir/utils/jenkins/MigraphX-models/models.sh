@@ -87,7 +87,7 @@ function test_models(){
   array_name=$1[@]
   models_to_test=("${!array_name}")
   out_log_file=$2
-  for testcase in "${models_to_test[@]}"; do
+  for testcase in ${models_to_test[@]}; do
       if [[ $testcase =~ ^# ]]; then
           continue;
       fi
@@ -103,7 +103,6 @@ function test_models(){
           echo "prvi111"
           if [[ $timeout_status -eq 124 ]]; then
                   result="TIMEOUT"
-                  echo "prvi22222"
           fi
           echo "\$result Testing: \$testcase \$datatype" >> \$out_log_file
           echo "\$testcase \$datatype \$result" >> \$SUMMARY
