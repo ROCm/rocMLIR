@@ -204,5 +204,5 @@ MLIRRockTransforms
 MLIRRockTuning
 MLIRRockUtility
 MLIRTosaToRock
-RocmlirFp8ExtToTables
+RocmlirEmulateFp8ExtTrunc
 )

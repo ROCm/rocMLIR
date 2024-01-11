@@ -22,7 +22,7 @@
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
-#include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
+#include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
@@ -179,7 +179,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // Leave off --convert-arith-to-amdgpu if not targetting gfx94x+.
   /* rocmlir-opt --strip-debuginfo
    *   --convert-arith-to-amdgpu
-   *   --fp8-ext-to-tables
+   *   --emulate-fp8-ext-trunc
    *   "--amdgpu-emulate-atomics=chipset=$chip"
    *   --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32"
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
@@ -201,7 +201,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     gpuPm.addPass(createArithToAMDGPUConversionPass(options));
     gpuPm.addPass(createArithToAMDGPUConversionPass());
   } else {
-    gpuPm.addPass(createFp8ExtToTablesPass());
+    gpuPm.addPass(createEmulateFp8ExtTruncPass());
   }
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
@@ -225,7 +225,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // Quick hack around the facct that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That
   // pass will ideally be nicely implemented and upstreamed Later (tm).
-  pm.addPass(createFp8ExtToTablesPass());
+  pm.addPass(createEmulateFp8ExtTruncPass());
 }
 
 //===----------------------------------------------------------------------===//
