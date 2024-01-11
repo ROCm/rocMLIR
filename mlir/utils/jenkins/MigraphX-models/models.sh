@@ -29,7 +29,7 @@ if [ "$int8" = "true" ]; then
 fi
 
 echo "Data type flags:"
-printf -- '- %s\n' "\${datatypes[@]}"
+printf -- '- %s\n' "${datatypes[@]}"
 
 list_tier1_p0="/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
     /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
@@ -46,9 +46,8 @@ list_tier1_p0="/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim 
     /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/onnx-model-zoo/gpt2-10.onnx
     /models/mlperf/resnet50_v1.onnx"
-echo "prosao"
-tier1_p0_models=()
 
+tier1_p0_models=()
 list_tier1_p1="/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482
     /models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482
     /models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
@@ -56,8 +55,8 @@ list_tier1_p1="/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --
     /models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024"
     
 tier1_p1_models=()
-echo "$list_tier1_p0"
 echo "Collecting models:"
+echo "$list_tier1_p0"
 echo "$list_tier1_p1"
 
 IFS=$'\n' read -r -a tier1_p0_models <<< "$list_tier1_p0"  
@@ -116,13 +115,15 @@ rm -f tier1_p0.log
 rm -f tier1_p1.log
 rm -f other_models.log
 
+enable_tier1_p0="true"
+enable_tier1_p1="true"
+
 if [ "$enable_tier1_p0" = "true" ]; then
 	test_models tier1_p0_models tier1_p0.log
 fi
 if [ "$enable_tier1_p1" = "true" ]; then
     test_models tier1_p1_models tier1_p1.log
 fi
-
 if [ "$enable_others" = "true" ]; then
     test_models other_models other_models.log
 fi 
