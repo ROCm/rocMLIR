@@ -87,8 +87,8 @@ function test_models(){
   array_name=$1[@]
   models_to_test=("${!array_name}")
   out_log_file=$2
-  for testcase in ${models_to_test[@]}; do
-      if [[ $testcase =~ ^# ]]; then
+  for testcase in "${models_to_test[@]}"; do
+      if [[ $str =~ ^# ]]; then
           continue;
       fi
       
