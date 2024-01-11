@@ -549,7 +549,7 @@ pipeline {
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
 --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
                             }
-                            sh 'rm build/CMakeCache.txt'
+                            sh 'rm -f build/CMakeCache.txt'
                         }
                     }
                     stage("Stash Databases") {

@@ -550,7 +550,7 @@ pipeline {
                             equals expected: true, actual: params.staticLib;
                         }
                         steps {
-                            sh 'rm build/CMakeCache.txt'
+                            sh 'rm -f build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
                             preMergeCheckPackage("${CODEPATH}")
                             echo "Running tests on the newly-built static library"
