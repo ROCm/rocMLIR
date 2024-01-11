@@ -34,17 +34,23 @@ echo "Data type flags:"
 printf -- '- %s\n' "${datatypes[@]}"
 
 list_tier1_p0="/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64
     /models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+    /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
     /models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
     /models/onnx-model-zoo/gpt2-10.onnx
     /models/mlperf/resnet50_v1.onnx"
@@ -78,41 +84,43 @@ done
 echo  "PROSOAOO"
 # Function to test different list of models
 function test_models(){
-  array_name=\$1[@]
-  models_to_test=("\${!array_name}")
-  out_log_file=\$2
-  for testcase in "\${models_to_test[@]}"; do
-      if [[ \$str =~ ^# ]]; then
+  array_name=$1[@]
+  models_to_test=("${!array_name}")
+  out_log_file=$2
+  for testcase in "${models_to_test[@]}"; do
+      if [[ $testcase =~ ^# ]]; then
           continue;
       fi
       
-      for datatype in "\${datatypes[@]}"; do
-          echo "Testing: \$testcase \$datatype" >> \$out_log_file
+      for datatype in "${datatypes[@]}"; do
+          echo "Testing: $testcase $datatype" >> $out_log_file
           timeout 1h env MIGRAPHX_ENABLE_MLIR=0 /AMDMIGraphX/build/bin/migraphx-driver $checkFor $testcase $datatype 2>&1 |tee raw_log.txt
-          #timeout_status=\$?
+          timeout_status=$?
           echo "prvi"
           cat raw_log.txt |sed -n '/Summary:/,$p'  >>  $out_log_file
           cat raw_log.txt |sed -n '/FAILED:/,$p'  >>  $out_log_file
           result="DONE"
           echo "prvi111"
-          if [[ \$timeout_status -eq 124 ]]; then
+          if [[ $timeout_status -eq 124 ]]; then
                   result="TIMEOUT"
                   echo "prvi22222"
           fi
           echo "\$result Testing: \$testcase \$datatype" >> \$out_log_file
           echo "\$testcase \$datatype \$result" >> \$SUMMARY
-          
+          echo "ovde sam"
           echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          timeout 1h env MIGRAPHX_ENABLE_MLIR=1 /AMDMIGraphX/build/bin/migraphx-driver $checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
-          #timeout_status=\$?
+          timeout 1h env MIGRAPHX_ENABLE_MLIR=1 /AMDMIGraphX/build/bin/migraphx-driver $checkFor $testcase $datatype 2>&1 |tee raw_log.txt
+          timeout_status=$?
+          echo "drugi"
           cat raw_log.txt |sed -n '/Summary:/,$p'  >>  $out_log_file
           cat raw_log.txt |sed -n '/FAILED:/,$p'  >>  $out_log_file
           result="DONE"
-          if [[ \$timeout_status -eq 124 ]]; then
+          if [[ $timeout_status -eq 124 ]]; then
                   result="TIMEOUT"
           fi
           echo "\$result Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          echo "(MLIR ENABLED) \$testcase \$datatype \$result" >> \$SUMMARY       
+          echo "(MLIR ENABLED) \$testcase \$datatype \$result" >> \$SUMMARY
+          echo "kraj"       
       done
   done
 }
