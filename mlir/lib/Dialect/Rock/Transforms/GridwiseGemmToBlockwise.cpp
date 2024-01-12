@@ -255,7 +255,7 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
   }
 
   if (arch) {
-    const int64_t ldsSize = rock::lookupArchInfo(arch).totalSharedMemPerCU;
+    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
 
     return success(ldsBytes <= ldsSize);
   }
