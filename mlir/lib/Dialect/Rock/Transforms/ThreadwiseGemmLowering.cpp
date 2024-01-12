@@ -552,7 +552,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     vectorSrcLen = getMaxVectorizationForDatatype(
         transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
     // In the future, this might get merged into the vectorizer.
-    transforms = collapseContiguousMerges(transforms, bufferShape);
+    // transforms = collapseContiguousMerges(transforms, bufferShape);
     srcStride = vectorSrcLen;
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
@@ -560,7 +560,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (isDstVectorBuffer) {
     dstVectorType = dstBufferType.getElementType().dyn_cast<VectorType>();
     vectorDstLen = dstVectorType.dyn_cast<VectorType>().getNumElements();
-    numValues = (numValues * vectorDstLen) / vectorSrcLen;
+    numValues = (numValues * vectorDstLen);
+    if(isSrcVectorBuffer){
+      numValues = numValues / vectorSrcLen;
+    }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
@@ -627,14 +630,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             loc, destOffset, b.create<ConstantIndexOp>(loc, vectorSrcLen));
         b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
       } else {
+        Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
+        if(!isSrcVectorBuffer){
+          Value srcVecLenVal = b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen);
+          idx = b.createOrFold<arith::DivUIOp>(loc, idx, srcVecLenVal);
+        }
         // Destination is a vector buffer
         if (vectorSrcLen == vectorDstLen) {
-          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest,
-                                    loadLoop.getLowerCoords(
-                                        /*domain=*/1)[extraIdxCount]);
+          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest, idx);
         } else if (vectorSrcLen > vectorDstLen) {
           int64_t numStores = vectorSrcLen / vectorDstLen;
-          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
           Value value = ifb.getResult(0);
 
           Value baseDestOffset = b.createOrFold<arith::MulIOp>(
@@ -655,8 +660,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           Value value = ifb.getResult(0);
           Value destValsPerKpack = b.createOrFold<arith::ConstantIndexOp>(
               loc, vectorDstLen / vectorSrcLen);
-          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
-
           Value destOffset =
               b.createOrFold<arith::DivUIOp>(loc, idx, destValsPerKpack);
           Value destVecPart =

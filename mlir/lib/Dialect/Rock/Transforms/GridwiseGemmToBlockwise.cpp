@@ -1591,7 +1591,8 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
-    if (gemm0K == gemm0KPerBlock) {
+    bool enableQLDSBypass = true;
+    if (gemm0K == gemm0KPerBlock && enableQLDSBypass) {
         ldsByteBufferQSize = 1;
     }
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
@@ -1610,8 +1611,17 @@ struct GridwiseAttentionAccelRewritePattern
     Value ldsByteBufferV = sharedBuffersGemmsA[1];
 
     // Bufers for Gemm0
-    auto [fromGlobalRegBufferQ, toLDSRegBufferQ] = createRegBuffersForGemmIn(
+    Value fromGlobalRegBufferQ;
+    Value toLDSRegBufferQ;
+    if (gemm0K == gemm0KPerBlock && enableQLDSBypass) {
+        Type loadBufferType = MemRefType::get(
+        {accelParamsGemm0.nRepeats * accelParamsGemm0.kpackPerThread * gemm0kpack}, elemTypeQ, AffineMap{}, privateMemoryAddressSpace);
+        fromGlobalRegBufferQ = rewriter.create<GpuAllocOp>(loc, loadBufferType);
+    }
+    else{
+        std::tie(fromGlobalRegBufferQ, toLDSRegBufferQ) = createRegBuffersForGemmIn(
         loc, gemm0KPerBlock, blockSize, elemTypeQ, gemm0NPerBlock, rewriter);
+    }
     auto [fromGlobalRegBufferK, toLDSRegBufferK] = createRegBuffersForGemmIn(
         loc, gemm0KPerBlock, blockSize, elemTypeK, gemm0MPerBlock, rewriter);
     // Note that we dont provide nRepeats because we dont want
@@ -1756,13 +1766,27 @@ struct GridwiseAttentionAccelRewritePattern
       LLVM_DEBUG(llvm::dbgs()
                  << "rock.attention: Prefetching Q tile into regs...\n");
       Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-      LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
+      if(enableQLDSBypass){
+        LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
           loc, inQ, /*kiter=*/zero, gridCoordsGemm1, fromGlobalRegBufferQ,
           toLDSRegBufferQ, preAccelRegBuffersQ, "n", gemm0kpack, gemm0KpacksPerBlock,
           gemm0NPerBlock, blockSize, gridSize, bidGridOrder,
           gemm0BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm0.get());
-      if (failed(statusLoadQTile)) {
-        return failure();
+        if (failed(statusLoadQTile)) {
+            return failure();
+        } 
+      }
+      else{
+        LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
+          loc, inQ, /*kiter=*/zero, gridCoordsGemm1, fromGlobalRegBufferQ,
+          toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack, gemm0KpacksPerBlock,
+          gemm0NPerBlock, blockSize, gridSize, bidGridOrder,
+          gemm0BidGridLengths, forceUnroll, rewriter, *accelEmitterPtrGemm0.get());
+        ldsTileBufferQ = viewBufferAs(rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
+        loadGemmOperandsFromLDSToRegs(rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n", blockSize, gemm0InMPerThread, *accelEmitterPtrGemm0.get());
+        if (failed(statusLoadQTile)) {
+            return failure();
+        }
       }
     }
 
