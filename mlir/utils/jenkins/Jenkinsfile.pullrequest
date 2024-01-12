@@ -612,7 +612,7 @@ pipeline {
                                 sh '/opt/rocm/llvm/bin/llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
                                 sh '/opt/rocm/llvm/bin/llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CHIP}.report'
                                 sh 'cat ./coverage_${CHIP}.report'
-                                sh '/opt/rocm/llvm/bin/llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=/opt/rocm/llvm/bin/llvm-cxxfilt > ./coverage_${CHIP}.info'
+                                sh "/opt/rocm/llvm/bin/llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CHIP}.lcov"
                                 sh '/opt/rocm/llvm/bin/llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=/opt/rocm/llvm/bin/llvm-cxxfilt --format=html > ./coverage_${CHIP}.html'
                                 // Upload to codecov.
                                 withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
@@ -622,11 +622,11 @@ pipeline {
                                        if [ -n "${http_proxy}" ]; then
                                            proxy_opt="-U ${http_proxy}"
                                        fi
-                                       ./codecov -t ${CODECOV_TOKEN} --flags "${CHIP}" -f ./coverage_${CHIP}.info ${proxy_opt}
+                                       ./codecov -t ${CODECOV_TOKEN} --flags "${CHIP}" -f ./coverage_${CHIP}.lcov ${proxy_opt}
                                        '''
                                 }
                             }
-                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.info, build/coverage*.html', onlyIfSuccessful: true
+                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                         }
                     }
                 }
