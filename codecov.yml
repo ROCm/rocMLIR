@@ -1,4 +1,7 @@
 ignore:
-  - "test/"
-  - "build/"
+  - "mlir/test/"
+  - "mlir/example/"
   - "external/llvm-project/"
+
+fixes:
+  - "/var/[^\/\n]+/workspace/[^\/\n]+/[^\/\n]+/::"
