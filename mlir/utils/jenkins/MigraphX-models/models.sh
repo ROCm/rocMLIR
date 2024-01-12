@@ -114,3 +114,11 @@ fi
 if [ "$enable_others" = "true" ]; then
     test_models other_models other_models.log
 fi 
+echo "LOGFILE"
+cat $LOGFILE
+echo "SUMMARY"
+cat $SUMMARY
+echo "tier1_p0.log"
+cat tier1_p0.log
+echo "tier1_p1.log"
+cat tier1_p1.log
