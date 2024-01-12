@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 checkFor="perf"
 
 SUMMARY=summary.log
@@ -8,7 +10,7 @@ rm -f $LOGFILE
 rm -f $SUMMARY
 
 echo "###########################################" >>  $LOGFILE
-echo "New Run \$(pwd)" >>  $LOGFILE
+echo "New Run $(pwd)" >>  $LOGFILE
 date >> $LOGFILE
 echo "GPU: $(rocminfo |grep -o -m 1 'gfx.*')" >> $LOGFILE
 echo "MIGX: $(/AMDMIGraphX/build/bin/migraphx-driver --version)" >> $LOGFILE
@@ -59,7 +61,6 @@ done <<< "$list_tier1_p1"
 #IFS=$'\n' read -r -a tier1_p1_models <<< "$list_tier1_p1"
 
 other_models=()
-echo "prosao1"
 # Ispisivanje modela za proveru  
 for model in "${tier1_p0_models[@]}"; do  
     echo "Model: $model"  
@@ -69,14 +70,12 @@ for model in "${tier1_p1_models[@]}"; do
     echo "Model: $model"  
 done  
 
-echo  "PROSOAOO"
 # Function to test different list of models
 function test_models(){
   array_name=$1[@]
   models_to_test=("${!array_name}")
   out_log_file=$2
   for testcase in "${models_to_test[@]}"; do
-    echo "Debug: testcase = $testcase"
       if [[ $str =~ ^# ]]; then
           continue;
       fi
@@ -87,7 +86,6 @@ function test_models(){
           #echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
           timeout 1h env MIGRAPHX_ENABLE_MLIR=1 /AMDMIGraphX/build/bin/migraphx-driver $checkFor $testcase $datatype 2>&1 |tee raw_log.txt
           timeout_status=$?
-          echo "drugi"
           cat raw_log.txt |sed -n '/Summary:/,$p'  >>  $out_log_file
           cat raw_log.txt |sed -n '/FAILED:/,$p'  >>  $out_log_file
           result="DONE"
