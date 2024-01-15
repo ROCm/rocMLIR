@@ -1073,7 +1073,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         splitTid.passThrough({"kpack"}, {3}, {"kpack"});
         splitTid.merge({"wave_id", "lane_id"}, {4, 5}, "tid",
                         {blockSize / waveSize, waveSize});
-        splitTid.passThrough({"d_iter", "k_iter"}, {6, 7}, {"d_iter", "k_iter"});
+        splitTid.passThrough({"d_iter", "k_iter"}, {6, 7}, {"drepeat", "kpack_iter"});
       }
       TransformMapAttr splitTidAttr = splitTid.get();
       transformAttrs.push_back(splitTidAttr);
@@ -1160,7 +1160,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         splitTid.passThrough({"kpack"}, {0}, {"kpack"});
         splitTid.merge({"wave_id", "lane_id"}, {1, 2}, "tid",
                         {blockSize / waveSize, waveSize});
-        splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"d_iter", "k_iter"});
+        splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"drepeat", "kpack_iter"});
       }
       TransformMapAttr splitTidAttr = splitTid.get();
       transformAttrs.push_back(splitTidAttr);
