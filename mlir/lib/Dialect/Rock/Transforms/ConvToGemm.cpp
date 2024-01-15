@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/TypeUtilities.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -44,6 +45,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include <iterator>
 
@@ -267,11 +269,10 @@ static Value makeGpuAllocContaining(OpBuilder &b, Value v) {
 
 /// 0-initialize a given buffer.
 struct ZeroInitKernelRewritePattern final
-    : public OpConversionPattern<ZeroInitKernelOp> {
-  using OpConversionPattern<ZeroInitKernelOp>::OpConversionPattern;
+    : public OpConversionPattern<InitKernelOp> {
+  using OpConversionPattern<InitKernelOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ZeroInitKernelOp op,
-                                ZeroInitKernelOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(InitKernelOp op, InitKernelOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
     TypedValue<ShapedType> buffer = op.getBuffer();
@@ -279,29 +280,47 @@ struct ZeroInitKernelRewritePattern final
     if (!op.getElemsPerThread().has_value())
       return op->emitOpError("elems per thread not set");
 
-    int64_t zeroInitVectorLen = getUtilityVectorizationLen(
+    int64_t initVectorLen = getUtilityVectorizationLen(
         buffer.getType(), op.getElemsPerThread()->getZExtValue());
-    Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
+    Type storeType = vectorTypeOrSelf(bufferType, initVectorLen);
     bool needs64BitIdx = is4GBMemoryType(buffer.getType());
-    Value zeroOp = createZeroConstantOp(b, loc, storeType);
+
+    Type elementType = mlir::getElementTypeOrSelf(storeType);
+    Value initOp;
+    auto initValueAttr = op.getInitValueAttr();
+    if (initValueAttr) {
+      if (auto floatInitValueAttr = initValueAttr.value().cast<FloatAttr>()) {
+        auto initValue = floatInitValueAttr.getValue().convertToFloat();
+        initOp =
+            createConstantFloatOp(b, loc, storeType, elementType, initValue);
+      } else if (auto intInitValueAttr =
+                     initValueAttr.value().cast<IntegerAttr>()) {
+        auto initValue = intInitValueAttr.getValue().getSExtValue();
+        initOp = createConstantIntOp(b, loc, storeType, elementType, initValue);
+      } else {
+        return failure();
+      }
+    } else {
+      initOp = createZeroConstantOp(b, loc, storeType);
+    }
+
     Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value memref = makeGpuAllocContaining(b, zeroOp);
+    Value memref = makeGpuAllocContaining(b, initOp);
     Value trueOp =
         b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
     GemmFeatures features = op.getFeatures();
 
-    auto loopBody = [&memref, &zeroInitVectorLen, &trueOp, &features,
-                     &zeroIndex, &needs64BitIdx](OpBuilder &b, Location loc,
-                                                 ValueRange collapsed,
-                                                 Value index) {
+    auto loopBody = [&memref, &initVectorLen, &trueOp, &features, &zeroIndex,
+                     &needs64BitIdx](OpBuilder &b, Location loc,
+                                     ValueRange collapsed, Value index) {
       b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, zeroInitVectorLen), features,
+                              APInt(64, initVectorLen), features,
                               StoreMethod::Set, /*sourceCoord=*/zeroIndex,
                               /*valid=*/trueOp, index, needs64BitIdx,
                               /*canStoreOffEnd=*/true);
     };
     LogicalResult res =
-        createElementwiseLoop(b, loc, op, buffer, zeroInitVectorLen, loopBody);
+        createElementwiseLoop(b, loc, op, buffer, initVectorLen, loopBody);
     if (failed(res))
       return failure();
 
@@ -916,7 +935,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   return success();
 }
 
-template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
+template <typename T>
+struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
@@ -1210,7 +1230,7 @@ void RockConvToGemmPass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::Conv2DOp, rock::Conv2DBwdDataOp,
-                      rock::Conv2DBwdWeightOp, rock::ZeroInitKernelOp,
+                      rock::Conv2DBwdWeightOp, rock::InitKernelOp,
                       rock::ConvertingCopyKernelOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
                     rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
