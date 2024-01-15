@@ -2499,7 +2499,7 @@ struct GridwiseGemmAccelRewritePattern
 
     auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
     loopOp->setAttr(PipelineAttr::getMnemonic(),
-                    rock::PipelineAttr::get(b.getContext(), 2));
+                    rock::PipelineAttr::get(b.getContext(), 1));
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());

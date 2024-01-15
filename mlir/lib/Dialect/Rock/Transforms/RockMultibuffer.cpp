@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Dominance.h"
@@ -59,140 +60,16 @@ void findAllocUsers(rock::GpuAllocOp allocOp,
   }
 }
 
-/// Given an original type `<dim x type>`, return its multibuffer version.
-/// - If isFlat is true, this will be `<multiBufferingFactor*dim x type>`
-/// - If isFlat is false, this will be `<multiBufferingFactor x dim x type>`
-MemRefType getFlatMultiBufferType(MemRefType originalType,
-                                  int64_t multiBufferingFactor) {
-  ArrayRef<int64_t> originalShape = originalType.getShape();
-  SmallVector<int64_t, 4> multiBufferedShape;
-  assert(originalShape.size() == 1 && "Original buffers need to be flat");
-  multiBufferedShape.push_back(multiBufferingFactor * originalShape.back());
-  MemRefType mbMemRefType = MemRefType::Builder(originalType)
-                                .setShape(multiBufferedShape)
-                                .setLayout(MemRefLayoutAttrInterface());
-  return mbMemRefType;
-}
-
-/// This function goes through the stack of tansforms to add
-/// and additional PassThrough transform to allow the multibuffer
-/// index to be routed through the stack
-TransformMapAttr getMultiBufferTransform(MLIRContext *ctx,
-                                         TransformMapAttr transform,
-                                         int64_t multiBufferFactor) {
-  auto ops = llvm::to_vector(transform.getOps());
-  SmallVector<TransformAttr> newOps;
-  // Since we are adding a PassThrough as first transformation
-  // we need to shift all the dimensions of the other transformations
-  // by one
-  for (auto t : ops) {
-    auto lowerDims = llvm::to_vector(t.getLowerDims());
-    auto upperDims = llvm::to_vector(t.getUpperDims());
-    for (auto &d : lowerDims) {
-      d++;
-    }
-    for (auto &d : upperDims) {
-      d++;
-    }
-    newOps.push_back(TransformAttr::get(ctx, t.getType(), t.getParams(),
-                                        t.getUpperNames(), upperDims,
-                                        t.getLowerNames(), lowerDims));
-  }
-
-  // Create and add the passthrough transform to route the multibuffer
-  // index down the transform stack
-  SmallVector<int64_t, 4> multiBufferedUpperBounds{multiBufferFactor};
-  SmallVector<int64_t, 4> multiBufferedLowerBounds{multiBufferFactor};
-  ArrayRef<int64_t> originalUpperBounds = transform.getUpperBounds();
-  ArrayRef<int64_t> originalLowerBounds = transform.getLowerBounds();
-  llvm::append_range(multiBufferedUpperBounds, originalUpperBounds);
-  llvm::append_range(multiBufferedLowerBounds, originalLowerBounds);
-  auto passThrough =
-      TransformAttr::get(ctx, TransformType::PassThrough, {},
-                         {"multi_buffer_idx"}, {0}, {"multi_buffer_idx"}, {0});
-  newOps.push_back(passThrough);
-  TransformMapAttr newMap = TransformMapAttr::get(
-      newOps, multiBufferedUpperBounds, multiBufferedLowerBounds);
-  return newMap;
-}
-
-/// Helper function to create a memref.subview to extract the multibuffer
-/// slice.
-Value getSubviewIntoMultibuffer(RewriterBase &rewriter, Location loc, Value val,
-                                Value index, ArrayRef<int64_t> originalShape,
-                                MemRefType mbType) {
-  int64_t mbMemRefTypeRank = mbType.getRank();
-  IntegerAttr zero = rewriter.getIndexAttr(0);
-  IntegerAttr one = rewriter.getIndexAttr(1);
-  SmallVector<OpFoldResult> offsets(mbMemRefTypeRank, zero);
-  SmallVector<OpFoldResult> sizes(mbMemRefTypeRank, one);
-  SmallVector<OpFoldResult> strides(mbMemRefTypeRank, one);
-  // Offset is [bufferIndex, 0 ... 0 ].
-  offsets.front() = index;
-  // Sizes is [1, original_size_0 ... original_size_n ].
-  for (int64_t i = 0, e = originalShape.size(); i != e; ++i)
-    sizes[1 + i] = rewriter.getIndexAttr(originalShape[i]);
-  // Strides is [1, 1 ... 1 ].
-  auto dstMemref =
-      cast<MemRefType>(memref::SubViewOp::inferRankReducedResultType(
-          originalShape, mbType, offsets, sizes, strides));
-  Value subview = rewriter.create<memref::SubViewOp>(loc, dstMemref, val,
-                                                     offsets, sizes, strides);
-  return subview;
-}
-
-/// This is replacing a generic operation op(buffer) with a sequence of
-/// - multibuffer_view = memref.subview(buffer)
-/// - op(multibuffer_view)
-Operation *subviewAndClone(RewriterBase &rewriter, Location loc,
-                           OpOperand &operand, Value val, Value loopIndex,
-                           int64_t multiBufferingFactor) {
+/// This is replacing a generic operation op(buffer) with op(multibuffer)
+Operation *clone(RewriterBase &rewriter, Location loc, OpOperand &operand,
+                 Value multibuffer) {
   int64_t operandNumber = operand.getOperandNumber();
   Operation *op = operand.getOwner();
   auto operands = op->getOperands();
-  Value buffer = operands[operand.getOperandNumber()];
-  auto originalShape = buffer.getType().cast<ShapedType>().getShape();
-  MemRefType mbMemRefType = val.getType().cast<MemRefType>();
-  auto subview = getSubviewIntoMultibuffer(rewriter, loc, val, loopIndex,
-                                           originalShape, mbMemRefType);
-  operands[operandNumber] = subview;
+  operands[operandNumber] = multibuffer;
   Operation *newOp = rewriter.clone(*op);
-  newOp->setOperand(operandNumber, subview);
+  newOp->setOperand(operandNumber, multibuffer);
   return newOp;
-}
-
-/// Return if the operation accepts views for operand `operandNumber`
-bool acceptsViewAt(Operation *op, OpOperand &operand) {
-  auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(op);
-  if (!viewAcceptingOp)
-    return false;
-  auto acceptingViewOperands = viewAcceptingOp.getAcceptingViewOperands();
-  return acceptingViewOperands.contains(&operand);
-}
-
-/// Get the multibuffer index %mb_i from the target loop
-/// mb_i = floor((%i - lowerBound)/step) % multiBufferingFactor
-/// This index is needed if we want to memref.subview into the multi-buffer
-static Value getMultiBufferIndex(RewriterBase &rewriter, Location loc,
-                                 LoopLikeOpInterface loop,
-                                 int64_t multiBufferingFactor) {
-  std::optional<Value> inductionVar = loop.getSingleInductionVar();
-  std::optional<OpFoldResult> lowerBound = loop.getSingleLowerBound();
-  std::optional<OpFoldResult> singleStep = loop.getSingleStep();
-
-  if (!inductionVar || !lowerBound || !singleStep) {
-    llvm_unreachable("Loop variables should already have been tested.");
-  }
-  Value lbVal = getValueOrCreateConstantIndexOp(rewriter, loc, *lowerBound);
-  Value stepVal = getValueOrCreateConstantIndexOp(rewriter, loc, *singleStep);
-  Value ivVal = *inductionVar;
-  AffineExpr iv, lb, step;
-  bindDims(rewriter.getContext(), iv, lb, step);
-  Value bufferIndex = affine::makeComposedAffineApply(
-      rewriter, loc, ((iv - lb).floorDiv(step)) % multiBufferingFactor,
-      {ivVal, lbVal, stepVal});
-  LLVM_DEBUG(DBGS() << "--multi-buffered indexing: " << bufferIndex << "\n");
-  return bufferIndex;
 }
 
 /// Return true if the op is a writer that fully overwrites
@@ -216,16 +93,13 @@ bool overrideBuffer(Operation *op, Value buffer) {
 /// Utility function to update the subtree rooted in the rock.gpuAlloc()
 /// As we go down the tree, we can meet
 ///    a) Transformations (rock.transform)
-///    b) Operations that accept transformed views (e.g.,
-///       threadwise_read_into/threadwise_write_all)
-///    c) Operations that accept raw views (e.g., blockwise_gemm)
-///    d) memref.view to reinterpret the raw allocation and pass
-///       the buffer to other operations
+///    b) memref.view to split in multiple buffers
+///    c) Operations that read/write from/to the alloc
 static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
-                                        Operation *oldOp, Value val,
-                                        LoopLikeOpInterface loop,
-                                        int64_t multiBufferingFactor) {
+                                        Operation *oldOp, ArrayRef<Value> vals,
+                                        LoopLikeOpInterface loop) {
   SmallVector<Operation *> opsToDelete;
+  size_t multibufferFactor = vals.size();
 
   for (OpOperand &use : oldOp->getUses()) {
     OpBuilder::InsertionGuard g(rewriter);
@@ -235,46 +109,47 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
     // this expansion a reinterpret_multibuffer operation, that we can use
     // to adjust the multibuffer factor at a later stage
     if (auto view = dyn_cast<memref::ViewOp>(owner)) {
-      auto newView = rewriter.create<rock::ReinterpretMultiBufferOp>(
-          loc, val, view.getType(), multiBufferingFactor);
-      replaceUsesAndPropagateType(rewriter, loc, view, newView, loop,
-                                  multiBufferingFactor);
+      Value zeroByteOffset =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value> newViews(multibufferFactor);
+      for (size_t i = 0; i < multibufferFactor; i++) {
+        newViews[i] = rewriter.create<memref::ViewOp>(
+            loc, view.getType(), vals[i], zeroByteOffset,
+            /*dynamic dim sizes=*/ValueRange{});
+      }
+      replaceUsesAndPropagateType(rewriter, loc, view, newViews, loop);
     } else if (auto transform = dyn_cast<TransformOp>(owner)) {
-      // rock.transform case
-      Value toTransform = val;
-      // Change the transform stack adding a passthrough for the multibuffer
-      // index
-      auto newMap = getMultiBufferTransform(oldOp->getContext(),
-                                            transform.getTransformAttr(),
-                                            multiBufferingFactor);
-      auto newTransform =
-          rewriter.create<TransformOp>(loc, toTransform, newMap);
-
-      replaceUsesAndPropagateType(rewriter, loc, transform, newTransform, loop,
-                                  multiBufferingFactor);
-    } else if (acceptsViewAt(owner, use)) {
-      // This is an operation that accepts a view at the current position:
-      // Add the loop index as an additional index
-      auto viewAcceptingOp = dyn_cast<RockAcceptingViewOpInterface>(owner);
-      // Compute the multi buffer index and add it as an extra-index
-      Value mbIndex =
-          getMultiBufferIndex(rewriter, loc, loop, multiBufferingFactor);
-      SmallVector<Value> newExtraIndices = {mbIndex};
-      auto extraIndices = viewAcceptingOp.getExtraIndices(use);
-      if (extraIndices)
-        llvm::append_range(newExtraIndices, *extraIndices);
-      Operation *newOp = viewAcceptingOp.cloneWithExtraIndices(
-          rewriter, use, val, newExtraIndices);
-      if (newOp->getNumResults())
-        rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
+      // Do nothing for transform, we will deal with then at the end
+      // (note: since transforms are still being used, we don't even erase
+      // them)
+      replaceUsesAndPropagateType(rewriter, loc, transform, vals, loop);
     } else {
-      // This is an operation that does not accept a view at the current
-      // position We need to add a straight affine map to do ( %i mod mbFactor)
-      Value mbIndex =
-          getMultiBufferIndex(rewriter, loc, loop, multiBufferingFactor);
-      // And then we can subview into the multibuffer
-      Operation *newOp = subviewAndClone(rewriter, loc, use, val, mbIndex,
-                                         multiBufferingFactor);
+      auto inductionVar = loop.getSingleInductionVar();
+      if (!inductionVar) {
+        llvm_unreachable("Loop variables should already have been tested.");
+      }
+
+      // Now vals contain the un-transformed new values and the `use` will be
+      // the transformed old values All we want to do is:
+      // 1. extract a buffer from the new values
+      Value buffer = rewriter.create<rock::ExtractMultiBufferOp>(
+          loc, vals.back().getType(), vals, inductionVar.value());
+      // 2. extract the transforms from the old value and apply those to the
+      // buffer extracted
+      ArrayAttr transforms;
+      std::tie(std::ignore, transforms, std::ignore) =
+          untransform(rewriter, use.get());
+      auto transformed = rock::transform(rewriter, buffer, transforms);
+      // 3. delete the old transform ops
+      Value ret = use.get();
+      while (auto transform =
+                 dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
+        opsToDelete.push_back(transform);
+        ret = transform.getInput();
+      }
+
+      // And now we can use the buffer
+      Operation *newOp = clone(rewriter, loc, use, transformed);
       if (newOp->getNumResults())
         rewriter.replaceAllUsesWith(owner->getResults(), newOp->getResults());
     }
@@ -282,8 +157,9 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
   }
   // Delete the tree that is not used
   for (Operation *op : opsToDelete) {
-    if (op->getUses().empty())
+    if (op->getUses().empty()) {
       rewriter.eraseOp(op);
+    }
   }
 }
 } // namespace
@@ -299,7 +175,7 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
 ///
 /// We mostly changed the recursive update function to adapt to our threadwise
 /// operations
-FailureOr<rock::GpuAllocOp>
+FailureOr<SmallVector<Value>>
 mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
                         unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
@@ -395,29 +271,27 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
     // We only apply multibuffering on raw bytes allocs
     return failure();
   }
-  MemRefType mbMemRefType =
-      getFlatMultiBufferType(allocOp.getType(), multiBufferingFactor);
-  LLVM_DEBUG(DBGS() << "--multi-buffered type: " << mbMemRefType << "\n");
 
-  // 2. Create the multi-buffered alloc.
+  // 2. Create the multiple buffers alloc.
   Location loc = allocOp->getLoc();
   OpBuilder::InsertionGuard g(rewriter);
   rewriter.setInsertionPoint(allocOp);
-  auto mbAlloc = rewriter.create<rock::GpuAllocOp>(
-      loc, mbMemRefType, ValueRange{}, allocOp->getAttrs());
-  LLVM_DEBUG(DBGS() << "--multi-buffered alloc: " << mbAlloc << "\n");
+  SmallVector<Value> mbAlloc(multiBufferingFactor);
+  for (unsigned i = 0; i < multiBufferingFactor; i++) {
+    mbAlloc[i] = rewriter.create<rock::GpuAllocOp>(
+        loc, allocOp.getType(), ValueRange{}, allocOp->getAttrs());
+  }
 
-  // 4. RAUW with the particular slice, taking modular rotation into account.
-  replaceUsesAndPropagateType(rewriter, loc, allocOp, mbAlloc, candidateLoop,
-                              multiBufferingFactor);
+  // 3. RAUW with the particular slice, taking modular rotation into account.
+  replaceUsesAndPropagateType(rewriter, loc, allocOp, mbAlloc, candidateLoop);
 
-  // 5. Finally, erase the old allocOp.
+  // 4. Finally, erase the old allocOp.
   rewriter.eraseOp(allocOp);
 
   return mbAlloc;
 }
 
-FailureOr<rock::GpuAllocOp>
+FailureOr<SmallVector<Value>>
 mlir::rock::multiBuffer(rock::GpuAllocOp allocOp, unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
   IRRewriter rewriter(allocOp->getContext());
