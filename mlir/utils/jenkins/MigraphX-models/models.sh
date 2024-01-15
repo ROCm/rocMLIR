@@ -4,8 +4,8 @@ set -e
 
 checkFor="perf"
 
-SUMMARY=summary.log
-LOGFILE=generic.log
+SUMMARY="/logs/summary.log"
+LOGFILE="/logs/generic.log"
 rm -f $LOGFILE
 rm -f $SUMMARY
 
@@ -106,13 +106,13 @@ enable_tier1_p0="true"
 enable_tier1_p1="true"
 
 if [ "$enable_tier1_p0" = "true" ]; then
-	test_models tier1_p0_models tier1_p0.log
+	test_models tier1_p0_models /logs/tier1_p0.log
 fi
 if [ "$enable_tier1_p1" = "true" ]; then
-    test_models tier1_p1_models tier1_p1.log
+    test_models tier1_p1_models /logs/tier1_p1.log
 fi
 if [ "$enable_others" = "true" ]; then
-    test_models other_models other_models.log
+    test_models other_models /logs/other_models.log
 fi 
 echo "LOGFILE"
 cat $LOGFILE
