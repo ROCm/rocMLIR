@@ -119,10 +119,10 @@ cat $LOGFILE
 echo "SUMMARY"
 cat $SUMMARY
 echo "tier1_p0.log"
-cat tier1_p0.log
+cat /logs/tier1_p0.log
 echo "tier1_p1.log"
-cat tier1_p1.log
+cat /logs/tier1_p1.log
 ls -l $LOGFILE  
 ls -l $SUMMARY  
-ls -l $(pwd)/tier1_p0.log  
-ls -l $(pwd)/tier1_p1.log  
+#ls -l $(pwd)/tier1_p0.log  
+#ls -l $(pwd)/tier1_p1.log  
