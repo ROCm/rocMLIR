@@ -616,7 +616,6 @@ pipeline {
                                 sh '/opt/rocm/llvm/bin/llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=/opt/rocm/llvm/bin/llvm-cxxfilt --format=html > ./coverage_${CHIP}.html'
                                 // Upload to codecov.
                                 withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
-                                    echo "${CODECOV_TOKEN}"
                                     sh '''
                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                        proxy_opt=""
