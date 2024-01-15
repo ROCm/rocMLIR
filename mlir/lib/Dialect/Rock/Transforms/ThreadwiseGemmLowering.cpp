@@ -656,7 +656,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                 b.createOrFold<arith::ConstantIndexOp>(loc, commonVecLen * i);
             Value value = ifb.getResult(0);
             // Only need to perform slice extraction of vector-typed sources.
-            if(isSrcVectorBuffer){
+            if(vectorSrcLen > 1){
               value =
                   b.create<ExtractSliceOp>(loc, commonVecType, value, loadSliceStart);
             }
