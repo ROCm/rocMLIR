@@ -187,9 +187,11 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
       newB = unbroadcastBatch(rw, loc, op.getB());
       newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());
     } else { // isABatchBroadcast
+      // When the broadcasted batch is on A, matrix B and C need
+      // to be considered as if they were transposed
       newA = unbroadcastBatch(rw, loc, op.getA());
-      newB = mergeBatch(rw, loc, op.getB(), op.getBTransposed());
-      newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());
+      newB = mergeBatch(rw, loc, op.getB(), !op.getBTransposed());
+      newC = mergeBatch(rw, loc, op.getC(), !op.getCTransposed());
     }
 
     // Create the new GemmOp
