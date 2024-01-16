@@ -6,21 +6,26 @@ checkFor="perf"
 
 ARCH=$(rocminfo |grep -o -m 1 'gfx.*')  
 echo "Architecture: $ARCH"
-echo $ARCH > /logs/arch.txt 
+echo "$ARCH" > /logs/arch.txt 
 
 SUMMARY="/logs/${ARCH}_summary.log"
 LOGFILE="/logs/${ARCH}_generic.log"
+
+echo "LOGFILE: $LOGFILE"  
+ls -ld /logs  
+ls -l $LOGFILE || true 
+
 rm -f $LOGFILE
 rm -f $SUMMARY
 
-echo "###########################################" >>  $LOGFILE
-echo "New Run $(pwd)" >>  $LOGFILE
-date >> $LOGFILE
-echo "GPU: $(rocminfo |grep -o -m 1 'gfx.*')" >> $LOGFILE
-echo "MIGX: $(/AMDMIGraphX/build/bin/migraphx-driver --version)" >> $LOGFILE
-echo "MIGX Commit: $(git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> $LOGFILE
-ls -l /etc/alternatives |grep "rocm ->" >> $LOGFILE
-echo "###########################################" >>  $LOGFILE
+echo "###########################################" >  $LOGFILE
+echo "New Run $(pwd)" >  $LOGFILE
+date > $LOGFILE
+echo "GPU: $(rocminfo |grep -o -m 1 'gfx.*')" > $LOGFILE
+echo "MIGX: $(/AMDMIGraphX/build/bin/migraphx-driver --version)" > $LOGFILE
+echo "MIGX Commit: $(git -C /AMDMIGraphX log -n 1  --pretty=oneline)" > $LOGFILE
+ls -l /etc/alternatives |grep "rocm ->" > $LOGFILE
+echo "###########################################" >  $LOGFILE
 
 fp32="true"  
 fp16="true"  
