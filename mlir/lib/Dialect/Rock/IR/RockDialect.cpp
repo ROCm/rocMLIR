@@ -1511,8 +1511,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = srcType.getElementType().dyn_cast<VectorType>();
   VectorType dstVectorType = destType.getElementType().dyn_cast<VectorType>();
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup && gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private )
-    return emitOpError("Vector buffers are not allowed when we read from global memory");
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+    return emitOpError(
+        "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();

@@ -51,9 +51,9 @@ struct RegsAsMatrixSubTiles {
 // The rows and columns of subtile view needs to
 // be transposed depending on which operand of
 // gemm the view is going to be.
-RegsAsMatrixSubTiles
-transposeSubTileViews(PatternRewriter &rewriter, Location loc,
-                      RegsAsMatrixSubTiles subTileViews);
+RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
+                                           Location loc,
+                                           RegsAsMatrixSubTiles subTileViews);
 
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
