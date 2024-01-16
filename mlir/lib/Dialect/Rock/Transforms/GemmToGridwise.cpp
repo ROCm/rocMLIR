@@ -287,7 +287,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
       op, queries, keys, values, scale, out, op.getArchAttr(),
-      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr, prePadG0MAttr,
+      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr, /*disableQBypassLDS=*/nullptr, prePadG0MAttr,
       prePadG0NAttr, params0, params1);
   return success();
 }

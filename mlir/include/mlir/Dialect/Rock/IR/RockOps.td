@@ -432,6 +432,7 @@ def Rock_GridwiseAttentionAccelOp :
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
+                   UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params0,

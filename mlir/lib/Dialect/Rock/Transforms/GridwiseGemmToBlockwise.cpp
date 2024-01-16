@@ -1591,7 +1591,7 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
-    bool enableQLDSBypass = true;
+    bool enableQLDSBypass = !op.getDisableQBypassLDS();
     if (gemm0K == gemm0KPerBlock && enableQLDSBypass) {
         ldsByteBufferQSize = 1;
     }
