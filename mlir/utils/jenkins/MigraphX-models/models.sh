@@ -4,8 +4,12 @@ set -e
 
 checkFor="perf"
 
-SUMMARY="/logs/summary.log"
-LOGFILE="/logs/generic.log"
+ARCH=$(rocminfo |grep -o -m 1 'gfx.*')  
+echo "Architecture: $ARCH"
+echo $ARCH > /logs/arch.txt 
+
+SUMMARY="/logs/${ARCH}_summary.log"
+LOGFILE="/logs/${ARCH}_generic.log"
 rm -f $LOGFILE
 rm -f $SUMMARY
 
@@ -106,23 +110,23 @@ enable_tier1_p0="true"
 enable_tier1_p1="true"
 
 if [ "$enable_tier1_p0" = "true" ]; then
-	test_models tier1_p0_models /logs/tier1_p0.log
+	test_models tier1_p0_models /logs/${ARCH}_tier1_p0.log
 fi
 if [ "$enable_tier1_p1" = "true" ]; then
-    test_models tier1_p1_models /logs/tier1_p1.log
+    test_models tier1_p1_models /logs/${ARCH}_tier1_p1.log
 fi
 if [ "$enable_others" = "true" ]; then
-    test_models other_models /logs/other_models.log
+    test_models other_models /logs/${ARCH}_other_models.log
 fi 
 echo "LOGFILE"
 cat $LOGFILE
 echo "SUMMARY"
 cat $SUMMARY
 echo "tier1_p0.log"
-cat /logs/tier1_p0.log
+cat /logs/${ARCH}_tier1_p0.log
 echo "tier1_p1.log"
-cat /logs/tier1_p1.log
-ls -l $LOGFILE  
-ls -l $SUMMARY  
+cat /logs/${ARCH}_tier1_p1.log
+#ls -l $LOGFILE  
+#ls -l $SUMMARY  
 #ls -l $(pwd)/tier1_p0.log  
 #ls -l $(pwd)/tier1_p1.log  
