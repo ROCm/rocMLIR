@@ -51,7 +51,8 @@ private:
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(AttentionOp op);
 
-  template <typename T> void setUtilityKernelSizes(Value arg, T utilityOp);
+  template <typename T>
+  void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
 
@@ -69,7 +70,7 @@ void AffixTuningParameters::runOnOperation() {
     }
   });
   func.walk(
-      [&](ZeroInitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
+      [&](InitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
     setUtilityKernelSizes(op.getInput(), op);
   });

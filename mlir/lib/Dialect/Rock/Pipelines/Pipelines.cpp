@@ -22,7 +22,7 @@
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
-#include "mlir/Conversion/Fp8ExtToTables/Fp8ExtToTables.h"
+#include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
@@ -85,6 +85,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm2.addPass(createLinalgElementwiseOpFusionPass());
   funcPm2.addPass(createLinalgFoldUnitExtentDimsPass());
   funcPm2.addPass(rock::createRockViewToTransformPass());
+  funcPm2.addPass(rock::createRockFoldBroadcastPass());
 
   // bufferization
   /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
@@ -124,8 +125,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
-   *   --rock-gemm-to-gridwise --rock-regularize
-   *   --rock-gridwise-gemm-to-blockwise
+   *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
+   *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
@@ -178,7 +179,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // Leave off --convert-arith-to-amdgpu if not targetting gfx94x+.
   /* rocmlir-opt --strip-debuginfo
    *   --convert-arith-to-amdgpu
-   *   --fp8-ext-to-tables
+   *   --emulate-fp8-ext-trunc
    *   "--amdgpu-emulate-atomics=chipset=$chip"
    *   --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32"
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
@@ -200,7 +201,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     gpuPm.addPass(createArithToAMDGPUConversionPass(options));
     gpuPm.addPass(createArithToAMDGPUConversionPass());
   } else {
-    gpuPm.addPass(createFp8ExtToTablesPass());
+    gpuPm.addPass(createEmulateFp8ExtTruncPass());
   }
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
@@ -224,7 +225,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // Quick hack around the facct that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That
   // pass will ideally be nicely implemented and upstreamed Later (tm).
-  pm.addPass(createFp8ExtToTablesPass());
+  pm.addPass(createEmulateFp8ExtTruncPass());
 }
 
 //===----------------------------------------------------------------------===//
