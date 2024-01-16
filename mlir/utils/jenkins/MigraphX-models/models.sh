@@ -2,7 +2,7 @@
 
 set -e
 
-checkFor="perf"
+checkFor="verify"
 
 ARCH=$(rocminfo |grep -o -m 1 'gfx.*' | tr -d '[:space:]')  
 echo -n "Architecture: $ARCH"
