@@ -4,8 +4,8 @@ set -e
 
 checkFor="perf"
 
-ARCH=$(rocminfo |grep -o -m 1 'gfx.*' | tr -d '\n')  
-echo -n "Architecture: $ARCH" | od -c 
+ARCH=$(rocminfo |grep -o -m 1 'gfx.*' | tr -d '[:space:]')  
+echo -n "Architecture: $ARCH"
 echo "$ARCH" > /logs/arch.txt 
 
 SUMMARY="/logs/${ARCH}_summary.log"
