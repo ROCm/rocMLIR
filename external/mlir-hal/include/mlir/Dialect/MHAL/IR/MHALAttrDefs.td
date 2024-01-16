@@ -79,4 +79,15 @@ def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage"> {
     let hasCustomAssemblyFormat = 1;
 }
 
+// Misc Attrs
+def MHAL_PrefillAttr : MHAL_Attr<"Prefill"> {
+  let mnemonic = "mhal.prefill";
+
+  let parameters = (ins
+    "uint32_t":$argIndex,
+    "uint32_t":$initValue
+  );
+  let assemblyFormat = "`<` params `>`";
+}
+
 #endif

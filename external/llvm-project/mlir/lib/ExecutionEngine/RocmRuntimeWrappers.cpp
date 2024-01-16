@@ -162,6 +162,15 @@ extern "C" void mgpuMemset32(void *dst, int value, size_t count,
                                         value, count, stream));
 }
 
+extern "C" void mgpuMemset16(void *dst, int short value, size_t count,
+                             hipStream_t stream) {
+  HIP_DIAG("mgpuMemset16(0x%lx, 0x%x, %ld, 0x%lx)\n", (uint64_t)dst, value,
+           count, (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(hipMemsetD16Async(reinterpret_cast<hipDeviceptr_t>(dst),
+                                        value, count, stream));
+}
+
+
 /// Helper functions for writing mlir example code
 
 // Allows to register byte array with the ROCM runtime. Helpful until we have
