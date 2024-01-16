@@ -833,7 +833,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       auto offset =
           rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                   dPerBlock, 0, "k", kPackPerBlock, {"kpack"}, {"k"}, transformAttrs);
-      offset.unmerge({"K"}, {0}, {"k", "kpack"}, {kPackPerBlock, kPack});
+      offset.unmerge("K", 0, {"k", "kpack"}, {kPackPerBlock, kPack});
       offset.passThrough({"D"}, {1}, {"d"});
       TransformMapAttr offsetAttr = offset.get();
       transformAttrs.push_back(offsetAttr);
@@ -860,7 +860,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       TopDownTMBuilder transposeKD =
           TopDownTMBuilder::below(splitIter, splitIterAttr);
       {
-        transposeKD.unmerge({"K"}, {0}, {"k_iter", "kpack"}, {kpackPerThread, kPack});
+        transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
         transposeKD.passThrough({"D"}, {1}, {"d_iter"});
       }
       TransformMapAttr transposeKDAttr = transposeKD.get();
