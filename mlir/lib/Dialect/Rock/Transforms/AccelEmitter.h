@@ -105,6 +105,14 @@ struct AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const = 0;
 
+  /// This functions creates the subtile views that is :
+  /// 1) gridSubTileView :
+  /// kloop x gblock x mblock x nblock x tid x iter --> ... --> [G, K, D]
+  /// 2) blockSubTileView :
+  /// tid x iter --> ... --> [KPerBlock, DPerBlock]
+  /// 3) threadSubTileView :
+  /// iter --> ... --> [KPerThread, DPerThread]
+  /// for each operand tile to be used with gemm accelerators.
   virtual RegsAsMatrixSubTiles
   createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
                                    ArrayRef<int64_t> bidGridLengths,
