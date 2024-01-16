@@ -1589,19 +1589,47 @@ struct GridwiseAttentionAccelRewritePattern
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
 
-    // Create shared buffers accross gemms and reductions
+    // Calculate different size derivations
     int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
     int64_t gemm1KPerBlock = gemm0MPerBlock;
     int64_t gemm1MPerBlock = gemm0MPerBlock;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
+    // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
+    // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
+    // Note that nPerBlock for Gemm1B is nPerBlock of Gemm0 out
+    int64_t gemm1MBlocks = gemm1M / gemm1MPerBlock;
+    int64_t gemm1NBlocks = gemm1N / gemm1NPerBlock;
+    assert(gemm0NPerBlock % gemm0kpack == 0 &&
+           "nPerBlock should be divisible by kpack");
+    int64_t gemm1KpacksPerBlock = gemm1KPerBlock / gemm1kpack;
+    int64_t gemm0InMPerThread = gemm0MPerBlock / blockSize;
+    int64_t gemm0InNPerThread = gemm0NPerBlock / blockSize;
+    SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
+                                                   gemm0NBlocks};
+    RegsAsMatrixSubTiles gemm0OutSubTileViews =
+        accelEmitterPtrGemm0->computeOutputTransforms(
+            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
+            gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread);
+    RegsAsMatrixSubTiles gemm0OutSubTileViewsTr =
+        transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
+    int64_t gemm0MPerThread =
+        getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
+    int64_t gemm0NPerThread =
+        getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
+    int64_t gemm1InMPerThread = gemm0MPerThread;
+    int64_t gemm1InNPerThread = gemm0NPerThread;
+
+    // Create shared buffers accross gemms and reductions
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
     bool enableQLDSBypass = !op.getDisableQBypassLDS();
     if (gemm0K == gemm0KPerBlock && enableQLDSBypass) {
       ldsByteBufferQSize = 1;
     }
+    int64_t reductionWorkspaceSize =
+        (gemm0MPerBlock / gemm0MPerThread) * gemm0NPerBlock;
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
         rewriter, loc,
-        {ldsByteBufferQSize, gemm0MPerBlock * gemm0NPerBlock,
+        {ldsByteBufferQSize, reductionWorkspaceSize,
          gemm1KPerBlock * gemm1NPerBlock},
         {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsB[0];
@@ -1650,9 +1678,6 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
-                                                   gemm0NBlocks};
-
     TypedValue<MemRefType> ldsReductionWorkspaceBuffer =
         viewBufferAs(rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
 
@@ -1681,28 +1706,6 @@ struct GridwiseAttentionAccelRewritePattern
         createBufferForAccelGemmOut(loc, accelParamsGemm1, rewriter);
     Value gemm1OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm1, rewriter);
-    // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
-    // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
-    // Note that nPerBlock for Gemm1B is nPerBlock of Gemm0 out
-    int64_t gemm1MBlocks = gemm1M / gemm1MPerBlock;
-    int64_t gemm1NBlocks = gemm1N / gemm1NPerBlock;
-    assert(gemm0NPerBlock % gemm0kpack == 0 &&
-           "nPerBlock should be divisible by kpack");
-    int64_t gemm1KpacksPerBlock = gemm1KPerBlock / gemm1kpack;
-    int64_t gemm0InMPerThread = gemm0MPerBlock / blockSize;
-    int64_t gemm0InNPerThread = gemm0NPerBlock / blockSize;
-    RegsAsMatrixSubTiles gemm0OutSubTileViews =
-        accelEmitterPtrGemm0->computeOutputTransforms(
-            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
-            gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread);
-    RegsAsMatrixSubTiles gemm0OutSubTileViewsTr =
-        transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
-    int64_t gemm0MPerThread =
-        getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
-    int64_t gemm0NPerThread =
-        getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
-    int64_t gemm1InMPerThread = gemm0MPerThread;
-    int64_t gemm1InNPerThread = gemm0NPerThread;
 
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm1MBlocks,
                                                    gemm1NBlocks};

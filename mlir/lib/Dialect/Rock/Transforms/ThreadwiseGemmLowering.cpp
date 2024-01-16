@@ -553,7 +553,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     vectorSrcLen = getMaxVectorizationForDatatype(
         transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
     // In the future, this might get merged into the vectorizer.
-    // transforms = collapseContiguousMerges(transforms, bufferShape);
+    transforms = collapseContiguousMerges(transforms, bufferShape);
     srcStride = vectorSrcLen;
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
