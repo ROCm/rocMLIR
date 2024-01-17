@@ -162,8 +162,9 @@ declare i32 @bar(i32)
 ; SYM-NEXT:     Name: <stdin>
 ; SYM-NEXT:     Value (SymbolTableIndex): 0x0
 ; SYM-NEXT:     Section: N_DEBUG
-; SYM-NEXT:     Source Language ID: TB_C (0x0)
-; SYM-NEXT:     CPU Version ID: 0x0
+; SYM-NEXT:     Source Language ID: TB_CPLUSPLUS (0x9)
+; SYM32-NEXT:   CPU Version ID: TCPU_COM (0x3)
+; SYM64-NEXT:   CPU Version ID: TCPU_PPC64 (0x2)
 ; SYM-NEXT:     StorageClass: C_FILE (0x67)
 ; SYM-NEXT:     NumberOfAuxEntries: 0
 ; SYM-NEXT:   }
@@ -455,7 +456,7 @@ declare i32 @bar(i32)
 ; SYM-NEXT: ]
 
 
-; DIS:      {{.*}}aix-xcoff-reloc.ll.tmp.o:   file format aixcoff-rs6000
+; DIS:      :   file format aixcoff-rs6000
 ; DIS:      Disassembly of section .text:
 ; DIS:      00000000 <.foo>:
 ; DIS-NEXT:        0: 7c 08 02 a6                   mflr 0
@@ -494,7 +495,7 @@ declare i32 @bar(i32)
 ; DIS:      00000084 <globalB>:
 ; DIS-NEXT:       84: 00 00 00 44                   <unknown>
 
-; DIS_REL:       {{.*}}aix-xcoff-reloc.ll.tmp.o:   file format aixcoff-rs6000
+; DIS_REL:       :   file format aixcoff-rs6000
 ; DIS_REL:       RELOCATION RECORDS FOR [.text]:
 ; DIS_REL-NEXT:  OFFSET   TYPE                     VALUE
 ; DIS_REL-NEXT:  00000010 R_RBR                    .bar
@@ -514,7 +515,7 @@ declare i32 @bar(i32)
 ; DIS64-NEXT:        4: f8 21 ff 91  	stdu 1, -112(1)
 ; DIS64-NEXT:        8: 38 60 00 01  	li 3, 1
 ; DIS64-NEXT:        c: f8 01 00 80  	std 0, 128(1)
-; DIS64-NEXT:       10: 4b ff ff f1  	bl 0x0 <.foo>
+; DIS64-NEXT:       10: 4b ff ff f1  	bl 0x0 <.bar>
 ; DIS64-NEXT:       14: 60 00 00 00  	nop
 ; DIS64-NEXT:       18: e8 82 00 00  	ld 4, 0(2)
 ; DIS64-NEXT:       1c: e8 a2 00 08  	ld 5, 8(2)

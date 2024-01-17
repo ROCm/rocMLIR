@@ -11,13 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Interpreter/Interpreter.h"
-
 #include "DeviceOffload.h"
 #include "IncrementalExecutor.h"
 #include "IncrementalParser.h"
-
 #include "InterpreterUtils.h"
+
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Mangle.h"
 #include "clang/AST/TypeVisitor.h"
@@ -33,6 +31,7 @@
 #include "clang/Driver/Tool.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/TextDiagnosticBuffer.h"
+#include "clang/Interpreter/Interpreter.h"
 #include "clang/Interpreter/Value.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Sema/Lookup.h"
@@ -127,7 +126,6 @@ CreateCI(const llvm::opt::ArgStringList &Argv) {
 
   Clang->getFrontendOpts().DisableFree = false;
   Clang->getCodeGenOpts().DisableFree = false;
-
   return std::move(Clang);
 }
 
@@ -150,6 +148,7 @@ IncrementalCompilerBuilder::create(std::vector<const char *> &ClangArgv) {
   // We do C++ by default; append right after argv[0] if no "-x" given
   ClangArgv.insert(ClangArgv.end(), "-Xclang");
   ClangArgv.insert(ClangArgv.end(), "-fincremental-extensions");
+  ClangArgv.insert(ClangArgv.end(), "-mcpu=native");
   ClangArgv.insert(ClangArgv.end(), "-c");
 
   // Put a dummy C++ file on to ensure there's at least one compile job for the
@@ -276,6 +275,7 @@ Interpreter::create(std::unique_ptr<CompilerInstance> CI) {
       std::unique_ptr<Interpreter>(new Interpreter(std::move(CI), Err));
   if (Err)
     return std::move(Err);
+
   auto PTU = Interp->Parse(Runtimes);
   if (!PTU)
     return PTU.takeError();
@@ -317,6 +317,10 @@ Interpreter::createWithCUDA(std::unique_ptr<CompilerInstance> CI,
 }
 
 const CompilerInstance *Interpreter::getCompilerInstance() const {
+  return IncrParser->getCI();
+}
+
+CompilerInstance *Interpreter::getCompilerInstance() {
   return IncrParser->getCI();
 }
 

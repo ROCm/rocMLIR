@@ -10,6 +10,8 @@
 #include "../ClangTidyModule.h"
 #include "../ClangTidyModuleRegistry.h"
 #include "AvoidConstParamsInDecls.h"
+#include "AvoidNestedConditionalOperatorCheck.h"
+#include "AvoidReturnWithVoidValueCheck.h"
 #include "AvoidUnconditionalPreprocessorIfCheck.h"
 #include "BracesAroundStatementsCheck.h"
 #include "ConstReturnTypeCheck.h"
@@ -44,6 +46,7 @@
 #include "RedundantSmartptrGetCheck.h"
 #include "RedundantStringCStrCheck.h"
 #include "RedundantStringInitCheck.h"
+#include "ReferenceToConstructedTemporaryCheck.h"
 #include "SimplifyBooleanExprCheck.h"
 #include "SimplifySubscriptExprCheck.h"
 #include "StaticAccessedThroughInstanceCheck.h"
@@ -62,6 +65,10 @@ public:
   void addCheckFactories(ClangTidyCheckFactories &CheckFactories) override {
     CheckFactories.registerCheck<AvoidConstParamsInDecls>(
         "readability-avoid-const-params-in-decls");
+    CheckFactories.registerCheck<AvoidNestedConditionalOperatorCheck>(
+        "readability-avoid-nested-conditional-operator");
+    CheckFactories.registerCheck<AvoidReturnWithVoidValueCheck>(
+        "readability-avoid-return-with-void-value");
     CheckFactories.registerCheck<AvoidUnconditionalPreprocessorIfCheck>(
         "readability-avoid-unconditional-preprocessor-if");
     CheckFactories.registerCheck<BracesAroundStatementsCheck>(
@@ -116,6 +123,8 @@ public:
         "readability-redundant-member-init");
     CheckFactories.registerCheck<RedundantPreprocessorCheck>(
         "readability-redundant-preprocessor");
+    CheckFactories.registerCheck<ReferenceToConstructedTemporaryCheck>(
+        "readability-reference-to-constructed-temporary");
     CheckFactories.registerCheck<SimplifySubscriptExprCheck>(
         "readability-simplify-subscript-expr");
     CheckFactories.registerCheck<StaticAccessedThroughInstanceCheck>(

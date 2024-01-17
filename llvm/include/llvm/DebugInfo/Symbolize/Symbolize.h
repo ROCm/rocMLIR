@@ -75,11 +75,11 @@ public:
 
   // Overloads accepting ObjectFile does not support COFF currently
   Expected<DILineInfo> symbolizeCode(const ObjectFile &Obj,
-                                     object::SectionedAddress ModuleOffset);
+                                     object::SectionedAddress ModuleOffset,bool nearest=false);
   Expected<DILineInfo> symbolizeCode(const std::string &ModuleName,
-                                     object::SectionedAddress ModuleOffset);
+                                     object::SectionedAddress ModuleOffset,bool nearest=false);
   Expected<DILineInfo> symbolizeCode(ArrayRef<uint8_t> BuildID,
-                                     object::SectionedAddress ModuleOffset);
+                                     object::SectionedAddress ModuleOffset,bool nearest=false);
   Expected<DIInliningInfo>
   symbolizeInlinedCode(const ObjectFile &Obj,
                        object::SectionedAddress ModuleOffset);
@@ -104,6 +104,14 @@ public:
   Expected<std::vector<DILocal>>
   symbolizeFrame(ArrayRef<uint8_t> BuildID,
                  object::SectionedAddress ModuleOffset);
+
+  Expected<std::vector<DILineInfo>>
+  findSymbol(const ObjectFile &Obj, StringRef Symbol, uint64_t Offset);
+  Expected<std::vector<DILineInfo>>
+  findSymbol(const std::string &ModuleName, StringRef Symbol, uint64_t Offset);
+  Expected<std::vector<DILineInfo>>
+  findSymbol(ArrayRef<uint8_t> BuildID, StringRef Symbol, uint64_t Offset);
+
   void flush();
 
   // Evict entries from the binary cache until it is under the maximum size
@@ -134,7 +142,7 @@ private:
   template <typename T>
   Expected<DILineInfo>
   symbolizeCodeCommon(const T &ModuleSpecifier,
-                      object::SectionedAddress ModuleOffset);
+                      object::SectionedAddress ModuleOffset,bool nearest=false);
   template <typename T>
   Expected<DIInliningInfo>
   symbolizeInlinedCodeCommon(const T &ModuleSpecifier,
@@ -146,6 +154,9 @@ private:
   Expected<std::vector<DILocal>>
   symbolizeFrameCommon(const T &ModuleSpecifier,
                        object::SectionedAddress ModuleOffset);
+  template <typename T>
+  Expected<std::vector<DILineInfo>>
+  findSymbolCommon(const T &ModuleSpecifier, StringRef Symbol, uint64_t Offset);
 
   Expected<SymbolizableModule *> getOrCreateModuleInfo(const ObjectFile &Obj);
 

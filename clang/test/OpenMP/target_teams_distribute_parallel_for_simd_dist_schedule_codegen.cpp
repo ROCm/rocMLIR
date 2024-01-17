@@ -4,19 +4,19 @@
 #define HEADER
 
 // Test host codegen.
-// RUN: %clang_cc1 -DCK1 -verify -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK1
+// RUN: %clang_cc1 -DCK1 -verify -Wno-vla -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK1
 // RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -std=c++11 -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK1
-// RUN: %clang_cc1 -DCK1 -verify -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK3
+// RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK1
+// RUN: %clang_cc1 -DCK1 -verify -Wno-vla -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK3
 // RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -std=c++11 -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK3
+// RUN: %clang_cc1 -DCK1 -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK3
 
-// RUN: %clang_cc1 -DCK1 -verify -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK5
+// RUN: %clang_cc1 -DCK1 -verify -Wno-vla -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK5
 // RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -std=c++11 -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK5
-// RUN: %clang_cc1 -DCK1 -verify -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK7
+// RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK5
+// RUN: %clang_cc1 -DCK1 -verify -Wno-vla -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK7
 // RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -std=c++11 -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK7
+// RUN: %clang_cc1 -DCK1 -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK7
 #ifdef CK1
 
 template <typename T, int X, long long Y>
@@ -59,19 +59,19 @@ int teams_template_struct(void) {
 #endif // CK1
 
 // Test host codegen.
-// RUN: %clang_cc1 -DCK2 -verify -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK9
+// RUN: %clang_cc1 -DCK2 -verify -Wno-vla -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK9
 // RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -std=c++11 -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK9
-// RUN: %clang_cc1 -DCK2 -verify -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK11
+// RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK9
+// RUN: %clang_cc1 -DCK2 -verify -Wno-vla -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK11
 // RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -std=c++11 -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK11
+// RUN: %clang_cc1 -DCK2 -fopenmp -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK11
 
-// RUN: %clang_cc1 -DCK2 -verify -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK13
+// RUN: %clang_cc1 -DCK2 -verify -Wno-vla -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK13
 // RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -std=c++11 -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK13
-// RUN: %clang_cc1 -DCK2 -verify -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK15
+// RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=powerpc64le-ibm-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK13
+// RUN: %clang_cc1 -DCK2 -verify -Wno-vla -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-llvm %s -o - | FileCheck %s --check-prefix=CHECK15
 // RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -std=c++11 -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -emit-pch -o %t %s
-// RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK15
+// RUN: %clang_cc1 -DCK2 -fopenmp-simd -x c++ -triple i386-unknown-unknown -fopenmp-targets=i386-pc-linux-gnu -std=c++11 -include-pch %t -verify -Wno-vla %s -emit-llvm -o - | FileCheck %s --check-prefix=CHECK15
 #ifdef CK2
 
 template <typename T, int n>
@@ -173,7 +173,7 @@ int main (int argc, char **argv) {
 // CHECK1-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK1-NEXT:    store i32 2, ptr [[TMP5]], align 4
+// CHECK1-NEXT:    store i32 3, ptr [[TMP5]], align 4
 // CHECK1-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK1-NEXT:    store i32 1, ptr [[TMP6]], align 4
 // CHECK1-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -215,7 +215,7 @@ int main (int argc, char **argv) {
 // CHECK1-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 0
-// CHECK1-NEXT:    store i32 2, ptr [[TMP25]], align 4
+// CHECK1-NEXT:    store i32 3, ptr [[TMP25]], align 4
 // CHECK1-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 1
 // CHECK1-NEXT:    store i32 1, ptr [[TMP26]], align 4
 // CHECK1-NEXT:    [[TMP27:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 2
@@ -257,7 +257,7 @@ int main (int argc, char **argv) {
 // CHECK1-NEXT:    [[TMP43:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS11]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP44:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS12]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP45:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 0
-// CHECK1-NEXT:    store i32 2, ptr [[TMP45]], align 4
+// CHECK1-NEXT:    store i32 3, ptr [[TMP45]], align 4
 // CHECK1-NEXT:    [[TMP46:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 1
 // CHECK1-NEXT:    store i32 1, ptr [[TMP46]], align 4
 // CHECK1-NEXT:    [[TMP47:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 2
@@ -856,7 +856,7 @@ int main (int argc, char **argv) {
 // CHECK3-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK3-NEXT:    store i32 2, ptr [[TMP5]], align 4
+// CHECK3-NEXT:    store i32 3, ptr [[TMP5]], align 4
 // CHECK3-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK3-NEXT:    store i32 1, ptr [[TMP6]], align 4
 // CHECK3-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -898,7 +898,7 @@ int main (int argc, char **argv) {
 // CHECK3-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 0
-// CHECK3-NEXT:    store i32 2, ptr [[TMP25]], align 4
+// CHECK3-NEXT:    store i32 3, ptr [[TMP25]], align 4
 // CHECK3-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 1
 // CHECK3-NEXT:    store i32 1, ptr [[TMP26]], align 4
 // CHECK3-NEXT:    [[TMP27:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS7]], i32 0, i32 2
@@ -940,7 +940,7 @@ int main (int argc, char **argv) {
 // CHECK3-NEXT:    [[TMP43:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS11]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP44:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS12]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP45:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 0
-// CHECK3-NEXT:    store i32 2, ptr [[TMP45]], align 4
+// CHECK3-NEXT:    store i32 3, ptr [[TMP45]], align 4
 // CHECK3-NEXT:    [[TMP46:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 1
 // CHECK3-NEXT:    store i32 1, ptr [[TMP46]], align 4
 // CHECK3-NEXT:    [[TMP47:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 2
@@ -1777,7 +1777,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    store i32 100, ptr [[N]], align 4
 // CHECK9-NEXT:    [[TMP0:%.*]] = load i32, ptr [[N]], align 4
 // CHECK9-NEXT:    [[TMP1:%.*]] = zext i32 [[TMP0]] to i64
-// CHECK9-NEXT:    [[TMP2:%.*]] = call ptr @llvm.stacksave()
+// CHECK9-NEXT:    [[TMP2:%.*]] = call ptr @llvm.stacksave.p0()
 // CHECK9-NEXT:    store ptr [[TMP2]], ptr [[SAVED_STACK]], align 8
 // CHECK9-NEXT:    [[VLA:%.*]] = alloca i32, i64 [[TMP1]], align 4
 // CHECK9-NEXT:    store i64 [[TMP1]], ptr [[__VLA_EXPR0]], align 8
@@ -1821,7 +1821,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP21]], 1
 // CHECK9-NEXT:    [[TMP22:%.*]] = zext i32 [[ADD]] to i64
 // CHECK9-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP23]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP23]], align 4
 // CHECK9-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 3, ptr [[TMP24]], align 4
 // CHECK9-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -1892,7 +1892,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[ADD14:%.*]] = add nsw i32 [[TMP56]], 1
 // CHECK9-NEXT:    [[TMP57:%.*]] = zext i32 [[ADD14]] to i64
 // CHECK9-NEXT:    [[TMP58:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP58]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP58]], align 4
 // CHECK9-NEXT:    [[TMP59:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 3, ptr [[TMP59]], align 4
 // CHECK9-NEXT:    [[TMP60:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 2
@@ -1974,7 +1974,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[ADD30:%.*]] = add nsw i32 [[TMP97]], 1
 // CHECK9-NEXT:    [[TMP98:%.*]] = zext i32 [[ADD30]] to i64
 // CHECK9-NEXT:    [[TMP99:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP99]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP99]], align 4
 // CHECK9-NEXT:    [[TMP100:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 4, ptr [[TMP100]], align 4
 // CHECK9-NEXT:    [[TMP101:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 2
@@ -2010,7 +2010,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[CALL:%.*]] = call noundef signext i32 @_Z5tmainIiLi10EEiT_(i32 noundef signext [[TMP114]])
 // CHECK9-NEXT:    store i32 [[CALL]], ptr [[RETVAL]], align 4
 // CHECK9-NEXT:    [[TMP115:%.*]] = load ptr, ptr [[SAVED_STACK]], align 8
-// CHECK9-NEXT:    call void @llvm.stackrestore(ptr [[TMP115]])
+// CHECK9-NEXT:    call void @llvm.stackrestore.p0(ptr [[TMP115]])
 // CHECK9-NEXT:    [[TMP116:%.*]] = load i32, ptr [[RETVAL]], align 4
 // CHECK9-NEXT:    ret i32 [[TMP116]]
 //
@@ -2811,7 +2811,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP5]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP5]], align 4
 // CHECK9-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 1, ptr [[TMP6]], align 4
 // CHECK9-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -2852,7 +2852,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS1]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS2]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP25]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP25]], align 4
 // CHECK9-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 1, ptr [[TMP26]], align 4
 // CHECK9-NEXT:    [[TMP27:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 2
@@ -2904,7 +2904,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[TMP49:%.*]] = getelementptr inbounds [2 x ptr], ptr [[DOTOFFLOAD_BASEPTRS8]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP50:%.*]] = getelementptr inbounds [2 x ptr], ptr [[DOTOFFLOAD_PTRS9]], i32 0, i32 0
 // CHECK9-NEXT:    [[TMP51:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 0
-// CHECK9-NEXT:    store i32 2, ptr [[TMP51]], align 4
+// CHECK9-NEXT:    store i32 3, ptr [[TMP51]], align 4
 // CHECK9-NEXT:    [[TMP52:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 1
 // CHECK9-NEXT:    store i32 2, ptr [[TMP52]], align 4
 // CHECK9-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 2
@@ -3517,7 +3517,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    store ptr [[ARGV]], ptr [[ARGV_ADDR]], align 4
 // CHECK11-NEXT:    store i32 100, ptr [[N]], align 4
 // CHECK11-NEXT:    [[TMP0:%.*]] = load i32, ptr [[N]], align 4
-// CHECK11-NEXT:    [[TMP1:%.*]] = call ptr @llvm.stacksave()
+// CHECK11-NEXT:    [[TMP1:%.*]] = call ptr @llvm.stacksave.p0()
 // CHECK11-NEXT:    store ptr [[TMP1]], ptr [[SAVED_STACK]], align 4
 // CHECK11-NEXT:    [[VLA:%.*]] = alloca i32, i32 [[TMP0]], align 4
 // CHECK11-NEXT:    store i32 [[TMP0]], ptr [[__VLA_EXPR0]], align 4
@@ -3562,7 +3562,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP21]], 1
 // CHECK11-NEXT:    [[TMP22:%.*]] = zext i32 [[ADD]] to i64
 // CHECK11-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP23]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP23]], align 4
 // CHECK11-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 3, ptr [[TMP24]], align 4
 // CHECK11-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -3634,7 +3634,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[ADD14:%.*]] = add nsw i32 [[TMP57]], 1
 // CHECK11-NEXT:    [[TMP58:%.*]] = zext i32 [[ADD14]] to i64
 // CHECK11-NEXT:    [[TMP59:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP59]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP59]], align 4
 // CHECK11-NEXT:    [[TMP60:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 3, ptr [[TMP60]], align 4
 // CHECK11-NEXT:    [[TMP61:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS15]], i32 0, i32 2
@@ -3717,7 +3717,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[ADD30:%.*]] = add nsw i32 [[TMP99]], 1
 // CHECK11-NEXT:    [[TMP100:%.*]] = zext i32 [[ADD30]] to i64
 // CHECK11-NEXT:    [[TMP101:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP101]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP101]], align 4
 // CHECK11-NEXT:    [[TMP102:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 4, ptr [[TMP102]], align 4
 // CHECK11-NEXT:    [[TMP103:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS31]], i32 0, i32 2
@@ -3753,7 +3753,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[CALL:%.*]] = call noundef i32 @_Z5tmainIiLi10EEiT_(i32 noundef [[TMP116]])
 // CHECK11-NEXT:    store i32 [[CALL]], ptr [[RETVAL]], align 4
 // CHECK11-NEXT:    [[TMP117:%.*]] = load ptr, ptr [[SAVED_STACK]], align 4
-// CHECK11-NEXT:    call void @llvm.stackrestore(ptr [[TMP117]])
+// CHECK11-NEXT:    call void @llvm.stackrestore.p0(ptr [[TMP117]])
 // CHECK11-NEXT:    [[TMP118:%.*]] = load i32, ptr [[RETVAL]], align 4
 // CHECK11-NEXT:    ret i32 [[TMP118]]
 //
@@ -4539,7 +4539,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP5]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP5]], align 4
 // CHECK11-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 1, ptr [[TMP6]], align 4
 // CHECK11-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -4580,7 +4580,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[TMP23:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS1]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS2]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP25]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP25]], align 4
 // CHECK11-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 1, ptr [[TMP26]], align 4
 // CHECK11-NEXT:    [[TMP27:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS5]], i32 0, i32 2
@@ -4632,7 +4632,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[TMP49:%.*]] = getelementptr inbounds [2 x ptr], ptr [[DOTOFFLOAD_BASEPTRS8]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP50:%.*]] = getelementptr inbounds [2 x ptr], ptr [[DOTOFFLOAD_PTRS9]], i32 0, i32 0
 // CHECK11-NEXT:    [[TMP51:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 0
-// CHECK11-NEXT:    store i32 2, ptr [[TMP51]], align 4
+// CHECK11-NEXT:    store i32 3, ptr [[TMP51]], align 4
 // CHECK11-NEXT:    [[TMP52:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 1
 // CHECK11-NEXT:    store i32 2, ptr [[TMP52]], align 4
 // CHECK11-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS12]], i32 0, i32 2
@@ -5227,7 +5227,7 @@ int main (int argc, char **argv) {
 // CHECK13-NEXT:    store i32 100, ptr [[N]], align 4
 // CHECK13-NEXT:    [[TMP0:%.*]] = load i32, ptr [[N]], align 4
 // CHECK13-NEXT:    [[TMP1:%.*]] = zext i32 [[TMP0]] to i64
-// CHECK13-NEXT:    [[TMP2:%.*]] = call ptr @llvm.stacksave()
+// CHECK13-NEXT:    [[TMP2:%.*]] = call ptr @llvm.stacksave.p0()
 // CHECK13-NEXT:    store ptr [[TMP2]], ptr [[SAVED_STACK]], align 8
 // CHECK13-NEXT:    [[VLA:%.*]] = alloca i32, i64 [[TMP1]], align 4
 // CHECK13-NEXT:    store i64 [[TMP1]], ptr [[__VLA_EXPR0]], align 8
@@ -5385,7 +5385,7 @@ int main (int argc, char **argv) {
 // CHECK13-NEXT:    [[CALL:%.*]] = call noundef signext i32 @_Z5tmainIiLi10EEiT_(i32 noundef signext [[TMP37]])
 // CHECK13-NEXT:    store i32 [[CALL]], ptr [[RETVAL]], align 4
 // CHECK13-NEXT:    [[TMP38:%.*]] = load ptr, ptr [[SAVED_STACK]], align 8
-// CHECK13-NEXT:    call void @llvm.stackrestore(ptr [[TMP38]])
+// CHECK13-NEXT:    call void @llvm.stackrestore.p0(ptr [[TMP38]])
 // CHECK13-NEXT:    [[TMP39:%.*]] = load i32, ptr [[RETVAL]], align 4
 // CHECK13-NEXT:    ret i32 [[TMP39]]
 //
@@ -5546,7 +5546,7 @@ int main (int argc, char **argv) {
 // CHECK15-NEXT:    store ptr [[ARGV]], ptr [[ARGV_ADDR]], align 4
 // CHECK15-NEXT:    store i32 100, ptr [[N]], align 4
 // CHECK15-NEXT:    [[TMP0:%.*]] = load i32, ptr [[N]], align 4
-// CHECK15-NEXT:    [[TMP1:%.*]] = call ptr @llvm.stacksave()
+// CHECK15-NEXT:    [[TMP1:%.*]] = call ptr @llvm.stacksave.p0()
 // CHECK15-NEXT:    store ptr [[TMP1]], ptr [[SAVED_STACK]], align 4
 // CHECK15-NEXT:    [[VLA:%.*]] = alloca i32, i32 [[TMP0]], align 4
 // CHECK15-NEXT:    store i32 [[TMP0]], ptr [[__VLA_EXPR0]], align 4
@@ -5701,7 +5701,7 @@ int main (int argc, char **argv) {
 // CHECK15-NEXT:    [[CALL:%.*]] = call noundef i32 @_Z5tmainIiLi10EEiT_(i32 noundef [[TMP36]])
 // CHECK15-NEXT:    store i32 [[CALL]], ptr [[RETVAL]], align 4
 // CHECK15-NEXT:    [[TMP37:%.*]] = load ptr, ptr [[SAVED_STACK]], align 4
-// CHECK15-NEXT:    call void @llvm.stackrestore(ptr [[TMP37]])
+// CHECK15-NEXT:    call void @llvm.stackrestore.p0(ptr [[TMP37]])
 // CHECK15-NEXT:    [[TMP38:%.*]] = load i32, ptr [[RETVAL]], align 4
 // CHECK15-NEXT:    ret i32 [[TMP38]]
 //

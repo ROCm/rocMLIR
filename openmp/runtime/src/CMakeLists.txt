@@ -12,6 +12,7 @@ include(ExtendPath)
 
 # Configure omp.h, kmp_config.h and omp-tools.h if necessary
 configure_file(${LIBOMP_INC_DIR}/omp.h.var omp.h @ONLY)
+configure_file(${LIBOMP_INC_DIR}/ompx.h.var ompx.h @ONLY)
 configure_file(kmp_config.h.cmake kmp_config.h @ONLY)
 if(${LIBOMP_OMPT_SUPPORT})
   configure_file(${LIBOMP_INC_DIR}/omp-tools.h.var omp-tools.h @ONLY)
@@ -107,7 +108,11 @@ else()
     # Unix specific files
     libomp_append(LIBOMP_CXXFILES z_Linux_util.cpp)
     libomp_append(LIBOMP_CXXFILES kmp_gsupport.cpp)
-    libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
+    if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+      libomp_append(LIBOMP_GNUASMFILES z_AIX_asm.S) # AIX assembly file
+    else()
+      libomp_append(LIBOMP_GNUASMFILES z_Linux_asm.S) # Unix assembly file
+    endif()
   endif()
   libomp_append(LIBOMP_CXXFILES thirdparty/ittnotify/ittnotify_static.cpp LIBOMP_USE_ITT_NOTIFY)
   libomp_append(LIBOMP_CXXFILES kmp_debugger.cpp LIBOMP_USE_DEBUGGER)
@@ -394,6 +399,7 @@ endif()
 install(
   FILES
   ${CMAKE_CURRENT_BINARY_DIR}/omp.h
+  ${CMAKE_CURRENT_BINARY_DIR}/ompx.h
   DESTINATION ${DEVEL_PACKAGE}${LIBOMP_HEADERS_INSTALL_PATH}
 )
 if(${LIBOMP_OMPT_SUPPORT})

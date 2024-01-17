@@ -258,6 +258,7 @@ struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   uint32_t GDSSize = 0;
   Align DynLDSAlign;
   bool IsEntryFunction = false;
+  bool IsChainFunction = false;
   bool NoSignedZerosFPMath = false;
   bool MemoryBound = false;
   bool WaveLimiter = false;
@@ -306,6 +307,7 @@ template <> struct MappingTraits<SIMachineFunctionInfo> {
     YamlIO.mapOptional("gdsSize", MFI.GDSSize, 0u);
     YamlIO.mapOptional("dynLDSAlign", MFI.DynLDSAlign, Align());
     YamlIO.mapOptional("isEntryFunction", MFI.IsEntryFunction, false);
+    YamlIO.mapOptional("isChainFunction", MFI.IsChainFunction, false);
     YamlIO.mapOptional("noSignedZerosFPMath", MFI.NoSignedZerosFPMath, false);
     YamlIO.mapOptional("memoryBound", MFI.MemoryBound, false);
     YamlIO.mapOptional("waveLimiter", MFI.WaveLimiter, false);
@@ -455,8 +457,6 @@ private:
   // Pointer to where the ABI inserts special kernel arguments separate from the
   // user arguments. This is an offset from the KernargSegmentPtr.
   bool ImplicitArgPtr : 1;
-  bool HostcallPtr : 1;
-  bool HeapPtr : 1;
 
   bool MayNeedAGPRs : 1;
 
@@ -502,6 +502,7 @@ private:
   unsigned NumVirtualVGPRSpillLanes = 0;
   unsigned NumPhysicalVGPRSpillLanes = 0;
   SmallVector<Register, 2> SpillVGPRs;
+  SmallVector<Register, 2> SpillPhysVGPRs;
   using WWMSpillsMap = MapVector<Register, int>;
   // To track the registers used in instructions that can potentially modify the
   // inactive lanes. The WWM instructions and the writelane instructions for
@@ -850,14 +851,6 @@ public:
 
   bool hasImplicitArgPtr() const {
     return ImplicitArgPtr;
-  }
-
-  bool hasHostcallPtr() const {
-    return HostcallPtr;
-  }
-
-  bool hasHeapPtr () const {
-    return HeapPtr;
   }
 
   AMDGPUFunctionArgInfo &getArgInfo() {

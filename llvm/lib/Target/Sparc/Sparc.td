@@ -62,6 +62,13 @@ def UsePopc : SubtargetFeature<"popc", "UsePopc", "true",
 def FeatureSoftFloat : SubtargetFeature<"soft-float", "UseSoftFloat", "true",
                               "Use software emulation for floating point">;
 
+//===----------------------------------------------------------------------===//
+// SPARC Subtarget tuning features.
+//
+
+def TuneSlowRDPC : SubtargetFeature<"slow-rdpc", "HasSlowRDPC", "true",
+                                    "rd %pc, %XX is slow", [FeatureV9]>;
+
 //==== Features added predmoninantly for LEON subtarget support
 include "LeonFeatures.td"
 
@@ -69,6 +76,7 @@ include "LeonFeatures.td"
 // Register File, Calling Conv, Instruction Descriptions
 //===----------------------------------------------------------------------===//
 
+include "SparcASITags.td"
 include "SparcRegisterInfo.td"
 include "SparcCallingConv.td"
 include "SparcSchedule.td"
@@ -80,12 +88,17 @@ def SparcAsmParser : AsmParser {
   bit ShouldEmitMatchRegisterName = 0;
 }
 
+def SparcAsmParserVariant : AsmParserVariant {
+  let RegisterPrefix = "%";
+}
+
 //===----------------------------------------------------------------------===//
 // SPARC processors supported.
 //===----------------------------------------------------------------------===//
 
-class Proc<string Name, list<SubtargetFeature> Features>
- : Processor<Name, NoItineraries, Features>;
+class Proc<string Name, list<SubtargetFeature> Features,
+           list<SubtargetFeature> TuneFeatures = []>
+ : Processor<Name, NoItineraries, Features, TuneFeatures>;
 
 def : Proc<"generic",         []>;
 def : Proc<"v7",              [FeatureSoftMulDiv, FeatureNoFSMULD]>;
@@ -113,9 +126,11 @@ def : Proc<"ma2480",          [FeatureLeon, LeonCASA]>;
 def : Proc<"ma2485",          [FeatureLeon, LeonCASA]>;
 def : Proc<"ma2x8x",          [FeatureLeon, LeonCASA]>;
 def : Proc<"v9",              [FeatureV9]>;
-def : Proc<"ultrasparc",      [FeatureV9, FeatureV8Deprecated, FeatureVIS]>;
+def : Proc<"ultrasparc",      [FeatureV9, FeatureV8Deprecated, FeatureVIS],
+                              [TuneSlowRDPC]>;
 def : Proc<"ultrasparc3",     [FeatureV9, FeatureV8Deprecated, FeatureVIS,
-                               FeatureVIS2]>;
+                               FeatureVIS2],
+                              [TuneSlowRDPC]>;
 def : Proc<"niagara",         [FeatureV9, FeatureV8Deprecated, FeatureVIS,
                                FeatureVIS2]>;
 def : Proc<"niagara2",        [FeatureV9, FeatureV8Deprecated, UsePopc,
@@ -178,6 +193,7 @@ def Sparc : Target {
   // Pull in Instruction Info:
   let InstructionSet = SparcInstrInfo;
   let AssemblyParsers  = [SparcAsmParser];
+  let AssemblyParserVariants = [SparcAsmParserVariant];
   let AssemblyWriters = [SparcAsmWriter];
   let AllowRegisterRenaming = 1;
 }

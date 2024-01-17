@@ -59,7 +59,12 @@ lld::elf::link in Comgr's linkWithLLD()
 - Added -x assembler option to assembly compilation. Before, if an assembly file
 did not end with a .s file extension, it was not handled properly by the Comgr
 ASSEMBLE\_SOURCE\_TO\_RELOCATABLE action.
-
+- Switched getline() from C++ to C-style to avoid issues with stdlibc++ and
+pytorch
+- Added new -relink-builtin-bitcode-postop LLVM option to device library. This
+fixes an issue with the \*COMPILE\_SOURCE\_WITH\_DEVICE\_LIBRARIES\_TO\_BC where
+OpenCL applications that leveraged AMDGPUSimplifyLibCalls optimizations would
+need to re-link bitcodes separately to avoid errors at runtime.
 
 New APIs
 --------
@@ -137,6 +142,7 @@ unbundling.
 output for Comgr actions. This can help us debug issues more quickly in cases
 where reporters provide Comgr logs.
 - Fix multiple bugs with mangled names test
+- Update default arch for test binaries from gfx830 to gfx900
 - Refactor nested kernel behavior into new test, as this behavior is less common
 and shouldn't be featured in the baseline tests
 

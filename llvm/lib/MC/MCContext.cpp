@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCContext.h"
-#include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
@@ -58,6 +57,14 @@
 #include <utility>
 
 using namespace llvm;
+
+namespace llvm {
+cl::opt<bool> EmitHeterogeneousDwarfAsUserOps(
+    "emit-heterogeneous-dwarf-as-user-ops", cl::init(true), cl::Hidden,
+    cl::desc("When emitting heterogeneous dwarf extension operations, encode "
+             "them as DW_OP_LLVM_user suboperations. The default is false, "
+             "which means we use the old top-level encodings. "));
+} // namespace llvm
 
 static void defaultDiagHandler(const SMDiagnostic &SMD, bool, const SourceMgr &,
                                std::vector<const MDNode *> &) {
@@ -272,7 +279,7 @@ MCSymbol *MCContext::createSymbol(StringRef Name, bool AlwaysAddSuffix,
   // label, if used.
   bool IsTemporary = CanBeUnnamed;
   if (AllowTemporaryLabels && !IsTemporary)
-    IsTemporary = Name.startswith(MAI->getPrivateGlobalPrefix());
+    IsTemporary = Name.starts_with(MAI->getPrivateGlobalPrefix());
 
   SmallString<128> NewName = Name;
   bool AddSuffix = AlwaysAddSuffix;
@@ -383,8 +390,8 @@ MCContext::createXCOFFSymbolImpl(const StringMapEntry<bool> *Name,
     return new (nullptr, *this) MCSymbolXCOFF(nullptr, IsTemporary);
 
   StringRef OriginalName = Name->first();
-  if (OriginalName.startswith("._Renamed..") ||
-      OriginalName.startswith("_Renamed.."))
+  if (OriginalName.starts_with("._Renamed..") ||
+      OriginalName.starts_with("_Renamed.."))
     reportError(SMLoc(), "invalid symbol name from source");
 
   if (MAI->isValidUnquotedName(OriginalName))
@@ -592,7 +599,7 @@ MCSectionELF *MCContext::getELFSection(const Twine &Section, unsigned Type,
                .StartsWith(".gnu.linkonce.td.", SectionKind::getThreadData())
                .StartsWith(".llvm.linkonce.td.", SectionKind::getThreadData())
                .StartsWith(".debug_", SectionKind::getMetadata())
-               .Default(SectionKind::getText());
+               .Default(SectionKind::getReadOnly());
 
   MCSectionELF *Result =
       createELFSectionImpl(CachedName, Type, Flags, Kind, EntrySize, GroupSym,
@@ -629,8 +636,8 @@ void MCContext::recordELFMergeableSectionInfo(StringRef SectionName,
 }
 
 bool MCContext::isELFImplicitMergeableSectionNamePrefix(StringRef SectionName) {
-  return SectionName.startswith(".rodata.str") ||
-         SectionName.startswith(".rodata.cst");
+  return SectionName.starts_with(".rodata.str") ||
+         SectionName.starts_with(".rodata.cst");
 }
 
 bool MCContext::isELFGenericMergeableSection(StringRef SectionName) {
@@ -651,10 +658,16 @@ MCSectionGOFF *MCContext::getGOFFSection(StringRef Section, SectionKind Kind,
                                          MCSection *Parent,
                                          const MCExpr *SubsectionId) {
   // Do the lookup. If we don't have a hit, return a new section.
-  auto &GOFFSection = GOFFUniquingMap[Section.str()];
-  if (!GOFFSection)
-    GOFFSection = new (GOFFAllocator.Allocate())
-        MCSectionGOFF(Section, Kind, Parent, SubsectionId);
+  auto IterBool =
+      GOFFUniquingMap.insert(std::make_pair(Section.str(), nullptr));
+  auto Iter = IterBool.first;
+  if (!IterBool.second)
+    return Iter->second;
+
+  StringRef CachedName = Iter->first;
+  MCSectionGOFF *GOFFSection = new (GOFFAllocator.Allocate())
+      MCSectionGOFF(CachedName, Kind, Parent, SubsectionId);
+  Iter->second = GOFFSection;
 
   return GOFFSection;
 }

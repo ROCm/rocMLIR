@@ -45,8 +45,8 @@
 
 ; CHECK-NOT: .toc
 
-; CHECK:      .csect [PR],5
-; CHECK-NEXT:  .file
+; CHECK:  .file
+; CHECK-NEXT:      .csect ..text..[PR],5
 
 ; CHECK:      .csect .data[RW],5
 ; CHECK-NEXT: .globl  ivar
@@ -211,8 +211,9 @@
 ; SYMS-NEXT:     Name: <stdin>
 ; SYMS-NEXT:     Value (SymbolTableIndex): 0x0
 ; SYMS-NEXT:     Section: N_DEBUG
-; SYMS-NEXT:     Source Language ID: TB_C (0x0)
-; SYMS-NEXT:     CPU Version ID: 0x0
+; SYMS-NEXT:     Source Language ID: TB_CPLUSPLUS (0x9)
+; SYMS32-NEXT:   CPU Version ID: TCPU_COM (0x3)
+; SYMS64-NEXT:   CPU Version ID: TCPU_PPC64 (0x2)
 ; SYMS-NEXT:     StorageClass: C_FILE (0x67)
 ; SYMS-NEXT:     NumberOfAuxEntries: 0
 ; SYMS-NEXT:   }

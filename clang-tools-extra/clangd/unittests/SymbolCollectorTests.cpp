@@ -14,6 +14,7 @@
 #include "index/SymbolCollector.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemOptions.h"
+#include "clang/Basic/SourceLocation.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Index/IndexingAction.h"
 #include "clang/Index/IndexingOptions.h"
@@ -304,10 +305,12 @@ public:
         Args, Factory->create(), Files.get(),
         std::make_shared<PCHContainerOperations>());
 
-    InMemoryFileSystem->addFile(TestHeaderName, 0,
-                                llvm::MemoryBuffer::getMemBuffer(HeaderCode));
-    InMemoryFileSystem->addFile(TestFileName, 0,
-                                llvm::MemoryBuffer::getMemBuffer(MainCode));
+    // Multiple calls to runSymbolCollector with different contents will fail
+    // to update the filesystem! Why are we sharing one across tests, anyway?
+    EXPECT_TRUE(InMemoryFileSystem->addFile(
+        TestHeaderName, 0, llvm::MemoryBuffer::getMemBuffer(HeaderCode)));
+    EXPECT_TRUE(InMemoryFileSystem->addFile(
+        TestFileName, 0, llvm::MemoryBuffer::getMemBuffer(MainCode)));
     Invocation.run();
     Symbols = Factory->Collector->takeSymbols();
     Refs = Factory->Collector->takeRefs();
@@ -700,9 +703,9 @@ TEST_F(SymbolCollectorTest, ObjCFrameworkIncludeHeader) {
   EXPECT_THAT(
       Symbols,
       UnorderedElementsAre(
-          AllOf(qName("NSObject"), includeHeader("\"Foundation/NSObject.h\"")),
+          AllOf(qName("NSObject"), includeHeader("<Foundation/NSObject.h>")),
           AllOf(qName("PrivateClass"),
-                includeHeader("\"Foundation/NSObject+Private.h\"")),
+                includeHeader("<Foundation/NSObject+Private.h>")),
           AllOf(qName("Container"))));
 
   // After adding the umbrella headers, we should use that spelling instead.
@@ -720,13 +723,13 @@ TEST_F(SymbolCollectorTest, ObjCFrameworkIncludeHeader) {
                "Foundation_Private.h"),
       0, llvm::MemoryBuffer::getMemBuffer(PrivateUmbrellaHeader));
   runSymbolCollector(Header, Main, {"-F", FrameworksPath, "-xobjective-c++"});
-  EXPECT_THAT(Symbols,
-              UnorderedElementsAre(
-                  AllOf(qName("NSObject"),
-                        includeHeader("\"Foundation/Foundation.h\"")),
-                  AllOf(qName("PrivateClass"),
-                        includeHeader("\"Foundation/Foundation_Private.h\"")),
-                  AllOf(qName("Container"))));
+  EXPECT_THAT(
+      Symbols,
+      UnorderedElementsAre(
+          AllOf(qName("NSObject"), includeHeader("<Foundation/Foundation.h>")),
+          AllOf(qName("PrivateClass"),
+                includeHeader("<Foundation/Foundation_Private.h>")),
+          AllOf(qName("Container"))));
 
   runSymbolCollector(Header, Main,
                      {"-iframework", FrameworksPath, "-xobjective-c++"});
@@ -1552,6 +1555,8 @@ TEST_F(SymbolCollectorTest, CanonicalSTLHeader) {
         // Move overloads have special handling.
         template <typename _T> T&& move(_T&& __value);
         template <typename _I, typename _O> _O move(_I, _I, _O);
+        template <typename _T, typename _O, typename _I> _O move(
+          _T&&, _O, _O, _I);
       }
       )cpp",
       /*Main=*/"");
@@ -1563,7 +1568,8 @@ TEST_F(SymbolCollectorTest, CanonicalSTLHeader) {
                 includeHeader("<string>")),
           // Parameter names are demangled.
           AllOf(labeled("move(T &&value)"), includeHeader("<utility>")),
-          AllOf(labeled("move(I, I, O)"), includeHeader("<algorithm>"))));
+          AllOf(labeled("move(I, I, O)"), includeHeader("<algorithm>")),
+          AllOf(labeled("move(T &&, O, O, I)"), includeHeader("<algorithm>"))));
 }
 
 TEST_F(SymbolCollectorTest, IWYUPragma) {
@@ -1788,6 +1794,8 @@ TEST_F(SymbolCollectorTest, Origin) {
   runSymbolCollector("class Foo {};", /*Main=*/"");
   EXPECT_THAT(Symbols, UnorderedElementsAre(
                            Field(&Symbol::Origin, SymbolOrigin::Static)));
+  InMemoryFileSystem = new llvm::vfs::InMemoryFileSystem;
+  CollectorOpts.CollectMacro = true;
   runSymbolCollector("#define FOO", /*Main=*/"");
   EXPECT_THAT(Symbols, UnorderedElementsAre(
                            Field(&Symbol::Origin, SymbolOrigin::Static)));
@@ -1909,14 +1917,14 @@ TEST_F(SymbolCollectorTest, UndefOfModuleMacro) {
     #undef X
     )cpp";
   TU.AdditionalFiles["foo.h"] = "#define X 1";
-  TU.AdditionalFiles["module.map"] = R"cpp(
+  TU.AdditionalFiles["module.modulemap"] = R"cpp(
     module foo {
      header "foo.h"
      export *
    }
    )cpp";
   TU.ExtraArgs.push_back("-fmodules");
-  TU.ExtraArgs.push_back("-fmodule-map-file=" + testPath("module.map"));
+  TU.ExtraArgs.push_back("-fmodule-map-file=" + testPath("module.modulemap"));
   TU.OverlayRealFileSystemForModules = true;
 
   TU.build();
@@ -1941,17 +1949,25 @@ TEST_F(SymbolCollectorTest, NoCrashOnObjCMethodCStyleParam) {
 
 TEST_F(SymbolCollectorTest, Reserved) {
   const char *Header = R"cpp(
+    #pragma once
     void __foo();
     namespace _X { int secret; }
   )cpp";
 
   CollectorOpts.CollectReserved = true;
-  runSymbolCollector("", Header);
+  runSymbolCollector(Header, "");
   EXPECT_THAT(Symbols, UnorderedElementsAre(qName("__foo"), qName("_X"),
                                             qName("_X::secret")));
 
   CollectorOpts.CollectReserved = false;
-  runSymbolCollector("", Header); //
+  runSymbolCollector(Header, "");
+  EXPECT_THAT(Symbols, UnorderedElementsAre(qName("__foo"), qName("_X"),
+                                            qName("_X::secret")));
+
+  // Ugly: for some reason we reuse the test filesystem across tests.
+  // You can't overwrite the same filename with new content!
+  InMemoryFileSystem = new llvm::vfs::InMemoryFileSystem;
+  runSymbolCollector("#pragma GCC system_header\n" + std::string(Header), "");
   EXPECT_THAT(Symbols, IsEmpty());
 }
 
@@ -1966,6 +1982,24 @@ TEST_F(SymbolCollectorTest, Concepts) {
                   qName("A"), hasKind(clang::index::SymbolKind::Concept))));
 }
 
+TEST_F(SymbolCollectorTest, IncludeHeaderForwardDecls) {
+  CollectorOpts.CollectIncludePath = true;
+  const std::string Header = R"cpp(#pragma once 
+struct Foo;
+#include "full.h"
+)cpp";
+  auto FullFile = testPath("full.h");
+  InMemoryFileSystem->addFile(FullFile, 0,
+                              llvm::MemoryBuffer::getMemBuffer(R"cpp(
+#pragma once 
+struct Foo {};)cpp"));
+  runSymbolCollector(Header, /*Main=*/"",
+                     /*ExtraArgs=*/{"-I", testRoot()});
+  EXPECT_THAT(Symbols, UnorderedElementsAre(AllOf(
+                           qName("Foo"),
+                           includeHeader(URI::create(FullFile).toString()))))
+      << *Symbols.begin();
+}
 } // namespace
 } // namespace clangd
 } // namespace clang

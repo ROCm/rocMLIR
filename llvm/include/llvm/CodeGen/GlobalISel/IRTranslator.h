@@ -357,7 +357,7 @@ private:
   void emitSwitchCase(SwitchCG::CaseBlock &CB, MachineBasicBlock *SwitchBB,
                       MachineIRBuilder &MIB);
 
-  /// Generate for for the BitTest header block, which precedes each sequence of
+  /// Generate for the BitTest header block, which precedes each sequence of
   /// BitTestCases.
   void emitBitTestHeader(SwitchCG::BitTestBlock &BTB,
                          MachineBasicBlock *SwitchMBB);
@@ -365,6 +365,10 @@ private:
   void emitBitTestCase(SwitchCG::BitTestBlock &BB, MachineBasicBlock *NextMBB,
                        BranchProbability BranchProbToNext, Register Reg,
                        SwitchCG::BitTestCase &B, MachineBasicBlock *SwitchBB);
+
+  void splitWorkItem(SwitchCG::SwitchWorkList &WorkList,
+                     const SwitchCG::SwitchWorkListItem &W, Value *Cond,
+                     MachineBasicBlock *SwitchMBB, MachineIRBuilder &MIB);
 
   bool lowerJumpTableWorkItem(
       SwitchCG::SwitchWorkListItem W, MachineBasicBlock *SwitchMBB,
@@ -579,7 +583,7 @@ private:
   /// Current target configuration. Controls how the pass handles errors.
   const TargetPassConfig *TPC = nullptr;
 
-  CodeGenOpt::Level OptLevel;
+  CodeGenOptLevel OptLevel;
 
   /// Current optimization remark emitter. Used to report failures.
   std::unique_ptr<OptimizationRemarkEmitter> ORE;
@@ -716,7 +720,7 @@ private:
       BranchProbability Prob = BranchProbability::getUnknown());
 
 public:
-  IRTranslator(CodeGenOpt::Level OptLevel = CodeGenOpt::None);
+  IRTranslator(CodeGenOptLevel OptLevel = CodeGenOptLevel::None);
 
   StringRef getPassName() const override { return "IRTranslator"; }
 

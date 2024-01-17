@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+def global_ptr_ty : LLVMQualPointerType<1>;
+
 class AMDGPUReadPreloadRegisterIntrinsic
   : DefaultAttrsIntrinsic<[llvm_i32_ty], [], [IntrNoMem, IntrSpeculatable]>;
 
@@ -199,6 +201,11 @@ def int_amdgcn_wavefrontsize :
   ClangBuiltin<"__builtin_amdgcn_wavefrontsize">,
   DefaultAttrsIntrinsic<[llvm_i32_ty], [], [IntrNoMem, IntrSpeculatable]>;
 
+// Represent a relocation constant.
+def int_amdgcn_reloc_constant : DefaultAttrsIntrinsic<
+  [llvm_i32_ty], [llvm_metadata_ty],
+  [IntrNoMem, IntrSpeculatable]
+>;
 
 //===----------------------------------------------------------------------===//
 // Instruction Intrinsics
@@ -221,6 +228,45 @@ def int_amdgcn_s_sendmsg_rtn : Intrinsic <[llvm_anyint_ty], [llvm_i32_ty],
 
 def int_amdgcn_s_barrier : ClangBuiltin<"__builtin_amdgcn_s_barrier">,
   Intrinsic<[], [], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_signal : ClangBuiltin<"__builtin_amdgcn_s_barrier_signal">,
+  Intrinsic<[], [llvm_i32_ty], [ImmArg<ArgIndex<0>>, IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_signal_var : ClangBuiltin<"__builtin_amdgcn_s_barrier_signal_var">,
+  Intrinsic<[], [llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_signal_isfirst : ClangBuiltin<"__builtin_amdgcn_s_barrier_signal_isfirst">,
+  Intrinsic<[llvm_i1_ty], [llvm_i32_ty], [ImmArg<ArgIndex<0>>, IntrNoMem, IntrHasSideEffects, IntrConvergent,
+                                IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_signal_isfirst_var : ClangBuiltin<"__builtin_amdgcn_s_barrier_signal_isfirst_var">,
+  Intrinsic<[llvm_i1_ty], [llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_init : ClangBuiltin<"__builtin_amdgcn_s_barrier_init">,
+  Intrinsic<[], [llvm_i32_ty, llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent,
+                                IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_join : ClangBuiltin<"__builtin_amdgcn_s_barrier_join">,
+  Intrinsic<[], [llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_wakeup_barrier : ClangBuiltin<"__builtin_amdgcn_s_wakeup_barrier">,
+  Intrinsic<[], [llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_wait : ClangBuiltin<"__builtin_amdgcn_s_barrier_wait">,
+  Intrinsic<[], [llvm_i16_ty], [ImmArg<ArgIndex<0>>, IntrNoMem, IntrHasSideEffects, IntrConvergent,
+                                IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_barrier_leave : ClangBuiltin<"__builtin_amdgcn_s_barrier_leave">,
+  Intrinsic<[llvm_i1_ty], [], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_s_get_barrier_state : ClangBuiltin<"__builtin_amdgcn_s_get_barrier_state">,
+  Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn,
+                                IntrNoCallback, IntrNoFree]>;
 
 def int_amdgcn_wave_barrier : ClangBuiltin<"__builtin_amdgcn_wave_barrier">,
   Intrinsic<[], [], [IntrNoMem, IntrHasSideEffects, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
@@ -361,12 +407,6 @@ def int_amdgcn_rsq_legacy :  ClangBuiltin<"__builtin_amdgcn_rsq_legacy">,
 // out = 1.0 / sqrt(a) result clamped to +/- max_float.
 def int_amdgcn_rsq_clamp : DefaultAttrsIntrinsic<
   [llvm_anyfloat_ty], [LLVMMatchType<0>], [IntrNoMem, IntrSpeculatable]>;
-
-// For int_amdgcn_ldexp_f16, only the low 16 bits of the i32 src1 operand will used.
-def int_amdgcn_ldexp : DefaultAttrsIntrinsic<
-  [llvm_anyfloat_ty], [LLVMMatchType<0>, llvm_i32_ty],
-  [IntrNoMem, IntrSpeculatable]
->;
 
 def int_amdgcn_frexp_mant : DefaultAttrsIntrinsic<
   [llvm_anyfloat_ty], [LLVMMatchType<0>], [IntrNoMem, IntrSpeculatable]
@@ -797,7 +837,7 @@ class AMDGPUImageDimIntrinsicEval<AMDGPUDimProfile P_> {
 // All dimension-aware intrinsics are derived from this class.
 class AMDGPUImageDimIntrinsic<AMDGPUDimProfile P_,
                               list<IntrinsicProperty> props,
-                              list<SDNodeProperty> sdnodeprops> : DefaultAttrsIntrinsic<
+                              list<SDNodeProperty> sdnodeprops> : Intrinsic<
     P_.RetTypes,        // vdata(VGPR) -- for load/atomic-with-return
     !listconcat(
       !foreach(arg, P_.DataArgs, arg.Type),      // vdata(VGPR) -- for store/atomic
@@ -807,13 +847,16 @@ class AMDGPUImageDimIntrinsic<AMDGPUDimProfile P_,
       !if(P_.IsSample, [llvm_v4i32_ty,           // samp(SGPR)
                         llvm_i1_ty], []),        // unorm(imm)
       [llvm_i32_ty,                              // texfailctrl(imm; bit 0 = tfe, bit 1 = lwe)
-       llvm_i32_ty]),                            // cachepolicy(imm; bit 0 = glc, bit 1 = slc, bit 2 = dlc)
+       llvm_i32_ty]),                            // cachepolicy(imm; bit 0 = glc, bit 1 = slc, bit 2 = dlc;
+                                                 //   gfx12+ imm: bits [0-2] = th, bits [3-4] = scope)
+                                                 // TODO-GFX12: Update all other cachepolicy descriptions.
 
-     !listconcat(props,
+     !listconcat(props, [IntrNoCallback, IntrNoFree, IntrWillReturn],
           !if(P_.IsAtomic, [], [ImmArg<ArgIndex<AMDGPUImageDimIntrinsicEval<P_>.DmaskArgIndex>>]),
           !if(P_.IsSample, [ImmArg<ArgIndex<AMDGPUImageDimIntrinsicEval<P_>.UnormArgIndex>>], []),
           [ImmArg<ArgIndex<AMDGPUImageDimIntrinsicEval<P_>.TexFailCtrlArgIndex>>,
-           ImmArg<ArgIndex<AMDGPUImageDimIntrinsicEval<P_>.CachePolicyArgIndex>>]),
+           ImmArg<ArgIndex<AMDGPUImageDimIntrinsicEval<P_>.CachePolicyArgIndex>>],
+          !if(P_.IsAtomic, [], [IntrNoSync])),
 
 
       "", sdnodeprops>,
@@ -982,6 +1025,9 @@ defset list<AMDGPUImageDimIntrinsic> AMDGPUImageDimAtomicIntrinsics = {
   defm int_amdgcn_image_atomic_xor : AMDGPUImageDimAtomic<"ATOMIC_XOR">;
   defm int_amdgcn_image_atomic_inc : AMDGPUImageDimAtomic<"ATOMIC_INC">;
   defm int_amdgcn_image_atomic_dec : AMDGPUImageDimAtomic<"ATOMIC_DEC">;
+  defm int_amdgcn_image_atomic_add_flt : AMDGPUImageDimFloatAtomic<"ATOMIC_ADD_FLT">;
+  defm int_amdgcn_image_atomic_min_flt : AMDGPUImageDimFloatAtomic<"ATOMIC_MIN_FLT">;
+  defm int_amdgcn_image_atomic_max_flt : AMDGPUImageDimFloatAtomic<"ATOMIC_MAX_FLT">;
 
   defm int_amdgcn_image_atomic_cmpswap :
       AMDGPUImageDimAtomicX<"ATOMIC_CMPSWAP", [AMDGPUArg<LLVMMatchType<0>, "src">,
@@ -1005,7 +1051,7 @@ def int_amdgcn_make_buffer_rsrc : DefaultAttrsIntrinsic <
    llvm_i32_ty,    // NumRecords / extent
    llvm_i32_ty],   // flags
   // Attributes lifted from ptrmask + some extra argument attributes.
-  [IntrNoMem, NoCapture<ArgIndex<0>>, ReadNone<ArgIndex<0>>,
+  [IntrNoMem, ReadNone<ArgIndex<0>>,
    IntrSpeculatable, IntrWillReturn]>;
 
 defset list<AMDGPURsrcIntrinsic> AMDGPUBufferIntrinsics = {
@@ -1029,6 +1075,7 @@ def int_amdgcn_s_buffer_load : DefaultAttrsIntrinsic <
   [llvm_v4i32_ty,     // rsrc(SGPR)
    llvm_i32_ty,       // byte offset
    llvm_i32_ty],      // cachepolicy(imm; bit 0 = glc, bit 2 = dlc)
+                      // Note: volatile bit is **not** permitted here.
   [IntrNoMem, ImmArg<ArgIndex<2>>]>,
   AMDGPURsrcIntrinsic<0>;
 
@@ -1056,6 +1103,10 @@ def int_amdgcn_buffer_store : AMDGPUBufferStore;
 // The versions of these intrinsics that take <4 x i32> arguments are deprecated
 // in favor of their .ptr.buffer variants that take ptr addrspace(8) arguments,
 // which allow for improved reasoning about memory accesses.
+//
+// Note that in the cachepolicy for all these intrinsics, bit 31 is not preserved
+// through to final assembly selection and is used to signal that the buffer
+// operation is volatile.
 class AMDGPURawBufferLoad<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntrinsic <
   [data_ty],
   [llvm_v4i32_ty,     // rsrc(SGPR)
@@ -1064,7 +1115,8 @@ class AMDGPURawBufferLoad<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntrinsi
    llvm_i32_ty],      // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
   [IntrReadMem, ImmArg<ArgIndex<3>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
 def int_amdgcn_raw_buffer_load_format : AMDGPURawBufferLoad<llvm_anyfloat_ty>;
@@ -1078,7 +1130,9 @@ class AMDGPURawPtrBufferLoad<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntri
    llvm_i32_ty],                // auxiliary data (imm, cachepolicy (bit 0 = glc,
                                 //                                   bit 1 = slc,
                                 //                                   bit 2 = dlc on gfx10+),
-                                //                      swizzled buffer (bit 3 = swz))
+                                //                      swizzled buffer (bit 3 = swz),
+                                //                      volatile op (bit 31, stripped at lowering))
+
   [IntrArgMemOnly, IntrReadMem, ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
   ImmArg<ArgIndex<3>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
@@ -1094,7 +1148,8 @@ class AMDGPUStructBufferLoad<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntri
    llvm_i32_ty],      // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
   [IntrReadMem, ImmArg<ArgIndex<4>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
 def int_amdgcn_struct_buffer_load_format : AMDGPUStructBufferLoad;
@@ -1109,7 +1164,8 @@ class AMDGPUStructPtrBufferLoad<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIn
    llvm_i32_ty],                // auxiliary data (imm, cachepolicy (bit 0 = glc,
                                 //                                   bit 1 = slc,
                                 //                                   bit 2 = dlc on gfx10+),
-                                //                      swizzled buffer (bit 3 = swz))
+                                //                      swizzled buffer (bit 3 = swz),
+                                //                      volatile op (bit 31, stripped at lowering))
   [IntrArgMemOnly, IntrReadMem, ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
    ImmArg<ArgIndex<4>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
@@ -1125,7 +1181,8 @@ class AMDGPURawBufferStore<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntrins
    llvm_i32_ty],      // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
   [IntrWriteMem, ImmArg<ArgIndex<4>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
 def int_amdgcn_raw_buffer_store_format : AMDGPURawBufferStore<llvm_anyfloat_ty>;
@@ -1140,7 +1197,8 @@ class AMDGPURawPtrBufferStore<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntr
    llvm_i32_ty],                // auxiliary data (imm, cachepolicy (bit 0 = glc,
                                 //                                   bit 1 = slc,
                                 //                                   bit 2 = dlc on gfx10+),
-                                //                      swizzled buffer (bit 3 = swz))
+                                //                      swizzled buffer (bit 3 = swz),
+                                //                      volatile op (bit 31, stripped at lowering))
   [IntrArgMemOnly, IntrWriteMem, WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
   ImmArg<ArgIndex<4>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
@@ -1157,7 +1215,8 @@ class AMDGPUStructBufferStore<LLVMType data_ty = llvm_any_ty> : DefaultAttrsIntr
    llvm_i32_ty],      // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
   [IntrWriteMem, ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
 def int_amdgcn_struct_buffer_store_format : AMDGPUStructBufferStore;
@@ -1173,20 +1232,21 @@ class AMDGPUStructPtrBufferStore<LLVMType data_ty = llvm_any_ty> : DefaultAttrsI
    llvm_i32_ty],                // auxiliary data (imm, cachepolicy (bit 0 = glc,
                                 //                                   bit 1 = slc,
                                 //                                   bit 2 = dlc on gfx10+),
-                                //                      swizzled buffer (bit 3 = swz))
+                                //                      swizzled buffer (bit 3 = swz),
+                                //                      volatile op (bit 31, stripped at lowering))
   [IntrArgMemOnly, IntrWriteMem, WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
    ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
 def int_amdgcn_struct_ptr_buffer_store_format : AMDGPUStructPtrBufferStore;
 def int_amdgcn_struct_ptr_buffer_store : AMDGPUStructPtrBufferStore;
 
-class AMDGPURawBufferAtomic<LLVMType data_ty = llvm_any_ty, bit NoRtn = false> : Intrinsic <
-  !if(NoRtn, [], [data_ty]),
-  [!if(NoRtn, data_ty, LLVMMatchType<0>),  // vdata(VGPR)
+class AMDGPURawBufferAtomic<LLVMType data_ty = llvm_any_ty> : Intrinsic <
+  [data_ty],
+  [LLVMMatchType<0>,  // vdata(VGPR)
    llvm_v4i32_ty,     // rsrc(SGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [ImmArg<ArgIndex<4>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1, 0>;
 def int_amdgcn_raw_buffer_atomic_swap : AMDGPURawBufferAtomic;
@@ -1210,17 +1270,17 @@ def int_amdgcn_raw_buffer_atomic_cmpswap : Intrinsic<
    llvm_v4i32_ty,     // rsrc(SGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [ImmArg<ArgIndex<5>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<2, 0>;
 
-class AMDGPURawPtrBufferAtomic<LLVMType data_ty = llvm_any_ty, bit NoRtn = false> : Intrinsic <
-  !if(NoRtn, [], [data_ty]),
-  [!if(NoRtn, data_ty, LLVMMatchType<0>),  // vdata(VGPR)
+class AMDGPURawPtrBufferAtomic<LLVMType data_ty = llvm_any_ty> : Intrinsic <
+  [data_ty],
+  [LLVMMatchType<0>,            // vdata(VGPR)
    AMDGPUBufferRsrcTy,          // rsrc(SGPR)
    llvm_i32_ty,                 // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,                 // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],                // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],                // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [IntrArgMemOnly, NoCapture<ArgIndex<1>>,
    ImmArg<ArgIndex<4>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1, 0>;
@@ -1246,7 +1306,7 @@ def int_amdgcn_raw_ptr_buffer_atomic_cmpswap : Intrinsic<
    AMDGPUBufferRsrcTy, // rsrc(SGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [IntrArgMemOnly, NoCapture<ArgIndex<2>>,
    ImmArg<ArgIndex<5>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<2, 0>;
@@ -1255,14 +1315,14 @@ def int_amdgcn_raw_ptr_buffer_atomic_cmpswap : Intrinsic<
 def int_amdgcn_raw_buffer_atomic_fadd : AMDGPURawBufferAtomic<llvm_anyfloat_ty>;
 def int_amdgcn_raw_ptr_buffer_atomic_fadd : AMDGPURawPtrBufferAtomic<llvm_anyfloat_ty>;
 
-class AMDGPUStructBufferAtomic<LLVMType data_ty = llvm_any_ty, bit NoRtn = false> : Intrinsic <
-  !if(NoRtn, [], [data_ty]),
-  [!if(NoRtn, data_ty, LLVMMatchType<0>),  // vdata(VGPR)
+class AMDGPUStructBufferAtomic<LLVMType data_ty = llvm_any_ty> : Intrinsic <
+  [data_ty],
+  [LLVMMatchType<0>,  // vdata(VGPR)
    llvm_v4i32_ty,     // rsrc(SGPR)
    llvm_i32_ty,       // vindex(VGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [ImmArg<ArgIndex<5>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1, 0>;
 def int_amdgcn_struct_buffer_atomic_swap : AMDGPUStructBufferAtomic;
@@ -1285,18 +1345,18 @@ def int_amdgcn_struct_buffer_atomic_cmpswap : Intrinsic<
    llvm_i32_ty,       // vindex(VGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [ImmArg<ArgIndex<6>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<2, 0>;
 
-class AMDGPUStructPtrBufferAtomic<LLVMType data_ty = llvm_any_ty, bit NoRtn = false> : Intrinsic <
-  !if(NoRtn, [], [data_ty]),
-  [!if(NoRtn, data_ty, LLVMMatchType<0>),  // vdata(VGPR)
+class AMDGPUStructPtrBufferAtomic<LLVMType data_ty = llvm_any_ty> : Intrinsic <
+  [data_ty],
+  [LLVMMatchType<0>,            // vdata(VGPR)
    AMDGPUBufferRsrcTy,          // rsrc(SGPR)
    llvm_i32_ty,                 // vindex(VGPR)
    llvm_i32_ty,                 // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,                 // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],                // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],                // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [IntrArgMemOnly, NoCapture<ArgIndex<1>>,
    ImmArg<ArgIndex<5>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1, 0>;
@@ -1320,7 +1380,7 @@ def int_amdgcn_struct_ptr_buffer_atomic_cmpswap : Intrinsic<
    llvm_i32_ty,       // vindex(VGPR)
    llvm_i32_ty,       // offset(VGPR/imm, included in bounds checking and swizzling)
    llvm_i32_ty,       // soffset(SGPR/imm, excluded from bounds checking and swizzling)
-   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc)
+   llvm_i32_ty],      // cachepolicy(imm; bit 1 = slc, ..., bit 31 = volatile)
   [IntrArgMemOnly, NoCapture<ArgIndex<2>>,
    ImmArg<ArgIndex<6>>, IntrWillReturn, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<2, 0>;
@@ -1397,7 +1457,8 @@ def int_amdgcn_raw_ptr_tbuffer_load : DefaultAttrsIntrinsic <
      llvm_i32_ty],    // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
     [IntrArgMemOnly, IntrReadMem, ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
      ImmArg<ArgIndex<3>>, ImmArg<ArgIndex<4>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
@@ -1412,7 +1473,8 @@ def int_amdgcn_raw_tbuffer_store : DefaultAttrsIntrinsic <
      llvm_i32_ty],   // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                      //                                       bit 1 = slc,
                      //                                       bit 2 = dlc on gfx10+),
-                     //                      swizzled buffer (bit 3 = swz))
+                     //                      swizzled buffer (bit 3 = swz),
+                     //                      volatile op (bit 31, stripped at lowering))
     [IntrWriteMem,
      ImmArg<ArgIndex<4>>, ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
@@ -1427,7 +1489,8 @@ def int_amdgcn_raw_ptr_tbuffer_store : DefaultAttrsIntrinsic <
      llvm_i32_ty],   // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                      //                                       bit 1 = slc,
                      //                                       bit 2 = dlc on gfx10+),
-                     //                      swizzled buffer (bit 3 = swz))
+                     //                      swizzled buffer (bit 3 = swz),
+                     //                      volatile op (bit 31, stripped at lowering))
     [IntrArgMemOnly, IntrWriteMem, WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
      ImmArg<ArgIndex<4>>, ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
@@ -1442,7 +1505,8 @@ def int_amdgcn_struct_tbuffer_load : DefaultAttrsIntrinsic <
      llvm_i32_ty],    // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
     [IntrReadMem,
      ImmArg<ArgIndex<4>>, ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
@@ -1457,7 +1521,8 @@ def int_amdgcn_struct_ptr_tbuffer_load : DefaultAttrsIntrinsic <
      llvm_i32_ty],    // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                       //                                       bit 1 = slc,
                       //                                       bit 2 = dlc on gfx10+),
-                      //                      swizzled buffer (bit 3 = swz))
+                      //                      swizzled buffer (bit 3 = swz),
+                      //                      volatile op (bit 31, stripped at lowering))
     [IntrArgMemOnly, IntrReadMem, ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
      ImmArg<ArgIndex<4>>, ImmArg<ArgIndex<5>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<0>;
@@ -1473,7 +1538,8 @@ def int_amdgcn_struct_ptr_tbuffer_store : DefaultAttrsIntrinsic <
      llvm_i32_ty],   // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                      //                                       bit 1 = slc,
                      //                                       bit 2 = dlc on gfx10+),
-                     //                      swizzled buffer (bit 3 = swz))
+                     //                      swizzled buffer (bit 3 = swz),
+                    //                      volatile op (bit 31, stripped at lowering))
     [IntrArgMemOnly, IntrWriteMem, WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
      ImmArg<ArgIndex<5>>, ImmArg<ArgIndex<6>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
@@ -1489,7 +1555,8 @@ def int_amdgcn_struct_tbuffer_store : DefaultAttrsIntrinsic <
      llvm_i32_ty],   // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                      //                                       bit 1 = slc,
                      //                                       bit 2 = dlc on gfx10+),
-                     //                      swizzled buffer (bit 3 = swz))
+                     //                      swizzled buffer (bit 3 = swz),
+                     //                      volatile op (bit 31, stripped at lowering))
     [IntrWriteMem,
      ImmArg<ArgIndex<5>>, ImmArg<ArgIndex<6>>], "", [SDNPMemOperand]>,
   AMDGPURsrcIntrinsic<1>;
@@ -1550,7 +1617,8 @@ class AMDGPURawBufferLoadLDS : Intrinsic <
    llvm_i32_ty],                       // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                                        //                                       bit 1 = slc,
                                        //                                       bit 2 = dlc on gfx10+))
-                                       //                      swizzled buffer (bit 3 = swz))
+                                       //                      swizzled buffer (bit 3 = swz),
+                                       //                      volatile op (bit 31, stripped at lowering))
   [IntrWillReturn, NoCapture<ArgIndex<1>>, ImmArg<ArgIndex<2>>, ImmArg<ArgIndex<5>>,
    ImmArg<ArgIndex<6>>, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>, AMDGPURsrcIntrinsic<0>;
 def int_amdgcn_raw_buffer_load_lds : AMDGPURawBufferLoadLDS;
@@ -1566,7 +1634,8 @@ class AMDGPURawPtrBufferLoadLDS : Intrinsic <
    llvm_i32_ty],                       // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                                        //                                       bit 1 = slc,
                                        //                                       bit 2 = dlc on gfx10+))
-                                       //                      swizzled buffer (bit 3 = swz))
+                                       //                      swizzled buffer (bit 3 = swz),
+                                       //                      volatile op (bit 31, stripped at lowering))
   [IntrWillReturn, IntrArgMemOnly,
    ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
    WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
@@ -1586,7 +1655,8 @@ class AMDGPUStructBufferLoadLDS : Intrinsic <
    llvm_i32_ty],                       // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                                        //                                       bit 1 = slc,
                                        //                                       bit 2 = dlc on gfx10+))
-                                       //                      swizzled buffer (bit 3 = swz))
+                                       //                      swizzled buffer (bit 3 = swz),
+                                       //                      volatile op (bit 31, stripped at lowering))
   [IntrWillReturn, NoCapture<ArgIndex<1>>, ImmArg<ArgIndex<2>>, ImmArg<ArgIndex<6>>,
    ImmArg<ArgIndex<7>>, IntrNoCallback, IntrNoFree], "", [SDNPMemOperand]>, AMDGPURsrcIntrinsic<0>;
 def int_amdgcn_struct_buffer_load_lds : AMDGPUStructBufferLoadLDS;
@@ -1603,7 +1673,8 @@ class AMDGPUStructPtrBufferLoadLDS : Intrinsic <
    llvm_i32_ty],                       // auxiliary data (imm, cachepolicy     (bit 0 = glc,
                                        //                                       bit 1 = slc,
                                        //                                       bit 2 = dlc on gfx10+))
-                                       //                      swizzled buffer (bit 3 = swz))
+                                       //                      swizzled buffer (bit 3 = swz),
+                                       //                      volatile op (bit 31, stripped at lowering))
   [IntrWillReturn, IntrArgMemOnly,
    ReadOnly<ArgIndex<0>>, NoCapture<ArgIndex<0>>,
    WriteOnly<ArgIndex<1>>, NoCapture<ArgIndex<1>>,
@@ -1677,6 +1748,17 @@ def int_amdgcn_s_sleep :
                                 IntrHasSideEffects]> {
 }
 
+def int_amdgcn_s_sleep_var
+    : ClangBuiltin<"__builtin_amdgcn_s_sleep_var">,
+      Intrinsic<[], [llvm_i32_ty],
+                [IntrNoMem, IntrHasSideEffects, IntrWillReturn]> {
+}
+
+def int_amdgcn_s_nop :
+  DefaultAttrsIntrinsic<[], [llvm_i16_ty], [ImmArg<ArgIndex<0>>, IntrNoMem,
+                                IntrHasSideEffects]> {
+}
+
 def int_amdgcn_s_incperflevel :
   ClangBuiltin<"__builtin_amdgcn_s_incperflevel">,
   DefaultAttrsIntrinsic<[], [llvm_i32_ty], [ImmArg<ArgIndex<0>>, IntrNoMem,
@@ -1697,6 +1779,13 @@ def int_amdgcn_s_setprio :
   ClangBuiltin<"__builtin_amdgcn_s_setprio">,
   DefaultAttrsIntrinsic<[], [llvm_i16_ty], [ImmArg<ArgIndex<0>>, IntrNoMem,
                                 IntrHasSideEffects]>;
+
+def int_amdgcn_s_ttracedata :
+  DefaultAttrsIntrinsic<[], [llvm_i32_ty],
+                        [IntrNoMem, IntrHasSideEffects]>;
+def int_amdgcn_s_ttracedata_imm :
+  DefaultAttrsIntrinsic<[], [llvm_i16_ty],
+                        [IntrNoMem, IntrHasSideEffects, ImmArg<ArgIndex<0>>]>;
 
 // This is IntrHasSideEffects so it can be used to read cycle counters.
 def int_amdgcn_s_getreg :
@@ -1926,7 +2015,36 @@ def int_amdgcn_ballot :
 
 def int_amdgcn_inverse_ballot :
   Intrinsic<[llvm_i1_ty], [llvm_anyint_ty],
-            [IntrNoMem, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+            [IntrNoMem, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+// Lowers to S_BITREPLICATE_B64_B32.
+// The argument must be uniform; otherwise, the result is undefined.
+def int_amdgcn_s_bitreplicate :
+  DefaultAttrsIntrinsic<[llvm_i64_ty], [llvm_i32_ty], [IntrNoMem, IntrConvergent]>;
+
+// Lowers to S_QUADMASK_B{32,64}
+// The argument must be uniform; otherwise, the result is undefined.
+def int_amdgcn_s_quadmask :
+  DefaultAttrsIntrinsic<[llvm_anyint_ty], [llvm_anyint_ty], [IntrNoMem, IntrConvergent]>;
+
+// Lowers to S_WQM_B{32,64}
+// The argument must be uniform; otherwise, the result is undefined.
+// Does not set WQM; merely calculates the bitmask.
+def int_amdgcn_s_wqm :
+  DefaultAttrsIntrinsic<[llvm_anyint_ty], [llvm_anyint_ty], [IntrNoMem, IntrConvergent]>;
+
+class AMDGPUWaveReduce<LLVMType data_ty = llvm_anyint_ty> : Intrinsic<
+    [data_ty],
+    [
+      LLVMMatchType<0>,   // llvm value to reduce (SGPR/VGPR)
+      llvm_i32_ty         // Reduction Strategy Switch for lowering ( 0: Default,
+                          //                                          1: Iterative strategy, and
+                          //                                          2. DPP)
+    ],
+    [IntrNoMem, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree, ImmArg<ArgIndex<1>>]>;
+
+def int_amdgcn_wave_reduce_umin : AMDGPUWaveReduce;
+def int_amdgcn_wave_reduce_umax : AMDGPUWaveReduce;
 
 def int_amdgcn_readfirstlane :
   ClangBuiltin<"__builtin_amdgcn_readfirstlane">,
@@ -1958,12 +2076,14 @@ def int_amdgcn_alignbyte : ClangBuiltin<"__builtin_amdgcn_alignbyte">,
   [IntrNoMem, IntrSpeculatable]
 >;
 
-def int_amdgcn_mul_i24 : DefaultAttrsIntrinsic<[llvm_i32_ty],
+// mul24 intrinsics can return i32 or i64.
+// When returning i64, they're lowered to a mul24/mulhi24 pair.
+def int_amdgcn_mul_i24 : DefaultAttrsIntrinsic<[llvm_anyint_ty],
   [llvm_i32_ty, llvm_i32_ty],
   [IntrNoMem, IntrSpeculatable]
 >;
 
-def int_amdgcn_mul_u24 : DefaultAttrsIntrinsic<[llvm_i32_ty],
+def int_amdgcn_mul_u24 : DefaultAttrsIntrinsic<[llvm_anyint_ty],
   [llvm_i32_ty, llvm_i32_ty],
   [IntrNoMem, IntrSpeculatable]
 >;
@@ -2063,7 +2183,8 @@ def int_amdgcn_wqm_vote : Intrinsic<[llvm_i1_ty],
 def int_amdgcn_kill : Intrinsic<[], [llvm_i1_ty], [IntrNoCallback, IntrNoFree]>;
 
 def int_amdgcn_endpgm : ClangBuiltin<"__builtin_amdgcn_endpgm">,
-  Intrinsic<[], [], [IntrNoReturn, IntrCold, IntrNoMem, IntrHasSideEffects, IntrNoCallback, IntrNoFree]
+  Intrinsic<[], [], [IntrNoReturn, IntrCold, IntrNoMem, IntrHasSideEffects, IntrConvergent,
+                     IntrNoCallback, IntrNoFree]
 >;
 
 // If false, mark all active lanes as helper lanes until the end of program.
@@ -2095,6 +2216,17 @@ def int_amdgcn_strict_wqm : Intrinsic<[llvm_any_ty],
 // program ever uses WQM, then the instruction and the first source will be
 // computed in WQM.
 def int_amdgcn_set_inactive :
+  Intrinsic<[llvm_anyint_ty],
+            [LLVMMatchType<0>, // value to be copied
+             LLVMMatchType<0>], // value for the inactive lanes to take
+            [IntrNoMem, IntrConvergent, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
+
+// Similar to int_amdgcn_set_inactive, but the value for the inactive lanes must
+// be a VGPR function argument.
+// Can only be used in functions with the `amdgpu_cs_chain` or
+// `amdgpu_cs_chain_preserve` calling conventions, and only in uniform control
+// flow.
+def int_amdgcn_set_inactive_chain_arg :
   Intrinsic<[llvm_anyint_ty],
             [LLVMMatchType<0>, // value to be copied
              LLVMMatchType<0>], // value for the inactive lanes to take
@@ -2252,14 +2384,14 @@ def int_amdgcn_s_get_waveid_in_workgroup :
   Intrinsic<[llvm_i32_ty], [],
     [IntrNoMem, IntrHasSideEffects, IntrWillReturn, IntrNoCallback, IntrNoFree]>;
 
-class AMDGPUGlobalAtomicRtn<LLVMType vt> : Intrinsic <
+class AMDGPUAtomicRtn<LLVMType vt, LLVMType pt = llvm_anyptr_ty> : Intrinsic <
   [vt],
-  [llvm_anyptr_ty,    // vaddr
-   vt],               // vdata(VGPR)
+  [pt,  // vaddr
+   vt], // vdata(VGPR)
   [IntrArgMemOnly, IntrWillReturn, NoCapture<ArgIndex<0>>, IntrNoCallback, IntrNoFree], "",
   [SDNPMemOperand]>;
 
-def int_amdgcn_global_atomic_csub : AMDGPUGlobalAtomicRtn<llvm_i32_ty>;
+def int_amdgcn_global_atomic_csub : AMDGPUAtomicRtn<llvm_i32_ty>;
 
 // uint4 llvm.amdgcn.image.bvh.intersect.ray <node_ptr>, <ray_extent>, <ray_origin>,
 //                                           <ray_dir>, <ray_inv_dir>, <texture_descr>
@@ -2349,8 +2481,16 @@ class AMDGPUWmmaIntrinsicIU<LLVMType AB, LLVMType CD> :
 
 def int_amdgcn_wmma_f32_16x16x16_f16   : AMDGPUWmmaIntrinsic<llvm_v16f16_ty, llvm_anyfloat_ty>;
 def int_amdgcn_wmma_f32_16x16x16_bf16  : AMDGPUWmmaIntrinsic<llvm_v16i16_ty, llvm_anyfloat_ty>;
+// The regular, untied f16/bf16 wmma intrinsics only write to one half
+// of the registers (set via the op_sel bit).
+// The content of the other 16-bit of the registers is undefined.
 def int_amdgcn_wmma_f16_16x16x16_f16   : AMDGPUWmmaIntrinsicOPSEL<llvm_v16f16_ty, llvm_anyfloat_ty>;
 def int_amdgcn_wmma_bf16_16x16x16_bf16 : AMDGPUWmmaIntrinsicOPSEL<llvm_v16i16_ty, llvm_anyint_ty>;
+// The tied versions of the f16/bf16 wmma intrinsics tie the destination matrix
+// registers to the input accumulator registers.
+// Essentially, the content of the other 16-bit is preserved from the input.
+def int_amdgcn_wmma_f16_16x16x16_f16_tied   : AMDGPUWmmaIntrinsicOPSEL<llvm_v16f16_ty, llvm_anyfloat_ty>;
+def int_amdgcn_wmma_bf16_16x16x16_bf16_tied : AMDGPUWmmaIntrinsicOPSEL<llvm_v16i16_ty, llvm_anyint_ty>;
 def int_amdgcn_wmma_i32_16x16x16_iu8   : AMDGPUWmmaIntrinsicIU<llvm_v4i32_ty, llvm_anyint_ty>;
 def int_amdgcn_wmma_i32_16x16x16_iu4   : AMDGPUWmmaIntrinsicIU<llvm_v2i32_ty, llvm_anyint_ty>;
 
@@ -2358,6 +2498,31 @@ def int_amdgcn_s_wait_event_export_ready :
   ClangBuiltin<"__builtin_amdgcn_s_wait_event_export_ready">,
   Intrinsic<[], [], [IntrNoMem, IntrHasSideEffects, IntrWillReturn]
 >;
+
+//===----------------------------------------------------------------------===//
+// GFX12 Intrinsics
+//===----------------------------------------------------------------------===//
+
+// llvm.amdgcn.permlane16.var <old> <src0> <src1> <fi> <bound_control>
+def int_amdgcn_permlane16_var : ClangBuiltin<"__builtin_amdgcn_permlane16_var">,
+  Intrinsic<[llvm_i32_ty],
+            [llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i1_ty, llvm_i1_ty],
+            [IntrNoMem, IntrConvergent, IntrWillReturn,
+             ImmArg<ArgIndex<3>>, ImmArg<ArgIndex<4>>, IntrNoCallback, IntrNoFree]>;
+
+// llvm.amdgcn.permlanex16.var <old> <src0> <src1> <fi> <bound_control>
+def int_amdgcn_permlanex16_var : ClangBuiltin<"__builtin_amdgcn_permlanex16_var">,
+  Intrinsic<[llvm_i32_ty],
+            [llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i1_ty, llvm_i1_ty],
+            [IntrNoMem, IntrConvergent, IntrWillReturn,
+             ImmArg<ArgIndex<3>>, ImmArg<ArgIndex<4>>, IntrNoCallback, IntrNoFree]>;
+
+def int_amdgcn_global_atomic_ordered_add_b64 : AMDGPUAtomicRtn<llvm_i64_ty, global_ptr_ty>;
+
+def int_amdgcn_flat_atomic_fmin_num   : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_flat_atomic_fmax_num   : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_global_atomic_fmin_num : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_global_atomic_fmax_num : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
 
 //===----------------------------------------------------------------------===//
 // Deep learning intrinsics.
@@ -2560,7 +2725,7 @@ def int_amdgcn_udot8 :
 // gfx908 intrinsics
 // ===----------------------------------------------------------------------===//
 
-def int_amdgcn_global_atomic_fadd : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_global_atomic_fadd : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
 
 // llvm.amdgcn.mfma.*.* vdst, srcA, srcB, srcC, cbsz, abid, blgp
 class AMDGPUMfmaIntrinsic<LLVMType DestTy, LLVMType SrcABTy> :
@@ -2596,11 +2761,11 @@ def int_amdgcn_mfma_f32_16x16x8bf16 : AMDGPUMfmaIntrinsic<llvm_v4f32_ty,  llvm_v
 // gfx90a intrinsics
 // ===----------------------------------------------------------------------===//
 
-def int_amdgcn_global_atomic_fmin : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
-def int_amdgcn_global_atomic_fmax : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
-def int_amdgcn_flat_atomic_fadd   : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
-def int_amdgcn_flat_atomic_fmin   : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
-def int_amdgcn_flat_atomic_fmax   : AMDGPUGlobalAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_global_atomic_fmin : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_global_atomic_fmax : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_flat_atomic_fadd   : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_flat_atomic_fmin   : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
+def int_amdgcn_flat_atomic_fmax   : AMDGPUAtomicRtn<llvm_anyfloat_ty>;
 
 def int_amdgcn_mfma_f32_32x32x4bf16_1k  : AMDGPUMfmaIntrinsic<llvm_v32f32_ty, llvm_v4i16_ty>;
 def int_amdgcn_mfma_f32_16x16x4bf16_1k  : AMDGPUMfmaIntrinsic<llvm_v16f32_ty, llvm_v4i16_ty>;
@@ -2619,8 +2784,8 @@ def int_amdgcn_mfma_f64_4x4x4f64        : AMDGPUMfmaIntrinsic<llvm_double_ty, ll
 // ===----------------------------------------------------------------------===//
 
 // bf16 atomics use v2i16 argument since there is no bf16 data type in the llvm.
-def int_amdgcn_global_atomic_fadd_v2bf16 : AMDGPUGlobalAtomicRtn<llvm_v2i16_ty>;
-def int_amdgcn_flat_atomic_fadd_v2bf16   : AMDGPUGlobalAtomicRtn<llvm_v2i16_ty>;
+def int_amdgcn_global_atomic_fadd_v2bf16 : AMDGPUAtomicRtn<llvm_v2i16_ty>;
+def int_amdgcn_flat_atomic_fadd_v2bf16   : AMDGPUAtomicRtn<llvm_v2i16_ty>;
 def int_amdgcn_ds_fadd_v2bf16 : DefaultAttrsIntrinsic<
     [llvm_v2i16_ty],
     [LLVMQualPointerType<3>, llvm_v2i16_ty],
@@ -2721,12 +2886,6 @@ def int_amdgcn_cvt_sr_fp8_f32 : ClangBuiltin<"__builtin_amdgcn_cvt_sr_fp8_f32">,
   DefaultAttrsIntrinsic<[llvm_i32_ty],
             [llvm_float_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty],
             [IntrNoMem, ImmArg<ArgIndex<3>>]>;
-
-// Represent a relocation constant.
-def int_amdgcn_reloc_constant : DefaultAttrsIntrinsic<
-  [llvm_i32_ty], [llvm_metadata_ty],
-  [IntrNoMem, IntrSpeculatable]
->;
 
 //===----------------------------------------------------------------------===//
 // Special Intrinsics for backend internal use only. No frontend

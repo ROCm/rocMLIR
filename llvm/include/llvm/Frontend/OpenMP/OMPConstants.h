@@ -73,7 +73,7 @@ enum class IdentFlag {
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
 
 // Version of the kernel argument format used by the omp runtime.
-#define OMP_KERNEL_ARG_VERSION 2
+#define OMP_KERNEL_ARG_VERSION 3
 
 /// \note This needs to be kept in sync with kmp.h enum sched_type.
 /// Todo: Update kmp.h to include this file, and remove the enums in kmp.h
@@ -275,6 +275,32 @@ enum class RTLDependenceKindTy {
   DepMutexInOutSet = 0x4,
   DepInOutSet = 0x8,
   DepOmpAllMem = 0x80,
+};
+
+namespace xteam_red {
+// Upper limit on CU multiplier for computing number of teams.
+constexpr int16_t MaxCUMultiplier = 32;
+
+// Maximum number of threads allowed per CU.
+constexpr int16_t MaxThreadsPerCU = 2048;
+
+// Default block size, currently different from other kernel types.
+constexpr int16_t DefaultBlockSize = 1024;
+
+// Max block size, same as other kernel types, but maintaining it here
+// so that it is accessible for all targets.
+constexpr int16_t MaxBlockSize = 1024;
+
+} // end namespace xteam_red
+
+/// A type of worksharing loop construct
+enum class WorksharingLoopType {
+  // Worksharing `for`-loop
+  ForStaticLoop,
+  // Worksharing `distrbute`-loop
+  DistributeStaticLoop,
+  // Worksharing `distrbute parallel for`-loop
+  DistributeForStaticLoop
 };
 
 } // end namespace omp

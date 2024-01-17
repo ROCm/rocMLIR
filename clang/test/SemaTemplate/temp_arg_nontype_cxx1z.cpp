@@ -205,9 +205,9 @@ namespace Auto {
 
     struct Y : X {};
     void type_affects_identity(B<&X::n>) {}
-    void type_affects_identity(B<(int Y::*)&X::n>) {} // FIXME: expected-error {{sorry}}
+    void type_affects_identity(B<(int Y::*)&X::n>) {} // FIXME: expected-error {{non-type template argument of pointer-to-member type}}
     void type_affects_identity(B<(const int X::*)&X::n>) {}
-    void type_affects_identity(B<(const int Y::*)&X::n>) {} // FIXME: expected-error {{sorry}}
+    void type_affects_identity(B<(const int Y::*)&X::n>) {} // FIXME: expected-error {{non-type template argument of pointer-to-member type}}
 
     // A case where we need to do auto-deduction, and check whether the
     // resulting dependent types match during partial ordering. These
@@ -602,4 +602,16 @@ namespace PR47792 {
   template <void () = foo> void bar() {}
   template void bar<>();    // expected-note {{previous explicit instantiation is here}}
   template void bar<foo>(); // expected-error {{duplicate explicit instantiation of 'bar<&PR47792::foo>'}}
+}
+
+namespace GH68024 {
+template<auto>
+struct s {};
+
+struct {
+  void operator()(int);
+} f;
+
+template<typename T>
+using a = s<f(T::x)>;
 }
