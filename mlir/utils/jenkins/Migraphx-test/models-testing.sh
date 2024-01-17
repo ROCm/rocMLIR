@@ -1,6 +1,5 @@
 #!/bin/bash
 # This is the script that is executed for MigraphX Integration CI and serves for testing models.
-
 set -e
 
 # We have two testing options. When checkFor is set to perf, it will initiate performance measurements for the models.
@@ -26,7 +25,7 @@ echo "MIGX Commit: $(git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> $LOGFIL
 ls -l /etc/alternatives |grep "rocm ->" >> $LOGFILE
 echo "###########################################" >>  $LOGFILE
 
-# If we want to disable quantization for fp16 or int8, we need to change it from true to false.
+# If we want to disable quantization for fp16 or int8, we need to change to false.
 fp32="true"
 fp16="true"
 int8="true"
@@ -128,12 +127,12 @@ enable_tier1_p0="true"
 enable_tier1_p1="true"
 enable_others="false"
 
-if [ "$enable_tier1_p0" = "true" ]; then
+if [[ "$enable_tier1_p0" = "true" ]]; then
     test_models tier1_p0_models /logs/${ARCH}_tier1_p0.log
 fi
-if [ "$enable_tier1_p1" = "true" ]; then
+if [[ "$enable_tier1_p1" = "true" ]]; then
     test_models tier1_p1_models /logs/${ARCH}_tier1_p1.log
 fi
-if [ "$enable_others" = "true" ]; then
+if [[ "$enable_others" = "true" ]]; then
     test_models other_models /logs/${ARCH}_other_models.log
 fi 
