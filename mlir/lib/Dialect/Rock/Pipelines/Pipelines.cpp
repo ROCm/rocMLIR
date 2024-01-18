@@ -36,6 +36,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
@@ -159,13 +160,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
      *   --canonicalize --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
-     *   --rock-buffer-load-merge --rock-transform-to-memref
-     *   --rock-loops-to-cf --convert-rock-to-gpu
+     *   --math-legalize-to-f32 --rock-buffer-load-merge
+     *   --rock-transform-to-memref --rock-loops-to-cf --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
+    funcPm.addPass(math::createMathLegalizeToF32());
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
