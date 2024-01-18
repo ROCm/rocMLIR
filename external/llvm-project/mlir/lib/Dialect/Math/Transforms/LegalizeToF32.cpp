@@ -75,7 +75,8 @@ LogicalResult LegalizeToF32RewritePattern::matchAndRewrite(
     Operation *op, ArrayRef<Value> operands,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op->getLoc();
-  const TypeConverter *converter = getTypeConverter();
+  // Merge conflict resolver: Old MLIR commit didn't make this const yet.
+  TypeConverter *converter = getTypeConverter();
   if (converter->isLegal(op))
     return rewriter.notifyMatchFailure(loc, "op already legal");
   OperationState newOp(loc, op->getName());
