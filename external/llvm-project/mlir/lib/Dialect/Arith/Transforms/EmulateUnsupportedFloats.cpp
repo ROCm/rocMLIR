@@ -13,7 +13,6 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -129,7 +128,7 @@ void mlir::arith::populateEmulateUnsupportedFloatsLegality(
     ConversionTarget &target, TypeConverter &converter) {
   // Don't try to legalize functions and other ops that don't need expansion.
   target.markUnknownOpDynamicallyLegal([](Operation *op) { return true; });
-  target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect>(
+  target.addDynamicallyLegalDialect<arith::ArithDialect>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
       });
