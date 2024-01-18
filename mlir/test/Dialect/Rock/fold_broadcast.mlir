@@ -94,3 +94,17 @@ func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   } -> tensor<4x8x32xf16>
   return %7 : tensor<4x8x32xf16>
 }
+
+#map10 = affine_map<(d0, d1, d2) -> (0, d1, d2)>
+#transform_map10 = #rock.transform_map<#map10 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [3, 2, 3] -> [1, 2, 3]>
+func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16>) -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 42 : i64} {
+  // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
+  // CHECK: %[[unbroadcastA:.*]] = rock.transform {{.*}} by {{.*}} : tensor<3x2x3xf16> to tensor<2x3xf16>
+  // CHECK: %[[foldB:.*]] = rock.transform %arg1 by {{.*}} : tensor<3x3x4xf16> to tensor<3x12xf16>
+  // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<3x2x4xf16> to tensor<2x12xf16>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[unbroadcastA]] * %[[foldB]] {{.*}} : tensor<2x12xf16> = tensor<2x3xf16> * tensor<3x12xf16>
+  %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
+  %1 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
+  %2 = rock.gemm %1 = %0 * %arg1 features =  none storeMethod =  set {arch = "gfx1100", numCU = 42 : i32} : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  return %2 : tensor<3x2x4xf16>
+}
