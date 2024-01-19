@@ -11,8 +11,9 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
 
   // CHECK: %[[QTr0:.+]] = rock.transform %[[Q]] by
   // CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ldsReductionWSBytes:.+]] = memref.subview {{.*}} : memref<4096xi8, #gpu.address_space<workgroup>> to memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-  // CHECK: %[[ldsReductionWS:.+]] = memref.view %[[ldsG0A]][
+  // CHECK: %[[ldsReductionWS:.+]] = memref.view %[[ldsReductionWSBytes]][
 
   // init maxRow buffer
   // CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])

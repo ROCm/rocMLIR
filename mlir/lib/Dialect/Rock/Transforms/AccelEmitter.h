@@ -105,6 +105,21 @@ struct AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const = 0;
 
+  /// This functions creates the subtile views that is :
+  /// 1) gridSubTileView :
+  /// kloop x gblock x mblock x nblock x tid x iter --> ... --> [G, K, D]
+  /// 2) blockSubTileView :
+  /// tid x iter --> ... --> [KPerBlock, DPerBlock]
+  /// 3) threadSubTileView :
+  /// iter --> ... --> [KPerThread, DPerThread]
+  /// for each operand tile to be used with gemm accelerators.
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const = 0;
+
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
 
@@ -158,6 +173,13 @@ struct MfmaEmitter : public AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
 
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const override;
+
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
@@ -188,6 +210,13 @@ struct WmmaEmitter : public AccelEmitter {
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
+
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
