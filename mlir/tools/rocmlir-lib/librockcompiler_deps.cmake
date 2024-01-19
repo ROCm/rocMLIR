@@ -121,6 +121,7 @@ MLIRMaskableOpInterface
 MLIRMaskingOpInterface
 MLIRMathDialect
 MLIRMathToLLVM
+MLIRMathTransforms
 MLIRMemRefDialect
 MLIRMemRefToLLVM
 MLIRMemRefTransforms
