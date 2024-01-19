@@ -716,7 +716,8 @@ struct CollapseExpandRewritePattern
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
-  template <typename TosaOp> TosaOp getDefiningNonReshapeOp(Value val) const {
+  template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>()) {
       val = val.getDefiningOp()->getOperand(0);
@@ -849,7 +850,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        normalizeScaleIn(rewriter, loc, scaleInput), output,
+        normalizeScaleIn(rewriter, loc, scaleInput), nullptr, output,
         // TODO(implement transpose fusion support here)
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,

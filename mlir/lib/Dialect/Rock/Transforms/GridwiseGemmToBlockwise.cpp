@@ -744,6 +744,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccel lowering.
 //===----------------------------------------------------------------------===//
+struct ElementwiseMultOp {
+  using Float = arith::MulFOp;
+  using Int = arith::MulIOp;
+};
+
+struct ElementwiseAddOp {
+  using Float = arith::AddFOp;
+  using Int = arith::AddIOp;
+};
 
 struct GridwiseAttentionAccelRewritePattern
     : public OpRewritePattern<GridwiseAttentionAccelOp> {
@@ -1423,23 +1432,24 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  void scaleFirstGemm(PatternRewriter &rewriter, Location loc,
-                      layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
-                      RegsAsMatrixSubTiles gemm0OutViews, Value scaleInBuffer,
-                      Value scaleInput) const {
+  template <linalg::BinaryFn BinaryFnEnumValue>
+  void postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
+                            layout::GridCoordinates gridCoords,
+                            Value gemm0OutBuffer,
+                            RegsAsMatrixSubTiles gemm0OutViews, Value inBuffer,
+                            Value input) const {
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseReadIntoOp>(
-        loc, scaleInput, scaleInBuffer, gemm0OutViews.gridSubTile,
+        loc, input, inBuffer, gemm0OutViews.gridSubTile,
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
                    tid},
         true, true);
     rewriter.create<linalg::ElemwiseBinaryOp>(
-        loc, ValueRange{gemm0OutBuffer, scaleInBuffer},
-        ValueRange{gemm0OutBuffer},
+        loc, ValueRange{gemm0OutBuffer, inBuffer}, ValueRange{gemm0OutBuffer},
         ArrayRef<NamedAttribute>{
             rewriter.getNamedAttr("fun", rewriter.getAttr<linalg::BinaryFnAttr>(
-                                             linalg::BinaryFn::mul)),
+                                             BinaryFnEnumValue)),
             rewriter.getNamedAttr("cast", rewriter.getAttr<linalg::TypeFnAttr>(
                                               linalg::TypeFn::cast_signed))});
   }
@@ -1459,11 +1469,12 @@ struct GridwiseAttentionAccelRewritePattern
     return failure();
   }
 
-  void scaleFirstGemmSplat(PatternRewriter &rewriter, Location loc,
-                           layout::GridCoordinates gridCoords,
-                           Value gemm0OutBuffer,
-                           RegsAsMatrixSubTiles gemm0OutViews,
-                           TypedAttr splatVal) const {
+  template <typename ElementwiseOpType>
+  void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
+                                 layout::GridCoordinates gridCoords,
+                                 Value gemm0OutBuffer,
+                                 RegsAsMatrixSubTiles gemm0OutViews,
+                                 TypedAttr splatVal) const {
     MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
     SmallVector<AffineMap, 2> indexingMaps{
         2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
@@ -1475,15 +1486,17 @@ struct GridwiseAttentionAccelRewritePattern
         [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
           Value splatScalarConst = nestedBuilder.create<arith::ConstantOp>(
               loc, bufType.getElementType(), splatVal);
-          Value mul;
+          Value elementwiseOp;
           if (bufType.getElementType().isIntOrIndex()) {
-            mul = nestedBuilder.create<arith::MulIOp>(loc, args[0],
-                                                      splatScalarConst);
+            elementwiseOp =
+                nestedBuilder.create<typename ElementwiseOpType::Int>(
+                    loc, args[0], splatScalarConst);
           } else {
-            mul = nestedBuilder.create<arith::MulFOp>(loc, args[0],
-                                                      splatScalarConst);
+            elementwiseOp =
+                nestedBuilder.create<typename ElementwiseOpType::Float>(
+                    loc, args[0], splatScalarConst);
           }
-          nestedBuilder.create<linalg::YieldOp>(nestedLoc, mul);
+          nestedBuilder.create<linalg::YieldOp>(nestedLoc, elementwiseOp);
         });
   }
 
@@ -1674,6 +1687,11 @@ struct GridwiseAttentionAccelRewritePattern
     if (TypedValue<MemRefType> scaleIn = op.getScale()) {
       scaleInBuffer = createBufferForGemmOut(
           loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
+    }
+    Value biasInBuffer;
+    if (TypedValue<MemRefType> biasIn = op.getBias()) {
+      biasInBuffer = createBufferForGemmOut(
+          loc, biasIn.getType().getElementType(), accelParamsGemm0, rewriter);
     }
 
     // Buffers for reductions
@@ -1925,22 +1943,47 @@ struct GridwiseAttentionAccelRewritePattern
             return op.emitError(
                 "Only splat scale constant input is supported.");
           }
-          scaleFirstGemmSplat(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-                              gemm0OutSubTileViewsTr, maybeSplatAttr.value());
+          postProcessFirstGemmSplat<ElementwiseMultOp>(
+              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+              gemm0OutSubTileViewsTr, maybeSplatAttr.value());
         } else {
-          scaleFirstGemm(rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-                         gemm0OutSubTileViewsTr, scaleInBuffer, scaleIn);
+          postProcessFirstGemm<linalg::BinaryFn::mul>(
+              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+              gemm0OutSubTileViewsTr, scaleInBuffer, scaleIn);
         }
       }
+
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
                                              elemTypeQxK, 1.44269504);
-      scaleFirstGemmSplat(
+      postProcessFirstGemmSplat<ElementwiseMultOp>(
           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
           ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 #endif
+
+      if (Value biasIn = op.getBias()) {
+        Value rawBuffer;
+        std::tie(rawBuffer, std::ignore, std::ignore) =
+            untransform(rewriter, biasIn);
+        if (memref::GetGlobalOp constScale =
+                rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
+          FailureOr<TypedAttr> maybeSplatAttr =
+              getSplatGlobalConstant(constScale);
+          if (failed(maybeSplatAttr)) {
+            return op.emitError(
+                "Only splat scale constant input is supported.");
+          }
+          postProcessFirstGemmSplat<ElementwiseAddOp>(
+              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+              gemm0OutSubTileViewsTr, maybeSplatAttr.value());
+        } else {
+          postProcessFirstGemm<linalg::BinaryFn::add>(
+              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+              gemm0OutSubTileViewsTr, biasInBuffer, biasIn);
+        }
+      }
 
       // Handle padding
       bool hasPadding =

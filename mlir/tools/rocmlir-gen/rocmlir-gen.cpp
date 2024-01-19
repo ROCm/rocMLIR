@@ -464,6 +464,11 @@ static llvm::cl::opt<bool>
                                 "scaling input for the first gemm"),
                  llvm::cl::init(false));
 
+static llvm::cl::opt<bool> hasAttnBias(
+    "with-attn-bias",
+    llvm::cl::desc("Generate an attention kernel that is using a bias"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<bool>
     transposeQ("transQ",
                llvm::cl::desc("whether matrix Q of attention op is "
@@ -2205,10 +2210,18 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   result.push_back(qType);
   result.push_back(kType);
   result.push_back(vType);
+  unsigned optionalArgsCounter{3};
   if (hasAttnScale) {
     SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
-    MemRefType sType = MemRefType::get(scaleDims, elemTypes[3]);
+    MemRefType sType =
+        MemRefType::get(scaleDims, elemTypes[optionalArgsCounter++]);
     result.push_back(sType);
+  }
+  if (hasAttnBias) {
+    SmallVector<int64_t> biasDims{groupSize, sequenceLength, sequenceLength};
+    MemRefType bType =
+        MemRefType::get(biasDims, elemTypes[optionalArgsCounter++]);
+    result.push_back(bType);
   }
   MemRefType outType =
       MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
@@ -2245,15 +2258,17 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   Value scale;
   Value output;
-  if (hasAttnScale) {
-    scale = block->getArgument(3);
-    output = block->getArgument(4);
-  } else {
-    output = block->getArgument(3);
-  }
+  Value bias;
+
+  unsigned optionalArgsCounter{3};
+  if (hasAttnScale)
+    scale = block->getArgument(optionalArgsCounter++);
+  if (hasAttnBias)
+    bias = block->getArgument(optionalArgsCounter++);
+  output = block->getArgument(optionalArgsCounter);
 
   auto attention = builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, output, transposeQ,
+      loc, TypeRange{}, queries, keys, values, scale, bias, output, transposeQ,
       transposeK, transposeV, transposeO, archAttr, params.features,
       /*params0=*/nullptr, /*params1=*/nullptr);
   if (!params.perfConfig.empty())
@@ -2421,11 +2436,19 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Type elemType = params.types[0];
   Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType,
                                                     queriesTensor, keysTensor);
+  unsigned optionalArgsCounter{3};
   if (hasAttnScale) {
-    auto scaleTensor = getAsTensor(block->getArgument(3));
+    auto scaleTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
     qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, qkTensor,
                                              scaleTensor, /*shift=*/0);
   }
+
+  if (hasAttnBias) {
+    auto biasTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
+    qkTensor = createOpAndInfer<tosa::AddOp>(builder, loc, elemType, qkTensor,
+                                             biasTensor);
+  }
+
   constexpr int64_t reductionAxis{2};
   auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, elemType,
                                                     qkTensor, reductionAxis);
@@ -2993,11 +3016,12 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      if (hasAttnScale) {
-        outIndices.push_back(4);
-      } else {
-        outIndices.push_back(3);
-      }
+      int32_t optionalArgsCounter{3};
+      if (hasAttnScale)
+        ++optionalArgsCounter;
+      if (hasAttnBias)
+        ++optionalArgsCounter;
+      outIndices.push_back(optionalArgsCounter);
     }
   } else {
     outIndices = root0.outIndices;
