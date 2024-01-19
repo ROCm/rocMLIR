@@ -90,6 +90,7 @@ void printUsage(const std::string &name) {
                "(f32|f16|bf16|i8) \n [-transA=(True|False)] "
                "[-transB=(True|False)] \n "
                "[--kernel-repeats numKernelRepeats]\n";
+               "[--fused]\n";
 }
 
 // Get a pattern to fill the input tensors. This is because we want to avoid
@@ -190,7 +191,7 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   //
   // -operation gemm -t dataType --arch arch -out_datatype dataType --num_cu
   // numCU -g G -m M -k K -n N -transA={True/False} -transB={True/False}
-  // --kernel-repeats=reps --perf_config=
+  // --kernel-repeats=reps --fused --perf_config=
   //
   // issued by the perfRunner.py script
   BenchmarkArgs res;
@@ -221,6 +222,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
+    } else if (arg == "--fused"){
+      res.fused = true;
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);

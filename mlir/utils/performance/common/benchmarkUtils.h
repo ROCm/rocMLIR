@@ -27,6 +27,7 @@ struct BenchmarkArgs {
 
   bool transposeA{false};
   bool transposeB{false};
+  bool fused{false};
   int kernelRepeats{1};
 };
 

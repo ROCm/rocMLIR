@@ -22,10 +22,13 @@
 
 #include "ck/library/tensor_operation_instance/gpu/batched_gemm.hpp"
 #include "ck/library/tensor_operation_instance/gpu/gemm.hpp"
+#include "ck/library/tensor_operation_instance/gpu/gemm_add_add_fastgelu.hpp"
+
 #include "ck/tensor_operation/gpu/device/device_batched_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/device_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
+#include "ck/tensor_operation/gpu/device/device_gemm_multiple_d.hpp"
 
 // System includes
 #include <iostream>
@@ -36,12 +39,17 @@ using Row = ck::tensor_layout::gemm::RowMajor;
 using Col = ck::tensor_layout::gemm::ColumnMajor;
 
 using PassThrough = ck::tensor_operation::element_wise::PassThrough;
+using AddAddFastGelu = ck::tensor_operation::element_wise::AddAddFastGelu;
 using BaseArgument = ck::tensor_operation::device::BaseArgument;
 using BaseInvoker = ck::tensor_operation::device::BaseInvoker;
 
 template <typename ALayout, typename BLayout, typename DT>
-using GemmDeviceOp = ck::tensor_operation::device::DeviceGemm<
-    ALayout, BLayout, Row, DT, DT, DT, PassThrough, PassThrough, PassThrough>;
+using FusedGemmDeviceOp = ck::tensor_operation::device::DeviceGemmMultipleD<
+    ALayout, BLayout, ck::Tuple<Row, Row>, Row, DT, DT, ck::Tuple<DT,DT>, DT, PassThrough, PassThrough, AddAddFastGelu>;
+
+template <typename ALayout, typename BLayout, typename DT>
+using GemmDeviceOp = ck::tensor_operation::device::DeviceGemmMultipleD<
+    ALayout, BLayout, ck::Tuple<Row, Row>, Row, DT, DT, ck::Tuple<DT,DT>, DT, PassThrough, PassThrough, AddAddFastGelu>;
 
 template <typename ALayout, typename BLayout, typename DT>
 using BatchedGemmDeviceOp = ck::tensor_operation::device::DeviceBatchedGemm<
@@ -52,6 +60,8 @@ struct GemmMemoryParameters {
   void *aDevice;
   void *bDevice;
   void *cDevice;
+  void *d0Device;
+  void *d1Device;
 
   size_t strideA;
   size_t strideB;
@@ -63,19 +73,32 @@ struct GemmMemoryParameters {
 };
 
 // Main utility functions to run GEMM
-template <typename ALayout, typename BLayout, typename DT> struct GemmRunner {
+template <typename ALayout, typename BLayout, typename DT>
+struct GemmRunner {
   using D = GemmDeviceOp<ALayout, BLayout, DT>;
   using Dptr = std::unique_ptr<D>;
 
   static auto makeArg(const Dptr &op_ptr, const GemmMemoryParameters &params,
                       const benchmark::BenchmarkArgs &args) {
-    return op_ptr->MakeArgumentPointer(
-        params.aDevice, params.bDevice, params.cDevice, args.gemmM, args.gemmN,
-        args.gemmK, params.strideA, params.strideB, params.strideC,
-        PassThrough{}, PassThrough{}, PassThrough{});
+        return op_ptr->MakeArgumentPointer(params.aDevice,
+                               params.bDevice,
+                               {params.cDevice, params.cDevice},
+                               params.cDevice,
+                               args.gemmM,
+                               args.gemmN,
+                               args.gemmK,
+                               params.strideA,
+                               params.strideB,
+                               {int(params.strideC), int(params.strideC)},
+                               params.strideC,
+                               PassThrough{},
+                               PassThrough{},
+                               AddAddFastGelu{});
   }
 
   static auto getInstances() {
+    // const auto op_ptrs = ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<
+    //     D>::GetInstances();
     return ck::tensor_operation::device::instance::
         DeviceOperationInstanceFactory<D>::GetInstances();
   }
@@ -207,8 +230,16 @@ int main(int argc, char **argv) {
   void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
   void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
+  void *d0Host, *d1Host, *d0Device, *d1Device;
+  if (args.fused){
+    void *d0Host = benchmark::allocAndFill(args.dataType, cBytes, true);
+    void *d1Host = benchmark::allocAndFill(args.dataType, cBytes, true);
+    void *d0Device = benchmark::getGpuBuffer(d0Host, cBytes);
+    void *d1Device = benchmark::getGpuBuffer(d1Host, cBytes);
+  }
+
   auto gemmParams =
-      GemmMemoryParameters{aDevice, bDevice,      cDevice,      0,           0,
+      GemmMemoryParameters{aDevice, bDevice,      cDevice,      d0Device,  d1Device, 0,           0,
                            0,       batchStrideA, batchStrideB, batchStrideC};
 
   switch (args.dataType) {
