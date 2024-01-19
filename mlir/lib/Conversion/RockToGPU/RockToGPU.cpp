@@ -209,8 +209,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       }
     }
 
-    auto funcName = theFunc.getSymName();
-    gpuMod->setAttr(funcName, b.getAttr<ArrayAttr>(prefillAttrs));
+    if (!prefillAttrs.empty()) {
+      auto funcName = theFunc.getSymName();
+      gpuMod->setAttr(funcName, b.getAttr<ArrayAttr>(prefillAttrs));
+    }
 
     DataLayoutEntryInterface indexWidthAttr = DataLayoutEntryAttr::get(
         b.getIndexType(), b.getI32IntegerAttr(indexWidth));

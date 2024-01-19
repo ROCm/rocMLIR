@@ -2731,7 +2731,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
 // If the fut expects certain args (mostly output buffers),
 // this will populate the linalg.fill calls to do those based
-// on the presense of rock::PrefillAttr. This is to mimic the
+// on the presense of mhal::PrefillAttr. This is to mimic the
 // requirement on the kernel launcher to do the same for the
 // expected funtionality.
 void insertPrefills(func::FuncOp fut) {
@@ -2748,7 +2748,7 @@ void insertPrefills(func::FuncOp fut) {
         size_t argCount = calleeFunc.getArguments().size();
         for (size_t i = 0; i < argCount; i++) {
           if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+                  calleeFunc.getArgAttr(i, mhal::PrefillAttr::getMnemonic())) {
             argInitValues[i] = initAttr;
           }
         }

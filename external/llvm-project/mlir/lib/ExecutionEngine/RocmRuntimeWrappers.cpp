@@ -170,7 +170,6 @@ extern "C" void mgpuMemset16(void *dst, int short value, size_t count,
                                         value, count, stream));
 }
 
-
 /// Helper functions for writing mlir example code
 
 // Allows to register byte array with the ROCM runtime. Helpful until we have
