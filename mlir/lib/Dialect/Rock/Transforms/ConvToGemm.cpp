@@ -916,7 +916,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   return success();
 }
 
-template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
+template <typename T>
+struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
