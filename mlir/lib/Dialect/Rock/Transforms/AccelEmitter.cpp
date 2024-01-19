@@ -576,9 +576,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     // d = blk_td + d_i * waveOffset
     toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
                         {dRepeats, dWaves, inputSpanLen});
-    // k = k_i + kpackPerBlock * blk_id
-    toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                        {waveSize / inputSpanLen, kpackPerThread});
+    // k = blk_id + (waveSize / inputSpanLen) * k_i
+    toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
+                        {kpackPerThread, waveSize / inputSpanLen});
 
     toLDSRowCol.ignore(otherWaveDim);
 
@@ -715,9 +715,10 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         // d = blk_td + d_i * waveOffset
         toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "blk_td"},
                             {dRepeats, dWaves, inputSpanLen});
-        // k = k_i + kpackPerBlock * blk_id
-        toLDSRowCol.unmerge("k", 5, {"blk_id", "k_iter"},
-                            {waveSize / inputSpanLen, kpackPerThread});
+        // k = blk_id + (waveSize / inputSpanLen) * k_i
+        toLDSRowCol.unmerge("k", 5, {"k_iter", "blk_id"},
+                            {kpackPerThread, waveSize / inputSpanLen});
+        
       } else {
         // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
         toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "lane_id"},
@@ -819,9 +820,9 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         // d = blk_td + d_i * waveOffset
         toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
                             {dRepeats, dWaves, inputSpanLen});
-        // k = k_i + kpackPerBlock * blk_id
-        toLDSRowCol.unmerge("k", 2, {"blk_id", "k_iter"},
-                            {waveSize / inputSpanLen, kpackPerThread});
+        // k = blk_id + (waveSize / inputSpanLen) * k_i
+        toLDSRowCol.unmerge("k", 2, {"k_iter", "blk_id"},
+                            {kpackPerThread, waveSize / inputSpanLen});
       }
       toLDSRowCol.ignore(otherWaveDim);
     }
