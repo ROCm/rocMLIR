@@ -27,7 +27,7 @@ struct BenchmarkArgs {
 
   bool transposeA{false};
   bool transposeB{false};
-  bool fused{false};
+  std::string fusion{""};
   int kernelRepeats{1};
 };
 

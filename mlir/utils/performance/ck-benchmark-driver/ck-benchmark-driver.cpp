@@ -26,12 +26,13 @@
 
 #include "ck/tensor_operation/gpu/device/device_batched_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/device_gemm.hpp"
+#include "ck/tensor_operation/gpu/device/device_gemm_multiple_d.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
-#include "ck/tensor_operation/gpu/device/device_gemm_multiple_d.hpp"
 
 // System includes
 #include <iostream>
+#include <set>
 #include <string>
 
 // CK specific definitions
@@ -44,12 +45,14 @@ using BaseArgument = ck::tensor_operation::device::BaseArgument;
 using BaseInvoker = ck::tensor_operation::device::BaseInvoker;
 
 template <typename ALayout, typename BLayout, typename DT>
-using FusedGemmDeviceOp = ck::tensor_operation::device::DeviceGemmMultipleD<
-    ALayout, BLayout, ck::Tuple<Row, Row>, Row, DT, DT, ck::Tuple<DT,DT>, DT, PassThrough, PassThrough, AddAddFastGelu>;
+using FastGeluAddAddGemmDeviceOp =
+    ck::tensor_operation::device::DeviceGemmMultipleD<
+        ALayout, BLayout, ck::Tuple<Row, Row>, Row, DT, DT, ck::Tuple<DT, DT>,
+        DT, PassThrough, PassThrough, AddAddFastGelu>;
 
 template <typename ALayout, typename BLayout, typename DT>
-using GemmDeviceOp = ck::tensor_operation::device::DeviceGemmMultipleD<
-    ALayout, BLayout, ck::Tuple<Row, Row>, Row, DT, DT, ck::Tuple<DT,DT>, DT, PassThrough, PassThrough, AddAddFastGelu>;
+using GemmDeviceOp = ck::tensor_operation::device::DeviceGemm<
+    ALayout, BLayout, Row, DT, DT, DT, PassThrough, PassThrough, PassThrough>;
 
 template <typename ALayout, typename BLayout, typename DT>
 using BatchedGemmDeviceOp = ck::tensor_operation::device::DeviceBatchedGemm<
@@ -80,25 +83,33 @@ struct GemmRunner {
 
   static auto makeArg(const Dptr &op_ptr, const GemmMemoryParameters &params,
                       const benchmark::BenchmarkArgs &args) {
-        return op_ptr->MakeArgumentPointer(params.aDevice,
-                               params.bDevice,
-                               {params.cDevice, params.cDevice},
-                               params.cDevice,
-                               args.gemmM,
-                               args.gemmN,
-                               args.gemmK,
-                               params.strideA,
-                               params.strideB,
-                               {int(params.strideC), int(params.strideC)},
-                               params.strideC,
-                               PassThrough{},
-                               PassThrough{},
-                               AddAddFastGelu{});
+    return op_ptr->MakeArgumentPointer(
+        params.aDevice, params.bDevice, params.cDevice, args.gemmM, args.gemmN,
+        args.gemmK, params.strideA, params.strideB, params.strideC,
+        PassThrough{}, PassThrough{}, PassThrough{});
   }
 
   static auto getInstances() {
-    // const auto op_ptrs = ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<
-    //     D>::GetInstances();
+    return ck::tensor_operation::device::instance::
+        DeviceOperationInstanceFactory<D>::GetInstances();
+  }
+};
+
+template <typename ALayout, typename BLayout, typename DT>
+struct FastGeluAddAddGemmRunner {
+  using D = FastGeluAddAddGemmDeviceOp<ALayout, BLayout, DT>;
+  using Dptr = std::unique_ptr<D>;
+
+  static auto makeArg(const Dptr &op_ptr, const GemmMemoryParameters &params,
+                      const benchmark::BenchmarkArgs &args) {
+    return op_ptr->MakeArgumentPointer(
+        params.aDevice, params.bDevice, {params.d0Device, params.d1Device},
+        params.cDevice, args.gemmM, args.gemmN, args.gemmK, params.strideA,
+        params.strideB, {int(params.strideC), int(params.strideC)},
+        params.strideC, PassThrough{}, PassThrough{}, AddAddFastGelu{});
+  }
+
+  static auto getInstances() {
     return ck::tensor_operation::device::instance::
         DeviceOperationInstanceFactory<D>::GetInstances();
   }
@@ -167,8 +178,9 @@ void run(const GemmMemoryParameters &params,
   if (!found) {
     bestAveTime = std::nan("");
   }
-  std::cout << "Best kernel time: " << bestAveTime << "\n";
   std::cout << "Best kernel name: " << bestKernelName << "\n";
+  std::cout << "Best kernel time: " << bestAveTime << "\n";
+  std::cout << "Best kernel flops: " << bestTflops << "\n";
   std::cout << "Best kernel ID: " << bestKernelId << "\n";
 }
 
@@ -181,7 +193,12 @@ void runLayout(const GemmMemoryParameters &params,
   assert(params.strideC != 0 && "stride of C should be set");
 
   if (args.gemmG == 1) {
-    run<GemmRunner<ALayout, BLayout, DT>>(params, args);
+    if (args.fusion == "fastgelu_add_add") {
+      run<FastGeluAddAddGemmRunner<ALayout, BLayout, DT>>(params, args);
+    } else {
+      assert(args.fusion.empty() && "unsupported CK fusion!");
+      run<GemmRunner<ALayout, BLayout, DT>>(params, args);
+    }
   } else {
     run<BatchedGemmRunner<ALayout, BLayout, DT>>(params, args);
   }
@@ -212,6 +229,7 @@ void runDataType(GemmMemoryParameters params,
 
 int main(int argc, char **argv) {
   auto args = benchmark::parseCommandLine("ck-benchmark-driver", argc, argv);
+  std::set<std::string> supportedFusions{"fastgelu_add_add"};
 
   size_t batchStrideA = args.gemmM * args.gemmK,
          batchStrideB = args.gemmK * args.gemmN,
@@ -222,6 +240,24 @@ int main(int argc, char **argv) {
          bBytes = benchmark::getByteSize(args.dataType, bElems, false),
          cBytes = benchmark::getByteSize(args.dataType, cElems, true);
 
+  void *d0Host = nullptr, *d1Host = nullptr, *d0Device = nullptr,
+       *d1Device = nullptr;
+
+  if (!args.fusion.empty()) {
+    if (supportedFusions.find(args.fusion) == supportedFusions.end()) {
+      std::cerr << args.fusion
+                << " is an invalid CK fusion! Supported fusions are:\n";
+      for (auto s : supportedFusions)
+        std::cerr << s << "\n";
+      exit(1);
+    }
+
+    d0Host = benchmark::allocAndFill(args.dataType, cBytes, true);
+    d1Host = benchmark::allocAndFill(args.dataType, cBytes, true);
+    d0Device = benchmark::getGpuBuffer(d0Host, cBytes);
+    d1Device = benchmark::getGpuBuffer(d1Host, cBytes);
+  }
+
   void *aHost = benchmark::allocAndFill(args.dataType, aBytes, false);
   void *bHost = benchmark::allocAndFill(args.dataType, bBytes, false);
   void *cHost = benchmark::allocAndFill(args.dataType, cBytes, true);
@@ -230,17 +266,9 @@ int main(int argc, char **argv) {
   void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
   void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
-  void *d0Host, *d1Host, *d0Device, *d1Device;
-  if (args.fused){
-    void *d0Host = benchmark::allocAndFill(args.dataType, cBytes, true);
-    void *d1Host = benchmark::allocAndFill(args.dataType, cBytes, true);
-    void *d0Device = benchmark::getGpuBuffer(d0Host, cBytes);
-    void *d1Device = benchmark::getGpuBuffer(d1Host, cBytes);
-  }
-
-  auto gemmParams =
-      GemmMemoryParameters{aDevice, bDevice,      cDevice,      d0Device,  d1Device, 0,           0,
-                           0,       batchStrideA, batchStrideB, batchStrideC};
+  auto gemmParams = GemmMemoryParameters{
+      aDevice, bDevice, cDevice,      d0Device,     d1Device,    0,
+      0,       0,       batchStrideA, batchStrideB, batchStrideC};
 
   switch (args.dataType) {
   case benchmark::DataType::F32:
@@ -262,5 +290,11 @@ int main(int argc, char **argv) {
   HIP_ABORT_IF_FAIL(hipFree(aDevice));
   HIP_ABORT_IF_FAIL(hipFree(bDevice));
   HIP_ABORT_IF_FAIL(hipFree(cDevice));
+  if (!args.fusion.empty()) {
+    free(d0Host);
+    free(d1Host);
+    HIP_ABORT_IF_FAIL(hipFree(d0Device));
+    HIP_ABORT_IF_FAIL(hipFree(d1Device));
+  }
   return 0;
 }
