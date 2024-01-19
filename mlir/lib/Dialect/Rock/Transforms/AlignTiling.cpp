@@ -595,14 +595,18 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
 
   // 2.1. move linalg.generic after the definitions of threadwiseReadIntoOp's
   // inputs to maintaine correct def-use chain.
-  Value idx0 = tiledOp.getExtraIndices()[0];
-  Operation *def0 = idx0.getDefiningOp();
-  Operation *lastDef = def0;
-  for (auto idx : tiledOp.getExtraIndices()) {
-    if (def0->isBeforeInBlock(idx.getDefiningOp()))
-      lastDef = idx.getDefiningOp();
+  Operation *lastIdxDef = nullptr;
+  for (Value idx : tiledOp.getExtraIndices()) {
+    Operation *idxOp = idx.getDefiningOp();
+    if (idxOp) {
+      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+        lastIdxDef = idxOp;
+      }
+    }
   }
-  b.moveAfterIfNeeded(laGeneric, lastDef);
+  if (lastIdxDef)
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
   // 2.2. load into registers
   ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
       loc, src, alloc, tiledOp.getExtraViews(),
