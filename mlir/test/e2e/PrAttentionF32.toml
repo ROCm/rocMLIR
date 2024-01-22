@@ -17,6 +17,11 @@ name = "scale"
 values = ["true", "false"]
 prefix = "--with-attn-scale="
 
+[[axis]]
+name = "bias"
+values = ["true", "false"]
+prefix = "--with-attn-bias="
+
 ## attention variant
 [[suite]]
 name = "pr_attention_f32"
