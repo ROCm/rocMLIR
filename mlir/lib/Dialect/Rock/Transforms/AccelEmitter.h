@@ -103,7 +103,7 @@ struct AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const = 0;
+                                     bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -114,7 +114,7 @@ struct AccelEmitter {
   /// iter --> ... --> [KPerThread, DPerThread]
   /// for each operand tile to be used with gemm accelerators.
   virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, int64_t kIters,
                                    ArrayRef<int64_t> bidGridLengths,
                                    int64_t blockSize, int64_t dInCopyPerThread,
                                    StringRef dName, bool isKContigousDim,
@@ -171,10 +171,10 @@ struct MfmaEmitter : public AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const override;
+                                     bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const override;
 
   virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, int64_t kIters,
                                    ArrayRef<int64_t> bidGridLengths,
                                    int64_t blockSize, int64_t dInCopyPerThread,
                                    StringRef dName, bool isKContigousDim,
@@ -187,6 +187,8 @@ struct MfmaEmitter : public AccelEmitter {
       bool doSwapThreadIterSubDimsForN = false) override;
 
   LogicalResult validateAcceleratorProperties() override;
+
+  bool isKReduction() const;
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -209,10 +211,10 @@ struct WmmaEmitter : public AccelEmitter {
   virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const override;
+                                     bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const override;
 
   virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, int64_t kIters,
                                    ArrayRef<int64_t> bidGridLengths,
                                    int64_t blockSize, int64_t dInCopyPerThread,
                                    StringRef dName, bool isKContigousDim,

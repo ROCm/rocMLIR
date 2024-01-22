@@ -475,7 +475,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName,
-                                        bool rotateDWithK) const {
+                                        bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -576,9 +576,16 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     // d = blk_td + d_i * waveOffset
     toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
                         {dRepeats, dWaves, inputSpanLen});
-    // k = k_i + kpackPerBlock * blk_id
-    toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                        {waveSize / inputSpanLen, kpackPerThread});
+    if(doSplitKAcrossThreadsFirst){
+      // k = blk_id + (waveSize / inputSpanLen) * k_i
+      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
+                          {kpackPerThread, waveSize / inputSpanLen});
+    }
+    else{
+      // k = k_i + kpackPerBlock * blk_id
+      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
+                          {waveSize / inputSpanLen, kpackPerThread});
+    }
 
     toLDSRowCol.ignore(otherWaveDim);
 
@@ -600,8 +607,13 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   return transform(b, buffer, ldsRead);
 }
 
+bool MfmaEmitter::isKReduction() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.isKReduction;
+}
+
 RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
-    OpBuilder &b, Location loc, Value buffer, ArrayRef<int64_t> bidGridLengths,
+    OpBuilder &b, Location loc, int64_t kIters, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t dInCopyPerThread, StringRef dName,
     bool isKContigousDim, bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -617,11 +629,6 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPack = tuningParams.getKpack();
-
-  MemRefType matrixType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> matrixShape = matrixType.getShape();
-  int64_t kGlobal = matrixShape[1];
-  int64_t kIters = kGlobal / (kPackPerBlock * kPack);
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
@@ -863,8 +870,8 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
                         {dRepeats, kpackPerThread, kPack});
       } else {
-        splitIter.merge({"k_iter", "kpack", "d_iter"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, kPack, dRepeats});
+        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
+                        {kpackPerThread, dRepeats, kPack});
       }
     }
     TransformMapAttr splitIterAttr = splitIter.get();
@@ -934,7 +941,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName,
-                                        bool rotateDWithK) const {
+                                        bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -1018,9 +1025,9 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 }
 
 RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
-    OpBuilder &b, Location loc, Value buffer, ArrayRef<int64_t> bidGridLengths,
+    OpBuilder &b, Location loc, int64_t kIters, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t dInCopyPerThread, StringRef dName,
-    bool isKContigousDim, bool rotateDWithK, bool createAccelGemmOperandTransforms) const {
+    bool isKContigousDim, bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -1034,11 +1041,6 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
   int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
-
-  MemRefType matrixType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> matrixShape = matrixType.getShape();
-  int64_t kGlobal = matrixShape[1];
-  int64_t kIters = kGlobal / (kPackPerBlock * kPack);
 
   // Extract relevant emitter parameters
   int64_t inputLen = wmmaInsn.inputLen;

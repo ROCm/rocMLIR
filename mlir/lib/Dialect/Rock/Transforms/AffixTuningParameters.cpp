@@ -189,7 +189,7 @@ static RockAccelTuningParamAttrInterface
 deriveGemm1TuningParams(OpBuilder &builder,
                         RockAccelTuningParamAttrInterface gemm0TuningParams,
                         GemmFeatures features) {
-  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  int64_t gemm1KPack = 4;
   return builder.getAttr<XdlopsGemmParamsAttr>(
       /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
       /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),

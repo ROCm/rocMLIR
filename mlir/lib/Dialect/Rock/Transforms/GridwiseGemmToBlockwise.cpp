@@ -809,6 +809,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
+    int64_t kGlobal = in.getType().cast<MemRefType>().getShape()[1];
+    int64_t kIters = kGlobal / kPerBlock;
     Type elemType = in.getType().cast<MemRefType>().getElementType();
     if (copyPerThread == 0) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
@@ -836,7 +838,7 @@ struct GridwiseAttentionAccelRewritePattern
     FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
     if (!isDestBufferLDS) {
       maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
-          rewriter, loc, in, bidGridLengths, blockSize, copyDPerThread,
+          rewriter, loc, kIters, bidGridLengths, blockSize, copyDPerThread,
           nonKDimName, vectorDim == GemmDimension::K, false);
     } else {
       maybeInBufferViews = getLoadRegsAsTileViews(
@@ -1522,6 +1524,17 @@ struct GridwiseAttentionAccelRewritePattern
     return rewriter.create<TransformOp>(loc, operand, trMap);
   }
 
+  bool canBypassLDSForSecondGemm(const accel::MfmaEmitter* mfmaEmitter, RockAccelTuningParamAttrInterface tuningParams) const {
+    if(!mfmaEmitter->isKReduction()){
+        return false;
+    }
+    int64_t mWaves = tuningParams.getMPerBlock() / tuningParams.getMPerWave();
+    if(mWaves != 1){
+        return false;
+    }
+    return true;
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1568,13 +1581,18 @@ struct GridwiseAttentionAccelRewritePattern
     bool forceUnroll = gemm0TuningParams.getForceUnroll();
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
-
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
+    
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
       return op.emitOpError("Unable to emit accelerator code.");
+    bool doBypassLDSSecondGemm = false;
+    bool isMFMA = bitEnumContainsAny(op.getFeatures(), GemmFeatures::mfma);
+    if(isMFMA){
+      doBypassLDSSecondGemm = canBypassLDSForSecondGemm(static_cast<accel::MfmaEmitter*>(accelEmitterPtrGemm0.get()), gemm0TuningParams);
+    }  
     rock::accel::AccelEmitterParams accelParamsGemm0 =
         accelEmitterPtrGemm0->getParams();
     auto accelEmitterPtrGemm1 = accel::AccelEmitter::select(
@@ -1627,10 +1645,14 @@ struct GridwiseAttentionAccelRewritePattern
     }
     int64_t reductionWorkspaceSize =
         (gemm0MPerBlock / gemm0MPerThread) * gemm0NPerBlock;
+    int64_t gemm1LDSByteBufferBSize = gemm1KPerBlock * gemm1NPerBlock;
+    if(doBypassLDSSecondGemm){
+      gemm1LDSByteBufferBSize = 1;
+    }
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
         rewriter, loc,
         {ldsByteBufferQSize, reductionWorkspaceSize,
-         gemm1KPerBlock * gemm1NPerBlock},
+         gemm1LDSByteBufferBSize},
         {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsB[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsB[1];
@@ -2016,33 +2038,39 @@ struct GridwiseAttentionAccelRewritePattern
           createTypeConversionLaGeneric(rewriter, loc, gemm0OutBufferExp,
                                         gemm1RegBufferB);
         }
-        // The output RegsAsSubTile views are N x M where N is reduction dim
-        RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
-        // transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
-        ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
-            rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
-        Value gemm0ExpNMThreadwiseView = transform(
-            rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
-        // Correct the below toLDSViews to be max LDS vectorizable
-        // (For now just hacked in the existing view)
-        // Copy copyKPerThread is set to 1 because
-        // K is not packed as kpack vectors. Therefore, setting
-        // copyKPerThread to be 1 will always make the LDS write
-        // to be scalars -- which makes the following layout agnostic.
-        // We should get rid of storing to LDS altogether with
-        // the transposed layout for this gemm.
-        LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
-            rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
-            gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
-            gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
-            gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
-            forceUnroll);
-        if (failed(storeGemm1ATileStatus)) {
-          return failure();
+        Value wrappedLDSBufferForLoadB;
+        if(!doBypassLDSSecondGemm){
+            // The output RegsAsSubTile views are N x M where N is reduction dim
+            RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
+            ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
+                rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
+            Value gemm0ExpNMThreadwiseView = transform(
+                rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
+            // Correct the below toLDSViews to be max LDS vectorizable
+            // (For now just hacked in the existing view)
+            // Copy copyKPerThread is set to 1 because
+            // K is not packed as kpack vectors. Therefore, setting
+            // copyKPerThread to be 1 will always make the LDS write
+            // to be scalars -- which makes the following layout agnostic.
+            // We should get rid of storing to LDS altogether with
+            // the transposed layout for this gemm.
+            LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
+                rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
+                gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
+                gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
+                gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
+                forceUnroll);
+            if (failed(storeGemm1ATileStatus)) {
+            return failure();
+            }
+            TypedValue<MemRefType> gemm1LDSBufferB =
+                viewBufferAs(rewriter, gemm1LDSByteBufferB,
+                            vectorTypeOrSelf(elemTypeQ, gemm1kpack));
+            wrappedLDSBufferForLoadB =
+                accelEmitterPtrGemm1->wrapLDSBufferForLoad(
+                    rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
+                    gemm1InNPerThread, "n", false);
         }
-        TypedValue<MemRefType> gemm1LDSBufferB =
-            viewBufferAs(rewriter, gemm1LDSByteBufferB,
-                         vectorTypeOrSelf(elemTypeQ, gemm1kpack));
 
         LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
             loc, inV,
@@ -2062,11 +2090,11 @@ struct GridwiseAttentionAccelRewritePattern
         Value wrappedLDSBufferForLoadA =
             accelEmitterPtrGemm1->wrapLDSBufferForLoad(
                 rewriter, loc, ldsTileBufferV, op.getBlockSize(),
-                gemm1InMPerThread, "m", false);
-        Value wrappedLDSBufferForLoadB =
-            accelEmitterPtrGemm1->wrapLDSBufferForLoad(
-                rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
-                gemm1InNPerThread, "n", false);
+                gemm1InMPerThread, "m", false, doBypassLDSSecondGemm);
+        ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
+            rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
+        Value gemm1BDxKThreadwiseView = transform(
+            rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
         affine::AffineForOp nRepeatsLoop = rewriter.create<affine::AffineForOp>(
             loc, 0, accelParamsGemm1.nRepeats, 1);
         {
@@ -2086,9 +2114,16 @@ struct GridwiseAttentionAccelRewritePattern
                 loc, wrappedLDSBufferForLoadA, preAccelRegBufferV,
                 rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
             // regsB = read B from LDS
-            rewriter.create<ThreadwiseReadIntoOp>(
+            if(!doBypassLDSSecondGemm){
+                rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadB, preAccelRegBufferQxK,
                 rewriter.getArrayAttr({}), ValueRange{tid, ni}, true, true);
+            }
+            else{
+                rewriter.create<ThreadwiseReadIntoOp>(
+                    loc, gemm1BDxKThreadwiseView, preAccelRegBufferQxK,
+                    rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
+            }
 
             Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
                 rewriter, loc, preAccelRegBufferV);
