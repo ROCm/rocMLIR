@@ -576,9 +576,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     // d = blk_td + d_i * waveOffset
     toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
                         {dRepeats, dWaves, inputSpanLen});
-    // k = blk_id + (waveSize / inputSpanLen) * k_i
-    toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
-                        {kpackPerThread, waveSize / inputSpanLen});
+    // k = k_i + kpackPerBlock * blk_id
+    toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
+                        {waveSize / inputSpanLen, kpackPerThread});
 
     toLDSRowCol.ignore(otherWaveDim);
 
@@ -603,7 +603,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, Value buffer, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t dInCopyPerThread, StringRef dName,
-    bool isKContigousDim, bool rotateDWithK) const {
+    bool isKContigousDim, bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -715,10 +715,16 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         // d = blk_td + d_i * waveOffset
         toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "blk_td"},
                             {dRepeats, dWaves, inputSpanLen});
-        // k = blk_id + (waveSize / inputSpanLen) * k_i
-        toLDSRowCol.unmerge("k", 5, {"k_iter", "blk_id"},
-                            {kpackPerThread, waveSize / inputSpanLen});
-        
+        if(doSplitKAcrossThreadsFirst){
+          // k = blk_id + (waveSize / inputSpanLen) * k_i
+          toLDSRowCol.unmerge("k", 5, {"k_iter", "blk_id"},
+                              {kpackPerThread, waveSize / inputSpanLen});
+        }
+        else{
+          // k = k_i + kpackPerBlock * blk_id
+          toLDSRowCol.unmerge("k", 5, {"blk_id", "k_iter"},
+                              {waveSize / inputSpanLen, kpackPerThread});
+        }
       } else {
         // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
         toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "lane_id"},
@@ -820,9 +826,16 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         // d = blk_td + d_i * waveOffset
         toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
                             {dRepeats, dWaves, inputSpanLen});
-        // k = blk_id + (waveSize / inputSpanLen) * k_i
-        toLDSRowCol.unmerge("k", 2, {"k_iter", "blk_id"},
-                            {kpackPerThread, waveSize / inputSpanLen});
+        if(doSplitKAcrossThreadsFirst){
+          // k = blk_id + (waveSize / inputSpanLen) * k_i
+          toLDSRowCol.unmerge("k", 2, {"k_iter", "blk_id"},
+                              {kpackPerThread, waveSize / inputSpanLen});
+        }
+        else{
+          // k = k_i + kpackPerBlock * blk_id
+          toLDSRowCol.unmerge("k", 2, {"blk_id", "k_iter"},
+                              {waveSize / inputSpanLen, kpackPerThread});
+        }
       }
       toLDSRowCol.ignore(otherWaveDim);
     }
@@ -1007,7 +1020,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, Value buffer, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t dInCopyPerThread, StringRef dName,
-    bool isKContigousDim, bool rotateDWithK) const {
+    bool isKContigousDim, bool rotateDWithK, bool createAccelGemmOperandTransforms) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
