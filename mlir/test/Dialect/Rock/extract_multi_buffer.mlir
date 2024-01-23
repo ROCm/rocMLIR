@@ -1,5 +1,5 @@
-// RUN: rocmlir-opt --rock-sugar-to-loops % | FileCheck %
-// CHECK-LABEL:rock_extract_multibuffer
+// RUN: rocmlir-opt --rock-sugar-to-loops %s | FileCheck %s
+// CHECK-LABEL: rock_extract_multibuffer
 // CHECK-SAME: (%[[idx:.*]]: index, %[[buf0:.*]]: memref<1024xf16>, %[[buf1:.*]]: memref<1024xf16>, %[[buf2:.*]]: memref<1024xf16>) -> memref<1024xf16>
 func.func @rock_extract_multibuffer(%idx : index, %buf0 : memref<1024xf16>, %buf1 : memref<1024xf16>, %buf2 : memref<1024xf16>) -> memref<1024xf16>{
   // CHECK:  %[[mbIdx:.*]] = arith.remui %[[idx]], %c3
