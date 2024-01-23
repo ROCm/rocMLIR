@@ -6,5 +6,4 @@ add_rocmlir_test_library(MLIRRockTestPasses
   LINK_LIBS PUBLIC
   MLIRRockOps
   MLIRRockTransforms
-  MLIRRockUtility
   MLIRPass)

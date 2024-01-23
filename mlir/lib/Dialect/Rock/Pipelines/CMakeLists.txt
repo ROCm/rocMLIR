@@ -16,7 +16,6 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockToGPU
   MLIRRockOps
   MLIRRockTransforms
-  MLIRRockUtility
   RocmlirEmulateFp8ExtTrunc
 
   # Upstream dialect libraries we need to load that we don't directly depend on

@@ -33,6 +33,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -1701,6 +1702,44 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
+/// Check whether the op can bypass LDS-based swizzling
+/// for the B operand of the second gemm.
+bool GridwiseAttentionAccelOp::canBypassLDSForSecondGemm() {
+  Type elemTypeQ = getQueries().getType().cast<MemRefType>().getElementType();
+  Type elemTypeK = getKeys().getType().cast<MemRefType>().getElementType();
+  StringRef arch = getArch();
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
+  auto accelEmitterPtrGemm0 = rock::accel::AccelEmitter::select(
+      getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+  bool isMFMA = bitEnumContainsAny(getFeatures(), GemmFeatures::mfma);
+  if(isMFMA){
+    auto mfmaEmitter = static_cast<rock::accel::MfmaEmitter*>(accelEmitterPtrGemm0.get());
+    if(!mfmaEmitter->isKReduction()){
+      return false;
+    }
+    int64_t mWaves = gemm0TuningParams.getMPerBlock() / gemm0TuningParams.getMPerWave();
+    if(mWaves != 1){
+          return false;
+    }
+    return true;
+  }
+  return false;  
+}
+
+/// check whether the op can bypass LDS when loading
+/// Q tiles to accel_gemm layouts
+bool GridwiseAttentionAccelOp::canBypassLDSForQ() {
+  ArrayRef<int64_t> qShape = getQueries().getType().cast<MemRefType>().getShape();
+  int64_t gemm0K = qShape[1];
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
+  int64_t gemm0kpack = gemm0TuningParams.getKpack();
+  int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
+  int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+  bool enableQLDSBypass = !getDisableQBypassLDS();
+  return enableQLDSBypass && (gemm0K == gemm0KPerBlock);
+}
+
+
 LogicalResult GridwiseAttentionAccelOp::verify() {
   RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
@@ -1708,6 +1747,9 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+  int64_t gemm1KPerBlock = gemm0MPerBlock;
+  int64_t gemm1MPerBlock = gemm0MPerBlock;
+  int64_t gemm1NPerBlock = gemm0NPerBlock;
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
   }
@@ -1715,28 +1757,54 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   // Calculate LDS requirement
   MemRefType typeQ = getQueries().getType();
   Type elemTypeQ = typeQ.getElementType();
+  ArrayRef<int64_t> qShape = typeQ.getShape();
   MemRefType typeK = getKeys().getType();
   Type elemTypeK = typeK.getElementType();
+  ArrayRef<int64_t> kShape = typeK.getShape();
   MemRefType typeV = getValues().getType();
   Type elemTypeV = typeV.getElementType();
   MemRefType typeO = getOut().getType();
   ArrayRef<int64_t> outShape = typeO.getShape();
-  int64_t gemm1N = outShape[2];
+  //Out is transposed
+  int64_t gemm1N = outShape[1];
+  int64_t gemm0G = qShape[0];
+  int64_t gemm0M = kShape[2];
+  int64_t gemm0N = qShape[2];
+  int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
+  int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
 
   // TODO: we can definitely improve re-use of LDS buffers
   // through further refactors to blockwise gemm to accept
   // LDS buffers that are larger than required -- Hence
   // we can overlap following buffers between gemms.
   int64_t gemm0ALdsSizeBytes = (gemm0KPerBlock * gemm0MPerBlock) *
-                               (elemTypeQ.getIntOrFloatBitWidth() / 8);
+                               (elemTypeQ.getIntOrFloatBitWidth() / 8);                            
   int64_t gemm0BLdsSizeBytes = (gemm0KPerBlock * gemm0NPerBlock) *
                                (elemTypeK.getIntOrFloatBitWidth() / 8);
+  if(canBypassLDSForQ()){
+    gemm0BLdsSizeBytes = 0;
+  }
+  auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
+        getFeatures(), elemTypeQ, elemTypeK, getArch(), gemm0TuningParams);
+  OpBuilder b{getContext()};
+  SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
+                                                   gemm0NBlocks};
+  RegsAsMatrixSubTiles gemm0OutSubTileViews =
+        accelEmitterPtrGemm0->computeOutputTransforms(
+            b, getLoc(), gemm0MPerBlock, gemm0NPerBlock, getBlockSize(),
+            gemm0BidGridLengths, /*InMPerThread=*/0, /*gemm0InNPerThread=*/0);
+  int64_t gemm0MPerThread =
+        getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
+  int64_t reductionWorkspaceSizeBytes = (gemm0MPerBlock / gemm0MPerThread) * gemm0NPerBlock; 
   // Current implementation does the second gemm using the type of V input.
-  int64_t gemm1ALdsSizeBytes = (gemm0NPerBlock * gemm0MPerBlock) *
+  int64_t gemm1ALdsSizeBytes = (gemm1KPerBlock * gemm1MPerBlock) *
                                (elemTypeV.getIntOrFloatBitWidth() / 8);
   int64_t gemm1BLdsSizeBytes =
-      (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t totalLDSSize = std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes) +
+      (gemm1KPerBlock * gemm1NPerBlock) * (elemTypeV.getIntOrFloatBitWidth() / 8);
+  if(canBypassLDSForSecondGemm()){
+    gemm1BLdsSizeBytes = 0;
+  }
+  int64_t totalLDSSize = std::max(std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes), reductionWorkspaceSizeBytes) +
                          std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
   if (totalLDSSize > 64 * 1024) {
     return emitError() << "totalLDSSize (" << totalLDSSize

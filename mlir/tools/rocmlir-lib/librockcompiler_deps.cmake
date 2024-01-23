@@ -202,7 +202,6 @@ MLIRRockThin
 MLIRRockToGPU
 MLIRRockTransforms
 MLIRRockTuning
-MLIRRockUtility
 MLIRTosaToRock
 RocmlirEmulateFp8ExtTrunc
 )

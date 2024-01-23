@@ -15,6 +15,6 @@ add_rocmlir_dialect_library(MLIRRockTuning
 
 target_link_libraries(MLIRRockTuning
   PRIVATE
-  MLIRRockUtility
+  MLIRRockOps
   MLIRIR
 )

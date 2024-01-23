@@ -245,7 +245,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   LogicalResult isValidBlockwiseGemm =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           initAccelParams, elemType, elemType, op.getArch(), blockSize,
-          /*enableBlockSizeUpperLimit=*/false);
+          /*enableBlockSizeUpperLimit=*/false, /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm.failed()) {
     op.emitError("The provided perf config is not valid");
     signalPassFailure();

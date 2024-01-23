@@ -22,7 +22,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -225,7 +225,7 @@ makeViewsForRowsAndCols(TopDownTMBuilder &viewBuilder, int64_t mPerRepeat,
 }
 
 RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
-    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
     bool doSwapThreadIterSubDimsForN) {
@@ -1283,7 +1283,7 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 }
 
 RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
-    PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+    OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
     bool doSwapThreadIterSubDimsForN) {

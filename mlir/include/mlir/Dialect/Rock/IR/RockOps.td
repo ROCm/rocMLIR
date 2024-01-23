@@ -445,6 +445,15 @@ def Rock_GridwiseAttentionAccelOp :
     `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    /// Check whether the op can bypass LDS-based swizzling
+    /// for the B operand of the second gemm.
+    bool canBypassLDSForSecondGemm();
+
+    /// check whether the op can bypass LDS when loading
+    /// Q tiles to accel_gemm layouts
+    bool canBypassLDSForQ();
+  }];
 }
 
 // Memory allocation on GPU memory hierachy.

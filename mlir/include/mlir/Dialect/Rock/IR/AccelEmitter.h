@@ -126,7 +126,7 @@ struct AccelEmitter {
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
   virtual RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) = 0;
@@ -181,7 +181,7 @@ struct MfmaEmitter : public AccelEmitter {
                                    bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
@@ -221,7 +221,7 @@ struct WmmaEmitter : public AccelEmitter {
                                    bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;

@@ -343,7 +343,7 @@ public:
   virtual LogicalResult
   isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
                        Type dataTypeB, StringRef arch, uint32_t blockSize,
-                       bool enableBlockSizeUpperLimit = true) = 0;
+                       bool enableBlockSizeUpperLimit = true, bool enableDPerWaveFiltering = true) = 0;
 
 protected:
   // if can't select config from above , use this config to do
@@ -400,7 +400,7 @@ public:
   LogicalResult
   isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
                        Type dataTypeB, StringRef arch, uint32_t blockSize,
-                       bool enableBlockSizeUpperLimit = true) override;
+                       bool enableBlockSizeUpperLimit = true, bool enableDPerWaveFiltering = true) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
@@ -434,7 +434,7 @@ public:
   LogicalResult
   isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
                        Type dataTypeB, StringRef arch, uint32_t blockSize,
-                       bool enableBlockSizeUpperLimit = true) override;
+                       bool enableBlockSizeUpperLimit = true, bool enableDPerWaveFiltering = true) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,

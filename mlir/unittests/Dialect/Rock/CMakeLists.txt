@@ -6,5 +6,4 @@ add_rocmlir_unittest(MLIRRockTransformMapBuilderTests
 target_link_libraries(MLIRRockTransformMapBuilderTests
   PRIVATE
   MLIRRockOps
-  MLIRRockUtility
 )
