@@ -1345,24 +1345,6 @@ struct GridwiseAttentionAccelRewritePattern
     return ret;
   }
 
-  // This function will create a linalg generic block to perform cast
-  // and copy to another memref.
-  void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
-                                     Value src, Value dst) const {
-    MemRefType dstType = dst.getType().cast<MemRefType>();
-    SmallVector<AffineMap, 2> indexingMaps{
-        2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
-    SmallVector<utils::IteratorType> iteratorTypes(
-        dstType.getRank(), utils::IteratorType::parallel);
-    rewriter.create<linalg::GenericOp>(
-        loc, ValueRange(src), ValueRange(dst), indexingMaps, iteratorTypes,
-        [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
-          Value cast = createTypeConversionOp(rewriter, loc, args[0],
-                                              dstType.getElementType());
-          nestedBuilder.create<linalg::YieldOp>(nestedLoc, cast);
-        });
-  }
-
   // If padding is used in the kernel, this means the first gemm
   // will be done in a larger matrix. In typical, gemm kernels
   // the padded region in the output will just contain zeros. However,
