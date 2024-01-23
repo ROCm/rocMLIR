@@ -45,7 +45,7 @@ namespace {
 /// Define lowering patterns for raw buffer ops
 template <typename GpuOp, typename Intrinsic>
 struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
-  RawBufferOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+  RawBufferOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<GpuOp>(converter), chipset(chipset) {}
 
   Chipset chipset;
@@ -367,7 +367,8 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
 /// vector. We also need to convert bfloat inputs to i16 to account for the lack
 /// of bfloat support in the WMMA intrinsics themselves.
 static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
-                                 Location loc, TypeConverter *typeConverter,
+                                 Location loc,
+                                 const TypeConverter *typeConverter,
                                  bool isUnsigned, Value llvmInput,
                                  SmallVector<Value, 4> &operands) {
   Type inputType = llvmInput.getType();
@@ -409,7 +410,8 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
 /// result in the lower 16 bits, set subwordOffset to 1, otherwise result will
 /// be stored it in the upper part
 static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
-                                  Location loc, TypeConverter *typeConverter,
+                                  Location loc,
+                                  const TypeConverter *typeConverter,
                                   Value output, int32_t subwordOffset,
                                   bool clamp, SmallVector<Value, 4> &operands) {
   Type inputType = output.getType();
@@ -590,7 +592,7 @@ static std::optional<StringRef> wmmaOpToIntrinsic(WMMAOp wmma,
 
 namespace {
 struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
-  MFMAOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+  MFMAOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<MFMAOp>(converter), chipset(chipset) {}
 
   Chipset chipset;
@@ -634,7 +636,7 @@ struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
 };
 
 struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
-  WMMAOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+  WMMAOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<WMMAOp>(converter), chipset(chipset) {}
 
   Chipset chipset;
@@ -685,15 +687,15 @@ struct ExtPackedFp8OpLowering final
                   ConversionPatternRewriter &rewriter) const override;
 };
 
-struct PackedTruncFp8x2OpLowering final
-    : public ConvertOpToLLVMPattern<PackedTruncFp8x2Op> {
-  PackedTruncFp8x2OpLowering(LLVMTypeConverter &converter, Chipset chipset)
-      : ConvertOpToLLVMPattern<amdgpu::PackedTruncFp8x2Op>(converter),
+struct PackedTrunc2xFp8OpLowering final
+    : public ConvertOpToLLVMPattern<PackedTrunc2xFp8Op> {
+  PackedTrunc2xFp8OpLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<amdgpu::PackedTrunc2xFp8Op>(converter),
         chipset(chipset) {}
   Chipset chipset;
 
   LogicalResult
-  matchAndRewrite(PackedTruncFp8x2Op op, PackedTruncFp8x2OpAdaptor adaptor,
+  matchAndRewrite(PackedTrunc2xFp8Op op, PackedTrunc2xFp8OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
@@ -755,8 +757,8 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
   return success();
 }
 
-LogicalResult PackedTruncFp8x2OpLowering::matchAndRewrite(
-    PackedTruncFp8x2Op op, PackedTruncFp8x2OpAdaptor adaptor,
+LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
+    PackedTrunc2xFp8Op op, PackedTrunc2xFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
@@ -879,7 +881,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
            LDSBarrierOpLowering, MFMAOpLowering, WMMAOpLowering,
-           ExtPackedFp8OpLowering, PackedTruncFp8x2OpLowering,
+           ExtPackedFp8OpLowering, PackedTrunc2xFp8OpLowering,
            PackedStochRoundFp8OpLowering>(converter, chipset);
 }
 

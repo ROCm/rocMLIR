@@ -29,7 +29,6 @@ def AMDGPU_Dialect : Dialect {
     "gpu::GPUDialect"
   ];
   let useDefaultAttributePrinterParser = 1;
-  let usePropertiesForAttributes = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -63,8 +62,8 @@ def AMDGPU_ExtPackedFp8Op :
   }];
 }
 
-def AMDGPU_PackedTruncFp8x2Op :
-    AMDGPU_Op<"packed_trunc_fp8x2", [Pure, AttrSizedOperandSegments]>,
+def AMDGPU_PackedTrunc2xFp8Op :
+    AMDGPU_Op<"packed_trunc_2xfp8", [Pure, AttrSizedOperandSegments]>,
     Arguments<(ins F32:$sourceA,
       Optional<F32>:$sourceB,
       ConfinedAttr<I32Attr, [IntNonNegative, IntMaxValue<1>]>:$wordIndex,

@@ -1,17 +1,17 @@
 // RUN: %clang_analyze_cc1 %s \
 // RUN:   -analyzer-checker=core \
-// RUN:   -analyzer-checker=alpha.unix.StdCLibraryFunctions \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:ModelPOSIX=true \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
+// RUN:   -analyzer-checker=unix.StdCLibraryFunctions \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:ModelPOSIX=true \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
 // RUN:   -analyzer-checker=debug.ExprInspection \
 // RUN:   -analyzer-config eagerly-assume=false \
 // RUN:   -triple i686-unknown-linux -verify
 
 // RUN: %clang_analyze_cc1 %s \
 // RUN:   -analyzer-checker=core \
-// RUN:   -analyzer-checker=alpha.unix.StdCLibraryFunctions \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:ModelPOSIX=true \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
+// RUN:   -analyzer-checker=unix.StdCLibraryFunctions \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:ModelPOSIX=true \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
 // RUN:   -analyzer-checker=debug.ExprInspection \
 // RUN:   -analyzer-config eagerly-assume=false \
 // RUN:   -triple i686-unknown-linux 2>&1 | FileCheck %s
@@ -21,6 +21,8 @@
 // CHECK: Loaded summary for: FILE *freopen(const char *restrict pathname, const char *restrict mode, FILE *restrict stream)
 // CHECK: Loaded summary for: int fclose(FILE *stream)
 // CHECK: Loaded summary for: int fseek(FILE *stream, long offset, int whence)
+// CHECK: Loaded summary for: int fseeko(FILE *stream, off_t offset, int whence)
+// CHECK: Loaded summary for: off_t ftello(FILE *stream)
 // CHECK: Loaded summary for: int fileno(FILE *stream)
 // CHECK: Loaded summary for: long a64l(const char *str64)
 // CHECK: Loaded summary for: char *l64a(long value)
@@ -80,8 +82,6 @@
 // CHECK: Loaded summary for: void rewinddir(DIR *dir)
 // CHECK: Loaded summary for: void seekdir(DIR *dirp, long loc)
 // CHECK: Loaded summary for: int rand_r(unsigned int *seedp)
-// CHECK: Loaded summary for: int fseeko(FILE *stream, off_t offset, int whence)
-// CHECK: Loaded summary for: off_t ftello(FILE *stream)
 // CHECK: Loaded summary for: void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 // CHECK: Loaded summary for: void *mmap64(void *addr, size_t length, int prot, int flags, int fd, off64_t offset)
 // CHECK: Loaded summary for: int pipe(int fildes[2])
@@ -141,6 +141,8 @@
 
 #include "Inputs/std-c-library-functions-POSIX.h"
 
+void clang_analyzer_eval(int);
+
 void test_open(void) {
   open(0, 0); // \
   // expected-warning{{The 1st argument to 'open' is NULL but should not be NULL}}
@@ -149,4 +151,77 @@ void test_open(void) {
 void test_open_additional_arg(void) {
   open(0, 0, 0); // \
   // expected-warning{{The 1st argument to 'open' is NULL but should not be NULL}}
+}
+
+void test_recvfrom(int socket, void *restrict buffer, size_t length, int flags,
+                   struct sockaddr *restrict address,
+                   socklen_t *restrict address_len) {
+  ssize_t Ret = recvfrom(socket, buffer, length, flags, address, address_len);
+  if (Ret == 0)
+    clang_analyzer_eval(length == 0); // expected-warning{{TRUE}}
+  if (Ret > 0)
+    clang_analyzer_eval(length > 0); // expected-warning{{TRUE}}
+  if (Ret == -1)
+    clang_analyzer_eval(length == 0); // expected-warning{{UNKNOWN}}
+}
+
+void test_sendto(int socket, const void *message, size_t length, int flags,
+                 const struct sockaddr *dest_addr, socklen_t dest_len) {
+  ssize_t Ret = sendto(socket, message, length, flags, dest_addr, dest_len);
+  if (Ret == 0)
+    clang_analyzer_eval(length == 0); // expected-warning{{TRUE}}
+  if (Ret > 0)
+    clang_analyzer_eval(length > 0); // expected-warning{{TRUE}}
+  if (Ret == -1)
+    clang_analyzer_eval(length == 0); // expected-warning{{UNKNOWN}}
+}
+
+void test_recv(int sockfd, void *buf, size_t len, int flags) {
+  ssize_t Ret = recv(sockfd, buf, len, flags);
+  if (Ret == 0)
+    clang_analyzer_eval(len == 0); // expected-warning{{TRUE}}
+  if (Ret > 0)
+    clang_analyzer_eval(len > 0); // expected-warning{{TRUE}}
+  if (Ret == -1)
+    clang_analyzer_eval(len == 0); // expected-warning{{UNKNOWN}}
+}
+
+void test_send(int sockfd, void *buf, size_t len, int flags) {
+  ssize_t Ret = send(sockfd, buf, len, flags);
+  if (Ret == 0)
+    clang_analyzer_eval(len == 0); // expected-warning{{TRUE}}
+  if (Ret > 0)
+    clang_analyzer_eval(len > 0); // expected-warning{{TRUE}}
+  if (Ret == -1)
+    clang_analyzer_eval(len == 0); // expected-warning{{UNKNOWN}}
+}
+
+void test_recvmsg(int sockfd, struct msghdr *msg, int flags) {
+  ssize_t Ret = recvmsg(sockfd, msg, flags);
+  clang_analyzer_eval(Ret != 0); // expected-warning{{TRUE}}
+}
+
+void test_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
+  ssize_t Ret = sendmsg(sockfd, msg, flags);
+  clang_analyzer_eval(Ret != 0); // expected-warning{{TRUE}}
+}
+
+void test_readlink_bufsize_zero(char *Buf, size_t Bufsize) {
+  ssize_t Ret = readlink("path", Buf, Bufsize);
+  if (Ret == 0)
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{TRUE}}
+  else if (Ret > 0)
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{FALSE}}
+  else
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{UNKNOWN}}
+}
+
+void test_readlinkat_bufsize_zero(int fd, char *Buf, size_t Bufsize) {
+  ssize_t Ret = readlinkat(fd, "path", Buf, Bufsize);
+  if (Ret == 0)
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{TRUE}}
+  else if (Ret > 0)
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{FALSE}}
+  else
+    clang_analyzer_eval(Bufsize == 0); // expected-warning{{UNKNOWN}}
 }

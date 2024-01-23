@@ -143,7 +143,7 @@ Then we type:
 .. code-block:: console
 
   $ clang++ -std=c++20 Hello.cppm --precompile -o Hello.pcm
-  $ clang++ -std=c++20 use.cpp -fprebuilt-module-path=. Hello.pcm -o Hello.out
+  $ clang++ -std=c++20 use.cpp -fmodule-file=Hello=Hello.pcm Hello.pcm -o Hello.out
   $ ./Hello.out
   Hello World!
 
@@ -200,15 +200,15 @@ Then we are able to compile the example by the following command:
   $ clang++ -std=c++20 interface_part.cppm --precompile -o M-interface_part.pcm
   $ clang++ -std=c++20 impl_part.cppm --precompile -fprebuilt-module-path=. -o M-impl_part.pcm
   $ clang++ -std=c++20 M.cppm --precompile -fprebuilt-module-path=. -o M.pcm
-  $ clang++ -std=c++20 Impl.cpp -fmodule-file=M=M.pcm -c -o Impl.o
+  $ clang++ -std=c++20 Impl.cpp -fprebuilt-module-path=. -c -o Impl.o
 
   # Compiling the user
   $ clang++ -std=c++20 User.cpp -fprebuilt-module-path=. -c -o User.o
 
   # Compiling the module and linking it together
-  $ clang++ -std=c++20 M-interface_part.pcm -c -o M-interface_part.o
-  $ clang++ -std=c++20 M-impl_part.pcm -c -o M-impl_part.o
-  $ clang++ -std=c++20 M.pcm -c -o M.o
+  $ clang++ -std=c++20 M-interface_part.pcm -fprebuilt-module-path=. -c -o M-interface_part.o
+  $ clang++ -std=c++20 M-impl_part.pcm -fprebuilt-module-path=. -c -o M-impl_part.o
+  $ clang++ -std=c++20 M.pcm -fprebuilt-module-path=. -c -o M.o
   $ clang++ User.o M-interface_part.o  M-impl_part.o M.o Impl.o -o a.out
 
 We explain the options in the following sections.
@@ -218,7 +218,6 @@ How to enable standard C++ modules
 
 Currently, standard C++ modules are enabled automatically
 if the language standard is ``-std=c++20`` or newer.
-The ``-fmodules-ts`` option is deprecated and is planned to be removed.
 
 How to produce a BMI
 ~~~~~~~~~~~~~~~~~~~~
@@ -313,18 +312,8 @@ So all of the following name is not valid by default:
     __test
     // and so on ...
 
-If you still want to use the reserved module names for any reason, currently you can add a special line marker
-in the front of the module declaration like:
-
-.. code-block:: c++
-
-  # __LINE_NUMBER__ __FILE__ 1 3
-  export module std;
-
-Here the `__LINE_NUMBER__` is the actual line number of the corresponding line. The `__FILE__` means the filename
-of the translation unit. The `1` means the following is a new file. And `3` means this is a system header/file so
-the certain warnings should be suppressed. You could find more details at:
-https://gcc.gnu.org/onlinedocs/gcc-3.0.2/cpp_9.html.
+If you still want to use the reserved module names for any reason, use
+``-Wno-reserved-module-identifier`` to suppress the warning.
 
 How to specify the dependent BMIs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -374,6 +363,10 @@ the above example could be rewritten into:
 .. code-block:: console
 
   $ clang++ -std=c++20 M.cppm --precompile -fmodule-file=M:interface_part=M-interface_part.pcm -fmodule-file=M:impl_part=M-impl_part.pcm -o M.pcm
+
+When there are multiple ``-fmodule-file=<module-name>=`` options for the same
+``<module-name>``, the last ``-fmodule-file=<module-name>=`` will override the previous
+``-fmodule-file=<module-name>=`` options.
 
 ``-fprebuilt-module-path`` is more convenient and ``-fmodule-file`` is faster since
 it saves time for file lookup.
@@ -687,6 +680,23 @@ Currently, clang requires the file name of an ``importable module unit`` should 
 (or ``.ccm``, ``.cxxm``, ``.c++m``). However, the behavior is inconsistent with other compilers.
 
 This is tracked in: https://github.com/llvm/llvm-project/issues/57416
+
+clang-cl is not compatible with the standard C++ modules
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Now we can't use the `/clang:-fmodule-file` or `/clang:-fprebuilt-module-path` to specify
+the BMI within ``clang-cl.exe``.
+
+This is tracked in: https://github.com/llvm/llvm-project/issues/64118
+
+delayed template parsing is not supported/broken with C++ modules
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The feature `-fdelayed-template-parsing` can't work well with C++ modules now.
+Note that this is significant on Windows since the option will be enabled by default
+on Windows.
+
+This is tracked in: https://github.com/llvm/llvm-project/issues/61068
 
 Header Units
 ============
@@ -1064,12 +1074,6 @@ the user can choose to get the dependency information per file. For example:
 
   $ clang-scan-deps -format=p1689 -- <path-to-compiler-executable>/clang++ -std=c++20 impl_part.cppm -c -o impl_part.o
 
-.. warning::
-
-   The ``<path-to-compiler-executable>/clang++`` should point to the real
-   binary and not to a symlink. If it points to a symlink the include paths
-   will not be correctly resolved.
-
 And we'll get:
 
 .. code-block:: text
@@ -1125,6 +1129,32 @@ We will get:
 
 When clang-scan-deps detects ``-MF`` option, clang-scan-deps will try to write the
 dependency information for headers to the file specified by ``-MF``.
+
+Possible Issues: Failed to find system headers
+----------------------------------------------
+
+In case the users encounter errors like ``fatal error: 'stddef.h' file not found``,
+probably the specified ``<path-to-compiler-executable>/clang++`` refers to a symlink
+instead a real binary. There are 4 potential solutions to the problem:
+
+* (1) End users can resolve the issue by pointing the specified compiler executable to
+  the real binary instead of the symlink.
+* (2) End users can invoke ``<path-to-compiler-executable>/clang++ -print-resource-dir``
+  to get the corresponding resource directory for your compiler and add that directory
+  to the include search paths manually in the build scripts.
+* (3) Build systems that use a compilation database as the input for clang-scan-deps
+  scanner, the build system can add the flag ``--resource-dir-recipe invoke-compiler`` to
+  the clang-scan-deps scanner to calculate the resources directory dynamically.
+  The calculation happens only once for a unique ``<path-to-compiler-executable>/clang++``.
+* (4) For build systems that invokes the clang-scan-deps scanner per file, repeatedly
+  calculating the resource directory may be inefficient. In such cases, the build
+  system can cache the resource directory by itself and pass ``-resource-dir <resource-dir>``
+  explicitly in the command line options:
+
+.. code-block:: console
+
+  $ clang-scan-deps -format=p1689 -- <path-to-compiler-executable>/clang++ -std=c++20 -resource-dir <resource-dir> mod.cppm -c -o mod.o
+
 
 Possible Questions
 ==================

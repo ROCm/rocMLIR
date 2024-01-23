@@ -90,9 +90,7 @@ private:
                                  RewriteKind rewrite) const;
 
   void AddClangCLArgs(const llvm::opt::ArgList &Args, types::ID InputType,
-                      llvm::opt::ArgStringList &CmdArgs,
-                      llvm::codegenoptions::DebugInfoKind *DebugInfoKind,
-                      bool *EmitCodeView) const;
+                      llvm::opt::ArgStringList &CmdArgs) const;
 
   mutable std::unique_ptr<llvm::raw_fd_ostream> CompilationDatabase = nullptr;
   void DumpCompilationDatabase(Compilation &C, StringRef Filename,
@@ -200,6 +198,11 @@ public:
                     const InputInfo &Output, const InputInfoList &Inputs,
                     const llvm::opt::ArgList &TCArgs,
                     const char *LinkingOutput) const override;
+  void ConstructOpaqueJob(Compilation &C, const JobAction &JA,
+                          const InputInfo &Output, const InputInfoList &Inputs,
+                          const llvm::opt::ArgList &TCArgs,
+                          const llvm::Triple &TheTriple,
+                          const char *LinkingOutput) const;
 };
 
 enum class DwarfFissionKind { None, Split, Single };

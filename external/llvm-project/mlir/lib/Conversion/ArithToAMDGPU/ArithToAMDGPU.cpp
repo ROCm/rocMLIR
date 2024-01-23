@@ -177,8 +177,8 @@ static Value clampInput(PatternRewriter &rewriter, Location loc,
   Value isNonFinite = rewriter.create<arith::OrIOp>(
       loc, rewriter.create<arith::OrIOp>(loc, isInf, isNegInf), isNan);
 
-  Value clampedBelow = rewriter.create<arith::MaxFOp>(loc, source, minCst);
-  Value clamped = rewriter.create<arith::MinFOp>(loc, clampedBelow, maxCst);
+  Value clampedBelow = rewriter.create<arith::MaximumFOp>(loc, source, minCst);
+  Value clamped = rewriter.create<arith::MinimumFOp>(loc, clampedBelow, maxCst);
   Value res =
       rewriter.create<arith::SelectOp>(loc, isNonFinite, source, clamped);
   return res;
@@ -207,7 +207,7 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
   VectorType truncResType = VectorType::get(4, outElemType);
   if (!in.getType().isa<VectorType>()) {
     Value asFloat = castToF32(in, loc, rewriter);
-    Value asF8s = rewriter.create<amdgpu::PackedTruncFp8x2Op>(
+    Value asF8s = rewriter.create<amdgpu::PackedTrunc2xFp8Op>(
         loc, truncResType, asFloat, /*sourceB=*/nullptr, 0,
         /*existing=*/nullptr);
     Value result = rewriter.create<vector::ExtractElementOp>(
@@ -242,7 +242,7 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, i + j + 1));
         asFloatB = castToF32(elemB, loc, rewriter);
       }
-      thisResult = rewriter.create<amdgpu::PackedTruncFp8x2Op>(
+      thisResult = rewriter.create<amdgpu::PackedTrunc2xFp8Op>(
           loc, truncResType, asFloatA, asFloatB, j / 2, thisResult);
     }
     if (elemsThisOp < 4)

@@ -8,8 +8,8 @@
 
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 
+#include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -68,6 +68,7 @@ void ControlFlowDialect::initialize() {
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.cpp.inc"
       >();
   addInterfaces<ControlFlowInlinerInterface>();
+  declarePromisedInterface<ControlFlowDialect, ConvertToLLVMPatternInterface>();
 }
 
 //===----------------------------------------------------------------------===//

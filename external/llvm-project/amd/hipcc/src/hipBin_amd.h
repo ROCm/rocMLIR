@@ -85,6 +85,11 @@ HipBinAmd::HipBinAmd() {
   platformInfo.runtime = rocclr;
   platformInfo.compiler = clang;
   platformInfoAMD_ = platformInfo;
+
+  // Base class calls readEnvVariables, but we need to make sure we set rocm_path and hip_path, so that we can set hipClangPath
+  constructHipPath();
+  constructRoccmPath();
+  constructCompilerPath();
 }
 
 // returns the Rocclr Home path
@@ -155,17 +160,6 @@ void HipBinAmd::initializeHipLdFlags() {
 }
 
 void HipBinAmd::initializeHipCFlags() {
-  string hipCFlags;
-  const OsType& os = getOSInfo();
-  if (os != windows) {
-    string hsaPath;
-    hsaPath = getHsaPath();
-    hipCFlags += " -isystem " + hsaPath + "/include";
-  }
-  string hipIncludePath;
-  hipIncludePath = getHipInclude();
-  hipCFlags += " -isystem \"" + hipIncludePath + "\"";
-  hipCFlags_ = hipCFlags;
 }
 
 const string& HipBinAmd::getHipCXXFlags() const {
@@ -197,14 +191,6 @@ void HipBinAmd::initializeHipCXXFlags() {
     " -Xclang -fallow-half-arguments-and-returns -D__HIP_HCC_COMPAT_MODE__=1";
   }
 
-  if (os != windows) {
-    const string& hsaPath = getHsaPath();
-    hipCXXFlags += " -isystem " + hsaPath + "/include";
-  }
-  // Add paths to common HIP includes:
-  string hipIncludePath;
-  hipIncludePath = getHipInclude();
-  hipCXXFlags += " -isystem \"" + hipIncludePath + "\"";
   hipCXXFlags_ = hipCXXFlags;
 }
 
@@ -222,11 +208,9 @@ void HipBinAmd::constructCompilerPath() {
       complierPath = getRoccmPath();
       hipClangPath = complierPath;
     }
-    if (fs::exists("llvm/bin/clang++")) {
-      hipClangPath /= "llvm/bin";
-    } else {
-      hipClangPath /= "bin";
-    }
+
+    hipClangPath /= "llvm/bin";
+
     complierPath = hipClangPath.string();
   } else {
     complierPath = envVariables.hipClangPathEnv_;
@@ -244,7 +228,7 @@ void HipBinAmd::printCompilerInfo() const {
   const string& hipClangPath = getCompilerPath();
   const string& hipPath = getHipPath();
   if (os == windows) {
-    string cmd = hipClangPath + "/clang++ --version";
+    string cmd = hipClangPath + "/clang++ --print-resource-dir";
     system(cmd.c_str());  // hipclang version
     cout << "llc-version :" << endl;
     cmd = hipClangPath + "/llc --version";
@@ -257,7 +241,7 @@ void HipBinAmd::printCompilerInfo() const {
     system(cmd.c_str());  // ld flags
     cout << endl;
   } else {
-    string cmd = hipClangPath + "/clang++ --version";
+    string cmd = hipClangPath + "/clang++ --print-resource-dir";
     system(cmd.c_str());  // hipclang version
     cmd = hipClangPath + "/llc --version";
     system(cmd.c_str());  // llc version
@@ -276,7 +260,7 @@ string HipBinAmd::getCompilerVersion() {
   const string& hipClangPath = getCompilerPath();
   fs::path cmdAmd = hipClangPath;
   cmdAmd /= "clang++";
-  if (canRunCompiler(cmdAmd.string(), out) || canRunCompiler("clang++", out)) {
+  if (canRunCompiler(cmdAmd.string(), out) || canRunCompiler("amdclang++", out)) {
     regex regexp("([0-9.]+)");
     smatch m;
     if (regex_search(out, m, regexp)) {
@@ -327,21 +311,42 @@ string HipBinAmd::getCppConfig() {
 
 string HipBinAmd::getDeviceLibPath() const {
   const EnvVariables& var = getEnvVariables();
+  const string& rocclrHomePath = getRocclrHomePath();
+  const string& roccmPath = getRoccmPath();
+  fs::path bitCodePath = rocclrHomePath;
+  bitCodePath /= "lib/bitcode";
   string deviceLibPath = var.deviceLibPathEnv_;
+  if (deviceLibPath.empty() && fs::exists(bitCodePath)) {
+    deviceLibPath = bitCodePath.string();
+  }
+
+  if (deviceLibPath.empty()) {
+    fs::path amdgcnBitcode = roccmPath;
+    amdgcnBitcode /= "amdgcn/bitcode";
+    if (fs::exists(amdgcnBitcode)) {
+      deviceLibPath = amdgcnBitcode.string();
+    } else {
+      // This path is to support an older build of the device library
+      // TODO(hipcc): To be removed in the future.
+      fs::path lib = roccmPath;
+      lib /= "lib";
+      deviceLibPath = lib.string();
+    }
+  }
   return deviceLibPath;
 }
 
 
 bool HipBinAmd::detectPlatform() {
   string out;
+  constructCompilerPath();
   const string& hipClangPath = getCompilerPath();
   fs::path cmdAmd = hipClangPath;
   cmdAmd /= "clang++";
   const EnvVariables& var = getEnvVariables();
   bool detected = false;
   if (var.hipPlatformEnv_.empty()) {
-    if (canRunCompiler(cmdAmd.string(), out) ||
-       (canRunCompiler("clang++", out))) {
+    if (canRunCompiler(cmdAmd.string(), out)){
       detected = true;
     }
   } else {
@@ -703,8 +708,8 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
   }  // end of ARGV Processing Loop
 
   // now construct Paths ...
-  constructRoccmPath();         // constructs Roccm Path
   constructHipPath();           // constructs HIP Path
+  constructRoccmPath();         // constructs Roccm Path
   readHipVersion();             // stores the hip version
   constructCompilerPath();
   constructRocclrHomePath();
@@ -839,7 +844,9 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
   }
 
   if (hasHIP) {
-    if (!deviceLibPath.empty()) {
+    fs::path bitcodeFs = roccmPath;
+    bitcodeFs /= "amdgcn/bitcode";
+    if (deviceLibPath != bitcodeFs.string()) {
       string hip_device_lib_str = " --hip-device-lib-path=\""
                                   + deviceLibPath + "\"";
       HIPCXXFLAGS += hip_device_lib_str;

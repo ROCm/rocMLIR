@@ -88,10 +88,7 @@ CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt) {
   llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
 
   // workgroup_size
-  llvm::Value *WorkGroupSize =
-      CGM.isXteamRedKernel(&FStmt)
-          ? RT.getXteamRedBlockSize(*this, CGM.getXteamRedBlockSize(&FStmt))
-          : RT.getGPUNumThreads(*this);
+  llvm::Value *WorkGroupSize = RT.getGPUNumThreads(*this);
 
   // workgroup_id
   llvm::Value *WorkGroupId = RT.getGPUBlockID(*this);
@@ -147,11 +144,7 @@ void CodeGenFunction::EmitBigJumpLoopInc(const ForStmt &FStmt,
   const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
 
   auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
-  llvm::Value *BlockSize =
-      CGM.isXteamRedKernel(&FStmt)
-          ? RT.getXteamRedBlockSize(*this, CGM.getXteamRedBlockSize(&FStmt))
-          : RT.getGPUNumThreads(*this);
-
+  llvm::Value *BlockSize = RT.getGPUNumThreads(*this);
   llvm::Value *NumBlocks = CGM.isXteamRedKernel(&FStmt)
                                ? CGM.getXteamRedNumTeams(&FStmt)
                                : RT.getGPUNumBlocks(*this);
@@ -220,6 +213,7 @@ CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
 
   // Emit init of the iteration variable
   EmitIgnoredExpr(LD.getInit());
+
   return std::make_pair(IVDecl, GetAddrOfLocalVar(IVDecl));
 }
 
@@ -460,6 +454,7 @@ void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
   llvm::Value *NumTeams = CGM.getXteamRedNumTeams(FStmt);
   assert(NumTeams && "Number of teams cannot be null");
 
+  bool IsFast = CGM.isXteamRedFast(FStmt);
   auto XteamOrdVars = CGM.getXteamOrderedRedVar(FStmt);
   // Always emit calls to Xteam device functions in the same order as
   // user-specified reduction variables.
@@ -483,7 +478,7 @@ void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
     // Pass in OrigRedVarAddr.getPointer to kmpc_xteam_sum
     RT.getXteamRedSum(*this, Builder.CreateLoad(RVI.RedVarAddr),
                       OrigRedVarAddr.getPointer(), DTeamVals, DTeamsDonePtr,
-                      ThreadStartIdx, NumTeams, BlockSize);
+                      ThreadStartIdx, NumTeams, BlockSize, IsFast);
   }
 }
 
@@ -933,8 +928,10 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     EmitOMPInteropDirective(cast<OMPInteropDirective>(*S));
     break;
   case Stmt::OMPDispatchDirectiveClass:
-    llvm_unreachable("Dispatch directive not supported yet.");
+    CGM.ErrorUnsupported(S, "OpenMP dispatch directive");
     break;
+  case Stmt::OMPScopeDirectiveClass:
+    llvm_unreachable("scope not supported with FE outlining");
   case Stmt::OMPMaskedDirectiveClass:
     EmitOMPMaskedDirective(cast<OMPMaskedDirective>(*S));
     break;
@@ -1361,7 +1358,19 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   if (!ThenCount && !getCurrentProfileCount() &&
       CGM.getCodeGenOpts().OptimizationLevel)
     LH = Stmt::getLikelihood(S.getThen(), S.getElse());
-  EmitBranchOnBoolExpr(S.getCond(), ThenBlock, ElseBlock, ThenCount, LH);
+
+  // When measuring MC/DC, always fully evaluate the condition up front using
+  // EvaluateExprAsBool() so that the test vector bitmap can be updated prior to
+  // executing the body of the if.then or if.else. This is useful for when
+  // there is a 'return' within the body, but this is particularly beneficial
+  // when one if-stmt is nested within another if-stmt so that all of the MC/DC
+  // updates are kept linear and consistent.
+  if (!CGM.getCodeGenOpts().MCDCCoverage)
+    EmitBranchOnBoolExpr(S.getCond(), ThenBlock, ElseBlock, ThenCount, LH);
+  else {
+    llvm::Value *BoolCondVal = EvaluateExprAsBool(S.getCond());
+    Builder.CreateCondBr(BoolCondVal, ThenBlock, ElseBlock);
+  }
 
   // Emit the 'then' code.
   EmitBlock(ThenBlock);
@@ -1858,8 +1867,7 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
     SLocPtr->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
     CGM.getSanitizerMetadata()->disableSanitizerForGlobal(SLocPtr);
     assert(ReturnLocation.isValid() && "No valid return location");
-    Builder.CreateStore(Builder.CreateBitCast(SLocPtr, Int8PtrTy),
-                        ReturnLocation);
+    Builder.CreateStore(SLocPtr, ReturnLocation);
   }
 
   // Returning from an outlined SEH helper is UB, and we already warn on it.
@@ -2947,9 +2955,9 @@ EmitAsmStores(CodeGenFunction &CGF, const AsmStmt &S,
         Tmp = Builder.CreatePtrToInt(
             Tmp, llvm::IntegerType::get(CTX, (unsigned)TmpSize));
         Tmp = Builder.CreateTrunc(Tmp, TruncTy);
-      } else if (TruncTy->isIntegerTy()) {
+      } else if (Tmp->getType()->isIntegerTy() && TruncTy->isIntegerTy()) {
         Tmp = Builder.CreateZExtOrTrunc(Tmp, TruncTy);
-      } else if (TruncTy->isVectorTy()) {
+      } else if (Tmp->getType()->isVectorTy() || TruncTy->isVectorTy()) {
         Tmp = Builder.CreateBitCast(Tmp, TruncTy);
       }
     }
@@ -3108,7 +3116,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
       ResultRegQualTys.push_back(QTy);
       ResultRegDests.push_back(Dest);
 
-      bool IsFlagReg = llvm::StringRef(OutputConstraint).startswith("{@cc");
+      bool IsFlagReg = llvm::StringRef(OutputConstraint).starts_with("{@cc");
       ResultRegIsFlagReg.push_back(IsFlagReg);
 
       llvm::Type *Ty = ConvertTypeForMem(QTy);

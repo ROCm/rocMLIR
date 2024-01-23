@@ -14,7 +14,7 @@
 // Make sure that accessing a span out-of-bounds triggers an assertion.
 
 // REQUIRES: has-unix-headers
-// UNSUPPORTED: !libcpp-has-hardened-mode && !libcpp-has-debug-mode
+// UNSUPPORTED: libcpp-hardening-mode=none
 // XFAIL: availability-verbose_abort-missing
 
 #include <array>

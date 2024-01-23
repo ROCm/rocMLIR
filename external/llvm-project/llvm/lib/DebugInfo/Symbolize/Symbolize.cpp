@@ -14,6 +14,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/DebugInfo/BTF/BTFContext.h"
+#include "llvm/DebugInfo/DIContext.h"
 #include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/DebugInfo/PDB/PDB.h"
 #include "llvm/DebugInfo/PDB/PDBContext.h"
@@ -24,6 +25,7 @@
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/MachOUniversal.h"
+#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/CRC.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DataExtractor.h"
@@ -52,7 +54,7 @@ LLVMSymbolizer::~LLVMSymbolizer() = default;
 template <typename T>
 Expected<DILineInfo>
 LLVMSymbolizer::symbolizeCodeCommon(const T &ModuleSpecifier,
-                                    object::SectionedAddress ModuleOffset) {
+                                    object::SectionedAddress ModuleOffset,bool nearest) {
 
   auto InfoOrErr = getOrCreateModuleInfo(ModuleSpecifier);
   if (!InfoOrErr)
@@ -70,9 +72,22 @@ LLVMSymbolizer::symbolizeCodeCommon(const T &ModuleSpecifier,
   if (Opts.RelativeAddresses)
     ModuleOffset.Address += Info->getModulePreferredBase();
 
-  DILineInfo LineInfo = Info->symbolizeCode(
+	DILineInfo LineInfo;
+	if (!nearest)
+  LineInfo = Info->symbolizeCode(
       ModuleOffset, DILineInfoSpecifier(Opts.PathStyle, Opts.PrintFunctions),
       Opts.UseSymbolTable);
+	else {
+		object::SectionedAddress PrevModuleOffset = ModuleOffset;
+		while(LineInfo.Line==0){
+			LineInfo = Info->symbolizeCode(ModuleOffset,DILineInfoSpecifier(Opts.PathStyle,Opts.PrintFunctions),Opts.UseSymbolTable);
+			if(LineInfo.Line!=0)break;
+			ModuleOffset.Address++;
+			--PrevModuleOffset.Address;
+			LineInfo = Info->symbolizeCode(PrevModuleOffset, DILineInfoSpecifier(Opts.PathStyle,Opts.PrintFunctions),Opts.UseSymbolTable);
+		}
+	}
+
   if (Opts.Demangle)
     LineInfo.FunctionName = DemangleName(LineInfo.FunctionName, Info);
   return LineInfo;
@@ -80,20 +95,20 @@ LLVMSymbolizer::symbolizeCodeCommon(const T &ModuleSpecifier,
 
 Expected<DILineInfo>
 LLVMSymbolizer::symbolizeCode(const ObjectFile &Obj,
-                              object::SectionedAddress ModuleOffset) {
-  return symbolizeCodeCommon(Obj, ModuleOffset);
+                              object::SectionedAddress ModuleOffset,bool nearest) {
+  return symbolizeCodeCommon(Obj, ModuleOffset,nearest);
 }
 
 Expected<DILineInfo>
 LLVMSymbolizer::symbolizeCode(const std::string &ModuleName,
-                              object::SectionedAddress ModuleOffset) {
-  return symbolizeCodeCommon(ModuleName, ModuleOffset);
+                              object::SectionedAddress ModuleOffset,bool nearest) {
+  return symbolizeCodeCommon(ModuleName, ModuleOffset,nearest);
 }
 
 Expected<DILineInfo>
 LLVMSymbolizer::symbolizeCode(ArrayRef<uint8_t> BuildID,
-                              object::SectionedAddress ModuleOffset) {
-  return symbolizeCodeCommon(BuildID, ModuleOffset);
+                              object::SectionedAddress ModuleOffset,bool nearest) {
+  return symbolizeCodeCommon(BuildID, ModuleOffset,nearest);
 }
 
 template <typename T>
@@ -229,6 +244,54 @@ Expected<std::vector<DILocal>>
 LLVMSymbolizer::symbolizeFrame(ArrayRef<uint8_t> BuildID,
                                object::SectionedAddress ModuleOffset) {
   return symbolizeFrameCommon(BuildID, ModuleOffset);
+}
+
+template <typename T>
+Expected<std::vector<DILineInfo>>
+LLVMSymbolizer::findSymbolCommon(const T &ModuleSpecifier, StringRef Symbol,
+                                 uint64_t Offset) {
+  auto InfoOrErr = getOrCreateModuleInfo(ModuleSpecifier);
+  if (!InfoOrErr)
+    return InfoOrErr.takeError();
+
+  SymbolizableModule *Info = *InfoOrErr;
+  std::vector<DILineInfo> Result;
+
+  // A null module means an error has already been reported. Return an empty
+  // result.
+  if (!Info)
+    return Result;
+
+  for (object::SectionedAddress A : Info->findSymbol(Symbol, Offset)) {
+    DILineInfo LineInfo = Info->symbolizeCode(
+        A, DILineInfoSpecifier(Opts.PathStyle, Opts.PrintFunctions),
+        Opts.UseSymbolTable);
+    if (LineInfo.FileName != DILineInfo::BadString) {
+      if (Opts.Demangle)
+        LineInfo.FunctionName = DemangleName(LineInfo.FunctionName, Info);
+      Result.push_back(LineInfo);
+    }
+  }
+
+  return Result;
+}
+
+Expected<std::vector<DILineInfo>>
+LLVMSymbolizer::findSymbol(const ObjectFile &Obj, StringRef Symbol,
+                           uint64_t Offset) {
+  return findSymbolCommon(Obj, Symbol, Offset);
+}
+
+Expected<std::vector<DILineInfo>>
+LLVMSymbolizer::findSymbol(const std::string &ModuleName, StringRef Symbol,
+                           uint64_t Offset) {
+  return findSymbolCommon(ModuleName, Symbol, Offset);
+}
+
+Expected<std::vector<DILineInfo>>
+LLVMSymbolizer::findSymbol(ArrayRef<uint8_t> BuildID, StringRef Symbol,
+                           uint64_t Offset) {
+  return findSymbolCommon(BuildID, Symbol, Offset);
 }
 
 void LLVMSymbolizer::flush() {
@@ -386,14 +449,14 @@ bool LLVMSymbolizer::findDebugBinary(const std::string &OrigPath,
   // Try relative/path/to/original_binary/debuglink_name
   llvm::sys::path::append(DebugPath, DebuglinkName);
   if (checkFileCRC(DebugPath, CRCHash)) {
-    Result = std::string(DebugPath.str());
+    Result = std::string(DebugPath);
     return true;
   }
   // Try relative/path/to/original_binary/.debug/debuglink_name
   DebugPath = OrigDir;
   llvm::sys::path::append(DebugPath, ".debug", DebuglinkName);
   if (checkFileCRC(DebugPath, CRCHash)) {
-    Result = std::string(DebugPath.str());
+    Result = std::string(DebugPath);
     return true;
   }
   // Make the path absolute so that lookups will go to
@@ -415,7 +478,7 @@ bool LLVMSymbolizer::findDebugBinary(const std::string &OrigPath,
   llvm::sys::path::append(DebugPath, llvm::sys::path::relative_path(OrigDir),
                           DebuglinkName);
   if (checkFileCRC(DebugPath, CRCHash)) {
-    Result = std::string(DebugPath.str());
+    Result = std::string(DebugPath);
     return true;
   }
   return false;
@@ -673,7 +736,7 @@ StringRef demanglePE32ExternCFunc(StringRef SymbolName) {
 
   // Remove any ending '@' for vectorcall.
   bool IsVectorCall = false;
-  if (HasAtNumSuffix && SymbolName.endswith("@")) {
+  if (HasAtNumSuffix && SymbolName.ends_with("@")) {
     SymbolName = SymbolName.drop_back();
     IsVectorCall = true;
   }

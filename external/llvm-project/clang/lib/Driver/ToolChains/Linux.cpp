@@ -61,12 +61,16 @@ std::string Linux::getMultiarchTriple(const Driver &D,
   case llvm::Triple::thumb:
     if (IsAndroid)
       return "arm-linux-androideabi";
-    if (TargetEnvironment == llvm::Triple::GNUEABIHF)
+    if (TargetEnvironment == llvm::Triple::GNUEABIHF ||
+        TargetEnvironment == llvm::Triple::MuslEABIHF ||
+        TargetEnvironment == llvm::Triple::EABIHF)
       return "arm-linux-gnueabihf";
     return "arm-linux-gnueabi";
   case llvm::Triple::armeb:
   case llvm::Triple::thumbeb:
-    if (TargetEnvironment == llvm::Triple::GNUEABIHF)
+    if (TargetEnvironment == llvm::Triple::GNUEABIHF ||
+        TargetEnvironment == llvm::Triple::MuslEABIHF ||
+        TargetEnvironment == llvm::Triple::EABIHF)
       return "armeb-linux-gnueabihf";
     return "armeb-linux-gnueabi";
   case llvm::Triple::x86:
@@ -961,7 +965,7 @@ void Linux::AddHIPRuntimeLibArgs(const ArgList &Args,
       Args.MakeArgString(StringRef("-L") + RocmInstallation->getLibPath()));
 
   if (Args.hasFlag(options::OPT_frtlib_add_rpath,
-                   options::OPT_fno_rtlib_add_rpath, false))
+                   options::OPT_fno_rtlib_add_rpath, true))
     CmdArgs.append(
         {"-rpath", Args.MakeArgString(RocmInstallation->getLibPath())});
 
@@ -1035,7 +1039,7 @@ SanitizerMask Linux::getSupportedSanitizers() const {
       IsRISCV64 || IsSystemZ || IsHexagon || IsLoongArch64)
     Res |= SanitizerKind::Leak;
   if (IsX86_64 || IsMIPS64 || IsAArch64 || IsPowerPC64 || IsSystemZ ||
-      IsLoongArch64)
+      IsLoongArch64 || IsRISCV64)
     Res |= SanitizerKind::Thread;
   if (IsX86_64 || IsSystemZ)
     Res |= SanitizerKind::KernelMemory;

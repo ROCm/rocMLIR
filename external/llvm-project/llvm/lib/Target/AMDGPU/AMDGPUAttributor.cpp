@@ -815,21 +815,6 @@ AAAMDFlatWorkGroupSize::createForPosition(const IRPosition &IRP,
       "AAAMDFlatWorkGroupSize is only valid for function position");
 }
 
-static void addPreloadKernArgHint(Function &F, TargetMachine &TM) {
-  const GCNSubtarget &ST = TM.getSubtarget<GCNSubtarget>(F);
-  for (unsigned I = 0;
-       I < F.arg_size() &&
-       I < std::min(KernargPreloadCount.getValue(), ST.getMaxNumUserSGPRs());
-       ++I) {
-    Argument &Arg = *F.getArg(I);
-    // Check for incompatible attributes.
-    if (Arg.hasByRefAttr() || Arg.hasNestAttr())
-      break;
-
-    Arg.addAttr(Attribute::InReg);
-  }
-}
-
 /// Propagate amdgpu-waves-per-eu attribute.
 struct AAAMDWavesPerEU : public AAAMDSizeRangeAttribute {
   AAAMDWavesPerEU(const IRPosition &IRP, Attributor &A)
@@ -933,9 +918,68 @@ AAAMDWavesPerEU &AAAMDWavesPerEU::createForPosition(const IRPosition &IRP,
   llvm_unreachable("AAAMDWavesPerEU is only valid for function position");
 }
 
-class AMDGPUAttributor : public ModulePass {
+static void addPreloadKernArgHint(Function &F, TargetMachine &TM) {
+  const GCNSubtarget &ST = TM.getSubtarget<GCNSubtarget>(F);
+  for (unsigned I = 0;
+       I < F.arg_size() &&
+       I < std::min(KernargPreloadCount.getValue(), ST.getMaxNumUserSGPRs());
+       ++I) {
+    Argument &Arg = *F.getArg(I);
+    // Check for incompatible attributes.
+    if (Arg.hasByRefAttr() || Arg.hasNestAttr())
+      break;
+
+    Arg.addAttr(Attribute::InReg);
+  }
+}
+
+static bool runImpl(Module &M, AnalysisGetter &AG, TargetMachine &TM) {
+  SetVector<Function *> Functions;
+  for (Function &F : M) {
+    if (!F.isIntrinsic())
+      Functions.insert(&F);
+  }
+
+  CallGraphUpdater CGUpdater;
+  BumpPtrAllocator Allocator;
+  AMDGPUInformationCache InfoCache(M, AG, Allocator, nullptr, TM);
+  DenseSet<const char *> Allowed(
+      {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
+       &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
+       &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
+       &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
+
+  AttributorConfig AC(CGUpdater);
+  AC.Allowed = &Allowed;
+  AC.IsModulePass = true;
+  AC.DefaultInitializeLiveInternals = false;
+  AC.IPOAmendableCB = [](const Function &F) {
+    return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
+  };
+
+  Attributor A(Functions, InfoCache, AC);
+
+  for (Function &F : M) {
+    if (!F.isIntrinsic()) {
+      A.getOrCreateAAFor<AAAMDAttributes>(IRPosition::function(F));
+      A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(F));
+      CallingConv::ID CC = F.getCallingConv();
+      if (!AMDGPU::isEntryFunctionCC(CC)) {
+        A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(F));
+        A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(F));
+      } else if (CC == CallingConv::AMDGPU_KERNEL) {
+        addPreloadKernArgHint(F, TM);
+      }
+    }
+  }
+
+  ChangeStatus Change = A.run();
+  return Change == ChangeStatus::CHANGED;
+}
+
+class AMDGPUAttributorLegacy : public ModulePass {
 public:
-  AMDGPUAttributor() : ModulePass(ID) {}
+  AMDGPUAttributorLegacy() : ModulePass(ID) {}
 
   /// doInitialization - Virtual method overridden by subclasses to do
   /// any necessary initialization before any pass is run.
@@ -949,47 +993,8 @@ public:
   }
 
   bool runOnModule(Module &M) override {
-    SetVector<Function *> Functions;
     AnalysisGetter AG(this);
-    for (Function &F : M) {
-      if (!F.isIntrinsic())
-        Functions.insert(&F);
-    }
-
-    CallGraphUpdater CGUpdater;
-    BumpPtrAllocator Allocator;
-    AMDGPUInformationCache InfoCache(M, AG, Allocator, nullptr, *TM);
-    DenseSet<const char *> Allowed(
-        {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
-         &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
-         &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
-         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
-
-    AttributorConfig AC(CGUpdater);
-    AC.Allowed = &Allowed;
-    AC.IsModulePass = true;
-    AC.DefaultInitializeLiveInternals = false;
-    AC.IPOAmendableCB = [](const Function &F) {
-      return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
-    };
-
-    Attributor A(Functions, InfoCache, AC);
-
-    for (Function &F : M) {
-      if (!F.isIntrinsic()) {
-        A.getOrCreateAAFor<AAAMDAttributes>(IRPosition::function(F));
-        A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(F));
-        CallingConv::ID CC = F.getCallingConv();
-        if (!AMDGPU::isEntryFunctionCC(CC)) {
-          A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(F));
-        } else if (CC == CallingConv::AMDGPU_KERNEL) {
-          addPreloadKernArgHint(F, *TM);
-        }
-      }
-    }
-
-    ChangeStatus Change = A.run();
-    return Change == ChangeStatus::CHANGED;
+    return runImpl(M, AG, *TM);
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -1002,11 +1007,25 @@ public:
 };
 } // namespace
 
-char AMDGPUAttributor::ID = 0;
+PreservedAnalyses llvm::AMDGPUAttributorPass::run(Module &M,
+                                                  ModuleAnalysisManager &AM) {
 
-Pass *llvm::createAMDGPUAttributorPass() { return new AMDGPUAttributor(); }
-INITIALIZE_PASS_BEGIN(AMDGPUAttributor, DEBUG_TYPE, "AMDGPU Attributor", false,
-                      false)
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  AnalysisGetter AG(FAM);
+
+  // TODO: Probably preserves CFG
+  return runImpl(M, AG, TM) ? PreservedAnalyses::none()
+                            : PreservedAnalyses::all();
+}
+
+char AMDGPUAttributorLegacy::ID = 0;
+
+Pass *llvm::createAMDGPUAttributorLegacyPass() {
+  return new AMDGPUAttributorLegacy();
+}
+INITIALIZE_PASS_BEGIN(AMDGPUAttributorLegacy, DEBUG_TYPE, "AMDGPU Attributor",
+                      false, false)
 INITIALIZE_PASS_DEPENDENCY(CycleInfoWrapperPass);
-INITIALIZE_PASS_END(AMDGPUAttributor, DEBUG_TYPE, "AMDGPU Attributor", false,
-                    false)
+INITIALIZE_PASS_END(AMDGPUAttributorLegacy, DEBUG_TYPE, "AMDGPU Attributor",
+                    false, false)

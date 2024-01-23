@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 #include <stack>
@@ -426,6 +427,7 @@ void DwarfExpression::beginEntryValueExpression(
 
   SavedLocationKind = LocationKind;
   LocationKind = Register;
+  LocationFlags |= EntryValue;
   IsEmittingEntryValue = true;
   enableTemporaryBuffer();
 }
@@ -752,7 +754,7 @@ void DwarfExpression::addWasmLocation(unsigned Index, uint64_t Offset) {
 }
 
 static bool isUnsigned(const ConstantInt *CI) {
-  return (CI->getType()->getSignBit() & CI->getSExtValue()) == 0;
+  return (CI->getIntegerType()->getSignBit() & CI->getSExtValue()) == 0;
 }
 
 size_t DwarfExprAST::Node::getChildrenCount() const {
@@ -842,10 +844,10 @@ bool DwarfExprAST::tryInlineArgObject(DIObject *ArgObject) {
   auto *Fragment = dyn_cast<DIFragment>(ArgObject);
   if (!Fragment)
     return false;
-  const auto GV = GVFragmentMap->find(Fragment);
-  if (GV == GVFragmentMap->end())
+  const auto GVRef = GVFragmentMap->find(Fragment);
+  if (GVRef == GVFragmentMap->end() || !GVRef->getSecond())
     return false;
-  const GlobalVariable *Global = GV->getSecond();
+  const GlobalVariable *Global = cast<GlobalVariable>(GVRef->getSecond());
   // FIXME(KZHURAVL): This depends on the target and address space
   // semantics. For AMDGPU, address space 3 is lds/local/shared.
   // Need to replace this with a target hook!
@@ -1058,7 +1060,16 @@ void DebugLocDwarfExprAST::emitDwarfData1(uint8_t Data1Value) {
   getActiveStreamer().emitInt8(Data1Value, Twine(Data1Value));
 }
 
-void DebugLocDwarfExprAST::emitDwarfOp(uint8_t DwarfOpValue, const char *Comment) {
+void DebugLocDwarfExprAST::emitDwarfOp(uint8_t DwarfOpValue,
+                                       const char *Comment) {
+  if (EmitHeterogeneousDwarfAsUserOps) {
+    if (auto OptUserOp = dwarf::getUserOp(DwarfOpValue)) {
+      getActiveStreamer().emitInt8(
+          dwarf::DW_OP_LLVM_user,
+          dwarf::OperationEncodingString(dwarf::DW_OP_LLVM_user));
+      DwarfOpValue = *OptUserOp;
+    }
+  }
   getActiveStreamer().emitInt8(
       DwarfOpValue, Comment ? Twine(Comment) + " " +
                                   dwarf::OperationEncodingString(DwarfOpValue)
@@ -1098,6 +1109,12 @@ void DIEDwarfExprAST::emitDwarfData1(uint8_t Data1Value) {
 }
 
 void DIEDwarfExprAST::emitDwarfOp(uint8_t DwarfOpValue, const char *Comment) {
+  if (EmitHeterogeneousDwarfAsUserOps) {
+    if (auto OptUserOp = dwarf::getUserOp(DwarfOpValue)) {
+      CU.addUInt(getActiveDIE(), dwarf::DW_FORM_data1, dwarf::DW_OP_LLVM_user);
+      DwarfOpValue = *OptUserOp;
+    }
+  }
   CU.addUInt(getActiveDIE(), dwarf::DW_FORM_data1, DwarfOpValue);
 }
 

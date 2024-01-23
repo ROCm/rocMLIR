@@ -113,7 +113,6 @@ MLIRLLVMDialect
 MLIRLLVMIRTransforms
 MLIRLLVMToLLVMIRTranslation
 MLIRLinalgDialect
-MLIRLinalgToLLVM
 MLIRLinalgTransforms
 MLIRLinalgUtils
 MLIRLoopLikeInterface

@@ -67,12 +67,34 @@
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/StackLifetime.h"
 #include "llvm/Analysis/StackSafetyAnalysis.h"
+#include "llvm/Analysis/StructuralHash.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
 #include "llvm/Analysis/UniformityAnalysis.h"
+#include "llvm/CodeGen/AssignmentTrackingAnalysis.h"
+#include "llvm/CodeGen/BasicBlockSectionsProfileReader.h"
+#include "llvm/CodeGen/CallBrPrepare.h"
+#include "llvm/CodeGen/CodeGenPrepare.h"
+#include "llvm/CodeGen/DwarfEHPrepare.h"
+#include "llvm/CodeGen/ExpandLargeDivRem.h"
+#include "llvm/CodeGen/ExpandLargeFpConvert.h"
+#include "llvm/CodeGen/ExpandMemCmp.h"
+#include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/HardwareLoops.h"
+#include "llvm/CodeGen/IndirectBrExpand.h"
+#include "llvm/CodeGen/InterleavedAccess.h"
+#include "llvm/CodeGen/InterleavedLoadCombine.h"
+#include "llvm/CodeGen/JMCInstrumenter.h"
+#include "llvm/CodeGen/LowerEmuTLS.h"
+#include "llvm/CodeGen/SafeStack.h"
+#include "llvm/CodeGen/SelectOptimize.h"
+#include "llvm/CodeGen/ShadowStackGCLowering.h"
+#include "llvm/CodeGen/SjLjEHPrepare.h"
+#include "llvm/CodeGen/StackProtector.h"
 #include "llvm/CodeGen/TypePromotion.h"
+#include "llvm/CodeGen/WasmEHPrepare.h"
+#include "llvm/CodeGen/WinEHPrepare.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/HeterogeneousDebugVerify.h"
@@ -89,6 +111,7 @@
 #include "llvm/Support/Regex.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
+#include "llvm/Transforms/CFGuard.h"
 #include "llvm/Transforms/Coroutines/CoroCleanup.h"
 #include "llvm/Transforms/Coroutines/CoroConditionalWrapper.h"
 #include "llvm/Transforms/Coroutines/CoroEarly.h"
@@ -172,6 +195,7 @@
 #include "llvm/Transforms/Scalar/IndVarSimplify.h"
 #include "llvm/Transforms/Scalar/InductiveRangeCheckElimination.h"
 #include "llvm/Transforms/Scalar/InferAddressSpaces.h"
+#include "llvm/Transforms/Scalar/InferAlignment.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/JumpThreading.h"
 #include "llvm/Transforms/Scalar/LICM.h"
@@ -233,6 +257,7 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/CanonicalizeFreezeInLoops.h"
 #include "llvm/Transforms/Utils/CountVisits.h"
+#include "llvm/Transforms/Utils/DXILUpgrade.h"
 #include "llvm/Transforms/Utils/Debugify.h"
 #include "llvm/Transforms/Utils/EntryExitInstrumenter.h"
 #include "llvm/Transforms/Utils/FixIrreducible.h"
@@ -387,108 +412,12 @@ cl::opt<bool> PrintPipelinePasses(
              "(best-effort only)."));
 } // namespace llvm
 
-namespace {
-
-// The following passes/analyses have custom names, otherwise their name will
-// include `(anonymous namespace)`. These are special since they are only for
-// testing purposes and don't live in a header file.
-
-/// No-op module pass which does nothing.
-struct NoOpModulePass : PassInfoMixin<NoOpModulePass> {
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    return PreservedAnalyses::all();
-  }
-
-  static StringRef name() { return "NoOpModulePass"; }
-};
-
-/// No-op module analysis.
-class NoOpModuleAnalysis : public AnalysisInfoMixin<NoOpModuleAnalysis> {
-  friend AnalysisInfoMixin<NoOpModuleAnalysis>;
-  static AnalysisKey Key;
-
-public:
-  struct Result {};
-  Result run(Module &, ModuleAnalysisManager &) { return Result(); }
-  static StringRef name() { return "NoOpModuleAnalysis"; }
-};
-
-/// No-op CGSCC pass which does nothing.
-struct NoOpCGSCCPass : PassInfoMixin<NoOpCGSCCPass> {
-  PreservedAnalyses run(LazyCallGraph::SCC &C, CGSCCAnalysisManager &,
-                        LazyCallGraph &, CGSCCUpdateResult &UR) {
-    return PreservedAnalyses::all();
-  }
-  static StringRef name() { return "NoOpCGSCCPass"; }
-};
-
-/// No-op CGSCC analysis.
-class NoOpCGSCCAnalysis : public AnalysisInfoMixin<NoOpCGSCCAnalysis> {
-  friend AnalysisInfoMixin<NoOpCGSCCAnalysis>;
-  static AnalysisKey Key;
-
-public:
-  struct Result {};
-  Result run(LazyCallGraph::SCC &, CGSCCAnalysisManager &, LazyCallGraph &G) {
-    return Result();
-  }
-  static StringRef name() { return "NoOpCGSCCAnalysis"; }
-};
-
-/// No-op function pass which does nothing.
-struct NoOpFunctionPass : PassInfoMixin<NoOpFunctionPass> {
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
-    return PreservedAnalyses::all();
-  }
-  static StringRef name() { return "NoOpFunctionPass"; }
-};
-
-/// No-op function analysis.
-class NoOpFunctionAnalysis : public AnalysisInfoMixin<NoOpFunctionAnalysis> {
-  friend AnalysisInfoMixin<NoOpFunctionAnalysis>;
-  static AnalysisKey Key;
-
-public:
-  struct Result {};
-  Result run(Function &, FunctionAnalysisManager &) { return Result(); }
-  static StringRef name() { return "NoOpFunctionAnalysis"; }
-};
-
-/// No-op loop nest pass which does nothing.
-struct NoOpLoopNestPass : PassInfoMixin<NoOpLoopNestPass> {
-  PreservedAnalyses run(LoopNest &L, LoopAnalysisManager &,
-                        LoopStandardAnalysisResults &, LPMUpdater &) {
-    return PreservedAnalyses::all();
-  }
-  static StringRef name() { return "NoOpLoopNestPass"; }
-};
-
-/// No-op loop pass which does nothing.
-struct NoOpLoopPass : PassInfoMixin<NoOpLoopPass> {
-  PreservedAnalyses run(Loop &L, LoopAnalysisManager &,
-                        LoopStandardAnalysisResults &, LPMUpdater &) {
-    return PreservedAnalyses::all();
-  }
-  static StringRef name() { return "NoOpLoopPass"; }
-};
-
-/// No-op loop analysis.
-class NoOpLoopAnalysis : public AnalysisInfoMixin<NoOpLoopAnalysis> {
-  friend AnalysisInfoMixin<NoOpLoopAnalysis>;
-  static AnalysisKey Key;
-
-public:
-  struct Result {};
-  Result run(Loop &, LoopAnalysisManager &, LoopStandardAnalysisResults &) {
-    return Result();
-  }
-  static StringRef name() { return "NoOpLoopAnalysis"; }
-};
-
 AnalysisKey NoOpModuleAnalysis::Key;
 AnalysisKey NoOpCGSCCAnalysis::Key;
 AnalysisKey NoOpFunctionAnalysis::Key;
 AnalysisKey NoOpLoopAnalysis::Key;
+
+namespace {
 
 /// Whether or not we should populate a PassInstrumentationCallbacks's class to
 /// pass name map.
@@ -512,15 +441,42 @@ public:
   static StringRef name() { return "TriggerCrashPass"; }
 };
 
+// A pass for testing message reporting of -verify-each failures.
+// DO NOT USE THIS EXCEPT FOR TESTING!
+class TriggerVerifierErrorPass
+    : public PassInfoMixin<TriggerVerifierErrorPass> {
+public:
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    // Intentionally break the Module by creating an alias without setting the
+    // aliasee.
+    auto *PtrTy = llvm::PointerType::getUnqual(M.getContext());
+    GlobalAlias::create(PtrTy, PtrTy->getAddressSpace(),
+                        GlobalValue::LinkageTypes::InternalLinkage,
+                        "__bad_alias", nullptr, &M);
+    return PreservedAnalyses::none();
+  }
+
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    // Intentionally break the Function by inserting a terminator
+    // instruction in the middle of a basic block.
+    BasicBlock &BB = F.getEntryBlock();
+    new UnreachableInst(F.getContext(), BB.getTerminator());
+    return PreservedAnalyses::none();
+  }
+
+  static StringRef name() { return "TriggerVerifierErrorPass"; }
+};
+
 } // namespace
 
 PassBuilder::PassBuilder(TargetMachine *TM, PipelineTuningOptions PTO,
                          std::optional<PGOOptions> PGOOpt,
                          PassInstrumentationCallbacks *PIC)
     : TM(TM), PTO(PTO), PGOOpt(PGOOpt), PIC(PIC) {
+  bool ShouldPopulateClassToPassNames = PIC && shouldPopulateClassToPassNames();
   if (TM)
-    TM->registerPassBuilderCallbacks(*this);
-  if (PIC && shouldPopulateClassToPassNames()) {
+    TM->registerPassBuilderCallbacks(*this, ShouldPopulateClassToPassNames);
+  if (ShouldPopulateClassToPassNames) {
 #define MODULE_PASS(NAME, CREATE_PASS)                                         \
   PIC->addClassToPassName(decltype(CREATE_PASS)::name(), NAME);
 #define MODULE_PASS_WITH_PARAMS(NAME, CLASS, CREATE_PASS, PARSER, PARAMS)      \
@@ -548,6 +504,12 @@ PassBuilder::PassBuilder(TargetMachine *TM, PipelineTuningOptions PTO,
 #define CGSCC_ANALYSIS(NAME, CREATE_PASS)                                      \
   PIC->addClassToPassName(decltype(CREATE_PASS)::name(), NAME);
 #include "PassRegistry.def"
+
+#define MACHINE_FUNCTION_ANALYSIS(NAME, PASS_NAME, CONSTRUCTOR)                \
+  PIC->addClassToPassName(PASS_NAME::name(), NAME);
+#define MACHINE_FUNCTION_PASS(NAME, PASS_NAME, CONSTRUCTOR)                    \
+  PIC->addClassToPassName(PASS_NAME::name(), NAME);
+#include "llvm/CodeGen/MachinePassRegistry.def"
   }
 }
 
@@ -581,6 +543,17 @@ void PassBuilder::registerFunctionAnalyses(FunctionAnalysisManager &FAM) {
 
   for (auto &C : FunctionAnalysisRegistrationCallbacks)
     C(FAM);
+}
+
+void PassBuilder::registerMachineFunctionAnalyses(
+    MachineFunctionAnalysisManager &MFAM) {
+
+#define MACHINE_FUNCTION_ANALYSIS(NAME, PASS_NAME, CONSTRUCTOR)                \
+  MFAM.registerPass([&] { return PASS_NAME(); });
+#include "llvm/CodeGen/MachinePassRegistry.def"
+
+  for (auto &C : MachineFunctionAnalysisRegistrationCallbacks)
+    C(MFAM);
 }
 
 void PassBuilder::registerLoopAnalyses(LoopAnalysisManager &LAM) {
@@ -638,7 +611,7 @@ static bool checkParametrizedPassName(StringRef Name, StringRef PassName) {
   // normal pass name w/o parameters == default parameters
   if (Name.empty())
     return true;
-  return Name.startswith("<") && Name.endswith(">");
+  return Name.starts_with("<") && Name.ends_with(">");
 }
 
 static std::optional<OptimizationLevel> parseOptLevel(StringRef S) {
@@ -810,6 +783,26 @@ Expected<bool> parsePostOrderFunctionAttrsPassOptions(StringRef Params) {
                                "PostOrderFunctionAttrs");
 }
 
+Expected<CFGuardPass::Mechanism> parseCFGuardPassOptions(StringRef Params) {
+  if (Params.empty())
+    return CFGuardPass::Mechanism::Check;
+
+  auto [Param, RHS] = Params.split(';');
+  if (!RHS.empty())
+    return make_error<StringError>(
+        formatv("too many CFGuardPass parameters '{0}' ", Params).str(),
+        inconvertibleErrorCode());
+
+  if (Param == "check")
+    return CFGuardPass::Mechanism::Check;
+  if (Param == "dispatch")
+    return CFGuardPass::Mechanism::Dispatch;
+
+  return make_error<StringError>(
+      formatv("invalid CFGuardPass mechanism: '{0}' ", Param).str(),
+      inconvertibleErrorCode());
+}
+
 Expected<bool> parseEarlyCSEPassOptions(StringRef Params) {
   return parseSinglePassOption(Params, "memssa", "EarlyCSE");
 }
@@ -857,26 +850,6 @@ Expected<HWAddressSanitizerOptions> parseHWASanPassOptions(StringRef Params) {
     } else {
       return make_error<StringError>(
           formatv("invalid HWAddressSanitizer pass parameter '{0}' ", ParamName)
-              .str(),
-          inconvertibleErrorCode());
-    }
-  }
-  return Result;
-}
-
-Expected<EmbedBitcodeOptions> parseEmbedBitcodePassOptions(StringRef Params) {
-  EmbedBitcodeOptions Result;
-  while (!Params.empty()) {
-    StringRef ParamName;
-    std::tie(ParamName, Params) = Params.split(';');
-
-    if (ParamName == "thinlto") {
-      Result.IsThinLTO = true;
-    } else if (ParamName == "emit-summary") {
-      Result.EmitLTOSummary = true;
-    } else {
-      return make_error<StringError>(
-          formatv("invalid EmbedBitcode pass parameter '{0}' ", ParamName)
               .str(),
           inconvertibleErrorCode());
     }
@@ -958,6 +931,9 @@ Expected<SimplifyCFGOptions> parseSimplifyCFGOptions(StringRef Params) {
 
 Expected<InstCombineOptions> parseInstCombineOptions(StringRef Params) {
   InstCombineOptions Result;
+  // When specifying "instcombine" in -passes enable fix-point verification by
+  // default, as this is what most tests should use.
+  Result.setVerifyFixpoint(true);
   while (!Params.empty()) {
     StringRef ParamName;
     std::tie(ParamName, Params) = Params.split(';');
@@ -965,6 +941,8 @@ Expected<InstCombineOptions> parseInstCombineOptions(StringRef Params) {
     bool Enable = !ParamName.consume_front("no-");
     if (ParamName == "use-loop-info") {
       Result.setUseLoopInfo(Enable);
+    } else if (ParamName == "verify-fixpoint") {
+      Result.setVerifyFixpoint(Enable);
     } else if (Enable && ParamName.consume_front("max-iterations=")) {
       APInt MaxIterations;
       if (ParamName.getAsInteger(0, MaxIterations))
@@ -1184,6 +1162,11 @@ Expected<bool> parseMemorySSAPrinterPassOptions(StringRef Params) {
                                "MemorySSAPrinterPass");
 }
 
+Expected<bool> parseSpeculativeExecutionPassOptions(StringRef Params) {
+  return parseSinglePassOption(Params, "only-if-divergent-target",
+                               "SpeculativeExecutionPass");
+}
+
 Expected<std::string> parseMemProfUsePassOptions(StringRef Params) {
   std::string Result;
   while (!Params.empty()) {
@@ -1201,13 +1184,23 @@ Expected<std::string> parseMemProfUsePassOptions(StringRef Params) {
   return Result;
 }
 
+Expected<bool> parseStructuralHashPrinterPassOptions(StringRef Params) {
+  return parseSinglePassOption(Params, "detailed",
+                               "StructuralHashPrinterPass");
+}
+
+Expected<bool> parseWinEHPrepareOptions(StringRef Params) {
+  return parseSinglePassOption(Params, "demote-catchswitch-only",
+                               "WinEHPreparePass");
+}
+
 } // namespace
 
 /// Tests whether a pass name starts with a valid prefix for a default pipeline
 /// alias.
 static bool startsWithDefaultPipelineAliasPrefix(StringRef Name) {
-  return Name.startswith("default") || Name.startswith("thinlto") ||
-         Name.startswith("lto");
+  return Name.starts_with("default") || Name.starts_with("thinlto") ||
+         Name.starts_with("lto");
 }
 
 /// Tests whether registered callbacks will accept a given pass name.
@@ -1917,6 +1910,33 @@ Error PassBuilder::parseLoopPass(LoopPassManager &LPM,
                                  inconvertibleErrorCode());
 }
 
+Error PassBuilder::parseMachinePass(MachineFunctionPassManager &MFPM,
+                                    const PipelineElement &E) {
+  StringRef Name = E.Name;
+  if (!E.InnerPipeline.empty())
+    return make_error<StringError>("invalid pipeline",
+                                   inconvertibleErrorCode());
+
+#define MACHINE_MODULE_PASS(NAME, PASS_NAME, CONSTRUCTOR)                      \
+  if (Name == NAME) {                                                          \
+    MFPM.addPass(PASS_NAME());                                                 \
+    return Error::success();                                                   \
+  }
+#define MACHINE_FUNCTION_PASS(NAME, PASS_NAME, CONSTRUCTOR)                    \
+  if (Name == NAME) {                                                          \
+    MFPM.addPass(PASS_NAME());                                                 \
+    return Error::success();                                                   \
+  }
+#include "llvm/CodeGen/MachinePassRegistry.def"
+
+  for (auto &C : MachinePipelineParsingCallbacks)
+    if (C(Name, MFPM))
+      return Error::success();
+  return make_error<StringError>(
+      formatv("unknown machine pass '{0}'", Name).str(),
+      inconvertibleErrorCode());
+}
+
 bool PassBuilder::parseAAPassName(AAManager &AA, StringRef Name) {
 #define MODULE_ALIAS_ANALYSIS(NAME, CREATE_PASS)                               \
   if (Name == NAME) {                                                          \
@@ -1936,6 +1956,15 @@ bool PassBuilder::parseAAPassName(AAManager &AA, StringRef Name) {
     if (C(Name, AA))
       return true;
   return false;
+}
+
+Error PassBuilder::parseMachinePassPipeline(
+    MachineFunctionPassManager &MFPM, ArrayRef<PipelineElement> Pipeline) {
+  for (const auto &Element : Pipeline) {
+    if (auto Err = parseMachinePass(MFPM, Element))
+      return Err;
+  }
+  return Error::success();
 }
 
 Error PassBuilder::parseLoopPassPipeline(LoopPassManager &LPM,
@@ -2097,6 +2126,20 @@ Error PassBuilder::parsePassPipeline(LoopPassManager &CGPM,
   return Error::success();
 }
 
+Error PassBuilder::parsePassPipeline(MachineFunctionPassManager &MFPM,
+                                     StringRef PipelineText) {
+  auto Pipeline = parsePipelineText(PipelineText);
+  if (!Pipeline || Pipeline->empty())
+    return make_error<StringError>(
+        formatv("invalid machine pass pipeline '{0}'", PipelineText).str(),
+        inconvertibleErrorCode());
+
+  if (auto Err = parseMachinePassPipeline(MFPM, *Pipeline))
+    return Err;
+
+  return Error::success();
+}
+
 Error PassBuilder::parseAAPipeline(AAManager &AA, StringRef PipelineText) {
   // If the pipeline just consists of the word 'default' just replace the AA
   // manager with our default one.
@@ -2191,6 +2234,21 @@ void PassBuilder::printPassNames(raw_ostream &OS) {
   OS << "Loop analyses:\n";
 #define LOOP_ANALYSIS(NAME, CREATE_PASS) printPassName(NAME, OS);
 #include "PassRegistry.def"
+
+  OS << "Machine module passes (WIP):\n";
+#define MACHINE_MODULE_PASS(NAME, PASS_NAME, CONSTRUCTOR)                      \
+  printPassName(NAME, OS);
+#include "llvm/CodeGen/MachinePassRegistry.def"
+
+  OS << "Machine function passes (WIP):\n";
+#define MACHINE_FUNCTION_PASS(NAME, PASS_NAME, CONSTRUCTOR)                    \
+  printPassName(NAME, OS);
+#include "llvm/CodeGen/MachinePassRegistry.def"
+
+  OS << "Machine function analyses (WIP):\n";
+#define MACHINE_FUNCTION_ANALYSIS(NAME, PASS_NAME, CONSTRUCTOR)                \
+  printPassName(NAME, OS);
+#include "llvm/CodeGen/MachinePassRegistry.def"
 }
 
 void PassBuilder::registerParseTopLevelPipelineCallback(

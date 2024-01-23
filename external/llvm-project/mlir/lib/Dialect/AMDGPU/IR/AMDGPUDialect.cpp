@@ -46,7 +46,7 @@ void AMDGPUDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // 8-bit float ops
 //===----------------------------------------------------------------------===//
-LogicalResult PackedTruncFp8x2Op::verify() {
+LogicalResult PackedTrunc2xFp8Op::verify() {
   if (getExisting() && getExisting().getType() != getResult().getType())
     return emitOpError("existing values must have same type as result");
   return success();

@@ -90,6 +90,7 @@ private:
   bool selectPHI(MachineInstr &I) const;
   bool selectG_TRUNC(MachineInstr &I) const;
   bool selectG_SZA_EXT(MachineInstr &I) const;
+  bool selectG_FPEXT(MachineInstr &I) const;
   bool selectG_CONSTANT(MachineInstr &I) const;
   bool selectG_FNEG(MachineInstr &I) const;
   bool selectG_FABS(MachineInstr &I) const;
@@ -129,7 +130,7 @@ private:
                             const AMDGPU::ImageDimIntrinsicInfo *Intr) const;
   bool selectG_INTRINSIC_W_SIDE_EFFECTS(MachineInstr &I) const;
   int getS_CMPOpcode(CmpInst::Predicate P, unsigned Size) const;
-  bool selectG_ICMP(MachineInstr &I) const;
+  bool selectG_ICMP_or_FCMP(MachineInstr &I) const;
   bool hasVgprParts(ArrayRef<GEPInfo> AddrInfo) const;
   void getAddrModeInfo(const MachineInstr &Load, const MachineRegisterInfo &MRI,
                        SmallVectorImpl<GEPInfo> &AddrInfo) const;
@@ -147,10 +148,15 @@ private:
   bool selectBVHIntrinsic(MachineInstr &I) const;
   bool selectSMFMACIntrin(MachineInstr &I) const;
   bool selectWaveAddress(MachineInstr &I) const;
+  bool selectStackRestore(MachineInstr &MI) const;
+  bool selectNamedBarrierInst(MachineInstr &I, Intrinsic::ID IID) const;
+  bool selectSBarrierSignalIsfirst(MachineInstr &I, Intrinsic::ID IID) const;
+  bool selectSBarrierLeave(MachineInstr &I) const;
 
-  std::pair<Register, unsigned>
-  selectVOP3ModsImpl(MachineOperand &Root, bool AllowAbs = true,
-                     bool OpSel = false) const;
+  std::pair<Register, unsigned> selectVOP3ModsImpl(MachineOperand &Root,
+                                                   bool IsCanonicalizing = true,
+                                                   bool AllowAbs = true,
+                                                   bool OpSel = false) const;
 
   Register copyToVGPRIfSrcFolded(Register Src, unsigned Mods,
                                  MachineOperand Root, MachineInstr *InsertPt,
@@ -171,6 +177,8 @@ private:
   InstructionSelector::ComplexRendererFns
   selectVOP3Mods(MachineOperand &Root) const;
   InstructionSelector::ComplexRendererFns
+  selectVOP3ModsNonCanonicalizing(MachineOperand &Root) const;
+  InstructionSelector::ComplexRendererFns
   selectVOP3BMods(MachineOperand &Root) const;
 
   ComplexRendererFns selectVOP3NoMods(MachineOperand &Root) const;
@@ -186,7 +194,7 @@ private:
   selectVOP3PModsDOT(MachineOperand &Root) const;
 
   InstructionSelector::ComplexRendererFns
-  selectDotIUVOP3PMods(MachineOperand &Root) const;
+  selectVOP3PModsNeg(MachineOperand &Root) const;
 
   InstructionSelector::ComplexRendererFns
   selectWMMAOpSelVOP3PMods(MachineOperand &Root) const;
@@ -238,8 +246,9 @@ private:
   bool isDSOffsetLegal(Register Base, int64_t Offset) const;
   bool isDSOffset2Legal(Register Base, int64_t Offset0, int64_t Offset1,
                         unsigned Size) const;
-  bool isFlatScratchBaseLegal(
-      Register Base, uint64_t FlatVariant = SIInstrFlags::FlatScratch) const;
+  bool isFlatScratchBaseLegal(Register Addr) const;
+  bool isFlatScratchBaseLegalSV(Register Addr) const;
+  bool isFlatScratchBaseLegalSVImm(Register Addr) const;
 
   std::pair<Register, unsigned>
   selectDS1Addr1OffsetImpl(MachineOperand &Root) const;
@@ -284,6 +293,9 @@ private:
                              Register &SOffset, int64_t &Offset) const;
 
   InstructionSelector::ComplexRendererFns
+  selectBUFSOffset(MachineOperand &Root) const;
+
+  InstructionSelector::ComplexRendererFns
   selectMUBUFAddr64(MachineOperand &Root) const;
 
   InstructionSelector::ComplexRendererFns
@@ -319,11 +331,14 @@ private:
                          int OpIdx) const;
   void renderExtractSWZ(MachineInstrBuilder &MIB, const MachineInstr &MI,
                         int OpIdx) const;
-  void renderSetGLC(MachineInstrBuilder &MIB, const MachineInstr &MI,
-                    int OpIdx) const;
+  void renderExtractCpolSetGLC(MachineInstrBuilder &MIB, const MachineInstr &MI,
+                               int OpIdx) const;
 
   void renderFrameIndex(MachineInstrBuilder &MIB, const MachineInstr &MI,
                         int OpIdx) const;
+
+  void renderFPPow2ToExponent(MachineInstrBuilder &MIB, const MachineInstr &MI,
+                              int OpIdx) const;
 
   bool isInlineImmediate16(int64_t Imm) const;
   bool isInlineImmediate32(int64_t Imm) const;

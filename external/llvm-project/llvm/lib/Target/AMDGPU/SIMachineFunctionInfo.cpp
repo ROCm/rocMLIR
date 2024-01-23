@@ -37,24 +37,12 @@ const GCNTargetMachine &getTM(const GCNSubtarget *STI) {
 
 SIMachineFunctionInfo::SIMachineFunctionInfo(const Function &F,
                                              const GCNSubtarget *STI)
-  : AMDGPUMachineFunction(F, *STI),
-    Mode(F),
-    GWSResourcePSV(getTM(STI)),
-    UserSGPRInfo(F, *STI),
-    WorkGroupIDX(false),
-    WorkGroupIDY(false),
-    WorkGroupIDZ(false),
-    WorkGroupInfo(false),
-    LDSKernelId(false),
-    PrivateSegmentWaveByteOffset(false),
-    WorkItemIDX(false),
-    WorkItemIDY(false),
-    WorkItemIDZ(false),
-    ImplicitArgPtr(false),
-    HostcallPtr(false),
-    HeapPtr(false),
-    GITPtrHigh(0xffffffff),
-    HighBitsOf32BitAddress(0) {
+    : AMDGPUMachineFunction(F, *STI), Mode(F, *STI), GWSResourcePSV(getTM(STI)),
+      UserSGPRInfo(F, *STI), WorkGroupIDX(false), WorkGroupIDY(false),
+      WorkGroupIDZ(false), WorkGroupInfo(false), LDSKernelId(false),
+      PrivateSegmentWaveByteOffset(false), WorkItemIDX(false),
+      WorkItemIDY(false), WorkItemIDZ(false), ImplicitArgPtr(false),
+      GITPtrHigh(0xffffffff), HighBitsOf32BitAddress(0) {
   const GCNSubtarget &ST = *static_cast<const GCNSubtarget *>(STI);
   FlatWorkGroupSizes = ST.getFlatWorkGroupSizes(F);
   WavesPerEU = ST.getWavesPerEU(F);
@@ -76,7 +64,20 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const Function &F,
 
   MayNeedAGPRs = ST.hasMAIInsts();
 
-  if (!isEntryFunction()) {
+  if (AMDGPU::isChainCC(CC)) {
+    // Chain functions don't receive an SP from their caller, but are free to
+    // set one up. For now, we can use s32 to match what amdgpu_gfx functions
+    // would use if called, but this can be revisited.
+    // FIXME: Only reserve this if we actually need it.
+    StackPtrOffsetReg = AMDGPU::SGPR32;
+
+    ScratchRSrcReg = AMDGPU::SGPR48_SGPR49_SGPR50_SGPR51;
+
+    ArgInfo.PrivateSegmentBuffer =
+        ArgDescriptor::createRegister(ScratchRSrcReg);
+
+    ImplicitArgPtr = false;
+  } else if (!isEntryFunction()) {
     if (CC != CallingConv::AMDGPU_Gfx)
       ArgInfo = AMDGPUArgumentUsageInfo::FixedABIFunctionInfo;
 
@@ -130,11 +131,8 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const Function &F,
         ST.getMaxWorkitemID(F, 2) != 0)
       WorkItemIDZ = true;
 
-    if (!F.hasFnAttribute("amdgpu-no-hostcall-ptr"))
-      HostcallPtr = true;
-
-    if (!F.hasFnAttribute("amdgpu-no-heap-ptr"))
-      HeapPtr = true;
+    if (!IsKernel && !F.hasFnAttribute("amdgpu-no-lds-kernel-id"))
+      LDSKernelId = true;
   }
 
   if (isEntryFunction()) {
@@ -278,6 +276,14 @@ void SIMachineFunctionInfo::allocateWWMSpill(MachineFunction &MF, Register VGPR,
   if (isEntryFunction() || WWMSpills.count(VGPR))
     return;
 
+  // Skip if this is a function with the amdgpu_cs_chain or
+  // amdgpu_cs_chain_preserve calling convention and this is a scratch register.
+  // We never need to allocate a spill for these because we don't even need to
+  // restore the inactive lanes for them (they're scratchier than the usual
+  // scratch registers).
+  if (isChainFunction() && SIRegisterInfo::isChainScratchRegister(VGPR))
+    return;
+
   WWMSpills.insert(std::make_pair(
       VGPR, MF.getFrameInfo().CreateSpillStackObject(Size, Alignment)));
 }
@@ -343,8 +349,9 @@ bool SIMachineFunctionInfo::allocatePhysicalVGPRForSGPRSpills(
       MBB.addLiveIn(LaneVGPR);
       MBB.sortUniqueLiveIns();
     }
+    SpillPhysVGPRs.push_back(LaneVGPR);
   } else {
-    LaneVGPR = WWMReservedRegs.back();
+    LaneVGPR = SpillPhysVGPRs.back();
   }
 
   SGPRSpillsToPhysicalVGPRLanes[FI].push_back(
@@ -514,7 +521,7 @@ int SIMachineFunctionInfo::getScavengeFI(MachineFrameInfo &MFI,
                                          const SIRegisterInfo &TRI) {
   if (ScavengeFI)
     return *ScavengeFI;
-  if (isEntryFunction()) {
+  if (isBottomOfStack()) {
     ScavengeFI = MFI.CreateFixedObject(
         TRI.getSpillSize(AMDGPU::SGPR_32RegClass), 0, false);
   } else {
@@ -723,7 +730,7 @@ bool SIMachineFunctionInfo::mayUseAGPRs(const Function &F) const {
         for (const auto &CI : IA->ParseConstraints()) {
           for (StringRef Code : CI.Codes) {
             Code.consume_front("{");
-            if (Code.startswith("a"))
+            if (Code.starts_with("a"))
               return true;
           }
         }

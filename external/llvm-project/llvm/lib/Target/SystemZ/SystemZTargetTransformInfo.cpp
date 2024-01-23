@@ -598,7 +598,7 @@ InstructionCost SystemZTTIImpl::getShuffleCost(TTI::ShuffleKind Kind,
                                                TTI::TargetCostKind CostKind,
                                                int Index, VectorType *SubTp,
                                                ArrayRef<const Value *> Args) {
-  Kind = improveShuffleKindFromMask(Kind, Mask);
+  Kind = improveShuffleKindFromMask(Kind, Mask, Tp, Index, SubTp);
   if (ST->hasVector()) {
     unsigned NumVectors = getNumVectorRegs(Tp);
 
@@ -1152,6 +1152,11 @@ InstructionCost SystemZTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
     }
   }
 
+  // Type legalization (via getNumberOfParts) can't handle structs
+  if (TLI->getValueType(DL, Src, true) == MVT::Other)
+    return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
+                                  CostKind);
+
   unsigned NumOps =
     (Src->isVectorTy() ? getNumVectorRegs(Src) : getNumberOfParts(Src));
 
@@ -1231,7 +1236,6 @@ InstructionCost SystemZTTIImpl::getInterleavedMemoryOpCost(
     // dst vector for vperm (S.A.).
     unsigned NumSrcVecs = std::min(NumEltsPerVecReg, Factor);
     unsigned NumDstVecs = NumVectorMemOps;
-    assert (NumSrcVecs > 1 && "Expected at least two source vectors.");
     NumPermutes += (NumDstVecs * NumSrcVecs) - NumDstVecs;
   }
 

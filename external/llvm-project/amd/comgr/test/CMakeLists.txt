@@ -8,7 +8,7 @@ set(TEST_INPUT_ARCHIVES)
 macro(add_test_input_binary name input output)
   add_custom_command(
     OUTPUT "${output}"
-    COMMAND "$<TARGET_FILE:clang>" --target=amdgcn-amd-amdhsa -mcpu=gfx803 -nogpulib
+    COMMAND "$<TARGET_FILE:clang>" --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib
     ${ARGN} "${CMAKE_CURRENT_SOURCE_DIR}/${input}" -o "${output}"
     VERBATIM
     DEPENDS clang lld "${input}")
@@ -104,7 +104,7 @@ configure_file("source/include-nested.h" "source/include-nested.h" COPYONLY)
 configure_file("source/source1.s" "source/source1.s" COPYONLY)
 configure_file("source/source1.hip" "source/source1.hip" COPYONLY)
 configure_file("source/source2.hip" "source/source2.hip" COPYONLY)
-configure_file("source/name-expression.hip" "source/name_expression.hip" COPYONLY)
+configure_file("source/name-expression.hip" "source/name-expression.hip" COPYONLY)
 configure_file("source/rocm56slice.b" "source/rocm56slice.b" COPYONLY)
 configure_file("source/rocm57slice.b" "source/rocm57slice.b" COPYONLY)
 

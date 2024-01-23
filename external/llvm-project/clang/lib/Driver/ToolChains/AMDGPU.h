@@ -26,7 +26,7 @@ namespace driver {
 namespace tools {
 namespace amdgpu {
 
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
+class LLVM_LIBRARY_VISIBILITY Linker final : public Tool {
 public:
   Linker(const ToolChain &TC) : Tool("amdgpu::Linker", "ld.lld", TC) {}
   bool isLinkJob() const override { return true; }
@@ -41,6 +41,45 @@ void getAMDGPUTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                              const llvm::opt::ArgList &Args,
                              std::vector<StringRef> &Features,
                              StringRef TcTargetID = StringRef());
+
+namespace dlr {
+llvm::SmallVector<std::string, 12>
+getCommonDeviceLibNames(const llvm::opt::ArgList &DriverArgs, const Driver &D,
+                        const std::string &GPUArch, bool isOpenMP,
+                        const RocmInstallationDetector &RocmInstallation);
+
+const char *
+getCbslCommandArgs(Compilation &C, const llvm::opt::ArgList &Args,
+                   llvm::opt::ArgStringList &CbslArgs,
+                   const SmallVectorImpl<std::string> &InputFileNames,
+                   llvm::StringRef OutputFilePrefix);
+
+const char *
+getLinkCommandArgs(Compilation &C, const llvm::opt::ArgList &Args,
+                   llvm::opt::ArgStringList &LastLinkArgs, const ToolChain &TC,
+                   const llvm::Triple &Triple, llvm::StringRef TargetID,
+                   llvm::StringRef OutputFilePrefix, const char *InputFileName,
+                   const RocmInstallationDetector &RocmInstallation);
+
+const char *getOptCommandArgs(Compilation &C, const llvm::opt::ArgList &Args,
+                              llvm::opt::ArgStringList &OptArgs,
+                              const llvm::Triple &Triple,
+                              llvm::StringRef TargetID,
+                              llvm::StringRef OutputFilePrefix,
+                              const char *InputFileName);
+
+const char *
+getLlcCommandArgs(Compilation &C, const llvm::opt::ArgList &Args,
+                  llvm::opt::ArgStringList &LlcArgs, const llvm::Triple &Triple,
+                  llvm::StringRef TargetID, llvm::StringRef OutputFilePrefix,
+                  const char *InputFileName, bool OutputIsAsm = false);
+
+const char *getLldCommandArgs(
+    Compilation &C, const InputInfo &Output, const llvm::opt::ArgList &Args,
+    llvm::opt::ArgStringList &LldArgs, const llvm::Triple &Triple,
+    llvm::StringRef TargetID, const char *InputFileName,
+    const std::optional<std::string> OutputFilePrefix = std::nullopt);
+} // end namespace dlr
 
 } // end namespace amdgpu
 } // end namespace tools

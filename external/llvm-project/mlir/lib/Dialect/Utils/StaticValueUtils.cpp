@@ -121,6 +121,20 @@ std::optional<int64_t> getConstantIntValue(OpFoldResult ofr) {
   return std::nullopt;
 }
 
+std::optional<SmallVector<int64_t>>
+getConstantIntValues(ArrayRef<OpFoldResult> ofrs) {
+  bool failed = false;
+  SmallVector<int64_t> res = llvm::map_to_vector(ofrs, [&](OpFoldResult ofr) {
+    auto cv = getConstantIntValue(ofr);
+    if (!cv.has_value())
+      failed = true;
+    return cv.has_value() ? cv.value() : 0;
+  });
+  if (failed)
+    return std::nullopt;
+  return res;
+}
+
 /// Return true if `ofr` is constant integer equal to `value`.
 bool isConstantIntValue(OpFoldResult ofr, int64_t value) {
   auto val = getConstantIntValue(ofr);
@@ -240,6 +254,49 @@ std::optional<int64_t> constantTripCount(OpFoldResult lb, OpFoldResult ub,
     return std::nullopt;
 
   return mlir::ceilDiv(*ubConstant - *lbConstant, *stepConstant);
+}
+
+bool hasValidSizesOffsets(SmallVector<int64_t> sizesOrOffsets) {
+  return llvm::none_of(sizesOrOffsets, [](int64_t value) {
+    return !ShapedType::isDynamic(value) && value < 0;
+  });
+}
+
+bool hasValidStrides(SmallVector<int64_t> strides) {
+  return llvm::none_of(strides, [](int64_t value) {
+    return !ShapedType::isDynamic(value) && value == 0;
+  });
+}
+
+LogicalResult foldDynamicIndexList(SmallVectorImpl<OpFoldResult> &ofrs,
+                                   bool onlyNonNegative, bool onlyNonZero) {
+  bool valuesChanged = false;
+  for (OpFoldResult &ofr : ofrs) {
+    if (ofr.is<Attribute>())
+      continue;
+    Attribute attr;
+    if (matchPattern(ofr.get<Value>(), m_Constant(&attr))) {
+      // Note: All ofrs have index type.
+      if (onlyNonNegative && *getConstantIntValue(attr) < 0)
+        continue;
+      if (onlyNonZero && *getConstantIntValue(attr) == 0)
+        continue;
+      ofr = attr;
+      valuesChanged = true;
+    }
+  }
+  return success(valuesChanged);
+}
+
+LogicalResult
+foldDynamicOffsetSizeList(SmallVectorImpl<OpFoldResult> &offsetsOrSizes) {
+  return foldDynamicIndexList(offsetsOrSizes, /*onlyNonNegative=*/true,
+                              /*onlyNonZero=*/false);
+}
+
+LogicalResult foldDynamicStrideList(SmallVectorImpl<OpFoldResult> &strides) {
+  return foldDynamicIndexList(strides, /*onlyNonNegative=*/false,
+                              /*onlyNonZero=*/true);
 }
 
 } // namespace mlir

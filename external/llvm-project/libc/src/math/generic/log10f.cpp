@@ -54,7 +54,7 @@
 // Dept. of Comp. Sci., Rutgets U., Technical Report DCS-TR-758, Nov. 2021.
 // https://arxiv.org/pdf/2111.12852.pdf.
 
-namespace __llvm_libc {
+namespace LIBC_NAMESPACE {
 
 // Lookup table for -log10(r) where r is defined in common_constants.cpp.
 static constexpr double LOG10_R[128] = {
@@ -158,7 +158,7 @@ LLVM_LIBC_FUNCTION(float, log10f, (float x)) {
     }
   }
 
-  int m = -FPBits::EXPONENT_BIAS;
+  int m = -FPBits::EXP_BIAS;
 
   if (LIBC_UNLIKELY(x_u < FPBits::MIN_NORMAL || x_u > FPBits::MAX_NORMAL)) {
     if (xbits.is_zero()) {
@@ -177,7 +177,7 @@ LLVM_LIBC_FUNCTION(float, log10f, (float x)) {
       return x;
     }
     // Normalize denormal inputs.
-    xbits.set_val(xbits.get_val() * 0x1.0p23f);
+    xbits = FPBits(xbits.get_val() * 0x1.0p23f);
     m -= 23;
     x_u = xbits.uintval();
   }
@@ -187,7 +187,7 @@ LLVM_LIBC_FUNCTION(float, log10f, (float x)) {
   // Extract 7 leading fractional bits of the mantissa
   int index = (x_u >> 16) & 0x7F;
   // Set bits to 1.m
-  xbits.set_unbiased_exponent(0x7F);
+  xbits.set_biased_exponent(0x7F);
 
   float u = static_cast<float>(xbits);
   double v;
@@ -213,4 +213,4 @@ LLVM_LIBC_FUNCTION(float, log10f, (float x)) {
   return static_cast<float>(r);
 }
 
-} // namespace __llvm_libc
+} // namespace LIBC_NAMESPACE
