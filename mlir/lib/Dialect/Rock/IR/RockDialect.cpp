@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -1806,9 +1807,10 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   }
   int64_t totalLDSSize = std::max(std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes), reductionWorkspaceSizeBytes) +
                          std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
-  if (totalLDSSize > 64 * 1024) {
+  const int64_t maxLdsSize = rock::lookupArchInfo(getArch()).maxSharedMemPerWG;
+  if (totalLDSSize > maxLdsSize) {
     return emitError() << "totalLDSSize (" << totalLDSSize
-                       << ") exceeds 64KB\n";
+                       << ") exceeds "<< maxLdsSize << "KB\n";
   }
   return success();
 }
