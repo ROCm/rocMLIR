@@ -945,6 +945,10 @@ struct GridwiseAttentionAccelRewritePattern
 
     SmallVector<Value> ret;
     for (int64_t byteSize : byteSizes) {
+      if(byteSize == 0){
+        ret.push_back(Value());
+        continue;
+      }
       if (byteSize == maxSizeBytes) {
         ret.push_back(ldsByteBuffer);
         continue;
@@ -1523,7 +1527,7 @@ struct GridwiseAttentionAccelRewritePattern
     TransformMapAttr trMap = viewBuilder.get();
     return rewriter.create<TransformOp>(loc, operand, trMap);
   }
-  
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1626,13 +1630,13 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
     bool doBypassLDSForQ = op.canBypassLDSForQ();
     if (doBypassLDSForQ) {
-      ldsByteBufferQSize = 1;
+      ldsByteBufferQSize = 0;
     }
     int64_t reductionWorkspaceSize =
         (gemm0MPerBlock / gemm0MPerThread) * gemm0NPerBlock;
     int64_t gemm1LDSByteBufferBSize = gemm1KPerBlock * gemm1NPerBlock;
     if(doBypassLDSSecondGemm){
-      gemm1LDSByteBufferBSize = 1;
+      gemm1LDSByteBufferBSize = 0;
     }
     SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
         rewriter, loc,
