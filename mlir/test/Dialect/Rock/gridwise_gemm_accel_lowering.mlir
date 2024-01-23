@@ -8,26 +8,31 @@ func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x1
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
 
   // CHECK: %[[viewAStore:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>>
-  // CHECK: %[[viewAStoreTr0:.+]] = rock.transform %[[viewAStore]]
+  // CHECK: %[[viewBStore:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
+  // CHECK: %[[viewAGemm:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>>
+  // CHECK: %[[viewBGemm:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
+
+  // CHECK: %[[viewAStoreMB:.+]] = rock.extract_multibuffer(%[[viewAStore]])
+  // CHECK: %[[viewAStoreTr0:.+]] = rock.transform %[[viewAStoreMB]]
   // CHECK: %[[viewAStoreTr1:.+]] = rock.transform %[[viewAStoreTr0]]
   // CHECK: %[[viewAStoreTr2:.+]] = rock.transform %[[viewAStoreTr1]]
   // CHECK: %[[viewAStoreTr3:.+]] = rock.transform %[[viewAStoreTr2]]
+  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr3]])
 
-  // CHECK: %[[viewBStore:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
-  // CHECK: %[[viewBStoreTr0:.+]] = rock.transform %[[viewBStore]]
+  // CHECK: %[[viewBStoreMB:.+]] = rock.extract_multibuffer(%[[viewBStore]])
+  // CHECK: %[[viewBStoreTr0:.+]] = rock.transform %[[viewBStoreMB]]
   // CHECK: %[[viewBStoreTr1:.+]] = rock.transform %[[viewBStoreTr0]]
   // CHECK: %[[viewBStoreTr2:.+]] = rock.transform %[[viewBStoreTr1]]
   // CHECK: %[[viewBStoreTr3:.+]] = rock.transform %[[viewBStoreTr2]]
 
-  // CHECK: %[[viewAGemm:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>>
-  // CHECK: %[[viewBGemm:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
 
-  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr3]])
   // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewBStoreTr3]])
+  // CHECK: %[[viewAGemmMB:.+]] = rock.extract_multibuffer(%[[viewAGemm]])
+  // CHECK: %[[viewBGemmMB:.+]] = rock.extract_multibuffer(%[[viewBGemm]])
 
   // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME %[[viewAGemm]]
-  // CHECK-SAME: %[[viewBGemm]]
+  // CHECK-SAME: %[[viewAGemmMB]]
+  // CHECK-SAME: %[[viewBGemmMB]]
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx940", blockSize = 256 : i32, gridSize = 900 : i32, numCU = 228 : i32, params = #xdlops_gemm_params} : memref<1x128x128xf8E4M3FNUZ>, memref<1x128x115200xf8E5M2FNUZ>, memref<1x128x115200xf32>
   return
 }
