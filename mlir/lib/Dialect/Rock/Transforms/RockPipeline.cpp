@@ -320,10 +320,10 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // the stages. In this way, we don't need multibuffers (i.e., we read the
     // buffer first and then we write into it). From the point of view of the
     // stages, they don't care because they belong to different iterations. In
-    // theory this could be applied to any buffer, but for proper memory, this
+    // theory this could be applied to any buffer, but for LDS memory this
     // can be more expensive (i.e., you need barriers)
-    DenseMap<int, SmallVector<int>> swapCandidates;
-    DenseMap<int, SmallVector<int>> swapCandidatesR;
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
 
     // Go through the stages and take note of the possible swap candidates
     for (size_t i = 0; i < parallelStages.size(); i++) {
