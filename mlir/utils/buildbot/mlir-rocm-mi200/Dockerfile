@@ -12,7 +12,7 @@
 #===----------------------------------------------------------------------===//
 
 # Use the rocm/mlir image as base
-FROM rocm/mlir:rocm5.7-latest
+FROM rocm/mlir:rocm6.0-latest
 
 RUN apt-get update; \
     apt-get install -y dumb-init; \
