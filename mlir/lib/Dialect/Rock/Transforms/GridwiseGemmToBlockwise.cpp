@@ -1953,16 +1953,6 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
 
-      // Scale gemm0 output by (1/ln2)
-      // So that we can use exp2 instead of exp.
-#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
-      Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
-                                             elemTypeQxK, 1.44269504);
-      postProcessFirstGemmSplat<ElementwiseMultOp>(
-          rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
-          ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
-#endif
-
       if (Value biasIn = op.getBias()) {
         Value rawBuffer;
         std::tie(rawBuffer, std::ignore, std::ignore) =
@@ -1984,6 +1974,16 @@ struct GridwiseAttentionAccelRewritePattern
               gemm0OutSubTileViewsTr, biasInBuffer, biasIn);
         }
       }
+
+      // Scale gemm0 output by (1/ln2)
+      // So that we can use exp2 instead of exp.
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+      Value ln2Recip = createConstantFloatOp(rewriter, loc, elemTypeQxK,
+                                             elemTypeQxK, 1.44269504);
+      postProcessFirstGemmSplat<ElementwiseMultOp>(
+          rewriter, loc, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViews,
+          ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
+#endif
 
       // Handle padding
       bool hasPadding =
