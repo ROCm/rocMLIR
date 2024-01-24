@@ -25,6 +25,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -730,12 +731,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!exp) {
       return failure();
     }
-    tosa::SubOp sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
+    auto sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
     if (!sub) {
       return failure();
     }
-    tosa::ReduceMaxOp rmax =
-        getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
+    auto rmax = getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
     if (!rmax) {
       return failure();
     }
@@ -746,7 +746,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> maybeSoftmaxDenominator(Value val) const {
-    tosa::ReduceSumOp rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
+    auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
     if (!rsum) {
       return failure();
     }
@@ -754,55 +754,53 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> maybeSoftmax(Value val) const {
-    tosa::MulOp mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
+    auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
     }
-    if (tosa::ReciprocalOp rec =
+    if (auto rec =
             getDefiningNonReshapeOp<tosa::ReciprocalOp>(mul.getInput1())) {
       return maybeSoftmaxDenominator(rec.getInput1());
-    } else if (tosa::ReciprocalOp rec =
-                   getDefiningNonReshapeOp<tosa::ReciprocalOp>(
-                       mul.getInput2())) {
+    } else if (auto rec = getDefiningNonReshapeOp<tosa::ReciprocalOp>(
+                   mul.getInput2())) {
       return maybeSoftmaxDenominator(rec.getInput1());
     } else {
       return failure();
     }
   }
 
-  FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
-  getMatMulAndScaleInputs(tosa::MulOp scale) const {
-    if (tosa::MatMulOp mm =
-            getDefiningNonReshapeOp<tosa::MatMulOp>(scale.getInput1())) {
-      return std::make_tuple(mm, scale.getInput2());
+  template <typename TargetType, typename RootType>
+  FailureOr<std::tuple<TargetType, TypedValue<TensorType>>>
+  decomposeOp(RootType root) const {
+    if (auto mm = getDefiningNonReshapeOp<TargetType>(root.getInput1())) {
+      return std::make_tuple(mm, root.getInput2());
     }
-    if (tosa::MatMulOp mm =
-            getDefiningNonReshapeOp<tosa::MatMulOp>(scale.getInput2())) {
-      return std::make_tuple(mm, scale.getInput1());
+    if (auto mm = getDefiningNonReshapeOp<TargetType>(root.getInput2())) {
+      return std::make_tuple(mm, root.getInput1());
     }
     return failure();
   }
 
-  Value normalizeScaleIn(PatternRewriter &rewriter, Location loc,
-                         TypedValue<TensorType> scaleIn) const {
-    if (!scaleIn) {
-      return scaleIn;
+  Value normalizeInputTensor(PatternRewriter &rewriter, Location loc,
+                             TypedValue<TensorType> inputTensor) const {
+    if (!inputTensor) {
+      return inputTensor;
     }
-    ArrayRef<int64_t> scaleShape = scaleIn.getType().getShape();
-    SmallVector<int64_t, 4> reverseScaleShape =
-        llvm::to_vector<4>(llvm::reverse(scaleShape));
+    ArrayRef<int64_t> shape = inputTensor.getType().getShape();
+    SmallVector<int64_t, 4> reverseInputShape =
+        llvm::to_vector<4>(llvm::reverse(shape));
     SmallVector<int64_t, 4> normalizedShape;
     int collapsedBatchLen = 1;
-    for (int64_t dimLen : ArrayRef<int64_t>{reverseScaleShape}.slice(2)) {
+    for (int64_t dimLen : ArrayRef<int64_t>{reverseInputShape}.slice(2)) {
       collapsedBatchLen *= dimLen;
     }
     normalizedShape.push_back(collapsedBatchLen);
-    normalizedShape.push_back(reverseScaleShape[1]);
-    normalizedShape.push_back(reverseScaleShape[0]);
+    normalizedShape.push_back(reverseInputShape[1]);
+    normalizedShape.push_back(reverseInputShape[0]);
     auto normalizedType = RankedTensorType::get(
-        normalizedShape, scaleIn.getType().getElementType());
+        normalizedShape, inputTensor.getType().getElementType());
     auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        loc, normalizedType, scaleIn,
+        loc, normalizedType, inputTensor,
         rewriter.getDenseI64ArrayAttr(normalizedShape));
     return reshapeOp;
   }
@@ -812,16 +810,31 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(softmaxInput)) {
       return failure();
     }
-    if (tosa::MulOp scale =
-            getDefiningNonReshapeOp<tosa::MulOp>(softmaxInput.value())) {
+
+    Value group = nullptr;
+    if (auto bias =
+            getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput.value())) {
+      if (auto result = decomposeOp<tosa::MatMulOp>(bias); succeeded(result)) {
+        group = std::get<0>(result.value());
+      } else if (auto result = decomposeOp<tosa::MulOp>(bias);
+                 succeeded(result)) {
+        group = std::get<0>(result.value());
+      } else {
+        return failure();
+      }
+    } else {
+      group = softmaxInput.value();
+    }
+
+    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(group)) {
       FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
-          scaledMatMul = getMatMulAndScaleInputs(scale);
+          scaledMatMul = decomposeOp<tosa::MatMulOp>(scale);
       if (succeeded(scaledMatMul)) {
         return success();
       }
     }
     // Scale is optional
-    if (getDefiningNonReshapeOp<tosa::MatMulOp>(softmaxInput.value())) {
+    if (getDefiningNonReshapeOp<tosa::MatMulOp>(group)) {
       return success();
     }
     return failure();
@@ -832,25 +845,43 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value softmaxInput = maybeSoftmax(op.getA()).value();
     tosa::MatMulOp firstMatMulOp;
     TypedValue<TensorType> scaleInput = nullptr;
-    if (tosa::MulOp scale =
-            getDefiningNonReshapeOp<tosa::MulOp>(softmaxInput)) {
+    TypedValue<TensorType> biasInput = nullptr;
+
+    Value group = nullptr;
+    if (tosa::AddOp bias = getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput)) {
+      if (auto result = decomposeOp<tosa::MatMulOp>(bias); succeeded(result)) {
+        group = std::get<0>(result.value());
+        biasInput = std::get<1>(result.value());
+      } else if (auto result = decomposeOp<tosa::MulOp>(bias);
+                 succeeded(result)) {
+        group = std::get<0>(result.value());
+        biasInput = std::get<1>(result.value());
+      } else {
+        return;
+      }
+    } else {
+      group = softmaxInput;
+    }
+
+    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(group)) {
       std::tie(firstMatMulOp, scaleInput) =
-          getMatMulAndScaleInputs(scale).value();
+          decomposeOp<tosa::MatMulOp>(scale).value();
     } else {
       // it has either to be a scaling mul or a matmul
       // as guranteed by the match() above
-      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(softmaxInput);
+      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(group);
     }
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
     StringAttr arch;
-    std::optional<uint32_t> num_cu;
+    std::optional<uint32_t> numCu;
     rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) = getArchAttributes(op, op.getType());
+    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        normalizeScaleIn(rewriter, loc, scaleInput), nullptr, output,
+        normalizeInputTensor(rewriter, loc, scaleInput),
+        normalizeInputTensor(rewriter, loc, biasInput), output,
         // TODO(implement transpose fusion support here)
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
