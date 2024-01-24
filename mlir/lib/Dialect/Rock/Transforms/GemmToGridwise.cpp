@@ -20,7 +20,6 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -30,14 +29,12 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include <memory>
 
@@ -139,28 +136,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
                 /*n=*/bShape[2]);
-
   GemmSize extraPad =
       requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
-
-  if (op.getStoreMethod() == StoreMethod::AtomicAdd) {
-    auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-    auto attrName = mhal::PrefillAttr::getMnemonic();
-    auto elementType = c.getType().cast<MemRefType>().getElementType();
-    Attribute zero;
-    if (llvm::isa<FloatType>(elementType)) {
-      zero = rw.getFloatAttr(elementType, 0.0);
-    } else {
-      assert(llvm::isa<IntegerType>(elementType) &&
-             "expecting `int` element type");
-      zero = rw.getIntegerAttr(elementType, 0);
-    }
-    func.setArgAttrs(2, rw.getNamedAttr(attrName, zero));
-  }
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
   IntegerAttr numCUAttr = op.getNumCUAttr();
