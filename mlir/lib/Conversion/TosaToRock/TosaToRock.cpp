@@ -769,13 +769,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
   }
 
-  template <typename TargetType, typename RootType>
-  FailureOr<std::tuple<TargetType, TypedValue<TensorType>>>
-  decomposeOp(RootType root) const {
-    if (auto mm = getDefiningNonReshapeOp<TargetType>(root.getInput1())) {
+  template <typename FirstOperandType, typename CurrOpType>
+  FailureOr<std::tuple<FirstOperandType, TypedValue<TensorType>>>
+  getOperandsOrdered(CurrOpType root) const {
+    if (auto mm = getDefiningNonReshapeOp<FirstOperandType>(root.getInput1())) {
       return std::make_tuple(mm, root.getInput2());
     }
-    if (auto mm = getDefiningNonReshapeOp<TargetType>(root.getInput2())) {
+    if (auto mm = getDefiningNonReshapeOp<FirstOperandType>(root.getInput2())) {
       return std::make_tuple(mm, root.getInput1());
     }
     return failure();
@@ -811,30 +811,31 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
     }
 
-    Value group = nullptr;
+    Value scaledMatMul = nullptr;
     if (auto bias =
             getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput.value())) {
-      if (auto result = decomposeOp<tosa::MatMulOp>(bias); succeeded(result)) {
-        group = std::get<0>(result.value());
-      } else if (auto result = decomposeOp<tosa::MulOp>(bias);
+      if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
+          succeeded(result)) {
+        scaledMatMul = std::get<0>(result.value());
+      } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
                  succeeded(result)) {
-        group = std::get<0>(result.value());
+        scaledMatMul = std::get<0>(result.value());
       } else {
         return failure();
       }
     } else {
-      group = softmaxInput.value();
+      scaledMatMul = softmaxInput.value();
     }
 
-    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(group)) {
+    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
       FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
-          scaledMatMul = decomposeOp<tosa::MatMulOp>(scale);
+          scaledMatMul = getOperandsOrdered<tosa::MatMulOp>(scale);
       if (succeeded(scaledMatMul)) {
         return success();
       }
     }
     // Scale is optional
-    if (getDefiningNonReshapeOp<tosa::MatMulOp>(group)) {
+    if (getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul)) {
       return success();
     }
     return failure();
@@ -847,29 +848,30 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     TypedValue<TensorType> scaleInput = nullptr;
     TypedValue<TensorType> biasInput = nullptr;
 
-    Value group = nullptr;
+    Value scaledMatMul = nullptr;
     if (tosa::AddOp bias = getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput)) {
-      if (auto result = decomposeOp<tosa::MatMulOp>(bias); succeeded(result)) {
-        group = std::get<0>(result.value());
+      if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
+          succeeded(result)) {
+        scaledMatMul = std::get<0>(result.value());
         biasInput = std::get<1>(result.value());
-      } else if (auto result = decomposeOp<tosa::MulOp>(bias);
+      } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
                  succeeded(result)) {
-        group = std::get<0>(result.value());
+        scaledMatMul = std::get<0>(result.value());
         biasInput = std::get<1>(result.value());
       } else {
         return;
       }
     } else {
-      group = softmaxInput;
+      scaledMatMul = softmaxInput;
     }
 
-    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(group)) {
+    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
       std::tie(firstMatMulOp, scaleInput) =
-          decomposeOp<tosa::MatMulOp>(scale).value();
+          getOperandsOrdered<tosa::MatMulOp>(scale).value();
     } else {
       // it has either to be a scaling mul or a matmul
       // as guranteed by the match() above
-      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(group);
+      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul);
     }
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
