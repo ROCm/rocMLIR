@@ -157,3 +157,57 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
     : memref<32xf32, #gpu.address_space<private>> -> memref<3x2x64x32xf32>
   func.return
 }
+
+// CHECK-LABEL: func @threadwise_read_into_big_to_small_vec
+// CHECK-SAME: %[[source:.+]]: memref<4xvector<8xf16>, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<8xvector<4xf16>, #gpu.address_space<private>>
+func.func @threadwise_read_into_big_to_small_vec(%source: memref<4xvector<8xf16>, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) {
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [4] strides [1] {
+    // CHECK-DAG: %[[ldval:.+]] = scf.if
+    // CHECK-DAG: %[[ldvalSlice:.+]] = rock.extract_slice %[[ldval]][%c0] : vector<8xf16> -> vector<4xf16>
+    // CHECK-DAG: %[[baseElOffset:.+]] = arith.muli %{{.*}}, %c8 : index
+    // CHECK-DAG: %[[destElOffset:.+]] = arith.divui %[[baseElOffset]], %c4 : index
+    // CHECK-DAG: memref.store %[[ldvalSlice]], %[[dest]][%[[destElOffset]]] : memref<8xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK-DAG: %[[ldvalSlice2:.+]] = rock.extract_slice %[[ldval]][%c4] : vector<8xf16> -> vector<4xf16>
+    // CHECK-DAG: %[[baseElOffset2:.+]] = arith.muli %{{.*}}, %c8 : index
+    // CHECK-DAG: %[[baseElOffset2SliceOffset:.+]] = arith.addi %[[baseElOffset2]], %c4 : index
+    // CHECK-DAG: %[[destElOffset2:.+]] = arith.divui %[[baseElOffset2SliceOffset]], %c4 : index
+    // CHECK-DAG: memref.store %[[ldvalSlice2]], %[[dest]][%[[destElOffset2]]] : memref<8xvector<4xf16>, #gpu.address_space<private>>
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%source)[] -> %dest : memref<4xvector<8xf16>, #gpu.address_space<workgroup>> -> memref<8xvector<4xf16>, #gpu.address_space<private>>
+  func.return
+}
+
+// CHECK-LABEL: func @threadwise_read_into_scalar_to_vec
+// CHECK-SAME: %[[source:.+]]: memref<32xf16, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<8xvector<4xf16>, #gpu.address_space<private>>
+func.func @threadwise_read_into_scalar_to_vec(%source: memref<32xf16, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) {
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [32] strides [8] {
+    // CHECK-DAG: %[[ldval:.+]] = scf.if
+    // CHECK-DAG: %[[ldvalSlice:.+]] = rock.extract_slice %[[ldval]][%c0] : vector<8xf16> -> vector<4xf16>
+    // CHECK-DAG: %[[baseElOffset:.+]] = arith.muli %{{.*}}, %c8 : index
+    // CHECK-DAG: %[[destElOffset:.+]] = arith.divui %[[baseElOffset]], %c4 : index
+    // CHECK-DAG: memref.store %[[ldvalSlice]], %[[dest]][%[[destElOffset]]] : memref<8xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK-DAG: %[[ldvalSlice2:.+]] = rock.extract_slice %[[ldval]][%c4] : vector<8xf16> -> vector<4xf16>
+    // CHECK-DAG: %[[baseElOffset2:.+]] = arith.muli %{{.*}}, %c8 : index
+    // CHECK-DAG: %[[baseElOffset2SliceOffset:.+]] = arith.addi %[[baseElOffset2]], %c4 : index
+    // CHECK-DAG: %[[destElOffset2:.+]] = arith.divui %[[baseElOffset2SliceOffset]], %c4 : index
+    // CHECK-DAG: memref.store %[[ldvalSlice2]], %[[dest]][%[[destElOffset2]]] : memref<8xvector<4xf16>, #gpu.address_space<private>>
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%source)[] -> %dest : memref<32xf16, #gpu.address_space<workgroup>> -> memref<8xvector<4xf16>, #gpu.address_space<private>>
+  func.return
+}
+
+// CHECK-LABEL: func @threadwise_read_into_small_to_big_vec
+// CHECK-SAME: %[[source:.+]]: memref<8xvector<4xf16>, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<4xvector<8xf16>, #gpu.address_space<private>>
+func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>, #gpu.address_space<workgroup>>, %dest: memref<4xvector<8xf16>, #gpu.address_space<private>>) {
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [8] strides [1] {
+    // CHECK-DAG: %[[ldval:.+]] = scf.if
+    // CHECK-DAG: %[[baseElOffset:.+]] = arith.muli {{.*}}, %c4 : index
+    // CHECK-DAG: %[[destElOffset:.+]] = arith.divui %[[baseElOffset]], %c8 : index
+    // CHECK-DAG: %[[destVec:.+]] = memref.load %[[dest]][%[[destElOffset]]] : memref<4xvector<8xf16>, #gpu.address_space<private>>
+    // CHECK-DAG: %[[destVecSliceOffset:.+]] = arith.remui %[[baseElOffset]], %c8 : index
+    // CHECK-DAG: %[[newDestVec:.+]] = rock.insert_slice %[[ldval]] -> %[[destVec]][%[[destVecSliceOffset]]] : vector<4xf16> -> vector<8xf16>
+    // CHECK-DAG: memref.store %[[newDestVec]], %[[dest]][%[[destElOffset]]] : memref<4xvector<8xf16>, #gpu.address_space<private>>
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%source)[] -> %dest : memref<8xvector<4xf16>, #gpu.address_space<workgroup>> -> memref<4xvector<8xf16>, #gpu.address_space<private>>
+  func.return
+}

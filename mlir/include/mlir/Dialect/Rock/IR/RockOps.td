@@ -245,18 +245,19 @@ def Rock_AttentionOp :
   }];
 }
 
-def Rock_ZeroInitKernelOp :
-    Rock_Op<"zero_init_kernel", []>,
+def Rock_InitKernelOp :
+    Rock_Op<"init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
                   Rock_GemmFeaturesAttr:$features,
+                  OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
                   OptionalAttr<I32Attr>:$blockSize,
                   OptionalAttr<I32Attr>:$gridSize,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
     Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "Zero-initialize a buffer";
+  let summary = "initialize a buffer";
 
   let description = [{
-    Zero-initialize a given buffer.
+    Initialize a given buffer.
 
     This operation is meant to operate as its own kernel, and is needed
     for correctness in some cases (backwards data kernels where not all
@@ -431,6 +432,7 @@ def Rock_GridwiseAttentionAccelOp :
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
+                   UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params0,

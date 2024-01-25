@@ -547,6 +547,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (isSrcVectorBuffer) {
     loadType = elementType;
     vectorSrcLen = elementType.dyn_cast<VectorType>().getNumElements();
+    elementType = elementType.dyn_cast<VectorType>().getElementType();
     srcStride = 1;
   } else {
     vectorSrcLen = getMaxVectorizationForDatatype(
@@ -560,7 +561,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (isDstVectorBuffer) {
     dstVectorType = dstBufferType.getElementType().dyn_cast<VectorType>();
     vectorDstLen = dstVectorType.dyn_cast<VectorType>().getNumElements();
-    numValues = (numValues * vectorDstLen) / vectorSrcLen;
+    numValues = numValues * vectorDstLen;
+    if (isSrcVectorBuffer) {
+      numValues = numValues / vectorSrcLen;
+    }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
@@ -628,48 +632,58 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
       } else {
         // Destination is a vector buffer
+        Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
+        // If the source is not a vector buffer, it could still be
+        // vectorizable on the load. If that is the case, then
+        // the stride would be vectorSrcLen. However, the rest
+        // of the code here assumes indexing is done as if the
+        // source memref has vector-typed elements. Thus, changing
+        // the indexing to be of vector-typed elements.
+        if (!isSrcVectorBuffer) {
+          Value srcVecLenVal =
+              b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen);
+          idx = b.createOrFold<arith::DivUIOp>(loc, idx, srcVecLenVal);
+        }
         if (vectorSrcLen == vectorDstLen) {
-          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest,
-                                    loadLoop.getLowerCoords(
-                                        /*domain=*/1)[extraIdxCount]);
-        } else if (vectorSrcLen > vectorDstLen) {
-          int64_t numStores = vectorSrcLen / vectorDstLen;
-          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
-          Value value = ifb.getResult(0);
-
-          Value baseDestOffset = b.createOrFold<arith::MulIOp>(
-              loc, idx, b.createOrFold<arith::ConstantIndexOp>(loc, numStores));
+          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest, idx);
+        } else {
+          // When the vector types differ, we need to find the gcd
+          // to make it work for the both source and dest.
+          int64_t commonVecLen = math_util::gcd(vectorSrcLen, vectorDstLen);
+          Type commonVecType = VectorType::get({commonVecLen}, elementType);
+          int64_t numStores = vectorSrcLen / commonVecLen;
           for (int64_t i = 0; i < numStores; ++i) {
-            Value sliceStart =
-                b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen * i);
-            Value slice =
-                b.create<ExtractSliceOp>(loc, dstVectorType, value, sliceStart);
-            Value destOffset = b.createOrFold<arith::AddIOp>(
-                loc, baseDestOffset,
-                b.createOrFold<arith::ConstantIndexOp>(loc, i));
-            b.create<memref::StoreOp>(loc, slice, dest, ValueRange{destOffset});
-          }
-        } else { // srcVecLen < dstVecLen
-          // Here we are gathering loaded values into vectors for passing into
-          // MFMAs.
-          Value value = ifb.getResult(0);
-          Value destValsPerKpack = b.createOrFold<arith::ConstantIndexOp>(
-              loc, vectorDstLen / vectorSrcLen);
-          Value idx = loadLoop.getLowerCoords(1)[extraIdxCount];
+            Value loadSliceStart =
+                b.createOrFold<arith::ConstantIndexOp>(loc, commonVecLen * i);
+            Value value = ifb.getResult(0);
+            // Only need to perform slice extraction of vector-typed sources.
+            if (vectorSrcLen > 1) {
+              value = b.create<ExtractSliceOp>(loc, commonVecType, value,
+                                               loadSliceStart);
+            }
+            // Calculate base element offsets
+            Value baseElementOffset = b.createOrFold<arith::MulIOp>(
+                loc, idx,
+                b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen));
+            Value elementOffset = b.createOrFold<arith::AddIOp>(
+                loc, baseElementOffset,
+                b.createOrFold<arith::ConstantIndexOp>(loc, i * commonVecLen));
 
-          Value destOffset =
-              b.createOrFold<arith::DivUIOp>(loc, idx, destValsPerKpack);
-          Value destVecPart =
-              b.createOrFold<arith::RemUIOp>(loc, idx, destValsPerKpack);
-          Value destSlicePos = b.createOrFold<arith::MulIOp>(
-              loc, destVecPart,
-              b.createOrFold<arith::ConstantIndexOp>(loc, vectorSrcLen));
-          Value destVec = b.create<memref::LoadOp>(loc, dstVectorType, dest,
-                                                   ValueRange{destOffset});
-          Value newDestVec = b.create<InsertSliceOp>(loc, dstVectorType, value,
-                                                     destVec, destSlicePos);
-          b.create<memref::StoreOp>(loc, newDestVec, dest,
-                                    ValueRange{destOffset});
+            // Base element offset is used to figure out correct dest vector idx
+            // and slice idx within the dest vector.
+            Value storeVecStart = b.createOrFold<arith::DivUIOp>(
+                loc, elementOffset,
+                b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
+            Value storeVec = b.create<memref::LoadOp>(
+                loc, dstVectorType, dest, ValueRange{storeVecStart});
+            Value storeSliceStart = b.createOrFold<arith::RemUIOp>(
+                loc, elementOffset,
+                b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
+            Value newStoreVec = b.create<InsertSliceOp>(
+                loc, dstVectorType, value, storeVec, storeSliceStart);
+            b.create<memref::StoreOp>(loc, newStoreVec, dest,
+                                      ValueRange{storeVecStart});
+          }
         }
       }
     }
