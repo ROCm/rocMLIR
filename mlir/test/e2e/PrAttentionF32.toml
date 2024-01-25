@@ -12,16 +12,6 @@ name = "transK"
 values = ["true", "false"]
 prefix = "--transK="
 
-[[axis]]
-name = "scale"
-values = ["true", "false"]
-prefix = "--with-attn-scale="
-
-[[axis]]
-name = "bias"
-values = ["true", "false"]
-prefix = "--with-attn-bias="
-
 ## attention variant
 [[suite]]
 name = "pr_attention_f32"
@@ -39,3 +29,14 @@ config = "-seq_len 64 -head_dim 64 -perf_config 64,64,16,32,32,4,1,1"
 [[suite.test]]
 config = "-seq_len 64 -head_dim 64"
 
+# check scale
+[[suite.test]]
+config = "-seq_len 384 -head_dim 64 --with-attn-scale"
+
+# check bias
+[[suite.test]]
+config = "-seq_len 384 -head_dim 64 --with-attn-bias"
+
+# check scale and bias together
+[[suite.test]]
+config = "-seq_len 384 -head_dim 64 --with-attn-scale --with-attn-bias"
