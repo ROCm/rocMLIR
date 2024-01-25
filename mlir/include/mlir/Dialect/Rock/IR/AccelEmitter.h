@@ -129,7 +129,7 @@ struct AccelEmitter {
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
-      bool doSwapThreadIterSubDimsForN = false) = 0;
+      bool doSwapThreadIterSubDimsForN = false, bool makeMTidSlowestChanging = false) = 0;
 
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
@@ -184,7 +184,7 @@ struct MfmaEmitter : public AccelEmitter {
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
-      bool doSwapThreadIterSubDimsForN = false) override;
+      bool doSwapThreadIterSubDimsForN = false, bool makeMTidSlowestChanging = false) override;
 
   LogicalResult validateAcceleratorProperties() override;
 
@@ -224,7 +224,7 @@ struct WmmaEmitter : public AccelEmitter {
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
       int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
-      bool doSwapThreadIterSubDimsForN = false) override;
+      bool doSwapThreadIterSubDimsForN = false, bool makeMTidSlowestChanging = false) override;
 
 private:
   /// Initialize the emitter parameters for wmma

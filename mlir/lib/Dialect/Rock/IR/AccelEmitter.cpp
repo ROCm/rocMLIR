@@ -224,11 +224,27 @@ makeViewsForRowsAndCols(TopDownTMBuilder &viewBuilder, int64_t mPerRepeat,
       {"vec_group", "vec_item"});
 }
 
+struct Dim{
+  StringRef name;
+  int64_t size;
+};
+
+static std::tuple<SmallVector<StringRef>,SmallVector<int64_t>>
+getDimNamesAndSize(ArrayRef<Dim> dims) {
+  SmallVector<StringRef> names;
+  SmallVector<int64_t> sizes;
+  for(const Dim& d : dims){
+    names.push_back(d.name);
+    sizes.push_back(d.size);
+  }
+  return {names, sizes};
+}
+
 RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
-    bool doSwapThreadIterSubDimsForN) {
+    bool doSwapThreadIterSubDimsForN, bool makeMTidSlowestChanging) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -268,36 +284,29 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel, i.e.,
   // all the waves will compute next to each other and then they will move to
   // the next subtile in the workgroup
-  SmallVector<StringRef, 7> dimNamesM{/*0=*/"m_block",
-                                      /*1=*/"m_i",
-                                      /*2=*/"wave_m",
-                                      /*3=*/"blk_row",
-                                      /*4=*/"vec_group",
-                                      /*5=*/"m_tid",
-                                      /*6=*/"vec_item"};
-  SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
-                                             /*1=*/mPerAccel * mWaves,
-                                             /*2=*/mPerAccel,
-                                             /*3=*/m,
-                                             /*4=*/inputSpansPerMfmaIn *
-                                                 rowGroupSize,
-                                             /*5=*/rowGroupSize,
-                                             /*6=*/1};
-  SmallVector<int64_t, 7> dimSizesM;
-  convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizesM);
 
-  SmallVector<StringRef, 5> dimNamesN{/*0=*/"n_block",
-                                      /*1=*/"n_i",
-                                      /*2=*/"wave_n",
-                                      /*3=*/"blk_col",
-                                      /*4=*/"n_tid"};
-  SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                             /*1=*/nPerAccel * nWaves,
-                                             /*2=*/nPerAccel,
-                                             /*3=*/n,
-                                             /*4=*/1};
+  // M sub dims
+  Dim mBlock {"m_block", mLen / mPerBlock};
+  Dim mi {"m_i", mPerWave / mPerAccel};
+  Dim waveM {"wave_m", mWaves};
+  Dim blkRow {"blk_row", mPerAccel / m};
+  Dim vecGroup {"vec_group", m / (inputSpansPerMfmaIn * rowGroupSize)};
+  Dim mTid {"m_tid", inputSpansPerMfmaIn};
+  Dim vecItem {"vec_item", rowGroupSize};
+
+  SmallVector<StringRef> dimNamesM;
+  SmallVector<int64_t, 7> dimSizesM;
+  std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
+
+  // N sub dims
+  Dim nBlock {"n_block", nLen / nPerBlock};
+  Dim ni {"n_i", nPerWave / nPerAccel};
+  Dim waveN {"wave_n", nWaves};
+  Dim blkCol {"blk_col", (nPerAccel / n)};
+  Dim nTid {"n_tid", n};
+  SmallVector<StringRef> dimNamesN;
   SmallVector<int64_t, 7> dimSizesN;
-  convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
+  std::tie(dimNamesN, dimSizesN) = getDimNamesAndSize({nBlock, ni, waveN, blkCol, nTid});
 
   RegsAsMatrixSubTiles ret;
   {
@@ -422,10 +431,10 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
     TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[5]},
-                      {dimSizesM[2], dimSizesM[5]});
-    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[4]},
-                      {dimSizesN[2], dimSizesN[4]});
+    toMatrixC.unmerge("gemmM", 0, {waveM.name, mTid.name},
+                      {waveM.size, mTid.size});
+    toMatrixC.unmerge("gemmN", 1, {waveN.name, nTid.name},
+                      {waveN.size, nTid.size});
 
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
@@ -459,10 +468,10 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
     toMatrixC.unmerge("gemmM", 0,
-                      {dimNamesM[1], dimNamesM[3], dimNamesM[4], dimNamesM[6]},
-                      {dimSizesM[1], dimSizesM[3], dimSizesM[4], dimSizesM[6]});
-    toMatrixC.unmerge("gemmN", 1, {dimNamesN[1], dimNamesN[3]},
-                      {dimSizesN[1], dimSizesN[3]});
+                      {mi.name, blkRow.name, vecGroup.name, vecItem.name},
+                      {mi.size, blkRow.size, vecGroup.size, vecItem.size});
+    toMatrixC.unmerge("gemmN", 1, {ni.name, blkCol.name},
+                      {ni.size, blkCol.size});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
     ret.threadSubTile = b.getArrayAttr(
         {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
@@ -507,7 +516,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dPerBlock, kpackPerThread});
+                              {blockSize, dRepeats, kpackPerThread});
     splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                    {blockSize / waveSize, waveSize});
 
@@ -551,7 +560,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
   } else {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dPerBlock, kpackPerThread});
+                              {blockSize, dRepeats, kpackPerThread});
     splitTid.merge(
         {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
         {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
@@ -1286,7 +1295,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
-    bool doSwapThreadIterSubDimsForN) {
+    bool doSwapThreadIterSubDimsForN, bool makeMTidSlowestChanging) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
