@@ -1616,7 +1616,7 @@ struct GridwiseAttentionAccelRewritePattern
     RegsAsMatrixSubTiles gemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
             rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
-            gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread);
+            gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread, false, false, false);
     RegsAsMatrixSubTiles gemm0OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
     int64_t gemm0MPerThread =

@@ -296,7 +296,12 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
 
   SmallVector<StringRef> dimNamesM;
   SmallVector<int64_t, 7> dimSizesM;
-  std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
+  if(makeMTidSlowestChanging){
+    std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, mTid, vecGroup, vecItem});
+  }
+  else{
+    std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
+  }
 
   // N sub dims
   Dim nBlock {"n_block", nLen / nPerBlock};

@@ -1722,6 +1722,13 @@ bool GridwiseAttentionAccelOp::canBypassLDSForSecondGemm() {
     if(mWaves != 1){
           return false;
     }
+    // TODO: explore if this could be relaxed
+    // Right now, anything other than KPack=4
+    // could not be supported because rowGroupSize=4 always
+    // Though that should only affect second gemm.
+    if(gemm0TuningParams.getKpack() != 4){
+      return false;
+    }
     return true;
   }
   return false;  
