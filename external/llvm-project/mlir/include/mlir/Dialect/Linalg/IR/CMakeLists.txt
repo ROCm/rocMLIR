@@ -22,7 +22,7 @@ function(add_linalg_ods_yaml_gen yaml_ast_file output_file)
 if(WIN32)
   add_custom_command(
     OUTPUT ${DUMMY_FILE}
-    COMMAND type null > ${DUMMY_FILE}
+    COMMAND type nul > ${DUMMY_FILE}
     DEPENDS
     ${GEN_ODS_FILE} ${GEN_CPP_FILE}
   )

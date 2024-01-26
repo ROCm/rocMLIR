@@ -2012,6 +2012,13 @@ LogicalResult AttentionOp::verify() {
     }
   }
 
+  if (TypedValue<ShapedType> bias = getBias()) {
+    ShapedType biasType = bias.getType();
+    if (vType.getRank() != biasType.getRank()) {
+      return emitError("bias needs to be of same rank to other inputs");
+    }
+  }
+
   return success();
 }
 
