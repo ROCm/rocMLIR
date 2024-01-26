@@ -190,6 +190,8 @@ struct MfmaEmitter : public AccelEmitter {
 
   bool isKReduction() const;
 
+  int64_t getRowGroupSize() const;
+
 private:
   /// Initialize the emitter parameters for mfma
   AccelEmitterParams

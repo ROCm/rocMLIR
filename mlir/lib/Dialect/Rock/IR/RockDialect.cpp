@@ -1723,10 +1723,13 @@ bool GridwiseAttentionAccelOp::canBypassLDSForSecondGemm() {
           return false;
     }
     // TODO: explore if this could be relaxed
-    // Right now, anything other than KPack=4
-    // could not be supported because rowGroupSize=4 always
-    // Though that should only affect second gemm.
-    if(gemm0TuningParams.getKpack() != 4){
+    // Right now, the way we load thins from
+    // LDS for the other operand distributes
+    // kPack set of values from K dim. Therefore
+    // to match with the MFMA output the Kpack
+    // has to match rowGroupSize if we are to
+    // avoid LDS for the current operand.
+    if(gemm0TuningParams.getKpack() != mfmaEmitter->getRowGroupSize()){
       return false;
     }
     return true;

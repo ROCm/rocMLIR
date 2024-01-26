@@ -626,6 +626,11 @@ bool MfmaEmitter::isKReduction() const {
   return mfmaAttr.isKReduction;
 }
 
+int64_t MfmaEmitter::getRowGroupSize() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.rowGroupSize;
+}
+
 RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t dInCopyPerThread, StringRef dName,
