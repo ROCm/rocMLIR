@@ -238,7 +238,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       blockSize = 64 : i32,
       gridSize = 24 : i32,
       params0 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>,
-      params1 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+      params1 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>,
+      operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
     } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
     return
   }

@@ -5,6 +5,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRAMDGPUTransforms
   MLIRGPUToROCDLTransforms
   MLIRArithToAMDGPU
+  MLIRMathTransforms
   MLIRTensorToLinalg
   MLIRTosaToArith
   MLIRTosaToRock
