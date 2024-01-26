@@ -197,14 +197,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     for (uint32_t argIdx = 0; argIdx < theFunc.getNumArguments(); ++argIdx) {
       if (auto attr =
               theFunc.getArgAttr(argIdx, mhal::PrefillAttr::getMnemonic())) {
-        uint32_t value{};
-        if (auto floatAttr = llvm::dyn_cast<FloatAttr>(attr)) {
-          float underlyingValue = floatAttr.getValue().convertToFloat();
-          value = *(reinterpret_cast<uint32_t *>(&underlyingValue));
-        } else if (auto intAttr = llvm::dyn_cast<IntegerAttr>(attr)) {
-          value = static_cast<uint32_t>(intAttr.getInt());
-        }
-        auto prefillAttr = b.getAttr<mhal::PrefillAttr>(argIdx, value);
+        auto prefillAttr =
+            b.getAttr<mhal::PrefillAttr>(argIdx, cast<TypedAttr>(attr));
         prefillAttrs.push_back(prefillAttr);
       }
     }
