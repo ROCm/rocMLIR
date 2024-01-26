@@ -88,7 +88,8 @@ func.func @rock_attention_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
     arch = "amdgcn-amd-amdhsa:gfx908",
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    qTransposed
+    qTransposed,
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } : memref<1x64x1024xf32>, memref<1x64x1024xf32>, memref<1x1024x64xf32>, memref<1x64x1024xf32>
   return
 }
@@ -106,7 +107,8 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
   rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
     params0 = #xldops_attn_params_g0,
-    params1 = #xldops_attn_params_g1
+    params1 = #xldops_attn_params_g1,
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } :  memref<1x49x7xf32>, memref<1x7x49xf32>, memref<1x49x7xf32>, memref<1x49x7xf32>
   return
 }
