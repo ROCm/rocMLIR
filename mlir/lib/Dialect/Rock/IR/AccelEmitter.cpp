@@ -244,7 +244,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
-    bool doSwapThreadIterSubDimsForN, bool makeMTidSlowestChanging) {
+    bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -296,12 +296,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
 
   SmallVector<StringRef> dimNamesM;
   SmallVector<int64_t, 7> dimSizesM;
-  if(makeMTidSlowestChanging){
-    std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, mTid, vecGroup, vecItem});
-  }
-  else{
-    std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
-  }
+  std::tie(dimNamesM, dimSizesM) = getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
 
   // N sub dims
   Dim nBlock {"n_block", nLen / nPerBlock};
@@ -1305,7 +1300,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
     int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
-    bool doSwapThreadIterSubDimsForN, bool makeMTidSlowestChanging) {
+    bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
