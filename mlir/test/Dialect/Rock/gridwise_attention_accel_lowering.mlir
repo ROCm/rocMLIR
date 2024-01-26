@@ -167,6 +167,12 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // Store to LDS G1A tile buffer
     // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr6]])
     // CHECK-DAG: %[[view2G1AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+    
+    // Viewing LDS G1A tile buffer in MFMA layout
+    // CHECK-DAG: %[[viewG1ALoadTr0:.+]] = rock.transform %[[view2G1AStore]]
+    // CHECK-DAG: %[[viewG1ALoadTr1:.+]] = rock.transform %[[viewG1ALoadTr0]]
+    // CHECK-DAG: %[[viewG1ALoadTr2:.+]] = rock.transform %[[viewG1ALoadTr1]]
+    // CHECK-DAG: %[[viewG1ALoadTr3:.+]] = rock.transform %[[viewG1ALoadTr2]]
 
     // Load G1B tile from global to regs
     // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
@@ -196,12 +202,6 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[viewG1BLoadTr1:.+]] = rock.transform %[[viewG1BLoadTr0]]
     // CHECK-DAG: %[[viewG1BLoadTr2:.+]] = rock.transform %[[viewG1BLoadTr1]]
     // CHECK-DAG: %[[viewG1BLoadTr3:.+]] = rock.transform %[[viewG1BLoadTr2]]
-
-    // Viewing LDS G1A tile buffer in MFMA layout
-    // CHECK-DAG: %[[viewG1ALoadTr0:.+]] = rock.transform %[[view2G1AStore]]
-    // CHECK-DAG: %[[viewG1ALoadTr1:.+]] = rock.transform %[[viewG1ALoadTr0]]
-    // CHECK-DAG: %[[viewG1ALoadTr2:.+]] = rock.transform %[[viewG1ALoadTr1]]
-    // CHECK-DAG: %[[viewG1ALoadTr3:.+]] = rock.transform %[[viewG1ALoadTr2]]
 
     // Gemm1
     // CHECK-DAG: rock.lds_barrier

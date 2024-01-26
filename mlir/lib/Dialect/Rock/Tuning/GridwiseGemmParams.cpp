@@ -633,8 +633,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   if(minDPerWave <= 16){
     validKPerWaveFactor = 4;
   }
-  if (!((param.gemmMPerWave % minDPerWave == 0) &&
-        (param.gemmNPerWave % minDPerWave == 0) &&
+  if (!((param.gemmMPerBlock % minDPerWave == 0) &&
+        (param.gemmNPerBlock % minDPerWave == 0) &&
         (param.gemmKPerBlock % validKPerWaveFactor == 0))){
      return failure();     
   }

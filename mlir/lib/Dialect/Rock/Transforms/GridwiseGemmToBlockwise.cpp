@@ -1615,7 +1615,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm0NBlocks};
     RegsAsMatrixSubTiles gemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
-            rewriter, loc, gemm0MPerBlock, gemm0NPerBlock, blockSize,
+            rewriter, loc, gemm0M, gemm0N, blockSize,
             gemm0BidGridLengths, gemm0InMPerThread, gemm0InNPerThread, false, false, false);
     RegsAsMatrixSubTiles gemm0OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
@@ -1722,7 +1722,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm1NBlocks};
     RegsAsMatrixSubTiles gemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
-            rewriter, loc, gemm1MPerBlock, gemm1NPerBlock, blockSize,
+            rewriter, loc, gemm1M, gemm1N, blockSize,
             gemm1BidGridLengths, gemm1InMPerThread, gemm1InNPerThread);
     RegsAsMatrixSubTiles gemm1OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm1OutSubTileViews);

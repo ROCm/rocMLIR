@@ -1802,7 +1802,7 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
                                                    gemm0NBlocks};
   RegsAsMatrixSubTiles gemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
-            b, getLoc(), gemm0MPerBlock, gemm0NPerBlock, getBlockSize(),
+            b, getLoc(), gemm0M, gemm0N, getBlockSize(),
             gemm0BidGridLengths, /*InMPerThread=*/0, /*gemm0InNPerThread=*/0);
   int64_t gemm0MPerThread =
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
