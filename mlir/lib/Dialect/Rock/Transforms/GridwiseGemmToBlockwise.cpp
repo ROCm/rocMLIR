@@ -931,7 +931,7 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  SmallVector<Value>
+  std::tuple<SmallVector<Value>, int64_t>
   createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
                                 ArrayRef<int64_t> numElementsArr,
                                 ArrayRef<Type> elemTypeArr) const {
@@ -970,7 +970,7 @@ struct GridwiseAttentionAccelRewritePattern
           ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
       ret.push_back(ldsByteBufferSubView);
     }
-    return ret;
+    return {ret, maxSizeBytes};
   }
 
   // This function will create fromGlobalRegsBuffer, toLDSRegBuffer and
@@ -1541,6 +1541,57 @@ struct GridwiseAttentionAccelRewritePattern
     return rewriter.create<TransformOp>(loc, operand, trMap);
   }
 
+  /// Check whether the op can bypass LDS-based swizzling
+  /// for the B operand of the second gemm.
+  bool canBypassLDSForSecondGemm(GridwiseAttentionAccelOp op) const {
+    Type elemTypeQ =
+        op.getQueries().getType().cast<MemRefType>().getElementType();
+    Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
+    StringRef arch = op.getArch();
+    RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
+    auto accelEmitterPtrGemm0 = rock::accel::AccelEmitter::select(
+        op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+    bool isMFMA = bitEnumContainsAny(op.getFeatures(), GemmFeatures::mfma);
+    if (isMFMA) {
+      auto mfmaEmitter =
+          static_cast<rock::accel::MfmaEmitter *>(accelEmitterPtrGemm0.get());
+      if (!mfmaEmitter->isKReduction()) {
+        return false;
+      }
+      int64_t mWaves =
+          gemm0TuningParams.getMPerBlock() / gemm0TuningParams.getMPerWave();
+      if (mWaves != 1) {
+        return false;
+      }
+      // TODO: explore if this could be relaxed
+      // Right now, the way we load thins from
+      // LDS for the other operand distributes
+      // kPack set of values from K dim. Therefore
+      // to match with the MFMA output the Kpack
+      // has to match rowGroupSize if we are to
+      // avoid LDS for the current operand.
+      if (gemm0TuningParams.getKpack() != mfmaEmitter->getRowGroupSize()) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /// check whether the op can bypass LDS when loading
+  /// Q tiles to accel_gemm layouts
+  bool canBypassLDSForQ(GridwiseAttentionAccelOp op) const {
+    ArrayRef<int64_t> qShape =
+        op.getQueries().getType().cast<MemRefType>().getShape();
+    int64_t gemm0K = qShape[1];
+    RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
+    int64_t gemm0kpack = gemm0TuningParams.getKpack();
+    int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
+    int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+    bool enableQLDSBypass = !op.getDisableQBypassLDS();
+    return enableQLDSBypass && (gemm0K == gemm0KPerBlock);
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -1593,7 +1644,7 @@ struct GridwiseAttentionAccelRewritePattern
         op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
       return op.emitOpError("Unable to emit accelerator code.");
-    bool doBypassLDSSecondGemm = op.canBypassLDSForSecondGemm();
+    bool doBypassLDSSecondGemm = canBypassLDSForSecondGemm(op);
     rock::accel::AccelEmitterParams accelParamsGemm0 =
         accelEmitterPtrGemm0->getParams();
     auto accelEmitterPtrGemm1 = accel::AccelEmitter::select(
@@ -1640,7 +1691,7 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Create shared buffers accross gemms and reductions
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
-    bool doBypassLDSForQ = op.canBypassLDSForQ();
+    bool doBypassLDSForQ = canBypassLDSForQ(op);
     if (doBypassLDSForQ) {
       ldsByteBufferQSize = 0;
     }
@@ -1650,19 +1701,25 @@ struct GridwiseAttentionAccelRewritePattern
     if (doBypassLDSSecondGemm) {
       gemm1LDSByteBufferBSize = 0;
     }
-    SmallVector<Value> sharedBuffersGemmsB = createSharedLDSByteBufferRefs(
+    auto [sharedBuffersGemmsB, ldsSizeB] = createSharedLDSByteBufferRefs(
         rewriter, loc,
         {ldsByteBufferQSize, reductionWorkspaceSize, gemm1LDSByteBufferBSize},
         {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsB[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsB[1];
     Value gemm1LDSByteBufferB = sharedBuffersGemmsB[2];
-    SmallVector<Value> sharedBuffersGemmsA = createSharedLDSByteBufferRefs(
+    auto [sharedBuffersGemmsA, ldsSizeA] = createSharedLDSByteBufferRefs(
         rewriter, loc,
         {gemm0KPerBlock * gemm0MPerBlock, gemm1KPerBlock * gemm1MPerBlock},
         {elemTypeK, elemTypeV});
     Value ldsByteBufferK = sharedBuffersGemmsA[0];
     Value ldsByteBufferV = sharedBuffersGemmsA[1];
+    const int64_t maxLdsSize =
+        rock::lookupArchInfo(op.getArch()).maxSharedMemPerWG;
+    if (ldsSizeB + ldsSizeA > maxLdsSize) {
+      return op.emitError() << "totalLDSSize (" << ldsSizeB + ldsSizeA
+                            << ") exceeds " << maxLdsSize << "KB\n";
+    }
 
     // Bufers for Gemm0
     Value fromGlobalRegBufferQ;

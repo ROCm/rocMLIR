@@ -224,7 +224,7 @@ def Rock_AttentionOp :
   )>,
   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
   let summary = "Attention operation of transformer models";
-  let description = [{
+  let description = [{G
     Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
 
     This operation performs attention mechanism of transformer models.
@@ -449,13 +449,6 @@ def Rock_GridwiseAttentionAccelOp :
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
-    /// Check whether the op can bypass LDS-based swizzling
-    /// for the B operand of the second gemm.
-    bool canBypassLDSForSecondGemm();
-
-    /// check whether the op can bypass LDS when loading
-    /// Q tiles to accel_gemm layouts
-    bool canBypassLDSForQ();
   }];
 }
 
