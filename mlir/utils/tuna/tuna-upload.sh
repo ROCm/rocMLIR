@@ -2,13 +2,6 @@
 
 set +x
 
-# +++pf:  In production, these are Jenkins environment variables.
-export TUNA_REMOTE_DB_USER_NAME=rocmlir_user
-export TUNA_REMOTE_DB_USER_PASSWORD="mlir<234"
-export TUNA_REMOTE_DB_HOSTNAME=10.216.64.100
-export TUNA_REMOTE_DB_PORT=20057
-export TUNA_REMOTE_DB_NAME=rocmlir
-# for lockhart, 'nc -X connect -x 172.23.0.23:3128 %h %p'
 export TUNA_PROXYCMD=
 
 function send_files_to_database
