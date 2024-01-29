@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
@@ -931,7 +932,7 @@ typename std::enable_if_t<
       /*useDPP=*/nullptr);
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
+  func.setResultAttr(0, mhal::PrefillAttr::getMnemonic(), outputInitVal);
   func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
                      rw.getUnitAttr());
   // The original function also need the read access attr for the output.
