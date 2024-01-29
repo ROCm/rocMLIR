@@ -53,5 +53,5 @@
 // BIN2: ELF
 // TUNING2_0: globalSize=100352, localSize=64
 // TUNING2_1: globalSize{{.*}}localSize{{.*}}
-// DRIVER2: rock.zero_init_kernel %arg1 features = dot : memref<256x1x1024x14x14xf32>
+// DRIVER2: rock.init_kernel %arg1 features =  dot : memref<256x1x1024x14x14xf32>
 // DRIVER2: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [2 : i32, 2 : i32]} : memref<1x2048x1024x1x1xf32>, memref<256x1x1024x14x14xf32>, memref<256x1x2048x7x7xf32>

@@ -530,14 +530,10 @@ static Value makeRegs(LinalgAlignRewriter &b, MemRefType::Builder &mrb,
                                        srcMemType.getElementType())));
 }
 
-static void markGenericWritersToRevisit(LinalgAlignRewriter &b,
-                                        Value transformedSource) {
-  Value source;
-  std::tie(source, std::ignore, std::ignore) =
-      untransform(b, transformedSource);
+static void markGenericWritersToRevisit(LinalgAlignRewriter &b, Value rawSrc) {
   SmallVector<TransformMapAttr> views;
   auto genericWriter =
-      dyn_cast_if_present<linalg::GenericOp>(traceToWriter(source, views));
+      dyn_cast_if_present<linalg::GenericOp>(traceToWriter(rawSrc, views));
   if (genericWriter)
     b.scheduleVisit(genericWriter);
 }
@@ -568,7 +564,8 @@ Value getRegisterValue<ThreadwiseWriteAllOp>(ThreadwiseWriteAllOp op) {
 template <typename TiledOp>
 static Value
 makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
-                   ArrayRef<TransformMapAttr> globalCoordsToGenericViews) {
+                   ArrayRef<TransformMapAttr> globalCoordsToGenericViews,
+                   linalg::GenericOp laGeneric) {
   // 0. capture the memref containing the outputs being written or
   // (in the case of propagating tiling informatinon up to gemm-independent
   // code) where the values will be written.
@@ -579,6 +576,16 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   MemRefType::Builder mrb(tile.getType().cast<MemRefType>());
   Value alloc = makeRegs(b, mrb, loc, src.getType());
 
+  // 1.1. Find out if the source is a scalar so we don't unroll a memset()
+  Value rawSrc = std::get<0>(untransform(b, src));
+  bool forceUnroll = tiledOp.getForceUnroll();
+  bool useIndexDiffs = tiledOp.getUseIndexDiffs();
+  auto baseOpType = cast<MemRefType>(rawSrc.getType());
+  if (baseOpType.getNumElements() == 1) {
+    forceUnroll = false;
+    useIndexDiffs = false;
+  }
+
   // 2. clone twcopy for <addend> into regs
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType()
                           << " tile type: " << tile.getType() << "\n");
@@ -586,16 +593,29 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
-  // 2.1. load into registers
-  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, tiledOp.getExtraViews(),
-                                 /*extraIndices=*/tiledOp.getExtraIndices(),
-                                 tiledOp.getForceUnroll(),
-                                 tiledOp.getUseIndexDiffs());
+  // 2.1. move linalg.generic after the definitions of threadwiseReadIntoOp's
+  // inputs to maintaine correct def-use chain.
+  Operation *lastIdxDef = nullptr;
+  for (Value idx : tiledOp.getExtraIndices()) {
+    Operation *idxOp = idx.getDefiningOp();
+    if (idxOp) {
+      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+        lastIdxDef = idxOp;
+      }
+    }
+  }
+  if (lastIdxDef)
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
+  // 2.2. load into registers
+  ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
+      loc, src, alloc, tiledOp.getExtraViews(),
+      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
 
   // 3. Mark linalg.generic operations that populate this source buffer as
   // operations that need to be re-checekd for fusion now that we know their
   // tiling.
-  markGenericWritersToRevisit(b, src);
+  markGenericWritersToRevisit(b, rawSrc);
 
   return alloc;
 }
@@ -666,7 +686,8 @@ static void addRegisterReadsForTiledInput(
     if (inp == laGenericInputLeadingToWrite) {
       newInput = twWriteOp.getSource();
     } else {
-      newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite);
+      newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite,
+                                    laGeneric);
     }
     newInputs.push_back(newInput);
   }
@@ -681,7 +702,7 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                SmallVectorImpl<Value> &newInputs) {
   for (auto inp : laGeneric.getInputs()) {
     Value newInput =
-        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult);
+        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
     newInputs.push_back(newInput);
   }
 }

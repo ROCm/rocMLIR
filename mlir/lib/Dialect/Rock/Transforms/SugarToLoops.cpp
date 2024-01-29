@@ -903,6 +903,18 @@ static Value asGlobal(PatternRewriter &b, Value memref) {
                                                    memref);
 }
 
+/// The buffer coordinate oob trick requires having at least one coordinate, so
+/// this function takes 0D memrefs and adds a single unit-length dimension
+/// so all the IR validates.
+static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
+  auto type = cast<MemRefType>(memref.getType());
+  auto oneDType = MemRefType::get({1}, type.getElementType(), nullptr,
+                                  type.getMemorySpace());
+  ArrayAttr expansions = b.getArrayAttr({});
+  return b.createOrFold<memref::ExpandShapeOp>(memref.getLoc(), oneDType,
+                                               memref, expansions);
+}
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -918,11 +930,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool hasI64Idx = op.getNeeds64BitIdx();
     bool isAlwaysValid =
         matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
-    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
-                         (hasI64Idx && op.getCanReadOffEnd());
     Value numElems = computeMemRefNumElements(b, loc, source);
     APInt numElemsConst(64, 0);
-    matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool emitOobChecks =
+        !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
+
     APInt numBytes =
         numElemsConst *
         (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
@@ -933,10 +946,15 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
                                        emitOobChecks || op.getCanReadOffEnd());
 
-    if (!useBufferOps)
+    if (!useBufferOps) {
       source = asGlobal(b, source);
+    } else if (useBufferOps && emitOobChecks && coords.empty()) {
+      source = zeroDMemrefAsOneD(b, source);
+      coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
+    }
+
     PatternRewriter::InsertionGuard insertGuard(b);
-    if (emitOobChecks && hasI64Idx) {
+    if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanReadOffEnd()) {
         Value fallsOffEnd = b.create<arith::CmpIOp>(
@@ -960,11 +978,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
           c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
-        if (!coords.empty()) {
-          Value &lastCoord = coords.back();
-          lastCoord =
-              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
-        }
+        Value &lastCoord = coords.back();
+        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
         c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
@@ -1086,11 +1101,13 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     bool hasI64Idx = op.getNeeds64BitIdx();
     bool isAlwaysValid =
         matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
-    bool emitOobChecks = (!coords.empty() && !isAlwaysValid) ||
-                         (hasI64Idx && op.getCanStoreOffEnd());
     Value numElems = computeMemRefNumElements(b, loc, dest);
     APInt numElemsConst(64, 0);
     matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool emitOobChecks = !isStaticSize || !isAlwaysValid ||
+                         (hasI64Idx && op.getCanStoreOffEnd());
+
     APInt numBytes =
         numElemsConst *
         (cast<ShapedType>(dest.getType()).getElementTypeBitWidth() / 8);
@@ -1106,10 +1123,14 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
 
-    if (!useBufferOps)
+    if (!useBufferOps) {
       dest = asGlobal(b, dest);
+    } else if (useBufferOps && emitOobChecks && coords.empty()) {
+      dest = zeroDMemrefAsOneD(b, dest);
+      coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
+    }
     PatternRewriter::InsertionGuard insertGuard(b);
-    if (emitOobChecks && hasI64Idx) {
+    if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanStoreOffEnd()) {
         Value fallsOffEnd = b.create<arith::CmpIOp>(
@@ -1126,11 +1147,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
           c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
-        if (!coords.empty()) {
-          Value &lastCoord = coords.back();
-          lastCoord =
-              b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
-        }
+        Value &lastCoord = coords.back();
+        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
         c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
@@ -1173,11 +1191,12 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     }
     Value data =
         b.create<InBoundsLoadOp>(loc, storeTy, op.getSource(), sourceStart);
+    bool nontemporal = op.getNontemporal();
     if (!useBufferOps) {
       if (isa<VectorType>(storeTy))
-        b.create<vector::StoreOp>(loc, data, dest, coords);
+        b.create<vector::StoreOp>(loc, data, dest, coords, nontemporal);
       else
-        b.create<memref::StoreOp>(loc, data, dest, coords);
+        b.create<memref::StoreOp>(loc, data, dest, coords, nontemporal);
     } else {
       perHardwareOp(storeTy, [&](int64_t offset, Type thisStoreTy) {
         Value offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, offset);

@@ -274,6 +274,13 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     scale = padMatrix(scaleUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n,
                       "gemm1M", gemm0ExtraPad.m);
   }
+
+  Value bias = nullptr;
+  if (Value biasUnpadded = adaptor.getBias()) {
+    bias = padMatrix(biasUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n, "gemm1M",
+                     gemm0ExtraPad.m);
+  }
+
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
@@ -286,9 +293,10 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
-      op, queries, keys, values, scale, out, op.getArchAttr(),
-      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr, prePadG0MAttr,
-      prePadG0NAttr, params0, params1);
+      op, queries, keys, values, scale, bias, out, op.getArchAttr(),
+      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
+      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
+      params1);
   return success();
 }
 

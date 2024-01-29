@@ -43,6 +43,11 @@ def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockFoldBroadcastPass: Pass<"rock-fold-broadcast", "::mlir::func::FuncOp"> {
+  let summary = "Convert Gemm([g, M, K], [broadcast{1}, K, N]) to Gemm([g*M, K], [K, N])";
+  let dependentDialects = ["rock::RockDialect"];
+}
+
 def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
   let summary = "convert linalg.generic to regular form to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
@@ -66,6 +71,11 @@ def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise"
 def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
   let summary = "expand threadwise gemm to final implementation.";
   let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect"];
+}
+
+def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
+  let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
 }
 
 def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
@@ -107,8 +117,14 @@ def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
-def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", ""> {
+def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> {
   let summary = "prepare the generated code for llvm";
+  let dependentDialects = ["ROCDL::ROCDLDialect"];
+}
+
+def RockCheckResidencyPass : Pass<"rock-check-residency", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "For global_sync check for full kernel launch residency";
+  let dependentDialects = ["LLVM::LLVMDialect", "gpu::GPUDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

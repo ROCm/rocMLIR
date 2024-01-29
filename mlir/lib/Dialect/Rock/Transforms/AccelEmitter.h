@@ -105,6 +105,21 @@ struct AccelEmitter {
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const = 0;
 
+  /// This functions creates the subtile views that is :
+  /// 1) gridSubTileView :
+  /// kloop x gblock x mblock x nblock x tid x iter --> ... --> [G, K, D]
+  /// 2) blockSubTileView :
+  /// tid x iter --> ... --> [KPerBlock, DPerBlock]
+  /// 3) threadSubTileView :
+  /// iter --> ... --> [KPerThread, DPerThread]
+  /// for each operand tile to be used with gemm accelerators.
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const = 0;
+
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
 
@@ -120,6 +135,18 @@ struct AccelEmitter {
   /// is the accumulator type and D is the destination type
   void computeOutputConversion(PatternRewriter &b, Location loc, Value regDest,
                                Value convertedC, bool forceUnroll);
+
+  // A view: A buffer is [0, K] so we can ignore `i`
+  Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
+                                      Value rawBufferA);
+  // B view: B buffer is [0, K] so we can ignore `j`
+  Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc,
+                                      Value rawBufferB);
+  // C view: C buffer is [mRepeats,nRepeats] and we need to write in
+  // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
+  // of `i` and `j` as extra indices.
+  Value generateThreadwiseViewBufferC(PatternRewriter &b, Location loc,
+                                      Value rawBufferC);
 
   /// Return the accelerator parameters
   AccelEmitterParams getParams() const { return accelEmitterParams; }
@@ -145,6 +172,13 @@ struct MfmaEmitter : public AccelEmitter {
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
+
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
@@ -176,6 +210,13 @@ struct WmmaEmitter : public AccelEmitter {
                                      int64_t blockSize,
                                      int64_t dInCopyPerThread, StringRef dName,
                                      bool rotateDWithK) const override;
+
+  virtual RegsAsMatrixSubTiles
+  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
+                                   ArrayRef<int64_t> bidGridLengths,
+                                   int64_t blockSize, int64_t dInCopyPerThread,
+                                   StringRef dName, bool isKContigousDim,
+                                   bool rotateDWithK) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,

@@ -204,12 +204,14 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale"]>]>,
+  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale", "bias"]>,
+                                             AttrSizedOperandSegments]>,
   Arguments<(ins
     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
     Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
+    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "bias", [MemRead]>:$bias,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
@@ -245,18 +247,19 @@ def Rock_AttentionOp :
   }];
 }
 
-def Rock_ZeroInitKernelOp :
-    Rock_Op<"zero_init_kernel", []>,
+def Rock_InitKernelOp :
+    Rock_Op<"init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
                   Rock_GemmFeaturesAttr:$features,
+                  OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
                   OptionalAttr<I32Attr>:$blockSize,
                   OptionalAttr<I32Attr>:$gridSize,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
     Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "Zero-initialize a buffer";
+  let summary = "initialize a buffer";
 
   let description = [{
-    Zero-initialize a given buffer.
+    Initialize a given buffer.
 
     This operation is meant to operate as its own kernel, and is needed
     for correctness in some cases (backwards data kernels where not all
@@ -421,16 +424,18 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel">,
+    Rock_Op<"gridwise_attention_accel", [AttrSizedOperandSegments]>,
     Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
                    MemRefRankOf<[F32, F16], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
                    Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
+                   Optional<MemRefRankOf<[F32, F16], [3]>>:$bias,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
+                   UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params0,
@@ -930,7 +935,10 @@ def Rock_GlobalStoreOp :
                    I1:$valid,
                    Variadic<Index>:$destCoord,
                    UnitAttr:$needs64BitIdx,
-                   UnitAttr:$canStoreOffEnd)> {
+                   UnitAttr:$canStoreOffEnd,
+                   // Boolean attribute added here so we know it exists, will be set
+                   // by -analyze-memory-use if applicable.
+                   DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal)> {
   let summary = "Store data into global memory from a source";
   let description = [{
     `global_store` reads `length` elements starting at `%source[%sourceCoord]`

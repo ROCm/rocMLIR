@@ -2,7 +2,7 @@
 
 This is the repository for a MLIR-based convolution and GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from
-[MIGraphX](https://github.com/ROCmSoftwarePlatform/AMDMIGraphX),
+[MIGraphX](https://github.com/ROCm/AMDMIGraphX),
 but it can be used on a standalone basis. (The ability to use this code via
 `torch-mlir` is being investigated as well.)
 

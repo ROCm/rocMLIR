@@ -1511,8 +1511,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = srcType.getElementType().dyn_cast<VectorType>();
   VectorType dstVectorType = destType.getElementType().dyn_cast<VectorType>();
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup)
-    return emitOpError("Vector buffers are only allowed when we read from LDS");
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+    return emitOpError(
+        "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
@@ -1863,7 +1865,7 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
   int64_t axis = getAxis().getSExtValue();
   size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
-  ArrayRef<int64_t> inputPartRedTensorShape =
+  ArrayRef<int64_t> inputPartialReductionTensorShape =
       tidSubTileSliceView[tidSubTileSliceViewArrLen - 1]
           .cast<TransformMapAttr>()
           .getLowerBounds()
@@ -1925,15 +1927,16 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
     return emitError("workspace LDS buffer should be flat");
   }
 
-  int64_t blockwiseInputPartRedTensorElements = 1;
+  int64_t blockwiseInputPartialReductionTensorElements = 1;
   for (auto [dim, dimSize] : llvm::enumerate(inputTensorShape)) {
     if ((int64_t)dim == axis) {
-      blockwiseInputPartRedTensorElements *= inputPartRedTensorShape[axis];
+      blockwiseInputPartialReductionTensorElements *=
+          inputPartialReductionTensorShape[axis];
     } else {
-      blockwiseInputPartRedTensorElements *= dimSize;
+      blockwiseInputPartialReductionTensorElements *= dimSize;
     }
   }
-  if (blockwiseInputPartRedTensorElements > wsShape[0]) {
+  if (blockwiseInputPartialReductionTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block");
   }
@@ -2006,6 +2009,13 @@ LogicalResult AttentionOp::verify() {
     ShapedType scaleType = scale.getType();
     if (vType.getRank() != scaleType.getRank()) {
       return emitError("scale needs to be of same rank to other inputs");
+    }
+  }
+
+  if (TypedValue<ShapedType> bias = getBias()) {
+    ShapedType biasType = bias.getType();
+    if (vType.getRank() != biasType.getRank()) {
+      return emitError("bias needs to be of same rank to other inputs");
     }
   }
 

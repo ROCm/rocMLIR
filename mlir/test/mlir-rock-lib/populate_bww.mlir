@@ -27,7 +27,7 @@
 // BIN2: ELF
 // TUNING2_0: globalSize=2048, localSize=64
 // TUNING2_1: globalSize{{.*}}localSize{{.*}}
-// DRIVER2: rock.zero_init_kernel %arg0 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
+// DRIVER2: rock.init_kernel %arg0 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
 // DRIVER2: rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 ////////////////////////////////////////////
@@ -48,6 +48,6 @@
 // TUNING3_0: globalSize=2048, localSize=64
 // TUNING3_1: globalSize{{.*}}localSize{{.*}}
 // TUNING3_2: globalSize=2048, localSize=64
-// DRIVER3: rock.zero_init_kernel %arg3 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
+// DRIVER3: rock.init_kernel %arg3 features =  mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
 // DRIVER3: rock.conv2d_bwd_weight(%arg0, %arg1, %arg2, %arg3) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf16>, memref<64x1x1024x14x14xf16>, memref<64x1x1024x14x14xf16>, memref<1x1024x1024x1x1xf32>
 // DRIVER3: rock.converting_copy_kernel %arg3 to %arg0 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32> to memref<1x1024x1024x1x1xf16>

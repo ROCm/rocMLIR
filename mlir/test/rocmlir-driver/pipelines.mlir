@@ -26,8 +26,10 @@
 // GPU-SAME: convert-linalg-to-affine-loops,
 // GPU-SAME: rock-lower-reduce,
 // GPU-SAME: rock-threadwise-gemm-lowering,
+// GPU-SAME: rock-analyze-memory-use,
 // GPU-SAME: rock-sugar-to-loops,
 // GPU-SAME: rock-clean-math,
+// GPU-SAME: math-legalize-to-f32,
 // GPU-SAME: rock-buffer-load-merge,
 // GPU-SAME: rock-transform-to-memref,
 // GPU-SAME: rock-loops-to-cf),
@@ -37,11 +39,15 @@
 // BINARY-NEXT: {{^}}builtin.module(strip-debuginfo,
 // BINARY-SAME: gpu.module(amdgpu-emulate-atomics{chipset=gfx90a},
 // BINARY-SAME: arith-emulate-unsupported-floats{source-types=bf16,f8E4M3FNUZ,f8E5M2FNUZ target-type=f32},
-// BINARY-SAME: fp8-ext-to-tables,
+// BINARY-SAME: emulate-fp8-ext-trunc,
 // BINARY-SAME: expand-strided-metadata,
 // BINARY-SAME: convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
-// BINARY-SAME: fp8-ext-to-tables){{$}}
+// BINARY-SAME: llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
+// BINARY-SAME: cse,
+// BINARY-SAME: rock-prepare-llvm),
+// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},
+// BINARY-SAME: rock-check-residency),
+// BINARY-SAME: emulate-fp8-ext-trunc){{$}}
 
 // BINARY_MI300: Kernel pipeline:
 // BINARY_MI300-NEXT: {{^}}builtin.module(strip-debuginfo,
@@ -50,8 +56,12 @@
 // BINARY_MI300-SAME: convert-arith-to-amdgpu{saturate-fp8-truncf=true},
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
-// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa}),
-// BINARY_MI300-SAME: fp8-ext-to-tables){{$}}
+// BINARY_MI300-SAME: llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
+// BINARY_MI300-SAME: cse,
+// BINARY_MI300-SAME: rock-prepare-llvm),
+// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},
+// BINARY_MI300-SAME: rock-check-residency),
+// BINARY_MI300-SAME: emulate-fp8-ext-trunc){{$}}
 
 // PARTITION: Partitioner pipeline:
 // PARTITION-NEXT: {{^}}builtin.module(func.func(tosa-make-broadcastable),

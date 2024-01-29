@@ -899,6 +899,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
             func.getArgument(3)};
   }
+
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
     auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
@@ -908,9 +909,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   case ConvOpType::BwdData: {
     if (kernelId < 0) {
       // zero init input tensor
-      auto zeroInit = builder.create<ZeroInitKernelOp>(
+      auto zeroInit = builder.create<InitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
-          features, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          features, /*initValueAttr=*/nullptr,
+          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInit);
     } else {
@@ -927,9 +929,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     bool hasUtilities = (kernelCount > 1);
     if (hasUtilities && kernelId == 0) {
       // If there is a workspace, zero-init it, otherwise fill the filter tensor
-      auto zeroInitOp = builder.create<ZeroInitKernelOp>(
+      auto zeroInitOp = builder.create<InitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          args[hasWorkspace ? 3 : 0], features,
+          args[hasWorkspace ? 3 : 0], features, /*initValueAttr=*/nullptr,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInitOp);

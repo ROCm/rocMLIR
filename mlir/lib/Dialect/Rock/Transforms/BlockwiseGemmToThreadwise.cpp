@@ -490,39 +490,15 @@ struct BlockwiseGemmAccelRewritePattern
                                        op.getBufferB(), b.getArrayAttr({}),
                                        ValueRange{tid, n_i}, true, true);
 
-        // A view: A buffer is [0, K] so we can ignore `i`
-        TopDownTMBuilder bufferAikTransform(b, {"i", "k"}, {1, kBasePerThread},
-                                            loc);
-        bufferAikTransform.ignore("i");
-        bufferAikTransform.passThrough({"k"}, 0, {"k"});
-        auto bufferA = rock::transform(
-            b, adaptor.getBufferA(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
-
-        // B view: B buffer is [0, K] so we can ignore `j`
-        TopDownTMBuilder bufferBjkTransform(b, {"j", "k"}, {1, kBasePerThread},
-                                            loc);
-        bufferBjkTransform.ignore("j");
-        bufferBjkTransform.passThrough({"k"}, 0, {"k"});
-        auto bufferB = rock::transform(
-            b, adaptor.getBufferB(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
-
-        // C view: C buffer is [mRepeats,nRepeats] and we need to write in
-        // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
-        // of `i` and `j` as extra indices.
-        TopDownTMBuilder bufferCijTransform(b, {"ci", "cj", "i", "j"},
-                                            {mRepeats, nRepeats, 1, 1}, loc);
-        bufferCijTransform.ignore("i");
-        bufferCijTransform.ignore("j");
-        bufferCijTransform.unmerge("offset", 0, {"ci", "cj"},
-                                   {mRepeats, nRepeats});
-        auto bufferC = rock::transform(
-            b, adaptor.getMatrixC(),
-            b.getArrayAttr(SmallVector<Attribute>{bufferCijTransform.get()}));
+        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+            b, loc, adaptor.getBufferA());
+        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+            b, loc, adaptor.getBufferB());
+        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+            b, loc, adaptor.getMatrixC());
 
         // regsC += regsA * regsB
-        b.create<ThreadwiseAccelGemmOp>(loc, bufferA, bufferB, bufferC,
+        b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
                                         ValueRange{m_i, n_i}, arch,
                                         op.getFeaturesAttr(), tuningParams);
       }
@@ -1015,34 +991,34 @@ struct BlockwiseReduceRewritePattern
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    mlir::ArrayAttr inputThreadSubTile2dView =
+    ArrayAttr inputThreadSubTile2dView =
         createInput2DView(loc, rewriter, op.getIterSubTileSliceView(), axis);
     ArrayRef<int64_t> inputThreadSubTile2dShape =
         getLowerShape(inputThreadSubTile2dView);
-    auto partialRedBufferType =
+    auto partialReductionBufferType =
         MemRefType::get(inputThreadSubTile2dShape[nrDim], elemType, AffineMap{},
                         privateMemoryAddressSpace);
-    Value partialRedBuffer =
-        rewriter.create<GpuAllocOp>(loc, partialRedBufferType);
+    Value partialReductionBuffer =
+        rewriter.create<GpuAllocOp>(loc, partialReductionBufferType);
     Value initVal = getReductionInitValue(op, rewriter);
-    rewriter.create<FillOp>(loc, partialRedBuffer, initVal);
-    doThreadwiseReductions(rewriter, loc, op, partialRedBuffer,
+    rewriter.create<FillOp>(loc, partialReductionBuffer, initVal);
+    doThreadwiseReductions(rewriter, loc, op, partialReductionBuffer,
                            inputThreadSubTile2dView);
 
     // Create partially reduced tensor shape
-    mlir::ArrayAttr inputBlockSubTile2dView =
+    ArrayAttr inputBlockSubTile2dView =
         createInput2DView(loc, rewriter, inputViewArrayAttr, axis);
     SmallVector<int64_t, 2> partialRegTensorShape =
         llvm::to_vector<2>(getLowerShape(inputBlockSubTile2dView));
     ArrayAttr tidSubTileSliceView =
         createInput2DView(loc, rewriter, op.getTidSubTileSliceView(), axis);
-    ArrayRef<int64_t> partialReductionLower2DShape =
+    ArrayRef<int64_t> partialReductionuctionLower2DShape =
         getLowerShape(tidSubTileSliceView);
-    partialRegTensorShape[rDim] = partialReductionLower2DShape[rDim];
+    partialRegTensorShape[rDim] = partialReductionuctionLower2DShape[rDim];
     ArrayAttr toFlatLDSView =
         create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim],
                               partialRegTensorShape[rDim]);
-    storePartialReductionstoLDS(rewriter, loc, partialRedBuffer,
+    storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
                                 workspaceLDSBuffer, inputBlockSubTile2dView,
                                 inputThreadSubTile2dView, tidSubTileSliceView,
                                 toFlatLDSView);
