@@ -352,7 +352,7 @@ void archivePerfDB() {
     dir ('build/perfDB') {
         withCredentials([sshUserPrivateKey(credentialsId: 'rocmlir-ixt-rack-15',
                                            keyFileVariable: 'KEY_FILE')]) {
-            # ./keyfile is a name known implicitly by tuna-upload.sh
+            // ./keyfile is a name known implicitly by tuna-upload.sh
             sh '''cat ${KEY_FILE} > ./keyfile && chmod 600 ./keyfile'''
             if (params.canXdlops) {
                 unstash name: "MLIR-PerfDB-gfx908"
@@ -790,7 +790,7 @@ pipeline {
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
             }
-            agent { label 'build-only' }        # Has easy access to ixt-rack-15
+            agent { label 'build-only' }        // Has easy access to ixt-rack-15
             steps {
                 archivePerfDB()
             }
