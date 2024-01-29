@@ -103,14 +103,11 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
-        try:
-            perfConfig, time = result.split('\t')
-            if time == "N/A":
-                nanoSeconds = np.nan
-            else:
-                nanoSeconds = float(time)
-        except:
-            continue
+        perfConfig, time = result.split('\t')
+        if time == "N/A":
+            nanoSeconds = np.nan
+        else:
+            nanoSeconds = float(time)
 
         config.setPerfConfig(perfConfig)
         entry = config.tableEntry(nanoSeconds)

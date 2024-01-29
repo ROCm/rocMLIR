@@ -24,11 +24,11 @@ namespace rock {
 void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {4, 8, 16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {8, 16, 32},
-      {32, 64},
-      {32, 64},
+      {32, 64, 128, 256},
+      {32, 64, 128, 256},
+      {8, 16, 32, 64},
+      {32, 64, 128, 256},
+      {32, 64, 128, 256},
       {4, 8, 16},
       {1}};
   OpBuilder b(attnOp.getContext());
