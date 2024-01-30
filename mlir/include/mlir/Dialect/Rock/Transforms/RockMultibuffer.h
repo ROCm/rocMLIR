@@ -16,23 +16,23 @@
 namespace mlir {
 
 namespace rock {
-FailureOr<SmallVector<rock::GpuAllocOp>> multiBuffer(RewriterBase &rewriter,
-                                                     rock::GpuAllocOp allocOp,
-                                                     unsigned multiplier,
-                                                     bool skipOverrideAnalysis);
-
-FailureOr<SmallVector<rock::GpuAllocOp>> multiBuffer(rock::GpuAllocOp allocOp,
-                                                     unsigned multiplier,
-                                                     bool skipOverrideAnalysis);
+LogicalResult multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
+                          SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+                          unsigned multiplier, bool skipOverrideAnalysis);
 
 FailureOr<SmallVector<rock::GpuAllocOp>>
-updateMultiBuffer(RewriterBase &rewriter, Location loc,
-                  ArrayRef<rock::GpuAllocOp> multiBuffer,
-                  unsigned newMultiplier);
+multiBuffer(rock::GpuAllocOp allocOp,
+            SmallVectorImpl<rock::GpuAllocOp> &newAllocs, unsigned multiplier,
+            bool skipOverrideAnalysis);
 
-FailureOr<SmallVector<rock::GpuAllocOp>>
-updateMultiBuffer(ArrayRef<rock::GpuAllocOp> multiBuffer,
-                  unsigned newMultiplier);
+LogicalResult updateMultiBuffer(RewriterBase &rewriter, Location loc,
+                                ArrayRef<rock::GpuAllocOp> multiBuffer,
+                                SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+                                unsigned newMultiplier);
+
+LogicalResult updateMultiBuffer(ArrayRef<rock::GpuAllocOp> multiBuffer,
+                                SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+                                unsigned newMultiplier);
 
 } // namespace rock
 } // namespace mlir

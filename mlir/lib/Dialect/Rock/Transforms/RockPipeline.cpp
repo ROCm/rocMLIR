@@ -573,18 +573,17 @@ void RockPipeline::runOnOperation() {
   Location loc = func->getLoc();
   IRRewriter rewriter(ctx);
 
+  // Allocs before we transform them into multibuffers
   llvm::SetVector<rock::GpuAllocOp> singleAllocs;
-  llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   func.walk([&](rock::GpuAllocOp alloc) { singleAllocs.insert(alloc); });
-  // Always (try to) multi-buffer by one
+
+  // Always (try to) multi-buffer by one and store the new
+  // allocs in a set
+  llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   for (auto alloc : singleAllocs) {
-    auto maybeMultiAlloc = rock::multiBuffer(rewriter, alloc, 1, true);
-    if (succeeded(maybeMultiAlloc)) {
-      auto multiAlloc = maybeMultiAlloc.value();
-      multiAllocs.insert(multiAlloc.begin(), multiAlloc.end());
-    } else {
-      multiAllocs.insert(alloc);
-    }
+    SmallVector<rock::GpuAllocOp> newAllocs;
+    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true)))
+      multiAllocs.insert(newAllocs.back());
   }
 
   // Collect the global resources (i.e., the memory allocations)
@@ -662,9 +661,11 @@ void RockPipeline::runOnOperation() {
 
   // Remulti-buffer(if needed). Now we know what all the loops need, hence
   // we can safely allocate the right amount of resources in the function
-  for (auto [alloc, factor] : multiBufferFactors)
+  for (auto [alloc, factor] : multiBufferFactors) {
+    SmallVector<rock::GpuAllocOp> newAllocs;
     if (factor > 1)
-      (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, factor);
+      (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
+  }
 
   // Check we didn't push memory too far
   DenseMap<AddressSpace, size_t> gpuMemoryBytes;

@@ -60,10 +60,12 @@ static LogicalResult testMultiBuffering(func::FuncOp f) {
       newFactor = reMultiBufferAttr.getInt();
       alloc.first->removeAttr(kReMultiBuffer);
     }
-    auto maybeBuffers =
-        rock::multiBuffer(rewriter, alloc.first, alloc.second, true);
-    if (newFactor && succeeded(maybeBuffers)) {
-      (void)rock::updateMultiBuffer(rewriter, loc, maybeBuffers.value(),
+    SmallVector<rock::GpuAllocOp> mbAllocs;
+    auto mb =
+        rock::multiBuffer(rewriter, alloc.first, mbAllocs, alloc.second, true);
+    if (newFactor && succeeded(mb)) {
+      SmallVector<rock::GpuAllocOp> newAllocs;
+      (void)rock::updateMultiBuffer(rewriter, loc, mbAllocs, newAllocs,
                                     newFactor);
     }
   }

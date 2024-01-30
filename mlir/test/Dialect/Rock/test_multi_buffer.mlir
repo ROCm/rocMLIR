@@ -1,5 +1,7 @@
 // RUN: rocmlir-opt %s --rock-multibuffer-test | FileCheck %s
 // RUN: rocmlir-opt %s --rock-multibuffer-test --rock-blockwise-gemm-to-threadwise --rock-threadwise-gemm-lowering | FileCheck %s --check-prefix=LOWERING
+// RUN: rocmlir-opt %s --rock-multibuffer-test | grep alloc | wc -l | FileCheck %s --check-prefix=NUM_ALLOCS
+// NUM_ALLOCS: 14
 #map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 8 + d5) * 8 + d7, (d2 * 32 + d4) * 2 + d6)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)>
@@ -81,7 +83,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // LOWERING: %[[multibuf0_view:.*]] = memref.view %[[multibuf0]][{{.*}}][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
     // LOWERING: %[[multibuf1_view:.*]] = memref.view %[[multibuf1]][{{.*}}][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
     %19 = memref.view %raw[%c0_0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
-    %20 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %raw1 = rock.alloc(){__multibuffer__=2, __remultibuffer__=1} : memref<32xi8, #gpu.address_space<private>>
+    %20 = memref.view %raw1[%c0_0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
     %21 = rock.transform %7 by #transform_map5 : memref<16xf16, #gpu.address_space<private>> to memref<2x8xf16, #gpu.address_space<private>>
     %22 = rock.transform %21 by #transform_map6 : memref<2x8xf16, #gpu.address_space<private>> to memref<8x2xf16, #gpu.address_space<private>>
     %23 = rock.transform %19 by #transform_map7 : memref<16xf16, #gpu.address_space<private>> to memref<1x2x8xf16, #gpu.address_space<private>>
@@ -142,6 +145,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       // LOWERING: strides [8]
       // LOWERING: rock.in_bounds_store {{.*}} -> %[[extractView0]][{{.*}}]
       rock.threadwise_copy %22 -> %24 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
+      // CHECK: rock.extract_multibuffer({{.*}}) [%arg3]
       rock.threadwise_copy %26 -> %28 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
       // CHECK: %[[extractView1:.*]] = rock.extract_multibuffer(%[[multibuf2_view]], %[[multibuf3_view]]) [%arg3]
       // CHECK: %[[t1:.*]] = rock.transform %[[extractView1]] by {{.*}} : memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
