@@ -1,4 +1,5 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -73,6 +74,25 @@ void AffixTuningParameters::runOnOperation() {
       [&](InitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
     setUtilityKernelSizes(op.getInput(), op);
+  });
+
+  func.walk([&](GemmOp op) {
+    if (op.getStoreMethod() == StoreMethod::AtomicAdd) {
+      OpBuilder b(op.getContext());
+      auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+      auto c = op.getC();
+      auto attrName = mhal::PrefillAttr::getMnemonic();
+      auto elementType = c.getType().cast<MemRefType>().getElementType();
+      Attribute zero;
+      if (llvm::isa<FloatType>(elementType)) {
+        zero = b.getFloatAttr(elementType, 0.0);
+      } else {
+        assert(llvm::isa<IntegerType>(elementType) &&
+               "expecting `int` element type");
+        zero = b.getIntegerAttr(elementType, 0);
+      }
+      func.setArgAttrs(2, b.getNamedAttr(attrName, zero));
+    }
   });
 }
 
