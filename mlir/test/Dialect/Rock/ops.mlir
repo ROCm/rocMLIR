@@ -253,20 +253,6 @@ func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4
 // CHECK-LABEL: func.func @rock_in_bounds_store
 // CHECK-NEXT: rock.in_bounds_store
 
-
-func.func @rock_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
-  %cst4 = arith.constant 4 : index
-  %l = rock.workitem_id : index
-  %l2 = arith.remui %l, %cst4 : index
-  %0 = rock.in_warp_transpose { size = 4 : i32,
-    inGroupPerm = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
-  } %v, %l2 : vector<8xf32>, index
-  return %0 : vector<8xf32>
-}
-// CHECK-LABEL: func.func @rock_in_warp_transpose
-// CHECK: rock.in_warp_transpose
-
-
 func.func @init_kernel(%arg0 : memref<2x4xf32>) {
   rock.init_kernel %arg0 features = none : memref<2x4xf32>
   func.return
