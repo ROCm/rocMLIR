@@ -1549,12 +1549,10 @@ struct GridwiseAttentionAccelRewritePattern
     Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
     StringRef arch = op.getArch();
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
-    auto accelEmitterPtrGemm0 = rock::accel::AccelEmitter::select(
+    auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
-    bool isMFMA = bitEnumContainsAny(op.getFeatures(), GemmFeatures::mfma);
-    if (isMFMA) {
-      auto mfmaEmitter =
-          static_cast<rock::accel::MfmaEmitter *>(accelEmitterPtrGemm0.get());
+    if (auto mfmaEmitter =
+            dyn_cast<accel::MfmaEmitter>(accelEmitterPtrGemm0.get())) {
       if (!mfmaEmitter->isKReduction()) {
         return false;
       }

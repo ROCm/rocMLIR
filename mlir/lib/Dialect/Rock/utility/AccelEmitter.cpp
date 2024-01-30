@@ -39,9 +39,10 @@ using namespace mlir::rock::accel;
 
 AccelEmitter::AccelEmitter(StringRef arch,
                            RockAccelTuningParamAttrInterface tuningParams,
-                           AccelEmitterParams accelEmitterParams)
+                           AccelEmitterParams accelEmitterParams,
+                           AccelEmitterKind kind)
     : tuningParams(tuningParams), accelEmitterParams(accelEmitterParams),
-      waveSize(rock::lookupArchInfo(arch).waveSize) {
+      waveSize(rock::lookupArchInfo(arch).waveSize), kind(kind) {
   if (failed(validateAcceleratorProperties()))
     llvm_unreachable("Accelerator parameters validation failed");
 }
@@ -138,7 +139,8 @@ Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
 MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
                          RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
-                   initAccelEmitterParams(mfmaGroup, tuningParams)},
+                   initAccelEmitterParams(mfmaGroup, tuningParams),
+                   AccelEmitterKind::AEK_MFMAEmitter},
       mfmaGroup{mfmaGroup} {}
 
 AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
@@ -924,7 +926,8 @@ LogicalResult MfmaEmitter::validateAcceleratorProperties() {
 WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
                          RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
-                   initAccelEmitterParams(wmmaInsn, tuningParams)},
+                   initAccelEmitterParams(wmmaInsn, tuningParams),
+                   AccelEmitterKind::AEK_WMMAEmitter},
       wmmaInsn(wmmaInsn) {}
 
 AccelEmitterParams WmmaEmitter::initAccelEmitterParams(

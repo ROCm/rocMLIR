@@ -88,9 +88,6 @@ struct AccelEmitter {
   select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
          RockAccelTuningParamAttrInterface tuningParams);
 
-  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
-               AccelEmitterParams accelEmitterParams);
-
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
@@ -153,10 +150,20 @@ struct AccelEmitter {
 
   virtual ~AccelEmitter() {}
 
+  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter };
+
+  AccelEmitterKind getKind() const { return kind; }
+
 protected:
+  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
+               AccelEmitterParams accelEmitterParams, AccelEmitterKind kind);
+
   RockAccelTuningParamAttrInterface tuningParams;
   AccelEmitterParams accelEmitterParams;
   int64_t waveSize;
+
+private:
+  const AccelEmitterKind kind;
 };
 
 // Accel emitter implementation for mfma
@@ -192,6 +199,10 @@ struct MfmaEmitter : public AccelEmitter {
   bool isKReduction() const;
 
   int64_t getRowGroupSize() const;
+
+  static bool classof(const AccelEmitter *AE) {
+    return AE->getKind() == AccelEmitterKind::AEK_MFMAEmitter;
+  }
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -229,6 +240,10 @@ struct WmmaEmitter : public AccelEmitter {
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
+
+  static bool classof(const AccelEmitter *AE) {
+    return AE->getKind() == AccelEmitterKind::AEK_WMMAEmitter;
+  }
 
 private:
   /// Initialize the emitter parameters for wmma

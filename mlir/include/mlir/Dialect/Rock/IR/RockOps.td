@@ -224,7 +224,7 @@ def Rock_AttentionOp :
   )>,
   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
   let summary = "Attention operation of transformer models";
-  let description = [{G
+  let description = [{
     Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
 
     This operation performs attention mechanism of transformer models.
