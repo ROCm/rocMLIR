@@ -326,6 +326,36 @@ LogicalResult MFMAOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// DPPOp
+//===----------------------------------------------------------------------===//
+LogicalResult DPPOp::verify() {
+  Type srcType = getSrc().getType();
+  if (srcType.getIntOrFloatBitWidth() > 32) {
+    return emitOpError("integer and floating point types larger than 32 bits "
+                       "are not supported");
+  }
+
+  llvm::ArrayRef<std::string> attributeNames = {
+      "quad_perm",  "row_shl",         "row_shr",      "row_ror",
+      "row_mirror", "row_half_mirror", "wave_shl",     "wave_shr",
+      "wave_ror",   "wave_rol",        "row_bcast_15", "row_bcast_31"};
+  int attrCount = 0;
+  for (const auto &attrName : attributeNames) {
+    if (auto attr = this->getOperation()->getAttr(attrName)) {
+      attrCount++;
+    }
+  }
+
+  if (attrCount != 1) {
+    std::string allAttributes = llvm::join(attributeNames, ", ");
+    return emitOpError("Expected exactly one of the following attributes: ")
+           << allAttributes << ", but found " << attrCount;
+  }
+
+  return success();
+}
+
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUEnums.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES

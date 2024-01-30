@@ -411,6 +411,50 @@ def AMDGPU_RawBufferAtomicUminOp :
   let hasVerifier = 1;
 }
 
+def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", "src"]>]>,
+  Arguments<(ins AnyType:$src,
+                  OptionalAttr<ConfinedAttr<ArrayAttr, [ArrayCount<4>,
+                  IntArrayNthElemInRange<0, 0, 3>, IntArrayNthElemInRange<1, 0, 3>,
+                  IntArrayNthElemInRange<2, 0, 3>, IntArrayNthElemInRange<3, 0, 3>]>>:$quad_perm,
+                  OptionalAttr<ConfinedAttr<I32Attr, [IntMinValue<1>, IntMaxValue<15>]>>:$row_shl,
+                  OptionalAttr<ConfinedAttr<I32Attr, [IntMinValue<1>, IntMaxValue<15>]>>:$row_shr,
+                  OptionalAttr<ConfinedAttr<I32Attr, [IntMinValue<1>, IntMaxValue<15>]>>:$row_ror,
+                  DefaultValuedAttr<I32Attr, "0xf">:$row_mask,  
+                  DefaultValuedAttr<I32Attr, "0xf">:$bank_mask, 
+                  DefaultValuedAttr<BoolAttr, "false">:$bound_ctrl,
+                  OptionalAttr<UnitAttr>:$wave_shl,
+                  OptionalAttr<UnitAttr>:$wave_shr,
+                  OptionalAttr<UnitAttr>:$wave_ror,
+                  OptionalAttr<UnitAttr>:$wave_rol,
+                  OptionalAttr<UnitAttr>:$row_mirror,
+                  OptionalAttr<UnitAttr>:$row_half_mirror,
+                  OptionalAttr<UnitAttr>:$row_bcast_15,
+                  OptionalAttr<UnitAttr>:$row_bcast_31)> {
+  let summary = "AMDGPU DPP operation";
+  let description = [{
+    This operation represents DPP functionality in a GPU program.
+     DPP provides the following operations:  
+  
+    - Full crossbar in a group of four (`quad_perm`)
+    - Wavefront shift left by one lane (`wave_shl`)
+    - Wavefront shift right by one lane (`wave_shr`)
+    - Wavefront rotate right by one lane (`wave_ror`)
+    - Wavefront rotate left by one lane (`wave_rol`)
+    - Row shift left by 1–15 lanes (`row_shl`)
+    - Row shift right by 1–15 lanes (`row_shr`)
+    - Row rotate right by 1–15 lanes (`row_ror`)
+    - Reverse within a row (`row_mirror`)
+    - Reverse within a half-row (`row_half_mirror`)
+    - Broadcast the 15th lane of each row to the next row (`row_bcast`)
+    - Broadcast lane 31 to rows 2 and 3 (`row_bcast`)
+  }];
+  let results = (outs AnyType:$result);
+  let assemblyFormat = [{
+    $src attr-dict `:` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
 def AMDGPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
   let summary = "Barrier that includes a wait for LDS memory operations.";
   let description = [{
