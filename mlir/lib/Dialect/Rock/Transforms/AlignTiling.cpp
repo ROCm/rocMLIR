@@ -212,7 +212,8 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
-  if (latestOp->isBeforeInBlock(toMove))
+  if (latestOp->getBlock() != toMove->getBlock() ||
+      latestOp->isBeforeInBlock(toMove))
     toMove->moveBefore(latestOp);
   else
     LLVM_DEBUG(logger.startLine() << "   No move needed.\n");
@@ -593,7 +594,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
-  // 2.1. move linalg.generic after the definitions of threadwiseReadIntoOp's
+  // 2.1. move linalg.generic if needed
+  // move linalg.generic after the definitions of threadwiseReadIntoOp's
   // inputs to maintaine correct def-use chain.
   Operation *lastIdxDef = nullptr;
   for (Value idx : tiledOp.getExtraIndices()) {
@@ -606,6 +608,12 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   }
   if (lastIdxDef)
     b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
+  // move linalg.generic in the same block of threadwiseReadIntoOp
+  if (laGeneric->getBlock() != tiledOp->getBlock()) {
+    b.moveBeforeIfNeeded(laGeneric, tiledOp);
+    b.setInsertionPoint(laGeneric);
+  }
 
   // 2.2. load into registers
   ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
