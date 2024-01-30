@@ -469,27 +469,15 @@ def Rock_GpuAllocOp:
   }];
 }
 
-// Wrap an allocOp as a multibuffer, i.e., a buffer with #n copies
-def Rock_ReinterpretMultiBufferOp:
-    Rock_Op<"reinterpret_multibuffer", [Pure, ViewLikeOpInterface]>,
-    Arguments<(ins Arg<MemRefRankOf<[I8], [1]>, "raw allocation", [MemRead]>:$input,
-                   IndexAttr:$multibufferFactor)>,
-    Results<(outs AnyMemRef:$output)> {
-  let summary = "Reinterpret raw memory as a multi-buffer";
-
-  let description = [{ Wraps a raw memory allocation as a multibuffer, i.e., a buffer with
-    multiple copies. The first dimension of the output type is the multi-buffering factor}];
-  let assemblyFormat = [{
-    $input attr-dict
-    `:` type($input) `to` type($output)
-  }];
-  let builders = [
-    OpBuilder<(ins "Value":$input, "MemRefType":$bufferType, "int64_t":$mulbibufferFactor)>
-  ];
-  let extraClassDeclaration = [{
-    /// For ViewLikeOpInterface.
-    Value getViewSource() { return getInput(); }
-  }];
+// Select one among a set of multiple buffers
+def Rock_ExtractMultiBufferOp:
+    Rock_Op<"extract_multibuffer", [Pure]>,
+    Arguments<(ins Variadic<AnyMemRef>:$buffers,
+                   Index:$selectIndex)>,
+    Results<(outs AnyMemRef:$output)>{
+  let summary = "Multi-buffer selection op";
+  let description = [{" Select a single buffer among a set of `buffers` based on `selectIndex % `buffers.size()` "}];
+  let assemblyFormat = [{ `(` $buffers `)` `[` $selectIndex `]` attr-dict `(`type($buffers)`)` `:` type($output)}];
   let hasVerifier = 1;
 }
 

@@ -32,6 +32,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/SetOperations.h"
 
+#include <algorithm>
 #include <map>
 
 namespace mlir {
@@ -51,6 +52,8 @@ enum class MemoryAccessType : uint32_t { READ = 1, WRITE = 2, UNKNOWN = 3 };
 
 using DependencyType = std::pair<MemoryAccessType, MemoryAccessType>;
 constexpr DependencyType RAR{MemoryAccessType::READ, MemoryAccessType::READ};
+constexpr DependencyType RAW{MemoryAccessType::WRITE, MemoryAccessType::READ};
+constexpr DependencyType WAR{MemoryAccessType::READ, MemoryAccessType::WRITE};
 
 using ScheduleType = std::vector<std::pair<Operation *, unsigned>>;
 using DagType =
@@ -59,7 +62,8 @@ using DagType =
                       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>>>>;
 
 namespace llvm {
-template <> struct DenseMapInfo<MemoryAccessType> {
+template <>
+struct DenseMapInfo<MemoryAccessType> {
   using StorageInfo = ::llvm::DenseMapInfo<uint32_t>;
 
   static inline MemoryAccessType getEmptyKey() {
@@ -84,11 +88,12 @@ template <> struct DenseMapInfo<MemoryAccessType> {
 
 namespace {
 
-AddressSpace getAddressSpace(rock::GpuAllocOp alloc) {
-  if (alloc.getType().getMemorySpace()) {
-    return alloc.getType()
+template <typename MemrefTypedValue>
+AddressSpace getAddressSpace(MemrefTypedValue val) {
+  if (val.getType().getMemorySpace()) {
+    return val.getType()
         .getMemorySpace()
-        .cast<gpu::AddressSpaceAttr>()
+        .template cast<gpu::AddressSpaceAttr>()
         .getValue();
   }
   return gpu::AddressSpace::Global;
@@ -293,33 +298,96 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   for (int t = 0; t < ii; t++) {
     int iteration = 0;
 
-    // The following stages need to run in parallel
+    DenseMap<rock::StageOp, int> stageIter;
+
+    // The following stages will run in parallel, but each
+    // stage needs to start at the right iteration
     SmallVector<rock::StageOp> parallelStages;
     for (size_t j = t; j < stages.size(); j += ii) {
-      schedule.push_back({stages[j], iteration++});
+      stageIter[stages[j]] = iteration++;
+      parallelStages.push_back(stages[j]);
+    }
 
-      // This is the set of multi-buffers needed at this time slot
-      DenseMap<rock::GpuAllocOp, int> thisMultiBuffers = multiBuffers;
-      for (auto [alloc, factor] : thisMultiBuffers) {
-        thisMultiBuffers[alloc] = 1;
+    // This is the set of multi-buffers needed at this time slot
+    // to ensure that the stage can run in parallel without messing
+    // each other's buffers
+    DenseMap<rock::GpuAllocOp, int> thisMultiBuffers = multiBuffers;
+    for (auto [alloc, factor] : thisMultiBuffers) {
+      thisMultiBuffers[alloc] = 1;
+    }
+
+    // Optimization: if there is a RAW register dependency (addrspace(5)) swap
+    // the stages. In this way, we don't need multibuffers (i.e., we read the
+    // buffer first and then we write into it). From the point of view of the
+    // stages, they don't care because they belong to different iterations. In
+    // theory this could be applied to any buffer, but for LDS memory this
+    // can be more expensive (i.e., you need barriers)
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
+
+    // Go through the stages and take note of the possible swap candidates
+    for (size_t i = 0; i < parallelStages.size(); i++) {
+      for (size_t j = i + 1; j < parallelStages.size(); j++) {
+        auto dependencies =
+            getDependencies(parallelStages[i], parallelStages[j], dag);
+        // Select all register dependencies
+        SmallVector<DependencyType> privateDependencyTypes;
+        for (auto [res, type] : dependencies)
+          if (getAddressSpace(res) == AddressSpace::Private)
+            privateDependencyTypes.push_back(type);
+        // If there are no register dependencies, don't bother
+        if (privateDependencyTypes.empty())
+          continue;
+        // See if they are all swappable
+        bool canSwap = llvm::all_of(privateDependencyTypes,
+                                    [&](auto type) { return (type == RAW); });
+        // Add to the list of swap candidates
+        if (canSwap) {
+          swapCandidates[i].push_back(j);
+          swapCandidatesR[j].push_back(i);
+        }
       }
+    }
+
+    // Swap only pairs. If there are more intricate dependency
+    // patterns just use multibuffers, since it is safer.
+    for (auto [source, sinks] : swapCandidates) {
+      bool singleSink = (sinks.size() == 1);
+      bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
+      // Found a pair, now swap it
+      if (singleSink && singleSource) {
+        int sink = sinks.back();
+        auto t = parallelStages[source];
+        parallelStages[source] = parallelStages[sink];
+        parallelStages[sink] = t;
+      }
+    }
+
+    // Whatever resource is shared, we need to select among multiple buffers.
+    for (size_t i = 0; i < parallelStages.size(); i++) {
       // The only resource that can conflict btween different stages is memory
       // If there are memory conflicts we can sort them via multibuffers. I.e.,
       // we can (logically) provide a different buffer for different cycles
-      for (auto otherStage : parallelStages) {
-        auto dependencies = getDependencies(otherStage, stages[j], dag);
+      for (size_t j = i + 1; j < parallelStages.size(); j++) {
+        auto dependencies =
+            getDependencies(parallelStages[i], parallelStages[j], dag);
         for (auto [res, type] : dependencies) {
+          if (type == WAR && getAddressSpace(res) == AddressSpace::Private)
+            continue;
           thisMultiBuffers[res]++;
         }
       }
-      parallelStages.push_back(stages[j]);
-
-      // Update the global multibuffers by merging in the factors needed for
-      // the current time slot
-      for (auto [buffer, factor] : thisMultiBuffers)
-        if (factor > multiBuffers[buffer])
-          multiBuffers[buffer] = factor;
     }
+
+    // Update the global multibuffers by merging in the factors needed for
+    // the current time slot
+    for (auto [buffer, factor] : thisMultiBuffers)
+      if (factor > multiBuffers[buffer])
+        multiBuffers[buffer] = factor;
+
+    // Add the parallel stages
+    for (auto stage : parallelStages)
+      schedule.push_back({stage, stageIter[stage]});
   }
 }
 

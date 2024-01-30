@@ -79,4 +79,24 @@ def MHAL_KernelPackageAttr : MHAL_Attr<"KernelPackage"> {
     let hasCustomAssemblyFormat = 1;
 }
 
+// Misc Attrs
+def MHAL_PrefillAttr : MHAL_Attr<"Prefill"> {
+  let mnemonic = "mhal.prefill";
+
+  let description = [{
+      A user interface parameter for initializing specific memory buffers
+
+      The attribute is a way to describe which specific kernel parameter
+      (typically memref) must be initialized with specific value before
+      a kernel invocation.
+
+  }];
+
+  let parameters = (ins
+    "uint32_t":$argIndex,
+    "TypedAttr":$initValue
+  );
+  let assemblyFormat = "`<` params `>`";
+}
+
 #endif
