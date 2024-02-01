@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -125,15 +126,40 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
+
+  MemRefType typeA = a.getType().cast<MemRefType>();
+  MemRefType typeB = b.getType().cast<MemRefType>();
+  Type elemTypeA = typeA.getElementType();
+  Type elemTypeB = typeB.getElementType();
+  ArrayRef<int64_t> aShape = typeA.getShape();
+  ArrayRef<int64_t> bShape = typeB.getShape();
+
+  // Extend input types to the highest-precision type among the inputs
+  if (elemTypeA != elemTypeB &&
+      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
+      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ())) {
+    if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
+      MemRefType newBType = MemRefType::get(bShape, elemTypeA);
+      memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);
+      createTypeConversionLaGeneric(rw, loc, b, newB);
+      b = newB;
+    } else {
+      MemRefType newAType = MemRefType::get(aShape, elemTypeB);
+      memref::AllocOp newA = rw.create<memref::AllocOp>(loc, newAType);
+      createTypeConversionLaGeneric(rw, loc, a, newA);
+      a = newA;
+    }
+  }
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
   a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
 
+  aShape = a.getType().cast<MemRefType>().getShape();
+  bShape = b.getType().cast<MemRefType>().getShape();
+
   // Note, matrix dimension correctness is handled in the verifier
-  ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
                 /*n=*/bShape[2]);
   GemmSize extraPad =
@@ -308,7 +334,7 @@ void RockGemmToGridwisePass::runOnOperation() {
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
                     rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
                     memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
-                    arith::TruncFOp>();
+                    arith::ExtFOp, arith::ExtSIOp, arith::TruncFOp>();
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 

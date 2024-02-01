@@ -510,12 +510,6 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Wmma gridwise supports only F16/BF16/int8 data types");
     }
   }
-  if (elemTypeA != elemTypeB &&
-      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
-      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
-    return op->emitOpError("mixed input types (")
-           << elemTypeA << " and " << elemTypeB
-           << ") are only supported for 8-bit floats";
   if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
     return op->emitOpError("floating-point input type ")
            << elemTypeA
