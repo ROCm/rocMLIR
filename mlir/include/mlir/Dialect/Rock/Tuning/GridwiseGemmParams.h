@@ -106,7 +106,8 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
 
   int64_t getKPack() { return 1; }
 
-  template <class Self, class F> static void visit(Self &&self, F f) {
+  template <class Self, class F>
+  static void visit(Self &&self, F f) {
     f(self.blockSize);
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
@@ -154,7 +155,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
 
-  template <class Self, class F> static void visit(Self &&self, F f) {
+  template <class Self, class F>
+  static void visit(Self &&self, F f) {
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
     f(self.gemmKPerBlock);
@@ -166,14 +168,16 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   }
 };
 
-template <typename T> std::string genDebugForParams(T params) {
+template <typename T>
+std::string genDebugForParams(T params) {
   std::ostringstream os;
   params.visit(params, [&os](auto &arg) { os << arg << ","; });
   os << "\n";
   return os.str();
 }
 
-template <typename InitParamType> class BasePopulateParams {
+template <typename InitParamType>
+class BasePopulateParams {
 private:
   struct InitParamData {
     InitParamType paramSet;
@@ -267,21 +271,16 @@ private:
   LogicalResult
   calculateBlockGemmPerformanceParameters(const InitParamsNonAccel &param);
 
-  LogicalResult populateDerived(const InitParamsNonAccel &validParams,
-                                GemmSize &gemmSize, uint32_t &gridSize);
+  LogicalResult populateDerived(const InitParamsNonAccel &validParams);
 
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
-                                       uint32_t blockSizeOverride,
                                        const std::string &perfConfig,
-                                       InitParamsNonAccel &validParams,
-                                       uint32_t &gridSize);
+                                       InitParamsNonAccel &validParams);
 
   LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
-                                       uint32_t blockSizeOverride,
                                        const std::string &perfConfig,
-                                       InitParamsNonAccel &validParams,
-                                       uint32_t &gridSize);
+                                       InitParamsNonAccel &validParams);
 
   // Return the vector of heuristic parameters for a given kernel type and dat
   // type.
@@ -309,16 +308,14 @@ public:
   static std::unique_ptr<PopulateParamsAccel> select(GemmFeatures features);
 
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
-                                       uint32_t blockSizeOverride,
                                        const std::string &perfConfig,
                                        InitParamsAccel &validParams,
-                                       uint32_t &blockSize, uint32_t &gridSize,
-                                       int64_t &gemmKBlocks);
+                                       uint32_t &blockSize);
 
-  virtual LogicalResult obtainTuningParameters(
-      const PopulateParamsInfo &info, uint32_t blockSizeOverride,
-      const std::string &perfConfig, InitParamsAccel &validParams,
-      uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks);
+  virtual LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
+                                               const std::string &perfConfig,
+                                               InitParamsAccel &validParams,
+                                               uint32_t &blockSize);
 
   int64_t calculatePaddingAmount(const InitParamsAccel &params,
                                  const GemmSize &gemmSize) const override;
@@ -352,13 +349,10 @@ protected:
   // add more 3 gemmk.
   uint32_t obtainBlockSize(const InitParamsAccel &params, int64_t waveSize);
 
-  LogicalResult getKBlocks(int64_t batchSize, const GemmSize &gemmSize,
-                           const InitParamsAccel &params, int64_t &gemmKBlocks,
-                           uint32_t numCu);
   LogicalResult populateDerived(const InitParamsAccel &validParams,
                                 const PopulateParamsInfo &info,
-                                GemmSize &gemmSize, uint32_t &blockSize,
-                                uint32_t &gridSize, int64_t &gemmKBlocks);
+                                uint32_t &blockSize);
+
   LogicalResult populatePaddingKernelDerived(RockGemmWrapperInterface op,
                                              const InitParamsAccel &validParams,
                                              GemmSize &gemmSize,

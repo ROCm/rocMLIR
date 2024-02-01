@@ -36,18 +36,6 @@ public:
   void runOnOperation() override;
 
 private:
-  // Block size can be set in two ways:
-  // * Through the MLIR lowering pass:
-  //   At this case, blockSizeOverride will be initialized to zero. Then
-  //   the affix tuning parameters pass will decide on a block size.
-  //   Finally, block size will be hinted back to rocmlir-driver.
-  // * Through cmd option "block_size":
-  //   At this case, rocmlir-driver assigns a blockSizeOverride. As
-  //   a result, affix tuning parameters pass should make its decisions
-  //   to generate tuning parameters based on this blockSizeOverride.
-  //   This guarantess that affix tuning parameters pass generate
-  //   coherent tuning parameters with the pre-set block size.
-
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(AttentionOp op);
@@ -133,32 +121,22 @@ void AffixTuningParameters::affixTuningParametersImpl(
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
     uint32_t blockSize = 0;
-    uint32_t gridSize = 0;
-    int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
-        gemmKBlocks);
+        op, perfConfig, validParams, blockSize);
 
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
-            op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
-            gemmKBlocks);
+            op, perfConfig, validParams, blockSize);
       }
       if (failed(status))
         signalPassFailure();
     }
 
-    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
-    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
-
-    // Set kblocks attribute only for backward weight convolutions.
-    if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
-      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     Attribute gemmParams =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
@@ -168,29 +146,17 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
-
   } else {
     InitParamsNonAccel validParams;
-    uint32_t gridSize;
 
     PopulateParams populateParams;
-    LogicalResult status = populateParams.obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, gridSize);
+    LogicalResult status =
+        populateParams.obtainTuningParameters(op, perfConfig, validParams);
 
     if (failed(status)) {
       signalPassFailure();
     }
-
-    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
-
-    // For non-accelerator path, do not use KPack for now.
-
-    // kPerThread and the cuwave parameters are hardcoded, may change in a
-    // different pass. Please visit
-    // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
@@ -200,7 +166,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }
@@ -223,8 +188,6 @@ deriveGemm1TuningParams(OpBuilder &builder,
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
   Value queries = op.getQueries();
-  Value keys = op.getKeys();
-  Value values = op.getValues();
   Type elemType = queries.getType().cast<MemRefType>().getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
@@ -273,42 +236,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     return;
   }
 
-  // Calculate (padded) grid size
-  SmallVector<int64_t, 3> queriesShape =
-      llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
-  // Note: the gridwise ops take K x M and K x N, so Q must be transposed if
-  // it's in the natural M x K form
-  if (!op.getQTransposed()) {
-    std::iter_swap(queriesShape.rbegin(), queriesShape.rbegin() + 1);
-  }
-  SmallVector<int64_t, 3> keysShape =
-      llvm::to_vector<3>(keys.getType().cast<MemRefType>().getShape());
-  if (op.getKTransposed()) {
-    std::iter_swap(keysShape.rbegin(), keysShape.rbegin() + 1);
-  }
-  SmallVector<int64_t, 3> valuesShape =
-      llvm::to_vector<3>(values.getType().cast<MemRefType>().getShape());
-  if (op.getVTransposed()) {
-    std::iter_swap(valuesShape.rbegin(), valuesShape.rbegin() + 1);
-  }
-  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
-                     /*k=*/queriesShape[1],
-                     /*n=*/queriesShape[2]);
-  GemmSize gemm0ExtraPad =
-      requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
-                     /*k=*/valuesShape[1],
-                     /*n=*/keysShape[2]);
-  GemmSize gemm1ExtraPad =
-      requiredPadding(accelParams1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
-
-  int64_t gridSize =
-      ((gemm0Size.n + gemm0ExtraPad.n) / accelParams0.getNPerBlock()) *
-      ((gemm1Size.m + gemm1ExtraPad.m) / accelParams1.getMPerBlock()) *
-      gemm0Size.g;
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
-  IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = getOperation();
   funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
 }
