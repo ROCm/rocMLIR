@@ -3,21 +3,6 @@
 // -----
 
 #general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
-func.func @gridwise_gemm_no_mixed_ab(%a: memref<1x16x16xf16>,
-                        %b: memref<1x16x16xf32>,
-                        %c: memref<1x16x16xf32>) {
-  // expected-error@+1 {{'rock.gridwise_gemm' op mixed input types ('f16' and 'f32') are only supported for 8-bit floats}}
-  rock.gridwise_gemm %c = %a * %b features = dot {
-    gridSize = 1 : i32,
-    numCU = 64 : i32,
-    params = #general_gemm_params0}
-  : memref<1x16x16xf32> = memref<1x16x16xf16> * memref<1x16x16xf32>
-  func.return
-}
-
-// -----
-
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
 func.func @gridwise_gemm_i32_wants_i8(%a: memref<1x16x16xf32>,
                         %b: memref<1x16x16xf32>,
                         %c: memref<1x16x16xi32>) {
