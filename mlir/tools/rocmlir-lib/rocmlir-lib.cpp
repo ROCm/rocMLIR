@@ -1,4 +1,5 @@
 #include "Miir.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
@@ -39,7 +40,8 @@ struct MiirHandle_s {
     // Register a handler that swallows all diagnostic print
     DiagnosticEngine &engine = context->getDiagEngine();
     engine.registerHandler([](Diagnostic &diag) {});
-    context->loadDialect<rock::RockDialect, func::FuncDialect>();
+    context->loadDialect<rock::RockDialect, func::FuncDialect,
+                         mhal::MHALDialect>();
 
     module = ModuleOp::create(UnknownLoc::get(context));
   }

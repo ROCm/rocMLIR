@@ -510,12 +510,6 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Wmma gridwise supports only F16/BF16/int8 data types");
     }
   }
-  if (elemTypeA != elemTypeB &&
-      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
-      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
-    return op->emitOpError("mixed input types (")
-           << elemTypeA << " and " << elemTypeB
-           << ") are only supported for 8-bit floats";
   if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
     return op->emitOpError("floating-point input type ")
            << elemTypeA
@@ -888,28 +882,16 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// ReinterpretMultiBufferOp
+// ExtractMultiBufferOp
 //===-----------------------------------------------------===//
 
-void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
-                                     Value input, MemRefType bufferType,
-                                     int64_t multibufferFactor) {
-  ArrayRef<int64_t> originalShape = bufferType.getShape();
-  SmallVector<int64_t, 4> multiBufferedShape;
-  multiBufferedShape.push_back(multibufferFactor);
-  llvm::append_range(multiBufferedShape, originalShape);
-
-  MemRefType mbMemRefType = MemRefType::Builder(bufferType)
-                                .setShape(multiBufferedShape)
-                                .setLayout(MemRefLayoutAttrInterface());
-  build(b, state, mbMemRefType, input, b.getIndexAttr(multibufferFactor));
-}
-
-LogicalResult ReinterpretMultiBufferOp::verify() {
-  MemRefType mbType = getOutput().getType();
-  ArrayRef<int64_t> mbShape = mbType.getShape();
-  if (mbShape[0] != getMultibufferFactor())
-    return failure();
+LogicalResult ExtractMultiBufferOp::verify() {
+  // Make sure the output buffer has the same type of
+  // the buffers we are selecting from
+  auto outputType = getOutput().getType();
+  for (auto buffer : getBuffers())
+    if (outputType != buffer.getType())
+      return failure();
   return success();
 }
 
