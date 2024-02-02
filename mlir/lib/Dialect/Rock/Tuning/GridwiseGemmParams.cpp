@@ -848,15 +848,30 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   };
   // clang-format on
 
-  if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
-                   [param](const auto it) noexcept -> bool {
-                     int validMPerWave, validNPerWave, validKPerWave;
-                     std::tie(validMPerWave, validNPerWave, validKPerWave) = it;
-                     return (param.gemmMPerWave == validMPerWave) &&
-                            (param.gemmNPerWave == validNPerWave) &&
-                            (param.gemmKPerBlock % validKPerWave == 0);
-                   }))
+  // Check for valid repeats and k distributions
+  int64_t minDPerWave = std::min(param.gemmMPerWave, param.gemmNPerWave);
+  int64_t validKPerWaveFactor = 2;
+  if (minDPerWave <= 16) {
+    validKPerWaveFactor = 4;
+  }
+  if (!((param.gemmMPerBlock % minDPerWave == 0) &&
+        (param.gemmNPerBlock % minDPerWave == 0) &&
+        (param.gemmKPerBlock % validKPerWaveFactor == 0))) {
     return failure();
+  }
+
+  if (enableDPerWaveFiltering) {
+    if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
+                     [param](const auto it) noexcept -> bool {
+                       int validMPerWave, validNPerWave, validKPerWave;
+                       std::tie(validMPerWave, validNPerWave, validKPerWave) =
+                           it;
+                       return (param.gemmMPerWave == validMPerWave) &&
+                              (param.gemmNPerWave == validNPerWave) &&
+                              (param.gemmKPerBlock % validKPerWave == 0);
+                     }))
+      return failure();
+  }
 
   if (blockSize < waveSize)
     return failure();
