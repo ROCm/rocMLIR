@@ -3045,7 +3045,8 @@ static LogicalResult populateHostHarnessLogic(
     auto paramMRType = paramType.dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
-    bool isSmallFloat = elemType.getIntOrFloatBitWidth() < 32;
+    bool isSmallFloat =
+        elemType.isa<FloatType>() && elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
