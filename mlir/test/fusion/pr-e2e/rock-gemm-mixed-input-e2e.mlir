@@ -1,0 +1,4 @@
+// RUN: rocmlir-gen --arch %arch --operation gemm -t f32_f16 -to f32 -g 1 -m 1 -k 1 -n 1 -pv| rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen --arch %arch --operation gemm -ta f16 -tb f32 -to f32 -g 1 -m 1 -k 1 -n 1 -pv| rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+
+// CHECK: [1 1 1]

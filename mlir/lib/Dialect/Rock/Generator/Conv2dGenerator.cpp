@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
@@ -600,7 +601,15 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 
   // Get the default features associated with the chip (and with the data type)
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.getDefaultFeatures(getInputDataType(builder));
+  Type filterDataType = getFilterDataType(builder);
+  Type inputDataType = getInputDataType(builder);
+  Type filterElemType = mlir::getElementTypeOrSelf(filterDataType);
+  Type inputElemType = mlir::getElementTypeOrSelf(inputDataType);
+  Type dataType = inputDataType;
+  if (filterElemType.getIntOrFloatBitWidth() >
+      inputElemType.getIntOrFloatBitWidth())
+    dataType = filterDataType;
+  config.features = archInfo.getDefaultFeatures(dataType);
 
   // Force acceleration if that's what the client wants
   int hasAccel = 0;

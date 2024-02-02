@@ -404,7 +404,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
                  val.starts_with("bf8"))
           outputDataType = "f32";
-        else
+        else if (filterDataType == inputDataType)
           outputDataType = v;
       }
     }));
@@ -867,8 +867,14 @@ static void populateDefaults() {
   const bool isAttention = operation == rock::KernelType::Attention;
   const bool isConv = !(isGemm || isAttention);
   // Default f32 if we passed no `-t` arguments at all.
-  if (outputDataType.empty())
+  if (outputDataType.empty()) {
+    if (filterDataType != inputDataType) {
+      llvm::errs() << "Missing output type for mixed input types\n";
+      exit(1);
+    }
+
     outputDataType = "f32";
+  }
   if (populateDefaultValues) {
     if (isGemm) {
       groupSize = 1;
@@ -2168,7 +2174,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
@@ -2180,6 +2185,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   b.setInsertionPointToStart(block);
   Value aVal = block->getArgument(0), bVal = block->getArgument(1),
         cVal = block->getArgument(2);
+
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
@@ -2187,6 +2193,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
   b.create<func::ReturnOp>(loc);
@@ -2809,9 +2816,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
-      isSmallFloatIn = ftype.getWidth() < 32;
+  if (!genParams.types.empty()) {
+    FloatType ftype, itype;
+    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
+        (itype = genParams.types[1].dyn_cast<FloatType>()))
+      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
@@ -2987,12 +2997,14 @@ static LogicalResult populateHostHarnessLogic(
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
-      isSmallFloatIn = ftype.getWidth() < 32;
+  if (!genParams.types.empty()) {
+    FloatType ftype, itype;
+    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
+        (itype = genParams.types[1].dyn_cast<FloatType>()))
+      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
-
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
 
   if (isRandom) {
@@ -3033,6 +3045,7 @@ static LogicalResult populateHostHarnessLogic(
     auto paramMRType = paramType.dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
+    bool isSmallFloat = elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
@@ -3054,7 +3067,7 @@ static LogicalResult populateHostHarnessLogic(
         return failure();
     }
 
-    if (hasValidation || (isCPUKernel && isSmallFloatIn)) {
+    if (hasValidation || (isCPUKernel && isSmallFloat)) {
       // Emit validation var
       Type valElemType = floatType;
       if (genParams.operation.has_value() && elemType.isa<IntegerType>()) {
@@ -3066,7 +3079,7 @@ static LogicalResult populateHostHarnessLogic(
       } else if ((genValidation == "clone") || elemType.isInteger(8) ||
                  elemType.isInteger(32)) {
         valElemType = elemType;
-      } else if (!gpuValidation && isSmallFloatIn &&
+      } else if (!gpuValidation && isSmallFloat &&
                  genParams.operation.has_value()) {
         valElemType = elemType;
       }
@@ -3117,7 +3130,6 @@ static LogicalResult populateHostHarnessLogic(
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
                           func, root0);
-
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
@@ -3282,7 +3294,13 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
     LogicalResult status = success();
 
-    Type elemType = typeFromString(inputDataType.getValue(), context);
+    Type filterElemType = typeFromString(filterDataType.getValue(), context);
+    Type inputElemType = typeFromString(inputDataType.getValue(), context);
+    Type elemType = inputElemType;
+    if (filterElemType.getIntOrFloatBitWidth() >
+        inputElemType.getIntOrFloatBitWidth()) {
+      elemType = filterElemType;
+    }
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
@@ -3555,7 +3573,6 @@ int main(int argc, char **argv) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
-
     if (applyBufferizationPipeline.getValue()) {
       PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
