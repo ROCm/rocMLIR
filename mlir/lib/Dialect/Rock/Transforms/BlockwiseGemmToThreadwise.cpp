@@ -39,7 +39,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 

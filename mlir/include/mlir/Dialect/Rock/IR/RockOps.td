@@ -448,6 +448,8 @@ def Rock_GridwiseAttentionAccelOp :
     `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+  }];
 }
 
 // Memory allocation on GPU memory hierachy.

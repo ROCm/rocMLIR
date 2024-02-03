@@ -9,10 +9,12 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -1690,39 +1692,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
+  int64_t gemm1KPerBlock = gemm0MPerBlock;
+  int64_t gemm1MPerBlock = gemm0MPerBlock;
+  int64_t gemm1NPerBlock = gemm0NPerBlock;
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
-  }
-
-  // Calculate LDS requirement
-  MemRefType typeQ = getQueries().getType();
-  Type elemTypeQ = typeQ.getElementType();
-  MemRefType typeK = getKeys().getType();
-  Type elemTypeK = typeK.getElementType();
-  MemRefType typeV = getValues().getType();
-  Type elemTypeV = typeV.getElementType();
-  MemRefType typeO = getOut().getType();
-  ArrayRef<int64_t> outShape = typeO.getShape();
-  int64_t gemm1N = outShape[2];
-
-  // TODO: we can definitely improve re-use of LDS buffers
-  // through further refactors to blockwise gemm to accept
-  // LDS buffers that are larger than required -- Hence
-  // we can overlap following buffers between gemms.
-  int64_t gemm0ALdsSizeBytes = (gemm0KPerBlock * gemm0MPerBlock) *
-                               (elemTypeQ.getIntOrFloatBitWidth() / 8);
-  int64_t gemm0BLdsSizeBytes = (gemm0KPerBlock * gemm0NPerBlock) *
-                               (elemTypeK.getIntOrFloatBitWidth() / 8);
-  // Current implementation does the second gemm using the type of V input.
-  int64_t gemm1ALdsSizeBytes = (gemm0NPerBlock * gemm0MPerBlock) *
-                               (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t gemm1BLdsSizeBytes =
-      (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t totalLDSSize = std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes) +
-                         std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
-  if (totalLDSSize > 64 * 1024) {
-    return emitError() << "totalLDSSize (" << totalLDSSize
-                       << ") exceeds 64KB\n";
   }
   return success();
 }

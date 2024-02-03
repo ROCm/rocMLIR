@@ -88,9 +88,6 @@ struct AccelEmitter {
   select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
          RockAccelTuningParamAttrInterface tuningParams);
 
-  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
-               AccelEmitterParams accelEmitterParams);
-
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
@@ -100,10 +97,11 @@ struct AccelEmitter {
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
   /// in LDS follows a similar pattern among accelerators, loading from LDS
   /// is dependent on the type of accelerator we are targeting
-  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                                     int64_t blockSize,
-                                     int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const = 0;
+  virtual Value
+  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                       int64_t blockSize, int64_t dInCopyPerThread,
+                       StringRef dName, bool rotateDWithK,
+                       bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -113,12 +111,11 @@ struct AccelEmitter {
   /// 3) threadSubTileView :
   /// iter --> ... --> [KPerThread, DPerThread]
   /// for each operand tile to be used with gemm accelerators.
-  virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
-                                   ArrayRef<int64_t> bidGridLengths,
-                                   int64_t blockSize, int64_t dInCopyPerThread,
-                                   StringRef dName, bool isKContigousDim,
-                                   bool rotateDWithK) const = 0;
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+      OpBuilder &b, Location loc, int64_t kIters,
+      ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -126,8 +123,8 @@ struct AccelEmitter {
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
   virtual RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) = 0;
 
@@ -153,10 +150,20 @@ struct AccelEmitter {
 
   virtual ~AccelEmitter() {}
 
+  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter };
+
+  AccelEmitterKind getKind() const { return kind; }
+
 protected:
+  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
+               AccelEmitterParams accelEmitterParams, AccelEmitterKind kind);
+
   RockAccelTuningParamAttrInterface tuningParams;
   AccelEmitterParams accelEmitterParams;
   int64_t waveSize;
+
+private:
+  const AccelEmitterKind kind;
 };
 
 // Accel emitter implementation for mfma
@@ -168,25 +175,34 @@ struct MfmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                                     int64_t blockSize,
-                                     int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const override;
+  virtual Value
+  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                       int64_t blockSize, int64_t dInCopyPerThread,
+                       StringRef dName, bool rotateDWithK,
+                       bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
-                                   ArrayRef<int64_t> bidGridLengths,
-                                   int64_t blockSize, int64_t dInCopyPerThread,
-                                   StringRef dName, bool isKContigousDim,
-                                   bool rotateDWithK) const override;
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+      OpBuilder &b, Location loc, int64_t kIters,
+      ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      bool rotateDWithK,
+      bool doSplitKAcrossThreadsFirst = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
 
   LogicalResult validateAcceleratorProperties() override;
+
+  bool isKReduction() const;
+
+  int64_t getRowGroupSize() const;
+
+  static bool classof(const AccelEmitter *AE) {
+    return AE->getKind() == AccelEmitterKind::AEK_MFMAEmitter;
+  }
 
 private:
   /// Initialize the emitter parameters for mfma
@@ -206,23 +222,28 @@ struct WmmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  virtual Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                                     int64_t blockSize,
-                                     int64_t dInCopyPerThread, StringRef dName,
-                                     bool rotateDWithK) const override;
+  virtual Value
+  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                       int64_t blockSize, int64_t dInCopyPerThread,
+                       StringRef dName, bool rotateDWithK,
+                       bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual RegsAsMatrixSubTiles
-  createAccelGemmOperandTransforms(OpBuilder &b, Location loc, Value buffer,
-                                   ArrayRef<int64_t> bidGridLengths,
-                                   int64_t blockSize, int64_t dInCopyPerThread,
-                                   StringRef dName, bool isKContigousDim,
-                                   bool rotateDWithK) const override;
+  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+      OpBuilder &b, Location loc, int64_t kIters,
+      ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      bool rotateDWithK,
+      bool doSplitKAcrossThreadsFirst = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
-      PatternRewriter &b, Location loc, int64_t mLen, int64_t nLen,
-      int64_t blockSize, ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
+
+  static bool classof(const AccelEmitter *AE) {
+    return AE->getKind() == AccelEmitterKind::AEK_WMMAEmitter;
+  }
 
 private:
   /// Initialize the emitter parameters for wmma
