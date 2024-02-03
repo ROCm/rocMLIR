@@ -3298,14 +3298,17 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
     Type filterElemType = typeFromString(filterDataType.getValue(), context);
     Type inputElemType = typeFromString(inputDataType.getValue(), context);
     Type elemType = inputElemType;
-    if (filterElemType.getIntOrFloatBitWidth() >
-        inputElemType.getIntOrFloatBitWidth()) {
-      elemType = filterElemType;
-    }
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
-    if (mfmaFeature != FeatureToggle::infer)
+    if (mfmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType.getIntOrFloatBitWidth() !=
+          inputElemType.getIntOrFloatBitWidth()) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
+      }
+    } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
                                    mfmaFeature == FeatureToggle::on);
     if (dotFeature != FeatureToggle::infer)
@@ -3320,7 +3323,14 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
 
-    if (wmmaFeature != FeatureToggle::infer)
+    if (wmmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType.getIntOrFloatBitWidth() !=
+          inputElemType.getIntOrFloatBitWidth()) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
+      }
+    } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
 

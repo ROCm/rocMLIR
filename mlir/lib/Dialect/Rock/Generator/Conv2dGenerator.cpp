@@ -606,11 +606,13 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
   Type filterElemType = mlir::getElementTypeOrSelf(filterDataType);
   Type inputElemType = mlir::getElementTypeOrSelf(inputDataType);
   Type dataType = inputDataType;
-  if (filterElemType.getIntOrFloatBitWidth() >
-      inputElemType.getIntOrFloatBitWidth())
-    dataType = filterDataType;
   config.features = archInfo.getDefaultFeatures(dataType);
-
+  // Disable acceleration for mixed types
+  if (filterElemType.getIntOrFloatBitWidth() !=
+      inputElemType.getIntOrFloatBitWidth()) {
+    config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+    config.features = bitEnumClear(config.features, GemmFeatures::wmma);
+  }
   // Force acceleration if that's what the client wants
   int hasAccel = 0;
   strToInt("x2", hasAccel);
