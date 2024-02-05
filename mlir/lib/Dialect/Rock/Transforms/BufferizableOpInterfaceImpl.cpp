@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 
 #include "llvm/Support/Debug.h"
 
@@ -90,9 +91,17 @@ struct GemmLikeInterface
     if (!outBuffer) {
       return op->emitOpError("Couldn't find output argument\n");
     }
+    if(op->getNumRegions() == 1){
+      auto newOp = cloneWithoutRegions(
+      rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
+      rewriter.inlineRegionBefore(op->getRegion(0), newOp->getRegion(0),
+                                  newOp->getRegion(0).begin());
+    }
+    else{
+      rewriter.create<Concrete>(op->getLoc(), TypeRange{}, bufferArgs,
+                                op->getAttrs());
+    }
 
-    rewriter.create<Concrete>(op->getLoc(), TypeRange{}, bufferArgs,
-                              op->getAttrs());
     replaceOpWithBufferizedValues(rewriter, op, outBuffer);
     return success();
   }
@@ -229,6 +238,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     ConvertingCopyKernelOp::attachInterface<
         GemmLikeInterface<ConvertingCopyKernelOp>>(*ctx);
     AttentionOp::attachInterface<GemmLikeInterface<AttentionOp>>(*ctx);
+    AttentionOpV2::attachInterface<GemmLikeInterface<AttentionOpV2>>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(

@@ -29,6 +29,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 using namespace mlir;
 
@@ -715,6 +716,37 @@ struct CollapseExpandRewritePattern
   }
 };
 
+// Tosa ops can broadcast values along axes, which allows for
+// element-wise operations without fully-matching dimensions.  The
+// Elementwise trait is strict about matching dimensions, but
+// broadcastable ops are also element-wise, and we know that an
+// additional set of ops are also element-wise.
+static bool isElementwiseOp(Operation *op) {
+  return op->hasTrait<OpTrait::Elementwise>() || op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
+         // clang-format off
+    isa<tosa::CastOp,
+        tosa::ClampOp,
+        tosa::ErfOp,
+        tosa::SigmoidOp,
+        tosa::TanhOp,
+        tosa::AbsOp,
+        tosa::CeilOp,
+        tosa::ClzOp,
+        tosa::ExpOp,
+        tosa::FloorOp,
+        tosa::LogOp,
+        tosa::LogicalNotOp,
+        tosa::NegateOp,
+        tosa::ReciprocalOp,
+        tosa::RsqrtOp,
+        tosa::SelectOp,
+        tosa::EqualOp,
+        tosa::GreaterOp,
+        tosa::GreaterEqualOp
+       >(op);
+  // clang-format on
+}
+
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
@@ -806,40 +838,136 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return reshapeOp;
   }
 
+  Value getAsTensor(OpBuilder& builder, Location loc, mlir::Value value, bool isWritable = false) const {
+    constexpr bool isRestrict{true};
+    Value origTensor = builder.create<bufferization::ToTensorOp>(
+        loc, value, isRestrict, isWritable);
+    return origTensor;
+  }
+
+  std::tuple<Value, FailureOr<tosa::MatMulOp> > getPreSoftmaxElemwiseRegion(Value input,
+                                                                          OpBuilder& regionBuilder,
+                                                                          Block* block,
+                                                                          SmallVector<Value>& elemwiseArgs,
+                                                                          std::optional<Location> loc = std::nullopt,
+                                                                          bool doRewrite = false
+                                                ) const {
+    llvm::errs() << "getPreSoftmaxElemwiseRegion::input=" << input << "\n"; 
+    RankedTensorType inputTensorType = input.getType().cast<RankedTensorType>();
+    // RankedTensorType unitTensorType = RankedTensorType::get({1}, inputType.getElementType());
+    PatternRewriter::InsertionGuard guard(regionBuilder);
+    regionBuilder.setInsertionPointToEnd(block);
+    if(tosa::MatMulOp matmul = getDefiningNonReshapeOp<tosa::MatMulOp>(input)){
+      Value matmulMemRef;
+      if(doRewrite){
+        llvm::errs() << "block arg added. \n"; 
+        matmulMemRef = block->addArgument(MemRefType::get(inputTensorType.getShape(), inputTensorType.getElementType()), loc.value());
+        matmulMemRef = getAsTensor(regionBuilder, loc.value(), matmulMemRef);
+        // matmulMemRef = block->addArgument(inputTensorType, loc.value());
+      }
+      return {matmulMemRef, matmul};
+    }
+    Operation* op = input.getDefiningOp();
+    if(!op || !isElementwiseOp(op)){
+      return {input, failure()};
+    }
+    auto [lhsResult, maybeLhsMatMul] = getPreSoftmaxElemwiseRegion(op->getOperand(0), regionBuilder, block, elemwiseArgs, loc, doRewrite);
+    llvm::errs() << "getPreSoftmaxElemwiseRegion::lhsResult=" << lhsResult << "\n"; 
+    auto [rhsResult, maybeRhsMatMul] = getPreSoftmaxElemwiseRegion(op->getOperand(1), regionBuilder, block, elemwiseArgs, loc, doRewrite);
+    llvm::errs() << "getPreSoftmaxElemwiseRegion::rhsResult=" << rhsResult << "\n";
+    
+    if(succeeded(maybeLhsMatMul)){
+      if(!doRewrite && rhsResult.isa<BlockArgument>()){
+        elemwiseArgs.push_back(op->getOperand(1));
+      }
+      Value res;
+      if(doRewrite){
+        // Value lhsNew = (lhsResult == maybeLhsMatMul.value()) ? block->getArguments().back() : lhsResult;
+        Value rhsNew;
+        if(rhsResult.isa<BlockArgument>()){
+          RankedTensorType rhsResultType = rhsResult.getType().cast<RankedTensorType>();
+          rhsNew = block->addArgument(MemRefType::get(rhsResultType.getShape(), rhsResultType.getElementType()), loc.value());
+          rhsNew = getAsTensor(regionBuilder, loc.value(), rhsNew);
+          // rhsNew = block->addArgument(rhsResultType, loc.value());
+        }
+        else{
+          rhsNew = rhsResult;
+        }
+        mlir::IRMapping mapper;
+        mapper.map(op->getOperand(0), lhsResult);
+        mapper.map(op->getOperand(1), rhsNew);
+        auto newOp = regionBuilder.clone(*op, mapper);
+        res = newOp->getResult(0);
+      }
+      return {res, maybeLhsMatMul};
+    }
+    else if (succeeded(maybeRhsMatMul)) {
+      if(!doRewrite && lhsResult.isa<BlockArgument>()){
+        elemwiseArgs.push_back(op->getOperand(0));
+      }
+      Value res;
+      if(doRewrite){
+        // Value rhsNew = (rhsResult == maybeRhsMatMul.value()) ? block->getArguments().back() : rhsResult;
+        Value lhsNew;
+        if(lhsResult.isa<BlockArgument>()){
+          RankedTensorType lhsResultType = lhsResult.getType().cast<RankedTensorType>();
+          lhsNew = block->addArgument(MemRefType::get(lhsResultType.getShape(), lhsResultType.getElementType()), loc.value());
+          lhsNew = getAsTensor(regionBuilder, loc.value(), lhsNew);
+          // lhsNew = block->addArgument(lhsResultType, loc.value());
+        }
+        else{
+          lhsNew = lhsResult;
+        }
+        mlir::IRMapping mapper;
+        mapper.map(op->getOperand(0), lhsNew);
+        mapper.map(op->getOperand(1), rhsResult);
+        auto newOp = regionBuilder.clone(*op, mapper);
+        res = newOp->getResult(0);
+      }
+      return {res, maybeRhsMatMul};
+    }
+    return {Value(), failure()};
+  }
+
   LogicalResult match(tosa::MatMulOp op) const override {
     FailureOr<Value> softmaxInput = maybeSoftmax(op.getA());
     if (failed(softmaxInput)) {
       return failure();
     }
 
-    Value scaledMatMul = nullptr;
-    if (auto bias =
-            getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput.value())) {
-      if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
-          succeeded(result)) {
-        scaledMatMul = std::get<0>(result.value());
-      } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
-                 succeeded(result)) {
-        scaledMatMul = std::get<0>(result.value());
-      } else {
-        return failure();
-      }
-    } else {
-      scaledMatMul = softmaxInput.value();
-    }
+    // Value scaledMatMul = nullptr;
+    // if (auto bias =
+    //         getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput.value())) {
+    //   if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
+    //       succeeded(result)) {
+    //     scaledMatMul = std::get<0>(result.value());
+    //   } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
+    //              succeeded(result)) {
+    //     scaledMatMul = std::get<0>(result.value());
+    //   } else {
+    //     return failure();
+    //   }
+    // } else {
+    //   scaledMatMul = softmaxInput.value();
+    // }
 
-    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
-      FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
-          scaledMatMul = getOperandsOrdered<tosa::MatMulOp>(scale);
-      if (succeeded(scaledMatMul)) {
-        return success();
-      }
-    }
-    // Scale is optional
-    if (getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul)) {
-      return success();
-    }
-    return failure();
+    // if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
+    //   FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
+    //       scaledMatMul = getOperandsOrdered<tosa::MatMulOp>(scale);
+    //   if (succeeded(scaledMatMul)) {
+    //     return success();
+    //   }
+    // }
+    // // Scale is optional
+    // if (getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul)) {
+    //   return success();
+    // }
+    // return failure();
+    OpBuilder b {op};
+    SmallVector<Value> vec;
+    FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    std::tie(std::ignore, maybeFirstMatMul) = getPreSoftmaxElemwiseRegion(softmaxInput.value(), b, nullptr, vec);
+    return maybeFirstMatMul;
   }
 
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
@@ -874,6 +1002,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // as guranteed by the match() above
       firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul);
     }
+    
+    // firstMatMulOp = maybeMatMul.value();
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
@@ -881,10 +1011,24 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::optional<uint32_t> numCu;
     rock::GemmFeatures features;
     std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
-    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
+    // rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
+    //     loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
+    //     normalizeInputTensor(rewriter, loc, scaleInput),
+    //     normalizeInputTensor(rewriter, loc, biasInput), output,
+    //     // TODO(implement transpose fusion support here)
+    //     /*qTransposed=*/nullptr,
+    //     /*kTransposed=*/nullptr,
+    //     /*vTransposed=*/nullptr,
+    //     /*oTransposed=*/nullptr, arch,
+    //     rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+    //     /*params0=*/nullptr, /*params1=*/nullptr);
+
+    SmallVector<Value> elemwiseOtherArgs;
+    getPreSoftmaxElemwiseRegion(softmaxInput, rewriter, nullptr, elemwiseOtherArgs);
+
+    rock::AttentionOpV2 attnOp2 = rewriter.create<rock::AttentionOpV2>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        normalizeInputTensor(rewriter, loc, scaleInput),
-        normalizeInputTensor(rewriter, loc, biasInput), output,
+        elemwiseOtherArgs, output,
         // TODO(implement transpose fusion support here)
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
@@ -892,7 +1036,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*oTransposed=*/nullptr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features),
         /*params0=*/nullptr, /*params1=*/nullptr);
-    rewriter.replaceOp(op, attnOp.getResult());
+
+    Block* preSoftmaxElemwiseBlock = &attnOp2.getPreSoftmaxBody().emplaceBlock();
+    FailureOr<tosa::MatMulOp> maybeMatMul;
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
+      Value res;
+      std::tie(res, maybeMatMul) = getPreSoftmaxElemwiseRegion(softmaxInput, rewriter, preSoftmaxElemwiseBlock, elemwiseOtherArgs, loc, true);
+      // llvm::errs() << "last getPreSoftmaxElemwiseRegion is done!\n";
+      preSoftmaxElemwiseBlock->print(llvm::errs());
+      RankedTensorType resTensorType = res.getType().cast<RankedTensorType>();
+      MemRefType resMemRefType = MemRefType::get(resTensorType.getShape(), resTensorType.getElementType());
+      Value resMemref = rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+      Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
+      rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
+      rewriter.create<rock::YieldOp>(loc);
+    }
+    
+    rewriter.replaceOp(op, attnOp2.getResult());
   }
 };
 
