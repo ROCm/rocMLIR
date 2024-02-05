@@ -119,12 +119,10 @@ Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
                                                   Location loc,
                                                   Value rawBufferC) {
   TopDownTMBuilder bufferCijTransform(
-      b, {"ci", "cj", "i", "j"},
-      {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats, 1, 1}, loc);
-  bufferCijTransform.ignore("i");
-  bufferCijTransform.ignore("j");
+      b, {"i", "j"}, {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats},
+      loc);
   bufferCijTransform.unmerge(
-      "offset", 0, {"ci", "cj"},
+      "offset", 0, {"i", "j"},
       {accelEmitterParams.mRepeats, accelEmitterParams.nRepeats});
   auto viewC = rock::transform(
       b, rawBufferC,

@@ -211,38 +211,17 @@ struct ThreadwiseAccelGemmRewritePattern
   // "real" view by ignoring some of the indices and letting the rest pass
   // through.
   TransformMapAttr normalizeView(OpBuilder &b, Location loc,
-                                 ArrayRef<int64_t> startShape,
                                  ArrayRef<StringRef> names,
                                  ArrayRef<int64_t> sizes, bool ignoreStartShape,
                                  DenseSet<StringRef> ignoreNames) const {
-    // Create the full view [startShape, sizes]
-    SmallVector<int64_t> normalizedShape(startShape);
-    llvm::append_range(normalizedShape, sizes);
-
-    // Create names for the start shape
-    SmallVector<SmallString<8>> normalizedNames;
-    SmallVector<StringRef> normalizedNamesRef;
-    for (size_t i = 0; i < startShape.size(); i++) {
-      SmallString<8> normName(Twine("extra_" + Twine(i)).str());
-      normalizedNames.push_back(normName);
-      normalizedNamesRef.push_back(normalizedNames.back());
-      // If we are ignoring the start names, add them into the ignoreNames
-      // set
-      if (ignoreStartShape)
-        ignoreNames.insert(normalizedNames.back());
-    }
-
-    // Add the other names in
-    llvm::append_range(normalizedNamesRef, names);
-
     unsigned pos = 0;
     unsigned newPos = 0;
-    TopDownTMBuilder td(b, normalizedNamesRef, normalizedShape, loc);
+    TopDownTMBuilder td(b, names, sizes, loc);
     // Convert the normalizedView to a real view by ignoring
     // the names contained in `ignoreNames` and letting the rest pass through
-    for (pos = 0; pos < normalizedNamesRef.size(); pos++) {
-      if (ignoreNames.contains(normalizedNamesRef[pos])) {
-        td.ignore(normalizedNamesRef[pos]);
+    for (pos = 0; pos < names.size(); pos++) {
+      if (ignoreNames.contains(names[pos])) {
+        td.ignore(names[pos]);
       } else {
         td.passThrough({newPos++}, {pos});
       }
@@ -275,23 +254,18 @@ struct ThreadwiseAccelGemmRewritePattern
     auto bufferAShape = op.getMatrixA().getType().getShape();
     auto bufferCShape = op.getMatrixC().getType().getShape();
 
-    size_t extraIndicesCSize = op.getExtraIndicesC().size();
-    SmallVector<int64_t> extraIndicesCShape;
-    for (size_t i = 0; i < extraIndicesCSize; i++) {
-      extraIndicesCShape.push_back(bufferCShape[i]);
-    }
-
+    size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
         op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+
+    if (!emitter)
+      return emitError(loc)
+             << "Failed to select any accelerator instruction.\n";
 
     // Extract relevant accel emitter parameters
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
-
-    if (!emitter)
-      return emitError(loc)
-             << "Failed to select any accelerator instruction.\n";
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
@@ -301,19 +275,16 @@ struct ThreadwiseAccelGemmRewritePattern
     int64_t jLen = bufferCShape.back();
     int64_t kLen = bufferAShape.back();
 
-    // All the view need to be `[extraIndices, i, j, k]` so that
+    // All the view need to be `[i, j, k]` so that
     // we can iterate within the `transforming_for` later. This means that we
     // want to `ignore` some of the indices, e.g, since A is [i,k] we will
     // ignore index `j` and the `extraIndices`
     TransformMapAttr normalizedViewA =
-        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
-                      {iLen, jLen, kLen}, true, {"j"});
+        normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"j"});
     TransformMapAttr normalizedViewB =
-        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
-                      {iLen, jLen, kLen}, true, {"i"});
-    TransformMapAttr normalizedViewC =
-        normalizeView(b, loc, extraIndicesCShape, {"i", "j", "k"},
-                      {iLen, jLen, kLen}, false, {"k"});
+        normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"i"});
+    TransformMapAttr normalizedViewC = normalizeView(
+        b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, false, {"k"});
 
     auto [rawBufferA, bufferViewA, sourceANeeds64BitIdx] =
         untransform(b, bufferA, normalizedViewA);
@@ -327,21 +298,17 @@ struct ThreadwiseAccelGemmRewritePattern
     assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
 
     // Loop properties
-    auto extendedBounds = SmallVector<int64_t>(extraIndicesCSize, 1);
-    llvm::append_range(extendedBounds, ArrayRef<int64_t>{iLen, jLen, kLen});
-    auto extendedStride = SmallVector<int64_t>(extendedBounds.size(), 1);
-    auto extendedStart = llvm::to_vector(op.getExtraIndicesC());
-    llvm::append_range(
-        extendedStart,
-        ArrayRef<Value>{zeroConstantOp, zeroConstantOp, zeroConstantOp});
+    auto computeBounds = SmallVector<int64_t>(computeIndices, 1);
+    auto computeStride = SmallVector<int64_t>(computeBounds.size(), 1);
+    auto computeStart = llvm::to_vector(op.getComputeIndices());
 
     // Emit the loop
     auto accelLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{extendedStart, extendedStart, extendedStart},
+        loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
         ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
-        /*bounds=*/extendedBounds,
-        /*strides=*/extendedStride,
-        /*forceUnroll=*/false, /*useIndexDiffs=*/false);
+        /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
+        /*strides=*/ArrayRef<int64_t>{1, 1, 1},
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(accelLoop.getBody());
