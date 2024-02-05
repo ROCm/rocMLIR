@@ -204,12 +204,14 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale"]>]>,
+  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale", "bias"]>,
+                                             AttrSizedOperandSegments]>,
   Arguments<(ins
     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
     Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
+    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "bias", [MemRead]>:$bias,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
@@ -245,18 +247,19 @@ def Rock_AttentionOp :
   }];
 }
 
-def Rock_ZeroInitKernelOp :
-    Rock_Op<"zero_init_kernel", []>,
+def Rock_InitKernelOp :
+    Rock_Op<"init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
                   Rock_GemmFeaturesAttr:$features,
+                  OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
                   OptionalAttr<I32Attr>:$blockSize,
                   OptionalAttr<I32Attr>:$gridSize,
                   OptionalAttr<IndexAttr>:$elemsPerThread)>,
     Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "Zero-initialize a buffer";
+  let summary = "initialize a buffer";
 
   let description = [{
-    Zero-initialize a given buffer.
+    Initialize a given buffer.
 
     This operation is meant to operate as its own kernel, and is needed
     for correctness in some cases (backwards data kernels where not all
@@ -421,16 +424,18 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel">,
+    Rock_Op<"gridwise_attention_accel", [AttrSizedOperandSegments]>,
     Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
                    MemRefRankOf<[F32, F16], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
                    Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
+                   Optional<MemRefRankOf<[F32, F16], [3]>>:$bias,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
+                   UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params0,
@@ -443,6 +448,8 @@ def Rock_GridwiseAttentionAccelOp :
     `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+  }];
 }
 
 // Memory allocation on GPU memory hierachy.
@@ -462,27 +469,15 @@ def Rock_GpuAllocOp:
   }];
 }
 
-// Wrap an allocOp as a multibuffer, i.e., a buffer with #n copies
-def Rock_ReinterpretMultiBufferOp:
-    Rock_Op<"reinterpret_multibuffer", [Pure, ViewLikeOpInterface]>,
-    Arguments<(ins Arg<MemRefRankOf<[I8], [1]>, "raw allocation", [MemRead]>:$input,
-                   IndexAttr:$multibufferFactor)>,
-    Results<(outs AnyMemRef:$output)> {
-  let summary = "Reinterpret raw memory as a multi-buffer";
-
-  let description = [{ Wraps a raw memory allocation as a multibuffer, i.e., a buffer with
-    multiple copies. The first dimension of the output type is the multi-buffering factor}];
-  let assemblyFormat = [{
-    $input attr-dict
-    `:` type($input) `to` type($output)
-  }];
-  let builders = [
-    OpBuilder<(ins "Value":$input, "MemRefType":$bufferType, "int64_t":$mulbibufferFactor)>
-  ];
-  let extraClassDeclaration = [{
-    /// For ViewLikeOpInterface.
-    Value getViewSource() { return getInput(); }
-  }];
+// Select one among a set of multiple buffers
+def Rock_ExtractMultiBufferOp:
+    Rock_Op<"extract_multibuffer", [Pure]>,
+    Arguments<(ins Variadic<AnyMemRef>:$buffers,
+                   Index:$selectIndex)>,
+    Results<(outs AnyMemRef:$output)>{
+  let summary = "Multi-buffer selection op";
+  let description = [{" Select a single buffer among a set of `buffers` based on `selectIndex % `buffers.size()` "}];
+  let assemblyFormat = [{ `(` $buffers `)` `[` $selectIndex `]` attr-dict `(`type($buffers)`)` `:` type($output)}];
   let hasVerifier = 1;
 }
 

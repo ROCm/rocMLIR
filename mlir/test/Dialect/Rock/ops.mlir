@@ -264,12 +264,12 @@ func.func @rock_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
 // CHECK: rock.in_warp_transpose
 
 
-func.func @zero_init_kernel(%arg0 : memref<2x4xf32>) {
-  rock.zero_init_kernel %arg0 features = none : memref<2x4xf32>
+func.func @init_kernel(%arg0 : memref<2x4xf32>) {
+  rock.init_kernel %arg0 features = none : memref<2x4xf32>
   func.return
 }
-// CHECK-LABEL func.func @zero_init_kernel
-// CHECK: rock.zero_init_kernel
+// CHECK-LABEL func.func @init_kernel
+// CHECK: rock.init_kernel
 
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
   rock.converting_copy_kernel %arg0 to %arg1 features = none : memref<2x4xf32> to memref<2x4xf16>

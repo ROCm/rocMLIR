@@ -114,6 +114,8 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   targetOpts.targetArchs = options.targetArchs;
   pm.addNestedPass<func::FuncOp>(createMHALSelectTargetsPass(targetOpts));
 
+  pm.addNestedPass<func::FuncOp>(createMHALPrefillPass());
+
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
   funcPm1.addPass(createLowerAffinePass());

@@ -5,6 +5,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRAMDGPUTransforms
   MLIRGPUToROCDLTransforms
   MLIRArithToAMDGPU
+  MLIRMathTransforms
   MLIRTensorToLinalg
   MLIRTosaToArith
   MLIRTosaToRock
@@ -17,7 +18,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility
-  RocmlirFp8ExtToTables
+  RocmlirEmulateFp8ExtTrunc
 
   # Upstream dialect libraries we need to load that we don't directly depend on
   MLIRBufferizationTransformOps

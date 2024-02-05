@@ -41,4 +41,9 @@ def MHALSelectTargetsPass : Pass<"mhal-select-targets", "func::FuncOp"> {
   ];
 }
 
+def MHALPrefillPass : Pass<"mhal-prefill", "func::FuncOp"> {
+  let summary = "Prefill all mem. buffers before a kernel launch.";
+  let dependentDialects = ["mhal::MHALDialect"];
+}
+
 #endif // MLIR_DIALECT_MHAL_PASSES

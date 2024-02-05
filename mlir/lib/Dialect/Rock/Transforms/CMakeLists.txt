@@ -1,5 +1,4 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
-  AccelEmitter.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
   AnalyzeMemoryUse.cpp
@@ -54,4 +53,5 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
+  MLIRMHAL
 )

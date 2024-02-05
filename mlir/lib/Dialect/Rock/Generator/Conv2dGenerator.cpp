@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
@@ -600,8 +601,18 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 
   // Get the default features associated with the chip (and with the data type)
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.getDefaultFeatures(getInputDataType(builder));
-
+  Type filterDataType = getFilterDataType(builder);
+  Type inputDataType = getInputDataType(builder);
+  Type filterElemType = mlir::getElementTypeOrSelf(filterDataType);
+  Type inputElemType = mlir::getElementTypeOrSelf(inputDataType);
+  Type dataType = inputDataType;
+  config.features = archInfo.getDefaultFeatures(dataType);
+  // Disable acceleration for mixed types
+  if (filterElemType.getIntOrFloatBitWidth() !=
+      inputElemType.getIntOrFloatBitWidth()) {
+    config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+    config.features = bitEnumClear(config.features, GemmFeatures::wmma);
+  }
   // Force acceleration if that's what the client wants
   int hasAccel = 0;
   strToInt("x2", hasAccel);
@@ -899,6 +910,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
             func.getArgument(3)};
   }
+
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
     auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
@@ -908,9 +920,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   case ConvOpType::BwdData: {
     if (kernelId < 0) {
       // zero init input tensor
-      auto zeroInit = builder.create<ZeroInitKernelOp>(
+      auto zeroInit = builder.create<InitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
-          features, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          features, /*initValueAttr=*/nullptr,
+          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInit);
     } else {
@@ -927,9 +940,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     bool hasUtilities = (kernelCount > 1);
     if (hasUtilities && kernelId == 0) {
       // If there is a workspace, zero-init it, otherwise fill the filter tensor
-      auto zeroInitOp = builder.create<ZeroInitKernelOp>(
+      auto zeroInitOp = builder.create<InitKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          args[hasWorkspace ? 3 : 0], features,
+          args[hasWorkspace ? 3 : 0], features, /*initValueAttr=*/nullptr,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInitOp);

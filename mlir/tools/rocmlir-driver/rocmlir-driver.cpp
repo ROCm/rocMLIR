@@ -437,7 +437,7 @@ int main(int argc, char **argv) {
                       scf::SCFDialect, affine::AffineDialect,
                       memref::MemRefDialect, math::MathDialect,
                       arith::ArithDialect, gpu::GPUDialect,
-                      bufferization::BufferizationDialect, mhal::MHALDialect>();
+                      bufferization::BufferizationDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 

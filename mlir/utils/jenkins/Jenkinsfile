@@ -67,11 +67,11 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm5.7-latest'
+    return 'rocm/mlir:rocm6.0-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm5.7-latest'
+    return 'rocm/mlir-migraphx-ci:rocm6.0-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -364,6 +364,24 @@ void archivePerfDB() {
     onlyIfSuccessful: true
 }
 
+boolean shouldRunBuildAndTest(String codepath) {
+    // When default codepath is selected, we test mfma, navi21 and navi3x on
+    // private CI and vanilla on public CI
+    if (params.codepath == "default" && shouldRunFromCodepath(codepath))
+        return true
+
+    // When a particular codepath is selected, we only test the codepath
+    // on private CI
+    if (params.codepath == codepath && params.canXdlops) {
+        if (params.codepath == "mfma") return true
+        if (params.codepath == "vanilla") return true
+        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
+        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
+        return false
+    }
+}
+
+
 pipeline {
     agent none
     parameters {
@@ -393,6 +411,8 @@ pipeline {
                      description: 'Run the MIGraphX integration tests')
         booleanParam(name: 'checkCK', defaultValue: true,
                      description: 'Compare performance against CK')
+        booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
+                     description: 'Collect and upload code-coverage info.')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -453,32 +473,7 @@ pipeline {
                 }
                 when {
                     beforeAgent true
-                    anyOf {
-                        // When default codepath is selected, we test mfma, navi21 and navi3x on
-                        // private CI and vanilla on public CI
-                        allOf {
-                            equals expected: "default", actual: params.codepath;
-                            expression { return shouldRunFromCodepath("$CODEPATH")}
-                        }
-                        // When a particular codepath is selected, we only test the codepath
-                        // on private CI
-                        allOf {
-                            anyOf {
-                                equals expected: "mfma", actual: params.codepath;
-                                allOf {
-                                    equals expected: "navi21", actual: params.codepath;
-                                    equals expected: false, actual: params.disableNavi21;
-                                }
-                                equals expected: "vanilla", actual: params.codepath;
-                                allOf {
-                                    equals expected: "navi3x", actual: params.codepath;
-                                    equals expected: false, actual: params.disableNavi3x;
-                                }
-                            }
-                            equals expected: "${CODEPATH}", actual: params.codepath;
-                            equals expected: true, actual: params.canXdlops;
-                        }
-                    }
+                    expression { return shouldRunBuildAndTest("$CODEPATH") }
                 }
                 environment {
                     PATH="/opt/rocm/llvm/bin:$PATH"
@@ -550,8 +545,7 @@ pipeline {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
-                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -585,7 +579,7 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            sh 'rm build/CMakeCache.txt'
+                            sh 'rm -f build/CMakeCache.txt'
                             buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
                             preMergeCheckPackage("${CODEPATH}")
                             echo "Running tests on the newly-built static library"
@@ -720,8 +714,7 @@ pipeline {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
-                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -760,7 +753,7 @@ pipeline {
                                 sh """python3 ./bin/tuningRunner.py --op fusion \
 --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
                             }
-                            sh 'rm build/CMakeCache.txt'
+                            sh 'rm -f build/CMakeCache.txt'
                         }
                     }
                     stage("Stash Databases") {
@@ -922,7 +915,7 @@ pipeline {
                                     sh 'cd build; make install'
                                     sh 'echo `git rev-parse HEAD`'
                                 }
-                                sh 'rm build/CMakeCache.txt'
+                                sh 'rm -f build/CMakeCache.txt'
                                 buildProject("ck-benchmark-driver",
                                              '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
@@ -1061,5 +1054,68 @@ pipeline {
                 }
             }
         }
+
+        stage ("Code coverage") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.runCodeCoverage;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CPATH'
+                        values 'mfma'           // 'navi3x' or hypothetical 'wmma' if needed
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CPATH}")
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                    // Note the %m to avoid issues with threads and dynamic libraries.
+                    LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                }
+                stages {
+                    stage ("body") {
+                        steps {
+                            // Build with profiling on, and just code-generation tests.
+                            sh 'rm -f build/CMakeCache.txt'
+                            sh 'rm -f build/*.profraw'
+                            buildProject('check-rocmlir-build-only',
+                                         '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                            dir ('build') {
+                                // Run tests.
+                                sh 'ninja check-rocmlir'
+                                // Profile processing.
+                                sh '/opt/rocm/llvm/bin/llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
+                                sh "/opt/rocm/llvm/bin/llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                sh "cat ./coverage_${CPATH}.report"
+                                sh "/opt/rocm/llvm/bin/llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                sh "/opt/rocm/llvm/bin/llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=/opt/rocm/llvm/bin/llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                // Upload to codecov.
+                                withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
+                                    sh '''
+                                       curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                       proxy_opt=""
+                                       if [ -n "${http_proxy}" ]; then
+                                           proxy_opt="-U ${http_proxy}"
+                                       fi
+                                       ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
+                                       '''
+                                }
+                            }
+                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                        }
+                    }
+                }
+            }
+        }
+
     }
 }

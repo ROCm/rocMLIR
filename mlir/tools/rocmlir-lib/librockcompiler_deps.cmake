@@ -121,6 +121,7 @@ MLIRMaskableOpInterface
 MLIRMaskingOpInterface
 MLIRMathDialect
 MLIRMathToLLVM
+MLIRMathTransforms
 MLIRMemRefDialect
 MLIRMemRefToLLVM
 MLIRMemRefTransforms
@@ -204,5 +205,5 @@ MLIRRockTransforms
 MLIRRockTuning
 MLIRRockUtility
 MLIRTosaToRock
-RocmlirFp8ExtToTables
+RocmlirEmulateFp8ExtTrunc
 )

@@ -57,15 +57,6 @@ bool get_compute_fp32_flag() {
           device_name.find("gfx90a") != std::string::npos);
 }
 
-/// This code is taken from
-/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
-/// and is used to query if the `rocblas_gemm_flgas_pack_int8x4` is set
-bool get_int8_x4_format(rocblas_handle &handle) {
-  rocblas_gemm_flags flag;
-  rocblas_query_int8_layout_flag(handle, &flag);
-  return flag == rocblas_gemm_flags_pack_int8x4;
-}
-
 int main(int argc, char **argv) {
   auto args =
       benchmark::parseCommandLine("rocblas-benchmark-driver", argc, argv);
@@ -130,9 +121,7 @@ int main(int argc, char **argv) {
   ROCBLAS_ABORT_IF_FAIL(
       rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host));
 
-  rocblas_gemm_flags rocblas_flags = get_int8_x4_format(handle)
-                                         ? rocblas_gemm_flags_pack_int8x4
-                                         : rocblas_gemm_flags_none;
+  rocblas_gemm_flags rocblas_flags = rocblas_gemm_flags_none;
 
   for (int i = 0, e = args.kernelRepeats; i < e; ++i)
     if (args.gemmG == 1) {

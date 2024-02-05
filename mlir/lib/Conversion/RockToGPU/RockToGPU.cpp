@@ -28,16 +28,17 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
-
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -190,6 +191,23 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
       indexWidth = 64;
+
+    // move prefill attributes from func::FuncOp to gpu::GPUModuleOp
+    llvm::SmallVector<Attribute, 4> prefillAttrs;
+    for (uint32_t argIdx = 0; argIdx < theFunc.getNumArguments(); ++argIdx) {
+      if (auto attr =
+              theFunc.getArgAttr(argIdx, mhal::PrefillAttr::getMnemonic())) {
+        auto prefillAttr =
+            b.getAttr<mhal::PrefillAttr>(argIdx, cast<TypedAttr>(attr));
+        prefillAttrs.push_back(prefillAttr);
+      }
+    }
+
+    if (!prefillAttrs.empty()) {
+      auto funcName = theFunc.getSymName();
+      gpuMod->setAttr(funcName, b.getAttr<ArrayAttr>(prefillAttrs));
+    }
+
     DataLayoutEntryInterface indexWidthAttr = DataLayoutEntryAttr::get(
         b.getIndexType(), b.getI32IntegerAttr(indexWidth));
     auto dltiSpec = b.getAttr<DataLayoutSpecAttr>(indexWidthAttr);
