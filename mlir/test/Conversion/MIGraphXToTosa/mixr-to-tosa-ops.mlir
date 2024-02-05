@@ -175,6 +175,13 @@ module  {
      return %0 : !migraphx.shaped<2x256x768xi32, 196608x768x1>
   }
 
+  // CHECK-LABEL: func.func @quant_matmul_fp8
+  // CHECK: tosa.matmul
+  func.func @quant_matmul_fp8(%arg0: !migraphx.shaped<1x12x1024x64xf8E4M3FNUZ, 786432x64x768x1>, %arg1: !migraphx.shaped<1x12x64x1024xf8E4M3FNUZ, 786432x64x1x768>) -> !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1> {
+    %0 = migraphx.quant_dot %arg0, %arg1 : <1x12x1024x64xf8E4M3FNUZ, 786432x64x768x1>, <1x12x64x1024xf8E4M3FNUZ, 786432x64x1x768> -> <1x12x1024x1024xf32, 12582912x1048576x1024x1>
+     return %0 : !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1>
+  }
+
   // CHECK-LABEL: func.func @matmul_larger_batch
   // CHECK: tosa.matmul
   func.func @matmul_larger_batch(%arg0: !migraphx.shaped<2x16x256x384xf32, 1572864x98304x384x1>, %arg1: !migraphx.shaped<2x16x384x768xf32, 4718592x294912x768x1>) -> !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1> {
