@@ -12,6 +12,7 @@
 #define MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H
 
 #include "hip/hip_runtime.h"
+#include <string>
 
 // Common options to the different benchmark drivers
 
