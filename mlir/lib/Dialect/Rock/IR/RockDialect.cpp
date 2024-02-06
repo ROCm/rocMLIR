@@ -1961,12 +1961,12 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
 
-  for (Value otherElemWiseInput : getPreSoftmaxElemWiseInputs()){
-    ShapedType otherElemWiseInputType = otherElemWiseInput.getType().cast<ShapedType>();
-    if (vType.getRank() != otherElemWiseInputType.getRank()) {
-      return emitError("other elementwie inputs needs to be of same rank to main inputs");
-    }
-  }
+  // for (Value otherElemWiseInput : getPreSoftmaxElemWiseInputs()){
+  //   ShapedType otherElemWiseInputType = otherElemWiseInput.getType().cast<ShapedType>();
+  //   if (vType.getRank() != otherElemWiseInputType.getRank()) {
+  //     return emitError("other elementwie inputs needs to be of same rank to main inputs");
+  //   }
+  // }
 
   return success();
 }
