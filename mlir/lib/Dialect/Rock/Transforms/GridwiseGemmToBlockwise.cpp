@@ -1729,16 +1729,16 @@ struct GridwiseAttentionAccelRewritePattern
     // support fp32/fp16 This should be guranteed by op verifiers.
     Value gemm0OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
-    Value scaleInBuffer;
-    if (TypedValue<MemRefType> scaleIn = op.getScale()) {
-      scaleInBuffer = createBufferForGemmOut(
-          loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
-    }
-    Value biasInBuffer;
-    if (TypedValue<MemRefType> biasIn = op.getBias()) {
-      biasInBuffer = createBufferForGemmOut(
-          loc, biasIn.getType().getElementType(), accelParamsGemm0, rewriter);
-    }
+    // Value scaleInBuffer;
+    // if (TypedValue<MemRefType> scaleIn = op.getScale()) {
+    //   scaleInBuffer = createBufferForGemmOut(
+    //       loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
+    // }
+    // Value biasInBuffer;
+    // if (TypedValue<MemRefType> biasIn = op.getBias()) {
+    //   biasInBuffer = createBufferForGemmOut(
+    //       loc, biasIn.getType().getElementType(), accelParamsGemm0, rewriter);
+    // }
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
@@ -1976,50 +1976,50 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
-      // Handle the first gemm scaling if present
-      if (Value scaleIn = op.getScale()) {
-        Value rawBuffer;
-        std::tie(rawBuffer, std::ignore, std::ignore) =
-            untransform(rewriter, scaleIn);
-        if (memref::GetGlobalOp constScale =
-                rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
-          FailureOr<TypedAttr> maybeSplatAttr =
-              getSplatGlobalConstant(constScale);
-          if (failed(maybeSplatAttr)) {
-            return op.emitError(
-                "Only splat scale constant input is supported.");
-          }
-          postProcessFirstGemmSplat<ElementwiseMultOp>(
-              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-              gemm0OutSubTileViewsTr, maybeSplatAttr.value());
-        } else {
-          postProcessFirstGemm<linalg::BinaryFn::mul>(
-              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-              gemm0OutSubTileViewsTr, scaleInBuffer, scaleIn);
-        }
-      }
+    //   // Handle the first gemm scaling if present
+    //   if (Value scaleIn = op.getScale()) {
+    //     Value rawBuffer;
+    //     std::tie(rawBuffer, std::ignore, std::ignore) =
+    //         untransform(rewriter, scaleIn);
+    //     if (memref::GetGlobalOp constScale =
+    //             rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
+    //       FailureOr<TypedAttr> maybeSplatAttr =
+    //           getSplatGlobalConstant(constScale);
+    //       if (failed(maybeSplatAttr)) {
+    //         return op.emitError(
+    //             "Only splat scale constant input is supported.");
+    //       }
+    //       postProcessFirstGemmSplat<ElementwiseMultOp>(
+    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+    //           gemm0OutSubTileViewsTr, maybeSplatAttr.value());
+    //     } else {
+    //       postProcessFirstGemm<linalg::BinaryFn::mul>(
+    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+    //           gemm0OutSubTileViewsTr, scaleInBuffer, scaleIn);
+    //     }
+    //   }
 
-      if (Value biasIn = op.getBias()) {
-        Value rawBuffer;
-        std::tie(rawBuffer, std::ignore, std::ignore) =
-            untransform(rewriter, biasIn);
-        if (memref::GetGlobalOp constScale =
-                rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
-          FailureOr<TypedAttr> maybeSplatAttr =
-              getSplatGlobalConstant(constScale);
-          if (failed(maybeSplatAttr)) {
-            return op.emitError(
-                "Only splat scale constant input is supported.");
-          }
-          postProcessFirstGemmSplat<ElementwiseAddOp>(
-              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-              gemm0OutSubTileViewsTr, maybeSplatAttr.value());
-        } else {
-          postProcessFirstGemm<linalg::BinaryFn::add>(
-              rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-              gemm0OutSubTileViewsTr, biasInBuffer, biasIn);
-        }
-      }
+    //   if (Value biasIn = op.getBias()) {
+    //     Value rawBuffer;
+    //     std::tie(rawBuffer, std::ignore, std::ignore) =
+    //         untransform(rewriter, biasIn);
+    //     if (memref::GetGlobalOp constScale =
+    //             rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
+    //       FailureOr<TypedAttr> maybeSplatAttr =
+    //           getSplatGlobalConstant(constScale);
+    //       if (failed(maybeSplatAttr)) {
+    //         return op.emitError(
+    //             "Only splat scale constant input is supported.");
+    //       }
+    //       postProcessFirstGemmSplat<ElementwiseAddOp>(
+    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+    //           gemm0OutSubTileViewsTr, maybeSplatAttr.value());
+    //     } else {
+    //       postProcessFirstGemm<linalg::BinaryFn::add>(
+    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+    //           gemm0OutSubTileViewsTr, biasInBuffer, biasIn);
+    //     }
+    //   }
 
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.

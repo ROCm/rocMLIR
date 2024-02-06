@@ -32,6 +32,9 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 /// Utility function to get the number of bytes a value of type `type` takes up.
 int64_t getByteWidth(Type type);
 
+// Utility function to get a MemRef as a tensor
+Value getAsTensor(OpBuilder& builder, Location loc, mlir::Value value, bool isWritable = false);
+
 } // namespace rock
 } // namespace mlir
 

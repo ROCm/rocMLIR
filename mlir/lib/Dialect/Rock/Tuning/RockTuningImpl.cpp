@@ -445,13 +445,6 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   else
     problemOS << "false" << sep;
 
-  // scale
-  problemOS << "-with-attn-scale ";
-  if (attnOp.getScale()) {
-    problemOS << "true" << sep;
-  } else {
-    problemOS << "false" << sep;
-  }
   problemOS << "-g " << g << sep;
   problemOS << "-seq_len " << seqLen << sep;
   problemOS << "-head_dim " << numHeads;

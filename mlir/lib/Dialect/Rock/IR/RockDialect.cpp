@@ -1961,17 +1961,10 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
 
-  if (TypedValue<ShapedType> scale = getScale()) {
-    ShapedType scaleType = scale.getType();
-    if (vType.getRank() != scaleType.getRank()) {
-      return emitError("scale needs to be of same rank to other inputs");
-    }
-  }
-
-  if (TypedValue<ShapedType> bias = getBias()) {
-    ShapedType biasType = bias.getType();
-    if (vType.getRank() != biasType.getRank()) {
-      return emitError("bias needs to be of same rank to other inputs");
+  for (Value otherElemWiseInput : getPreSoftmaxElemWiseInputs()){
+    ShapedType otherElemWiseInputType = otherElemWiseInput.getType().cast<ShapedType>();
+    if (vType.getRank() != otherElemWiseInputType.getRank()) {
+      return emitError("other elementwie inputs needs to be of same rank to main inputs");
     }
   }
 

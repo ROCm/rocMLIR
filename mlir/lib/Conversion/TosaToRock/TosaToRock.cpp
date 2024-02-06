@@ -838,13 +838,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return reshapeOp;
   }
 
-  Value getAsTensor(OpBuilder& builder, Location loc, mlir::Value value, bool isWritable = false) const {
-    constexpr bool isRestrict{true};
-    Value origTensor = builder.create<bufferization::ToTensorOp>(
-        loc, value, isRestrict, isWritable);
-    return origTensor;
-  }
-
   std::tuple<Value, FailureOr<tosa::MatMulOp> > getPreSoftmaxElemwiseRegion(Value input,
                                                                           OpBuilder& regionBuilder,
                                                                           Block* block,
@@ -862,7 +855,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if(doRewrite){
         llvm::errs() << "block arg added. \n"; 
         matmulMemRef = block->addArgument(MemRefType::get(inputTensorType.getShape(), inputTensorType.getElementType()), loc.value());
-        matmulMemRef = getAsTensor(regionBuilder, loc.value(), matmulMemRef);
+        matmulMemRef = rock::getAsTensor(regionBuilder, loc.value(), matmulMemRef);
         // matmulMemRef = block->addArgument(inputTensorType, loc.value());
       }
       return {matmulMemRef, matmul};
@@ -887,7 +880,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if(rhsResult.isa<BlockArgument>()){
           RankedTensorType rhsResultType = rhsResult.getType().cast<RankedTensorType>();
           rhsNew = block->addArgument(MemRefType::get(rhsResultType.getShape(), rhsResultType.getElementType()), loc.value());
-          rhsNew = getAsTensor(regionBuilder, loc.value(), rhsNew);
+          rhsNew = rock::getAsTensor(regionBuilder, loc.value(), rhsNew);
           // rhsNew = block->addArgument(rhsResultType, loc.value());
         }
         else{
@@ -912,7 +905,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if(lhsResult.isa<BlockArgument>()){
           RankedTensorType lhsResultType = lhsResult.getType().cast<RankedTensorType>();
           lhsNew = block->addArgument(MemRefType::get(lhsResultType.getShape(), lhsResultType.getElementType()), loc.value());
-          lhsNew = getAsTensor(regionBuilder, loc.value(), lhsNew);
+          lhsNew = rock::getAsTensor(regionBuilder, loc.value(), lhsNew);
           // lhsNew = block->addArgument(lhsResultType, loc.value());
         }
         else{
@@ -934,35 +927,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(softmaxInput)) {
       return failure();
     }
-
-    // Value scaledMatMul = nullptr;
-    // if (auto bias =
-    //         getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput.value())) {
-    //   if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
-    //       succeeded(result)) {
-    //     scaledMatMul = std::get<0>(result.value());
-    //   } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
-    //              succeeded(result)) {
-    //     scaledMatMul = std::get<0>(result.value());
-    //   } else {
-    //     return failure();
-    //   }
-    // } else {
-    //   scaledMatMul = softmaxInput.value();
-    // }
-
-    // if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
-    //   FailureOr<std::tuple<tosa::MatMulOp, TypedValue<TensorType>>>
-    //       scaledMatMul = getOperandsOrdered<tosa::MatMulOp>(scale);
-    //   if (succeeded(scaledMatMul)) {
-    //     return success();
-    //   }
-    // }
-    // // Scale is optional
-    // if (getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul)) {
-    //   return success();
-    // }
-    // return failure();
     OpBuilder b {op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
@@ -973,37 +937,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value softmaxInput = maybeSoftmax(op.getA()).value();
-    tosa::MatMulOp firstMatMulOp;
-    TypedValue<TensorType> scaleInput = nullptr;
-    TypedValue<TensorType> biasInput = nullptr;
-
-    Value scaledMatMul = nullptr;
-    if (tosa::AddOp bias = getDefiningNonReshapeOp<tosa::AddOp>(softmaxInput)) {
-      if (auto result = getOperandsOrdered<tosa::MatMulOp>(bias);
-          succeeded(result)) {
-        scaledMatMul = std::get<0>(result.value());
-        biasInput = std::get<1>(result.value());
-      } else if (auto result = getOperandsOrdered<tosa::MulOp>(bias);
-                 succeeded(result)) {
-        scaledMatMul = std::get<0>(result.value());
-        biasInput = std::get<1>(result.value());
-      } else {
-        return;
-      }
-    } else {
-      scaledMatMul = softmaxInput;
-    }
-
-    if (auto scale = getDefiningNonReshapeOp<tosa::MulOp>(scaledMatMul)) {
-      std::tie(firstMatMulOp, scaleInput) =
-          getOperandsOrdered<tosa::MatMulOp>(scale).value();
-    } else {
-      // it has either to be a scaling mul or a matmul
-      // as guranteed by the match() above
-      firstMatMulOp = getDefiningNonReshapeOp<tosa::MatMulOp>(scaledMatMul);
-    }
-    
-    // firstMatMulOp = maybeMatMul.value();
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
@@ -1011,22 +944,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::optional<uint32_t> numCu;
     rock::GemmFeatures features;
     std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
-    // rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
-    //     loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-    //     normalizeInputTensor(rewriter, loc, scaleInput),
-    //     normalizeInputTensor(rewriter, loc, biasInput), output,
-    //     // TODO(implement transpose fusion support here)
-    //     /*qTransposed=*/nullptr,
-    //     /*kTransposed=*/nullptr,
-    //     /*vTransposed=*/nullptr,
-    //     /*oTransposed=*/nullptr, arch,
-    //     rewriter.getAttr<rock::GemmFeaturesAttr>(features),
-    //     /*params0=*/nullptr, /*params1=*/nullptr);
-
     SmallVector<Value> elemwiseOtherArgs;
-    getPreSoftmaxElemwiseRegion(softmaxInput, rewriter, nullptr, elemwiseOtherArgs);
 
-    rock::AttentionOpV2 attnOp2 = rewriter.create<rock::AttentionOpV2>(
+    FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    std::tie(std::ignore, maybeFirstMatMul) = getPreSoftmaxElemwiseRegion(softmaxInput, rewriter, nullptr, elemwiseOtherArgs);
+    // This is guranteed by the matcher
+    tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
+    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elemwiseOtherArgs, output,
         // TODO(implement transpose fusion support here)
@@ -1037,7 +961,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         rewriter.getAttr<rock::GemmFeaturesAttr>(features),
         /*params0=*/nullptr, /*params1=*/nullptr);
 
-    Block* preSoftmaxElemwiseBlock = &attnOp2.getPreSoftmaxBody().emplaceBlock();
+    Block* preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
     FailureOr<tosa::MatMulOp> maybeMatMul;
     {
       PatternRewriter::InsertionGuard guard(rewriter);
@@ -1053,8 +977,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
       rewriter.create<rock::YieldOp>(loc);
     }
-    
-    rewriter.replaceOp(op, attnOp2.getResult());
+    rewriter.replaceOp(op, attnOp.getResult());
   }
 };
 

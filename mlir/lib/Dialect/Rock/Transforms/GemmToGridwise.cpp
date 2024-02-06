@@ -295,16 +295,11 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
                   gemm1ExtraPad.m);
 
-  Value scale = nullptr;
-  if (Value scaleUnpadded = adaptor.getScale()) {
-    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n,
-                      "gemm1M", gemm0ExtraPad.m);
-  }
-
-  Value bias = nullptr;
-  if (Value biasUnpadded = adaptor.getBias()) {
-    bias = padMatrix(biasUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n, "gemm1M",
-                     gemm0ExtraPad.m);
+  SmallVector<Value, 2> otherElemWiseInputs;
+  for (Value otherElemwiseInput : adaptor.getPreSoftmaxElemWiseInputs()){
+    otherElemwiseInput = padMatrix(otherElemwiseInput, rw, loc, "gemm1N", gemm0ExtraPad.n,
+                         "gemm1M", gemm0ExtraPad.m);
+    otherElemWiseInputs.push_back(otherElemwiseInput);              
   }
 
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
@@ -318,11 +313,13 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   if (gemm0ExtraPad.n) {
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
-  rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
-      op, queries, keys, values, scale, bias, out, op.getArchAttr(),
+  auto newOp = rw.create<GridwiseAttentionAccelOp>(
+      loc, queries, keys, values, otherElemWiseInputs, out, op.getArchAttr(),
       op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
+  rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(), newOp.getPreSoftmaxBody().begin());
+  rw.replaceOp(op, newOp);
   return success();
 }
 

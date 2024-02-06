@@ -203,15 +203,57 @@ def Rock_ReduceOp :
   }];
 }
 
+// def Rock_AttentionOp :
+//   Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale", "bias"]>,
+//                                              AttrSizedOperandSegments]>,
+//   Arguments<(ins
+//     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
+//     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
+//     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
+//     Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
+//     Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "bias", [MemRead]>:$bias,
+//     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
+//     UnitAttr:$qTransposed,
+//     UnitAttr:$kTransposed,
+//     UnitAttr:$vTransposed,
+//     UnitAttr:$oTransposed,
+//     StrAttr:$arch,
+//     Rock_GemmFeaturesAttr:$features,
+//     OptionalAttr<RockTuningParamAttrInterface>:$params0,
+//     OptionalAttr<RockTuningParamAttrInterface>:$params1
+//   )>,
+//   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
+//   let summary = "Attention operation of transformer models";
+//   let description = [{
+//     Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
+
+//     This operation performs attention mechanism of transformer models.
+
+//     Those creating a `rock.attention` must specify the GPU architecture being targetted
+//     and the number of compute units (numCu) available. The parameters
+//     `gridSize`, and `blockSize` are optional as they can be inferred by
+//     a tuning process or a heuristic, but they must be set before the `attention` is
+//     lowered into the `gridwise_attention` stage of the code generation pipeline.
+
+//     `features` specifies what hardware features can be used in the generated code.
+//   }];
+//   let hasVerifier = 1;
+//   let assemblyFormat = [{
+//     `(` operands `)` `features` `=` $features attr-dict
+//     `:` type(operands) (`->` type($result)^)?
+//   }];
+//   let extraClassDeclaration = [{
+//     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
+//   }];
+// }
+
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale", "bias"]>,
-                                             AttrSizedOperandSegments]>,
+  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values"]>]>,
   Arguments<(ins
     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
-    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
-    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "bias", [MemRead]>:$bias,
+    Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
@@ -238,47 +280,6 @@ def Rock_AttentionOp :
     `features` specifies what hardware features can be used in the generated code.
   }];
   let hasVerifier = 1;
-  let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
-    `:` type(operands) (`->` type($result)^)?
-  }];
-  let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
-  }];
-}
-
-def Rock_AttentionOpV2 :
-  Rock_Op<"attentionv2", [AllElementTypesMatch<["queries", "keys", "values"]>]>,
-  Arguments<(ins
-    Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
-    Variadic<AnyType>:$preSoftmaxElemWiseInputs,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
-    UnitAttr:$qTransposed,
-    UnitAttr:$kTransposed,
-    UnitAttr:$vTransposed,
-    UnitAttr:$oTransposed,
-    StrAttr:$arch,
-    Rock_GemmFeaturesAttr:$features,
-    OptionalAttr<RockTuningParamAttrInterface>:$params0,
-    OptionalAttr<RockTuningParamAttrInterface>:$params1
-  )>,
-  Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
-  let summary = "Attention operation of transformer models";
-  let description = [{
-    Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
-
-    This operation performs attention mechanism of transformer models.
-
-    Those creating a `rock.attention` must specify the GPU architecture being targetted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `attention` is
-    lowered into the `gridwise_attention` stage of the code generation pipeline.
-
-    `features` specifies what hardware features can be used in the generated code.
-  }];
   let regions = (region AnyRegion:$preSoftmaxBody);
     let assemblyFormat = [{
     `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict
@@ -466,12 +467,11 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel", [AttrSizedOperandSegments]>,
+    Rock_Op<"gridwise_attention_accel">,
     Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
                    MemRefRankOf<[F32, F16], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
-                   Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
-                   Optional<MemRefRankOf<[F32, F16], [3]>>:$bias,
+                   Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
@@ -486,8 +486,9 @@ def Rock_GridwiseAttentionAccelOp :
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
   }];
+  let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
