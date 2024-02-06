@@ -109,10 +109,10 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
     // this expansion a reinterpret_multibuffer operation, that we can use
     // to adjust the multibuffer factor at a later stage
     if (auto view = dyn_cast<memref::ViewOp>(owner)) {
-      Value zeroByteOffset =
-          rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
       SmallVector<Value> newViews(multibufferFactor);
       for (size_t i = 0; i < multibufferFactor; i++) {
+        Value zeroByteOffset =
+            rewriter.create<arith::ConstantIndexOp>(loc, int64_t(0));
         newViews[i] = rewriter.create<memref::ViewOp>(
             loc, view.getType(), vals[i], zeroByteOffset,
             /*dynamic dim sizes=*/ValueRange{});
@@ -123,6 +123,23 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       // (note: since transforms are still being used, we don't even erase
       // them)
       replaceUsesAndPropagateType(rewriter, loc, transform, vals, loop);
+    } else if (auto extractMultiBuffer =
+                   dyn_cast<rock::ExtractMultiBufferOp>(owner)) {
+      SmallVector<Value> extendedBuffers;
+      // Remove the current buffer
+      for (auto buffer : extractMultiBuffer.getBuffers())
+        if (buffer != use.get())
+          extendedBuffers.push_back(buffer);
+
+      // extend with more buffers (if any)
+      for (auto buffer : vals)
+        extendedBuffers.push_back(buffer);
+
+      auto inductionVar = extractMultiBuffer.getSelectIndex();
+
+      Value newExtractMultibuffer = rewriter.create<rock::ExtractMultiBufferOp>(
+          loc, extendedBuffers.back().getType(), extendedBuffers, inductionVar);
+      rewriter.replaceAllUsesWith(owner->getResults(), newExtractMultibuffer);
     } else {
       auto inductionVar = loop.getSingleInductionVar();
       if (!inductionVar) {
@@ -175,8 +192,9 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
 ///
 /// We mostly changed the recursive update function to adapt to our threadwise
 /// operations
-FailureOr<SmallVector<Value>>
+LogicalResult
 mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
+                        SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
                         unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
   LLVM_DEBUG(DBGS() << "Start multibuffering: " << allocOp << "\n");
@@ -273,28 +291,77 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
   }
 
   // 2. Create the multiple buffers alloc.
+  newAllocs.resize(multiBufferingFactor);
   Location loc = allocOp->getLoc();
   OpBuilder::InsertionGuard g(rewriter);
   rewriter.setInsertionPoint(allocOp);
-  SmallVector<Value> mbAlloc(multiBufferingFactor);
   for (unsigned i = 0; i < multiBufferingFactor; i++) {
-    mbAlloc[i] = rewriter.create<rock::GpuAllocOp>(
+    newAllocs[i] = rewriter.create<rock::GpuAllocOp>(
         loc, allocOp.getType(), ValueRange{}, allocOp->getAttrs());
   }
 
   // 3. RAUW with the particular slice, taking modular rotation into account.
-  replaceUsesAndPropagateType(rewriter, loc, allocOp, mbAlloc, candidateLoop);
+  SmallVector<Value> startingValues;
+  for (auto alloc : newAllocs)
+    startingValues.push_back(alloc);
 
+  replaceUsesAndPropagateType(rewriter, loc, allocOp, startingValues,
+                              candidateLoop);
   // 4. Finally, erase the old allocOp.
   rewriter.eraseOp(allocOp);
 
-  return mbAlloc;
+  return success();
 }
 
-FailureOr<SmallVector<Value>>
-mlir::rock::multiBuffer(rock::GpuAllocOp allocOp, unsigned multiBufferingFactor,
-                        bool skipOverrideAnalysis) {
+FailureOr<SmallVector<rock::GpuAllocOp>> mlir::rock::multiBuffer(
+    rock::GpuAllocOp allocOp, SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+    unsigned multiBufferingFactor, bool skipOverrideAnalysis) {
   IRRewriter rewriter(allocOp->getContext());
-  return multiBuffer(rewriter, allocOp, multiBufferingFactor,
+  return multiBuffer(rewriter, allocOp, newAllocs, multiBufferingFactor,
                      skipOverrideAnalysis);
+}
+
+LogicalResult
+mlir::rock::updateMultiBuffer(RewriterBase &rewriter, Location loc,
+                              ArrayRef<rock::GpuAllocOp> allocs,
+                              SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+                              unsigned newMultiBufferingFactor) {
+  // Select the first alloc, which will be updated
+  rock::GpuAllocOp allocOp = allocs.back();
+  OpBuilder::InsertionGuard g(rewriter);
+  rewriter.setInsertionPoint(allocOp);
+  if (allocs.size() < newMultiBufferingFactor) {
+    // Add more buffers
+    for (unsigned i = 0; i < newMultiBufferingFactor - allocs.size() + 1; i++)
+      newAllocs.push_back(rewriter.create<rock::GpuAllocOp>(
+          loc, allocOp.getType(), ValueRange{}, allocOp->getAttrs()));
+    SmallVector<Value> startingValues;
+    for (auto alloc : newAllocs)
+      startingValues.push_back(alloc);
+
+    replaceUsesAndPropagateType(rewriter, loc, allocOp, startingValues,
+                                nullptr);
+    rewriter.eraseOp(allocOp);
+  } else if (allocs.size() > newMultiBufferingFactor) {
+    // Remove buffers
+    for (unsigned i = 0; i < newMultiBufferingFactor; i++)
+      newAllocs.push_back(allocs[i]);
+    for (unsigned i = newMultiBufferingFactor; i < allocs.size(); i++) {
+      replaceUsesAndPropagateType(rewriter, loc, allocs[i], {}, nullptr);
+      rewriter.eraseOp(allocs[i]);
+    }
+  }
+  return success();
+}
+
+LogicalResult
+mlir::rock::updateMultiBuffer(ArrayRef<rock::GpuAllocOp> allocs,
+                              SmallVectorImpl<rock::GpuAllocOp> &newAllocs,
+                              unsigned newMultiBufferingFactor) {
+  // Select the first alloc, which will be updated
+  rock::GpuAllocOp allocOp = allocs.back();
+  IRRewriter rewriter(allocOp->getContext());
+  Location loc = allocOp.getLoc();
+  return updateMultiBuffer(rewriter, loc, allocs, newAllocs,
+                           newMultiBufferingFactor);
 }

@@ -82,18 +82,22 @@ func.func @rock_pipeline_3_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: memref.view %[[rawLds]]
-    // CHECK: memref.view %[[rawRegA]]
-    // CHECK: memref.view %[[rawRegB]]
+    // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
+    // CHECK: %[[regAView:.*]] = memref.view %[[rawRegA]]
+    // CHECK: %[[regBView:.*]] = memref.view %[[rawRegB]]
 
     // CHECK: name = "S0"
     // CHECK: name = "__bwd_barrier__"
     // CHECK: name = "S1"
     // CHECK: scf.for
       // CHECK: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK name = "S0"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK name = "S2"
       // CHECK: name = "__bwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S1"
     // CHECK: name = "__fwd_barrier__"
     // CHECK name = "S2"
@@ -138,15 +142,19 @@ func.func @rock_pipeline_3_stages_ii_3(%input : memref<16xi8, #gpu.address_space
     // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: memref.view %[[rawLds]]
-    // CHECK: memref.view %[[rawRegA]]
-    // CHECK: memref.view %[[rawRegB]]
+    // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
+    // CHECK: %[[regAView:.*]] = memref.view %[[rawRegA]]
+    // CHECK: %[[regBView:.*]] = memref.view %[[rawRegB]]
 
     // CHECK: scf.for
       // CHECK: name = "__bwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK: name = "S0"
+      // CKECK: rock.extract_multibuffer(%[[ldsView]])
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK: name = "S1"
       // CHECK: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
