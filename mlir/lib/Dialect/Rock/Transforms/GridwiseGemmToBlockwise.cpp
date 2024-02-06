@@ -1420,43 +1420,6 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  template <linalg::BinaryFn BinaryFnEnumValue>
-  void postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
-                            layout::GridCoordinates gridCoords,
-                            Value gemm0OutBuffer,
-                            RegsAsMatrixSubTiles gemm0OutViews, Value inBuffer,
-                            Value input) const {
-    // Get current workitem ID.
-    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-    rewriter.create<ThreadwiseReadIntoOp>(
-        loc, input, inBuffer, gemm0OutViews.gridSubTile,
-        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
-                   tid},
-        true, true);
-    rewriter.create<linalg::ElemwiseBinaryOp>(
-        loc, ValueRange{gemm0OutBuffer, inBuffer}, ValueRange{gemm0OutBuffer},
-        ArrayRef<NamedAttribute>{
-            rewriter.getNamedAttr("fun", rewriter.getAttr<linalg::BinaryFnAttr>(
-                                             BinaryFnEnumValue)),
-            rewriter.getNamedAttr("cast", rewriter.getAttr<linalg::TypeFnAttr>(
-                                              linalg::TypeFn::cast_signed))});
-  }
-
-  FailureOr<TypedAttr>
-  getSplatGlobalConstant(memref::GetGlobalOp getGlobalOp) const {
-    auto global = SymbolTable::lookupNearestSymbolFrom<memref::GlobalOp>(
-        getGlobalOp, getGlobalOp.getNameAttr());
-    if (!global)
-      return failure();
-    auto cstAttr = llvm::dyn_cast_or_null<DenseElementsAttr>(
-        global.getConstantInitValue());
-    if (!cstAttr)
-      return failure();
-    if (auto splatAttr = llvm::dyn_cast<SplatElementsAttr>(cstAttr))
-      return splatAttr.getSplatValue<TypedAttr>();
-    return failure();
-  }
-
   template <typename ElementwiseOpType>
   void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
                                  layout::GridCoordinates gridCoords,
@@ -1486,6 +1449,43 @@ struct GridwiseAttentionAccelRewritePattern
           }
           nestedBuilder.create<linalg::YieldOp>(nestedLoc, elementwiseOp);
         });
+  }
+
+  void postProcessFirstGemm(PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
+                            layout::GridCoordinates gridCoords, Value gemm0OutBuffer, 
+                            RegsAsMatrixSubTiles gemm0OutViews) const {
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    SmallVector<Value> inputTileBuffers;
+    inputTileBuffers.push_back(gemm0OutBuffer);
+    MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+    for (auto otherInput : op.getPreSoftmaxElemWiseInputs()) {
+        auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, bufType);
+        rewriter.create<ThreadwiseReadIntoOp>(
+        loc, otherInput, tileBuffer, gemm0OutViews.gridSubTile,
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                tid},
+        true, true);
+        inputTileBuffers.push_back(tileBuffer);
+    }
+    // Output is overwriting the same input buffer
+    inputTileBuffers.push_back(gemm0OutBuffer);
+    linalg::GenericOp newLinalgOp;
+    op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp){
+        llvm::errs() << "found linalg genric.\n";
+        mlir::IRMapping mapper;
+        for (auto [operand, tilebuffer] : llvm::zip(genOp->getOperands(), inputTileBuffers)){
+            mapper.map(operand, tilebuffer);
+        }
+        newLinalgOp = cast<linalg::GenericOp>(rewriter.clone(*genOp, mapper));
+        SmallVector<AffineMap> indexingMaps;
+        for (size_t i = 0 ; i < inputTileBuffers.size(); i++){
+            indexingMaps.push_back(rewriter.getMultiDimIdentityMap(1));
+        }
+        newLinalgOp.setIndexingMapsAttr(rewriter.getAffineMapArrayAttr(indexingMaps));
+        SmallVector<Attribute, 5> iteratorTypes;
+        iteratorTypes.resize(1, linalg::IteratorTypeAttr::get(rewriter.getContext(), utils::IteratorType::parallel));
+        newLinalgOp.setIteratorTypesAttr(rewriter.getArrayAttr(iteratorTypes));
+    });
   }
 
   void loadGemmOperandsFromLDSToRegs(
@@ -1729,16 +1729,6 @@ struct GridwiseAttentionAccelRewritePattern
     // support fp32/fp16 This should be guranteed by op verifiers.
     Value gemm0OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
-    // Value scaleInBuffer;
-    // if (TypedValue<MemRefType> scaleIn = op.getScale()) {
-    //   scaleInBuffer = createBufferForGemmOut(
-    //       loc, scaleIn.getType().getElementType(), accelParamsGemm0, rewriter);
-    // }
-    // Value biasInBuffer;
-    // if (TypedValue<MemRefType> biasIn = op.getBias()) {
-    //   biasInBuffer = createBufferForGemmOut(
-    //       loc, biasIn.getType().getElementType(), accelParamsGemm0, rewriter);
-    // }
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
@@ -1976,51 +1966,10 @@ struct GridwiseAttentionAccelRewritePattern
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
-    //   // Handle the first gemm scaling if present
-    //   if (Value scaleIn = op.getScale()) {
-    //     Value rawBuffer;
-    //     std::tie(rawBuffer, std::ignore, std::ignore) =
-    //         untransform(rewriter, scaleIn);
-    //     if (memref::GetGlobalOp constScale =
-    //             rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
-    //       FailureOr<TypedAttr> maybeSplatAttr =
-    //           getSplatGlobalConstant(constScale);
-    //       if (failed(maybeSplatAttr)) {
-    //         return op.emitError(
-    //             "Only splat scale constant input is supported.");
-    //       }
-    //       postProcessFirstGemmSplat<ElementwiseMultOp>(
-    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-    //           gemm0OutSubTileViewsTr, maybeSplatAttr.value());
-    //     } else {
-    //       postProcessFirstGemm<linalg::BinaryFn::mul>(
-    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-    //           gemm0OutSubTileViewsTr, scaleInBuffer, scaleIn);
-    //     }
-    //   }
-
-    //   if (Value biasIn = op.getBias()) {
-    //     Value rawBuffer;
-    //     std::tie(rawBuffer, std::ignore, std::ignore) =
-    //         untransform(rewriter, biasIn);
-    //     if (memref::GetGlobalOp constScale =
-    //             rawBuffer.getDefiningOp<memref::GetGlobalOp>()) {
-    //       FailureOr<TypedAttr> maybeSplatAttr =
-    //           getSplatGlobalConstant(constScale);
-    //       if (failed(maybeSplatAttr)) {
-    //         return op.emitError(
-    //             "Only splat scale constant input is supported.");
-    //       }
-    //       postProcessFirstGemmSplat<ElementwiseAddOp>(
-    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-    //           gemm0OutSubTileViewsTr, maybeSplatAttr.value());
-    //     } else {
-    //       postProcessFirstGemm<linalg::BinaryFn::add>(
-    //           rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
-    //           gemm0OutSubTileViewsTr, biasInBuffer, biasIn);
-    //     }
-    //   }
-
+    
+      // Align the preSoftmaxElementWise (if any) linalg.generic to
+      // be performed on the output of the first gemm.
+      postProcessFirstGemm(rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, gemm0OutSubTileViewsTr);
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
