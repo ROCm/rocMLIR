@@ -8,12 +8,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "benchmarkUtils.h"
-
 #include <algorithm>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include "benchmarkUtils.h"
 
 using namespace benchmark;
 
