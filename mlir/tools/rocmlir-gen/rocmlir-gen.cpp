@@ -2308,7 +2308,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
     ShapedType qType = queries.getType().cast<ShapedType>();
     ArrayRef<int64_t> qShape = qType.getShape();
-    ArrayRef<int64_t> kShape = keys.getType().cast<ShapedType>().getShape();
     MemRefType qkMemRefType = MemRefType::get(
         {qShape[0], sequenceLength, sequenceLength}, qType.getElementType());
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
