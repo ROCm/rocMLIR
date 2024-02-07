@@ -1688,13 +1688,7 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
 LogicalResult GridwiseAttentionAccelOp::verify() {
   RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
-  int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
-  int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
-  int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
-  int64_t gemm1KPerBlock = gemm0MPerBlock;
-  int64_t gemm1MPerBlock = gemm0MPerBlock;
-  int64_t gemm1NPerBlock = gemm0NPerBlock;
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
   }
