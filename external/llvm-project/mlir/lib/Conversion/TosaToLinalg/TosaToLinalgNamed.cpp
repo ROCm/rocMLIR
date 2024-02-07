@@ -253,15 +253,15 @@ public:
     }
 
     if (group > 1 && isConv2DOp &&
-        !std::is_same<LinalgConvOp, linalg::Conv2DNhwgcGfhwcOp>::value)
+        !std::is_same<LinalgConvOp, linalg::Conv2DNhwgcGfhwcOp>::value && !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value )
       return rewriter.notifyMatchFailure(
-          op,
-          "grouped tosa.conv2d ops should map to linalg::Conv2DNhwgcGfhwcOp");
+          op, "tosa.conv ops should map to grouped convolution ops");
 
-    if (group == 1 && isConv2DOp &&
-        !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value)
+    
+    if (group == 1 && isConv2DOp && 
+        !std::is_same<LinalgConvOp, linalg::Conv2DNhwcFhwcOp>::value && !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value)
       return rewriter.notifyMatchFailure(
-          op, "tosa.conv2d ops should map to linalg::Conv2DNhwcHwcfOp");
+          op, "tosa.conv ops should map to non-grouped convolution ops");
 
     if (!weightTy.hasStaticShape() || !biasTy.hasStaticShape())
       return rewriter.notifyMatchFailure(
@@ -313,6 +313,7 @@ public:
     SmallVector<int64_t> weightPerm;
 
     auto resultShape = resultTy.getShape();
+    auto newResultTy = resultTy;
 
     if (isConv2DOp && group > 1) {
       // Map 4D-tensors to 5D tensors
@@ -330,53 +331,41 @@ public:
       weight = rewriter.create<tosa::ReshapeOp>(
           loc, RankedTensorType::get(newWeightShape, weightTy.getElementType()),
           weight, rewriter.getDenseI64ArrayAttr(newWeightShape));
-    } else {
-      // Transpose the kernel to match dimension ordering of the linalg
-      // convolution operation.
-      // TODO(suderman): See if this can be efficiently folded - check whether
-      // the input is used anywhere else, if not fold the constant.
-      for (int i = 1; i < resultTy.getRank(); i++)
-        weightPerm.push_back(i);
-      weightPerm.push_back(0);
+    }else {
 
-      SmallVector<int64_t> newWeightShape;
-      for (auto dim : weightPerm)
-        newWeightShape.push_back(weightShape[dim]);
-      auto weightPermAttr = rewriter.getI64TensorAttr(weightPerm);
-      Value weightPermValue =
-          rewriter.create<arith::ConstantOp>(loc, weightPermAttr);
-      Type newWeightTy =
-          RankedTensorType::get(newWeightShape, weightTy.getElementType());
-      weight = rewriter.create<tosa::TransposeOp>(loc, newWeightTy, weight,
-                                                  weightPermValue);
-    }
+      if (4 == inputTy.getRank()) {
+        // For 2D convolutions, we need to check if the target convolution op
+        // wants a HWCF kernel layout.
+        bool wantHwcf =
+            isQuantized ? std::is_same_v<LinalgConvQOp, linalg::Conv2DNhwcHwcfQOp>
+                        : std::is_same_v<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>;
+        if (wantHwcf) {
+          // Transpose the kernel to match dimension ordering of the linalg
+          // convolution operation.
+          // TODO(suderman): See if this can be efficiently folded - check whether
+          // the input is used anywhere else, if not fold the constant.
+          SmallVector<int64_t> weightPerm;
+          for (int i = 1; i < resultTy.getRank(); i++)
+            weightPerm.push_back(i);
+          weightPerm.push_back(0);
 
-    auto newResultTy = resultTy;
-    if (isConv2DOp && group > 1) {
-      SmallVector<int64_t, 5> newResultShape{resultShape[0], resultShape[1],
-                                             resultShape[2], group,
-                                             resultShape[3] / group};
-      newResultTy = RankedTensorType::get(newResultShape, resultETy);
-    }
+          SmallVector<int64_t> newWeightShape;
+          for (auto dim : weightPerm)
+            newWeightShape.push_back(weightShape[dim]);
+          auto weightPermAttr = rewriter.getI64TensorAttr(weightPerm);
+          Value weightPermValue =
+              rewriter.create<arith::ConstantOp>(loc, weightPermAttr);
+          Type newWeightTy =
+              RankedTensorType::get(newWeightShape, weightTy.getElementType());
+          weight = rewriter.create<tosa::TransposeOp>(loc, newWeightTy, weight,
+                                                      weightPermValue);
+        }
+      }
 
-    auto resultZeroAttr = rewriter.getZeroAttr(resultETy);
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, newResultTy.getShape(), resultETy, filteredDims);
-    Value zero = rewriter.create<arith::ConstantOp>(loc, resultZeroAttr);
-    Value zeroTensor = rewriter
-                           .create<linalg::FillOp>(loc, ValueRange{zero},
-                                                   ValueRange{emptyTensor})
-                           .result();
-                           
-    if (4 == inputTy.getRank()) {
-      // For 2D convolutions, we need to check if the target convolution op
-      // wants a HWCF kernel layout.
-      bool wantHwcf =
-          isQuantized ? std::is_same_v<LinalgConvQOp, linalg::Conv2DNhwcHwcfQOp>
-                      : std::is_same_v<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>;
-      if (wantHwcf) {
-        // Transpose the kernel to match dimension ordering of the linalg
-        // convolution operation.
+      // For Conv3D transpose the kernel to match dimension ordering of the linalg
+      // convolution operation. Conv2D has a 1-1 mapping in linalg so better to
+      // map directly and then transpose later if desired.
+      if (5 == inputTy.getRank()) {
         // TODO(suderman): See if this can be efficiently folded - check whether
         // the input is used anywhere else, if not fold the constant.
         SmallVector<int64_t> weightPerm;
@@ -396,28 +385,12 @@ public:
                                                     weightPermValue);
       }
     }
-
-    // For Conv3D transpose the kernel to match dimension ordering of the linalg
-    // convolution operation. Conv2D has a 1-1 mapping in linalg so better to
-    // map directly and then transpose later if desired.
-    if (5 == inputTy.getRank()) {
-      // TODO(suderman): See if this can be efficiently folded - check whether
-      // the input is used anywhere else, if not fold the constant.
-      SmallVector<int64_t> weightPerm;
-      for (int i = 1; i < resultTy.getRank(); i++)
-        weightPerm.push_back(i);
-      weightPerm.push_back(0);
-
-      SmallVector<int64_t> newWeightShape;
-      for (auto dim : weightPerm)
-        newWeightShape.push_back(weightShape[dim]);
-      auto weightPermAttr = rewriter.getI64TensorAttr(weightPerm);
-      Value weightPermValue =
-          rewriter.create<arith::ConstantOp>(loc, weightPermAttr);
-      Type newWeightTy =
-          RankedTensorType::get(newWeightShape, weightTy.getElementType());
-      weight = rewriter.create<tosa::TransposeOp>(loc, newWeightTy, weight,
-                                                  weightPermValue);
+    
+    if (isConv2DOp && group > 1) {
+      SmallVector<int64_t, 5> newResultShape{resultShape[0], resultShape[1],
+                                             resultShape[2], group,
+                                             resultShape[3] / group};
+      newResultTy = RankedTensorType::get(newResultShape, resultETy);
     }
 
     // Extract the attributes for convolution.
@@ -427,15 +400,6 @@ public:
     // Create the convolution op.
     auto strideAttr = rewriter.getI64TensorAttr(stride);
     auto dilationAttr = rewriter.getI64TensorAttr(dilation);
-
-    // Create maps for the bias broadcasting
-    SmallVector<AffineMap, 4> indexingMaps;
-    indexingMaps.push_back(AffineMap::get(
-        /*dimCount=*/resultTy.getRank(), /*symbolCount=*/0,
-        {rewriter.getAffineDimExpr(resultTy.getRank() - 1)},
-        rewriter.getContext()));
-    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
-    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
 
     Value biasEmptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, resultTy.getShape(), resultETy, filteredDims);
@@ -455,46 +419,30 @@ public:
           rewriter
               .create<LinalgConvQOp>(
                   loc, newResultTy, ValueRange{input, weight, iZpVal, kZpVal},
-                  ValueRange{zeroTensor}, strideAttr, dilationAttr)
+                  ValueRange{broadcastBias}, strideAttr, dilationAttr)
               ->getResult(0);
-      if (group > 1) {
+        if (isConv2DOp && group > 1) {
         conv = rewriter.create<tosa::ReshapeOp>(
             loc, RankedTensorType::get(resultShape, resultETy), conv,
             rewriter.getDenseI64ArrayAttr(resultShape));
       }
 
-      Value result = linalgIntBroadcastExtSIAdd(rewriter, loc, bias, conv,
-                                                biasEmptyTensor, indexingMaps);
-      rewriter.replaceOp(op, result);
+      rewriter.replaceOp(op, conv);
       return success();
     }
 
     Value conv = rewriter
                      .create<LinalgConvOp>(
                          loc, newResultTy, ValueRange{input, weight},
-                         ValueRange{zeroTensor}, strideAttr, dilationAttr)
+                         ValueRange{broadcastBias}, strideAttr, dilationAttr)
                      ->getResult(0);
-
-    if (group > 1) {
+    if (isConv2DOp && group > 1) {
       conv = rewriter.create<tosa::ReshapeOp>(
-          loc, RankedTensorType::get(resultShape, resultETy), conv,
-          rewriter.getDenseI64ArrayAttr(resultShape));
+      loc, RankedTensorType::get(resultShape, resultETy), conv,
+      rewriter.getDenseI64ArrayAttr(resultShape));
     }
 
-    Value result =
-        rewriter
-            .create<linalg::GenericOp>(
-                loc, resultTy, ValueRange({bias, conv}), biasEmptyTensor,
-                indexingMaps, getNParallelLoopsAttrs(resultTy.getRank()),
-                [&](OpBuilder &nestedBuilder, Location nestedLoc,
-                    ValueRange args) {
-                  Value added = nestedBuilder.create<arith::AddFOp>(
-                      loc, args[0], args[1]);
-                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
-                })
-            .getResult(0);
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, conv);
     return success();
   }
 };
@@ -1135,7 +1083,6 @@ void mlir::tosa::populateTosaToLinalgNamedConversionPatterns(
   }
   patterns->add<
       // clang-format off
-      ConvConverter<tosa::Conv2DOp, linalg::Conv2DNhwcHwcfOp, linalg::Conv2DNhwcHwcfQOp>,
       ConvConverter<tosa::Conv2DOp, linalg::Conv2DNhwgcGfhwcOp, linalg::Conv2DNhwgcGfhwcQOp>,
       ConvConverter<tosa::Conv3DOp, linalg::Conv3DNdhwcDhwcfOp, linalg::Conv3DNdhwcDhwcfQOp>,
       DepthwiseConvConverter,

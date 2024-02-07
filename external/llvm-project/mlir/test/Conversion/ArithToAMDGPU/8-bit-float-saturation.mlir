@@ -14,11 +14,11 @@
 // CHECK: [[ISNAN:%.+]] = arith.cmpf uno, [[V]], [[V]]
 // CHECK: [[ISNONFINITE_1:%.+]] = arith.ori [[ISINF]], [[ISNEGINF]]
 // CHECK: [[ISNONFINITE:%.+]] = arith.ori [[ISNONFINITE_1]], [[ISNAN]]
-// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maxf [[V]], [[CMin]]
-// CHECK: [[CLAMPED:%.+]] = arith.minf [[CLAMPEDBELOW]], [[CMax]]
+// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maximumf [[V]], [[CMin]]
+// CHECK: [[CLAMPED:%.+]] = arith.minimumf [[CLAMPEDBELOW]], [[CMax]]
 // CHECK: [[SATURATED:%.+]] = arith.select [[ISNONFINITE]], [[V]], [[CLAMPED]]
 // CHECK: [[FLOAT:%.+]] = arith.extf [[SATURATED]] : f16 to f32
-// CHECK: [[TRUNCV:%.+]] = amdgpu.packed_trunc_fp8x2 [[FLOAT]], undef into undef[word 0] : f32 to vector<4xf8E5M2FNUZ>
+// CHECK: [[TRUNCV:%.+]] = amdgpu.packed_trunc_2xfp8 [[FLOAT]], undef into undef[word 0] : f32 to vector<4xf8E5M2FNUZ>
 // CHECK: [[W:%.+]] = vector.extractelement [[TRUNCV]]{{\[}}[[C0]] : index] : vector<4xf8E5M2FNUZ>
 // CHECK: return [[W]] : f8E5M2FNUZ
 func.func @scalar_trunc(%v: f16) -> f8E5M2FNUZ {
@@ -43,12 +43,12 @@ func.func @scalar_trunc(%v: f16) -> f8E5M2FNUZ {
 // CHECK: [[ISNAN:%.+]] = arith.cmpf uno, [[V]], [[V]]
 // CHECK: [[ISNONFINITE_1:%.+]] = arith.ori [[ISINF]], [[ISNEGINF]]
 // CHECK: [[ISNONFINITE:%.+]] = arith.ori [[ISNONFINITE_1]], [[ISNAN]]
-// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maxf [[V]], [[CMin]]
-// CHECK: [[CLAMPED:%.+]] = arith.minf [[CLAMPEDBELOW]], [[CMax]]
+// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maximumf [[V]], [[CMin]]
+// CHECK: [[CLAMPED:%.+]] = arith.minimumf [[CLAMPEDBELOW]], [[CMax]]
 // CHECK: [[SATURATED:%.+]] = arith.select [[ISNONFINITE]], [[V]], [[CLAMPED]]
 // CHECK: [[F0:%.+]] = vector.extractelement [[SATURATED]]{{\[}}[[C0]] : index]
 // CHECK: [[F1:%.+]] = vector.extractelement [[SATURATED]]{{\[}}[[C1]] : index]
-// CHECK: [[W0:%.+]] = amdgpu.packed_trunc_fp8x2 [[F0]], [[F1]] into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
+// CHECK: [[W0:%.+]] = amdgpu.packed_trunc_2xfp8 [[F0]], [[F1]] into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
 // CHECK: [[W:%.+]] = vector.extract_strided_slice [[W0]] {offsets = [0], sizes = [2], strides = [1]} : vector<4xf8E4M3FNUZ> to vector<2xf8E4M3FNUZ>
 // CHECK: return [[W]] : vector<2xf8E4M3FNUZ>
 func.func @vector_trunc_short(%v: vector<2xf32>) -> vector<2xf8E4M3FNUZ> {

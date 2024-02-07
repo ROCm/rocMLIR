@@ -373,13 +373,13 @@ define void @load_store(ptr %ptr) {
 ; CHECK-LABEL: @invariant_load
 ; CHECK-SAME:  %[[PTR:[a-zA-Z0-9]+]]
 define float @invariant_load(ptr %ptr) {
-  ; CHECK:  %[[V:[0-9]+]] = llvm.load %[[PTR]] {alignment = 4 : i64, invariantLoad} : !llvm.ptr -> f32
+  ; CHECK:  %[[V:[0-9]+]] = llvm.load %[[PTR]] invariant {alignment = 4 : i64} : !llvm.ptr -> f32
   %1 = load float, ptr %ptr, align 4, !invariant.load !0
   ; CHECK:  llvm.return %[[V]]
   ret float %1
 }
 
-!0 = !{i32 1}
+!0 = !{}
 
 ; // -----
 

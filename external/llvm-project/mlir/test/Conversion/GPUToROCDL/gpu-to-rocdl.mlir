@@ -552,6 +552,7 @@ gpu.module @test_module {
     gpu.return
   }
 }
+}
 
 
 // -----
