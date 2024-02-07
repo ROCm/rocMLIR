@@ -163,8 +163,10 @@ LogicalResult TrivialConverter<MIGraphXOp, TosaOp>::matchAndRewrite(
   SmallVector<Type, 1> types;
   if (failed(getTypeConverter()->convertTypes(op->getResultTypes(), types)))
     return failure();
+  auto filtered_range =  op->getDiscardableAttrDictionary();
+  std::vector<NamedAttribute> filtered_attrs(filtered_range.begin(), filtered_range.end());
   rewriter.replaceOpWithNewOp<TosaOp>(op, types, adaptor.getOperands(),
-                                      op->getDiscardableAttrs());
+                                      filtered_attrs);
   return success();
 }
 
@@ -856,9 +858,16 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
                             APFloat::rmNearestTiesToEven);
     }
+    
+    mlir::Type floatType;
+    double doubleValue = minF.convertToDouble(); 
+    mlir::FloatAttr minFatt = mlir::FloatAttr::get(floatType, doubleValue);
+    doubleValue = maxF.convertToDouble(); 
+    mlir::FloatAttr maxFatt = mlir::FloatAttr::get(floatType, doubleValue);
+
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
                                              minI.getSExtValue(),
-                                             maxI.getSExtValue(), minF, maxF);
+                                             maxI.getSExtValue(), minFatt, maxFatt);
     result = createCastOp(rewriter, loc, outputType, result);
   }
   rewriter.replaceOp(op, result);

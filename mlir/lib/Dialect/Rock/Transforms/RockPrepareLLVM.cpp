@@ -165,7 +165,7 @@ void RockPrepareLLVMPass::runOnOperation() {
       return;
     unsigned argNo = funcArg.getArgNumber();
     if (auto load = dyn_cast<LLVM::LoadOp>(aliasOp))
-      load.setInvariantLoad(isReadonly[argNo]);
+      load.setInvariant(isReadonly[argNo]);
     aliasIface.setAliasScopes(aliasScopes[argNo]);
     aliasIface.setNoAliasScopes(noaliasScopes[argNo]);
   });

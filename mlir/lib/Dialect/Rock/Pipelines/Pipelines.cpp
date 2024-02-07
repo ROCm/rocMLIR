@@ -69,7 +69,9 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
-  tosa::addTosaToLinalgPasses(pm);
+  TosaToLinalgOptions tosaToLinalgOptions;
+  TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
+  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions);
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
@@ -104,8 +106,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
-  bufOpts.allowReturnAllocs = true;
-  bufOpts.createDeallocs = noRock;
+  bufOpts.allowReturnAllocsFromLoops = true;
   bufOpts.bufferizeFunctionBoundaries = true;
   bufOpts.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);

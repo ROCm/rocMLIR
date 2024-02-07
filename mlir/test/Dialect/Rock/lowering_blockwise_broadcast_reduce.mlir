@@ -36,7 +36,7 @@
 // CHECK: rock.transforming_for {{.*}} (%[[NRDIM_THREAD:.*]], %[[RDIM_THREAD:.*]]) = [#[[TMAP]], #[[TMAP1]]](%[[ZERO]]), (%[[ITER_ARG:.*]]) = [](%[[ZERO]]) {{.*}} bounds [20] strides [1] {
     // CHECK: %[[LOAD_VAL:.*]] = rock.in_bounds_load %arg0[%[[ITER_ARG]]]
     // CHECK: %[[LOAD_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[NRDIM_THREAD]]]
-    // CHECK: %[[REDUCED:.*]] = arith.maxf %[[LOAD_ACC]], %[[LOAD_VAL]]
+    // CHECK: %[[REDUCED:.*]] = arith.maximumf %[[LOAD_ACC]], %[[LOAD_VAL]]
     // CHECK: rock.in_bounds_store %[[REDUCED]] -> %[[TO_REDUCE_ACC_MEMREF]][%[[NRDIM_THREAD]]]
 
 // CHECK-DAG: %[[TID1:.*]] = rock.workitem_id : index
@@ -57,7 +57,7 @@
     // CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LD_COORD]]]
     // CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[ZERO]]]
     // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maxf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
-    // CHECK: %[[ACC_NEW:.*]] = arith.maxf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
+    // CHECK: %[[ACC_NEW:.*]] = arith.maximumf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
     // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
 
 // CHECK: rock.lds_barrier

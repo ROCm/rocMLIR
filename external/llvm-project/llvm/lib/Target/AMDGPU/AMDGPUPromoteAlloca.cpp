@@ -294,7 +294,7 @@ calculateVectorIndex(Value *Ptr,
 
   auto I = GEPIdx.find(GEP);
   assert(I != GEPIdx.end() && "Must have entry for GEP!");
-  return I->second;
+   return isa<Constant>(I->second) ? I->second :  ConstantInt::getNullValue(Type::getInt32Ty(Ptr->getContext()));
 }
 
 static Value *GEPToVectorIndex(GetElementPtrInst *GEP, AllocaInst *Alloca,

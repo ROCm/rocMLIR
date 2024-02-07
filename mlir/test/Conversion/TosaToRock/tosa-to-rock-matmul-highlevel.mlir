@@ -12,7 +12,7 @@ module {
     // CHECK: rock.gemm {{.*}} = %[[TRANSFORM1]] * tr %[[TRANSFORM0]]
     %3 = "tosa.matmul"(%1, %2) : (tensor<12x384x64xf32>, tensor<12x64x384xf32>) -> tensor<12x384x384xf32>
     %4 = "tosa.reshape"(%3) {new_shape = array<i64: 1, 12, 384, 384>} : (tensor<12x384x384xf32>) -> tensor<1x12x384x384xf32>
-    %5 = "tosa.mul"(%4, %arg0) {shift = 0 : i32} : (tensor<1x12x384x384xf32>, tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
+    %5 = "tosa.mul"(%4, %arg0) {shift = 0 : i8} : (tensor<1x12x384x384xf32>, tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
     %6 = "tosa.add"(%5, %arg1) : (tensor<1x12x384x384xf32>, tensor<1x1x1x1xf32>) -> tensor<1x12x384x384xf32>
     return %6 : tensor<1x12x384x384xf32>
   }

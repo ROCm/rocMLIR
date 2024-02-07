@@ -282,8 +282,8 @@ module  {
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<1.120000e+02> : tensor<1xf32>}> : () -> tensor<1xf32>
   // CHECK-DAG: %[[NRECIP:.*]] = "tosa.reciprocal"(%[[N]]) : (tensor<1xf32>) -> tensor<1xf32>
-  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xf32>) -> [[INTYPE]]
-  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
+  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i8}> : ([[INTYPE]], tensor<1xf32>) -> [[INTYPE]]
+  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i32}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
@@ -294,8 +294,8 @@ module  {
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<1.120000e+02> : tensor<1xf16>}> : () -> tensor<1xf16>
   // CHECK-DAG: %[[NRECIP:.*]] = "tosa.reciprocal"(%[[N]]) : (tensor<1xf16>) -> tensor<1xf16>
-  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xf16>) -> [[INTYPE]]
-  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
+  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i8}> : ([[INTYPE]], tensor<1xf16>) -> [[INTYPE]]
+  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i32}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
@@ -306,8 +306,8 @@ module  {
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi32>}> : () -> tensor<1xi32>
   // CHECK-DAG: %[[NRECIP:.*]] = "tosa.reciprocal"(%[[N]]) : (tensor<1xi32>) -> tensor<1xi32>
-  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi32>) -> [[INTYPE]]
-  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
+  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i8}> : ([[INTYPE]], tensor<1xi32>) -> [[INTYPE]]
+  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i32}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
@@ -318,8 +318,8 @@ module  {
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi16>}> : () -> tensor<1xi16>
   // CHECK-DAG: %[[NRECIP:.*]] = "tosa.reciprocal"(%[[N]]) : (tensor<1xi16>) -> tensor<1xi16>
-  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi16>) -> [[INTYPE]]
-  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
+  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i8}> : ([[INTYPE]], tensor<1xi16>) -> [[INTYPE]]
+  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i32}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
@@ -330,8 +330,8 @@ module  {
   // CHECK-SAME: (%arg0: [[INTYPE:.*]]) -> [[OUTTYPE:.*]] {
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi8>}> : () -> tensor<1xi8>
   // CHECK-DAG: %[[NRECIP:.*]] = "tosa.reciprocal"(%[[N]]) : (tensor<1xi8>) -> tensor<1xi8>
-  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i32}> : ([[INTYPE]], tensor<1xi8>) -> [[INTYPE]]
-  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i64}> : ([[INTYPE]]) -> [[OUTTYPE]]
+  // CHECK-DAG: %[[MUL:.*]] = "tosa.mul"(%arg0, %[[NRECIP]]) <{shift = 0 : i8}> : ([[INTYPE]], tensor<1xi8>) -> [[INTYPE]]
+  // CHECK-DAG: %[[REDUCE_SUM:.*]] = "tosa.reduce_sum"(%[[MUL]]) <{axis = 2 : i32}> : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>

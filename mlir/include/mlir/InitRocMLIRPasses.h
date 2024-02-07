@@ -43,6 +43,7 @@ namespace mlir {
 inline void registerUpstreamPasses() {
 
   // Conversion passes
+  registerConvertToLLVMPass();
   registerConvertAffineToStandard();
   registerArithToAMDGPUConversionPass();
   registerConvertAMDGPUToROCDL();

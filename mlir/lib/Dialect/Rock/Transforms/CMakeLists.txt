@@ -54,4 +54,12 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
+  MLIRUBToLLVM
+  MLIRMemRefToLLVM
+  MLIRMathToLLVM
+  MLIRFuncToLLVM
+  MLIRComplexToLLVM
+  MLIRControlFlowToLLVM
+  MLIRArithToLLVM
+  
 )

@@ -84,6 +84,7 @@ public:
   }
 
 protected:
+  void getDependentDialects(DialectRegistry &registry) const override;
   Option<std::string> rocmPath{*this, "rocm-path",
                                llvm::cl::desc("Path to ROCm install")};
 
@@ -232,9 +233,9 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
       StringRef funcName = f.getName();
       if ("printf" == funcName)
         needOpenCl = true;
-      if (funcName.starts_with("__ockl_"))
+      if (funcName.startswith("__ockl_"))
         needOckl = true;
-      if (funcName.starts_with("__ocml_"))
+      if (funcName.startswith("__ocml_"))
         needOcml = true;
     }
   }
@@ -539,6 +540,12 @@ std::unique_ptr<Pass> mlir::createGpuSerializeToHsacoPass(StringRef triple,
                                                           int optLevel) {
   return std::make_unique<SerializeToHsacoPass>(triple, arch, features,
                                                 optLevel);
+}
+
+void SerializeToHsacoPass::getDependentDialects(
+    DialectRegistry &registry) const {
+  registerROCDLDialectTranslation(registry);
+  gpu::SerializeToBlobPass::getDependentDialects(registry);
 }
 
 #else  // MLIR_GPU_TO_HSACO_PASS_ENABLE

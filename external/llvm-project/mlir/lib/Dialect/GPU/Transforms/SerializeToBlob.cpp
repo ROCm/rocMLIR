@@ -151,3 +151,10 @@ gpu::SerializeToBlobPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   return translateModuleToLLVMIR(getOperation(), llvmContext,
                                  "LLVMDialectModule");
 }
+
+void gpu::SerializeToBlobPass::getDependentDialects(
+    DialectRegistry &registry) const {
+  registerGPUDialectTranslation(registry);
+  registerLLVMDialectTranslation(registry);
+  OperationPass<gpu::GPUModuleOp>::getDependentDialects(registry);
+}

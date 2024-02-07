@@ -114,7 +114,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK: rock.transforming_for
       // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
       // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
-      // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
+      // CHECK-DAG: %[[newmax:.+]] = arith.maximumf %[[rowmax]], %[[tilemax]]
       // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
       // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
       // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
@@ -133,7 +133,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       // CHECK-DAG: %[[tilesum:.+]] = rock.in_bounds_load %[[gemm0NormExpSum]]
       // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
       // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
-      // CHECK-DAG: %[[newmax:.+]] = arith.maxf %[[rowmax]], %[[tilemax]]
+      // CHECK-DAG: %[[newmax:.+]] = arith.maximumf %[[rowmax]], %[[tilemax]]
       // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
       // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp2 %[[maxdiff]]
       // CHECK-DAG: rock.in_bounds_store %[[maxdiffexp]] -> %[[maxdiffexpbuf:.+]][

@@ -117,7 +117,7 @@ struct LaunchOpInterface
         opOperand.getOperandNumber());
   }
 
-  AliasingOpResultList getAliasingOpResults(Operation *op, OpOperand &opOperand,
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
@@ -125,7 +125,7 @@ struct LaunchOpInterface
     if (getFuncOpAnalysisState(state, funcOp) !=
         FuncOpAnalysisState::Analyzed) {
       // FuncOp not analyzed yet. Any OpResult may be aliasing.
-      return bufferization::detail::unknownGetAliasingOpResults(opOperand);
+      return bufferization::detail::unknownGetAliasingValues(opOperand);
     }
 
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
@@ -142,7 +142,7 @@ struct LaunchOpInterface
               *equivalent == opOperand.getOperandNumber()) &&
              "inconsistent analysis state");
     }
-    AliasingOpResultList result;
+    AliasingValueList result;
     for (int64_t resultIdx : aliasingReturnVals)
       result.addAlias({callOp->getOpResult(resultIdx),
                        equivalent.has_value() ? BufferRelation::Equivalent
@@ -231,14 +231,6 @@ struct LaunchOpInterface
       // If the memref type of the callee fails, introduce an extra memref.cast
       // that will either canonicalize away or fail compilation until we can do
       // something better.
-      if (buffer.getType() != memRefType) {
-        assert(
-            memref::CastOp::areCastCompatible(buffer.getType(), memRefType) &&
-            "CallOp::bufferize: cast incompatible");
-        Value castBuffer = rewriter.create<memref::CastOp>(callOp.getLoc(),
-                                                           memRefType, buffer);
-        buffer = castBuffer;
-      }
       newOperands[idx] = buffer;
       funcOperandIdx++;
     }

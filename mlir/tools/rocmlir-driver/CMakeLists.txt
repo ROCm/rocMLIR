@@ -5,6 +5,8 @@ set(LLVM_LINK_COMPONENTS
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 get_property(rocmlir_test_libs GLOBAL PROPERTY ROCMLIR_TEST_LIBS)
+get_property(mlir_dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
 set(LIBS
   ${rocmlir_dialect_libs}
@@ -13,6 +15,7 @@ set(LIBS
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
+  MLIRAffineTransformOps
   )
 
 if (MLIR_ENABLE_EXECUTION_ENGINE)
