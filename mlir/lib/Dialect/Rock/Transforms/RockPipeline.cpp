@@ -190,7 +190,7 @@ struct PushBarrierDownRewritePattern
 // idea is to represent the dependencies through a DAG with
 // the set of shared resources on the the edges
 DagType createDependencyGraph(ArrayRef<rock::StageOp> stages,
-                              const DenseSet<rock::GpuAllocOp> &allocs) {
+                              const SetVector<rock::GpuAllocOp> &allocs) {
   // Mapping resource->[stages using the given resource]
   DenseMap<rock::StageOp, DenseMap<rock::GpuAllocOp, MemoryAccessType>>
       resourceMap;
@@ -249,7 +249,7 @@ getDependencies(rock::StageOp stage0, rock::StageOp stage1, DagType &dag) {
 
 // Function to create the schedule of the current set of stages
 void createSchedule(SmallVector<rock::StageOp> &stages,
-                    const DenseSet<rock::GpuAllocOp> &resources, int64_t ii,
+                    const SetVector<rock::GpuAllocOp> &resources, int64_t ii,
                     ScheduleType &schedule,
                     DenseMap<rock::GpuAllocOp, int> &multiBuffers) {
   // Create the dependency graph
@@ -386,8 +386,9 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
         multiBuffers[buffer] = factor;
 
     // Add the parallel stages
-    for (auto stage : parallelStages)
+    for (auto stage : parallelStages) {
       schedule.push_back({stage, stageIter[stage]});
+    }
   }
 }
 
@@ -440,7 +441,7 @@ rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
 // does not have to know how `placeBarrier` internally works.
 void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
                    ArrayRef<rock::StageOp> stages,
-                   DenseSet<rock::GpuAllocOp> &allocs,
+                   SetVector<rock::GpuAllocOp> &allocs,
                    SmallVector<rock::StageOp> &extendedStages,
                    int64_t &initiationInterval) {
   DagType dag = createDependencyGraph(stages, allocs);
@@ -522,6 +523,43 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
   initiationInterval *= 2;
 }
 
+bool checkIfPipeliningSupported(scf::ForOp forOp) {
+  auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
+  while (scf::ForOp parentLoop = forOp->getParentOfType<scf::ForOp>()) {
+    if (parentLoop->hasAttr(rockPipelineAttrName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Return a list of the loops in the function `func` that represents
+// in level order in a list.
+SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
+  SmallVector<scf::ForOp> loops;
+
+  unsigned curLevelPos = 0;
+  unsigned curLevelLen = 0;
+  func.walk([&](scf::ForOp forOp) {
+    loops.push_back(forOp);
+    curLevelLen++;
+  });
+
+  while (curLevelLen) {
+    unsigned nextLevelLen = 0;
+    for (unsigned i = 0; i < curLevelLen; i++) {
+      loops[curLevelPos + i].getBody()->walk([&](scf::ForOp forOp) {
+        loops.push_back(forOp);
+        nextLevelLen++;
+      });
+    }
+    curLevelPos += curLevelLen;
+    curLevelLen = nextLevelLen;
+  }
+
+  return loops;
+}
+
 struct RockPipeline : public rock::impl::RockPipelinePassBase<RockPipeline> {
   using rock::impl::RockPipelinePassBase<RockPipeline>::RockPipelinePassBase;
   void runOnOperation() override;
@@ -535,35 +573,53 @@ void RockPipeline::runOnOperation() {
   Location loc = func->getLoc();
   IRRewriter rewriter(ctx);
 
-  std::map<Operation *, SmallVector<rock::GpuAllocOp>> ldsAllocMap;
-  llvm::DenseSet<rock::GpuAllocOp> allocs;
+  // Allocs before we transform them into multibuffers
+  llvm::SetVector<rock::GpuAllocOp> singleAllocs;
+  func.walk([&](rock::GpuAllocOp alloc) { singleAllocs.insert(alloc); });
+
+  // Always (try to) multi-buffer by one and store the new
+  // allocs in a set
+  llvm::SetVector<rock::GpuAllocOp> multiAllocs;
+  for (auto alloc : singleAllocs) {
+    SmallVector<rock::GpuAllocOp> newAllocs;
+    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true)))
+      multiAllocs.insert(newAllocs.back());
+  }
 
   // Collect the global resources (i.e., the memory allocations)
   // Note: we can only have two kind of memory:
   // - Registers
   // - LDS
-  func.walk([&](rock::GpuAllocOp alloc) { allocs.insert(alloc); });
-
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
-  llvm::DenseMap<scf::ForOp, ScheduleType> scheduleMap;
-  for (auto res : allocs)
+  llvm::MapVector<scf::ForOp, ScheduleType> scheduleMap;
+  for (auto res : multiAllocs)
     multiBufferFactors[res] = 1;
 
   auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
-  bool isNestedPipelining = false;
-  func.walk([&](scf::ForOp forOp) -> WalkResult {
+
+  // Maybe this might be a bit too much for now, but we are a compiler
+  // after all. So let's try to be generic. We collect all loops
+  // in a level traversal order of the loop nests
+  SmallVector<scf::ForOp> loops = collectLoopLevels(func);
+
+  // Filter out loops that don't need pipelining
+  // and check for nested-pipelining for loops that do need to
+  // be pipelened. We pipeline from the innermost to the outermost loop,
+  // hence traverse the list in a reverse order (from the bottom levels to
+  // the top levels)
+  SmallVector<scf::ForOp> loopsToPipeline;
+  for (auto forOp : llvm::reverse(loops)) {
+    if (forOp->hasAttr(rockPipelineAttrName)) {
+      if (checkIfPipeliningSupported(forOp)) {
+        emitError(loc, "Nested pipelining is not supported yet!\n");
+        return signalPassFailure();
+      }
+      loopsToPipeline.push_back(forOp);
+    }
+  }
+
+  for (auto forOp : loopsToPipeline) {
     SmallVector<rock::StageOp> stages;
-
-    if (!forOp->hasAttrOfType<rock::PipelineAttr>(rockPipelineAttrName))
-      return WalkResult::advance();
-
-    forOp.getBody()->walk([&](scf::ForOp nestedFor) {
-      if (nestedFor->hasAttr(rockPipelineAttrName))
-        isNestedPipelining = true;
-    });
-
-    if (isNestedPipelining)
-      return WalkResult::interrupt();
 
     // Get the initiation interval (II)
     int64_t ii = forOp->removeAttr(rockPipelineAttrName)
@@ -585,36 +641,30 @@ void RockPipeline::runOnOperation() {
 
     // Insert the barriers as new stages
     SmallVector<rock::StageOp> extendedStages;
-    placeBarriers(rewriter, loc, forOp, stages, allocs, extendedStages, ii);
+    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                  ii);
 
     ScheduleType schedule;
-    createSchedule(extendedStages, allocs, ii, schedule, multiBufferFactors);
+    createSchedule(extendedStages, multiAllocs, ii, schedule,
+                   multiBufferFactors);
 
-    scheduleMap[forOp] = schedule;
-    // Annotate the operation that defines the boundary of the `forOp`. This
-    // is because, at the end of the pass, we will remove any barrier at the
-    // boundary (because they are not useful)
-    return WalkResult::advance();
-  });
+    RewritePatternSet patterns(&getContext());
+    mlir::scf::PipeliningOption options;
+    options.getScheduleFn = [&](scf::ForOp curFurOp, ScheduleType &sched) {
+      if (curFurOp == forOp)
+        sched = schedule;
+    };
 
-  if (isNestedPipelining) {
-    emitError(loc, "Nested pipelining is not supported yet!\n");
-    return signalPassFailure();
+    scf::populateSCFLoopPipeliningPatterns(patterns, options);
+    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
   }
 
-  // Multi-buffer(if needed)
-  bool isMultiBufferingFailed = false;
+  // Remulti-buffer(if needed). Now we know what all the loops need, hence
+  // we can safely allocate the right amount of resources in the function
   for (auto [alloc, factor] : multiBufferFactors) {
-    if (factor > 1) {
-      if (failed(rock::multiBuffer(rewriter, alloc, factor, true))) {
-        isMultiBufferingFailed = true;
-        break;
-      }
-    }
-  }
-  if (isMultiBufferingFailed) {
-    emitError(loc, "Multi buffering failed to apply!\n");
-    return signalPassFailure();
+    SmallVector<rock::GpuAllocOp> newAllocs;
+    if (factor > 1)
+      (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
   }
 
   // Check we didn't push memory too far
@@ -627,17 +677,6 @@ void RockPipeline::runOnOperation() {
   if (gpuMemoryBytes[AddressSpace::Workgroup] > size_t(64 * 1024)) {
     emitError(loc, "LDS consumption is more than 64K!\n");
     return signalPassFailure();
-  }
-
-  // Pipeline the loops
-  {
-    RewritePatternSet patterns(&getContext());
-    mlir::scf::PipeliningOption options;
-    options.getScheduleFn = [&](scf::ForOp op, ScheduleType &sched) {
-      sched = scheduleMap[op];
-    };
-    scf::populateSCFLoopPipeliningPatterns(patterns, options);
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
   }
 
   // Cleanup the stages

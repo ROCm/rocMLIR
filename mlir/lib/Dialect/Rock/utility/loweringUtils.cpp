@@ -515,6 +515,21 @@ FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
     // view-like operation
     if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
       curOp = viewOp.getViewSource().getDefiningOp();
+    } else if (auto extractMultiBufferOp =
+                   dyn_cast_or_null<ExtractMultiBufferOp>(curOp)) {
+      // If we meet an extract_multibuffer, we need to ensure that we can
+      // reroute it to the the single load. Otherwise, return failure
+      auto buffers = extractMultiBufferOp.getBuffers();
+      auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
+          extractMultiBufferOp.getSelectIndex().getDefiningOp());
+      if (buffers.size() > 1 && !selectIndex) {
+        return failure();
+      } else if (buffers.size() == 1) {
+        curOp = buffers.back().getDefiningOp();
+      } else {
+        int64_t index = selectIndex.value();
+        curOp = buffers[index].getDefiningOp();
+      }
     } else {
       return failure();
     }

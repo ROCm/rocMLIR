@@ -430,7 +430,6 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
-    int64_t kBasePerThread = params.kBasePerThread;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
@@ -842,8 +841,6 @@ struct BlockwiseReduceRewritePattern
         inputRawBuffer.getType().cast<MemRefType>().getNumElements();
     constexpr size_t nrDim = 0;
 
-    ArrayRef<int64_t> threadSubTileShape =
-        getLowerShape(inputThreadSubTile2dView);
     Type elemType =
         inputRawBuffer.getType().cast<MemRefType>().getElementType();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
@@ -887,9 +884,6 @@ struct BlockwiseReduceRewritePattern
     WorkitemIdOp tid =
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
 
     // First we iterate thread subtile along non-reduction
     // axis to get iter coordinate within the register
@@ -985,8 +979,6 @@ struct BlockwiseReduceRewritePattern
         lowerTr.getLowerBounds().asArrayRef();
     SmallVector<int64_t, 4> regTensorShape =
         llvm::to_vector<4>(lowerTrLowerBounds);
-    int64_t nonReductionDimSizeProduct =
-        calculateNonReductionDimProduct(regTensorShape, axis);
 
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;
