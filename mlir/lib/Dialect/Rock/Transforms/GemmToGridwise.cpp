@@ -296,10 +296,10 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                   gemm1ExtraPad.m);
 
   SmallVector<Value, 2> otherElemWiseInputs;
-  for (Value otherElemwiseInput : adaptor.getPreSoftmaxElemWiseInputs()){
-    otherElemwiseInput = padMatrix(otherElemwiseInput, rw, loc, "gemm1N", gemm0ExtraPad.n,
-                         "gemm1M", gemm0ExtraPad.m);
-    otherElemWiseInputs.push_back(otherElemwiseInput);              
+  for (Value otherElemwiseInput : adaptor.getPreSoftmaxElemWiseInputs()) {
+    otherElemwiseInput = padMatrix(otherElemwiseInput, rw, loc, "gemm1N",
+                                   gemm0ExtraPad.n, "gemm1M", gemm0ExtraPad.m);
+    otherElemWiseInputs.push_back(otherElemwiseInput);
   }
 
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
@@ -318,7 +318,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
-  rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(), newOp.getPreSoftmaxBody().begin());
+  rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                        newOp.getPreSoftmaxBody().begin());
   rw.replaceOp(op, newOp);
   return success();
 }

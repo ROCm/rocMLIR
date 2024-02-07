@@ -2298,39 +2298,46 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   output = block->getArgument(optionalArgsCounter);
 
   auto attention = builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, elemwiseInputs, output, transposeQ,
-      transposeK, transposeV, transposeO, archAttr, params.features,
+      loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
+      transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
       /*params0=*/nullptr, /*params1=*/nullptr);
   {
-    Block* preSoftmaxElemwiseBlock = &attention.getPreSoftmaxBody().emplaceBlock();
+    Block *preSoftmaxElemwiseBlock =
+        &attention.getPreSoftmaxBody().emplaceBlock();
     PatternRewriter::InsertionGuard guard(builder);
     builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
     ShapedType qType = queries.getType().cast<ShapedType>();
     ArrayRef<int64_t> qShape = qType.getShape();
     ArrayRef<int64_t> kShape = keys.getType().cast<ShapedType>().getShape();
-    MemRefType qkMemRefType = MemRefType::get({qShape[0], sequenceLength, sequenceLength}, qType.getElementType());
+    MemRefType qkMemRefType = MemRefType::get(
+        {qShape[0], sequenceLength, sequenceLength}, qType.getElementType());
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
     Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
     if (hasAttnScale) {
       ShapedType scaleType = scale.getType().cast<ShapedType>();
-      Value scaleMemRef = preSoftmaxElemwiseBlock->addArgument(MemRefType::get(scaleType.getShape(), scaleType.getElementType()), loc);
+      Value scaleMemRef = preSoftmaxElemwiseBlock->addArgument(
+          MemRefType::get(scaleType.getShape(), scaleType.getElementType()),
+          loc);
       Value scaleTensor = rock::getAsTensor(builder, loc, scaleMemRef);
-      qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, qType.getElementType(), qkTensor,
-                                             scaleTensor, /*shift=*/0);
+      qkTensor =
+          createOpAndInfer<tosa::MulOp>(builder, loc, qType.getElementType(),
+                                        qkTensor, scaleTensor, /*shift=*/0);
     }
     if (hasAttnBias) {
       ShapedType biasType = bias.getType().cast<ShapedType>();
-      Value biasMemRef = preSoftmaxElemwiseBlock->addArgument(MemRefType::get(biasType.getShape(), biasType.getElementType()), loc);
+      Value biasMemRef = preSoftmaxElemwiseBlock->addArgument(
+          MemRefType::get(biasType.getShape(), biasType.getElementType()), loc);
       Value biasTensor = rock::getAsTensor(builder, loc, biasMemRef);
-      qkTensor = createOpAndInfer<tosa::AddOp>(builder, loc, qType.getElementType(), qkTensor,
-                                             biasTensor);
+      qkTensor = createOpAndInfer<tosa::AddOp>(
+          builder, loc, qType.getElementType(), qkTensor, biasTensor);
     }
-    Value resMemref = builder.create<bufferization::ToMemrefOp>(loc, qkMemRefType, qkTensor);
+    Value resMemref =
+        builder.create<bufferization::ToMemrefOp>(loc, qkMemRefType, qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
   }
-  
+
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
@@ -3622,16 +3629,16 @@ int main(int argc, char **argv) {
   }
 
   if (applyBufferizationPipeline.getValue()) {
-      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
-      rock::BufferizeOptions bufferizeOptions;
-      bufferizeOptions.disableRock = true;
-      rock::buildBufferizePipeline(pm, bufferizeOptions);
+    rock::BufferizeOptions bufferizeOptions;
+    bufferizeOptions.disableRock = true;
+    rock::buildBufferizePipeline(pm, bufferizeOptions);
 
-      if (failed(pm.run(module))) {
-        llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
-        exit(1);
-      }
+    if (failed(pm.run(module))) {
+      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
+      exit(1);
+    }
   }
 
   // Set up the output file.

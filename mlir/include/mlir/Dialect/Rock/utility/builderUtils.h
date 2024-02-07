@@ -33,7 +33,8 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 int64_t getByteWidth(Type type);
 
 // Utility function to get a MemRef as a tensor
-Value getAsTensor(OpBuilder& builder, Location loc, mlir::Value value, bool isWritable = false);
+Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
+                  bool isWritable = false);
 
 } // namespace rock
 } // namespace mlir

@@ -91,13 +91,12 @@ struct GemmLikeInterface
     if (!outBuffer) {
       return op->emitOpError("Couldn't find output argument\n");
     }
-    if(op->getNumRegions() == 1){
+    if (op->getNumRegions() == 1) {
       auto newOp = cloneWithoutRegions(
-      rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
+          rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
       rewriter.inlineRegionBefore(op->getRegion(0), newOp->getRegion(0),
                                   newOp->getRegion(0).begin());
-    }
-    else{
+    } else {
       rewriter.create<Concrete>(op->getLoc(), TypeRange{}, bufferArgs,
                                 op->getAttrs());
     }

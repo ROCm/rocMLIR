@@ -1956,9 +1956,11 @@ LogicalResult AttentionOp::verify() {
   }
 
   // for (Value otherElemWiseInput : getPreSoftmaxElemWiseInputs()){
-  //   ShapedType otherElemWiseInputType = otherElemWiseInput.getType().cast<ShapedType>();
-  //   if (vType.getRank() != otherElemWiseInputType.getRank()) {
-  //     return emitError("other elementwie inputs needs to be of same rank to main inputs");
+  //   ShapedType otherElemWiseInputType =
+  //   otherElemWiseInput.getType().cast<ShapedType>(); if (vType.getRank() !=
+  //   otherElemWiseInputType.getRank()) {
+  //     return emitError("other elementwie inputs needs to be of same rank to
+  //     main inputs");
   //   }
   // }
 
