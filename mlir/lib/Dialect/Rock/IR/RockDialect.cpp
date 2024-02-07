@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -1691,6 +1692,14 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
+  }
+  
+  int64_t linalgOpCount = 0;
+  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp){
+    linalgOpCount ++;
+  });
+  if(linalgOpCount > 1){
+    return emitError("More than 1 linalg generic op found in pre softmax fusion point.");
   }
   return success();
 }
