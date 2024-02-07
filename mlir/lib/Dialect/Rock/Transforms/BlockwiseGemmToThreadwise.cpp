@@ -557,13 +557,11 @@ struct BlockwiseReduceRewritePattern
     SmallVector<StringRef, 4> upperNameRefs;
     tensorToLDSViewBuilder.getStartNames(upperNameRefs);
 
-    int64_t nonReduceMergeDimSize = 1;
     SmallVector<StringRef, 4> nonReduceNameRefs;
     SmallVector<unsigned, 4> nonReduceDims;
     SmallVector<int64_t, 4> nonReduceDimSizes;
     for (auto [dim, dimSize] : llvm::enumerate(lowestShape)) {
       if (dim != (size_t)reduceAxis) {
-        nonReduceMergeDimSize *= dimSize;
         nonReduceNameRefs.push_back(upperNameRefs[dim]);
         nonReduceDims.push_back(dim);
         nonReduceDimSizes.push_back(dimSize);

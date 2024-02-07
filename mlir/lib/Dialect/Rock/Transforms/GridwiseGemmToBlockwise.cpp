@@ -192,7 +192,6 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   }
 
   if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType)) {
-    assert(false);
     return emitError(loc, "LDS buffer should have ")
            << kOuter * d * kpack * getByteWidth(dataType)
            << " elements but has " << bufferShape[0];
