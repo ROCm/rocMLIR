@@ -84,7 +84,7 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
 // CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x64x1024xf32>)
 func.func @rock_attention_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x64x1024xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
   // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]])
-  rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
+  rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add preSoftmaxOps = {} {
     arch = "amdgcn-amd-amdhsa:gfx908",
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
@@ -103,8 +103,8 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
   // CHECK-DAG: %[[paddedV:.*]] = rock.transform %[[v]] by {{.*}} : memref<1x49x7xf32> to memref<1x64x32xf32>
   // CHECK-DAG: %[[paddedO:.*]] = rock.transform %[[o]] by {{.*}} : memref<1x49x7xf32> to memref<1x64x32xf32>
   // CHECK: rock.gridwise_attention_accel(%[[paddedTrQ]], %[[paddedK]], %[[paddedV]], %[[paddedO]])
-  // CHECK-SAME: prePadG0M = 49 : index, prePadG0N = 49 : index
-  rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add {
+  // CHECK-NEXT: prePadG0M = 49 : index, prePadG0N = 49 : index
+  rock.attention(%arg0, %arg1, %arg2, %arg3) features =  mfma|dot|atomic_add preSoftmaxOps = {} {
     arch = "amdgcn-amd-amdhsa:gfx908",
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,

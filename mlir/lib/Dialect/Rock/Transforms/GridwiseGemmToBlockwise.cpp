@@ -1454,24 +1454,47 @@ struct GridwiseAttentionAccelRewritePattern
   void postProcessFirstGemm(PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
                             layout::GridCoordinates gridCoords, Value gemm0OutBuffer, 
                             RegsAsMatrixSubTiles gemm0OutViews) const {
-    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-    SmallVector<Value> inputTileBuffers;
-    inputTileBuffers.push_back(gemm0OutBuffer);
-    MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
-    for (auto otherInput : op.getPreSoftmaxElemWiseInputs()) {
-        auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, bufType);
-        rewriter.create<ThreadwiseReadIntoOp>(
-        loc, otherInput, tileBuffer, gemm0OutViews.gridSubTile,
-        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
-                tid},
-        true, true);
-        inputTileBuffers.push_back(tileBuffer);
-    }
-    // Output is overwriting the same input buffer
-    inputTileBuffers.push_back(gemm0OutBuffer);
-    linalg::GenericOp newLinalgOp;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp){
-        llvm::errs() << "found linalg genric.\n";
+        auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+        SmallVector<Value> inputTileBuffers;
+        inputTileBuffers.push_back(gemm0OutBuffer);
+        MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+
+        //Obtain transform stack from gemmOutput to linalg generic input.
+        ArrayAttr linalgToGemmOutMaps;
+        std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) = untransform(rewriter, genOp.getInputs()[0]);
+        //The obtained transforms will be linalg generic being the upperview
+        //leading to gemmOutput being the lowerview. However, we need to construct
+        // the following sequence : 
+        // (bid, tid, iter) > ... > [gemmOutput: k x d] 
+        //                        > invertTr(linalg input to gemmOutput maps)
+        //                        > (linalgOtherInput to op arg maps)
+        ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
+        ArrayAttr GemmOutToLinalgMaps = invertTransforms(rewriter, loc, linalgToGemmOutMaps);
+        if(!GemmOutToLinalgMaps.empty()){
+            linalgGridSubTileMaps = prependUpperViews(rewriter, linalgGridSubTileMaps, GemmOutToLinalgMaps);
+        }
+
+        for (auto [idx, otherInput] : llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
+            auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, bufType);
+            auto genOpInput = genOp.getInputs()[idx + 1];
+            ArrayAttr linalgToOtherInputMaps;
+            std::tie(std::ignore, linalgToOtherInputMaps, std::ignore) = untransform(rewriter, genOpInput);
+            ArrayAttr GemmOutToOtherInputMaps = linalgGridSubTileMaps;
+            if(!linalgToOtherInputMaps.empty()){
+                GemmOutToOtherInputMaps = prependUpperViews(rewriter, linalgGridSubTileMaps, linalgToOtherInputMaps);
+            }
+            rewriter.create<ThreadwiseReadIntoOp>(
+            loc, otherInput, tileBuffer, GemmOutToOtherInputMaps,
+            ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
+                    tid},
+            true, true);
+            inputTileBuffers.push_back(tileBuffer);
+        }
+        // Output is overwriting the same input buffer
+        inputTileBuffers.push_back(gemm0OutBuffer);
+        linalg::GenericOp newLinalgOp;
+
         mlir::IRMapping mapper;
         for (auto [operand, tilebuffer] : llvm::zip(genOp->getOperands(), inputTileBuffers)){
             mapper.map(operand, tilebuffer);

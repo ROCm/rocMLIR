@@ -717,15 +717,6 @@ struct CollapseExpandRewritePattern
   }
 };
 
-static Value getNonReshapeLikeParent(Value input){
-  Operation* op = input.getDefiningOp();
-  while(op && isa<tensor::ExpandShapeOp,tensor::CollapseShapeOp>(op)){
-    input = op->getOperand(0);
-    op = input.getDefiningOp();
-  }
-  return input;
-}
-
 // Tosa ops can broadcast values along axes, which allows for
 // element-wise operations without fully-matching dimensions.  The
 // Elementwise trait is strict about matching dimensions, but
@@ -821,18 +812,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
   }
 
-  template <typename FirstOperandType, typename CurrOpType>
-  FailureOr<std::tuple<FirstOperandType, TypedValue<TensorType>>>
-  getOperandsOrdered(CurrOpType root) const {
-    if (auto mm = getDefiningNonReshapeOp<FirstOperandType>(root.getInput1())) {
-      return std::make_tuple(mm, root.getInput2());
-    }
-    if (auto mm = getDefiningNonReshapeOp<FirstOperandType>(root.getInput2())) {
-      return std::make_tuple(mm, root.getInput1());
-    }
-    return failure();
-  }
-
   Value normalizeInputTensor(PatternRewriter &rewriter, Location loc,
                              TypedValue<TensorType> inputTensor) const {
     if (!inputTensor) {
@@ -864,6 +843,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val;
   }
 
+  // This function traverse an upward tree where the root is the softmax input.
+  // It traverses the tree until it hit the gemm or last elemwise operation that
+  // may or maynot be interleaved with reshape-like ops. Note there is a TODO to 
+  // explore relaxing reshape-like ops constraints to more of rock.transforms.
+  // (See the implementation for the TODO)
   std::tuple<Value, FailureOr<tosa::MatMulOp> > getPreSoftmaxElemwiseRegion(Value input,
                                                                           OpBuilder& regionBuilder,
                                                                           Block* block,
@@ -871,10 +855,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                                                           std::optional<Location> loc = std::nullopt,
                                                                           bool doRewrite = false
                                                 ) const {
-    // input = getNonReshapeLikeParent(input); 
-    RankedTensorType inputTensorType = input.getType().cast<RankedTensorType>();
     PatternRewriter::InsertionGuard guard(regionBuilder);
     regionBuilder.setInsertionPointToEnd(block);
+    // If the matmul is found, we return this information to the 
+    // root.
     if(tosa::MatMulOp matmul = input.getDefiningOp<tosa::MatMulOp>()){
       Value matmulMemRef;
       if(doRewrite){
@@ -883,41 +867,49 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return {matmulMemRef, matmul};
     }
     Operation* op = input.getDefiningOp();
+    // Right now, this is a bit restricted that we only allow reshape-like
+    // ops between in the elemwise tree that get fused to the fusion point.
+    // TODO: however, the latest code gridwise-gemm-to-blockwise should tackle
+    // more cases. The absolute restriction is gemm0Output to Linalg block should
+    // contain invertible transforms, but thats future work.
     if(!op || (!isElementwiseOp(op) && !isa<tensor::ExpandShapeOp,tensor::CollapseShapeOp>(op))){
       Value blockArg;
       if(doRewrite){
         blockArg = addBlockArgument(regionBuilder, input, block, loc.value());
       }
-      llvm::errs() << "getPreSoftmaxElemwiseRegion::newElemwiseArg=" << input << "\n";
       elemwiseArgs.push_back(input);
       return {blockArg, failure()};
     }
-    // mlir::IRMapping mapper;
+    // Following section recursively calls into the left and right
+    // sub-tree to grab as much of the elemwise tree rooted on softmax
+    // input.
+    mlir::IRMapping mapper;
     SmallVector<Value> newOperands;
     auto [lhsResult, maybeLhsMatMul] = getPreSoftmaxElemwiseRegion(op->getOperand(0), regionBuilder, block, elemwiseArgs, loc, doRewrite);
-    // mapper.map(op->getOperand(0), lhsResult);
+    mapper.map(op->getOperand(0), lhsResult);
     newOperands.push_back(lhsResult);
     FailureOr<mlir::tosa::MatMulOp> maybeRhsMatMul = failure();
     Value rhsResult;
     if(op->getNumOperands() > 1){
       std::tie(rhsResult, maybeRhsMatMul) = getPreSoftmaxElemwiseRegion(op->getOperand(1), regionBuilder, block, elemwiseArgs, loc, doRewrite);
-      // mapper.map(op->getOperand(1), rhsResult);
+      mapper.map(op->getOperand(1), rhsResult);
       newOperands.push_back(rhsResult);
     }
     Value res;
     if(doRewrite){
-      // RankedTensorType unitTensorType = RankedTensorType::get({1}, inputTensorType.getElementType());
-      auto newOp = clone(regionBuilder, op, {inputTensorType}, newOperands);
+      auto newOp = regionBuilder.clone(*op, mapper);
       res = newOp->getResult(0);
     }
-
+    // We convey to the caller the result
+    // of the cloning as well if this subtree
+    // contains the first matmul.
     if(succeeded(maybeLhsMatMul)){
       return {res, maybeLhsMatMul};
     }
     else if (succeeded(maybeRhsMatMul)) {
       return {res, maybeLhsMatMul};
     }
-    return {Value(), failure()};
+    return {res, failure()};
   }
 
   LogicalResult match(tosa::MatMulOp op) const override {
@@ -966,8 +958,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
       Value res;
       std::tie(res, maybeMatMul) = getPreSoftmaxElemwiseRegion(softmaxInput, rewriter, preSoftmaxElemwiseBlock, elemwiseOtherArgs, loc, true);
-      // llvm::errs() << "last getPreSoftmaxElemwiseRegion is done!\n";
-      preSoftmaxElemwiseBlock->print(llvm::errs());
       RankedTensorType resTensorType = res.getType().cast<RankedTensorType>();
       MemRefType resMemRefType = MemRefType::get(resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref = rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
