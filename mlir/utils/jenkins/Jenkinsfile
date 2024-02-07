@@ -177,7 +177,7 @@ void setHeartbeat() {
 String getLabelFromCodepath(String codepath) {
     echo "codepath is ${codepath}"
     if (codepath == "mfma") {
-        label = 'mlir && (gfx908 || gfx90a)'
+        label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
         // For non-performance related testing, use both workstations (gfx1030w)
         // and server nodes (gfx1030)
@@ -202,6 +202,8 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx908 && multi_gpu"
         case "gfx90a":
             return "mlir && gfx90a"
+        case "gfx942":
+            return "mlir && gfx942"
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
             // fix the vm-5 workstation for testing
@@ -321,8 +323,9 @@ boolean shouldRunFromCodepath(String codepath) {
     if ((codepath == "mfma") && params.canXdlops) {
         return true
     }
-    // Run navi21 on private CI only if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
+    // Run navi21 on private nightly or weekly CI if it is not disabled
+    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
+        (params.nightly || params.weekly)) {
         return true
     }
     // Run navi3x on private CI if it is not disabled
@@ -338,6 +341,7 @@ boolean shouldRunFromChip(String chip) {
             return shouldRunFromCodepath("vanilla")
         case "gfx908":
         case "gfx90a":
+        case "gfx942":
             return shouldRunFromCodepath("mfma")
         case "gfx1030":
             return shouldRunFromCodepath("navi21")

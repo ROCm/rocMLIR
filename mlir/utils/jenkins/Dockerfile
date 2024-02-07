@@ -134,3 +134,6 @@ ADD "https://raw.githubusercontent.com/ROCmSoftwarePlatform/MITuna/develop/requi
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install scipy pandas
+
+# Workaround for 6.0.0 rocprof not supporting navi3x:  add it to list.
+RUN sed --in-place 's/gfx94x")/gfx94x","gfx11xx")/' /opt/rocm/bin/rocprof
