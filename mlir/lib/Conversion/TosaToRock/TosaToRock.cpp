@@ -735,7 +735,8 @@ struct CollapseExpandRewritePattern
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
-  template <typename TosaOp> TosaOp getDefiningNonReshapeOp(Value val) const {
+  template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>()) {
       val = val.getDefiningOp()->getOperand(0);

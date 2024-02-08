@@ -59,7 +59,8 @@ using DagType =
                       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>>>>;
 
 namespace llvm {
-template <> struct DenseMapInfo<MemoryAccessType> {
+template <>
+struct DenseMapInfo<MemoryAccessType> {
   using StorageInfo = ::llvm::DenseMapInfo<uint32_t>;
 
   static inline MemoryAccessType getEmptyKey() {
