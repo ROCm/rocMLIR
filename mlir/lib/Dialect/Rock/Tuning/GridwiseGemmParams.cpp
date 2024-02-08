@@ -672,6 +672,17 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
     return failure();
   }
 
+  // Reject invalid blockSize
+  int64_t kPerBlock = param.gemmKPerBlock;
+  int64_t mPerBlock = param.gemmMPerBlock;
+  int64_t nPerBlock = param.gemmNPerBlock;
+  int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+  int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
+  if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: Block size too large.\n");
+    return failure();
+  }
+
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
   if (param.gemmAThreadCopyMoreGemmK == false) {
