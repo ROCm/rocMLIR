@@ -145,10 +145,10 @@ void postProcessPerfRes(String chip) {
 def get_gpu_architecture() {
     try {
         def result = sh(script: 'rocminfo', returnStdout: true).trim()
-        def arch_pattern = /gfx\d+\w*/
+        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx\d+\w*((:\w+[\+\-]))*)/
         def matches = (result =~ arch_pattern)
         if (matches) {
-            return matches[0]
+            return matches[0][1]
         }
         return 'N/A'
     } catch (Exception e) {
