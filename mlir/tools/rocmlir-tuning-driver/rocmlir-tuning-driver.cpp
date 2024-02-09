@@ -101,14 +101,19 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
 }
 
 static benchmark::DataType getDataType(Type inputType) {
+  inputType.dump();
   if (inputType.isF32()) {
     return benchmark::DataType::F32;
-  } else if (inputType.isF16()) {
+  } else if (inputType.isInteger(32)){
+    return benchmark::DataType::I32;
+  }else if (inputType.isF16()) {
     return benchmark::DataType::F16;
   } else if (inputType.isBF16()) {
     return benchmark::DataType::BF16;
   } else if (inputType.isInteger(8)) {
     return benchmark::DataType::I8;
+  } else if (inputType.isFloat8E4M3FNUZ()) {
+    return benchmark::DataType::F8;
   } else {
     llvm_unreachable("Kernels only accept ints or floats");
   }
@@ -183,26 +188,29 @@ static int toKernelOrder(Attribute attr) {
   return -1;
 }
 
-static FailureOr<Type>
+static FailureOr<std::pair<Type,Type>>
 extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
         "no architecture set, set mhal.arch on the input module");
   }
   Type toTuneType;
-  op.walk([&toTuneType, &kernels](func::FuncOp f) {
+  Type outputType;
+  op.walk([&toTuneType, &outputType, &kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");
     if (!kernel)
       return;
     kernels.push_back(f);
     if (!toTuneType) {
-      f.walk([&toTuneType](rock::RockGemmWrapperInterface gemmLike) {
+      f.walk([&toTuneType, &outputType](rock::RockGemmWrapperInterface gemmLike) {
         toTuneType = gemmLike.getAType();
+        outputType = gemmLike.getCType();
       });
     }
     if (!toTuneType) {
-      f.walk([&toTuneType](rock::AttentionOp attnOp) {
+      f.walk([&toTuneType, &outputType](rock::AttentionOp attnOp) {
         toTuneType = attnOp.getQueries().getType().getElementType();
+        outputType = toTuneType;
       });
     }
   });
@@ -217,19 +225,21 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!toTuneType) {
     return op.emitError("could not find a tunable kernel in the input");
   }
-  return toTuneType;
+  return std::make_pair(toTuneType,outputType);
 }
 
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
-  FailureOr<Type> maybeToTuneType = extractKernelDataType(source, funcs);
-  if (failed(maybeToTuneType))
+  auto maybeInOutTypes= extractKernelDataType(source, funcs);
+  if (failed(maybeInOutTypes))
     return failure();
-  Type toTuneType = maybeToTuneType.value();
+  Type toTuneType = maybeInOutTypes.value().first;
+  Type outType = maybeInOutTypes.value().second;
   // Provisionally use the type of input A to set up the init value - this
   // should be a per-buffer value in the futurue.
   benchmark::DataType dataType = getDataType(toTuneType);
+  benchmark::DataType outDataType = getDataType(outType);
 
   // We need a copy since HIP'll want a C string
   SmallVector<std::string> kernelFuncNames;
@@ -290,9 +300,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   std::vector<void *> hostBuffers;
   std::vector<void *> gpuBuffers;
   for (size_t i = 0; i < bufferLengths.size(); i++) {
-    bool isOut = (i == bufferLengths.size() - 1);
+    benchmark::DataType type = (i == bufferLengths.size() - 1 ? dataType : outDataType);
     void *hostBuffer =
-        benchmark::allocAndFill(dataType, bufferLengths[i], isOut);
+        benchmark::allocAndFill(type, bufferLengths[i]);
     void *gpuBuffer;
     HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
     hostBuffers.push_back(hostBuffer);

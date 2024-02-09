@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "benchmarkUtils.h"
+#include "hip_f8_impl.h"
 
 #include <algorithm>
 #include <iostream>
@@ -82,6 +83,10 @@ uint16_t float_to_float16(float flt) {
   return sign;
 }
 
+uint8_t float_to_float8(float flt) {
+  return benchmark::cast_to_f8<4, 3, float, false, false>(flt, false, 0);
+}
+
 // Print the help message
 void printUsage(const std::string &name) {
   std::cout << "Usage: \n"
@@ -95,7 +100,7 @@ void printUsage(const std::string &name) {
 
 // Get a pattern to fill the input tensors. This is because we want to avoid
 // testing things with random data or very simple patterns like all 0s or all 1s
-std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
+std::vector<uint8_t> getPattern(DataType dataType) {
   std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
   std::vector<int> patternInt{1, -1, 2};
   std::vector<uint8_t> res;
@@ -103,6 +108,15 @@ std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
   case DataType::F32:
     for (auto flt : patternFlt) {
       auto *p = reinterpret_cast<unsigned char const *>(&flt);
+      res.push_back(p[0]);
+      res.push_back(p[1]);
+      res.push_back(p[2]);
+      res.push_back(p[3]);
+    }
+    break;
+  case DataType::I32:
+    for (auto i : patternInt) {
+      auto *p = reinterpret_cast<unsigned char const *>(&i);
       res.push_back(p[0]);
       res.push_back(p[1]);
       res.push_back(p[2]);
@@ -125,15 +139,14 @@ std::vector<uint8_t> getPattern(DataType dataType, bool isOut) {
       res.push_back(p[1]);
     }
     break;
+  case DataType::F8:
+    for (auto flt : patternFlt)
+      res.push_back(float_to_float8(flt));
+    break;
   case DataType::I8:
     for (auto i : patternInt) {
       auto *p = reinterpret_cast<unsigned char const *>(&i);
       res.push_back(p[0]);
-      if (isOut) {
-        res.push_back(p[1]);
-        res.push_back(p[2]);
-        res.push_back(p[3]);
-      }
     }
     break;
   case DataType::UNKNOWN:
@@ -152,6 +165,8 @@ DataType strToDataType(const std::string &dataTypeStr) {
     return DataType::BF16;
   } else if (dataTypeStr == "i8") {
     return DataType::I8;
+  } else if (dataTypeStr == "fp8") {
+    return DataType::F8;
   } else {
     return DataType::UNKNOWN;
   }
@@ -168,6 +183,8 @@ std::string dataTypeToStr(DataType dataType) {
     return "bf16";
   case DataType::I8:
     return "i8";
+  case DataType::F8:
+    return "fp8";
   default:
     return "unknown";
   }
@@ -217,7 +234,7 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       std::string value = arg.substr(lenTransB);
       res.transposeB = atob(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
-               arg == "-out_datatype" || arg == "--num_cu" ||
+               arg == "--num_cu" ||
                arg == "-operation") {
       i++;
     } else if (arg == "--kernel-repeats") {
@@ -226,6 +243,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       const int lenTransB = std::string("--fusion=").length();
       std::string value = arg.substr(lenTransB);
       res.fusion = value;
+    } else if (arg.rfind("-out_datatype", 0) == 0) {
+      res.outDataType = strToDataType(argv[++i]);
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);
@@ -234,6 +253,10 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
     }
     i++;
   }
+  // By default, output datatype is the same as input datatype
+  if (res.outDataType == DataType::UNKNOWN)
+      res.outDataType = res.dataType;
+  printProblem(res);
 
   return res;
 }
@@ -245,10 +268,11 @@ void printProblem(BenchmarkArgs args) {
             << "K: " << args.gemmK << "\n"
             << "transA: " << (args.transposeA ? "true" : "false") << "\n"
             << "transB: " << (args.transposeB ? "true" : "false") << "\n"
-            << "DataType: " << dataTypeToStr(args.dataType) << "\n";
+            << "DataType: " << dataTypeToStr(args.dataType) << "\n"
+            << "OutDataType: " << dataTypeToStr(args.outDataType) << "\n";
 }
 
-size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
+size_t getByteSize(DataType dataType, size_t elems) {
   switch (dataType) {
   case DataType::F32:
     return elems * 4;
@@ -256,13 +280,14 @@ size_t getByteSize(DataType dataType, size_t elems, bool isOut) {
   case DataType::BF16:
     return elems * 2;
   case DataType::I8:
-    return elems * (isOut ? 4 : 1);
+  case DataType::F8:
+    return elems;
   default:
     return 0;
   }
 }
 
-size_t getBytesPerElement(DataType dataType, bool isOut) {
+size_t getBytesPerElement(DataType dataType) {
   switch (dataType) {
   case DataType::F32:
     return 4;
@@ -270,16 +295,17 @@ size_t getBytesPerElement(DataType dataType, bool isOut) {
   case DataType::BF16:
     return 2;
   case DataType::I8:
-    return (isOut ? 4 : 1);
+  case DataType::F8:
+    return 1;
   default:
     assert(0 && "Data type unknown");
   }
 }
 
-void *allocAndFill(DataType dataType, size_t byteSize, bool isOut) {
+void *allocAndFill(DataType dataType, size_t byteSize) {
   uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(byteSize));
-  std::vector<uint8_t> pattern = getPattern(dataType, isOut);
-  size_t bytesPerElem = getBytesPerElement(dataType, isOut);
+  std::vector<uint8_t> pattern = getPattern(dataType);
+  size_t bytesPerElem = getBytesPerElement(dataType);
   size_t patternLen = (pattern.size() / bytesPerElem);
   size_t elems = byteSize / bytesPerElem;
   for (size_t i = 0; i < elems; ++i) {
@@ -299,6 +325,7 @@ void *makeHostConstant(float flt, DataType dataType) {
   } bytes{0};
   switch (dataType) {
   case DataType::F32:
+  case DataType::F8:
     bytes.f = flt;
     break;
   case DataType::F16:

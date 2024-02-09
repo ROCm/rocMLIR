@@ -288,7 +288,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32", "fp8_fp8"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )

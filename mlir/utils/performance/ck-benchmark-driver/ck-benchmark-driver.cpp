@@ -229,20 +229,30 @@ void runDataType(GemmMemoryParameters params,
 
 int main(int argc, char **argv) {
   auto args = benchmark::parseCommandLine("ck-benchmark-driver", argc, argv);
-  std::set<std::string> supportedFusions{"fastgelu_add_add"};
+
+  // Preliminary checks
+  if (args.dataType == benchmark::DataType::F8 && args.gemmG != 1) {
+    std::cerr << "CK does not support fp8 batched gemm!\n";
+    exit(1);
+  }
+  if (args.dataType != args.outDataType){
+    std::cerr << "CK does not support different input/output data types!\n";
+    exit(1);
+  }
 
   size_t batchStrideA = args.gemmM * args.gemmK,
          batchStrideB = args.gemmK * args.gemmN,
          batchStrideC = args.gemmM * args.gemmN;
   size_t aElems = batchStrideA * args.gemmG, bElems = batchStrideB * args.gemmG,
          cElems = batchStrideC * args.gemmG;
-  size_t aBytes = benchmark::getByteSize(args.dataType, aElems, false),
-         bBytes = benchmark::getByteSize(args.dataType, bElems, false),
-         cBytes = benchmark::getByteSize(args.dataType, cElems, true);
+  size_t aBytes = benchmark::getByteSize(args.dataType, aElems),
+         bBytes = benchmark::getByteSize(args.dataType, bElems),
+         cBytes = benchmark::getByteSize(args.outDataType, cElems);
 
   void *d0Host = nullptr, *d1Host = nullptr, *d0Device = nullptr,
        *d1Device = nullptr;
 
+  std::set<std::string> supportedFusions{"fastgelu_add_add"};
   if (!args.fusion.empty()) {
     if (supportedFusions.find(args.fusion) == supportedFusions.end()) {
       std::cerr << args.fusion
@@ -252,15 +262,15 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    d0Host = benchmark::allocAndFill(args.dataType, cBytes, true);
-    d1Host = benchmark::allocAndFill(args.dataType, cBytes, true);
+    d0Host = benchmark::allocAndFill(args.dataType, cBytes);
+    d1Host = benchmark::allocAndFill(args.outDataType, cBytes);
     d0Device = benchmark::getGpuBuffer(d0Host, cBytes);
     d1Device = benchmark::getGpuBuffer(d1Host, cBytes);
   }
 
-  void *aHost = benchmark::allocAndFill(args.dataType, aBytes, false);
-  void *bHost = benchmark::allocAndFill(args.dataType, bBytes, false);
-  void *cHost = benchmark::allocAndFill(args.dataType, cBytes, true);
+  void *aHost = benchmark::allocAndFill(args.dataType, aBytes);
+  void *bHost = benchmark::allocAndFill(args.dataType, bBytes);
+  void *cHost = benchmark::allocAndFill(args.outDataType, cBytes);
 
   void *aDevice = benchmark::getGpuBuffer(aHost, aBytes);
   void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
@@ -279,6 +289,9 @@ int main(int argc, char **argv) {
     break;
   case benchmark::DataType::I8:
     runDataType<int8_t>(gemmParams, args);
+    break;
+  case benchmark::DataType::F8:
+    runDataType<ck::f8_t>(gemmParams, args);
     break;
   default:
     assert(0 && "DataType not supported");

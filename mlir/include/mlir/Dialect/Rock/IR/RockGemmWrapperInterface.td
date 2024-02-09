@@ -90,6 +90,16 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
+      InterfaceMethod<
+        /*desc=*/[{
+          Return the element type of [what will become] matrix C for this operation.
+        }],
+        /*retType=*/"::mlir::Type",
+        /*methodName=*/"getCType",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
     InterfaceMethod<
         /*desc=*/[{
           Return the features attribute of this op.
