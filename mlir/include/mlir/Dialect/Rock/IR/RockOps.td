@@ -204,10 +204,10 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values"]>]>,
+  Rock_Op<"attention">,
   Arguments<(ins
-    Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
+    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "queries", [MemRead]>:$queries,
+    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
     Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
@@ -424,8 +424,8 @@ def Rock_GridwiseGemmAccelOp :
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
     Rock_Op<"gridwise_attention_accel">,
-    Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
-                   MemRefRankOf<[F32, F16], [3]>:$keys,
+    Arguments<(ins MemRefRankOf<[F32, F16, I8], [3]>:$queries,
+                   MemRefRankOf<[F32, F16, I8], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
                    Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
                    MemRefRankOf<[F32, F16], [3]>:$out,

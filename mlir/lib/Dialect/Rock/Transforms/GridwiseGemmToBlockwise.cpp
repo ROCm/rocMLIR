@@ -1450,17 +1450,26 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
-  void postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
+  LogicalResult postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
                             GridwiseAttentionAccelOp op,
                             layout::GridCoordinates gridCoords,
-                            Value gemm0OutBuffer,
+                            Value srcGemm0OutBuffer,
+                            Value& destGemm0OutBuffer,
                             RegsAsMatrixSubTiles gemm0OutViews) const {
+    LogicalResult res = success();
+    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
+    bool linalgOpFound = false;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
+      linalgOpFound = true;
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       SmallVector<Value> inputTileBuffers;
-      inputTileBuffers.push_back(gemm0OutBuffer);
-      MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+      inputTileBuffers.push_back(srcGemm0OutBuffer);
+      MemRefType srcBufType = srcGemm0OutBuffer.getType().cast<MemRefType>();
 
+      // Pull non-identiy index maps to rock transforms
+      res = makeLinalgGenericWithIdentityAffMaps(rewriter, genOp); 
+    
       // Obtain transform stack from gemmOutput to linalg generic input.
       ArrayAttr linalgToGemmOutMaps;
       std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) =
@@ -1482,7 +1491,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       for (auto [idx, otherInput] :
            llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
-        auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, bufType);
+        MemRefType otherInputBufType = otherInput.getType().cast<MemRefType>();    
+        MemRefType tileBufType = MemRefType::get(srcBufType.getShape(), otherInputBufType.getElementType(), AffineMap{}, privateMemoryAddressSpace);    
+        auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, tileBufType);
         auto genOpInput = genOp.getInputs()[idx + 1];
         ArrayAttr linalgToOtherInputMaps;
         std::tie(std::ignore, linalgToOtherInputMaps, std::ignore) =
@@ -1500,7 +1511,7 @@ struct GridwiseAttentionAccelRewritePattern
         inputTileBuffers.push_back(tileBuffer);
       }
       // Output is overwriting the same input buffer
-      inputTileBuffers.push_back(gemm0OutBuffer);
+      inputTileBuffers.push_back(destGemm0OutBuffer);
       linalg::GenericOp newLinalgOp;
 
       mlir::IRMapping mapper;
@@ -1521,6 +1532,13 @@ struct GridwiseAttentionAccelRewritePattern
                                            utils::IteratorType::parallel));
       newLinalgOp.setIteratorTypesAttr(rewriter.getArrayAttr(iteratorTypes));
     });
+    if(failed(res)){
+        return op.emitError("pre softmax linalg regularization failed.\n");
+    }
+    if(!linalgOpFound){
+        destGemm0OutBuffer = srcGemm0OutBuffer;
+    }
+    return success();
   }
 
   void loadGemmOperandsFromLDSToRegs(
@@ -1762,8 +1780,14 @@ struct GridwiseAttentionAccelRewritePattern
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
     // Currently, there is a working assumption that this kernel is meant
     // support fp32/fp16 This should be guranteed by op verifiers.
+    Type gemmOutElemType = elemTypeQxK;
+    Type softmaxInElemType = elemTypeQxK;
+    if(elemTypeQ == rewriter.getI8Type()){
+        gemmOutElemType = rewriter.getI32Type();
+    }
     Value gemm0OutBuffer =
-        createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+        createBufferForGemmOut(loc, gemmOutElemType, accelParamsGemm0, rewriter);
+    Value softmaxInBuffer = createBufferForGemmOut(loc, softmaxInElemType, accelParamsGemm0, rewriter);
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
@@ -2004,8 +2028,12 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
-      postProcessFirstGemm(rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer,
+      LogicalResult res = postProcessFirstGemm(rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, softmaxInBuffer,
                            gemm0OutSubTileViewsTr);
+      gemm0OutBuffer = softmaxInBuffer;
+      if(failed(res)){
+        return op.emitError("post processing first gemm failed.\n");
+      }
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
@@ -2117,7 +2145,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
           TypedValue<MemRefType> gemm1LDSBufferB =
               viewBufferAs(rewriter, gemm1LDSByteBufferB,
-                           vectorTypeOrSelf(elemTypeQ, gemm1kpack));
+                           vectorTypeOrSelf(elemTypeQxK, gemm1kpack));
           wrappedLDSBufferForLoadB = accelEmitterPtrGemm1->wrapLDSBufferForLoad(
               rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
               gemm1InNPerThread, "n", false);

@@ -723,15 +723,6 @@ struct CollapseExpandRewritePattern
 // broadcastable ops are also element-wise, and we know that an
 // additional set of ops are also element-wise.
 static bool isElementwiseOp(Operation *op) {
-  // All types I/O types should match each other.
-  // This is there to drop implicit broadcasted instances
-  // of ResultsBroadcastableShape ops.
-  auto resType = op->getResultTypes()[0];
-  for (auto operandType : op->getOperandTypes()) {
-    if (operandType != resType) {
-      return false;
-    }
-  }
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          // clang-format off
@@ -883,6 +874,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       elemwiseArgs.push_back(input);
       return {blockArg, failure()};
     }
+
+
+
+
     // Following section recursively calls into the left and right
     // sub-tree to grab as much of the elemwise tree rooted on softmax
     // input.
