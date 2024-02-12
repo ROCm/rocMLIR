@@ -967,8 +967,9 @@ pipeline {
             matrix {
                 axes {
                     axis {
+                        // Disabling MIGraphX build stage for gfx906 (vanilla) as it is deprecated.
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21'
+                        values 'mfma', 'navi21'
                     }
                 }
                 agent {
