@@ -1350,6 +1350,25 @@ struct GridwiseAttentionAccelRewritePattern
     return ret;
   }
 
+  // This function will create a grid subtile view that has the unpadded
+  // coordinates if there were any padding involved in the gemm operands.
+  RegsAsMatrixSubTiles unpadGridSubTileView(PatternRewriter &rewriter, Location loc, RegsAsMatrixSubTiles subtileViews, int64_t prePadGemmM, int64_t prePadGemmN) const {
+    ArrayRef<int64_t> paddedShape =
+        getLowerShape(subtileViews.gridSubTile);
+    TopDownTMBuilder viewBuilder{
+        rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
+    viewBuilder.passThrough("g");
+    // paddedShape is G x M x N
+    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
+                                             paddedShape[2] - prePadGemmN});
+    TransformMapAttr padMap = viewBuilder.get();
+
+    subtileViews.gridSubTile =
+        prependUpperViews(rewriter, subtileViews.gridSubTile,
+                          rewriter.getArrayAttr({padMap}));
+    return subtileViews;
+  }
+
   // If padding is used in the kernel, this means the first gemm
   // will be done in a larger matrix. In typical, gemm kernels
   // the padded region in the output will just contain zeros. However,
@@ -1362,24 +1381,8 @@ struct GridwiseAttentionAccelRewritePattern
   void createFirstGemmNegInfPadding(PatternRewriter &rewriter, Location loc,
                                     layout::GridCoordinates gridCoords,
                                     Value gemm0OutBuffer,
-                                    RegsAsMatrixSubTiles gemm0OutSubTileViews,
-                                    int64_t prePadGemmM,
-                                    int64_t prePadGemmN) const {
-    // Append a pad rock.transform to be able query validity
-    // later to insert the special padded value
-    ArrayRef<int64_t> paddedShape =
-        getLowerShape(gemm0OutSubTileViews.gridSubTile);
-    TopDownTMBuilder viewBuilder{
-        rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
-    viewBuilder.passThrough("g");
-    // paddedShape is G x M x N
-    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
-                                             paddedShape[2] - prePadGemmN});
-    TransformMapAttr padMap = viewBuilder.get();
-
-    ArrayAttr transforms =
-        prependUpperViews(rewriter, gemm0OutSubTileViews.gridSubTile,
-                          rewriter.getArrayAttr({padMap}));
+                                    RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
+    
 
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
@@ -1395,7 +1398,7 @@ struct GridwiseAttentionAccelRewritePattern
         ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                               gridCoords.n_block, tid, zero},
                              {zero, zero, zero, zero, zero}},
-        ArrayRef<Attribute>{transforms, rewriter.getArrayAttr({})},
+        ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile , rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
@@ -2026,10 +2029,20 @@ struct GridwiseAttentionAccelRewritePattern
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
 
+      int64_t prePadG0M = gemm0M;
+        if (op.getPrePadG0M().has_value()) {
+            prePadG0M = op.getPrePadG0M().value().getSExtValue();
+        }
+        int64_t prePadG0N = gemm0N;
+        if (op.getPrePadG0N().has_value()) {
+            prePadG0N = op.getPrePadG0N().value().getSExtValue();
+        }
+      RegsAsMatrixSubTiles gemm0OutSubTileViewsTrUnPadded = unpadGridSubTileView(rewriter, loc, gemm0OutSubTileViewsTr, prePadG0M, prePadG0N);
+
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
       LogicalResult res = postProcessFirstGemm(rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, softmaxInBuffer,
-                           gemm0OutSubTileViewsTr);
+                           gemm0OutSubTileViewsTrUnPadded);
       gemm0OutBuffer = softmaxInBuffer;
       if(failed(res)){
         return op.emitError("post processing first gemm failed.\n");
@@ -2048,17 +2061,8 @@ struct GridwiseAttentionAccelRewritePattern
       bool hasPadding =
           op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
       if (hasPadding) {
-        int64_t prePadG0M = gemm0M;
-        if (op.getPrePadG0M().has_value()) {
-          prePadG0M = op.getPrePadG0M().value().getSExtValue();
-        }
-        int64_t prePadG0N = gemm0N;
-        if (op.getPrePadG0N().has_value()) {
-          prePadG0N = op.getPrePadG0N().value().getSExtValue();
-        }
         createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
-                                     gemm0OutBuffer, gemm0OutSubTileViewsTr,
-                                     prePadG0M, prePadG0N);
+                                     gemm0OutBuffer, gemm0OutSubTileViewsTrUnPadded);
       }
 
       APInt reductionAxis = APInt(64, 1);
