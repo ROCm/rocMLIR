@@ -54,20 +54,21 @@ struct SelectExtractRewritePattern
 
   LogicalResult matchAndRewrite(LLVM::ExtractValueOp op,
                                 PatternRewriter &rw) const override {
-    if (auto selectOp = dyn_cast_or_null<LLVM::SelectOp>(
-            op.getContainer().getDefiningOp())) {
-      auto loc = op->getLoc();
-      auto extractTrueValue = rw.create<LLVM::ExtractValueOp>(
-          loc, selectOp.getTrueValue(), op.getPosition());
-      auto extractFalseValue = rw.create<LLVM::ExtractValueOp>(
-          loc, selectOp.getFalseValue(), op.getPosition());
-      auto newSelectOp = rw.create<LLVM::SelectOp>(
-          loc, selectOp.getCondition(), extractTrueValue, extractFalseValue,
-          selectOp.getFastmathFlags());
-      rw.replaceOp(op, newSelectOp);
-      return success();
-    }
-    return failure();
+    auto selectOp =
+        dyn_cast_or_null<LLVM::SelectOp>(op.getContainer().getDefiningOp());
+    if (!selectOp)
+      return failure();
+
+    auto loc = op->getLoc();
+    auto extractTrueValue = rw.create<LLVM::ExtractValueOp>(
+        loc, selectOp.getTrueValue(), op.getPosition());
+    auto extractFalseValue = rw.create<LLVM::ExtractValueOp>(
+        loc, selectOp.getFalseValue(), op.getPosition());
+    auto newSelectOp = rw.create<LLVM::SelectOp>(
+        loc, selectOp.getCondition(), extractTrueValue, extractFalseValue,
+        selectOp.getFastmathFlags());
+    rw.replaceOp(op, newSelectOp);
+    return success();
   }
 };
 
