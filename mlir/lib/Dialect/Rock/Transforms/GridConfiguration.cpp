@@ -36,6 +36,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include <memory>
 #include <type_traits>
@@ -71,33 +72,6 @@ int64_t obtainGridSize(const GemmSize &gemmSize, const InitParams &param) {
          (gemmSize.n / param.gemmNPerBlock) * gemmSize.g;
 }
 
-LogicalResult getKBlocks(const int64_t batchSize, const GemmSize &gemmSize,
-                         const InitParamsAccel &params, int64_t &gemmKBlocks,
-                         uint32_t numCu) {
-  return calculateKBlockNum(batchSize, gemmSize, params.gemmMPerBlock,
-                            params.gemmNPerBlock, params.gemmKPerBlock,
-                            params.gemmKPack, numCu, gemmKBlocks);
-}
-
-template <typename InitParams>
-GemmSize getPaddedGemmSize(const InitParams &params, GemmSize gemmSize) {
-  int64_t gemmKPack{1};
-  if constexpr (std::is_same_v<InitParams, InitParamsAccel>) {
-    gemmKPack = params.gemmKPack;
-  }
-
-  auto gemmExtraPad =
-      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
-                       params.gemmNPerBlock, gemmSize, gemmKPack);
-
-  if (gemmExtraPad.has_value()) {
-    gemmSize.m += gemmExtraPad->m;
-    gemmSize.k += gemmExtraPad->k;
-    gemmSize.n += gemmExtraPad->n;
-  }
-  return gemmSize;
-}
-
 void RockGridConfigurationPass::compute(RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
   GemmFeatures features = op.getGemmFeatures();
@@ -109,46 +83,36 @@ void RockGridConfigurationPass::compute(RockGemmWrapperInterface op) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
 
     InitParamsAccel initParams;
-    if (auto xdlopsAttr = op.getGemmParams()->cast<XdlopsGemmParamsAttr>()) {
+    if (auto xdlopsAttr =
+            op.getGemmParams()->dyn_cast<XdlopsGemmParamsAttr>()) {
       initParams = InitParamsAccel(xdlopsAttr);
     } else {
       auto wmmaAttr = op.getGemmParams()->cast<WmmaGemmParamsAttr>();
       initParams = InitParamsAccel(wmmaAttr);
     }
 
-    auto paddedGemmSize = getPaddedGemmSize(initParams, origGemmSize);
-    bool requiredPadding = !(paddedGemmSize == origGemmSize);
-
+    auto paddedGemmSize = calculatePaddedGemmSize(initParams, origGemmSize,
+                                                  initParams.getKPack());
     auto gridSize = obtainGridSize(paddedGemmSize, initParams);
 
-    int64_t gemmKBlocks = 1;
-    auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
-    if (maybeWrwOp &&
-        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
-      auto res = getKBlocks(info.batchSize, paddedGemmSize, initParams,
-                            gemmKBlocks, info.numCu);
-
-      if (failed(res)) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Invalid tuning parameters for computing KBlocks.\n");
+    if (auto bwdOp = llvm::dyn_cast<Conv2DBwdWeightOp>(*op)) {
+      if (!bwdOp.getKBlocks().has_value()) {
+        LLVM_DEBUG(llvm::dbgs() << "must have kBlocks set at lowering.\n");
         signalPassFailure();
         return;
       }
+      int64_t gemmKBlocks = bwdOp.getKBlocks()->getZExtValue();
       gridSize *= gemmKBlocks;
     }
 
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-
-    // Set kblocks attribute only for backward weight convolutions.
-    if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
-      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
-
   } else {
     auto attr = op.getGemmParams()->cast<GeneralGemmParamsAttr>();
     InitParamsNonAccel initParams(attr);
 
-    auto paddedGemmSize = getPaddedGemmSize(initParams, origGemmSize);
+    auto paddedGemmSize = calculatePaddedGemmSize(initParams, origGemmSize,
+                                                  initParams.getKPack());
     auto gridSize = obtainGridSize(paddedGemmSize, initParams);
 
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));

@@ -14,6 +14,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
@@ -22,6 +23,8 @@ namespace rock {
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
+
+#define DEBUG_TYPE "rock-affix-params"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -135,6 +138,33 @@ void AffixTuningParameters::affixTuningParametersImpl(
       if (failed(status))
         signalPassFailure();
     }
+
+    auto origGemmSize = op.getGemmSize();
+    auto paddedGemmSize = calculatePaddedGemmSize(validParams, origGemmSize,
+                                                  validParams.gemmKPack);
+    const bool requiredPadding = !(paddedGemmSize == origGemmSize);
+
+    int64_t gemmKBlocks = 1;
+    PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
+    auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
+    if (maybeWrwOp &&
+        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
+      auto res = calculateKBlockNum(
+          info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
+          validParams.gemmNPerBlock, validParams.gemmKPerBlock,
+          validParams.gemmKPack, info.numCu, gemmKBlocks);
+
+      if (failed(res)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Invalid tuning parameters for computing KBlocks.\n");
+        signalPassFailure();
+        return;
+      }
+    }
+
+    // Set kblocks attribute only for backward weight convolutions.
+    if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
+      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
 

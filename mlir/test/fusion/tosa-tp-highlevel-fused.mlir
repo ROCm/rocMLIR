@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver --host-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise -rock-regularize | FileCheck %s
+// RUN: rocmlir-driver --host-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-grid-config --rock-gemm-to-gridwise -rock-regularize | FileCheck %s
 
 // CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: linalg.generic

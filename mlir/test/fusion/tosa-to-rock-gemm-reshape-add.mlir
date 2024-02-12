@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver --host-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s --check-prefix=CHECK_LINALG_ALIGN
+// RUN: rocmlir-driver --host-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-grid-config --rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s --check-prefix=CHECK_LINALG_ALIGN
 
 // CHECK_LINALG_ALIGN-DAG: #[[AMAP:.*]] = affine_map<(d0, d1, d2) -> (d0 + d1, d2)>
 // CHECK_LINALG_ALIGN-DAG: #[[AMAP1:.*]] = affine_map<(d0, d1) -> (d0 * 1000 + d1)>

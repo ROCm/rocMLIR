@@ -50,6 +50,9 @@ std::optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
                                          const GemmSize &gemmSize,
                                          int64_t kPack = 1);
 
+GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
+                                 int64_t kPack = 1);
+
 /// Given a tuning parameter struct, determine how much padding the gemm with
 /// a given gemm size requires. Returns None if no padding is needed. The
 /// values in the returned gemm context represent the number of 0s that need to

@@ -1,7 +1,7 @@
 // This tests checks the following aspects of lowering component:
 // * The correct padding transformations are generated and added to the gemm
 
-// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s
+// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-grid-config -rock-gemm-to-gridwise %s | FileCheck %s
 // CHECK-DAG: #[[$PAD_GEMMK:.*]] = #rock.transform_map{{.*}}Pad{0, 2} ["gemmKPad"] at [1] -> ["gemmK"] at [1]
 
 // CHECK-LABEL: func.func @rock_conv2d_kcyx_nchw_nkhw_padding_kernel

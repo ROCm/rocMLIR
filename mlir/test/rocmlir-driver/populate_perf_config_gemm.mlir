@@ -3,7 +3,7 @@
 
 // RUN: rocmlir-gen --operation gemm -t f32 --arch gfx1030 --mfma on -n 128 -k 8 -m 256 --perf_config 128,64,4,64,64,1,1,1 | FileCheck %s --check-prefix=GEN
 // RUN: rocmlir-gen --operation gemm -t f32 --arch gfx1030 --mfma on -n 128 -k 8 -m 256 --perf_config 128,64,4,64,64,1,1,1 | rocmlir-opt --rock-affix-params | FileCheck %s --check-prefix=AFFIX
-// RUN: rocmlir-gen --operation gemm -t f32 --arch gfx1030 --mfma on -n 128 -k 8 -m 256 --perf_config 128,64,4,64,64,1,1,1 | rocmlir-opt --rock-affix-params --rock-gemm-to-gridwise | FileCheck %s --check-prefix=GRIDWISE
+// RUN: rocmlir-gen --operation gemm -t f32 --arch gfx1030 --mfma on -n 128 -k 8 -m 256 --perf_config 128,64,4,64,64,1,1,1 | rocmlir-opt --rock-affix-params --rock-grid-config --rock-gemm-to-gridwise | FileCheck %s --check-prefix=GRIDWISE
 
 // GEN: rock.gemm
 // CHECK-SAME: features = mfma|dot

@@ -98,6 +98,20 @@ std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
   return GemmSize(0, mExtra, kExtra, nExtra);
 }
 
+GemmSize mlir::rock::calculatePaddedGemmSize(const InitParams &params,
+                                             GemmSize gemmSize, int64_t kPack) {
+  auto gemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize, kPack);
+
+  if (gemmExtraPad.has_value()) {
+    gemmSize.m += gemmExtraPad->m;
+    gemmSize.k += gemmExtraPad->k;
+    gemmSize.n += gemmExtraPad->n;
+  }
+  return gemmSize;
+}
+
 std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
