@@ -676,9 +676,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   int64_t kPerBlock = param.gemmKPerBlock;
   int64_t mPerBlock = param.gemmMPerBlock;
   int64_t nPerBlock = param.gemmNPerBlock;
-  int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-  int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-  if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+  if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
     LLVM_DEBUG(llvm::dbgs() << "tuning: Block size too large.\n");
     return failure();
   }
