@@ -1153,18 +1153,6 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
   prop.operandSegmentSizes[segmentSizesLen - 1] = asyncObject ? 1 : 0;
 }
 
-void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
-                         ValueRange dependencies, GPUFuncOp kernelFunc,
-                         KernelDim3 gridSize, KernelDim3 blockSize,
-                         Value dynamicSharedMemorySize,
-                         ValueRange kernelOperands) {
-
-  result.addOperands(dependencies);
-  build(builder, result, kernelFunc, gridSize, blockSize,
-        dynamicSharedMemorySize, kernelOperands);
-  result.addTypes(builder.getType<AsyncTokenType>());
-}
-
 StringAttr LaunchFuncOp::getKernelModuleName() {
   return getKernel().getRootReference();
 }
