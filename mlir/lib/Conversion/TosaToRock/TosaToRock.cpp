@@ -875,9 +875,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return {blockArg, failure()};
     }
 
-
-
-
     // Following section recursively calls into the left and right
     // sub-tree to grab as much of the elemwise tree rooted on softmax
     // input.

@@ -2218,7 +2218,8 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               ArrayRef<Type> elemTypes) {
   SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
   SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
-  bool isQuantized = elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
+  bool isQuantized =
+      elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
 
   MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
                                      elemTypes[0]),
@@ -2278,7 +2279,8 @@ static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
   return op;
 }
 
-Value addTensorArgToBlock(OpBuilder& builder, Location loc, Block *preSoftmaxElemwiseBlock, Value funcArg){
+Value addTensorArgToBlock(OpBuilder &builder, Location loc,
+                          Block *preSoftmaxElemwiseBlock, Value funcArg) {
   ShapedType funcArgType = funcArg.getType().cast<ShapedType>();
   Value funcArgMemRef = preSoftmaxElemwiseBlock->addArgument(
       MemRefType::get(funcArgType.getShape(), funcArgType.getElementType()),
@@ -2352,7 +2354,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     ShapedType qType = queries.getType().cast<ShapedType>();
     ArrayRef<int64_t> qShape = qType.getShape();
     Type qkElemType = qType.getElementType();
-    if(isQuantized){
+    if (isQuantized) {
       qkElemType = IntegerType::get(ctx, 32);
     }
     MemRefType qkMemRefType = MemRefType::get(
@@ -2360,26 +2362,39 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
     Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
     if (isQuantized) {
-      Value quantBiasI8 = addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantBias);
-      Value quantScaleF16 = addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantScale);
-      Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(builder, loc, IntegerType::get(ctx, 32), quantBiasI8); 
-      qkTensor = createOpAndInfer<tosa::SubOp>(builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-      qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc, Float16Type::get(ctx), qkTensor);
-      qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16, /*shift=*/0);
+      Value quantBiasI8 =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantBias);
+      Value quantScaleF16 = addTensorArgToBlock(
+          builder, loc, preSoftmaxElemwiseBlock, quantScale);
+      Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+          builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
+      qkTensor = createOpAndInfer<tosa::SubOp>(
+          builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
+      qkTensor = createOpAndInfer<tosa::CastOp>(
+          builder, loc, Float16Type::get(ctx), qkTensor);
+      qkTensor =
+          createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
+                                        qkTensor, quantScaleF16, /*shift=*/0);
     }
     if (hasAttnScale) {
-      Value scaleTensor = addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
-      qkTensor =
-          createOpAndInfer<tosa::MulOp>(builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(),
-                                        qkTensor, scaleTensor, /*shift=*/0);
+      Value scaleTensor =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
+      qkTensor = createOpAndInfer<tosa::MulOp>(
+          builder, loc,
+          scaleTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
+          scaleTensor, /*shift=*/0);
     }
     if (hasAttnBias) {
-      Value biasTensor = addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
+      Value biasTensor =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
       qkTensor = createOpAndInfer<tosa::AddOp>(
-          builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(), qkTensor, biasTensor);
+          builder, loc,
+          biasTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
+          biasTensor);
     }
-    MemRefType resMemRefType = MemRefType::get(
-        {qShape[0], sequenceLength, sequenceLength}, qkTensor.getType().cast<ShapedType>().getElementType());
+    MemRefType resMemRefType =
+        MemRefType::get({qShape[0], sequenceLength, sequenceLength},
+                        qkTensor.getType().cast<ShapedType>().getElementType());
     Value resMemref =
         builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
@@ -2533,50 +2548,65 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
   }
   Type firstGemmOutElemType = params.types[0];
-  if (isQuantized){
+  if (isQuantized) {
     firstGemmOutElemType = IntegerType::get(ctx, 32);
   }
-  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, firstGemmOutElemType,
-                                                    queriesTensor, keysTensor);
+  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor);
   unsigned optionalArgsCounter{3};
   if (isQuantized) {
     auto quantBiasI8 = getAsTensor(block->getArgument(optionalArgsCounter++));
-    Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(builder, loc, IntegerType::get(ctx, 32), quantBiasI8); 
-    qkTensor = createOpAndInfer<tosa::SubOp>(builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-    qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc, Float16Type::get(ctx), qkTensor);
+    Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+        builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
+    qkTensor = createOpAndInfer<tosa::SubOp>(
+        builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
+    qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
+                                              Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getAsTensor(block->getArgument(optionalArgsCounter++));
-    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16, /*shift=*/0);
+    qkTensor =
+        createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
+                                      qkTensor, quantScaleF16, /*shift=*/0);
   }
   if (hasAttnScale) {
     auto scaleTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
-    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
-                                             scaleTensor, /*shift=*/0);
+    qkTensor = createOpAndInfer<tosa::MulOp>(
+        builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(),
+        qkTensor, scaleTensor, /*shift=*/0);
   }
 
   if (hasAttnBias) {
     auto biasTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
-    qkTensor = createOpAndInfer<tosa::AddOp>(builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
-                                             biasTensor);
+    qkTensor = createOpAndInfer<tosa::AddOp>(
+        builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(),
+        qkTensor, biasTensor);
   }
 
   constexpr int64_t reductionAxis{2};
-  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
-                                                    qkTensor, reductionAxis);
-  auto normilizedQkTensor =
-      createOpAndInfer<tosa::SubOp>(builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(), qkTensor, qkMaxs);
-  auto expsTensor =
-      createOpAndInfer<tosa::ExpOp>(builder, loc, normilizedQkTensor.getType().cast<ShapedType>().getElementType(), normilizedQkTensor);
+  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
+      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      qkTensor, reductionAxis);
+  auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(
+      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      qkTensor, qkMaxs);
+  auto expsTensor = createOpAndInfer<tosa::ExpOp>(
+      builder, loc,
+      normilizedQkTensor.getType().cast<ShapedType>().getElementType(),
+      normilizedQkTensor);
   auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
-      builder, loc, expsTensor.getType().cast<ShapedType>().getElementType(), expsTensor, reductionAxis);
-  auto invExpsSums =
-      createOpAndInfer<tosa::ReciprocalOp>(builder, loc, expsSums.getType().cast<ShapedType>().getElementType(), expsSums);
+      builder, loc, expsTensor.getType().cast<ShapedType>().getElementType(),
+      expsTensor, reductionAxis);
+  auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
+      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      expsSums);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
-      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(), expsTensor, invExpsSums, /*shift=*/0);
+      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      expsTensor, invExpsSums, /*shift=*/0);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
   softmaxTensor = qkTensor;
 #endif
   Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, softmaxTensor.getType().cast<ShapedType>().getElementType(), softmaxTensor, valuesTensor);
+      builder, loc, softmaxTensor.getType().cast<ShapedType>().getElementType(),
+      softmaxTensor, valuesTensor);
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
@@ -3452,18 +3482,24 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       auto elemType = typeFromString(inputDataType.getValue(), context);
       // We only support first-gemm i8 version of attention
       // This will be changed when we support both gemms of i8.
-      if(elemType == IntegerType::get(context, 8)){
+      if (elemType == IntegerType::get(context, 8)) {
         constexpr size_t maxNumArgs{7};
         genParams.types.resize(maxNumArgs);
-        genParams.types[AttentionQuantizedArgIndex::q] = IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::k] = IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::v] = Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::quantBias] = IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::quantScale] = Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::scale] = Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::bias] = Float16Type::get(context);
-      }
-      else{
+        genParams.types[AttentionQuantizedArgIndex::q] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::k] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::v] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::quantBias] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::quantScale] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::scale] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::bias] =
+            Float16Type::get(context);
+      } else {
         constexpr size_t maxNumArgs{5};
         // Note: In the current implementation, all operands have the same type.
         // This behaviour enforced by `-t`. See, detectMissingArguments()

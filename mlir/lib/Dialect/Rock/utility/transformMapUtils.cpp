@@ -8,8 +8,8 @@
 
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -1162,7 +1162,9 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
   return inp;
 }
 
-LogicalResult mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b, linalg::GenericOp laOp){
+LogicalResult
+mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
+                                                 linalg::GenericOp laOp) {
   auto idxMaps = laOp.getIndexingMapsArray();
   auto outIdxMap = idxMaps.back();
 

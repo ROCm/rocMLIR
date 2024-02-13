@@ -19,9 +19,8 @@ class OpBuilder;
 class Value;
 class ValueRange;
 
-namespace linalg
-{
-  class GenericOp;
+namespace linalg {
+class GenericOp;
 }
 
 namespace rock {
@@ -127,7 +126,8 @@ Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
 // This function will pull non identity affine maps in the indexing of a
 // linalg generic maps as rock.transform ops, in effect making the linalg
 // generic use identity maps.
-LogicalResult makeLinalgGenericWithIdentityAffMaps(PatternRewriter &rw, linalg::GenericOp laOp);                                            
+LogicalResult makeLinalgGenericWithIdentityAffMaps(PatternRewriter &rw,
+                                                   linalg::GenericOp laOp);
 
 // This function will take an input TransformMapAttr and invert the
 // shapes and transforms.
