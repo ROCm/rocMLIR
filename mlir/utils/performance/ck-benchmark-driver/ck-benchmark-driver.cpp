@@ -63,7 +63,8 @@ struct GemmMemoryParameters {
 };
 
 // Main utility functions to run GEMM
-template <typename ALayout, typename BLayout, typename DT> struct GemmRunner {
+template <typename ALayout, typename BLayout, typename DT>
+struct GemmRunner {
   using D = GemmDeviceOp<ALayout, BLayout, DT>;
   using Dptr = std::unique_ptr<D>;
 
