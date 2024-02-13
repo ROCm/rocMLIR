@@ -229,7 +229,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     mlirRockTuningSetParam(tuningClone, tuningParam);
     if (mlirLogicalResultIsFailure(
             mlirPassManagerRunOnOp(applicabilityPm, tuningCloneOp))) {
-      // CHECK-NOT: Perfconfig "4,64,4,4,64,1,1,1" is not applicable
+      // CHECK-NOT: is not applicable
       printf("Perfconfig \"%s\" is not applicable to the problem string(%s)\n",
              paramStr, problemKey);
       mlirModuleDestroy(tuningClone);
