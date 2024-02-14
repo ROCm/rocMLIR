@@ -33,12 +33,6 @@ def RockAffixTuningParametersPass : Pass<"rock-affix-params", "::mlir::func::Fun
   ];
 }
 
-def RockGridConfigurationPass : Pass<"rock-grid-config", "::mlir::func::FuncOp"> {
-  let summary = "populate tuning parameters for gemm and convolution ops";
-  let dependentDialects = ["rock::RockDialect",
-                           "func::FuncDialect"];
-}
-
 def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp"> {
   let summary = "convert gemm to gridwise gemm, adding padding";
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];

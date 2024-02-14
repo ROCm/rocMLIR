@@ -126,15 +126,13 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
-   *   --rock-grid-config --rock-fold-broadcast
-   *   --rock-affix-params --rock-gemm-to-gridwise
+   *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
    *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
-  funcPm.addPass(rock::createRockGridConfigurationPass());
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
