@@ -7,10 +7,10 @@ RUN pip3 install setuptools wheel
 RUN pip3 install onnxruntime==1.10.0
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/AMDMIGraphX ${MIGRAPHX_REF}) > migraphx-deps-commit-hash
+RUN wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
+RUN echo $(git ls-remote https://github.com/ROCm/AMDMIGraphX ${MIGRAPHX_REF}) > migraphx-deps-commit-hash
 RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++ --cc=/opt/rocm/llvm/bin/clang
 # Remove rocMLIR version as per MIGraphX requirements
 # as this image is being used for CI with tip of rocMLIR
