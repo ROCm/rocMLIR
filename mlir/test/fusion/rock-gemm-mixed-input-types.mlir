@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-view-to-transform -rock-affix-params -rock-conv-to-gemm -rock-grid-config -rock-gemm-to-gridwise %s | FileCheck %s
+// RUN: rocmlir-opt --rock-view-to-transform -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s
 // RUN: rocmlir-driver -kernel-pipeline=gpu --verify-passes %s | rocmlir-opt
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {

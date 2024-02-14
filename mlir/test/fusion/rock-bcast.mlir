@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-grid-config -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
+// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
 
 // CHECK: #[[MAP:.*]] = affine_map<(d0, d1, d2, d3, d4) -> (0, 0, 0, 0, d4)>
 // CHECK: #rock.transform_map<#[[MAP]] by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{30} ["dim2"] at [2] -> ["dim2"] at [2]>, <Broadcast{30} ["dim3"] at [3] -> ["dim3"] at [3]>, <PassThrough ["dim0"] at [4] -> ["dim0"] at [0]>] bounds = [1, 1, 30, 30, 16] -> [1, 1, 1, 1, 16]>
