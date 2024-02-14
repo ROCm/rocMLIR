@@ -282,6 +282,10 @@ static llvm::cl::opt<rock::StoreMethod> storeMethod(
                    "atomically add results to values in matrix C")),
     llvm::cl::init(rock::StoreMethod::Set));
 
+static llvm::cl::opt<int64_t>
+    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
+                 llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
 // A toggle to control whether a feature should be added to the feature list
 enum class FeatureToggle : uint32_t { infer, on, off };
 
@@ -1097,18 +1101,31 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
     b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
   }
 
+  const bool isGemm = operation == rock::KernelType::Gemm;
+  const bool isAtomicAddStore = storeMethod == rock::StoreMethod::AtomicAdd;
+  const bool zeroInitRequired = isGemm && isAtomicAddStore;
+
+  auto cType = cpuMem.back().getType().cast<MemRefType>();
+  Value zeroVal = rock::createZeroConstantOp(b, loc, cType.getElementType());
+  Value gpuCVal = gpuMem.back();
+
   // Emit kernel function call, repeating it if needed.
   // We assume that the repeated atomic add usages in a wrw kernel will not
   // substantially impact performance as the result becomes large
-  auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
-                                            Value ignoredIv,
-                                            ValueRange noArgs) {
+  auto emitWrappedCall = [&kernel, &gpuMem, zeroInitRequired, &gpuCVal,
+                          &zeroVal](OpBuilder &b, Location loc, Value ignoredIv,
+                                    ValueRange noArgs) {
+    if (zeroInitRequired) {
+      b.create<gpu::MemsetOp>(loc, mlir::Type{}, ValueRange{}, gpuCVal,
+                              zeroVal);
+    }
     auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
     wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
     if (ignoredIv) { // we're creating an actual loop
       b.create<scf::YieldOp>(loc);
     }
   };
+
   if (kernelRepeats > 1) {
     Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     Value kernelRepeatsOp =
@@ -2196,6 +2213,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
+  gemm->setAttr("split-k-factor",
+                b.getStringAttr(llvm::StringRef(std::to_string(splitkFactor))));
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);
@@ -2366,7 +2385,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&...args) {
+                               Args &&... args) {
   auto op =
       builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =

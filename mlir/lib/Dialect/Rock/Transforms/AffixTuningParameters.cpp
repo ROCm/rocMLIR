@@ -128,6 +128,14 @@ void AffixTuningParameters::affixTuningParametersImpl(
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
+
+  int64_t splitkFactor{1};
+  if (auto splitkAttr =
+          op->template getAttrOfType<StringAttr>("split-k-factor")) {
+    splitkFactor = std::stoi(splitkAttr.getValue().str());
+    splitkFactor = (splitkFactor > 1) ? splitkFactor : 1;
+  }
+
   GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
@@ -153,6 +161,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
+    gridSize *= splitkFactor;
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
