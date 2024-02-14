@@ -235,7 +235,7 @@ int main(int argc, char **argv) {
     std::cerr << "CK does not support fp8 batched gemm!\n";
     exit(1);
   }
-  if (args.dataType != args.outDataType){
+  if (args.dataType != args.outDataType) {
     std::cerr << "CK does not support different input/output data types!\n";
     exit(1);
   }

@@ -16,11 +16,14 @@
 
 #include "rocblas/internal/rocblas-beta.h"
 #include "rocblas/rocblas.h"
+#include <hip/hip_runtime_api.h>
+#include <rocblas/internal/rocblas-types.h>
 // Drop weird backcompat macro
 #undef rocblas_gemm_strided_batched_ex
 #undef rocblas_gemm_ex
 
 #include <cstdio>
+#include <iostream>
 
 #define ROCBLAS_ABORT_IF_FAIL(expr)                                            \
   do {                                                                         \
@@ -62,6 +65,19 @@ bool get_compute_fp32_flag() {
           device_name.find("gfx94") != std::string::npos);
 }
 
+benchmark::DataType getComputeType(benchmark::DataType inputType,
+                                   benchmark::DataType outputType) {
+  if (inputType == benchmark::DataType::F8)
+    return benchmark::DataType::F32;
+  if ((inputType == benchmark::DataType::F16 ||
+       inputType == benchmark::DataType::BF16) &&
+      get_compute_fp32_flag())
+    return benchmark::DataType::F32;
+  if (inputType == benchmark::DataType::I8)
+    return benchmark::DataType::I32;
+  return outputType;
+}
+
 int main(int argc, char **argv) {
   auto args =
       benchmark::parseCommandLine("rocblas-benchmark-driver", argc, argv);
@@ -98,16 +114,14 @@ int main(int argc, char **argv) {
          cElems = strideC * args.gemmG;
   size_t aBytes = getByteSize(args.dataType, aElems),
          bBytes = getByteSize(args.dataType, bElems),
-         cBytes = getByteSize(args.outDataType, cElems);
+         cBytes = getByteSize(benchmark::DataType::F32, cElems);
+
+  benchmark::DataType computeDataType =
+      getComputeType(args.dataType, args.outDataType);
 
   rocblas_datatype inType = getRocblasType(args.dataType);
   rocblas_datatype outType = getRocblasType(args.outDataType);
-
-  // This is used for anything but F8
-  rocblas_datatype computeType = outType;
-  if ((inType == rocblas_datatype_f16_r) && get_compute_fp32_flag()) {
-    computeType = rocblas_datatype_f32_r;
-  }
+  rocblas_datatype computeType = getRocblasType(computeDataType);
 
   rocblas_initialize();
   rocblas_handle handle;
@@ -121,15 +135,21 @@ int main(int argc, char **argv) {
   void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
   void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
-  void *alpha = makeHostConstant(1.0, args.outDataType);
-  void *beta = makeHostConstant(0.0, args.outDataType);
+  void *alpha = makeHostConstant(1.0, computeDataType);
+  void *beta = makeHostConstant(0.0, computeDataType);
 
   ROCBLAS_ABORT_IF_FAIL(
       rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host));
 
   rocblas_gemm_flags rocblas_flags = rocblas_gemm_flags_none;
 
-  for (int i = 0, e = args.kernelRepeats; i < e; ++i)
+  float milliseconds = 0.0;
+  int warmupRuns = 1;
+  for (int i = 0, e = args.kernelRepeats + warmupRuns; i < e; ++i) {
+    hipEvent_t startEvent, stopEvent;
+    HIP_ABORT_IF_FAIL(hipEventCreate(&startEvent));
+    HIP_ABORT_IF_FAIL(hipEventCreate(&stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventRecord(startEvent, NULL));
     if (args.gemmG == 1 && args.dataType == benchmark::DataType::F8) {
       ROCBLAS_ABORT_IF_FAIL(
           rocblas_gemm_ex3(handle, /*trans_a=*/blasTransB,
@@ -171,6 +191,25 @@ int main(int argc, char **argv) {
           /*computeType=*/computeType, rocblas_gemm_algo_standard, 0,
           rocblas_flags));
     }
+    float currentMilliseconds = 0.0;
+    HIP_ABORT_IF_FAIL(hipEventRecord(stopEvent, NULL));
+    HIP_ABORT_IF_FAIL(hipEventSynchronize(stopEvent));
+    HIP_ABORT_IF_FAIL(
+        hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventDestroy(stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventDestroy(startEvent));
+    // Don't record the first run
+    if (i < warmupRuns)
+      continue;
+    milliseconds += currentMilliseconds;
+  }
+  float avgTime = milliseconds / args.kernelRepeats;
+  std::cout << "Best kernel time: " << avgTime << "\n";
+  std::cout << "Best kernel tflops: "
+            << ((2 * args.gemmG * args.gemmM * args.gemmN * args.gemmK) /
+                avgTime) *
+                   1e-9
+            << "\n";
 
   HIP_ABORT_IF_FAIL(hipMemcpy(cHost, cDevice, cBytes, hipMemcpyDeviceToHost));
   ROCBLAS_ABORT_IF_FAIL(rocblas_destroy_handle(handle));

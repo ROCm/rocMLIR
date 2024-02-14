@@ -52,7 +52,7 @@ void printProblem(BenchmarkArgs args);
 void *allocAndFill(DataType dataType, size_t byteSize);
 
 // Allocate and fill a single constant on the host
-void *makeHostConstant(float val, DataType dataType);
+void *makeHostConstant(float flt, DataType dataType);
 
 // Return sizeof(dataType)*elems in bytes
 size_t getByteSize(DataType dataType, size_t elems);

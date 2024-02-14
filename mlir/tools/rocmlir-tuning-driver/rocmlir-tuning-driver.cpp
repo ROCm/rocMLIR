@@ -101,12 +101,11 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
 }
 
 static benchmark::DataType getDataType(Type inputType) {
-  inputType.dump();
   if (inputType.isF32()) {
     return benchmark::DataType::F32;
-  } else if (inputType.isInteger(32)){
+  } else if (inputType.isInteger(32)) {
     return benchmark::DataType::I32;
-  }else if (inputType.isF16()) {
+  } else if (inputType.isF16()) {
     return benchmark::DataType::F16;
   } else if (inputType.isBF16()) {
     return benchmark::DataType::BF16;
@@ -188,7 +187,7 @@ static int toKernelOrder(Attribute attr) {
   return -1;
 }
 
-static FailureOr<std::pair<Type,Type>>
+static FailureOr<std::pair<Type, Type>>
 extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
@@ -202,10 +201,11 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
       return;
     kernels.push_back(f);
     if (!toTuneType) {
-      f.walk([&toTuneType, &outputType](rock::RockGemmWrapperInterface gemmLike) {
-        toTuneType = gemmLike.getAType();
-        outputType = gemmLike.getCType();
-      });
+      f.walk(
+          [&toTuneType, &outputType](rock::RockGemmWrapperInterface gemmLike) {
+            toTuneType = gemmLike.getAType();
+            outputType = gemmLike.getCType();
+          });
     }
     if (!toTuneType) {
       f.walk([&toTuneType, &outputType](rock::AttentionOp attnOp) {
@@ -225,13 +225,13 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   if (!toTuneType) {
     return op.emitError("could not find a tunable kernel in the input");
   }
-  return std::make_pair(toTuneType,outputType);
+  return std::make_pair(toTuneType, outputType);
 }
 
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
-  auto maybeInOutTypes= extractKernelDataType(source, funcs);
+  auto maybeInOutTypes = extractKernelDataType(source, funcs);
   if (failed(maybeInOutTypes))
     return failure();
   Type toTuneType = maybeInOutTypes.value().first;
@@ -300,9 +300,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   std::vector<void *> hostBuffers;
   std::vector<void *> gpuBuffers;
   for (size_t i = 0; i < bufferLengths.size(); i++) {
-    benchmark::DataType type = (i == bufferLengths.size() - 1 ? dataType : outDataType);
-    void *hostBuffer =
-        benchmark::allocAndFill(type, bufferLengths[i]);
+    benchmark::DataType type =
+        (i == bufferLengths.size() - 1 ? dataType : outDataType);
+    void *hostBuffer = benchmark::allocAndFill(type, bufferLengths[i]);
     void *gpuBuffer;
     HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
     hostBuffers.push_back(hostBuffer);
