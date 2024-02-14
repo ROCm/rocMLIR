@@ -278,11 +278,11 @@ private:
 
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
-                                       const std::string &perfConfig,
+                                       const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
 
   LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
-                                       const std::string &perfConfig,
+                                       const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
 
   // Return the vector of heuristic parameters for a given kernel type and dat
@@ -311,12 +311,12 @@ public:
   static std::unique_ptr<PopulateParamsAccel> select(GemmFeatures features);
 
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
-                                       const std::string &perfConfig,
+                                       const StringRef perfConfig,
                                        InitParamsAccel &validParams,
                                        uint32_t &blockSize);
 
   virtual LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
-                                               const std::string &perfConfig,
+                                               const StringRef perfConfig,
                                                InitParamsAccel &validParams,
                                                uint32_t &blockSize);
 

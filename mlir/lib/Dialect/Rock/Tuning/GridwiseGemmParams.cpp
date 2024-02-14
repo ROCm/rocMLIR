@@ -209,14 +209,14 @@ PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
 
 LogicalResult
 PopulateParams::obtainTuningParameters(const PopulateParamsInfo &info,
-                                       const std::string &perfConfig,
+                                       const StringRef perfConfig,
                                        InitParamsNonAccel &validParams) {
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
     // 1. This is tuning mode
     // 2. This is running mode and we have succeeded with a perfdb load
-    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    bool isValidPerfConfig = validParams.deserialize(perfConfig.str());
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(validParams);
@@ -245,7 +245,7 @@ PopulateParams::obtainTuningParameters(const PopulateParamsInfo &info,
 
 LogicalResult
 PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
-                                       const std::string &perfConfig,
+                                       const StringRef perfConfig,
                                        InitParamsNonAccel &validParams) {
   PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
   return obtainTuningParameters(info, perfConfig, validParams);
@@ -339,14 +339,14 @@ PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    const PopulateParamsInfo &info, const std::string &perfConfig,
+    const PopulateParamsInfo &info, const StringRef perfConfig,
     InitParamsAccel &validParams, uint32_t &blockSize) {
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
     // 1. This is tuning mode
     // 2. This is running mode and we have succeeded with a perfdb load
-    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    bool isValidPerfConfig = validParams.deserialize(perfConfig.str());
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Got perf config: " << genDebugForParams(validParams));
@@ -375,7 +375,7 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    RockGemmWrapperInterface op, const std::string &perfConfig,
+    RockGemmWrapperInterface op, const StringRef perfConfig,
     InitParamsAccel &validParams, uint32_t &blockSize) {
   PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
   auto res = obtainTuningParameters(info, perfConfig, validParams, blockSize);

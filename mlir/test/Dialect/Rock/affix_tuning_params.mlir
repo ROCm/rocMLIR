@@ -19,7 +19,7 @@
 // CHECK-DAG: #[[$XDLOPS_PARAMS_6:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 16, mPerBlock = 4, nPerBlock = 64, kpack = 1, mPerWave = 4, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_7:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 128, forceUnroll = true>
 // CHECK-LABEL: @rock_conv2d
-// GRID: rock_conv2d
+// GRID-LABEL: rock_conv2d
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   // CHECK: rock.conv2d
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
