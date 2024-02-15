@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifdef CK_FOUND
+
 // Include common utility functions
 #include "../common/benchmarkUtils.h"
 
@@ -234,3 +236,5 @@ int main(int argc, char **argv) {
   HIP_ABORT_IF_FAIL(hipFree(cDevice));
   return 0;
 }
+
+#endif
