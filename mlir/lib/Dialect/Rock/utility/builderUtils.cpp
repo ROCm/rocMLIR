@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -176,5 +177,14 @@ int64_t getByteWidth(Type type) {
     return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
   return type.getIntOrFloatBitWidth() / 8;
 }
+
+Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
+                  bool isWritable) {
+  constexpr bool isRestrict{true};
+  Value origTensor = builder.create<bufferization::ToTensorOp>(
+      loc, value, isRestrict, isWritable);
+  return origTensor;
+}
+
 } // namespace rock
 } // namespace mlir

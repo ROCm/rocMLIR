@@ -2235,6 +2235,24 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   result.push_back(outType);
 }
 
+template <typename TosaOp, typename... Args>
+static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
+                               Args &&...args) {
+  auto op =
+      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
+  InferShapedTypeOpInterface shapeInterface =
+      cast<InferShapedTypeOpInterface>(op.getOperation());
+  SmallVector<ShapedTypeComponents> returnShape;
+  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
+      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
+      op->getPropertiesStorage(), op->getRegions(), returnShape);
+  assert(shapeInferenceStatus.succeeded());
+  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
+  auto result = op->getResult(0);
+  result.setType(newOutTy);
+  return op;
+}
+
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                              const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -2267,17 +2285,58 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value output;
   Value bias;
 
+  SmallVector<Value> elemwiseInputs;
   unsigned optionalArgsCounter{3};
-  if (hasAttnScale)
+  if (hasAttnScale) {
     scale = block->getArgument(optionalArgsCounter++);
-  if (hasAttnBias)
+    elemwiseInputs.push_back(scale);
+  }
+  if (hasAttnBias) {
     bias = block->getArgument(optionalArgsCounter++);
+    elemwiseInputs.push_back(bias);
+  }
   output = block->getArgument(optionalArgsCounter);
 
   auto attention = builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, bias, output, transposeQ,
-      transposeK, transposeV, transposeO, archAttr, params.features,
+      loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
+      transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
       /*params0=*/nullptr, /*params1=*/nullptr);
+  {
+    Block *preSoftmaxElemwiseBlock =
+        &attention.getPreSoftmaxBody().emplaceBlock();
+    PatternRewriter::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
+    ShapedType qType = queries.getType().cast<ShapedType>();
+    ArrayRef<int64_t> qShape = qType.getShape();
+    MemRefType qkMemRefType = MemRefType::get(
+        {qShape[0], sequenceLength, sequenceLength}, qType.getElementType());
+    Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
+    Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
+    if (hasAttnScale) {
+      ShapedType scaleType = scale.getType().cast<ShapedType>();
+      Value scaleMemRef = preSoftmaxElemwiseBlock->addArgument(
+          MemRefType::get(scaleType.getShape(), scaleType.getElementType()),
+          loc);
+      Value scaleTensor = rock::getAsTensor(builder, loc, scaleMemRef);
+      qkTensor =
+          createOpAndInfer<tosa::MulOp>(builder, loc, qType.getElementType(),
+                                        qkTensor, scaleTensor, /*shift=*/0);
+    }
+    if (hasAttnBias) {
+      ShapedType biasType = bias.getType().cast<ShapedType>();
+      Value biasMemRef = preSoftmaxElemwiseBlock->addArgument(
+          MemRefType::get(biasType.getShape(), biasType.getElementType()), loc);
+      Value biasTensor = rock::getAsTensor(builder, loc, biasMemRef);
+      qkTensor = createOpAndInfer<tosa::AddOp>(
+          builder, loc, qType.getElementType(), qkTensor, biasTensor);
+    }
+    Value resMemref =
+        builder.create<bufferization::ToMemrefOp>(loc, qkMemRefType, qkTensor);
+    Value outMemref = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
+    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
+    builder.create<rock::YieldOp>(loc);
+  }
+
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
@@ -2362,24 +2421,6 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
   return func;
-}
-
-template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&...args) {
-  auto op =
-      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
-  InferShapedTypeOpInterface shapeInterface =
-      cast<InferShapedTypeOpInterface>(op.getOperation());
-  SmallVector<ShapedTypeComponents> returnShape;
-  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
-      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
-      op->getPropertiesStorage(), op->getRegions(), returnShape);
-  assert(shapeInferenceStatus.succeeded());
-  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
-  auto result = op->getResult(0);
-  result.setType(newOutTy);
-  return op;
 }
 
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
@@ -3584,17 +3625,18 @@ int main(int argc, char **argv) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
-    if (applyBufferizationPipeline.getValue()) {
-      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+  }
 
-      rock::BufferizeOptions bufferizeOptions;
-      bufferizeOptions.disableRock = true;
-      rock::buildBufferizePipeline(pm, bufferizeOptions);
+  if (applyBufferizationPipeline.getValue()) {
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
-      if (failed(pm.run(module))) {
-        llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
-        exit(1);
-      }
+    rock::BufferizeOptions bufferizeOptions;
+    bufferizeOptions.disableRock = true;
+    rock::buildBufferizePipeline(pm, bufferizeOptions);
+
+    if (failed(pm.run(module))) {
+      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
+      exit(1);
     }
   }
 

@@ -204,14 +204,12 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale", "bias"]>,
-                                             AttrSizedOperandSegments]>,
+  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values"]>]>,
   Arguments<(ins
     Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
     Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
-    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
-    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "bias", [MemRead]>:$bias,
+    Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
@@ -238,9 +236,17 @@ def Rock_AttentionOp :
     `features` specifies what hardware features can be used in the generated code.
   }];
   let hasVerifier = 1;
+  let regions = (region AnyRegion:$preSoftmaxBody);
+  // let assemblyFormat = [{
+  //   `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict
+  //   `:` type(operands) (`->` type($result)^)?
+  // }];
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
-    `:` type(operands) (`->` type($result)^)?
+    `{` `\n`
+        ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
+        (`qk` `=` `elementwise` `otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)` $preSoftmaxBody `\n`)?
+        (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
@@ -424,12 +430,11 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel", [AttrSizedOperandSegments]>,
+    Rock_Op<"gridwise_attention_accel">,
     Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
                    MemRefRankOf<[F32, F16], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
-                   Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
-                   Optional<MemRefRankOf<[F32, F16], [3]>>:$bias,
+                   Variadic<TensorOrMemRefOf<[F32, F16]>>:$preSoftmaxElemWiseInputs,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
@@ -444,8 +449,9 @@ def Rock_GridwiseAttentionAccelOp :
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
   }];
+  let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
