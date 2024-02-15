@@ -429,11 +429,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+    if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
+
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
 
     auto maybeCopyAPerThread = computeCopyPerThread(
         elementTypeA, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
@@ -2279,11 +2280,13 @@ struct GridwiseGemmAccelRewritePattern
     GemmDimension aVectorDim;
     GemmDimension bVectorDim;
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+    if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
+
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
+
     int64_t aCopyKpacksPerThread =
         math_util::integer_divide_ceil(aCopyPerThread, kpack);
     int64_t bCopyKpacksPerThread =
