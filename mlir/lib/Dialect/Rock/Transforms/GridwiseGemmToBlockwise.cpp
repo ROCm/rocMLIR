@@ -1455,12 +1455,10 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
-  LogicalResult postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
-                                     GridwiseAttentionAccelOp op,
-                                     layout::GridCoordinates gridCoords,
-                                     Value srcGemm0OutBuffer,
-                                     Value &destGemm0OutBuffer,
-                                     RegsAsMatrixSubTiles gemm0OutViews) const {
+  FailureOr<Value> postProcessFirstGemm(
+      PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
+      layout::GridCoordinates gridCoords, Value srcGemm0OutBuffer,
+      Value destGemm0OutBuffer, RegsAsMatrixSubTiles gemm0OutViews) const {
     LogicalResult res = success();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -1543,9 +1541,9 @@ struct GridwiseAttentionAccelRewritePattern
       return op.emitError("pre softmax linalg regularization failed.\n");
     }
     if (!linalgOpFound) {
-      destGemm0OutBuffer = srcGemm0OutBuffer;
+      return srcGemm0OutBuffer;
     }
-    return success();
+    return destGemm0OutBuffer;
   }
 
   void loadGemmOperandsFromLDSToRegs(
@@ -2048,13 +2046,13 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
-      LogicalResult res = postProcessFirstGemm(
+      FailureOr<Value> maybeSoftmaxInBuffer = postProcessFirstGemm(
           rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, softmaxInBuffer,
           gemm0OutSubTileViewsTrUnPadded);
-      gemm0OutBuffer = softmaxInBuffer;
-      if (failed(res)) {
+      if (failed(maybeSoftmaxInBuffer)) {
         return op.emitError("post processing first gemm failed.\n");
       }
+      gemm0OutBuffer = maybeSoftmaxInBuffer.value();
       // Scale gemm0 output by (1/ln2)
       // So that we can use exp2 instead of exp.
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
