@@ -1678,8 +1678,11 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("B shape should be [N,K]");
   if (aShape.back() != bShape.back())
     return emitOpError("A and B K dimensions don't match");
-  if (cShape.size() != 2 + getExtraIndicesC().size())
-    return emitOpError("C shape should be [extraIndices, M,N]");
+  if (cShape.size() != 2)
+    return emitOpError("C shape should be [M,N]");
+  if (getComputeIndices().size() != 3)
+    return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
+
   return success();
 }
 
