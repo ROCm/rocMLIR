@@ -477,11 +477,30 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         llvm::SmallDenseSet<int64_t> preTpUnitDims;
         for (ReassociationIndices indices : reassocIndices) {
           ReassociationIndices newReassocIdx;
-          for (size_t i = 0; i < indices.size(); i++) {
+          size_t numNonUnitDimsMerged = 0;
+          for (size_t i = 0, e = indices.size(); i < e; ++i) {
             if (inShape[indices[i]] == 1) {
               preTpUnitDims.insert(dims[indices[i]]);
+            } else {
+              numNonUnitDimsMerged += 1;
             }
             newReassocIdx.push_back(dims[indices[i]]);
+          }
+          if (numNonUnitDimsMerged > 1) {
+            // Per MIGraphX bug #2692, this transpsoe/collaspe swap logic
+            // will be incorrect in cases like the following
+            //   %0 = expand_shape [[0], [1, 2], [3]] %arg0 : tensor<7x6x5xT> to
+            //   tensor<7x3x2x5xT> %1 = transpose %0, [0, 2, 1, 3] :
+            //   tensor<7x2x3x5xT> %2 = collapse_shape [[0], [1, 2], [2]] %1 :
+            //   tensor<7x2x3x5xT> to tensor<7x6x5xT>
+            // by way of creating a trivial expand/collapse pair that isn't
+            // correct.
+            //
+            // Therefore, as a sledgehammer fix, don't handle any cases where
+            // non-trivial collapses are performed.
+            return rewriter.notifyMatchFailure(
+                op, "abandoning attempt to interchange transpose and "
+                    "non-trivial collapse");
           }
           if (newReassocIdx.size() > 1) {
             llvm::sort(newReassocIdx);
@@ -716,7 +735,8 @@ struct CollapseExpandRewritePattern
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
-  template <typename TosaOp> TosaOp getDefiningNonReshapeOp(Value val) const {
+  template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>()) {
       val = val.getDefiningOp()->getOperand(0);

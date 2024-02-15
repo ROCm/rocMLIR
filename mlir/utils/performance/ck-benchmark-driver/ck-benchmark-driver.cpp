@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifdef CK_FOUND
+
 // Include common utility functions
 #include "../common/benchmarkUtils.h"
 
@@ -63,7 +65,8 @@ struct GemmMemoryParameters {
 };
 
 // Main utility functions to run GEMM
-template <typename ALayout, typename BLayout, typename DT> struct GemmRunner {
+template <typename ALayout, typename BLayout, typename DT>
+struct GemmRunner {
   using D = GemmDeviceOp<ALayout, BLayout, DT>;
   using Dptr = std::unique_ptr<D>;
 
@@ -233,3 +236,5 @@ int main(int argc, char **argv) {
   HIP_ABORT_IF_FAIL(hipFree(cDevice));
   return 0;
 }
+
+#endif
