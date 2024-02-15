@@ -237,9 +237,12 @@ def Rock_AttentionOp :
   }];
   let hasVerifier = 1;
   let regions = (region AnyRegion:$preSoftmaxBody);
-    let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict
-    `:` type(operands) (`->` type($result)^)?
+  let assemblyFormat = [{
+    `{` `\n`
+        ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
+        (`qk` `=` `elementwise` `otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)` $preSoftmaxBody `\n`)?
+        (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
