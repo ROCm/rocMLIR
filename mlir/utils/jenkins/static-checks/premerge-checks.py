@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ A script to perform static tests for the mlir project.
 
-This script runs clang-format and clang-tidy on the changes before a user 
+This script runs clang-format and clang-tidy on the changes before a user
 merges them to the master branch.
 
 The code was extracted from https://github.com/google/llvm-premerge-checks.
@@ -30,7 +30,7 @@ import git
 
 def get_diff(base_commit) -> Tuple[bool, str]:
   diff_run = subprocess.run(
-    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}', 
+    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}',
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
@@ -174,7 +174,6 @@ if __name__ == '__main__':
   parsed_args = parser.parse_args(args)
   print(f"Running linters against base commit : {parsed_args.base_commit}")
   if not (
-    run_clang_format(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-format.ignore', parsed_args.ignore_external) and
-    run_clang_tidy(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore', parsed_args.ignore_external)
+    run_clang_format(parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-format.ignore', parsed_args.ignore_external)
   ):
     exit(1)

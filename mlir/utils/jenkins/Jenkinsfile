@@ -88,10 +88,10 @@ void preMergeCheck(String codepath) {
         fi
         '''
         if (params.ignoreExternalLinting == true) {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --ignore-external'
+            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --ignore-external --base-commit origin/release/rocm-rel-6.1'
         }
         else {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit origin/release/rocm-rel-6.1'
         }
     } else {
         echo "Static Test step skipped"
