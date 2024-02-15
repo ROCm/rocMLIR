@@ -294,14 +294,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   // fusions legit. So the extra pad needs to be swapped and applied.
   out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
                   gemm1ExtraPad.m);
-
-  SmallVector<Value, 2> otherElemWiseInputs;
-  for (Value otherElemwiseInput : adaptor.getPreSoftmaxElemWiseInputs()) {
-    otherElemwiseInput = padMatrix(otherElemwiseInput, rw, loc, "gemm1N",
-                                   gemm0ExtraPad.n, "gemm1M", gemm0ExtraPad.m);
-    otherElemWiseInputs.push_back(otherElemwiseInput);
-  }
-
+                  
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
   IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
@@ -314,7 +307,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
-      loc, queries, keys, values, otherElemWiseInputs, out, op.getArchAttr(),
+      loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out, op.getArchAttr(),
       op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
