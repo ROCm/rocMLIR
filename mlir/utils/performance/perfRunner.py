@@ -445,7 +445,7 @@ class ConvConfiguration(PerfConfiguration):
                 + f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} "
                 + f"-y {self.y} -x {self.x} -p {self.paddingH} -q {self.paddingW} "
                 + f"-u {self.convStrideH} -v {self.convStrideW} -l {self.dilationH} "
-                + f"-j {self.dilationW} -m conv -g {self.group} -t 1")
+                + f"-j {self.dilationW} -g {self.group}")
 
     def __init__(self, dtype: str, direction: str, filterLayout: str, inputLayout:str, outputLayout:str,
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
@@ -863,7 +863,7 @@ class RocBLASGemmConfig(GemmConfiguration):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
         print(f"Running rocBLAS benchmark {config!r}")
-        profilerCommand = [ROCPROF,'-i', metrics_path, '--stats', \
+        profilerCommand = [ROCPROF, '--stats', \
             '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.rocblas_benchmark_driver_path] + \
             benchmarkArgs.split()
         p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
@@ -928,7 +928,7 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '-i', metrics_path, '--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF, '--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
     # invoke rocmlir-gen.
     p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
