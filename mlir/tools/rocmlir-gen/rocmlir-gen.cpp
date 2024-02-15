@@ -730,7 +730,7 @@ struct KernelIF {
   }
 };
 
-// This enum defines the argument ordering for
+// This helper struct defines the argument ordering for
 // quantized attention operator.
 struct AttentionQuantizedArgIndex {
   static const size_t q = 0;
