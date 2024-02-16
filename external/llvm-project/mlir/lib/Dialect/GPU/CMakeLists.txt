@@ -167,6 +167,7 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
   find_package(AMDDeviceLibs CONFIG)
   set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
   if(AMDDeviceLibs_FOUND)
+    message(STATUS "AMD device libs prefix: ${AMD_DEVICE_LIBS_PREFIX}")
     set(device_lib_targets ${AMD_DEVICE_LIBS_TARGETS})
     # Filter out control constants, since we set those inline
     list(FILTER device_lib_targets EXCLUDE REGEX "^oclc_")
