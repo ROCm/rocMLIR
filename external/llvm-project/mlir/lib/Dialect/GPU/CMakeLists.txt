@@ -145,7 +145,15 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
   ### This is menat to let us embed the device libraries into a static library.
   if (NOT DEFINED ROCM_PATH)
     if (NOT DEFINED ENV{ROCM_PATH})
-      set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+      find_program(HIPCONFIG hipconfig NAMES PATHS /opt/rocm/bin
+        DOC "Path to hipconfig, used to find ROCm device libraries")
+      if (NOT HIPCONFIG)
+        set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+      else()
+        exec_program(${HIPCONFIG} ARGS "--rocmpath"
+          OUTPUT_VARIABLE HIPCONFIG_ROCM_PATH)
+        set(ROCM_PATH ${HIPCONFIG_ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
+      endif()
     else()
       set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
     endif()
@@ -155,7 +163,7 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
   # Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
   # find the device libraries, then remove it
   set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
-  list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
+  list(PREPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
   find_package(AMDDeviceLibs CONFIG)
   set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
   if(AMDDeviceLibs_FOUND)
