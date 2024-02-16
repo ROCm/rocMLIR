@@ -24,8 +24,8 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType);
 
-void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
-                                   Value src, Value dst);
+void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
+                               Value src, Value dst);
 /// Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 

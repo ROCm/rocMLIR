@@ -1449,10 +1449,13 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
-  FailureOr<Value> postProcessFirstGemm(
-      PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
-      layout::GridCoordinates gridCoords, Value srcGemm0OutBuffer,
-      Value destGemm0OutBuffer, RegsAsMatrixSubTiles gemm0OutViews) const {
+  FailureOr<Value> postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
+                                        GridwiseAttentionAccelOp op,
+                                        layout::GridCoordinates gridCoords,
+                                        Value srcGemm0OutBuffer,
+                                        Value destGemm0OutBuffer,
+                                        RegsAsMatrixSubTiles gemm0OutViews,
+                                        bool convertToF16) const {
     LogicalResult res = success();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -1460,9 +1463,21 @@ struct GridwiseAttentionAccelRewritePattern
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
       linalgOpFound = true;
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-      SmallVector<Value> inputTileBuffers;
-      inputTileBuffers.push_back(srcGemm0OutBuffer);
       MemRefType srcBufType = srcGemm0OutBuffer.getType().cast<MemRefType>();
+      SmallVector<Value> inputTileBuffers;
+      if (convertToF16) {
+        auto srcBufTypeF16 =
+            MemRefType::get(srcBufType.getShape(), rewriter.getF16Type(),
+                            AffineMap{}, privateMemoryAddressSpace);
+        auto srcGemm0OutBufferF16 =
+            rewriter.create<rock::GpuAllocOp>(loc, srcBufTypeF16);
+        createTypeConversionStore(rewriter, loc, srcGemm0OutBuffer,
+                                  srcGemm0OutBufferF16);
+        inputTileBuffers.push_back(srcGemm0OutBufferF16);
+        srcBufType = srcBufTypeF16;
+      } else {
+        inputTileBuffers.push_back(srcGemm0OutBuffer);
+      }
 
       // Pull non-identiy index maps to rock transforms
       res = makeLinalgGenericWithIdentityAffMaps(rewriter, genOp);
@@ -1509,7 +1524,6 @@ struct GridwiseAttentionAccelRewritePattern
             true, true);
         inputTileBuffers.push_back(tileBuffer);
       }
-      // Output is overwriting the same input buffer
       inputTileBuffers.push_back(destGemm0OutBuffer);
       linalg::GenericOp newLinalgOp;
 
@@ -1530,6 +1544,17 @@ struct GridwiseAttentionAccelRewritePattern
           1, linalg::IteratorTypeAttr::get(rewriter.getContext(),
                                            utils::IteratorType::parallel));
       newLinalgOp.setIteratorTypesAttr(rewriter.getArrayAttr(iteratorTypes));
+
+      if (convertToF16) {
+        auto dstBufTypeF16 =
+            MemRefType::get(srcBufType.getShape(), rewriter.getF16Type(),
+                            AffineMap{}, privateMemoryAddressSpace);
+        auto dstGemm0OutBufferF16 =
+            rewriter.create<rock::GpuAllocOp>(loc, dstBufTypeF16);
+        newLinalgOp.getOutputsMutable().assign(dstGemm0OutBufferF16);
+        createTypeConversionStore(rewriter, loc, dstGemm0OutBufferF16,
+                                  destGemm0OutBuffer);
+      }
     });
     if (failed(res)) {
       return op.emitError("pre softmax linalg regularization failed.\n");
@@ -1662,7 +1687,8 @@ struct GridwiseAttentionAccelRewritePattern
     Type elemTypeOut = trOut.getType().cast<MemRefType>().getElementType();
 
     // Gemm0 out is casted to be elemTypeV
-    Type elemTypeQxK = elemTypeV;
+    Type elemTypeQxK = rewriter.getF32Type();
+    // Type elemTypeQxK = elemTypeV;
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -2080,9 +2106,11 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
+      bool doConvertToF16 = elemTypeV == rewriter.getF16Type() &&
+                            gemmOutElemType == rewriter.getF32Type();
       FailureOr<Value> maybeSoftmaxInBuffer = postProcessFirstGemm(
           rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, softmaxInBuffer,
-          gemm0OutSubTileViewsTrUnPadded);
+          gemm0OutSubTileViewsTrUnPadded, doConvertToF16);
       if (failed(maybeSoftmaxInBuffer)) {
         return op.emitError("post processing first gemm failed.\n");
       }
@@ -2160,8 +2188,8 @@ struct GridwiseAttentionAccelRewritePattern
       // Emit blockwise GEMM 1.
       {
         if (elemTypeV != elemTypeQxK) {
-          createTypeConversionLaGeneric(rewriter, loc, gemm0OutBufferExp,
-                                        gemm1RegBufferB);
+          createTypeConversionStore(rewriter, loc, gemm0OutBufferExp,
+                                    gemm1RegBufferB);
         }
         Value wrappedLDSBufferForLoadB;
         if (!doBypassLDSSecondGemm) {
@@ -2190,7 +2218,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
           TypedValue<MemRefType> gemm1LDSBufferB =
               viewBufferAs(rewriter, gemm1LDSByteBufferB,
-                           vectorTypeOrSelf(elemTypeQxK, gemm1kpack));
+                           vectorTypeOrSelf(elemTypeV, gemm1kpack));
           wrappedLDSBufferForLoadB = accelEmitterPtrGemm1->wrapLDSBufferForLoad(
               rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
               gemm1InNPerThread, "n", false);
@@ -2346,8 +2374,8 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
     if (elemTypeQxK != elemTypeOut) {
-      createTypeConversionLaGeneric(rewriter, loc, attentionOutAccBuffer,
-                                    attentionOutAccBufferOutTyped);
+      createTypeConversionStore(rewriter, loc, attentionOutAccBuffer,
+                                attentionOutAccBufferOutTyped);
     }
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
