@@ -3627,7 +3627,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (applyBufferizationPipeline.getValue()) {
+  // Running the bufferization pipeline when rocmlir-gen is actually
+  // generating a kernel.
+  if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
     rock::BufferizeOptions bufferizeOptions;
