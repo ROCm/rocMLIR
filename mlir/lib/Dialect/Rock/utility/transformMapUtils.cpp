@@ -321,19 +321,30 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
     if (groupCandidate.size() > 1 &&
         std::is_sorted(dimPosition.begin(), dimPosition.end())) {
 
-      uint32_t lowerDim = groupCandidate.back();
+      uint32_t fastestDim = groupCandidate.back();
+      size_t fastestDimPosInMerge = dimPosition.back();
+      size_t slowestDimPosInMerge = dimPosition.front();
       for (auto d : groupCandidate)
-        contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+        contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
 
       // We also want to add the singleton dimensions of the merge the
       // groupCandidate belongs to. In this way we cover for situations like
-      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
-      for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
-                                 keyI.transform.getParams())) {
-        int64_t d = std::get<0>(pair);
-        int64_t p = std::get<1>(pair);
+      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>. However, it is
+      // unsound to collapse onto trailing unit dimensions not otherwise
+      // accounted for above, as they could be permuted out to
+      // arbitrary other positions. Therefore, we only examine unit dimensions
+      // which come earlier in the merge parameters than the first true
+      // collapsed dimension.
+      ArrayRef<uint32_t> thisMergeDims = keyI.transform.getLowerDims();
+      ArrayRef<int64_t> thisMergeParams = keyI.transform.getParams();
+      for (const auto [d, p] : llvm::zip(
+               thisMergeDims.slice(slowestDimPosInMerge,
+                                   fastestDimPosInMerge - slowestDimPosInMerge),
+               thisMergeParams.slice(slowestDimPosInMerge,
+                                     fastestDimPosInMerge -
+                                         slowestDimPosInMerge))) {
         if (p == 1)
-          contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+          contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
       }
     }
   }
@@ -854,6 +865,11 @@ ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
         ops.push_back(op);
         continue;
       }
+      LLVM_DEBUG({
+        llvm::dbgs() << "[collapseContigousMerges] Updating: " << op << " to ";
+        llvm::interleaveComma(newLengths, llvm::dbgs());
+        llvm::dbgs() << "\n";
+      });
       auto newMerge = TransformAttr::get(
           op.getContext(), TransformType::Merge, newLengths, op.getUpperNames(),
           op.getUpperDims(), op.getLowerNames(), op.getLowerDims());
