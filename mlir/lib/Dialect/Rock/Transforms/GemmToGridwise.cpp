@@ -65,6 +65,10 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
 
   LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
                                 Value a, Value b) const;
+
+  std::tuple<Value, Value, Value>
+  arrangeSplitKTransform(OpBuilder &builder, GemmOp op, Location loc,
+                         int64_t splitKFactor, Value a, Value b, Value c) const;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
@@ -173,9 +177,21 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   GemmSize extraPad =
       requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
 
-  a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
-  b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
+  int64_t splitKFactor{1};
+  if (auto attr = op->getAttr("split-k-factor")) {
+    splitKFactor = attr.cast<IntegerAttr>().getInt();
+  }
+
+  a = padMatrix(a, rw, loc, "gemmK", extraPad.k * splitKFactor, "gemmM",
+                extraPad.m);
+  b = padMatrix(b, rw, loc, "gemmK", extraPad.k * splitKFactor, "gemmN",
+                extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
+
+  if (splitKFactor > 1) {
+    std::tie(a, b, c) =
+        arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+  }
 
   if (failed(computeGridSize(rw, op, a, b))) {
     return op.emitError("failed to compute the grid size of `GemmOp`");
@@ -233,6 +249,118 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
   rw.eraseOp(op);
   return success();
+}
+
+std::tuple<Value, Value, Value>
+GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
+                                           Location loc, int64_t splitKFactor,
+                                           Value a, Value b, Value c) const {
+  auto storeMethod =
+      builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
+  op.setStoreMethodAttr(storeMethod);
+
+  Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
+  ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> cShape = c.getType().cast<MemRefType>().getShape();
+
+  const int64_t K = aShape[1];
+
+  struct GemmOperandsData {
+    Value &in;
+    Value &out;
+    SmallVector<StringRef> inputDimNames;
+    ArrayRef<int64_t> inputShape;
+  };
+
+  llvm::SmallVector<GemmOperandsData, 2> gemmOperands{
+      {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape},
+      {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape}};
+  for (auto &gemmOperand : gemmOperands) {
+    // Prepare matrix A and B - i.e.,
+    //    (gemmG, gemmK, gemmM) and (gemmG, gemmK, gemmN), respectively
+    // 1. unmerge (gemmK) -> (gemmKSplit, gemmK*)
+    // 2. merge (gemmG, gemmKSplit) -> (gemmG*)
+
+    StringRef preservedDimName;
+    for (auto &dimName : gemmOperand.inputDimNames) {
+      if ((dimName != "gemmK") && (dimName != "gemmG"))
+        preservedDimName = dimName;
+    }
+
+    llvm::StringMap<uint32_t> unmergeDimOutputNames = expandNamesInPlace(
+        gemmOperand.inputDimNames, {{"gemmK", {"gemmKSplit", "gemmK"}}});
+
+    BottomUpTMBuilder unmergeTransform(builder, gemmOperand.inputDimNames,
+                                       gemmOperand.inputShape, loc);
+
+    BottomUpTMTopDimsWrapper unmergeTransformWrapper(
+        unmergeTransform, std::move(unmergeDimOutputNames));
+
+    unmergeTransformWrapper.passThrough("gemmG");
+    unmergeTransformWrapper.unmerge({"gemmKSplit", "gemmK"}, "gemmK",
+                                    {splitKFactor, K / splitKFactor});
+    unmergeTransformWrapper.passThrough(preservedDimName);
+
+    auto unmergeTransformAttr = unmergeTransform.get();
+    Value unmerge =
+        builder.create<TransformOp>(loc, gemmOperand.in, unmergeTransformAttr);
+
+    auto mergeTransform =
+        BottomUpTMBuilder::above(unmergeTransform, unmergeTransformAttr);
+
+    llvm::StringMap<uint32_t> mergeDimOutputNames =
+        expandNamesInPlace(gemmOperand.inputDimNames, {});
+
+    BottomUpTMTopDimsWrapper mergeTransformWrapper(
+        mergeTransform, std::move(mergeDimOutputNames));
+
+    mergeTransformWrapper.merge("gemmG", {"gemmG", "gemmKSplit"});
+    mergeTransformWrapper.passThrough(preservedDimName);
+    mergeTransformWrapper.passThrough("gemmK");
+
+    auto mergeTransformAttr = mergeTransform.get();
+    gemmOperand.out =
+        builder.create<TransformOp>(loc, unmerge, mergeTransformAttr);
+  }
+
+  {
+    // Prepare matrix C - i.e., (gemmG, gemmM, gemmN)
+    // 1. embed (gemmG) -> (~gemmG, gemmKSplit)[1, 0]
+    // 2. merge (~gemmG, gemmKSplit) -> (gemmG*)
+
+    SmallVector<StringRef> inputDimNames{"gemmG", "gemmM", "gemmN"};
+    BottomUpTMBuilder embedTransform(builder, inputDimNames, cShape, loc);
+
+    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
+        inputDimNames, {{"gemmG", {"gemmGTilda", "gemmKSplit"}}});
+
+    const int64_t G = cShape[0];
+
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    embedWrap.embed({"gemmGTilda", "gemmKSplit"}, {G, splitKFactor}, "gemmG",
+                    {1, 0});
+    embedWrap.passThrough({"gemmM", "gemmN"});
+
+    auto embedTransformAttr = embedTransform.get();
+    Value embed = builder.create<TransformOp>(loc, c, embedTransformAttr);
+
+    auto mergeTransform =
+        BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
+
+    llvm::StringMap<uint32_t> mergeDimOutputNames =
+        expandNamesInPlace(inputDimNames, {});
+
+    BottomUpTMTopDimsWrapper mergeTransformWrapper(
+        mergeTransform, std::move(mergeDimOutputNames));
+
+    mergeTransformWrapper.merge("gemmG", {"gemmGTilda", "gemmKSplit"});
+    mergeTransformWrapper.passThrough({"gemmM", "gemmN"});
+
+    auto mergeTransformAttr = mergeTransform.get();
+    cNew = builder.create<TransformOp>(loc, embed, mergeTransformAttr);
+  }
+  return std::make_tuple(aNew, bNew, cNew);
 }
 
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
