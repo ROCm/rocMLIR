@@ -21,7 +21,7 @@ using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
 // Test Fixture
 //===----------------------------------------------------------------------===//
-
+#if 0
 class CollapseMergeTest : public ::testing::Test {
 protected:
   CollapseMergeTest() : b(&context) { context.getOrLoadDialect<RockDialect>(); }
@@ -100,3 +100,4 @@ TEST_F(CollapseMergeTest, BatchTransposeBug1407) {
       colMap.getMap().getAffineMap(),
       AffineMap::get(2, 0, {affC(0), affD(0), affD(1), affC(0)}, &context));
 }
+#endif

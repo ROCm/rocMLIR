@@ -43,10 +43,16 @@ std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayAttr existing = nullptr);
 std::tuple<Value, ArrayAttr, bool> untransform(OpBuilder &b, Value transformed,
                                                ArrayRef<Attribute> existing);
+
 /// As above, but return the values into a vector of TransformMapAttr's.
 /// Appends to the existing vector.
 std::tuple<Value, bool>
 untransform(Value transformed, SmallVectorImpl<TransformMapAttr> &transforms);
+
+/// Return the untransformed Value and the sequence of `TransformOp`s
+/// that impact it.
+std::tuple<Value, bool> untransform(Value transformed,
+                                    SmallVectorImpl<TransformOp> &transforms);
 
 /// Returns true if a given transform map has inputs or outputs that could
 /// overflow a signed 32-bit integer.
@@ -63,39 +69,53 @@ ArrayAttr invertTransforms(OpBuilder &b, Location loc, ArrayAttr transforms);
 TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
                           ArrayRef<StringRef> names, ArrayRef<int64_t> shape);
 
-/// Given an array of TransformMapAttrs `transforms`, a dimension `dim` in
-/// the input space of the first transform, and the length `len` of that
-/// dimension, returns the largest stride `s` such that length-`s` slices of
-/// `dim` correspond to contiguous slices of the underlying memory the
-/// `transforms` will be applied to, which is assumed to have shape
-/// `outputShape`. `implicitStride` is used for vector-valued buffers whose
-/// indexing functions are scalar-valued. It scales the implicit
-/// index linearization at the end of the vectorization analysis by
-/// `implicitStride`, so that the low-order bits of the scalar index that are
-/// discarded do not cause incorrect conclusions. The returned vectorization
-/// length is scaled by `implicitStride`.
-int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
-                            ArrayRef<int64_t> outputShape,
-                            int64_t implicitStride = 1);
+//// Structure for reporting the results of the vectorization analysis.
+/// `max` is the maximum length by which loads from or stores to a buffer
+/// may be vectorized (along the input dimension and subject to the maximums
+/// specified during vectorization analysis), that is, a value such that
+/// reading/writing `max` values at a time at `max`-aligned indices
+/// is equivalent to performing those `max` reads/writes one a ta a time.
+/// `bufferVectorSize` is the minimum vectorization nedeed to avoid reading
+/// into the vectors within a buffer, thus causing a performance penalty. It
+/// is mainly of concern for sub-byte data types, like i4, which must be read
+/// and written as vectors.
+///
+/// `max < bufferVectorSize` is a permissible outcome for this analysis, but
+/// indicates one should reconsider one's vectorization strategy.
+struct VectorizationResult {
+  int64_t max = 1;
+  int64_t bufferVectorSize = 1;
+};
 
-/// Returns the maximum vectorization constrained by the `dataType` we are
-/// vectorizing for
-int64_t getMaxVectorizationForDatatype(ArrayAttr transforms, uint32_t dim,
-                                       int64_t len,
-                                       ArrayRef<int64_t> outputShape,
-                                       Type dataType,
-                                       int64_t implicitStride = 1);
+/// Given a transformed Value `transformed`, which is the result of applying
+/// a sequence of zero or more `rock.transforms` (with an optional single
+/// intervening `rock.scalarize` in the middle), a dimension `dim` in the
+/// coordinate space of `transformed`, and an optional `inputDimLen` (if
+/// different from the maximum possible length), return `VectorizationLengths`
+/// where `max` is the largest stride `s` such that length-`s` slices of `dim`
+/// correspond to contiguous slices of the underlying memory for `transformed`.
+/// `bufferVectorSize` will be set to a value > 1 to reflect an intervening
+/// `rock.scalarize` operation.
+///
+/// `ignoreDataType` forces vectorization even when the inferred vectorization
+/// length for `transformed` would cause vector operations on its data type
+/// to exceed the maximum hardware vector memory operation for that type. It
+/// is primarily intended for testing.
+VectorizationResult
+getMaxVectorization(Value transformed, uint32_t dim,
+                    std::optional<int64_t> inputDimLen = std::nullopt,
+                    bool ignoreDataType = false);
 
-/// Rewrites the given array of transformations to (under the assumption that
-/// they will target a space of size outputShape) collapse contiguous merge
-/// dimensions. That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
+/// Returns a version of `transformed` transformed like `transformed` is but
+/// with contiguous merges collapsed. This creates new IR as needed and does not
+/// modify existing transformations in place.
+/// That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
 /// and then later either have y or z appear (with the same length) in the
 /// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
 /// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
 /// and merging. Note that the corresponding Unmerge or Embed is not updated by
 /// this function.
-ArrayAttr collapseContiguousMerges(ArrayAttr transforms,
-                                   ArrayRef<int64_t> outputShape);
+Value collapseContiguousMerges(OpBuilder &b, Value transformed);
 
 /// Returns true if the given `TransformMapAttr` has impacts on the validity
 /// of the underlying coordinates. If this returns true, the code generating
@@ -178,9 +198,9 @@ ArrayAttr prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
 //  (extra0, ..., extraL), tP..., tm)
 // The position P where we want the new variables to appear can be specified by
 // the `pos` input parameter. The parameter `length` represents the size of the
-// new dimensions to be inserted
-ArrayAttr addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
-                                ArrayRef<int64_t> lengths, int64_t pos);
+// new dimensions to be inserted.
+Value addPassThroughIndices(OpBuilder &b, Value transformed,
+                            ArrayRef<int64_t> lengths, int64_t pos);
 
 ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 

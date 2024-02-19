@@ -55,7 +55,7 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
   if (existing)
     transformList.append(existing.begin(), existing.end());
   Value ret = transformed;
-  while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
+  while (auto transform = ret.getDefiningOp<TransformOp>()) {
     transformList.push_back(transform.getTransform());
     ret = transform.getInput();
   }
@@ -73,12 +73,26 @@ std::tuple<Value, bool>
 mlir::rock::untransform(Value transformed,
                         SmallVectorImpl<TransformMapAttr> &transforms) {
   Value ret = transformed;
-  while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
+  while (auto transform = ret.getDefiningOp<TransformOp>()) {
     transforms.push_back(transform.getTransform());
     ret = transform.getInput();
   }
   bool isBig = hasBigTransforms(ArrayRef<TransformMapAttr>(transforms), ret);
   return {ret, isBig};
+}
+
+std::tuple<Value, bool>
+mlir::rock::untransform(Value transformed,
+                        SmallVectorImpl<TransformOp> &transforms) {
+  Value ret = transformed;
+  bool isBig = false;
+  while (auto transformOp = ret.getDefiningOp<TransformOp>()) {
+    transforms.push_back(transformOp);
+    isBig |= needs64BitIndices(transformOp.getTransform());
+    ret = transformOp.getInput();
+  }
+  isBig |= is4GBMemoryType(cast<ShapedType>(ret.getType()));
+  return std::make_tuple(ret, isBig);
 }
 
 Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
@@ -203,10 +217,10 @@ struct VectorizationData {
 /// etc.).
 template <typename T>
 static std::optional<VectorizationInfo>
-propagateUnmergeVectorization(T &&dimAndLength, const VectorizationData &input,
-                              int64_t startStrideFromOtherInfo = 1) {
+propagateUnmergeVectorization(T &&dimAndLength,
+                              const VectorizationData &input) {
   std::optional<VectorizationInfo> result;
-  int64_t previousDimsStride = startStrideFromOtherInfo;
+  int64_t previousDimsStride = 1;
   std::optional<int64_t> previousAlign;
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
@@ -358,14 +372,14 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
 // [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
 // vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
 // In other words, every group of dimensions is treated as a single group
-ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
-                                         ArrayRef<int64_t> outputShape) {
+ContiguousMergesMap findContiguousGroups(Value transformed) {
   // Transform table. Will be overwritten after processing each transform_map
   DimToMergeMap dimToMerge;
   ContiguousMergesMap contiguousGroups;
 
-  for (TransformMapAttr transformMap :
-       transforms.getAsRange<TransformMapAttr>()) {
+  Value currentVal = transformed;
+  while (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
+    TransformMapAttr transformMap = trOp.getTransform();
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
     DimToMergeMap thisDimToMerge;
 
@@ -460,13 +474,15 @@ ContiguousMergesMap findContiguousGroups(ArrayAttr transforms,
         break;
       }
     }
+    currentVal = trOp.getInput();
     dimToMerge = thisDimToMerge;
   }
 
   // Last global unmerge
-  SmallVector<uint32_t> sortedDims(outputShape.size());
+  auto outputType = cast<ShapedType>(currentVal.getType());
+  SmallVector<uint32_t> sortedDims(outputType.getRank());
   std::iota(sortedDims.begin(), sortedDims.end(), 0);
-  findCountiguousGroupsUnmerge(sortedDims, outputShape, dimToMerge,
+  findCountiguousGroupsUnmerge(sortedDims, outputType.getShape(), dimToMerge,
                                contiguousGroups);
   return contiguousGroups;
 }
@@ -761,31 +777,34 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
   return result;
 }
 
-int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
-                                        int64_t len,
-                                        ArrayRef<int64_t> outputShape,
-                                        int64_t implicitStride) {
-  int64_t numInitialDims = transforms.empty() ? outputShape.size()
-                                              : transforms[0]
-                                                    .cast<TransformMapAttr>()
-                                                    .getMap()
-                                                    .getValue()
-                                                    .getNumInputs();
+VectorizationResult
+mlir::rock::getMaxVectorization(Value transformed, uint32_t dim,
+                                std::optional<int64_t> inputDimLen,
+                                bool ignoreDataType) {
+  auto upperType = cast<ShapedType>(transformed.getType());
+  int64_t numInitialDims = upperType.getRank();
+  int64_t initialVecLen = inputDimLen.value_or(upperType.getShape()[dim]);
   VectorizationData data;
-  auto contiguousMerges = findContiguousGroups(transforms, outputShape);
+  auto contiguousMerges = findContiguousGroups(transformed);
   // grow() takes the last index, not the length
   data.grow(numInitialDims);
-  data[dim] = VectorizationInfo(/*maxLength=*/len, /*needsCoefficient=*/1,
-                                /*alignment=*/len);
-  for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
+  data[dim] =
+      VectorizationInfo(/*maxLength=*/initialVecLen, /*needsCoefficient=*/1,
+                        /*alignment=*/initialVecLen);
+  Value currentVal = transformed;
+  while (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
+    TransformMapAttr transformMap = trOp.getTransform();
     LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
     data.debugPrint();
     LLVM_DEBUG(llvm::dbgs() << "Processing: " << transformMap << "\n");
     data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
+    currentVal = trOp.getInput();
   }
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();
 
+  auto outputType = cast<ShapedType>(currentVal.getType());
+  ArrayRef<int64_t> outputShape = outputType.getShape();
   LLVM_DEBUG(llvm::dbgs() << "Vectorization output shape: ");
   LLVM_DEBUG(llvm::interleaveComma(outputShape, llvm::dbgs()));
   LLVM_DEBUG(llvm::dbgs() << "\n");
@@ -793,7 +812,7 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
       llvm::zip(llvm::reverse(
                     llvm::iota_range<uint32_t>(0, outputShape.size(), false)),
                 llvm::reverse(outputShape)),
-      data, implicitStride);
+      data);
   int64_t result = 1;
   if (finalUnmerge.has_value())
     LLVM_DEBUG(llvm::dbgs() << "Final unmerge: " << *finalUnmerge << "\n");
@@ -802,36 +821,30 @@ int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   if (finalUnmerge && finalUnmerge->needsCoefficient == 1)
     result = finalUnmerge->maxLength;
   // TODO(kdrewnia): Add support for tails
-  result = math_util::gcd(len, result);
-  return result * implicitStride;
-}
-
-int64_t mlir::rock::getMaxVectorizationForDatatype(
-    ArrayAttr transforms, uint32_t dim, int64_t len,
-    ArrayRef<int64_t> outputShape, Type dataType, int64_t implicitStride) {
-
-  // Get the number of continuous elements that could be read at once
-  int64_t theoreticalVectorLen =
-      getMaxVectorization(transforms, dim, len, outputShape, implicitStride);
+  result = math_util::gcd(initialVecLen, result);
 
   // Vectorizing more than the physical vector length (128 bits) might
   // be harmful for coalescence and other metrics. Let's limit the maximum
   // amount of data to load to the maximum vector length. This means a
   // warp will issue, if possible, a global_load_dwordx4 instruction
-  const int64_t maxVectorLenBits = 128;
-  int64_t bwidth = dataType.getIntOrFloatBitWidth();
-  int64_t realVectorLength =
-      math_util::gcd(maxVectorLenBits / bwidth, theoreticalVectorLen);
-  return realVectorLength;
+  if (!ignoreDataType) {
+    constexpr int64_t maxVectorLenBits = 128;
+    int64_t bwidth = upperType.getElementTypeBitWidth();
+    result = math_util::gcd(maxVectorLenBits / bwidth, result);
+  }
+  // bufferVectorSize will become non-trivial once scalarization comes in
+  return VectorizationResult{/*max=*/result, /*bufferVectorSize=*/1};
 }
 
-ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
-                                               ArrayRef<int64_t> outputShape) {
-  ContiguousMergesMap contigousMerges =
-      findContiguousGroups(transforms, outputShape);
-  SmallVector<Attribute> newTransformMaps;
-  for (auto map : transforms.getAsRange<TransformMapAttr>()) {
+Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
+  ContiguousMergesMap contigousMerges = findContiguousGroups(transformed);
+  SmallVector<TransformOp> transformOps;
+  Value currentRes;
+  std::tie(currentRes, std::ignore) = untransform(transformed, transformOps);
+  bool needCloning = false;
+  for (TransformOp trOp : llvm::reverse(transformOps)) {
     bool changed = false;
+    TransformMapAttr map = trOp.getTransform();
     SmallVector<TransformAttr> ops;
     ops.reserve(map.getOps().size());
     for (TransformAttr op : map.getOps()) {
@@ -877,15 +890,25 @@ ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
       ops.push_back(newMerge);
       changed = true;
     }
+    TransformMapAttr newMap = map;
     if (changed) {
-      auto newMap = TransformMapAttr::get(ops, map.getUpperBounds(),
-                                          map.getLowerBounds());
-      newTransformMaps.push_back(newMap);
+      newMap = TransformMapAttr::get(ops, map.getUpperBounds(),
+                                     map.getLowerBounds());
+      // From now on, we have to copy the transform stack.
+      needCloning = true;
+    }
+
+    if (needCloning) {
+      IRMapping cloneMap;
+      cloneMap.map(trOp.getInput(), currentRes);
+      auto newTrOp = cast<TransformOp>(b.clone(*trOp, cloneMap));
+      newTrOp.setTransformAttr(newMap);
+      currentRes = newTrOp.getOutput();
     } else {
-      newTransformMaps.push_back(map);
+      currentRes = trOp.getOutput();
     }
   }
-  return ArrayAttr::get(transforms.getContext(), newTransformMaps);
+  return currentRes;
 }
 
 /// Embed operations can create some scenarios that lead to the need to
@@ -1524,21 +1547,44 @@ ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
       .getLowerBounds();
 }
 
-ArrayAttr mlir::rock::addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
-                                            ArrayRef<int64_t> lengths,
-                                            int64_t pos) {
+Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
+                                        ArrayRef<int64_t> lengths,
+                                        int64_t pos) {
+  MLIRContext *context = transformed.getContext();
   size_t numberOfIndices = lengths.size();
 
   // No dimensions to add, return
   if (numberOfIndices == 0)
-    return transforms;
+    return transformed;
 
-  // New transform stack
-  SmallVector<Attribute, 4> extendedTrs;
+  SmallVector<TransformOp> opsToWiden;
+  Value ret;
+  std::tie(ret, std::ignore) = untransform(transformed, opsToWiden);
+
+  /// Add a transform that AddDim{}s in all the extra dimensions to make all the
+  /// shapes match up.
+  ArrayRef<int64_t> underlyingShape =
+      cast<ShapedType>(ret.getType()).getShape();
+  BottomUpTMBuilder addDimBuilder(b, underlyingShape, ret.getLoc());
+  SmallVector<StringRef> underlyingNames;
+  addDimBuilder.getStartNames(underlyingNames);
+  addDimBuilder.passThrough(
+      ArrayRef<StringRef>(underlyingNames).take_front(pos));
+  auto backNames = ArrayRef<StringRef>(underlyingNames).drop_front(pos);
+  SmallVector<uint32_t> backPoses(backNames.size());
+  std::iota(backPoses.begin(), backPoses.end(), pos + numberOfIndices);
+  addDimBuilder.passThrough(backNames, backPoses, backNames);
+  for (auto [idx, len] : llvm::enumerate(lengths)) {
+    SmallString<8> extraName;
+    ("extra_" + Twine(idx)).toVector(extraName);
+    addDimBuilder.addDim(extraName, pos + idx, len);
+  }
+  TransformMapAttr addDimAttr = addDimBuilder.get();
+  ret = b.create<TransformOp>(ret.getLoc(), ret, addDimAttr);
 
   // Start iterating through the old stack
-  for (Attribute tr : transforms) {
-    TransformMapAttr trMap = tr.cast<TransformMapAttr>();
+  for (TransformOp trOp : llvm::reverse(opsToWiden)) {
+    TransformMapAttr trMap = trOp.getTransform();
     auto ops = llvm::to_vector(trMap.getOps());
     SmallVector<TransformAttr> newOps;
 
@@ -1556,20 +1602,20 @@ ArrayAttr mlir::rock::addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
         if (upperDims[i] >= pos)
           upperDims[i] += numberOfIndices;
       }
-      newOps.push_back(TransformAttr::get(
-          transforms.getContext(), t.getType(), t.getParams(),
-          t.getUpperNames(), upperDims, t.getLowerNames(), lowerDims));
+      newOps.push_back(TransformAttr::get(context, t.getType(), t.getParams(),
+                                          t.getUpperNames(), upperDims,
+                                          t.getLowerNames(), lowerDims));
     }
 
     // Add the passthrough transforms
     SmallVector<SmallString<8>> extraNames;
     for (unsigned i = 0; i < numberOfIndices; i++) {
-      SmallString<8> extraName(Twine("extra_" + Twine(i)).str());
+      SmallString<8> extraName;
+      Twine("extra_" + Twine(i)).toVector(extraName);
       extraNames.push_back(extraName);
       auto passThrough = TransformAttr::get(
-          transforms.getContext(), TransformType::PassThrough, {},
-          {extraNames.back()}, {unsigned(pos) + i}, {extraNames.back()},
-          {unsigned(pos) + i});
+          context, TransformType::PassThrough, {}, {extraNames.back()},
+          {unsigned(pos) + i}, {extraNames.back()}, {unsigned(pos) + i});
       newOps.push_back(passThrough);
     }
 
@@ -1596,7 +1642,7 @@ ArrayAttr mlir::rock::addPassThroughIndices(OpBuilder &b, ArrayAttr transforms,
     // Add the new transform to the stack
     TransformMapAttr newMap =
         TransformMapAttr::get(newOps, newUpperBounds, newLowerBounds);
-    extendedTrs.push_back(newMap);
+    ret = b.create<TransformOp>(trOp.getLoc(), ret, newMap);
   }
-  return b.getArrayAttr(extendedTrs);
+  return ret;
 }

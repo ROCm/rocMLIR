@@ -45,28 +45,28 @@ static LogicalResult testVectorizationInference(func::FuncOp f) {
     if (op->getName().getIdentifier() !=
         VectorizationInferenceTestPass::kTestOpName)
       return WalkResult::advance();
-    auto transforms = op->getAttr("transforms").dyn_cast_or_null<ArrayAttr>();
-    if (!transforms)
-      return op->emitOpError("Expected array of transforms");
+    if (op->getNumOperands() != 1)
+      return op->emitOpError("Expected one operand");
+    if (op->getNumResults() != 0)
+      return op->emitOpError("Expected no results");
+    Value input = op->getOperand(0);
+    if (!isa<ShapedType>(input.getType()))
+      return op->emitOpError("Expected shaped type input");
     auto inDim = op->getAttr("in_dim").dyn_cast_or_null<IntegerAttr>();
     if (!inDim)
       return op->emitOpError("Expected integer attribute `in_dim`");
-    auto maxLen = op->getAttr("max_len").dyn_cast_or_null<IntegerAttr>();
-    if (!maxLen)
-      return op->emitOpError("Expected integer attribute `max_len`");
-    if (op->getOperandTypes().size() != 0)
-      return op->emitOpError("Expected no operands");
-    if (op->getResultTypes().size() != 1)
-      return op->emitOpError("Expected one result");
-    MemRefType type = op->getResultTypes().front().dyn_cast<MemRefType>();
-    if (!type || !type.hasStaticShape())
-      return op->emitOpError("Expected one static-shaped memref result");
-
-    ArrayRef<int64_t> shape = type.getShape();
-    int64_t maxVectorLen =
-        getMaxVectorization(transforms, inDim.getInt(), maxLen.getInt(), shape);
+    std::optional<int64_t> inDimLen = std::nullopt;
+    auto maxLenOverride =
+        op->getAttr("in_dim_len").dyn_cast_or_null<IntegerAttr>();
+    if (maxLenOverride)
+      inDimLen = maxLenOverride.getInt();
+    bool limitForDataType = op->hasAttrOfType<UnitAttr>("limitForDataType");
+    VectorizationResult result = getMaxVectorization(
+        input, inDim.getInt(), inDimLen, /*ignoreDataType=*/!limitForDataType);
     MLIRContext *ctx = op->getContext();
-    op->setAttr("result", IntegerAttr::get(IndexType::get(ctx), maxVectorLen));
+    op->setAttr("result", IntegerAttr::get(IndexType::get(ctx), result.max));
+    op->setAttr("bufferVectorSize",
+                IntegerAttr::get(IndexType::get(ctx), result.bufferVectorSize));
     return WalkResult::advance();
   });
   return failure(result.wasInterrupted());
