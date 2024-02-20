@@ -878,6 +878,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       }
       return {matmulMemRef, matmul};
     }
+    if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
+      Value newConstOpRes;
+      if (doRewrite) {
+        auto newConstOp = regionBuilder.clone(*constOp);
+        newConstOpRes = newConstOp->getResult(0);
+      }
+      return {newConstOpRes, failure()};
+    }
     Operation *op = input.getDefiningOp();
     // Right now, this is a bit restricted that we only allow reshape-like
     // ops between in the elemwise tree that get fused to the fusion point.
