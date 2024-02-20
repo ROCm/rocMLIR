@@ -2286,7 +2286,7 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&... args) {
+                               Args &&...args) {
   auto op =
       builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =

@@ -3,13 +3,13 @@ prefix = "rocmlir-gen"
 suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
-name = "storeMethod"
-values = ["set", "atomic_add"]
-prefix = "--store-method="
+name = "splitKFactor"
+values = ["0", "1", "2", "3", "4", "5"]
+prefix = "--split-k="
 
 [[axis]]
 name = "data type"
-values = ["f32", "f16 -RMS_threshold=1e-3"]
+values = ["f32", "f16"]
 prefix = "-t "
 
 ## Gemm variants
