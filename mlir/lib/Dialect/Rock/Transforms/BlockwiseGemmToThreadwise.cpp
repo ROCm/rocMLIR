@@ -157,7 +157,7 @@ struct BlockwiseFillRewritePattern
 //===----------------------------------------------------------------------===//
 
 // The structure of this lowing is documented at
-// https://github.com/ROCmSoftwarePlatform/rocMLIR/issues/719
+// https://github.com/ROCm/rocMLIR/issues/719
 struct BlockwiseGemmRewritePattern
     : public OpConversionPattern<BlockwiseGemmOp> {
   using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
@@ -456,7 +456,7 @@ struct BlockwiseGemmAccelRewritePattern
     //       threadwise_gemm(regsA, regsB)
     //
     // Which mimics:
-    // https://github.com/ROCmSoftwarePlatform/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
+    // https://github.com/ROCm/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
     //
     // Please note that different schedules might exist, so this can be
     // considered a temporary hack until we have a proper way of "searching"
