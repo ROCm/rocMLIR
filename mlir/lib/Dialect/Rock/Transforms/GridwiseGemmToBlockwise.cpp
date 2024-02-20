@@ -429,11 +429,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+    if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
+
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
 
     auto maybeCopyAPerThread = computeCopyPerThread(
         elementTypeA, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
@@ -2014,18 +2015,23 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadA, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
-
-            Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
-                rewriter, loc, preAccelRegBufferK);
-            Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(
-                rewriter, loc, preAccelRegBufferQ);
-            Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(
-                rewriter, loc, accRegBufferGemm0);
-
             // regsC += regsA * regsB
-            rewriter.create<ThreadwiseAccelGemmOp>(
-                loc, viewA, viewB, viewC, ValueRange{mi, ni}, op.getArchAttr(),
-                op.getFeaturesAttr(), op.getParams0Attr());
+            auto kLoop = rewriter.create<affine::AffineForOp>(
+                loc, 0, accelParamsGemm0.kBasePerThread);
+            {
+              OpBuilder::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(kLoop.getBody());
+              Value viewA = accelEmitterPtrGemm0->generateThreadwiseViewBufferA(
+                  rewriter, loc, preAccelRegBufferK);
+              Value viewB = accelEmitterPtrGemm0->generateThreadwiseViewBufferB(
+                  rewriter, loc, preAccelRegBufferQ);
+              Value viewC = accelEmitterPtrGemm0->generateThreadwiseViewBufferC(
+                  rewriter, loc, accRegBufferGemm0);
+              Value ki = kLoop.getInductionVar();
+              rewriter.create<ThreadwiseAccelGemmOp>(
+                  loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
+                  op.getArchAttr(), op.getFeaturesAttr(), op.getParams0Attr());
+            }
           }
         }
       }
@@ -2214,17 +2220,26 @@ struct GridwiseAttentionAccelRewritePattern
                   rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
             }
 
-            Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
-                rewriter, loc, preAccelRegBufferV);
-            Value viewB = accelEmitterPtrGemm1->generateThreadwiseViewBufferB(
-                rewriter, loc, preAccelRegBufferQxK);
-            Value viewC = accelEmitterPtrGemm1->generateThreadwiseViewBufferC(
-                rewriter, loc, accRegBufferGemm1);
+            affine::AffineForOp kBasePerThreadLoop =
+                rewriter.create<affine::AffineForOp>(
+                    loc, 0, accelParamsGemm1.kBasePerThread, 1);
+            {
+              PatternRewriter::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(kBasePerThreadLoop.getBody());
+              Value ki = kBasePerThreadLoop.getInductionVar();
 
-            // regsC += regsA * regsB
-            rewriter.create<ThreadwiseAccelGemmOp>(
-                loc, viewA, viewB, viewC, ValueRange{mi, ni}, op.getArchAttr(),
-                op.getFeaturesAttr(), op.getParams1Attr());
+              Value viewA = accelEmitterPtrGemm1->generateThreadwiseViewBufferA(
+                  rewriter, loc, preAccelRegBufferV);
+              Value viewB = accelEmitterPtrGemm1->generateThreadwiseViewBufferB(
+                  rewriter, loc, preAccelRegBufferQxK);
+              Value viewC = accelEmitterPtrGemm1->generateThreadwiseViewBufferC(
+                  rewriter, loc, accRegBufferGemm1);
+
+              // regsC += regsA * regsB
+              rewriter.create<ThreadwiseAccelGemmOp>(
+                  loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
+                  op.getArchAttr(), op.getFeaturesAttr(), op.getParams1Attr());
+            }
           }
         }
 
@@ -2318,11 +2333,13 @@ struct GridwiseGemmAccelRewritePattern
     GemmDimension aVectorDim;
     GemmDimension bVectorDim;
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+    if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
+
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
+
     int64_t aCopyKpacksPerThread =
         math_util::integer_divide_ceil(aCopyPerThread, kpack);
     int64_t bCopyKpacksPerThread =
