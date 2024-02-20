@@ -1363,8 +1363,9 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, {"g", "paddedDim1", "paddedDim2"}, paddedShape, loc};
     viewBuilder.passThrough("g");
     // paddedShape is G x M x N
-    viewBuilder.pad({"paddedDim1", "paddedDim2"}, {0, paddedShape[1] - prePadDim1, 0,
-                                             paddedShape[2] - prePadDim2});
+    viewBuilder.pad(
+        {"paddedDim1", "paddedDim2"},
+        {0, paddedShape[1] - prePadDim1, 0, paddedShape[2] - prePadDim2});
     TransformMapAttr padMap = viewBuilder.get();
 
     subtileViews.gridSubTile = prependUpperViews(
@@ -1381,10 +1382,10 @@ struct GridwiseAttentionAccelRewritePattern
   // post normalization. Therefore, this function creates a trasnforming
   // for loop that overwrites out of bounds values of first gemm output
   // to be negative infinity.
-  void createFirstGemmNegInfPadding(PatternRewriter &rewriter, Location loc,
-                                    layout::GridCoordinates gridCoords,
-                                    Value gemm0OutBuffer,
-                                    RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
+  void createFirstGemmNegInfPadding(
+      PatternRewriter &rewriter, Location loc,
+      layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
+      RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
@@ -1399,7 +1400,8 @@ struct GridwiseAttentionAccelRewritePattern
         ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                               gridCoords.n_block, tid, zero},
                              {zero, zero, zero, zero, zero}},
-        ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile, rewriter.getArrayAttr({})},
+        ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile,
+                            rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
@@ -2042,7 +2044,8 @@ struct GridwiseAttentionAccelRewritePattern
           op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
       if (hasPadding) {
         createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
-                                     gemm0OutBuffer, gemm0OutSubTileViewsTrUnPadded);
+                                     gemm0OutBuffer,
+                                     gemm0OutSubTileViewsTrUnPadded);
       }
 
       APInt reductionAxis = APInt(64, 1);
