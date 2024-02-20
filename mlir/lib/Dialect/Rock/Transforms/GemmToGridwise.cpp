@@ -31,12 +31,14 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/Support/Debug.h"
+#include <algorithm>
 #include <memory>
 #include <sstream>
 
@@ -280,6 +282,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   for (auto &gemmOperand : gemmOperands) {
     // Prepare matrix A and B - i.e.,
     //    (gemmG, gemmK, gemmM) and (gemmG, gemmK, gemmN), respectively
+    // Using bottom-up transformations
     // 1. unmerge (gemmK) -> (gemmKSplit, gemmK*)
     // 2. merge (gemmG, gemmKSplit) -> (gemmG*)
 
@@ -289,77 +292,69 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
         preservedDimName = dimName;
     }
 
-    llvm::StringMap<uint32_t> unmergeDimOutputNames = expandNamesInPlace(
-        gemmOperand.inputDimNames, {{"gemmK", {"gemmKSplit", "gemmK"}}});
-
     BottomUpTMBuilder unmergeTransform(builder, gemmOperand.inputDimNames,
                                        gemmOperand.inputShape, loc);
 
-    BottomUpTMTopDimsWrapper unmergeTransformWrapper(
-        unmergeTransform, std::move(unmergeDimOutputNames));
-
-    unmergeTransformWrapper.passThrough("gemmG");
-    unmergeTransformWrapper.unmerge({"gemmKSplit", "gemmK"}, "gemmK",
-                                    {splitKFactor, K / splitKFactor});
-    unmergeTransformWrapper.passThrough(preservedDimName);
+    unmergeTransform.passThrough({"gemmG", preservedDimName}, {0, 3},
+                                 {"gemmG", preservedDimName});
+    unmergeTransform.unmerge({"gemmKSplit", "gemmK"}, {1, 2}, "gemmK",
+                             {splitKFactor, K / splitKFactor});
 
     auto unmergeTransformAttr = unmergeTransform.get();
-    Value unmerge =
-        builder.create<TransformOp>(loc, gemmOperand.in, unmergeTransformAttr);
+
+    SmallVector<Attribute> transformAttrs;
+    transformAttrs.push_back(unmergeTransformAttr);
 
     auto mergeTransform =
         BottomUpTMBuilder::above(unmergeTransform, unmergeTransformAttr);
 
-    llvm::StringMap<uint32_t> mergeDimOutputNames =
-        expandNamesInPlace(gemmOperand.inputDimNames, {});
-
-    BottomUpTMTopDimsWrapper mergeTransformWrapper(
-        mergeTransform, std::move(mergeDimOutputNames));
-
-    mergeTransformWrapper.merge("gemmG", {"gemmG", "gemmKSplit"});
-    mergeTransformWrapper.passThrough(preservedDimName);
-    mergeTransformWrapper.passThrough("gemmK");
+    mergeTransform.merge("gemmG", 0, {"gemmG", "gemmKSplit"});
+    mergeTransform.passThrough({"gemmK", preservedDimName}, {1, 2},
+                               {"gemmK", preservedDimName});
 
     auto mergeTransformAttr = mergeTransform.get();
+    transformAttrs.push_back(mergeTransformAttr);
+
+    std::reverse(transformAttrs.begin(), transformAttrs.end());
+    ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
     gemmOperand.out =
-        builder.create<TransformOp>(loc, unmerge, mergeTransformAttr);
+        mlir::rock::transform(builder, gemmOperand.in, arrayTransformAttrs);
   }
 
   {
     // Prepare matrix C - i.e., (gemmG, gemmM, gemmN)
-    // 1. embed (gemmG) -> (~gemmG, gemmKSplit)[1, 0]
-    // 2. merge (~gemmG, gemmKSplit) -> (gemmG*)
-
-    SmallVector<StringRef> inputDimNames{"gemmG", "gemmM", "gemmN"};
-    BottomUpTMBuilder embedTransform(builder, inputDimNames, cShape, loc);
-
-    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        inputDimNames, {{"gemmG", {"gemmGTilda", "gemmKSplit"}}});
+    // Using top-down transformations
+    // 1. merge (gemmG * gemmKSplit, gemmM, gemmN) -> (gemmG, gemmKSplit, gemmM,
+    // gemmN)
+    // 2. ignore (gemmG, gemmKSplit, gemmM, gemmN) -> (gemmG, gemmM, gemmN)
 
     const int64_t G = cShape[0];
+    const int64_t M = cShape[1];
+    const int64_t N = cShape[2];
 
-    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
-    embedWrap.embed({"gemmGTilda", "gemmKSplit"}, {G, splitKFactor}, "gemmG",
-                    {1, 0});
-    embedWrap.passThrough({"gemmM", "gemmN"});
+    TopDownTMBuilder mergenTransform(builder, {"gemmG", "gemmM", "gemmN"},
+                                     {G * splitKFactor, M, N});
 
-    auto embedTransformAttr = embedTransform.get();
-    Value embed = builder.create<TransformOp>(loc, c, embedTransformAttr);
+    mergenTransform.merge({"gemmG", "gemmKSplit"}, {0, 1}, "gemmG",
+                          {G, splitKFactor});
+    mergenTransform.passThrough({"gemmM", "gemmN"}, {2, 3}, {"gemmM", "gemmN"});
+    auto mergenTransformAttr = mergenTransform.get();
 
-    auto mergeTransform =
-        BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
+    SmallVector<Attribute> transformAttrs;
+    transformAttrs.push_back(mergenTransformAttr);
 
-    llvm::StringMap<uint32_t> mergeDimOutputNames =
-        expandNamesInPlace(inputDimNames, {});
+    TopDownTMBuilder ignoreTransform =
+        TopDownTMBuilder::below(mergenTransform, mergenTransformAttr);
 
-    BottomUpTMTopDimsWrapper mergeTransformWrapper(
-        mergeTransform, std::move(mergeDimOutputNames));
+    ignoreTransform.ignore("gemmKSplit");
+    ignoreTransform.passThrough({"gemmG", "gemmM", "gemmN"}, {0, 1, 2},
+                                {"gemmG", "gemmM", "gemmN"});
 
-    mergeTransformWrapper.merge("gemmG", {"gemmGTilda", "gemmKSplit"});
-    mergeTransformWrapper.passThrough({"gemmM", "gemmN"});
+    TransformMapAttr ignoreTransformAttr = ignoreTransform.get();
+    transformAttrs.push_back(ignoreTransformAttr);
 
-    auto mergeTransformAttr = mergeTransform.get();
-    cNew = builder.create<TransformOp>(loc, embed, mergeTransformAttr);
+    ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
+    cNew = mlir::rock::transform(builder, c, arrayTransformAttrs);
   }
   return std::make_tuple(aNew, bNew, cNew);
 }
