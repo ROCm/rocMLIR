@@ -56,7 +56,7 @@
 // CHECK: rock.transforming_for {{.*}} (%[[LD_COORD:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[TID0]], %[[ZERO]], %[[ZERO]]), {{.*}}, (%[[LDS_ST_COORD:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP13]], #[[TMAP12]]](%[[TID0]], %[[ZERO]], %[[ZERO]]) {{.*}} bounds [1, 1, 20] strides [1, 1, 4] {
     // CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LD_COORD]]]
     // CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[ZERO]]]
-    // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maxf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
+    // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maximumf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
     // CHECK: %[[ACC_NEW:.*]] = arith.maximumf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
     // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
 

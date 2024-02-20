@@ -13,10 +13,10 @@ module  {
   // CHECK-SAME: ([[arg0:%.+]]: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
   func.func @ConvNoBias(%arg0: !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>) -> !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1> {
     %0 = migraphx.literal (dense<3.000000e+00> : tensor<64x64x1x1xf32>) : <1x64x56x56xf32, 200704x3136x56x1>
-    // CHECK: [[trIn:%.+]] = "tosa.transpose"{{.*}}[[arg0]]{{.*}} : (tensor<1x64x56x56xf32>, tensor<4xi64>) -> tensor<1x56x56x64xf32>
-    // CHECK: [[conv:%.+]] = "tosa.conv2d"{{.*}}[[trIn]]
+    // CHECK: [[trIn:%.+]] = tosa.transpose {{.*}}[[arg0]]{{.*}} : (tensor<1x64x56x56xf32>, tensor<4xi64>) -> tensor<1x56x56x64xf32>
+    // CHECK: [[conv:%.+]] = tosa.conv2d {{.*}}[[trIn]]
     %1 = migraphx.convolution %arg0, %0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x64x56x56xf32, 200704x3136x56x1>, <1x64x56x56xf32, 200704x3136x56x1> -> <1x64x56x56xf32, 200704x3136x56x1>
-    // CHECK: [[trOut:%.+]] = "tosa.transpose"{{.*}}[[conv]]
+    // CHECK: [[trOut:%.+]] = tosa.transpose {{.*}}[[conv]]
      return %1 : !migraphx.shaped<1x64x56x56xf32, 200704x3136x56x1>
   }
 
@@ -44,9 +44,9 @@ func.func @convNHWC(%in: !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, %fil: !migra
 // CHECK-LABEL: @transposed
 // CHECK-SAME: ([[arg0:%.+]]: tensor<3x4xf32>) -> tensor<3x4xf32>
 // CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 0]> : tensor<2xi64>}>
-// CHECK: [[logical:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
-// CHECK: [[op:%.+]] = "tosa.floor"([[logical]])
-// CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
+// CHECK: [[logical:%.+]] = tosa.transpose [[arg0]], [[perm]]
+// CHECK: [[op:%.+]] = tosa.floor [[logical]]
+// CHECK: [[outMem:%.+]] = tosa.transpose [[op]], [[perm]]
 // CHECK: return [[outMem]]
 func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped<4x3xf32, 1x4> {
   %op = migraphx.floor %arg0 : <4x3xf32, 1x4> -> <4x3xf32, 1x4>
@@ -56,8 +56,8 @@ func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped
 // CHECK-LABEL: @broadcast
 // CHECK-SAME: ([[arg0:%.+]]: tensor<4x1xf32>, [[arg1:%.+]]: tensor<4x3xf32>) -> tensor<4x3xf32>
 // CHECK: [[zero:%.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<4x3xf32>}>
-// CHECK: [[broadcast:%.+]] = "tosa.add"([[zero]], [[arg0]])
-// CHECK: [[op:%.+]] = "tosa.sub"([[broadcast]], [[arg1]])
+// CHECK: [[broadcast:%.+]] = tosa.add [[zero]], [[arg0]]
+// CHECK: [[op:%.+]] = tosa.sub [[broadcast]], [[arg1]]
 // CHECK: return [[op]]
 func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.shaped<4x3xf32, 3x1>) -> !migraphx.shaped<4x3xf32, 3x1> {
   %op = migraphx.sub %arg0, %arg1 : <4x3xf32, 1x0>, <4x3xf32, 3x1> -> <4x3xf32, 3x1>
@@ -66,8 +66,8 @@ func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.sha
 
 // CHECK-LABEL: @sliced
 // CHECK-SAME: ([[arg0:%.+]]: tensor<4x5xf32>, [[arg1:%.+]]: tensor<4x3xf32>) -> tensor<4x3xf32>
-// CHECK: [[sliced:%.+]] = "tosa.slice"([[arg0]]) <{size = array<i64: 4, 3>, start = array<i64: 0, 0>}>
-// CHECK: [[op:%.+]] = "tosa.sub"([[sliced]], [[arg1]])
+// CHECK: [[sliced:%.+]] = tosa.slice [[arg0]] {size = array<i64: 4, 3>, start = array<i64: 0, 0>}
+// CHECK: [[op:%.+]] = tosa.sub [[sliced]], [[arg1]]
 // CHECK: return [[op]]
 func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped<4x3xf32, 3x1>) -> !migraphx.shaped<4x3xf32, 3x1> {
   %op = migraphx.sub %arg0, %arg1 : <4x3xf32, 5x1>, <4x3xf32, 3x1> -> <4x3xf32, 3x1>
@@ -77,11 +77,11 @@ func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped
 // CHECK-LABEL: @everything
 // CHECK-SAME: ([[arg0:%.+]]: tensor<5x6x1xf32>, [[arg1:%.+]]: tensor<4x3x5xf32>) -> tensor<4x3x5xf32>
 // CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 2, 0]> : tensor<3xi64>}>
-// CHECK: [[transposed:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
-// CHECK: [[sliced:%.+]] = "tosa.slice"([[transposed]]) <{size = array<i64: 4, 1, 5>, start = array<i64: 0, 0, 0>}>
+// CHECK: [[transposed:%.+]] = tosa.transpose [[arg0]], [[perm]]
+// CHECK: [[sliced:%.+]] = tosa.slice [[transposed]] {size = array<i64: 4, 1, 5>, start = array<i64: 0, 0, 0>}
 // CHECK: [[zero:%.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<4x3x5xf32>}>
-// CHECK: [[broadcast:%.+]] = "tosa.add"([[zero]], [[sliced]])
-// CHECK: [[op:%.+]] = "tosa.sub"([[broadcast]], [[arg1]])
+// CHECK: [[broadcast:%.+]] = tosa.add [[zero]], [[sliced]]
+// CHECK: [[op:%.+]] = tosa.sub [[broadcast]], [[arg1]]
 // CHECK: return [[op]]
 func.func @everything(%arg0: !migraphx.shaped<4x3x5xf32, 1x0x6>, %arg1: !migraphx.shaped<4x3x5xf32, 15x5x1>) -> !migraphx.shaped<4x3x5xf32, 15x5x1> {
   %op = migraphx.sub %arg0, %arg1 : <4x3x5xf32, 1x0x6>, <4x3x5xf32, 15x5x1> -> <4x3x5xf32, 15x5x1>
@@ -91,9 +91,9 @@ func.func @everything(%arg0: !migraphx.shaped<4x3x5xf32, 1x0x6>, %arg1: !migraph
 // CHECK-LABEL: @matchingLogicalTypes
 // CHECK-SAME: ([[arg0:%.+]]: tensor<3x3xf32>) -> tensor<3x3xf32>
 // CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 0]> : tensor<2xi64>}>
-// CHECK: [[logical:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
-// CHECK: [[op:%.+]] = "tosa.floor"([[logical]])
-// CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
+// CHECK: [[logical:%.+]] = tosa.transpose [[arg0]], [[perm]]
+// CHECK: [[op:%.+]] = tosa.floor [[logical]]
+// CHECK: [[outMem:%.+]] = tosa.transpose [[op]], [[perm]]
 // CHECK: return [[outMem]]
 func.func @matchingLogicalTypes(%arg0: !migraphx.shaped<3x3xf32, 1x3>) -> !migraphx.shaped<3x3xf32, 1x3> {
   %op = migraphx.floor %arg0 : <3x3xf32, 1x3> -> <3x3xf32, 1x3>
@@ -103,9 +103,9 @@ func.func @matchingLogicalTypes(%arg0: !migraphx.shaped<3x3xf32, 1x3>) -> !migra
 // CHECK-LABEL: @transposeWithUnitDims
 // CHECK-SAME: ([[arg0:%.+]]: tensor<3x1x3xf32>) -> tensor<3x1x3xf32>
 // CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[2, 1, 0]> : tensor<3xi64>}>
-// CHECK: [[logical:%.+]] = "tosa.transpose"([[arg0]], [[perm]])
-// CHECK: [[op:%.+]] = "tosa.floor"([[logical]])
-// CHECK: [[outMem:%.+]] = "tosa.transpose"([[op]], [[perm]])
+// CHECK: [[logical:%.+]] = tosa.transpose [[arg0]], [[perm]]
+// CHECK: [[op:%.+]] = tosa.floor [[logical]]
+// CHECK: [[outMem:%.+]] = tosa.transpose [[op]], [[perm]]
 // CHECK: return [[outMem]]
 func.func @transposeWithUnitDims(%arg0: !migraphx.shaped<3x1x3xf32, 1x3x3>) -> !migraphx.shaped<3x1x3xf32, 1x3x3> {
   %op = migraphx.floor %arg0 : <3x1x3xf32, 1x3x3> -> <3x1x3xf32, 1x3x3>
@@ -114,7 +114,7 @@ func.func @transposeWithUnitDims(%arg0: !migraphx.shaped<3x1x3xf32, 1x3x3>) -> !
 
 // CHECK-LABEL: @needStableSort
 // CHECK-SAME: ([[arg0:%.+]]: tensor<3x1x1xf32>) -> tensor<3x1x1xf32>
-// CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
+// CHECK: [[op:%.+]] = tosa.floor [[arg0]]
 // CHECK: return [[op]]
 func.func @needStableSort(%arg0: !migraphx.shaped<3x1x1xf32, 1x1x1>) -> !migraphx.shaped<3x1x1xf32, 1x1x1> {
   %op = migraphx.floor %arg0 : <3x1x1xf32, 1x1x1> -> <3x1x1xf32, 1x1x1>
@@ -123,7 +123,7 @@ func.func @needStableSort(%arg0: !migraphx.shaped<3x1x1xf32, 1x1x1>) -> !migraph
 
 // CHECK-LABEL: @scalar
 // CHECK-SAME: ([[arg0:%.+]]: tensor<1xf32>) -> tensor<1xf32>
-// CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
+// CHECK: [[op:%.+]] = tosa.floor [[arg0]]
 // CHECK: return [[op]]
 func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 0> {
   %op = migraphx.floor %arg0 : <1xf32, 0> -> <1xf32, 0>
@@ -132,7 +132,7 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
 
 // CHECK-LABEL: @scalar0d
 // CHECK-SAME: ([[arg0:%.+]]: tensor<f32>) -> tensor<f32>
-// CHECK: [[op:%.+]] = "tosa.floor"([[arg0]])
+// CHECK: [[op:%.+]] = tosa.floor [[arg0]]
 // CHECK: return [[op]]
 func.func @scalar0d(%arg0: !migraphx.shaped<f32>) -> !migraphx.shaped<f32> {
   %op = migraphx.floor %arg0 : <f32> -> <f32>

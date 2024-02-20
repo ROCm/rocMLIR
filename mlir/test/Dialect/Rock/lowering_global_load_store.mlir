@@ -304,7 +304,7 @@ func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_spac
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: memref.atomic_rmw maxf %[[val]], %[[cast]]
+    // CHECK: memref.atomic_rmw maximumf %[[val]], %[[cast]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
          features = atomic_fmax_f32 {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -333,7 +333,7 @@ func.func @emulated_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_sp
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: memref.atomic_rmw maxf %[[val]], %[[cast]]
+    // CHECK: memref.atomic_rmw maximumf %[[val]], %[[cast]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
         features = none {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>

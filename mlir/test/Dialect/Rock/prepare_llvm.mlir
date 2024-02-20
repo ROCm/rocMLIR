@@ -66,7 +66,7 @@ llvm.func @alias_scopes(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias}, %arg2: !llv
 // CHECK-LABEL: @invariant_load
 llvm.func @invariant_load(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias, llvm.readonly}, %arg2: !llvm.ptr {llvm.noalias, llvm.writeonly}) attributes {rocdl.kernel} {
   // CHECK: llvm.load
-  // CHECK-SAME: invariantLoad
+  // CHECK-SAME: invariant
   %v = llvm.load %arg1 : !llvm.ptr -> f32
   %w = llvm.fadd %v, %arg0 : f32
   llvm.store %w, %arg2 {nontemporal} : f32, !llvm.ptr
