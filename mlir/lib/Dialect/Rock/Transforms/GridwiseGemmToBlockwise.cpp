@@ -1356,15 +1356,16 @@ struct GridwiseAttentionAccelRewritePattern
   RegsAsMatrixSubTiles unpadGridSubTileView(PatternRewriter &rewriter,
                                             Location loc,
                                             RegsAsMatrixSubTiles subtileViews,
-                                            int64_t prePadGemmM,
-                                            int64_t prePadGemmN) const {
+                                            int64_t prePadDim1,
+                                            int64_t prePadDim2) const {
     ArrayRef<int64_t> paddedShape = getLowerShape(subtileViews.gridSubTile);
     TopDownTMBuilder viewBuilder{
-        rewriter, {"g", "paddedM", "paddedN"}, paddedShape, loc};
+        rewriter, {"g", "paddedDim1", "paddedDim2"}, paddedShape, loc};
     viewBuilder.passThrough("g");
     // paddedShape is G x M x N
-    viewBuilder.pad({"paddedM", "paddedN"}, {0, paddedShape[1] - prePadGemmM, 0,
-                                             paddedShape[2] - prePadGemmN});
+    viewBuilder.pad(
+        {"paddedDim1", "paddedDim2"},
+        {0, paddedShape[1] - prePadDim1, 0, paddedShape[2] - prePadDim2});
     TransformMapAttr padMap = viewBuilder.get();
 
     subtileViews.gridSubTile = prependUpperViews(
@@ -1385,7 +1386,6 @@ struct GridwiseAttentionAccelRewritePattern
       PatternRewriter &rewriter, Location loc,
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
-
     MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
@@ -2047,8 +2047,8 @@ struct GridwiseAttentionAccelRewritePattern
         prePadG0N = op.getPrePadG0N().value().getSExtValue();
       }
       RegsAsMatrixSubTiles gemm0OutSubTileViewsTrUnPadded =
-          unpadGridSubTileView(rewriter, loc, gemm0OutSubTileViewsTr, prePadG0M,
-                               prePadG0N);
+          unpadGridSubTileView(rewriter, loc, gemm0OutSubTileViewsTr, prePadG0N,
+                               prePadG0M);
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
