@@ -252,7 +252,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
   GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
                      /*k=*/valuesShape[1],
-                     /*n=*/keysShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm1ExtraPad =
       requiredPadding(params1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
 

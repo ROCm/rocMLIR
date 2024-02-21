@@ -106,7 +106,8 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
 
   int64_t getKPack() { return 1; }
 
-  template <class Self, class F> static void visit(Self &&self, F f) {
+  template <class Self, class F>
+  static void visit(Self &&self, F f) {
     f(self.blockSize);
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
@@ -154,7 +155,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
 
-  template <class Self, class F> static void visit(Self &&self, F f) {
+  template <class Self, class F>
+  static void visit(Self &&self, F f) {
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
     f(self.gemmKPerBlock);
@@ -166,14 +168,16 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   }
 };
 
-template <typename T> std::string genDebugForParams(T params) {
+template <typename T>
+std::string genDebugForParams(T params) {
   std::ostringstream os;
   params.visit(params, [&os](auto &arg) { os << arg << ","; });
   os << "\n";
   return os.str();
 }
 
-template <typename InitParamType> class BasePopulateParams {
+template <typename InitParamType>
+class BasePopulateParams {
 private:
   struct InitParamData {
     InitParamType paramSet;
