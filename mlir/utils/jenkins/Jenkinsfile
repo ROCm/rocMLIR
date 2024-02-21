@@ -546,8 +546,7 @@ pipeline {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
-                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -716,8 +715,7 @@ pipeline {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
-                                      case "${env.NODE_NAME}" in lockhart*) export http_proxy=http://172.23.0.23:3128 ;; esac
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git ${WORKSPACE}/MITuna"""
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
