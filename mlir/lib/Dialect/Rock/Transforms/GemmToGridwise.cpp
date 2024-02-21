@@ -341,13 +341,6 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
                   gemm1ExtraPad.m);
 
-  SmallVector<Value, 2> otherElemWiseInputs;
-  for (Value otherElemwiseInput : adaptor.getPreSoftmaxElemWiseInputs()) {
-    otherElemwiseInput = padMatrix(otherElemwiseInput, rw, loc, "gemm1N",
-                                   gemm0ExtraPad.n, "gemm1M", gemm0ExtraPad.m);
-    otherElemWiseInputs.push_back(otherElemwiseInput);
-  }
-
   if (failed(computeGridSize(rw, op, queries, keys, values))) {
     return op.emitError("failed to compute the grid size of `AttentionOp`");
   }
@@ -364,12 +357,17 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
-      loc, queries, keys, values, otherElemWiseInputs, out, op.getArchAttr(),
-      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
+      loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out,
+      op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
-  rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
-                        newOp.getPreSoftmaxBody().begin());
+  bool linalgOpFound = false;
+  op.getPreSoftmaxBody().walk(
+      [&](linalg::GenericOp genOp) { linalgOpFound = true; });
+  if (linalgOpFound) {
+    rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                          newOp.getPreSoftmaxBody().begin());
+  }
   rw.replaceOp(op, newOp);
   return success();
 }
