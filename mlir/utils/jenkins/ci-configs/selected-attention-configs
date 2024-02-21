@@ -1,1 +1,1 @@
--transO false -transV false -transK true -transQ false -t f16 -g 256 -seq_len 1024 -head_dim 128
+-transO false -transV false -transK true -transQ false -t f16 -g 256 -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 128 -head_dim_v 128

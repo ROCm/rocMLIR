@@ -481,25 +481,25 @@ static llvm::cl::opt<bool> hasAttnBias(
 static llvm::cl::opt<bool>
     transposeQ("transQ",
                llvm::cl::desc("whether matrix Q of attention op is "
-                              "Gxseq_len1xhead (default) or Gxheadxseq_len1"),
+                              "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeK("transK",
                llvm::cl::desc("whether matrix K of attention op is "
-                              "Gxseq_len2xhead (default) or Gxheadxseq_len2"),
+                              "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeV("transV",
                llvm::cl::desc("whether matrix V of attention op is "
-                              "Gxseq_len2xhead (default) or Gxheadxseq_len2"),
+                              "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
                llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     transposeO("transO",
                llvm::cl::desc("whether matrix O of attention op is "
-                              "Gxseq_len1xhead (default) or Gxheadxseq_len1"),
+                              "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
                llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
