@@ -361,8 +361,13 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
-  rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
-                        newOp.getPreSoftmaxBody().begin());
+  bool linalgOpFound = false;
+  op.getPreSoftmaxBody().walk(
+      [&](linalg::GenericOp genOp) { linalgOpFound = true; });
+  if (linalgOpFound) {
+    rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                          newOp.getPreSoftmaxBody().begin());
+  }
   rw.replaceOp(op, newOp);
   return success();
 }
