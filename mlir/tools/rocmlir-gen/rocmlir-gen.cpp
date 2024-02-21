@@ -449,19 +449,18 @@ static llvm::cl::opt<bool> emitTuningKey(
 // Attention related args
 // ----------------------
 
-static llvm::cl::opt<int64_t>
-    sequenceLengthQ("seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
+static llvm::cl::opt<int64_t> sequenceLengthQ(
+    "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> sequenceLengthK(
+    "seq_len_k", llvm::cl::desc("sequence length of K in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
-    sequenceLengthK("seq_len_k", llvm::cl::desc("sequence length of K in attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
-
-static llvm::cl::opt<int64_t>
-    headDimQK("head_dim_qk", llvm::cl::desc("head dimension of Q,K in attention()"),
-             llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+    headDimQK("head_dim_qk",
+              llvm::cl::desc("head dimension of Q,K in attention()"),
+              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
     headDimV("head_dim_v", llvm::cl::desc("head dimension of v in attention()"),
@@ -478,29 +477,29 @@ static llvm::cl::opt<bool> hasAttnBias(
     llvm::cl::desc("Generate an attention kernel that is using a bias"),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeQ("transQ",
-               llvm::cl::desc("whether matrix Q of attention op is "
-                              "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeQ(
+    "transQ",
+    llvm::cl::desc("whether matrix Q of attention op is "
+                   "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeK("transK",
-               llvm::cl::desc("whether matrix K of attention op is "
-                              "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeK(
+    "transK",
+    llvm::cl::desc("whether matrix K of attention op is "
+                   "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeV("transV",
-               llvm::cl::desc("whether matrix V of attention op is "
-                              "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeV(
+    "transV",
+    llvm::cl::desc("whether matrix V of attention op is "
+                   "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeO("transO",
-               llvm::cl::desc("whether matrix O of attention op is "
-                              "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeO(
+    "transO",
+    llvm::cl::desc("whether matrix O of attention op is "
+                   "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
+    llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options

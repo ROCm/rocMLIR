@@ -432,22 +432,20 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 
   // TransK
   problemOS << "-transK ";
-  if (attnOp.getKTransposed()){
+  if (attnOp.getKTransposed()) {
     seqLenK = kShape[1];
     problemOS << "true" << sep;
-  }
-  else{
+  } else {
     seqLenK = kShape[2];
     problemOS << "false" << sep;
   }
 
   // TransV
   problemOS << "-transV ";
-  if (attnOp.getVTransposed()){
+  if (attnOp.getVTransposed()) {
     headDimV = vShape[1];
     problemOS << "true" << sep;
-  }
-  else {
+  } else {
     headDimV = vShape[2];
     problemOS << "false" << sep;
   }
