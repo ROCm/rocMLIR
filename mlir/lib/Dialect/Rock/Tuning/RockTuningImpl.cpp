@@ -400,8 +400,10 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
   constexpr char sep = ' ';
   constexpr char tab = '\t';
-  int64_t numHeads;
-  int64_t seqLen;
+  int64_t headDimQK;
+  int64_t headDimV;
+  int64_t seqLenQ;
+  int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
   problemOS << attnOp.getArch() << tab;
@@ -409,34 +411,46 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   problemOS << numCU << tab;
 
   TypedValue<ShapedType> queries = attnOp.getQueries();
+  TypedValue<ShapedType> keys = attnOp.getKeys();
+  TypedValue<ShapedType> values = attnOp.getValues();
   ArrayRef<int64_t> qShape = queries.getType().getShape();
+  ArrayRef<int64_t> kShape = keys.getType().getShape();
+  ArrayRef<int64_t> vShape = values.getType().getShape();
   int64_t g = qShape[0];
 
   // TransQ
   problemOS << "-transQ ";
   if (attnOp.getQTransposed()) {
-    seqLen = qShape[2];
-    numHeads = qShape[1];
+    seqLenQ = qShape[2];
+    headDimQK = qShape[1];
     problemOS << "true" << sep;
   } else {
-    seqLen = qShape[1];
-    numHeads = qShape[2];
+    seqLenQ = qShape[1];
+    headDimQK = qShape[2];
     problemOS << "false" << sep;
   }
 
   // TransK
   problemOS << "-transK ";
-  if (attnOp.getKTransposed())
+  if (attnOp.getKTransposed()){
+    seqLenK = kShape[1];
     problemOS << "true" << sep;
-  else
+  }
+  else{
+    seqLenK = kShape[2];
     problemOS << "false" << sep;
+  }
 
   // TransV
   problemOS << "-transV ";
-  if (attnOp.getVTransposed())
+  if (attnOp.getVTransposed()){
+    headDimV = vShape[1];
     problemOS << "true" << sep;
-  else
+  }
+  else {
+    headDimV = vShape[2];
     problemOS << "false" << sep;
+  }
 
   // TransO
   problemOS << "-transO ";
@@ -446,8 +460,10 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
     problemOS << "false" << sep;
 
   problemOS << "-g " << g << sep;
-  problemOS << "-seq_len " << seqLen << sep;
-  problemOS << "-head_dim " << numHeads;
+  problemOS << "-seq_len_q " << seqLenQ << sep;
+  problemOS << "-seq_len_k " << seqLenK << sep;
+  problemOS << "-head_dim_qk " << headDimQK;
+  problemOS << "-head_dim_v " << headDimV;
   return success();
 }
 
