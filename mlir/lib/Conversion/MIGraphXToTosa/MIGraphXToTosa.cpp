@@ -639,7 +639,7 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
   if (axes.size() != 1) {
     return op.emitError("We only support single axes reductions!");
   }
-  IntegerAttr axis = axes[0].cast<IntegerAttr>();
+  IntegerAttr axis = rewriter.getI32IntegerAttr(axes[0].cast<IntegerAttr>().getInt());
   auto input = cast<TypedValue<RankedTensorType>>(adaptor.getInput());
   Type elementType = input.getType().getElementType();
 
@@ -859,12 +859,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                             APFloat::rmNearestTiesToEven);
     }
     
-    mlir::Type floatType;
-    double doubleValue = minF.convertToDouble(); 
-    mlir::FloatAttr minFatt = mlir::FloatAttr::get(floatType, doubleValue);
-    doubleValue = maxF.convertToDouble(); 
-    mlir::FloatAttr maxFatt = mlir::FloatAttr::get(floatType, doubleValue);
-
+    FloatAttr minFatt = rewriter.getF32FloatAttr(minF.convertToDouble());
+    FloatAttr maxFatt = rewriter.getF32FloatAttr(maxF.convertToDouble());
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
                                              minI.getSExtValue(),
                                              maxI.getSExtValue(), minFatt, maxFatt);
@@ -901,7 +897,7 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   Value input = adaptor.getInput();
-  IntegerAttr axisAttr = op.getAxisAttr();
+  IntegerAttr axisAttr = rewriter.getI32IntegerAttr(op.getAxisAttr().getInt());
   ShapedType inputType = input.getType().cast<ShapedType>();
   Type elementType = inputType.getElementType();
 

@@ -89,6 +89,9 @@ struct LaunchOpInterface
                                                     mhal::LaunchOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
+    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
+    auto opOperandIdx = opOperand.getOperandNumber()
+      - launchOp.getDependencies().size();
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
@@ -98,12 +101,14 @@ struct LaunchOpInterface
       return true;
 
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    return funcState.readBbArgs.lookup(funcOp).contains(
-        opOperand.getOperandNumber());
+    return funcState.readBbArgs.lookup(funcOp).contains(opOperandIdx);
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
+    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
+    auto opOperandIdx = opOperand.getOperandNumber()
+      - launchOp.getDependencies().size();
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
@@ -113,12 +118,14 @@ struct LaunchOpInterface
       return true;
 
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    return funcState.writtenBbArgs.lookup(funcOp).contains(
-        opOperand.getOperandNumber());
+    return funcState.writtenBbArgs.lookup(funcOp).contains(opOperandIdx);
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
+    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
+    auto opOperandIdx = opOperand.getOperandNumber()
+      - launchOp.getDependencies().size();
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
@@ -130,8 +137,7 @@ struct LaunchOpInterface
 
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
     auto aliasingReturnVals =
-        funcState.aliasingReturnVals.lookup(funcOp).lookup(
-            opOperand.getOperandNumber());
+      funcState.aliasingReturnVals.lookup(funcOp).lookup(opOperandIdx);
 
     // Check if the aliasing OpResult is equivalent to the OpOperand.
     std::optional<int64_t> equivalent = {};
@@ -139,7 +145,7 @@ struct LaunchOpInterface
       equivalent = getEquivalentFuncArgIdx(funcOp, funcState,
                                            aliasingReturnVals.front());
       assert((!equivalent.has_value() ||
-              *equivalent == opOperand.getOperandNumber()) &&
+              *equivalent == opOperandIdx) &&
              "inconsistent analysis state");
     }
     AliasingValueList result;
