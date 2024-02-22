@@ -1,4 +1,4 @@
-// The test case that was used to reproduce https://github.com/ROCmSoftwarePlatform/rocMLIR-internal/issues/940
+// The test case that was used to reproduce https://github.com/ROCm/rocMLIR-internal/issues/940
 // RUN: rocmlir-opt --migraphx-transform --canonicalize --migraphx-to-tosa %s | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | rocmlir-gen -ph -rand 1 -fut mlir_dot --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full -targets %arch | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
 // ALLOW_RETRIES: 2
 

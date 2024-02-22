@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 // With much credit to
-// https://github.com/ROCmSoftwarePlatform/rocBLAS-Examples/blob/develop/Level-3/gemm_strided_batched/gemm_strided_batched.cpp
+// https://github.com/ROCm/rocBLAS-Examples/blob/develop/Level-3/gemm_strided_batched/gemm_strided_batched.cpp
 
 // Include common utility functions
 #include "../common/benchmarkUtils.h"
@@ -48,7 +48,7 @@ static rocblas_datatype getRocblasType(bool isOut,
 }
 
 /// This code is taken from
-/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
+/// https://github.com/ROCm/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
 /// and is used to set the GEMM compute type (i.e., the type of the GEMM
 /// accumulation buffer)
 bool get_compute_fp32_flag() {
