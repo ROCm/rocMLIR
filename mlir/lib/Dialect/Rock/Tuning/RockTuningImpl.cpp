@@ -285,6 +285,28 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
             /*kpackPerBlock=*/32, /*mPerBlock=*/128,
             /*nPerBlock=*/256, /*kpack=*/4,
             /*mPerWave=*/128, /*nPerWave=*/32, /*forceUnroll=*/true)));
+
+    // add performant sdxl configs
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/16, /*mPerBlock=*/64,
+            /*nPerBlock=*/64, /*kpack=*/4,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/16, /*mPerBlock=*/64,
+            /*nPerBlock=*/128, /*kpack=*/4,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/16, /*mPerBlock=*/64,
+            /*nPerBlock=*/128, /*kpack=*/4,
+            /*mPerWave=*/64, /*nPerWave=*/32, /*forceUnroll=*/true)));
+    newSpace->tuningRange.push_back(
+        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
+            /*kpackPerBlock=*/8, /*mPerBlock=*/32,
+            /*nPerBlock=*/128, /*kpack=*/8,
+            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
     PopulateParamsWmma tuningInfo;
