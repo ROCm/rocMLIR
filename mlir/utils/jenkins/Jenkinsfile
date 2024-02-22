@@ -40,13 +40,13 @@ void buildMIGraphX(String cmakeOpts) {
 
 void getAndBuildMIGraphX(String cmakeOpts) {
     git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
+        url: 'https://github.com/ROCm/AMDMIGraphX.git'
     buildMIGraphX(cmakeOpts)
 }
 
 void getAndBuildCK(String cmakeOpts) {
     git branch: params.CKBranch, poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/composable_kernel.git'
+        url: 'https://github.com/ROCm/composable_kernel.git'
     buildCK(cmakeOpts)
 }
 
@@ -967,8 +967,9 @@ pipeline {
             matrix {
                 axes {
                     axis {
+                        // Disabling MIGraphX build stage for gfx906 (vanilla) as it is deprecated.
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21'
+                        values 'mfma', 'navi21'
                     }
                 }
                 agent {

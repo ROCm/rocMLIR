@@ -38,6 +38,7 @@
 
 #include "llvm/Support/Debug.h"
 #include <memory>
+#include <sstream>
 
 namespace mlir {
 namespace rock {
@@ -61,12 +62,18 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
   using OpConversionPattern<GemmOp>::OpConversionPattern;
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
+
+  LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
+                                Value a, Value b) const;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
   using OpConversionPattern<AttentionOp>::OpConversionPattern;
   LogicalResult matchAndRewrite(AttentionOp op, AttentionOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
+
+  LogicalResult computeGridSize(ConversionPatternRewriter &rw, AttentionOp op,
+                                Value queries, Value keys, Value values) const;
 };
 
 static Type getSmallestType(Type type1, Type type2) {
@@ -150,6 +157,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       a = newA;
     }
   }
+
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
   a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
@@ -168,6 +176,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
+
+  if (failed(computeGridSize(rw, op, a, b))) {
+    return op.emitError("failed to compute the grid size of `GemmOp`");
+  }
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
   IntegerAttr numCUAttr = op.getNumCUAttr();
@@ -220,6 +232,40 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         });
   }
   rw.eraseOp(op);
+  return success();
+}
+
+LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
+                                                  GemmOp op, Value a,
+                                                  Value b) const {
+  GemmFeatures features = op.getGemmFeatures();
+  Attribute params = op.getParams().value();
+
+  const auto aShape = a.getType().cast<MemRefType>().getShape();
+  const auto bShape = b.getType().cast<MemRefType>().getShape();
+
+  const int64_t G = aShape[0];
+  const int64_t M = aShape[2];
+  const int64_t N = bShape[2];
+
+  auto mPerBlock{0};
+  auto nPerBlock{0};
+
+  if (isAccel(features)) {
+    auto tuningParams = params.cast<RockAccelTuningParamAttrInterface>();
+    mPerBlock = tuningParams.getMPerBlock();
+    nPerBlock = tuningParams.getNPerBlock();
+  } else {
+    auto tuningParams = params.cast<GeneralGemmParamsAttr>();
+    mPerBlock = tuningParams.getMPerBlock();
+    nPerBlock = tuningParams.getNPerBlock();
+  }
+  const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+
+  op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
+
+  func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+  funcOp->setAttr("grid_size", rw.getI32IntegerAttr(gridSize));
   return success();
 }
 
@@ -278,7 +324,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
   GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
                      /*k=*/valuesShape[1],
-                     /*n=*/keysShape[2]);
+                     /*n=*/queriesShape[2]);
   GemmSize gemm1ExtraPad =
       requiredPadding(params1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
 
@@ -295,16 +341,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
                   gemm1ExtraPad.m);
 
-  Value scale = nullptr;
-  if (Value scaleUnpadded = adaptor.getScale()) {
-    scale = padMatrix(scaleUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n,
-                      "gemm1M", gemm0ExtraPad.m);
-  }
-
-  Value bias = nullptr;
-  if (Value biasUnpadded = adaptor.getBias()) {
-    bias = padMatrix(biasUnpadded, rw, loc, "gemm1N", gemm0ExtraPad.n, "gemm1M",
-                     gemm0ExtraPad.m);
+  if (failed(computeGridSize(rw, op, queries, keys, values))) {
+    return op.emitError("failed to compute the grid size of `AttentionOp`");
   }
 
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
@@ -318,11 +356,56 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   if (gemm0ExtraPad.n) {
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
-  rw.replaceOpWithNewOp<GridwiseAttentionAccelOp>(
-      op, queries, keys, values, scale, bias, out, op.getArchAttr(),
-      op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
+  auto newOp = rw.create<GridwiseAttentionAccelOp>(
+      loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out,
+      op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
       params1);
+  bool linalgOpFound = false;
+  op.getPreSoftmaxBody().walk(
+      [&](linalg::GenericOp genOp) { linalgOpFound = true; });
+  if (linalgOpFound) {
+    rw.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                          newOp.getPreSoftmaxBody().begin());
+  }
+  rw.replaceOp(op, newOp);
+  return success();
+}
+
+LogicalResult
+AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
+                                         AttentionOp op, Value queries,
+                                         Value keys, Value values) const {
+
+  RockAccelTuningParamAttrInterface accelParams0 =
+      op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
+
+  RockAccelTuningParamAttrInterface accelParams1 =
+      op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
+
+  SmallVector<int64_t, 3> queriesShape =
+      llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
+
+  SmallVector<int64_t, 3> keysShape =
+      llvm::to_vector<3>(keys.getType().cast<MemRefType>().getShape());
+
+  SmallVector<int64_t, 3> valuesShape =
+      llvm::to_vector<3>(values.getType().cast<MemRefType>().getShape());
+
+  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
+                     /*k=*/queriesShape[1],
+                     /*n=*/queriesShape[2]);
+  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
+                     /*k=*/valuesShape[1],
+                     /*n=*/keysShape[2]);
+
+  int64_t gridSize = ((gemm0Size.n) / accelParams0.getNPerBlock()) *
+                     ((gemm1Size.m) / accelParams1.getMPerBlock()) *
+                     gemm0Size.g;
+
+  IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
+  func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+  funcOp->setAttr("grid_size", gridSizeAttr);
   return success();
 }
 

@@ -74,8 +74,8 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
             // anything, otherwise we need to be sure that the new
             // dimension is a single-length broadcast
             case rock::TransformType::Broadcast:
-              if (tr.getParams().back() != 1)
-                newWorkList.insert(tr.getLowerDims().back());
+              if (tr.getParams()[idx] != 1)
+                newWorkList.insert(tr.getLowerDims()[idx]);
               break;
             // AddDim and ConstDim are basically broadcasts. No
             // need to go further
@@ -92,8 +92,9 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
             // we need to ensure that all their (lower) dimensions
             // bigger than 1 lead to broadcasts
             case rock::TransformType::Merge:
-              for (auto dim : tr.getLowerDims()) {
-                if (tr.getParams()[dim] != 1)
+              for (auto [length, dim] :
+                   llvm::zip(tr.getParams(), tr.getLowerDims())) {
+                if (length != 1)
                   newWorkList.insert(dim);
               }
               break;

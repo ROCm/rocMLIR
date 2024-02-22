@@ -131,8 +131,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
-      rock::RockAffixTuningParametersPassOptions{0, 0,
-                                                 options.tuningFallback}));
+      rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());

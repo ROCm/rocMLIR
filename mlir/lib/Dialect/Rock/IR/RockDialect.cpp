@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -1677,8 +1678,11 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("B shape should be [N,K]");
   if (aShape.back() != bShape.back())
     return emitOpError("A and B K dimensions don't match");
-  if (cShape.size() != 2 + getExtraIndicesC().size())
-    return emitOpError("C shape should be [extraIndices, M,N]");
+  if (cShape.size() != 2)
+    return emitOpError("C shape should be [M,N]");
+  if (getComputeIndices().size() != 3)
+    return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
+
   return success();
 }
 
@@ -1691,6 +1695,13 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
+  }
+
+  int64_t linalgOpCount = 0;
+  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
+  if (linalgOpCount > 1) {
+    return emitError(
+        "More than 1 linalg generic op found in pre softmax fusion point.");
   }
   return success();
 }
@@ -1954,21 +1965,6 @@ LogicalResult AttentionOp::verify() {
   if (keyN != valueK) {
     return emitError("reduction dimensions of second gemm do not match");
   }
-
-  if (TypedValue<ShapedType> scale = getScale()) {
-    ShapedType scaleType = scale.getType();
-    if (vType.getRank() != scaleType.getRank()) {
-      return emitError("scale needs to be of same rank to other inputs");
-    }
-  }
-
-  if (TypedValue<ShapedType> bias = getBias()) {
-    ShapedType biasType = bias.getType();
-    if (vType.getRank() != biasType.getRank()) {
-      return emitError("bias needs to be of same rank to other inputs");
-    }
-  }
-
   return success();
 }
 

@@ -430,17 +430,19 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
+    int64_t kBasePerThread = params.kBasePerThread;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
                << "argVectorType B: " << argTypeB << "\n"
-               << "k_base: " << kBase << "\n"
+               << "kBase: " << kBase << "\n"
                << "mPerWave: " << mPerWave << "\n"
                << "nPerWave: " << nPerWave << "\n"
                << "mRepeat: " << mRepeats << "\n"
                << "nRepeat: " << nRepeats << "\n"
+               << "kBasePerThread: " << kBasePerThread << "\n"
                << "kpackPerBlock: " << kpackPerBlock << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
@@ -471,35 +473,40 @@ struct BlockwiseGemmAccelRewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
-      Value m_i = mLoop.getInductionVar();
+      Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
       b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
                                      op.getBufferA(), b.getArrayAttr({}),
-                                     ValueRange{tid, m_i}, true, true);
+                                     ValueRange{tid, i}, true, true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
-        Value n_i = nLoop.getInductionVar();
+        Value j = nLoop.getInductionVar();
 
         // regsB = read B from LDS
         b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadB,
                                        op.getBufferB(), b.getArrayAttr({}),
-                                       ValueRange{tid, n_i}, true, true);
-
-        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
-            b, loc, adaptor.getBufferA());
-        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
-            b, loc, adaptor.getBufferB());
-        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
-            b, loc, adaptor.getMatrixC());
+                                       ValueRange{tid, j}, true, true);
 
         // regsC += regsA * regsB
-        b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                        ValueRange{m_i, n_i}, arch,
-                                        op.getFeaturesAttr(), tuningParams);
+        auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
+        {
+          OpBuilder::InsertionGuard guard(b);
+          b.setInsertionPointToStart(kLoop.getBody());
+          Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+              b, loc, adaptor.getBufferA());
+          Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+              b, loc, adaptor.getBufferB());
+          Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+              b, loc, adaptor.getMatrixC());
+          Value k = kLoop.getInductionVar();
+          b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
+                                          ValueRange{i, j, k}, arch,
+                                          op.getFeaturesAttr(), tuningParams);
+        }
       }
     }
     b.eraseOp(op);
@@ -557,13 +564,11 @@ struct BlockwiseReduceRewritePattern
     SmallVector<StringRef, 4> upperNameRefs;
     tensorToLDSViewBuilder.getStartNames(upperNameRefs);
 
-    int64_t nonReduceMergeDimSize = 1;
     SmallVector<StringRef, 4> nonReduceNameRefs;
     SmallVector<unsigned, 4> nonReduceDims;
     SmallVector<int64_t, 4> nonReduceDimSizes;
     for (auto [dim, dimSize] : llvm::enumerate(lowestShape)) {
       if (dim != (size_t)reduceAxis) {
-        nonReduceMergeDimSize *= dimSize;
         nonReduceNameRefs.push_back(upperNameRefs[dim]);
         nonReduceDims.push_back(dim);
         nonReduceDimSizes.push_back(dimSize);

@@ -35,12 +35,6 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
   return os;
 }
 
-static int64_t obtainGridSize(const GemmSize &gemmSize,
-                              const InitParams &param) {
-  return (gemmSize.m / param.gemmMPerBlock) *
-         (gemmSize.n / param.gemmNPerBlock) * gemmSize.g;
-}
-
 /// Non-xdlops
 // clang-format off
 const InitParamsNonAccel
@@ -104,6 +98,20 @@ std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
   return GemmSize(0, mExtra, kExtra, nExtra);
 }
 
+GemmSize mlir::rock::calculatePaddedGemmSize(const InitParams &params,
+                                             GemmSize gemmSize, int64_t kPack) {
+  auto gemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize, kPack);
+
+  if (gemmExtraPad.has_value()) {
+    gemmSize.m += gemmExtraPad->m;
+    gemmSize.k += gemmExtraPad->k;
+    gemmSize.n += gemmExtraPad->n;
+  }
+  return gemmSize;
+}
+
 std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
@@ -161,18 +169,8 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
   return success();
 }
 
-LogicalResult PopulateParams::populateDerived(const InitParamsNonAccel &params,
-                                              GemmSize &gemmSize,
-                                              uint32_t &gridSize) {
-  auto gemmExtraPad =
-      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
-                       params.gemmNPerBlock, gemmSize);
-  if (gemmExtraPad.has_value()) {
-    gemmSize.m += gemmExtraPad->m;
-    gemmSize.k += gemmExtraPad->k;
-    gemmSize.n += gemmExtraPad->n;
-  }
-
+LogicalResult
+PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
@@ -181,7 +179,6 @@ LogicalResult PopulateParams::populateDerived(const InitParamsNonAccel &params,
     return failure();
   }
 
-  gridSize = obtainGridSize(gemmSize, params);
   return success();
 }
 
@@ -198,9 +195,7 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
 LogicalResult
 PopulateParams::paramsProbablyValid(const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) {
-  uint32_t gridSize;
-  GemmSize newGemmSize = info.gemmSize;
-  return populateDerived(params, newGemmSize, gridSize);
+  return populateDerived(params);
 }
 
 LogicalResult
@@ -212,20 +207,19 @@ PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
   return success();
 }
 
-LogicalResult PopulateParams::obtainTuningParameters(
-    const PopulateParamsInfo &info, uint32_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsNonAccel &validParams,
-    uint32_t &gridSize) {
+LogicalResult
+PopulateParams::obtainTuningParameters(const PopulateParamsInfo &info,
+                                       const StringRef perfConfig,
+                                       InitParamsNonAccel &validParams) {
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
     // 1. This is tuning mode
     // 2. This is running mode and we have succeeded with a perfdb load
-    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    bool isValidPerfConfig = validParams.deserialize(perfConfig.str());
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-      GemmSize paddedGemmSize = info.gemmSize;
-      return populateDerived(validParams, paddedGemmSize, gridSize);
+      return populateDerived(validParams);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -236,14 +230,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
   auto paramSets =
       getTuningParameters(info.kernelType, info.gemmAType, info.gemmBType);
   for (auto &params : orderInitParams(paramSets, info.gemmSize)) {
-    // We have an override on the blockSize, only loop through the
-    // initParameters with the same blockSize
-    if ((blockSizeOverride != 0) && (blockSizeOverride != params.blockSize)) {
-      continue;
-    }
-
-    GemmSize paddedGemmSize = info.gemmSize;
-    res = populateDerived(params, paddedGemmSize, gridSize);
+    res = populateDerived(params);
     if (failed(res)) {
       continue;
     }
@@ -256,13 +243,12 @@ LogicalResult PopulateParams::obtainTuningParameters(
   return res;
 }
 
-LogicalResult PopulateParams::obtainTuningParameters(
-    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsNonAccel &validParams,
-    uint32_t &gridSize) {
+LogicalResult
+PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
+                                       const StringRef perfConfig,
+                                       InitParamsNonAccel &validParams) {
   PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
-  return obtainTuningParameters(info, blockSizeOverride, perfConfig,
-                                validParams, gridSize);
+  return obtainTuningParameters(info, perfConfig, validParams);
 }
 
 std::vector<InitParamsNonAccel>
@@ -322,32 +308,10 @@ uint32_t PopulateParamsAccel::obtainBlockSize(const InitParamsAccel &params,
          (params.gemmMPerWave * params.gemmNPerWave);
 }
 
-LogicalResult PopulateParamsAccel::getKBlocks(const int64_t batchSize,
-                                              const GemmSize &gemmSize,
-                                              const InitParamsAccel &params,
-                                              int64_t &gemmKBlocks,
-                                              uint32_t numCu) {
-  return calculateKBlockNum(batchSize, gemmSize, params.gemmMPerBlock,
-                            params.gemmNPerBlock, params.gemmKPerBlock,
-                            params.gemmKPack, numCu, gemmKBlocks);
-}
-
 LogicalResult
 PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
                                      const PopulateParamsInfo &info,
-                                     GemmSize &gemmSize, uint32_t &blockSize,
-                                     uint32_t &gridSize, int64_t &gemmKBlocks) {
-  bool requiredPadding = false;
-  auto gemmExtraPad =
-      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
-                       params.gemmNPerBlock, gemmSize, params.gemmKPack);
-  if (gemmExtraPad.has_value()) {
-    gemmSize.m += gemmExtraPad->m;
-    gemmSize.k += gemmExtraPad->k;
-    gemmSize.n += gemmExtraPad->n;
-    requiredPadding = true;
-  }
-
+                                     uint32_t &blockSize) {
   const int64_t waveSize = mlir::rock::lookupArchInfo(info.arch).waveSize;
   blockSize = obtainBlockSize(params, waveSize);
 
@@ -358,34 +322,14 @@ PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
     return failure();
   }
 
-  gridSize = obtainGridSize(gemmSize, params);
-
-  // parameters derivable from tunable parameters.
-  gemmKBlocks = 1;
-  auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
-  // We can pick one of the two data types as we don't support backward-weight
-  // fp8 currently.
-  if (maybeWrwOp &&
-      isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
-    res = getKBlocks(info.batchSize, gemmSize, params, gemmKBlocks, info.numCu);
-    if (failed(res)) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Invalid tuning parameters for computing KBlocks.\n");
-      return failure();
-    }
-    gridSize *= gemmKBlocks;
-  }
   return success();
 }
 
 LogicalResult
 PopulateParamsAccel::paramsProbablyValid(const PopulateParamsInfo &info,
                                          const InitParamsAccel &params) {
-  uint32_t blockSize, gridSize;
-  int64_t gemmKBlocks;
-  GemmSize newGemmSize = info.gemmSize;
-  return populateDerived(params, info, newGemmSize, blockSize, gridSize,
-                         gemmKBlocks);
+  uint32_t blockSize;
+  return populateDerived(params, info, blockSize);
 }
 
 LogicalResult
@@ -395,21 +339,18 @@ PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    const PopulateParamsInfo &info, uint32_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsAccel &validParams,
-    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
+    const PopulateParamsInfo &info, const StringRef perfConfig,
+    InitParamsAccel &validParams, uint32_t &blockSize) {
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
     // 1. This is tuning mode
     // 2. This is running mode and we have succeeded with a perfdb load
-    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    bool isValidPerfConfig = validParams.deserialize(perfConfig.str());
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Got perf config: " << genDebugForParams(validParams));
-      GemmSize paddedGemmSize = info.gemmSize;
-      return populateDerived(validParams, info, paddedGemmSize, blockSize,
-                             gridSize, gemmKBlocks);
+      return populateDerived(validParams, info, blockSize);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -422,15 +363,7 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
 
   for (const auto &params : orderInitParams(paramSets, info.gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
-    // We have an override on the blockSize, only loop through the
-    // initParameters with the same blockSize
-    if ((blockSizeOverride != 0) && (blockSizeOverride != blockSize)) {
-      continue;
-    }
-
-    GemmSize paddedGemmSize = info.gemmSize;
-    res = populateDerived(params, info, paddedGemmSize, blockSize, gridSize,
-                          gemmKBlocks);
+    res = populateDerived(params, info, blockSize);
     if (failed(res)) {
       continue;
     }
@@ -442,13 +375,10 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    RockGemmWrapperInterface op, uint32_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsAccel &validParams,
-    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
+    RockGemmWrapperInterface op, const StringRef perfConfig,
+    InitParamsAccel &validParams, uint32_t &blockSize) {
   PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
-  auto res =
-      obtainTuningParameters(info, blockSizeOverride, perfConfig, validParams,
-                             blockSize, gridSize, gemmKBlocks);
+  auto res = obtainTuningParameters(info, perfConfig, validParams, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Couldn't pick heuristic values for ");
     LLVM_DEBUG(op->print(llvm::dbgs()));
@@ -695,6 +625,15 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   if ((param.gemmNPerBlock % param.gemmNPerWave) != 0) {
+    return failure();
+  }
+
+  // Reject invalid blockSize
+  int64_t kPerBlock = param.gemmKPerBlock;
+  int64_t mPerBlock = param.gemmMPerBlock;
+  int64_t nPerBlock = param.gemmNPerBlock;
+  if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: Block size too large.\n");
     return failure();
   }
 
