@@ -14,7 +14,7 @@ module {
   }
 
   func.func @softmax(%arg0: !migraphx.shaped<4xf32, 1>) -> !migraphx.shaped<4xf32, 1> {
-    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : <4xf32, 1> -> <4xf32, 1>
+    %0 = migraphx.softmax %arg0 {axis = 0 : i32} : <4xf32, 1> -> <4xf32, 1>
      return %0 : !migraphx.shaped<4xf32, 1>
   }
 

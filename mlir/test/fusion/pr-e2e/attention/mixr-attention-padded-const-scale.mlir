@@ -7,7 +7,7 @@ module {
     %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
     %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : <1xf32, 0> -> <1x7x7xf32, 0x0x0>
     %scaled = migraphx.mul %0, %cst1 : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 0x0x0> -> <1x7x7xf32, 49x7x1>
-    %1 = migraphx.softmax %scaled{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+    %1 = migraphx.softmax %scaled{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %2 = migraphx.dot %1, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
     return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }
@@ -22,7 +22,7 @@ module {
       %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
       %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : <1xf32, 0> -> <1x7x7xf32, 0x0x0>
       %scaled = migraphx.mul %0, %cst1 : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 0x0x0> -> <1x7x7xf32, 49x7x1>
-      %1 = migraphx.softmax %scaled{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+      %1 = migraphx.softmax %scaled{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
       %2 = migraphx.dot %1, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
       return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
     }

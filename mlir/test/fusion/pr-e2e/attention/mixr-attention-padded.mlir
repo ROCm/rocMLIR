@@ -4,7 +4,7 @@
 module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) {
     %0 = migraphx.dot %arg0, %arg1: <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1> -> <1x7x7xf32, 49x7x1>
-    %1 = migraphx.softmax %0{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+    %1 = migraphx.softmax %0{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %2 = migraphx.dot %1, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
     return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }
@@ -13,10 +13,10 @@ module {
     mhal.await %token : !mhal.token
     return %results : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }
-  module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
+  module @__xmodule_ attributes {mhal.arch = "gfx90a", mhal.module} {
     func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
       %0 = migraphx.dot %arg0, %arg1: <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1> -> <1x7x7xf32, 49x7x1>
-      %1 = migraphx.softmax %0{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+      %1 = migraphx.softmax %0{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
       %2 = migraphx.dot %1, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
       return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
     }
