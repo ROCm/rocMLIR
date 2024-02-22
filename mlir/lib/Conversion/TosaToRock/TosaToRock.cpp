@@ -742,15 +742,6 @@ struct CollapseExpandRewritePattern
 // broadcastable ops are also element-wise, and we know that an
 // additional set of ops are also element-wise.
 static bool isElementwiseOp(Operation *op) {
-  // All types I/O types should match each other.
-  // This is there to drop implicit broadcasted instances
-  // of ResultsBroadcastableShape ops.
-  auto resType = op->getResultTypes()[0];
-  for (auto operandType : op->getOperandTypes()) {
-    if (operandType != resType) {
-      return false;
-    }
-  }
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          // clang-format off
@@ -886,6 +877,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
             addBlockArgument(regionBuilder, input, block, loc.value());
       }
       return {matmulMemRef, matmul};
+    }
+    if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
+      Value newConstOpRes;
+      if (doRewrite) {
+        auto newConstOp = regionBuilder.clone(*constOp);
+        newConstOpRes = newConstOp->getResult(0);
+      }
+      return {newConstOpRes, failure()};
     }
     Operation *op = input.getDefiningOp();
     // Right now, this is a bit restricted that we only allow reshape-like

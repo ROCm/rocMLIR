@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -1175,6 +1176,42 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     }
   }
   return inp;
+}
+
+LogicalResult
+mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
+                                                 linalg::GenericOp laOp) {
+  auto idxMaps = laOp.getIndexingMapsArray();
+  auto outIdxMap = idxMaps.back();
+
+  auto outs = laOp.getOutputs();
+  if (outs.size() > 1)
+    return laOp.emitError("Only 1 output supported");
+  Value out = outs[0];
+  auto outType = out.getType().cast<ShapedType>();
+
+  SmallVector<Value> inps(laOp.getInputs());
+  for (auto pair : llvm::zip(inps, idxMaps)) {
+    if (auto inp = std::get<0>(pair)) {
+      auto imap = std::get<1>(pair);
+      if (imap != outIdxMap) {
+        // inject a broadcast
+        auto invertOutIdxMap = inversePermutation(outIdxMap);
+        auto outToInpMap = imap.compose(invertOutIdxMap);
+        Value regInp = rock::insertTransposeAndBroadcastTransforms(
+            b, outType.getShape(), inp, outToInpMap);
+        laOp->replaceUsesOfWith(inp, regInp);
+      }
+    }
+  }
+
+  // reset idxmaps
+  b.updateRootInPlace(laOp, [&]() {
+    SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
+    laOp.setIndexingMapsAttr(b.getAffineMapArrayAttr(newIdxMaps));
+  });
+
+  return success();
 }
 
 TransformMapAttr mlir::rock::invertTransformMap(
