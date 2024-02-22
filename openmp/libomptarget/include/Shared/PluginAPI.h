@@ -34,21 +34,6 @@ int32_t __tgt_rtl_init_plugin();
 // target RTL.
 int32_t __tgt_rtl_number_of_devices(void);
 
-// Return if the system is equipped with an APU
-bool __tgt_rtl_has_apu_device(void);
-
-// Returns true, if the system is equipped with a dGPU which supports USM.
-bool __tgt_rtl_has_USM_capable_dGPU(void);
-
-bool __tgt_rtl_are_allocations_for_maps_on_apus_disabled(void);
-
-bool __tgt_rtl_is_no_maps_check(void);
-
-bool __tgt_rtl_is_fine_grained_memory_enabled(void);
-
-// Set up environement e.g. depending on the values of the env vars
-void __tgt_rtl_set_up_env(void);
-
 // Return an integer different from zero if the provided device image can be
 // supported by the runtime. The functionality is similar to comparing the
 // result of __tgt__rtl__load__binary to NULL. However, this is meant to be a
@@ -60,11 +45,6 @@ int32_t __tgt_rtl_is_valid_binary(__tgt_device_image *Image);
 // to DstDevId. If it is data exchangable, the device plugin should provide
 // function to move data from source device to destination device directly.
 int32_t __tgt_rtl_is_data_exchangable(int32_t SrcDevId, int32_t DstDevId);
-
-// Return an integer other than zero if the plugin can handle images which do
-// not contain target regions and global variables (but can contain other
-// functions)
-int32_t __tgt_rtl_supports_empty_images();
 
 // Initialize the requires flags for the device.
 int64_t __tgt_rtl_init_requires(int64_t RequiresFlags);
@@ -78,8 +58,18 @@ int32_t __tgt_rtl_init_device(int32_t ID);
 // return NULL. Otherwise, return a pointer to the built address table.
 // Individual entries in the table may also be NULL, when the corresponding
 // offload region is not supported on the target device.
-__tgt_target_table *__tgt_rtl_load_binary(int32_t ID,
-                                          __tgt_device_image *Image);
+int32_t __tgt_rtl_load_binary(int32_t ID, __tgt_device_image *Image,
+                              __tgt_device_binary *Binary);
+
+// Look up the device address of the named symbol in the given binary. Returns
+// non-zero on failure.
+int32_t __tgt_rtl_get_global(__tgt_device_binary Binary, uint64_t Size,
+                             const char *Name, void **DevicePtr);
+
+// Look up the device address of the named kernel in the given binary. Returns
+// non-zero on failure.
+int32_t __tgt_rtl_get_function(__tgt_device_binary Binary, const char *Name,
+                               void **DevicePtr);
 
 // Allocate data on the particular target device, of the specified size.
 // HostPtr is a address of the host data the allocated target data
@@ -241,14 +231,24 @@ int32_t __tgt_rtl_initialize_record_replay(int32_t DeviceId, int64_t MemorySize,
                                            bool SaveOutput,
                                            uint64_t &ReqPtrArgOffset);
 
-bool __tgt_rtl_requested_prepopulate_gpu_page_table();
+// Return if the system is equipped with an APU
+bool __tgt_rtl_has_apu_device(int32_t DeviceId);
+
+// Returns true if the system is equipped with a dGPU which supports USM.
+bool __tgt_rtl_has_USM_capable_dGPU(int32_t DeviceId);
+
+// Returns true if the system supports unified memory.
+bool __tgt_rtl_supports_unified_memory(int32_t DeviceId);
+
+// Returns true if coarse graining of mapped memory is disabled
+// (it only applies to MI200 GPUs).
+bool __tgt_rtl_is_fine_grained_memory_enabled(int32_t DeviceId);
 
 // Check if image is incompatible due to XNACK mismatch.
 void __tgt_rtl_check_invalid_image(__tgt_device_image *Image);
 
-bool __tgt_rtl_can_use_host_globals();
-
-bool __tgt_rtl_is_system_supporting_managed_memory();
+// Returns true if GPU supports managed memory (SVN in AMD GPUs).
+bool __tgt_rtl_is_system_supporting_managed_memory(int32_t);
 
 int32_t __tgt_rtl_launch_kernel_sync(int32_t, void *, void **, ptrdiff_t *,
                                      KernelArgsTy *);
@@ -269,7 +269,14 @@ int32_t __tgt_rtl_release_async_info(int32_t, __tgt_async_info *);
 int32_t __tgt_rtl_activate_record_replay(int32_t, uint64_t, void *, bool,
                                          bool, uint64_t &);
 
-void __tgt_rtl_set_up_env(void);
+// Returns true if the device \p DeviceId suggests to use auto zero-copy.
+int32_t __tgt_rtl_use_auto_zero_copy(int32_t DeviceId);
+
+// Performs sanity checks on zero-copy options and prints diagnostic info.
+int32_t __tgt_rtl_zero_copy_sanity_checks_and_diag(int32_t DeviceId,
+                                                   bool isUnifiedSharedMemory,
+                                                   bool isAutoZeroCopy,
+                                                   bool isEagerMaps);
 
 #ifdef __cplusplus
 }

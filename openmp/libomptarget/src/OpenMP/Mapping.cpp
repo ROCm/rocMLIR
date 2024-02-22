@@ -252,8 +252,7 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
       MESSAGE("device mapping required by 'present' map type modifier does not "
               "exist for host address " DPxMOD " (%" PRId64 " bytes)",
               DPxPTR(HstPtrBegin), Size);
-  } else if (((Device.RTL->requested_prepopulate_gpu_page_table()) ||
-              (Device.RTL->are_allocations_for_maps_on_apus_disabled()) ||
+  } else if (((PM->getRequirements() & OMPX_REQ_AUTO_ZERO_COPY) ||
               (PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY)) &&
              (!HasCloseModifier)) {
     // If unified shared memory is active, implicitly mapped variables that
@@ -262,38 +261,32 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
     // cases maps are respected. In addition to the mapping rules above, the
     // close map modifier forces the mapping of the variable to the device.
     if (Size) {
-      // When allocating under unified_shared_memory, amdgpu plugin
+      // For MI200, when allocating under unified_shared_memory, amdgpu plugin
       // can optimize memory access latency by registering allocated
       // memory as coarse-grained. The usage of coarse-grained memory can be
       // overriden by setting the env-var OMPX_DISABLE_USM_MAPS=1.
       // This is not done for APUs.
-      if (!(Device.RTL->has_apu_device() ||
-            Device.RTL->has_USM_capable_dGPU()) &&
-          Device.RTL->is_fine_grained_memory_enabled() && HstPtrBegin &&
-          Device.RTL->set_coarse_grain_mem_region) {
+      if (!(Device.RTL->has_apu_device(Device.DeviceID) ||
+            Device.RTL->has_USM_capable_dGPU(Device.DeviceID)) &&
+          Device.RTL->is_fine_grained_memory_enabled(Device.DeviceID) &&
+          HstPtrBegin && Device.RTL->set_coarse_grain_mem_region) {
         Device.RTL->set_coarse_grain_mem_region(Device.DeviceID, HstPtrBegin,
                                                 Size);
       }
 
-      if (Device.RTL->has_apu_device() &&
-          Device.RTL->requested_prepopulate_gpu_page_table() &&
-          Device.RTL->prepopulate_page_table) {
+      // If we are here, it means that we are either in auto zero-copy or USM.
+      // Enable GPU page table prefaulting if selected by the user.
+      if (Device.EagerZeroCopyMaps) {
         Device.RTL->prepopulate_page_table(Device.DeviceID, HstPtrBegin, Size);
-      }
-
-      if (!Device.RTL->is_no_maps_check()) {
-        // even under unified_shared_memory need to check for correctness of
-        // use of map clauses. Device pointer is same as host ptr in this case
-        LR.TPR.setEntry(HDTTMap
-                            ->emplace(new HostDataToTargetTy(
-                                (uintptr_t)HstPtrBase, (uintptr_t)HstPtrBegin,
-                                (uintptr_t)HstPtrBegin + Size,
-                                (uintptr_t)HstPtrBegin, (uintptr_t)HstPtrBegin,
-                                HasHoldModifier, HstPtrName, /*IsInf=*/true,
-                                /*IsUSMAlloc=*/true))
-                            .first->HDTT);
+        INFO(OMP_INFOTYPE_MAPPING_CHANGED, Device.DeviceID,
+             "Prefaulted " DPxMOD " Size=%" PRId64 " on GPU page table\n",
+             DPxPTR((uintptr_t)HstPtrBegin), Size);
       }
     }
+    INFO(OMP_INFOTYPE_MAPPING_CHANGED, Device.DeviceID,
+         "Return HstPtrBegin " DPxMOD " Size=%" PRId64 " for unified shared "
+         "memory\n",
+         DPxPTR((uintptr_t)HstPtrBegin), Size);
     DP("Return HstPtrBegin " DPxMOD " Size=%" PRId64 " for unified shared "
        "memory\n",
        DPxPTR((uintptr_t)HstPtrBegin), Size);
@@ -402,8 +395,7 @@ TargetPointerResultTy MappingInfoTy::getTgtPtrBegin(
   LR.TPR.Flags.IsPresent = true;
 
   if ((LR.Flags.IsContained ||
-       (!MustContain && (LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter))) &&
-      !LR.TPR.getEntry()->IsUSMAlloc) {
+       (!MustContain && (LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter)))) {
 
     LR.TPR.Flags.IsLast =
         LR.TPR.getEntry()->decShouldRemove(UseHoldRefCount, ForceDelete);
@@ -450,7 +442,7 @@ TargetPointerResultTy MappingInfoTy::getTgtPtrBegin(
          LR.TPR.getEntry()->holdRefCountToStr().c_str(), HoldRefCountAction);
     LR.TPR.TargetPointer = (void *)TP;
   } else if ((PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY) ||
-             Device.RTL->are_allocations_for_maps_on_apus_disabled()) {
+             PM->getRequirements() & OMPX_REQ_AUTO_ZERO_COPY) {
     // If the value isn't found in the mapping and unified shared memory
     // is on then it means we have stumbled upon a value which we need to
     // use directly from the host.

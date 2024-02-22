@@ -84,7 +84,7 @@ cuMemGetAllocationGranularity(size_t *granularity,
 #if (defined(CUDA_VERSION) && (CUDA_VERSION < 11020))
 // Forward declarations of asynchronous memory management functions. This is
 // necessary for older versions of CUDA.
-CUresult cuMemAllocAsync(CUdeviceptr *ptr, size_t, CUstream) { *ptr = nullptr; }
+CUresult cuMemAllocAsync(CUdeviceptr *ptr, size_t, CUstream) { *ptr = 0; }
 
 CUresult cuMemFreeAsync(CUdeviceptr dptr, CUstream hStream) {}
 #endif
@@ -92,8 +92,9 @@ CUresult cuMemFreeAsync(CUdeviceptr dptr, CUstream hStream) {}
 /// Class implementing the CUDA device images properties.
 struct CUDADeviceImageTy : public DeviceImageTy {
   /// Create the CUDA image with the id and the target image pointer.
-  CUDADeviceImageTy(int32_t ImageId, const __tgt_device_image *TgtImage)
-      : DeviceImageTy(ImageId, TgtImage), Module(nullptr) {}
+  CUDADeviceImageTy(int32_t ImageId, GenericDeviceTy &Device,
+                    const __tgt_device_image *TgtImage)
+      : DeviceImageTy(ImageId, Device, TgtImage), Module(nullptr) {}
 
   /// Load the image as a CUDA module.
   Error loadModule() {
@@ -131,8 +132,7 @@ private:
 /// generic kernel class.
 struct CUDAKernelTy : public GenericKernelTy {
   /// Create a CUDA kernel with a name and an execution mode.
-  CUDAKernelTy(const char *Name, OMPTgtExecModeFlags ExecMode)
-      : GenericKernelTy(Name, ExecMode), Func(nullptr) {}
+  CUDAKernelTy(const char *Name) : GenericKernelTy(Name), Func(nullptr) {}
 
   /// Initialize the CUDA kernel.
   Error initImpl(GenericDeviceTy &GenericDevice,
@@ -484,15 +484,13 @@ struct CUDADeviceTy : public GenericDeviceTy {
   }
 
   /// Allocate and construct a CUDA kernel.
-  Expected<GenericKernelTy &>
-  constructKernel(const __tgt_offload_entry &KernelEntry,
-                  OMPTgtExecModeFlags ExecMode) override {
+  Expected<GenericKernelTy &> constructKernel(const char *Name) override {
     // Allocate and construct the CUDA kernel.
     CUDAKernelTy *CUDAKernel = Plugin::get().allocate<CUDAKernelTy>();
     if (!CUDAKernel)
       return Plugin::error("Failed to allocate memory for CUDA kernel");
 
-    new (CUDAKernel) CUDAKernelTy(KernelEntry.name, ExecMode);
+    new (CUDAKernel) CUDAKernelTy(Name);
 
     return *CUDAKernel;
   }
@@ -547,7 +545,7 @@ struct CUDADeviceTy : public GenericDeviceTy {
 
     // Allocate and initialize the image object.
     CUDADeviceImageTy *CUDAImage = Plugin::get().allocate<CUDADeviceImageTy>();
-    new (CUDAImage) CUDADeviceImageTy(ImageId, TgtImage);
+    new (CUDAImage) CUDADeviceImageTy(ImageId, *this, TgtImage);
 
     // Load the CUDA module.
     if (auto Err = CUDAImage->loadModule())
@@ -647,12 +645,12 @@ struct CUDADeviceTy : public GenericDeviceTy {
     CUresult Res;
     // If we have an RPC server running on this device we will continuously
     // query it for work rather than blocking.
-    if (!getRPCHandle()) {
+    if (!getRPCServer()) {
       Res = cuStreamSynchronize(Stream);
     } else {
       do {
         Res = cuStreamQuery(Stream);
-        if (auto Err = getRPCHandle()->runServer())
+        if (auto Err = getRPCServer()->runServer(*this))
           return Err;
       } while (Res == CUDA_ERROR_NOT_READY);
     }
@@ -839,6 +837,17 @@ struct CUDADeviceTy : public GenericDeviceTy {
     CUstream Stream;
     if (auto Err = getStream(AsyncInfoWrapper, Stream))
       return Err;
+
+    // If there is already pending work on the stream it could be waiting for
+    // someone to check the RPC server.
+    if (auto RPCServer = getRPCServer()) {
+      CUresult Res = cuStreamQuery(Stream);
+      while (Res == CUDA_ERROR_NOT_READY) {
+        if (auto Err = RPCServer->runServer(*this))
+          return Err;
+        Res = cuStreamQuery(Stream);
+      }
+    }
 
     CUresult Res = cuMemcpyDtoHAsync(HstPtr, (CUdeviceptr)TgtPtr, Size, Stream);
     return Plugin::check(Res, "Error in cuMemcpyDtoHAsync: %s");
@@ -1228,12 +1237,7 @@ private:
     if (auto Err = Handler.writeGlobalToDevice(*this, Image, StopGlobal))
       return Err;
 
-    // Retrieve the execution mode.
-    auto ExecModeOrErr = getExecutionModeForKernel(KernelName, Image);
-    if (!ExecModeOrErr)
-      return ExecModeOrErr.takeError();
-
-    CUDAKernelTy CUDAKernel(KernelName, *ExecModeOrErr);
+    CUDAKernelTy CUDAKernel(KernelName);
 
     if (auto Err = CUDAKernel.init(*this, Image))
       return Err;

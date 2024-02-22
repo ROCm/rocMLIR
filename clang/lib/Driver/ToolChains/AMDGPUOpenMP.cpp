@@ -275,8 +275,18 @@ const char *amdgpu::dlr::getLinkCommandArgs(
   }
   StringRef GPUArch = getProcessorFromTargetID(Triple, TargetID);
 
-  BCLibs.push_back(
-      Args.MakeArgString(libpath + "/libomptarget-amdgpu-" + GPUArch + ".bc"));
+  // When the base lib directory is called `lib` we enable
+  // the look-up of the libomptarget bc lib to happen and if not present
+  // where it is expected it means we are using the build tree compiler
+  // not the installed compiler.
+  std::string LibDeviceName = "/libomptarget-amdgpu-" + GPUArch.str() + ".bc";
+  SmallString<128> Path(Args.MakeArgString(libpath + LibDeviceName));
+  if (LibSuffix != "lib" || llvm::sys::fs::exists(Path)) {
+    BCLibs.push_back(Args.MakeArgString(Path));
+  } else {
+    std::string RtDir = "/../runtimes/runtimes-bins/openmp/libomptarget";
+    BCLibs.push_back(Args.MakeArgString(libpath + RtDir + LibDeviceName));
+  }
 
   // Add the generic set of libraries, OpenMP subset only
   BCLibs.append(amdgpu::dlr::getCommonDeviceLibNames(
@@ -455,6 +465,12 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   if (DriverArgs.hasArg(options::OPT_nogpulib))
     return;
 
+  for (auto BCFile : getDeviceLibs(DriverArgs)) {
+    CC1Args.push_back(BCFile.ShouldInternalize ? "-mlink-builtin-bitcode"
+                                               : "-mlink-bitcode-file");
+    CC1Args.push_back(DriverArgs.MakeArgString(BCFile.Path));
+  }
+
   ArgStringList LibraryPaths;
 
   // Find in --hip-device-lib-path and HIP_LIBRARY_PATH.
@@ -525,6 +541,7 @@ llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
 
 void AMDGPUOpenMPToolChain::addClangWarningOptions(
     ArgStringList &CC1Args) const {
+  AMDGPUToolChain::addClangWarningOptions(CC1Args);
   HostTC.addClangWarningOptions(CC1Args);
 }
 
@@ -547,15 +564,6 @@ void AMDGPUOpenMPToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   SmallString<128> P(HostTC.getDriver().ResourceDir);
   llvm::sys::path::append(P, "include/cuda_wrappers");
   CC1Args.push_back(DriverArgs.MakeArgString(P));
-
-  // Force APU mode will focefully include #pragma omp requires
-  // unified_shared_memory via the force_usm header
-  if (DriverArgs.hasArg(options::OPT_fopenmp_force_usm)) {
-    CC1Args.push_back("-include");
-    CC1Args.push_back(
-        DriverArgs.MakeArgString(HostTC.getDriver().ResourceDir +
-                                 "/include/openmp_wrappers/force_usm.h"));
-  }
 }
 
 /// Convert path list to Fortran frontend argument

@@ -1255,12 +1255,13 @@ void AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *MI) {
   InstrumentationIRBuilder IRB(MI);
   if (isa<MemTransferInst>(MI)) {
     IRB.CreateCall(isa<MemMoveInst>(MI) ? AsanMemmove : AsanMemcpy,
-                   {MI->getOperand(0), MI->getOperand(1),
+                   {IRB.CreateAddrSpaceCast(MI->getOperand(0), PtrTy),
+                    IRB.CreateAddrSpaceCast(MI->getOperand(1), PtrTy),
                     IRB.CreateIntCast(MI->getOperand(2), IntptrTy, false)});
   } else if (isa<MemSetInst>(MI)) {
     IRB.CreateCall(
         AsanMemset,
-        {MI->getOperand(0),
+        {IRB.CreateAddrSpaceCast(MI->getOperand(0), PtrTy),
          IRB.CreateIntCast(MI->getOperand(1), IRB.getInt32Ty(), false),
          IRB.CreateIntCast(MI->getOperand(2), IntptrTy, false)});
   }
@@ -2078,6 +2079,8 @@ bool ModuleAddressSanitizer::ShouldUseMachOGlobalsSection() const {
     return true;
   if (TargetTriple.isDriverKit())
     return true;
+  if (TargetTriple.isXROS())
+    return true;
 
   return false;
 }
@@ -2519,6 +2522,9 @@ void ModuleAddressSanitizer::instrumentGlobals(IRBuilder<> &IRB, Module &M,
     // Transfer the debug info and type metadata.  The payload starts at offset
     // zero so we can copy the metadata over as is.
     NewGlobal->copyMetadata(G, 0);
+
+    // Attach "SanitizedPaddedGlobal" attribute to the new global.
+    NewGlobal->addAttribute(Attribute::SanitizedPaddedGlobal);
 
     Value *Indices2[2];
     Indices2[0] = IRB.getInt32(0);
