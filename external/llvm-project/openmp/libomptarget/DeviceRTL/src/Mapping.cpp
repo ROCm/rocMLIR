@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Mapping.h"
+#include "Debug.h"
 #include "Interface.h"
 #include "State.h"
 #include "Types.h"
@@ -48,7 +49,6 @@ const llvm::omp::GV &getGridValue() {
 }
 
 uint32_t getNumberOfThreadsInBlock(int32_t Dim) {
-  // PRINT(">> getNumberOfThreadsInBlock\n");
   switch (Dim) {
   case 0:
     return __builtin_amdgcn_workgroup_size_x();
@@ -82,10 +82,6 @@ uint32_t getThreadIdInWarp() {
   return __builtin_amdgcn_mbcnt_hi(~0u, __builtin_amdgcn_mbcnt_lo(~0u, 0u));
 }
 
-uint32_t getKernelSize() { return __builtin_amdgcn_grid_size_x(); }
-
-uint32_t getBlockId() { return __builtin_amdgcn_workgroup_id_x(); }
-
 uint32_t getThreadIdInBlock(int32_t Dim) {
   switch (Dim) {
   case 0:
@@ -116,7 +112,6 @@ uint32_t getBlockIdInKernel(int32_t Dim) {
 }
 
 uint32_t getNumberOfBlocksInKernel(int32_t Dim) {
-  // DP(">> getNumberOfBlocksInKernel\n");
   switch (Dim) {
   case 0:
     return __builtin_amdgcn_grid_size_x() / __builtin_amdgcn_workgroup_size_x();
@@ -160,23 +155,11 @@ uint32_t getNumberOfThreadsInBlock(int32_t Dim) {
 
 const llvm::omp::GV &getGridValue() { return llvm::omp::NVPTXGridValues; }
 
-LaneMaskTy activemask() {
-  unsigned int Mask;
-  asm("activemask.b32 %0;" : "=r"(Mask));
-  return Mask;
-}
+LaneMaskTy activemask() { return __nvvm_activemask(); }
 
-LaneMaskTy lanemaskLT() {
-  __kmpc_impl_lanemask_t Res;
-  asm("mov.u32 %0, %%lanemask_lt;" : "=r"(Res));
-  return Res;
-}
+LaneMaskTy lanemaskLT() { return __nvvm_read_ptx_sreg_lanemask_lt(); }
 
-LaneMaskTy lanemaskGT() {
-  __kmpc_impl_lanemask_t Res;
-  asm("mov.u32 %0, %%lanemask_gt;" : "=r"(Res));
-  return Res;
-}
+LaneMaskTy lanemaskGT() { return __nvvm_read_ptx_sreg_lanemask_gt(); }
 
 uint32_t getThreadIdInBlock(int32_t Dim) {
   switch (Dim) {
@@ -356,8 +339,7 @@ uint32_t mapping::getNumberOfProcessorElements() {
 
 // TODO: This is a workaround for initialization coming from kernels outside of
 //       the TU. We will need to solve this more correctly in the future.
-//       KEEP_ALIVE is needed for amdgpu
-[[gnu::weak]] int KEEP_ALIVE SHARED(IsSPMDMode);
+[[gnu::weak, gnu::used, gnu::retain]] int SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
   if (mapping::isInitialThreadInLevel0(IsSPMD))

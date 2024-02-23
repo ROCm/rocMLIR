@@ -1790,9 +1790,7 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
         Val.equals("256+") || Val.equals("512+") || Val.equals("1024+") ||
         Val.equals("2048+")) {
       unsigned Bits = 0;
-      if (Val.ends_with("+"))
-        Val = Val.substr(0, Val.size() - 1);
-      else {
+      if (!Val.consume_back("+")) {
         bool Invalid = Val.getAsInteger(10, Bits); (void)Invalid;
         assert(!Invalid && "Failed to parse value");
         CmdArgs.push_back(
@@ -2750,14 +2748,27 @@ static StringRef EnumComplexRangeToStr(LangOptions::ComplexRangeKind Range) {
 static void EmitComplexRangeDiag(const Driver &D,
                                  LangOptions::ComplexRangeKind Range1,
                                  LangOptions::ComplexRangeKind Range2) {
-  if (Range1 != LangOptions::ComplexRangeKind::CX_Full)
+  if (Range1 != Range2 && Range1 != LangOptions::ComplexRangeKind::CX_None)
     D.Diag(clang::diag::warn_drv_overriding_option)
         << EnumComplexRangeToStr(Range1) << EnumComplexRangeToStr(Range2);
 }
 
-static std::string RenderComplexRangeOption(std::string Range) {
+static std::string
+RenderComplexRangeOption(LangOptions::ComplexRangeKind Range) {
   std::string ComplexRangeStr = "-complex-range=";
-  ComplexRangeStr += Range;
+  switch (Range) {
+  case LangOptions::ComplexRangeKind::CX_Full:
+    ComplexRangeStr += "full";
+    break;
+  case LangOptions::ComplexRangeKind::CX_Limited:
+    ComplexRangeStr += "limited";
+    break;
+  case LangOptions::ComplexRangeKind::CX_Fortran:
+    ComplexRangeStr += "fortran";
+    break;
+  default:
+    assert(0 && "Unexpected range option");
+  }
   return ComplexRangeStr;
 }
 
@@ -2807,7 +2818,28 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
   bool StrictFPModel = false;
   StringRef Float16ExcessPrecision = "";
   StringRef BFloat16ExcessPrecision = "";
-  LangOptions::ComplexRangeKind Range = LangOptions::ComplexRangeKind::CX_Full;
+  LangOptions::ComplexRangeKind Range = LangOptions::ComplexRangeKind::CX_None;
+  std::string ComplexRangeStr = "";
+
+  // Lambda to set fast-math options. This is also used by -ffp-model=fast
+  auto applyFastMath = [&]() {
+    HonorINFs = false;
+    HonorNaNs = false;
+    MathErrno = false;
+    AssociativeMath = true;
+    ReciprocalMath = true;
+    ApproxFunc = true;
+    SignedZeros = false;
+    TrappingMath = false;
+    RoundingFPMath = false;
+    FPExceptionBehavior = "";
+    // If fast-math is set then set the fp-contract mode to fast.
+    FPContract = "fast";
+    // ffast-math enables limited range rules for complex multiplication and
+    // division.
+    Range = LangOptions::ComplexRangeKind::CX_Limited;
+    SeenUnsafeMathModeOption = true;
+  };
 
   if (const Arg *A = Args.getLastArg(options::OPT_flimited_precision_EQ)) {
     CmdArgs.push_back("-mlimit-float-precision");
@@ -2823,23 +2855,19 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
     case options::OPT_fcx_limited_range: {
       EmitComplexRangeDiag(D, Range, LangOptions::ComplexRangeKind::CX_Limited);
       Range = LangOptions::ComplexRangeKind::CX_Limited;
-      std::string ComplexRangeStr = RenderComplexRangeOption("limited");
-      if (!ComplexRangeStr.empty())
-        CmdArgs.push_back(Args.MakeArgString(ComplexRangeStr));
       break;
     }
     case options::OPT_fno_cx_limited_range:
+      EmitComplexRangeDiag(D, Range, LangOptions::ComplexRangeKind::CX_Full);
       Range = LangOptions::ComplexRangeKind::CX_Full;
       break;
     case options::OPT_fcx_fortran_rules: {
       EmitComplexRangeDiag(D, Range, LangOptions::ComplexRangeKind::CX_Fortran);
       Range = LangOptions::ComplexRangeKind::CX_Fortran;
-      std::string ComplexRangeStr = RenderComplexRangeOption("fortran");
-      if (!ComplexRangeStr.empty())
-        CmdArgs.push_back(Args.MakeArgString(ComplexRangeStr));
       break;
     }
     case options::OPT_fno_cx_fortran_rules:
+      EmitComplexRangeDiag(D, Range, LangOptions::ComplexRangeKind::CX_Full);
       Range = LangOptions::ComplexRangeKind::CX_Full;
       break;
     case options::OPT_ffp_model_EQ: {
@@ -2877,9 +2905,8 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
             << Args.MakeArgString("-ffp-model=" + FPModel)
             << Args.MakeArgString("-ffp-model=" + Val);
       if (Val.equals("fast")) {
-        optID = options::OPT_ffast_math;
         FPModel = Val;
-        FPContract = "fast";
+        applyFastMath();
       } else if (Val.equals("precise")) {
         optID = options::OPT_ffp_contract;
         FPModel = Val;
@@ -3101,24 +3128,7 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
         continue;
       [[fallthrough]];
     case options::OPT_ffast_math: {
-      HonorINFs = false;
-      HonorNaNs = false;
-      MathErrno = false;
-      AssociativeMath = true;
-      ReciprocalMath = true;
-      ApproxFunc = true;
-      SignedZeros = false;
-      TrappingMath = false;
-      RoundingFPMath = false;
-      FPExceptionBehavior = "";
-      // If fast-math is set then set the fp-contract mode to fast.
-      FPContract = "fast";
-      SeenUnsafeMathModeOption = true;
-      // ffast-math enables fortran rules for complex multiplication and
-      // division.
-      std::string ComplexRangeStr = RenderComplexRangeOption("limited");
-      if (!ComplexRangeStr.empty())
-        CmdArgs.push_back(Args.MakeArgString(ComplexRangeStr));
+      applyFastMath();
       break;
     }
     case options::OPT_fno_fast_math:
@@ -3275,6 +3285,10 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
                    options::OPT_fstrict_float_cast_overflow, false))
     CmdArgs.push_back("-fno-strict-float-cast-overflow");
 
+  if (Range != LangOptions::ComplexRangeKind::CX_None)
+    ComplexRangeStr = RenderComplexRangeOption(Range);
+  if (!ComplexRangeStr.empty())
+    CmdArgs.push_back(Args.MakeArgString(ComplexRangeStr));
   if (Args.hasArg(options::OPT_fcx_limited_range))
     CmdArgs.push_back("-fcx-limited-range");
   if (Args.hasArg(options::OPT_fcx_fortran_rules))
@@ -3582,6 +3596,20 @@ static void RenderTrivialAutoVarInitOptions(const Driver &D,
       D.Diag(diag::err_drv_trivial_auto_var_init_stop_after_invalid_value);
     CmdArgs.push_back(
         Args.MakeArgString("-ftrivial-auto-var-init-stop-after=" + Val));
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_ftrivial_auto_var_init_max_size)) {
+    if (!Args.hasArg(options::OPT_ftrivial_auto_var_init) ||
+        StringRef(
+            Args.getLastArg(options::OPT_ftrivial_auto_var_init)->getValue()) ==
+            "uninitialized")
+      D.Diag(diag::err_drv_trivial_auto_var_init_max_size_missing_dependency);
+    A->claim();
+    StringRef Val = A->getValue();
+    if (std::stoi(Val.str()) <= 0)
+      D.Diag(diag::err_drv_trivial_auto_var_init_max_size_invalid_value);
+    CmdArgs.push_back(
+        Args.MakeArgString("-ftrivial-auto-var-init-max-size=" + Val));
   }
 }
 
@@ -3963,6 +3991,10 @@ static bool RenderModulesOptions(Compilation &C, const Driver &D,
     Args.ClaimAllArgs(options::OPT_fno_modules_validate_system_headers);
     Args.ClaimAllArgs(options::OPT_fmodules_disable_diagnostic_validation);
   }
+
+  // FIXME: We provisionally don't check ODR violations for decls in the global
+  // module fragment.
+  CmdArgs.push_back("-fskip-odr-check-in-gmf");
 
   // Claim `-fmodule-output` and `-fmodule-output=` to avoid unused warnings.
   Args.ClaimAllArgs(options::OPT_fmodule_output);
@@ -4883,9 +4915,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   bool UnifiedLTO = false;
   if (IsUsingLTO) {
     UnifiedLTO = Args.hasFlag(options::OPT_funified_lto,
-                              options::OPT_fno_unified_lto, Triple.isPS()) ||
-                 Args.hasFlag(options::OPT_ffat_lto_objects,
-                              options::OPT_fno_fat_lto_objects, false);
+                              options::OPT_fno_unified_lto, Triple.isPS());
     if (UnifiedLTO)
       CmdArgs.push_back("-funified-lto");
   }
@@ -5812,6 +5842,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       // NVPTX/AMDGPU does not care about the code model and will accept
       // whatever works for the host.
       Ok = true;
+    } else if (Triple.isSPARC64()) {
+      if (CM == "medlow")
+        CM = "small";
+      else if (CM == "medmid")
+        CM = "medium";
+      else if (CM == "medany")
+        CM = "large";
+      Ok = CM == "small" || CM == "medium" || CM == "large";
     }
     if (Ok) {
       CmdArgs.push_back(Args.MakeArgString("-mcmodel=" + CM));
@@ -5854,6 +5892,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
           << A->getOption().getName() << Value;
     Args.AddLastArg(CmdArgs, options::OPT_mtls_size_EQ);
   }
+
+  if (isTLSDESCEnabled(TC, Args))
+    CmdArgs.push_back("-enable-tlsdesc");
 
   // Add the target cpu
   std::string CPU = getCPUName(D, Args, Triple, /*FromAs*/ false);
@@ -5975,11 +6016,30 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-ffunction-sections");
   }
 
+  if (Arg *A = Args.getLastArg(options::OPT_fbasic_block_address_map,
+                               options::OPT_fno_basic_block_address_map)) {
+    if (Triple.isX86() && Triple.isOSBinFormatELF()) {
+      if (A->getOption().matches(options::OPT_fbasic_block_address_map))
+        A->render(Args, CmdArgs);
+    } else {
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << A->getAsString(Args) << TripleStr;
+    }
+  }
+
   if (Arg *A = Args.getLastArg(options::OPT_fbasic_block_sections_EQ)) {
     StringRef Val = A->getValue();
     if (Triple.isX86() && Triple.isOSBinFormatELF()) {
       if (Val != "all" && Val != "labels" && Val != "none" &&
           !Val.starts_with("list="))
+        D.Diag(diag::err_drv_invalid_value)
+            << A->getAsString(Args) << A->getValue();
+      else
+        A->render(Args, CmdArgs);
+    } else if (Triple.isAArch64() && Triple.isOSBinFormatELF()) {
+      // "all" is not supported on AArch64 since branch relaxation creates new
+      // basic blocks for some cross-section branches.
+      if (Val != "labels" && Val != "none" && !Val.starts_with("list="))
         D.Diag(diag::err_drv_invalid_value)
             << A->getAsString(Args) << A->getValue();
       else
@@ -6371,7 +6431,28 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.AddLastArg(CmdArgs, options::OPT_fvisibility_inlines_hidden_static_local_var,
                            options::OPT_fno_visibility_inlines_hidden_static_local_var);
-  Args.AddLastArg(CmdArgs, options::OPT_fvisibility_global_new_delete_hidden);
+
+  // -fvisibility-global-new-delete-hidden is a deprecated spelling of
+  // -fvisibility-global-new-delete=force-hidden.
+  if (const Arg *A =
+          Args.getLastArg(options::OPT_fvisibility_global_new_delete_hidden)) {
+    D.Diag(diag::warn_drv_deprecated_arg)
+        << A->getAsString(Args)
+        << "-fvisibility-global-new-delete=force-hidden";
+  }
+
+  if (const Arg *A =
+          Args.getLastArg(options::OPT_fvisibility_global_new_delete_EQ,
+                          options::OPT_fvisibility_global_new_delete_hidden)) {
+    if (A->getOption().matches(options::OPT_fvisibility_global_new_delete_EQ)) {
+      A->render(Args, CmdArgs);
+    } else {
+      assert(A->getOption().matches(
+          options::OPT_fvisibility_global_new_delete_hidden));
+      CmdArgs.push_back("-fvisibility-global-new-delete=force-hidden");
+    }
+  }
+
   Args.AddLastArg(CmdArgs, options::OPT_ftlsmodel_EQ);
 
   if (Args.hasFlag(options::OPT_fnew_infallible,
@@ -6531,6 +6612,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
       if (Args.hasArg(options::OPT_fopenmp_offload_mandatory))
         CmdArgs.push_back("-fopenmp-offload-mandatory");
+      if (Args.hasArg(options::OPT_fopenmp_force_usm))
+        CmdArgs.push_back("-fopenmp-force-usm");
+
+      if (Args.hasFlag(options::OPT_fno_openmp_allow_kernel_io,
+                       options::OPT_fopenmp_allow_kernel_io,
+                       isTargetFastUsed(Args)))
+        CmdArgs.push_back("-fno-openmp-allow-kernel-io");
+      else
+        CmdArgs.push_back("-fopenmp-allow-kernel-io");
+
       break;
     default:
       // By default, if Clang doesn't know how to generate useful OpenMP code
@@ -6684,11 +6775,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     if (A->getOption().matches(options::OPT_fno_strict_overflow))
       CmdArgs.push_back("-fwrapv");
   }
-
-  if (Arg *A = Args.getLastArg(options::OPT_freroll_loops,
-                               options::OPT_fno_reroll_loops))
-    if (A->getOption().matches(options::OPT_freroll_loops))
-      CmdArgs.push_back("-freroll-loops");
 
   Args.AddLastArg(CmdArgs, options::OPT_ffinite_loops,
                   options::OPT_fno_finite_loops);
@@ -7753,26 +7839,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   addMachineOutlinerArgs(D, Args, CmdArgs, Triple, /*IsLTO=*/false);
 
-  if (Arg *A = Args.getLastArg(options::OPT_moutline_atomics,
-                               options::OPT_mno_outline_atomics)) {
-    // Option -moutline-atomics supported for AArch64 target only.
-    if (!Triple.isAArch64()) {
-      D.Diag(diag::warn_drv_moutline_atomics_unsupported_opt)
-          << Triple.getArchName() << A->getOption().getName();
-    } else {
-      if (A->getOption().matches(options::OPT_moutline_atomics)) {
-        CmdArgs.push_back("-target-feature");
-        CmdArgs.push_back("+outline-atomics");
-      } else {
-        CmdArgs.push_back("-target-feature");
-        CmdArgs.push_back("-outline-atomics");
-      }
-    }
-  } else if (Triple.isAArch64() &&
-             getToolChain().IsAArch64OutlineAtomicsDefault(Args)) {
-    CmdArgs.push_back("-target-feature");
-    CmdArgs.push_back("+outline-atomics");
-  }
+  addOutlineAtomicsArgs(D, getToolChain(), Args, CmdArgs, Triple);
 
   if (Triple.isAArch64() &&
       (Args.hasArg(options::OPT_mno_fmv) ||
@@ -8889,7 +8956,7 @@ void OffloadPackager::ConstructJob(Compilation &C, const JobAction &JA,
     SmallVector<std::string> Parts{
         "file=" + File.str(),
         "triple=" + TC->getTripleString(),
-        "arch=" + getProcessorFromTargetID(TC->getTriple(), Arch).str(),
+        "arch=" + Arch.str(),
         "kind=" + Kind.str(),
     };
 
@@ -9013,7 +9080,7 @@ void LinkerWrapper::ConstructOpaqueJob(Compilation &C, const JobAction &JA,
         SmallVector<std::string> Parts{
             "file=" + std::string(UnpackagedFileName),
             "triple=" + TheTriple.str(),
-            "arch=" + getProcessorFromTargetID(TheTriple, TargetID).str(),
+            "arch=" + TargetID.str(),
             "kind=openmp",
         };
 
@@ -9184,9 +9251,9 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
                                  const char *LinkingOutput) const {
   bool isAMDGPU = false;
   auto offloadTC = C.getOffloadToolChains(Action::OFK_OpenMP);
-  const auto openMPTCs = llvm::make_range(offloadTC.first, offloadTC.second);
+  const auto OpenMPTCs = llvm::make_range(offloadTC.first, offloadTC.second);
   const ToolChain *TC;
-  for (auto &I : openMPTCs) {
+  for (auto &I : OpenMPTCs) {
     TC = I.second;
     if (TC->getTriple().isAMDGPU()) {
       isAMDGPU = true;
@@ -9194,7 +9261,7 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  if (!openMPTCs.empty() &&
+  if (!OpenMPTCs.empty() &&
       Args.hasFlag(options::OPT_opaque_offload_linker,
                    options::OPT_no_opaque_offload_linker, isAMDGPU)) {
     ConstructOpaqueJob(C, JA, Output, Inputs, Args, TC->getTriple(),
@@ -9217,35 +9284,6 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
         if (CudaInstallation.isValid())
           CmdArgs.push_back(Args.MakeArgString(
               "--cuda-path=" + CudaInstallation.getInstallPath()));
-        break;
-      }
-      if (TC->getTriple().isAMDGPU()) {
-        RocmInstallationDetector RocmInstallation(D, TheTriple, Args, true,
-                                                  true);
-        const llvm::Triple triple = TC->getTriple();
-        const auto GPUArch = TC->getTargetID().str();
-        const auto ArchKind = llvm::AMDGPU::parseArchAMDGCN(TC->getTargetID());
-
-        bool AsanGpuRT = Args.hasFlag(options::OPT_fgpu_sanitize,
-                                      options::OPT_fno_gpu_sanitize, true);
-
-        llvm::SmallVector<std::string, 12> BCLibs =
-            amdgpu::dlr::getCommonDeviceLibNames(
-                Args, D, GPUArch, /* isOpenMP */ true, RocmInstallation);
-
-        SmallVector<std::string> subarchs;
-        addSubArchsWithTargetID(C, Args, triple, subarchs);
-
-        std::set<std::string> bitcodeTarget;
-        for (const auto &sa : subarchs) {
-          bitcodeTarget.insert("openmp-" + triple.str() + "-" +
-                               getProcessorFromTargetID(triple, sa).str());
-        }
-
-        for (StringRef prefix : bitcodeTarget)
-          for (auto BCLib : BCLibs)
-            CmdArgs.push_back(Args.MakeArgString("--bitcode-library=" + prefix +
-                                                 "=" + BCLib));
         break;
       }
     }

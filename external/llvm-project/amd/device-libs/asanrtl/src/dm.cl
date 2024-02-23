@@ -324,6 +324,7 @@ non_slab_free(__global alloc_t *ap, ulong pc)
 }
 
 // free
+USED
 NO_INLINE
 NO_SANITIZE_ADDR
 void
@@ -331,6 +332,8 @@ __asan_free_impl(ulong aa, ulong pc)
 {
     if (!aa)
         return;
+
+    pc -= CALL_BYTES;
 
     uptr sa = MEM_TO_SHADOW(aa);
     s8 sb = *(__global s8*) sa;
@@ -606,11 +609,14 @@ slab_malloc(ulong lsz, ulong pc)
 }
 
 // malloc
+USED
 NO_INLINE
 NO_SANITIZE_ADDR
 ulong
 __asan_malloc_impl(ulong sz, ulong pc)
 {
+    pc -= CALL_BYTES;
+
     if (sz > SLAB_THRESHOLD)
         return non_slab_malloc(sz, pc);
     else

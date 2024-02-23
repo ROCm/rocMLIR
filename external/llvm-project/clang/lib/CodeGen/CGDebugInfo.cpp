@@ -1501,6 +1501,8 @@ static unsigned getDwarfCC(CallingConv CC) {
     return llvm::dwarf::DW_CC_LLVM_X86RegCall;
   case CC_M68kRTD:
     return llvm::dwarf::DW_CC_LLVM_M68kRTD;
+  case CC_PreserveNone:
+    return llvm::dwarf::DW_CC_LLVM_PreserveNone;
   }
   return 0;
 }
@@ -1977,7 +1979,7 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
   int ThisAdjustment = 0;
 
   if (VTableContextBase::hasVtableSlot(Method)) {
-    if (Method->isPure())
+    if (Method->isPureVirtual())
       SPFlags |= llvm::DISubprogram::SPFlagPureVirtual;
     else
       SPFlags |= llvm::DISubprogram::SPFlagVirtual;
@@ -2249,6 +2251,14 @@ CGDebugInfo::CollectTemplateParams(std::optional<TemplateArgs> OArgs,
           V = CGM.getCXXABI().EmitNullMemberPointer(MPT);
       if (!V)
         V = llvm::ConstantInt::get(CGM.Int8Ty, 0);
+      TemplateParams.push_back(DBuilder.createTemplateValueParameter(
+          TheCU, Name, TTy, defaultParameter, V));
+    } break;
+    case TemplateArgument::StructuralValue: {
+      QualType T = TA.getStructuralValueType();
+      llvm::DIType *TTy = getOrCreateType(T, Unit);
+      llvm::Constant *V = ConstantEmitter(CGM).emitAbstract(
+          SourceLocation(), TA.getAsStructuralValue(), T);
       TemplateParams.push_back(DBuilder.createTemplateValueParameter(
           TheCU, Name, TTy, defaultParameter, V));
     } break;
@@ -3528,6 +3538,10 @@ static QualType UnwrapTypeForDebugInfo(QualType T, const ASTContext &C) {
       T = DT;
       break;
     }
+    case Type::PackIndexing: {
+      T = cast<PackIndexingType>(T)->getSelectedType();
+      break;
+    }
     case Type::Adjusted:
     case Type::Decayed:
       // Decayed and adjusted types use the adjusted type in LLVM and DWARF.
@@ -3711,6 +3725,7 @@ llvm::DIType *CGDebugInfo::CreateTypeNode(QualType Ty, llvm::DIFile *Unit) {
   case Type::TypeOfExpr:
   case Type::TypeOf:
   case Type::Decltype:
+  case Type::PackIndexing:
   case Type::UnaryTransform:
     break;
   }
@@ -5776,6 +5791,8 @@ std::string CGDebugInfo::GetName(const Decl *D, bool Qualified) const {
             // feasible some day.
             return TA.getAsIntegral().getBitWidth() <= 64 &&
                    IsReconstitutableType(TA.getIntegralType());
+          case TemplateArgument::StructuralValue:
+            return false;
           case TemplateArgument::Type:
             return IsReconstitutableType(TA.getAsType());
           default:

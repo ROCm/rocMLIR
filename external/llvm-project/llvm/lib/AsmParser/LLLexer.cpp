@@ -585,6 +585,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(no_sanitize_address);
   KEYWORD(no_sanitize_hwaddress);
   KEYWORD(sanitize_address_dyninit);
+  KEYWORD(sanitized_padded_global);
 
   KEYWORD(ccc);
   KEYWORD(fastcc);
@@ -617,6 +618,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(anyregcc);
   KEYWORD(preserve_mostcc);
   KEYWORD(preserve_allcc);
+  KEYWORD(preserve_nonecc);
   KEYWORD(ghccc);
   KEYWORD(x86_intrcc);
   KEYWORD(hhvmcc);

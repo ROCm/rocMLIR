@@ -123,7 +123,7 @@ static Value getFloatValueTableFor(Type elementType, Operation *op,
   }
   ElementsAttr tableElemsAttr = DenseElementsAttr::get<float>(
       RankedTensorType::get(256, rewriter.getF32Type()), tableElems);
-  OpBuilder nowhereBuilder(module->getContext(), &rewriter);
+  OpBuilder nowhereBuilder(module->getContext());
   table = nowhereBuilder.create<memref::GlobalOp>(
       op->getLoc(), extTableName,
       /*sym_visibility=*/rewriter.getStringAttr("private"),

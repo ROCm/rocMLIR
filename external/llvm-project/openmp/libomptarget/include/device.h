@@ -38,13 +38,6 @@ struct PluginAdaptorTy;
 struct __tgt_bin_desc;
 struct __tgt_target_table;
 
-struct PendingCtorDtorListsTy {
-  std::list<void *> PendingCtors;
-  std::list<void *> PendingDtors;
-};
-typedef std::map<__tgt_bin_desc *, PendingCtorDtorListsTy>
-    PendingCtorsDtorsPerLibrary;
-
 struct DeviceTy {
   int32_t DeviceID;
   PluginAdaptorTy *RTL;
@@ -54,15 +47,15 @@ struct DeviceTy {
   /// This field is used by ompx_get_team_procs(devid).
   int32_t TeamProcs;
 
-  bool HasMappedGlobalData = false;
-
-  PendingCtorsDtorsPerLibrary PendingCtorsDtors;
-
-  std::mutex PendingGlobalsMtx;
-
   /// Flag to force synchronous data transfers
   /// Controlled via environment flag OMPX_FORCE_SYNC_REGIONS
-  bool ForceSynchronousTargetRegions;
+  bool ForceSynchronousTargetRegions = false;
+
+  /// Flag that indicates whether the user requested eager zero-copy maps
+  /// to execute their application. Even if true, this is only valid on certain
+  /// architectures and configurations, which is checked upon device
+  /// initialization.
+  bool EagerZeroCopyMaps = false;
 
   DeviceTy(PluginAdaptorTy *RTL, int32_t DeviceID, int32_t RTLDeviceID);
   // DeviceTy is not copyable
@@ -77,7 +70,7 @@ struct DeviceTy {
   /// Provide access to the mapping handler.
   MappingInfoTy &getMappingInfo() { return MappingInfo; }
 
-  __tgt_target_table *loadBinary(__tgt_device_image *Img);
+  llvm::Expected<__tgt_device_binary> loadBinary(__tgt_device_image *Img);
 
   // device memory allocation/deallocation routines
   /// Allocates \p Size bytes on the device, host or shared memory space
@@ -168,11 +161,21 @@ struct DeviceTy {
   int32_t getTeamProcs() { return TeamProcs; }
   /// }
 
-  /// Register \p Entry as an offload entry that is avalable on this device.
-  void addOffloadEntry(const OffloadEntryTy &Entry);
-
   /// Print all offload entries to stderr.
   void dumpOffloadEntries();
+
+  /// Ask the device whether the runtime should use auto zero-copy.
+  bool useAutoZeroCopy();
+
+  /// Ask the device whether it is an APU.
+  bool checkIfAPU();
+
+  /// Ask the device whether it supports unified memory.
+  bool supportsUnifiedMemory();
+
+  /// Ask the device to perform sanity checks for zero-copy configurations.
+  void zeroCopySanityChecksAndDiag(bool isUnifiedSharedMemory,
+                                   bool isAutoZeroCopy, bool isEagerMaps);
 
 private:
   /// Deinitialize the device (and plugin).
