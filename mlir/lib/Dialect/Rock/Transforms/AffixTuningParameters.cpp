@@ -201,16 +201,24 @@ void AffixTuningParameters::affixTuningParametersImpl(
 }
 
 static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder,
-                        RockAccelTuningParamAttrInterface gemm0TuningParams,
-                        GemmFeatures features, int64_t gemm1M) {
-  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op) {
+  auto gemm0TuningParams = op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
+  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
+  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  gemm1M = math_util::integer_least_multiple(gemm1M, gemm0TuningParams.getMPerBlock());
+  Type gemm1ElemType = op.getValues().getType().cast<ShapedType>().getElementType();
+  int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
+  // This is good enough heuristic for now to guard from cases where
+  // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
+  int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
+  int64_t gemm1MPerBlock = std::min(gemm1M, gemm1MUpperBound);
+  int64_t gemm1KPack = gemm0TuningParams.getKpack(); 
   return builder.getAttr<XdlopsGemmParamsAttr>(
       /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      /*gemmMPerBlock=*/ gemm1M, // gemm0TuningParams.getMPerBlock(),
+      /*gemmMPerBlock=*/ gemm1MPerBlock,
       /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
       /*gemmKPack=*/gemm1KPack,
-      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() * (gemm1M / gemm0TuningParams.getMPerBlock()),
+      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() * (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
       /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
       /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
 }
@@ -248,10 +256,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
   op.setParams0Attr(accelParams0);
-  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
-  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2]; 
   auto accelParams1 =
-      deriveGemm1TuningParams(builder, accelParams0, op.getFeatures(), gemm1M);
+      deriveGemm1TuningParams(builder, op);
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
