@@ -1701,7 +1701,7 @@ struct GridwiseAttentionAccelRewritePattern
     // Calculate different size derivations
     int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
     int64_t gemm1KPerBlock = gemm0MPerBlock;
-    int64_t gemm1MPerBlock = gemm0MPerBlock;
+    int64_t gemm1MPerBlock = gemm1M;
     int64_t gemm1NPerBlock = gemm0NPerBlock;
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
