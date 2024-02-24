@@ -135,8 +135,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
         status = populateParamsAccelPtr->obtainTuningParameters(
             op, perfConfig, validParams, blockSize);
       }
-      if (failed(status))
+      if (failed(status)) {
         signalPassFailure();
+        return;
+      }
     }
 
     auto origGemmSize = op.getGemmSize();
@@ -186,6 +188,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     if (failed(status)) {
       signalPassFailure();
+      return;
     }
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
