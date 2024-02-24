@@ -56,14 +56,10 @@ ConvGenerator::ConvGenerator(
              filterDataTypeStr,
              inputDataTypeStr,
              outputDataTypeStr,
-             {dilationHeight,
-              dilationWidth},
-             {strideHeight,
-              strideWidth},
-             {paddingHeightLeft,
-              paddingWidthLeft},
-             {paddingHeightRight,
-              paddingWidthRight},
+             {dilationHeight, dilationWidth},
+             {strideHeight, strideWidth},
+             {paddingHeightLeft, paddingWidthLeft},
+             {paddingHeightRight, paddingWidthRight},
              filterLayout,
              inputLayout,
              outputLayout,
@@ -72,7 +68,7 @@ ConvGenerator::ConvGenerator(
              {},
              {},
              {},
-             {-1,-1}} {}
+             {-1, -1}} {}
 
 ConvGenerator::ConvGenerator(const ConvGenerator::Config &_config)
     : config(_config) {}
@@ -220,10 +216,12 @@ LogicalResult ConvGenerator::hasValidDimension() const {
 
   int64_t expectedOutHeight = outputDim(
       inDim["h"], filDim["y"], config.paddingLeftDims[DIM::HEIGHT],
-      config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT], config.dilationDims[DIM::HEIGHT]);
-  int64_t expectedOutWidth = outputDim(
-      inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
-      config.paddingRightDims[DIM::WIDTH], config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
+      config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
+      config.dilationDims[DIM::HEIGHT]);
+  int64_t expectedOutWidth =
+      outputDim(inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
+                config.paddingRightDims[DIM::WIDTH],
+                config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
   if (outDim["h"] != expectedOutHeight) {
     LLVM_DEBUG(llvm::dbgs()
                << "Output height " << outDim["h"] << " doesn't match height "
@@ -237,14 +235,16 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
-  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT]
-      + config.paddingRightDims[DIM::HEIGHT] < filDim["y"]) {
+  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT] +
+          config.paddingRightDims[DIM::HEIGHT] <
+      filDim["y"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
-  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] + config.paddingRightDims[DIM::WIDTH] <
+  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] +
+          config.paddingRightDims[DIM::WIDTH] <
       filDim["x"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is narrower than the filter\n");
@@ -284,7 +284,7 @@ LogicalResult ConvGenerator::hasValidChip() const {
 }
 
 LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
-                                              int &kernelCount) const {
+                                            int &kernelCount) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     kernelCount = 1;
     return success();
@@ -305,7 +305,7 @@ LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
 }
 
 LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
-                                                       int &kernelCount) const {
+                                                     int &kernelCount) const {
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
@@ -346,8 +346,9 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
 int ConvGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH], config.dilationDims[DIM::HEIGHT],
-      config.dilationDims[DIM::WIDTH], config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
+      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
+      config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -392,7 +393,7 @@ Type ConvGenerator::getOutputDataType(OpBuilder &builder) const {
 }
 
 LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
-                                                     bool &needExtraPad) const {
+                                                   bool &needExtraPad) const {
   Type dataType = getInputDataType(builder);
   ConvOpType dir = config.operation.value();
   assert(dir == ConvOpType::BwdWeight &&
@@ -439,7 +440,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
 }
 
 LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
-                                            bool &needWorkspace) const {
+                                          bool &needWorkspace) const {
   // Decide if a workspace is needed.
   // Preconditions:
   // - data type: fp16
@@ -465,7 +466,7 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
 }
 
 LogicalResult ConvGenerator::getWorkspaceSize(ModuleOp &module,
-                                                int &workspaceSize) const {
+                                              int &workspaceSize) const {
   // Currently onlt in the following condition would a workspace is needed.
   // - data type: fp16
   // - operation: backward weight conv2d.
@@ -492,7 +493,7 @@ uint32_t ConvGenerator::getNumCU() const {
 }
 
 LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
-                                               const char *arguments) {
+                                             const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
@@ -647,10 +648,10 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
 LogicalResult
 ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                               int64_t inputChannel, int64_t inputHeight,
-                               int64_t inputWidth, int64_t outputChannel,
-                               int64_t outputHeight, int64_t outputWidth,
-                               int64_t filterHeight, int64_t filterWidth) {
+                             int64_t inputChannel, int64_t inputHeight,
+                             int64_t inputWidth, int64_t outputChannel,
+                             int64_t outputHeight, int64_t outputWidth,
+                             int64_t filterHeight, int64_t filterWidth) {
   config.filterDims[DIM::HEIGHT] = filterHeight;
   config.filterDims[DIM::WIDTH] = filterWidth;
   static const std::string filterKeys = "kgcyx";
@@ -738,8 +739,8 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
 }
 
 LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
-                                             bool is_verifier,
-                                             bool ignoreTuning) {
+                                           bool is_verifier,
+                                           bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
   Type filterDataType = getFilterDataType(builder);
@@ -842,8 +843,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH], config.dilationDims[DIM::HEIGHT],
-        config.dilationDims[DIM::WIDTH], config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+        config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
+        config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
+        config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
     assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
     kernelId = kernelIds[rawKernelId];
   }
