@@ -60,23 +60,24 @@ public:
     SmallVector<int, 5> filterDims;
   };
 
-  ConvGenerator(
-      const std::string &arch = "", const std::string &chip = "",
-      const std::string &triple = "", const std::string &chipFeatures = "",
-      const std::string &perfConfig = "",
-      std::optional<int> num_cu = std::nullopt,
-      GemmFeatures features = GemmFeatures::none,
-      const std::optional<rock::ConvOpType> operation = std::nullopt,
-      const std::string &filterDataTypeStr = "f32",
-      const std::string &inputDataTypeStr = "f32",
-      const std::string &outputDataTypeStr = "", int dilationHeight = 1,
-      int dilationWidth = 1, int strideHeight = 1, int strideWidth = 1,
-      int paddingHeightLeft = 0, int paddingHeightRight = 0,
-      int paddingWidthLeft = 0, int paddingWidthRight = 0,
-      const std::string &filterLayout = "kcyx",
-      const std::string &inputLayout = "nchw",
-      const std::string &outputLayout = "nkhw",
-      const std::string &kernelBaseName = "");
+  ConvGenerator(const std::string &arch = "", const std::string &chip = "",
+                const std::string &triple = "",
+                const std::string &chipFeatures = "",
+                const std::string &perfConfig = "",
+                std::optional<int> num_cu = std::nullopt,
+                GemmFeatures features = GemmFeatures::none,
+                const std::optional<rock::ConvOpType> operation = std::nullopt,
+                const std::string &filterDataTypeStr = "f32",
+                const std::string &inputDataTypeStr = "f32",
+                const std::string &outputDataTypeStr = "",
+                int dilationHeight = 1, int dilationWidth = 1,
+                int strideHeight = 1, int strideWidth = 1,
+                int paddingHeightLeft = 0, int paddingHeightRight = 0,
+                int paddingWidthLeft = 0, int paddingWidthRight = 0,
+                const std::string &filterLayout = "kcyx",
+                const std::string &inputLayout = "nchw",
+                const std::string &outputLayout = "nkhw",
+                const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);
 

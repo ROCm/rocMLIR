@@ -754,8 +754,7 @@ struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
   SmallVector<Type, 5> types;
   rock::GemmFeatures features = rock::GemmFeatures::none;
-  std::optional<const rock::ConvGenerator::Config *> convConfig =
-      std::nullopt;
+  std::optional<const rock::ConvGenerator::Config *> convConfig = std::nullopt;
   StringRef arch;
   StringRef perfConfig;
 };
@@ -1611,8 +1610,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   // Create extra maps for backward data
   if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     // d0 / stride
-    outputHeightExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[HEIGHT]);
-    outputWidthExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[WIDTH]);
+    outputHeightExpr =
+        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[HEIGHT]);
+    outputWidthExpr =
+        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[WIDTH]);
     outputHeightMap = AffineMap::get(1, 0, {outputHeightExpr}, b.getContext());
     outputWidthMap = AffineMap::get(1, 0, {outputWidthExpr}, b.getContext());
   }
@@ -1877,9 +1878,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   b.create<func::ReturnOp>(loc, ValueRange{});
 }
 
-static void
-createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
-                     const rock::ConvGenerator::Config &genConfig) {
+static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
+                                 const rock::ConvGenerator::Config &genConfig) {
   OpBuilder b(module.getContext());
 
   Block *block = func.addEntryBlock();
@@ -1927,29 +1927,29 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   auto HEIGHT = mlir::rock::ConvGenerator::DIM::HEIGHT;
   auto WIDTH = mlir::rock::ConvGenerator::DIM::WIDTH;
 
-  auto strideHeightConstantOp =
-    b.create<arith::ConstantIntOp>(loc, genConfig.strideDims[HEIGHT], intType);
+  auto strideHeightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.strideDims[HEIGHT], intType);
 
   auto strideWidthConstantOp =
       b.create<arith::ConstantIntOp>(loc, genConfig.strideDims[WIDTH], intType);
 
-  auto paddingHeightLeftConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingLeftDims[HEIGHT], intType);
+  auto paddingHeightLeftConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingLeftDims[HEIGHT], intType);
 
   auto paddingHeightRightConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.paddingRightDims[HEIGHT], intType);
 
-  auto paddingWidthLeftConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingLeftDims[WIDTH], intType);
+  auto paddingWidthLeftConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingLeftDims[WIDTH], intType);
 
-  auto paddingWidthRightConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingRightDims[WIDTH], intType);
+  auto paddingWidthRightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingRightDims[WIDTH], intType);
 
-  auto dilationHeightConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.dilationDims[HEIGHT], intType);
+  auto dilationHeightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.dilationDims[HEIGHT], intType);
 
-  auto dilationWidthConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.dilationDims[WIDTH], intType);
+  auto dilationWidthConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.dilationDims[WIDTH], intType);
 
   // Emit ConstantIndex ops
   // %c_0 = constant 0 : index
@@ -3013,7 +3013,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       for (int i = kernelStart; i < kernelCount; ++i) {
         convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
         if (failed(convGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
+                                               /*ignoreTuning=*/true))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
@@ -3024,8 +3024,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         // GPU kernel.
         rock::ConvGenerator originalConvGenerator(genConfig);
         bool originalHasWorkspace = false, verifierHasWorkspace = false;
-        if (failed(originalConvGenerator.hasWorkspace(
-                b, originalHasWorkspace))) {
+        if (failed(
+                originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
           llvm::errs() << "Getting workspace failed.\n";
           exit(1);
         }
