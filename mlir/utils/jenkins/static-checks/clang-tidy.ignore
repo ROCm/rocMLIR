@@ -2,6 +2,6 @@
 # Files to be ignored by clang-tidy. Will not appear in short report and inline comments.
 mlir/examples/standalone
 mlir/test
-mlir/utils/performance/ck-benchmark-driver
+mlir/utils/performance
 build/
 
