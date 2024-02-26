@@ -21,6 +21,8 @@ prevents other LLVM tools or instances from registering a -h option in the same
 process, which is an issue because -h is a common short form for -help.
 -  Updated default code object version used when linking code object specific
 device library from v4 to v5
+-  Updated shared library name on Windows 64-bit to include Comgr major version
+(libamd\_comgr.dll -> libamd\_comgr\_X.dll, where X is the major version)
 
 New Features
 ------------
@@ -33,6 +35,7 @@ implementation and tests.
 an std::scoped\_lock()
 - Added support for bitcode and archive unbundling during linking via the new
 llvm OffloadBundler API.
+- Added support for code object v6 and generic targets.
 
 Bug Fixes
 ---------
@@ -65,6 +68,8 @@ pytorch
 fixes an issue with the \*COMPILE\_SOURCE\_WITH\_DEVICE\_LIBRARIES\_TO\_BC where
 OpenCL applications that leveraged AMDGPUSimplifyLibCalls optimizations would
 need to re-link bitcodes separately to avoid errors at runtime.
+- Correctly set directory to object file path when forwarding -save-temps for
+HIP compilations with AMD\_COMGR\_SAVE\_TEMPS set
 
 New APIs
 --------
@@ -154,6 +159,10 @@ New Targets
  - gfx1036
  - gfx1150
  - gfx1151
+ - gfx9-generic
+ - gfx10-1-generic
+ - gfx10-3-generic
+ - gfx11-generic
 
 Removed Targets
 ---------------

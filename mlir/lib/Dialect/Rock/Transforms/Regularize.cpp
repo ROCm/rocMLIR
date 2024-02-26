@@ -174,7 +174,7 @@ struct RegularizeGenericRewritePattern
     }
 
     // reset idxmaps
-    rw.updateRootInPlace(lgop, [&]() {
+    rw.modifyOpInPlace(lgop, [&]() {
       SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
       lgop.setIndexingMapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
     });

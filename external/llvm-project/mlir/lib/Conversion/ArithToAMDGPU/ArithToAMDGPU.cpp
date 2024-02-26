@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -34,20 +35,17 @@ struct ArithToAMDGPUConversionPass final
   void runOnOperation() override;
 };
 
-struct ExtfOnFloat8RewritePattern final
-    : public OpRewritePattern<arith::ExtFOp> {
-  using OpRewritePattern<arith::ExtFOp>::OpRewritePattern;
+struct ExtFOnFloat8RewritePattern final : OpRewritePattern<arith::ExtFOp> {
+  using OpRewritePattern::OpRewritePattern;
 
   LogicalResult match(arith::ExtFOp op) const override;
   void rewrite(arith::ExtFOp op, PatternRewriter &rewriter) const override;
 };
 
-struct TruncfToFloat8RewritePattern final
-    : public OpRewritePattern<arith::TruncFOp> {
+struct TruncFToFloat8RewritePattern final : OpRewritePattern<arith::TruncFOp> {
   bool saturateFP8 = false;
-  TruncfToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8)
-      : OpRewritePattern<arith::TruncFOp>::OpRewritePattern(ctx),
-        saturateFP8(saturateFP8) {}
+  TruncFToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8)
+      : OpRewritePattern::OpRewritePattern(ctx), saturateFP8(saturateFP8) {}
 
   LogicalResult match(arith::TruncFOp op) const override;
   void rewrite(arith::TruncFOp op, PatternRewriter &rewriter) const override;
@@ -65,7 +63,7 @@ static Value castF32To(Type elementType, Value f32, Location loc,
   llvm_unreachable("The only 32-bit float type is f32");
 }
 
-LogicalResult ExtfOnFloat8RewritePattern::match(arith::ExtFOp op) const {
+LogicalResult ExtFOnFloat8RewritePattern::match(arith::ExtFOp op) const {
   Type inType = op.getIn().getType();
   if (auto inVecType = inType.dyn_cast<VectorType>()) {
     if (inVecType.isScalable())
@@ -78,7 +76,7 @@ LogicalResult ExtfOnFloat8RewritePattern::match(arith::ExtFOp op) const {
   return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ());
 }
 
-void ExtfOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
+void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
                                          PatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   Value in = op.getIn();
@@ -91,16 +89,18 @@ void ExtfOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
   }
   VectorType inType = in.getType().cast<VectorType>();
   int64_t numElements = inType.getNumElements();
-  Value zero = rewriter.createOrFold<arith::ConstantOp>(
+  Value zero = rewriter.create<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
   Value result =
       rewriter.createOrFold<vector::SplatOp>(loc, op.getOut().getType(), zero);
   if (inType.getShape().empty()) {
-    Value scalarIn = rewriter.create<vector::ExtractElementOp>(loc, in);
+    Value scalarIn =
+        rewriter.create<vector::ExtractOp>(loc, in, ArrayRef<int64_t>{});
     // Recurse to send the 0-D vector case to the 1-D vector case
     Value scalarExt =
         rewriter.create<arith::ExtFOp>(loc, outElemType, scalarIn);
-    result = rewriter.create<vector::InsertElementOp>(loc, scalarExt, zero);
+    result = rewriter.create<vector::InsertOp>(loc, scalarExt, zero,
+                                               ArrayRef<int64_t>{});
     return rewriter.replaceOp(op, result);
   }
   for (int64_t i = 0; i < numElements; i += 4) {
@@ -111,9 +111,7 @@ void ExtfOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
       Value asFloat = rewriter.create<amdgpu::ExtPackedFp8Op>(
           loc, rewriter.getF32Type(), inSlice, j);
       Value asType = castF32To(outElemType, asFloat, loc, rewriter);
-      result = rewriter.create<vector::InsertElementOp>(
-          loc, asType, result,
-          rewriter.createOrFold<arith::ConstantIndexOp>(loc, i + j));
+      result = rewriter.create<vector::InsertOp>(loc, asType, result, i + j);
     }
   }
   rewriter.replaceOp(op, result);
@@ -156,18 +154,19 @@ static Value clampInput(PatternRewriter &rewriter, Location loc,
   APFloat max = APFloat::getLargest(targetSem, /*Negative=*/false);
   bool ignoredLosesInfo = false;
   // We can ignore conversion failures here because this conversion promotes
-  // from a smaller type to a larger one.
+  // from a smaller type to a larger one - ex. there can be no loss of precision
+  // when casting fp8 to f16.
   (void)min.convert(sourceSem, APFloat::rmNearestTiesToEven, &ignoredLosesInfo);
   (void)max.convert(sourceSem, APFloat::rmNearestTiesToEven, &ignoredLosesInfo);
 
-  Value minCst = getMaybeVectorConstant(rewriter, loc, min, sourceType);
-  Value maxCst = getMaybeVectorConstant(rewriter, loc, max, sourceType);
+  Value minCst = createScalarOrSplatConstant(rewriter, loc, sourceType, min);
+  Value maxCst = createScalarOrSplatConstant(rewriter, loc, sourceType, max);
 
-  Value inf = getMaybeVectorConstant(
-      rewriter, loc, APFloat::getInf(sourceSem, /*Negative=*/false),
-      sourceType);
-  Value negInf = getMaybeVectorConstant(
-      rewriter, loc, APFloat::getInf(sourceSem, /*Negative=*/true), sourceType);
+  Value inf = createScalarOrSplatConstant(
+      rewriter, loc, sourceType,
+      APFloat::getInf(sourceSem, /*Negative=*/false));
+  Value negInf = createScalarOrSplatConstant(
+      rewriter, loc, sourceType, APFloat::getInf(sourceSem, /*Negative=*/true));
   Value isInf = rewriter.createOrFold<arith::CmpFOp>(
       loc, arith::CmpFPredicate::OEQ, source, inf);
   Value isNegInf = rewriter.createOrFold<arith::CmpFOp>(
@@ -184,7 +183,7 @@ static Value clampInput(PatternRewriter &rewriter, Location loc,
   return res;
 }
 
-LogicalResult TruncfToFloat8RewritePattern::match(arith::TruncFOp op) const {
+LogicalResult TruncFToFloat8RewritePattern::match(arith::TruncFOp op) const {
   Type outType = op.getOut().getType();
   if (auto outVecType = outType.dyn_cast<VectorType>()) {
     if (outVecType.isScalable())
@@ -194,10 +193,14 @@ LogicalResult TruncfToFloat8RewritePattern::match(arith::TruncFOp op) const {
       return failure();
     outType = outVecType.getElementType();
   }
+  auto inType = dyn_cast<FloatType>(getElementTypeOrSelf(op.getIn().getType()));
+  if (inType && inType.getWidth() <= 8 && saturateFP8)
+    // Conversion between 8-bit floats is not supported with truncation enabled.
+    return failure();
   return success(outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ());
 }
 
-void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
+void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
                                            PatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   Value in = op.getIn();
@@ -210,21 +213,22 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
     Value asF8s = rewriter.create<amdgpu::PackedTrunc2xFp8Op>(
         loc, truncResType, asFloat, /*sourceB=*/nullptr, 0,
         /*existing=*/nullptr);
-    Value result = rewriter.create<vector::ExtractElementOp>(
-        loc, asF8s, rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0));
+    Value result = rewriter.create<vector::ExtractOp>(loc, asF8s, 0);
     return rewriter.replaceOp(op, result);
   }
   VectorType outType = op.getOut().getType().cast<VectorType>();
   int64_t numElements = outType.getNumElements();
-  Value zero = rewriter.createOrFold<arith::ConstantOp>(
+  Value zero = rewriter.create<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
   Value result = rewriter.createOrFold<vector::SplatOp>(loc, outType, zero);
   if (outType.getShape().empty()) {
-    Value scalarIn = rewriter.create<vector::ExtractElementOp>(loc, in);
+    Value scalarIn =
+        rewriter.create<vector::ExtractOp>(loc, in, ArrayRef<int64_t>{});
     // Recurse to send the 0-D vector case to the 1-D vector case
     Value scalarTrunc =
         rewriter.create<arith::TruncFOp>(loc, outElemType, scalarIn);
-    result = rewriter.create<vector::InsertElementOp>(loc, scalarTrunc, zero);
+    result = rewriter.create<vector::InsertOp>(loc, scalarTrunc, zero,
+                                               ArrayRef<int64_t>{});
     return rewriter.replaceOp(op, result);
   }
 
@@ -232,14 +236,11 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
     int64_t elemsThisOp = std::min(numElements, i + 4) - i;
     Value thisResult = nullptr;
     for (int64_t j = 0; j < elemsThisOp; j += 2) {
-      Value elemA = rewriter.create<vector::ExtractElementOp>(
-          loc, in, rewriter.create<arith::ConstantIndexOp>(loc, i + j));
+      Value elemA = rewriter.create<vector::ExtractOp>(loc, in, i + j);
       Value asFloatA = castToF32(elemA, loc, rewriter);
       Value asFloatB = nullptr;
       if (j + 1 < elemsThisOp) {
-        Value elemB = rewriter.create<vector::ExtractElementOp>(
-            loc, in,
-            rewriter.createOrFold<arith::ConstantIndexOp>(loc, i + j + 1));
+        Value elemB = rewriter.create<vector::ExtractOp>(loc, in, i + j + 1);
         asFloatB = castToF32(elemB, loc, rewriter);
       }
       thisResult = rewriter.create<amdgpu::PackedTrunc2xFp8Op>(
@@ -255,10 +256,10 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
 }
 
 void mlir::arith::populateArithToAMDGPUConversionPatterns(
-    RewritePatternSet &patterns, bool saturateFP8Truncf) {
-  patterns.add<ExtfOnFloat8RewritePattern>(patterns.getContext());
-  patterns.add<TruncfToFloat8RewritePattern>(patterns.getContext(),
-                                             saturateFP8Truncf);
+    RewritePatternSet &patterns, bool saturateFP8TruncF) {
+  patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext());
+  patterns.add<TruncFToFloat8RewritePattern>(patterns.getContext(),
+                                             saturateFP8TruncF);
 }
 
 void ArithToAMDGPUConversionPass::runOnOperation() {

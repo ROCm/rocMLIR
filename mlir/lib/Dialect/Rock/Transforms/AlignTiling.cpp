@@ -137,12 +137,13 @@ public:
 
   /// Debug utilities.
   void notifyOperationModified(Operation *op) override;
-  void notifyOperationInserted(Operation *op) override;
-  void notifyOperationRemoved(Operation *op) override;
+  void notifyOperationInserted(Operation *op, InsertPoint previous) override;
+  void notifyOperationErased(Operation *op) override;
   void notifyOperationReplaced(Operation *op, ValueRange replacement) override;
-  void notifyBlockCreated(Block *block) override;
+  void notifyBlockInserted(mlir::Block *block, mlir::Region *previous,
+                                   mlir::Region::iterator previousIt) override;
   using PatternRewriter::notifyMatchFailure;
-  LogicalResult
+  void
   notifyMatchFailure(Location loc,
                      function_ref<void(Diagnostic &)> reasonCallback) override;
 };
@@ -341,12 +342,12 @@ void LinalgAlignRewriter::notifyOperationModified(Operation *op) {
   logOpActivity(prefix, op);
 }
 
-void LinalgAlignRewriter::notifyOperationInserted(Operation *op) {
+void LinalgAlignRewriter::notifyOperationInserted(Operation *op, InsertPoint previous) {
   constexpr llvm::StringLiteral prefix("** Insert  : '");
   logOpActivity(prefix, op);
 }
 
-void LinalgAlignRewriter::notifyOperationRemoved(Operation *op) {
+void LinalgAlignRewriter::notifyOperationErased(Operation *op) {
   constexpr llvm::StringLiteral prefix("** Erase   : ");
   logOpActivity(prefix, op);
 }
@@ -358,11 +359,12 @@ void LinalgAlignRewriter::notifyOperationReplaced(Operation *op,
   std::ignore = replacement;
 }
 
-void LinalgAlignRewriter::notifyBlockCreated(Block *block) {
+void LinalgAlignRewriter::notifyBlockInserted(mlir::Block *block, mlir::Region *previous,
+                                  mlir::Region::iterator previousIt) {
   std::ignore = block;
 }
 
-LogicalResult LinalgAlignRewriter::notifyMatchFailure(
+void LinalgAlignRewriter::notifyMatchFailure(
     Location loc, function_ref<void(Diagnostic &)> reasonCallback) {
   LLVM_DEBUG({
     Diagnostic diag(loc, DiagnosticSeverity::Remark);
@@ -373,7 +375,6 @@ LogicalResult LinalgAlignRewriter::notifyMatchFailure(
   std::ignore = loc;
   std::ignore reasonCallback;
 #endif
-  return failure();
 }
 
 /// Fusion

@@ -104,10 +104,15 @@ bool ModuleListProperties::SetEnableExternalLookup(bool new_value) {
   return SetPropertyAtIndex(ePropertyEnableExternalLookup, new_value);
 }
 
-bool ModuleListProperties::GetEnableBackgroundLookup() const {
-  const uint32_t idx = ePropertyEnableBackgroundLookup;
-  return GetPropertyAtIndexAs<bool>(
-      idx, g_modulelist_properties[idx].default_uint_value != 0);
+SymbolDownload ModuleListProperties::GetSymbolAutoDownload() const {
+  // Backward compatibility alias.
+  if (GetPropertyAtIndexAs<bool>(ePropertyEnableBackgroundLookup, false))
+    return eSymbolDownloadBackground;
+
+  const uint32_t idx = ePropertyAutoDownload;
+  return GetPropertyAtIndexAs<lldb::SymbolDownload>(
+      idx, static_cast<lldb::SymbolDownload>(
+               g_modulelist_properties[idx].default_uint_value));
 }
 
 FileSpec ModuleListProperties::GetClangModulesCachePath() const {
@@ -346,7 +351,7 @@ bool ModuleList::RemoveIfOrphaned(const Module *module_ptr) {
     collection::iterator pos, end = m_modules.end();
     for (pos = m_modules.begin(); pos != end; ++pos) {
       if (pos->get() == module_ptr) {
-        if (pos->unique()) {
+        if (pos->use_count() == 1) {
           pos = RemoveImpl(pos);
           return true;
         } else
@@ -377,7 +382,7 @@ size_t ModuleList::RemoveOrphans(bool mandatory) {
     made_progress = false;
     collection::iterator pos = m_modules.begin();
     while (pos != m_modules.end()) {
-      if (pos->unique()) {
+      if (pos->use_count() == 1) {
         pos = RemoveImpl(pos);
         ++remove_count;
         // We did make progress.

@@ -23,7 +23,7 @@
 using namespace llvm;
 using namespace llvm::sys;
 
-PluginManager *PM;
+PluginManager *PM = nullptr;
 
 // List of all plugins that can support offloading.
 static const char *RTLNames[] = {ENABLED_OFFLOAD_PLUGINS};
@@ -92,19 +92,6 @@ Error PluginAdaptorTy::init() {
   return Error::success();
 }
 
-void PluginAdaptorTy::addOffloadEntries(DeviceImageTy &DI) {
-  for (int32_t I = 0, E = getNumberOfUserDevices(); I < E; ++I) {
-    auto DeviceOrErr = PM->getDevice(DeviceOffset + I);
-    if (!DeviceOrErr)
-      FATAL_MESSAGE(DeviceOffset + I, "%s",
-                    toString(DeviceOrErr.takeError()).c_str());
-
-    DeviceTy &Device = *DeviceOrErr;
-    for (__tgt_offload_entry &Entry : DI.entries())
-      Device.addOffloadEntry(OffloadEntryTy(DI, Entry));
-  }
-}
-
 void PluginManager::init() {
   TIMESCOPE();
   DP("Loading RTLs...\n");
@@ -147,6 +134,15 @@ void PluginAdaptorTy::initDevices(PluginManager &PM) {
 
   int32_t NumPD = getNumberOfPluginDevices();
   ExclusiveDevicesAccessor->reserve(DeviceOffset + NumPD);
+  // Auto zero-copy is a per-device property. We need to ensure
+  // that all devices are suggesting to use it.
+  bool UseAutoZeroCopy = !(NumPD == 0);
+  // The following properties must have the same value for all devices.
+  // They are surfaced per-device because the related properties
+  // are computed as such in the plugins.
+  bool EagerMapsRequested = false;
+  bool IsAPU = false;
+  bool SupportsUnifiedMemory = false;
   for (int32_t PDevI = 0, UserDevId = DeviceOffset; PDevI < NumPD; PDevI++) {
     auto Device = std::make_unique<DeviceTy>(this, UserDevId, PDevI);
     if (auto Err = Device->init()) {
@@ -154,10 +150,54 @@ void PluginAdaptorTy::initDevices(PluginManager &PM) {
          toString(std::move(Err)).c_str());
       continue;
     }
+    UseAutoZeroCopy = UseAutoZeroCopy && Device->useAutoZeroCopy();
+    SupportsUnifiedMemory =
+        SupportsUnifiedMemory && Device->supportsUnifiedMemory();
 
     ExclusiveDevicesAccessor->push_back(std::move(Device));
     ++NumberOfUserDevices;
     ++UserDevId;
+  }
+
+  // IsAPU and EagerMapsRequested are properties associated
+  // with devices but they must be the same for all devices.
+  // We do not mix APUs with discrete GPUs and eager maps
+  // is set by an host environment variable.
+  if (ExclusiveDevicesAccessor->size() > 0) {
+    auto &Device = *(*ExclusiveDevicesAccessor)[0];
+    IsAPU = Device.checkIfAPU();
+    EagerMapsRequested = Device.EagerZeroCopyMaps;
+  }
+
+  // Auto Zero-Copy can only be currently triggered when the system is an
+  // homogeneous APU architecture without attached discrete GPUs.
+  // If all devices suggest to use it, change requirment flags to trigger
+  // zero-copy behavior when mapping memory.
+  if (UseAutoZeroCopy)
+    PM.addRequirements(OMPX_REQ_AUTO_ZERO_COPY);
+
+  // Eager Zero-Copy Maps makes a "copy" execution turn into
+  // an automatic zero-copy. It also applies to unified_shared_memory.
+  // It is only available on APUs.
+  if (IsAPU && SupportsUnifiedMemory && EagerMapsRequested) {
+    PM.addRequirements(OMPX_REQ_EAGER_ZERO_COPY_MAPS);
+    if (!(PM.getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY))
+      PM.addRequirements(OMPX_REQ_AUTO_ZERO_COPY);
+  }
+
+  // sanity checks for zero-copy depend on specific devices: request it here
+  // TODO: check if there are no devices and bail if so.
+  if ((ExclusiveDevicesAccessor->size() > 0) &&
+      ((PM.getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY) ||
+       (PM.getRequirements() & OMPX_REQ_AUTO_ZERO_COPY))) {
+    // APUs are assumed to be a homogeneous set of GPUs: ask
+    // the first device in the system to run a sanity check.
+    auto &Device = *(*ExclusiveDevicesAccessor)[0];
+    // just skip checks if no devices are found in the system
+    Device.zeroCopySanityChecksAndDiag(
+        (PM.getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY),
+        (PM.getRequirements() & OMPX_REQ_AUTO_ZERO_COPY),
+        (PM.getRequirements() & OMPX_REQ_EAGER_ZERO_COPY_MAPS));
   }
 
   DP("Plugin adaptor " DPxMOD " has index %d, exposes %d out of %d devices!\n",
@@ -184,7 +224,9 @@ static void registerImageIntoTranslationTable(TranslationTable &TT,
       RTL.DeviceOffset + RTL.getNumberOfUserDevices();
 
   if (TT.TargetsTable.size() < TargetsTableMinimumSize) {
+    TT.DeviceTables.resize(TargetsTableMinimumSize, {});
     TT.TargetsImages.resize(TargetsTableMinimumSize, 0);
+    TT.TargetsEntries.resize(TargetsTableMinimumSize, {});
     TT.TargetsTable.resize(TargetsTableMinimumSize, 0);
   }
 
@@ -201,6 +243,12 @@ static void registerImageIntoTranslationTable(TranslationTable &TT,
 
 void PluginManager::registerLib(__tgt_bin_desc *Desc) {
   PM->RTLsMtx.lock();
+
+  // Add in all the OpenMP requirements associated with this binary.
+  for (__tgt_offload_entry &Entry :
+       llvm::make_range(Desc->HostEntriesBegin, Desc->HostEntriesEnd))
+    if (Entry.flags == OMP_REGISTER_REQUIRES)
+      PM->addRequirements(Entry.data);
 
   // Extract the exectuable image and extra information if availible.
   for (int32_t i = 0; i < Desc->NumDeviceImages; ++i)
@@ -249,9 +297,6 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
 
       PM->TrlTblMtx.unlock();
       FoundRTL = &R;
-
-      // Register all offload entries with the devices handled by the plugin.
-      R.addOffloadEntries(DI);
 
       // if an RTL was found we are done - proceed to register the next image
       break;
@@ -311,34 +356,6 @@ void PluginManager::unregisterLib(__tgt_bin_desc *Desc) {
         continue;
 
       FoundRTL = &R;
-
-      // Execute dtors for static objects if the device has been used, i.e.
-      // if its PendingCtors list has been emptied.
-      for (int32_t I = 0; I < FoundRTL->getNumberOfUserDevices(); ++I) {
-        auto DeviceOrErr = PM->getDevice(FoundRTL->DeviceOffset + I);
-        if (!DeviceOrErr)
-          FATAL_MESSAGE(FoundRTL->DeviceOffset + I, "%s",
-                        toString(DeviceOrErr.takeError()).c_str());
-
-        DeviceTy &Device = *DeviceOrErr;
-        Device.PendingGlobalsMtx.lock();
-        if (Device.PendingCtorsDtors[Desc].PendingCtors.empty()) {
-          AsyncInfoTy AsyncInfo(Device);
-          for (auto &Dtor : Device.PendingCtorsDtors[Desc].PendingDtors) {
-            int Rc =
-                target(nullptr, Device, Dtor, CTorDTorKernelArgs, AsyncInfo);
-            if (Rc != OFFLOAD_SUCCESS) {
-              DP("Running destructor " DPxMOD " failed.\n", DPxPTR(Dtor));
-            }
-          }
-          // Remove this library's entry from PendingCtorsDtors
-          Device.PendingCtorsDtors.erase(Desc);
-          // All constructors have been issued, wait for them now.
-          if (AsyncInfo.synchronize() != OFFLOAD_SUCCESS)
-            DP("Failed synchronizing destructors kernels.\n");
-        }
-        Device.PendingGlobalsMtx.unlock();
-      }
 
       DP("Unregistered image " DPxMOD " from RTL " DPxMOD "!\n",
          DPxPTR(Img->ImageStart), DPxPTR(R.LibraryHandler.get()));

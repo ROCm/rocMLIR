@@ -58,10 +58,6 @@ struct PluginAdaptorTy {
   /// user.
   int32_t getNumberOfUserDevices() const { return NumberOfUserDevices; }
 
-  /// Add all offload entries described by \p DI to the devices managed by this
-  /// plugin.
-  void addOffloadEntries(DeviceImageTy &DI);
-
   /// RTL index, index is the number of devices of other RTLs that were
   /// registered before, i.e. the OpenMP index of the first device to be
   /// registered with this RTL.
@@ -209,6 +205,12 @@ private:
   /// Devices associated with plugins, accesses to the container are exclusive.
   ProtectedObj<DeviceContainerTy> Devices;
 };
+
+/// Initialize the plugin manager and OpenMP runtime.
+void initRuntime();
+
+/// Deinitialize the plugin and delete it.
+void deinitRuntime();
 
 extern PluginManager *PM;
 

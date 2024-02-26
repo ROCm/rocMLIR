@@ -1000,6 +1000,19 @@ static void setPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
   CGM.addCompilerUsedGlobal(GVMode);
 }
 
+// Create a global variable to indicate whether fast reduction is enabled for
+// this file. This variable is read by the runtime while determining the launch
+// bounds.
+static void setIsFastReduction(CodeGenModule &CGM) {
+  auto *GVFastReduction = new llvm::GlobalVariable(
+      CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
+      llvm::GlobalValue::WeakAnyLinkage,
+      llvm::ConstantInt::get(CGM.Int8Ty,
+                             CGM.getLangOpts().OpenMPTargetFastReduction),
+      Twine("__omp_plugin_enable_fast_reduction"));
+  CGM.addCompilerUsedGlobal(GVFastReduction);
+}
+
 static OMPTgtExecModeFlags
 computeExecutionMode(bool Mode, const Stmt *DirectiveStmt, CodeGenModule &CGM) {
   if (!Mode)
@@ -1084,6 +1097,11 @@ CGOpenMPRuntimeGPU::CGOpenMPRuntimeGPU(CodeGenModule &CGM)
 
   if (CGM.getLangOpts().OpenMPCUDAMode)
     CurrentDataSharingMode = CGOpenMPRuntimeGPU::DS_CUDA;
+
+  // Write a global variable indicating whether fast reduction is enabled.
+  // This is done regardless of -nogpulib
+  if (!CGM.getLangOpts().OMPHostIRFile.empty())
+    setIsFastReduction(CGM);
 
   llvm::OpenMPIRBuilder &OMPBuilder = getOMPBuilder();
   if (CGM.getLangOpts().NoGPULib || CGM.getLangOpts().OMPHostIRFile.empty())
@@ -1470,26 +1488,32 @@ void CGOpenMPRuntimeGPU::emitParallelCall(CodeGenFunction &CGF,
 
       assert(IfCondVal && "Expected a value");
     llvm::Value *RTLoc = emitUpdateLocation(CGF, Loc);
-    llvm::Value *Args[] = {
-        RTLoc,
-        getThreadID(CGF, Loc),
-        IfCondVal,
-        NumThreadsVal,
-        llvm::ConstantInt::get(CGF.Int32Ty, -1),
-        FnPtr,
-        ID,
-        Bld.CreateBitOrPointerCast(CapturedVarsAddrs.getPointer(),
-                                   CGF.VoidPtrPtrTy),
-        llvm::ConstantInt::get(CGM.SizeTy, CapturedVars.size())};
     if (CGM.getLangOpts().OpenMPNoNestedParallelism &&
-        CGM.IsSPMDExecutionMode())
+        CGM.IsSPMDExecutionMode()) {
+      llvm::Value *Args[] = {
+          RTLoc, NumThreadsVal, FnPtr,
+          Bld.CreateBitOrPointerCast(CapturedVarsAddrs.getPointer(),
+                                     CGF.VoidPtrPtrTy),
+          llvm::ConstantInt::get(CGM.SizeTy, CapturedVars.size())};
       CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
                               CGM.getModule(), OMPRTL___kmpc_parallel_spmd),
                           Args);
-    else
+    } else {
+      llvm::Value *Args[] = {
+          RTLoc,
+          getThreadID(CGF, Loc),
+          IfCondVal,
+          NumThreadsVal,
+          llvm::ConstantInt::get(CGF.Int32Ty, -1),
+          FnPtr,
+          ID,
+          Bld.CreateBitOrPointerCast(CapturedVarsAddrs.getPointer(),
+                                     CGF.VoidPtrPtrTy),
+          llvm::ConstantInt::get(CGM.SizeTy, CapturedVars.size())};
       CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
                               CGM.getModule(), OMPRTL___kmpc_parallel_51),
                           Args);
+    }
   };
 
   RegionCodeGenTy RCG(ParallelGen);

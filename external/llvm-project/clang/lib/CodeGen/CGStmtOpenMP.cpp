@@ -6306,9 +6306,12 @@ static void emitOMPAtomicWriteExpr(CodeGenFunction &CGF,
 
 static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
                                       RValue Update, BinaryOperatorKind BO,
-                                      const Expr *Hint) {
+                                      const Expr *Hint, SourceLocation Loc) {
 
   if (!Update.isScalar())
+    return false;
+
+  if (!X.isSimple())
     return false;
 
   ASTContext &Context = CGF.getContext();
@@ -6342,6 +6345,12 @@ static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
     }
   }
 
+  bool supportsFastFPAtomics =
+      Context.getTargetInfo().getTriple().isAMDGCN() &&
+      CGF.CGM.getOpenMPRuntime().supportFastFPAtomics() &&
+      CGF.CGM.getLangOpts().OpenMPIsTargetDevice &&
+      userRequestsAMDGPUFastFPAtomics;
+
   bool addOpHasAMDGPUFastVersion =
       BO == BO_Add && (Update.getScalarVal()->getType()->isDoubleTy() ||
                        Update.getScalarVal()->getType()->isFloatTy());
@@ -6350,18 +6359,42 @@ static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
       (BO == BO_LT || BO == BO_GT) &&
       Update.getScalarVal()->getType()->isDoubleTy();
 
-  return Context.getTargetInfo().getTriple().isAMDGCN() &&
-         CGF.CGM.getOpenMPRuntime().supportFastFPAtomics() &&
-         CGF.CGM.getLangOpts().OpenMPIsTargetDevice &&
-         userRequestsAMDGPUFastFPAtomics &&
-         (addOpHasAMDGPUFastVersion || minMaxOpHasAMDGPUFastVersion) &&
-         X.isSimple();
+  if (!supportsFastFPAtomics ||
+      (!addOpHasAMDGPUFastVersion && !minMaxOpHasAMDGPUFastVersion))
+    return false;
+
+  llvm::Type *UpdateType = Update.getScalarVal()->getType();
+  llvm::Type *XType = X.getAddress(CGF).getElementType();
+
+  bool isUpdateLosslesslyCastableToX =
+      UpdateType->canLosslesslyBitCastTo(XType);
+
+  if (!isUpdateLosslesslyCastableToX) {
+
+    auto getTypeNameAsString = [](llvm::Type* T) -> std::string {
+      std::string TypeNameStr;
+      llvm::raw_string_ostream OutputStream(TypeNameStr);
+      T->print(OutputStream);
+      return TypeNameStr;
+    };
+
+    unsigned DiagID = CGF.CGM.getDiags().getCustomDiagID(
+        DiagnosticsEngine::Warning,
+        "Can't emit fast FP atomic call due to type mismatch. The operation "
+        "tries to assign %0 to %1. A fallback atomic operation is "
+        "emitted which ignores the type conflict. Result may be incorrect!");
+    clang::DiagnosticBuilder DB = CGF.CGM.getDiags().Report(Loc, DiagID);
+    DB.AddString(getTypeNameAsString(UpdateType));
+    DB.AddString(getTypeNameAsString(XType));
+  }
+
+  return isUpdateLosslesslyCastableToX;
 }
 
 static std::pair<bool, RValue>
 emitOMPAtomicRMW(CodeGenFunction &CGF, LValue X, RValue Update,
                  BinaryOperatorKind BO, llvm::AtomicOrdering AO,
-                 bool IsXLHSInRHSPart, const Expr *Hint) {
+                 bool IsXLHSInRHSPart, const Expr *Hint, SourceLocation Loc) {
   ASTContext &Context = CGF.getContext();
 
   if (CGF.CGM.getOpenMPRuntime().mustEmitSafeAtomic(CGF, X, Update, BO)) {
@@ -6370,7 +6403,7 @@ emitOMPAtomicRMW(CodeGenFunction &CGF, LValue X, RValue Update,
     return std::make_pair(false, RValue::get(nullptr));
   }
 
-  bool useFPAtomics = canUseAMDGPUFastFPAtomics(CGF, X, Update, BO, Hint);
+  bool useFPAtomics = canUseAMDGPUFastFPAtomics(CGF, X, Update, BO, Hint, Loc);
   if (useFPAtomics) {
     auto Ret = CGF.CGM.getOpenMPRuntime().emitFastFPAtomicCall(
         CGF, X, Update, BO, IsXLHSInRHSPart);
@@ -6501,7 +6534,7 @@ std::pair<bool, RValue> CodeGenFunction::EmitOMPAtomicSimpleUpdateExpr(
   // x--, --x -> xrval - 1;
   // x = x binop expr; -> xrval binop expr
   // x = expr Op x; - > expr binop xrval;
-  auto Res = emitOMPAtomicRMW(*this, X, E, BO, AO, IsXLHSInRHSPart, Hint);
+  auto Res = emitOMPAtomicRMW(*this, X, E, BO, AO, IsXLHSInRHSPart, Hint, Loc);
   if (!Res.first) {
     if (X.isGlobalReg()) {
       // Emit an update expression: 'xrval' binop 'expr' or 'expr' binop
@@ -6737,9 +6770,9 @@ static void emitOMPAtomicCompareExpr(
   }
 
   // Check if fast AMDGPU FP atomics can be used for the current operation:
-  bool canUseFastAtomics =
-      canUseAMDGPUFastFPAtomics(CGF, XLVal, RValue::get(EVal),
-                                cast<BinaryOperator>(CE)->getOpcode(), Hint);
+  bool canUseFastAtomics = canUseAMDGPUFastFPAtomics(
+      CGF, XLVal, RValue::get(EVal), cast<BinaryOperator>(CE)->getOpcode(),
+      Hint, Loc);
   if (canUseFastAtomics) {
     CGF.CGM.getOpenMPRuntime().emitFastFPAtomicCall(
         CGF, XLVal, RValue::get(EVal), cast<BinaryOperator>(CE)->getOpcode(),
@@ -6854,6 +6887,9 @@ void CodeGenFunction::EmitOMPAtomicDirective(const OMPAtomicDirective &S) {
     // Find first clause (skip seq_cst|acq_rel|aqcuire|release|relaxed clause,
     // if it is first).
     OpenMPClauseKind K = C->getClauseKind();
+    // TBD
+    if (K == OMPC_weak)
+      return;
     if (K == OMPC_seq_cst || K == OMPC_acq_rel || K == OMPC_acquire ||
         K == OMPC_release || K == OMPC_relaxed || K == OMPC_hint)
       continue;

@@ -1,2 +1,7 @@
+revert: breaks MIOpen composableKernel build 
+[clang][Sema] Add -Wswitch-default warning option (#73077)  
+   https://ontrack-internal.amd.com/browse/SWDEV-436625
+
 Reverts: breaks HIP tests in wPSDB and nPSDB
 [AMDGPU] Add dynamic LDS size implicit kernel argument t
+

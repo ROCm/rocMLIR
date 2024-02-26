@@ -67,7 +67,6 @@ int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
 
 DeviceTy::DeviceTy(PluginAdaptorTy *RTL, int32_t DeviceID, int32_t RTLDeviceID)
     : DeviceID(DeviceID), RTL(RTL), RTLDeviceID(RTLDeviceID),
-      PendingCtorsDtors(), PendingGlobalsMtx(),
       ForceSynchronousTargetRegions(false), MappingInfo(*this) {}
 
 DeviceTy::~DeviceTy() {
@@ -83,10 +82,6 @@ llvm::Error DeviceTy::init() {
   int32_t Ret = 0;
   if (RTL->init_requires)
     Ret = RTL->init_requires(PM->getRequirements());
-  
-  // set_up_env() has a temporary dependency on RequiresFlags being set. This
-  // spot is the earliest possible call-site.
-  RTL->set_up_env();
 
   if (Ret != OFFLOAD_SUCCESS)
     return llvm::createStringError(
@@ -116,8 +111,14 @@ llvm::Error DeviceTy::init() {
 }
 
 // Load binary to device.
-__tgt_target_table *DeviceTy::loadBinary(__tgt_device_image *Img) {
-  return RTL->load_binary(RTLDeviceID, Img);
+llvm::Expected<__tgt_device_binary>
+DeviceTy::loadBinary(__tgt_device_image *Img) {
+  __tgt_device_binary Binary;
+
+  if (RTL->load_binary(RTLDeviceID, Img, &Binary) != OFFLOAD_SUCCESS)
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Failed to load binary %p", Img);
+  return Binary;
 }
 
 void *DeviceTy::allocData(int64_t Size, void *HstPtr, int32_t Kind) {
@@ -342,51 +343,44 @@ int32_t DeviceTy::destroyEvent(void *Event) {
   return OFFLOAD_SUCCESS;
 }
 
-void DeviceTy::addOffloadEntry(const OffloadEntryTy &Entry) {
-  std::lock_guard<decltype(PendingGlobalsMtx)> Lock(PendingGlobalsMtx);
-  DeviceOffloadEntries.getExclusiveAccessor()->insert({Entry.getName(), Entry});
-  if (Entry.isGlobal())
-    return;
-
-  if (Entry.isCTor()) {
-    DP("Adding ctor " DPxMOD " to the pending list.\n",
-       DPxPTR(Entry.getAddress()));
-    MESSAGE("WARNING: Calling deprecated constructor for entry %s will be "
-            "removed in a future release \n",
-            Entry.getNameAsCStr());
-    PendingCtorsDtors[Entry.getBinaryDescription()].PendingCtors.push_back(
-        Entry.getAddress());
-  } else if (Entry.isDTor()) {
-    // Dtors are pushed in reverse order so they are executed from end
-    // to beginning when unregistering the library!
-    DP("Adding dtor " DPxMOD " to the pending list.\n",
-       DPxPTR(Entry.getAddress()));
-    MESSAGE("WARNING: Calling deprecated destructor for entry %s will be "
-            "removed in a future release \n",
-            Entry.getNameAsCStr());
-    PendingCtorsDtors[Entry.getBinaryDescription()].PendingDtors.push_front(
-        Entry.getAddress());
-  }
-
-  if (Entry.isLink()) {
-    MESSAGE(
-        "WARNING: The \"link\" attribute is not yet supported for entry: %s!\n",
-        Entry.getNameAsCStr());
-  }
-}
-
 void DeviceTy::dumpOffloadEntries() {
   fprintf(stderr, "Device %i offload entries:\n", DeviceID);
   for (auto &It : *DeviceOffloadEntries.getExclusiveAccessor()) {
     const char *Kind = "kernel";
-    if (It.second.isCTor())
-      Kind = "constructor";
-    else if (It.second.isDTor())
-      Kind = "destructor";
-    else if (It.second.isLink())
+    if (It.second.isLink())
       Kind = "link";
     else if (It.second.isGlobal())
       Kind = "global var.";
     fprintf(stderr, "  %11s: %s\n", Kind, It.second.getNameAsCStr());
   }
+}
+
+bool DeviceTy::useAutoZeroCopy() {
+  // Automatic zero-copy only applies when unfiied shared memory is disabled.
+  if (PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY)
+    return false;
+
+  if (RTL->use_auto_zero_copy)
+    return RTL->use_auto_zero_copy(RTLDeviceID);
+  return false;
+}
+
+bool DeviceTy::checkIfAPU() {
+  if (RTL->has_apu_device)
+    return RTL->has_apu_device(RTLDeviceID);
+  return false;
+}
+
+bool DeviceTy::supportsUnifiedMemory() {
+  if (RTL->supports_unified_memory)
+    return RTL->supports_unified_memory(RTLDeviceID);
+  return false;
+}
+
+void DeviceTy::zeroCopySanityChecksAndDiag(bool isUnifiedSharedMemory,
+                                           bool isAutoZeroCopy,
+                                           bool isEagerMaps) {
+  if (RTL->zero_copy_sanity_checks_and_diag)
+    RTL->zero_copy_sanity_checks_and_diag(RTLDeviceID, isUnifiedSharedMemory,
+                                          isAutoZeroCopy, isEagerMaps);
 }

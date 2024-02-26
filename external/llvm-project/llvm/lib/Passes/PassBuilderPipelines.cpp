@@ -75,6 +75,7 @@
 #include "llvm/Transforms/Instrumentation/InstrOrderFile.h"
 #include "llvm/Transforms/Instrumentation/InstrProfiling.h"
 #include "llvm/Transforms/Instrumentation/MemProfiler.h"
+#include "llvm/Transforms/Instrumentation/PGOForceFunctionAttrs.h"
 #include "llvm/Transforms/Instrumentation/PGOInstrumentation.h"
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Scalar/AlignmentFromAssumptions.h"
@@ -92,6 +93,7 @@
 #include "llvm/Transforms/Scalar/IndVarSimplify.h"
 #include "llvm/Transforms/Scalar/InferAlignment.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
+#include "llvm/Transforms/Scalar/JumpTableToSwitch.h"
 #include "llvm/Transforms/Scalar/JumpThreading.h"
 #include "llvm/Transforms/Scalar/LICM.h"
 #include "llvm/Transforms/Scalar/LoopDeletion.h"
@@ -213,6 +215,12 @@ static cl::opt<bool>
                            cl::desc("Enable DFA jump threading"),
                            cl::init(false), cl::Hidden);
 
+// TODO: turn on and remove flag
+static cl::opt<bool> EnablePGOForceFunctionAttrs(
+    "enable-pgo-force-function-attrs",
+    cl::desc("Enable pass to set function attributes based on PGO profiles"),
+    cl::init(false));
+
 static cl::opt<bool>
     EnableHotColdSplit("hot-cold-split",
                        cl::desc("Enable hot-cold splitting pass"));
@@ -237,6 +245,10 @@ static cl::opt<bool>
 static cl::opt<bool>
     EnableGVNSink("enable-gvn-sink",
                   cl::desc("Enable the GVN sinking pass (default = off)"));
+
+static cl::opt<bool> EnableJumpTableToSwitch(
+    "enable-jump-table-to-switch",
+    cl::desc("Enable JumpTableToSwitch pass (default = on)"), cl::init(true));
 
 // This option is used in simplifying testing SampleFDO optimizations for
 // profile loading.
@@ -559,6 +571,10 @@ PassBuilder::buildFunctionSimplificationPipeline(OptimizationLevel Level,
   // Optimize based on known information about branches, and cleanup afterward.
   FPM.addPass(JumpThreadingPass());
   FPM.addPass(CorrelatedValuePropagationPass());
+
+  // Jump table to switch conversion.
+  if (EnableJumpTableToSwitch)
+    FPM.addPass(JumpTableToSwitchPass());
 
   FPM.addPass(
       SimplifyCFGPass(SimplifyCFGOptions().convertSwitchRangeToICmp(true)));
@@ -1138,6 +1154,9 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   if (EnableSyntheticCounts && !PGOOpt)
     MPM.addPass(SyntheticCountsPropagation());
 
+  if (EnablePGOForceFunctionAttrs)
+    MPM.addPass(PGOForceFunctionAttrsPass(PGOOpt->ColdOptType));
+
   if (EnableModuleInliner)
     MPM.addPass(buildModuleInlinerPipeline(Level, Phase));
   else
@@ -1476,7 +1495,8 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
   MPM.addPass(ConstantMergePass());
 
   if (PTO.CallGraphProfile && !LTOPreLink)
-    MPM.addPass(CGProfilePass());
+    MPM.addPass(CGProfilePass(LTOPhase == ThinOrFullLTOPhase::FullLTOPostLink ||
+                              LTOPhase == ThinOrFullLTOPhase::ThinLTOPostLink));
 
   // TODO: Relative look table converter pass caused an issue when full lto is
   // enabled. See https://reviews.llvm.org/D94355 for more details.
@@ -1536,14 +1556,17 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
 }
 
 ModulePassManager
-PassBuilder::buildFatLTODefaultPipeline(OptimizationLevel Level) {
+PassBuilder::buildFatLTODefaultPipeline(OptimizationLevel Level, bool ThinLTO,
+                                        bool EmitSummary) {
   ModulePassManager MPM;
-  // FatLTO always uses UnifiedLTO, so use the ThinLTOPreLink pipeline
-  MPM.addPass(buildThinLTOPreLinkDefaultPipeline(Level));
-  MPM.addPass(EmbedBitcodePass());
+  if (ThinLTO)
+    MPM.addPass(buildThinLTOPreLinkDefaultPipeline(Level));
+  else
+    MPM.addPass(buildLTOPreLinkDefaultPipeline(Level));
+  MPM.addPass(EmbedBitcodePass(ThinLTO, EmitSummary));
 
-  // Use the ThinLTO post-link pipeline with sample profiling, other
-  if (PGOOpt && PGOOpt->Action == PGOOptions::SampleUse)
+  // Use the ThinLTO post-link pipeline with sample profiling
+  if (ThinLTO && PGOOpt && PGOOpt->Action == PGOOptions::SampleUse)
     MPM.addPass(buildThinLTODefaultPipeline(Level, /*ImportSummary=*/nullptr));
   else {
     // otherwise, just use module optimization
@@ -1978,7 +2001,7 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     MPM.addPass(MergeFunctionsPass());
 
   if (PTO.CallGraphProfile)
-    MPM.addPass(CGProfilePass());
+    MPM.addPass(CGProfilePass(/*InLTOPostLink=*/true));
 
   invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 

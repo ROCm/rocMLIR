@@ -33,7 +33,19 @@ enum OpenMPOffloadingRequiresDirFlags : int64_t {
   /// unified_shared_memory clause.
   OMP_REQ_UNIFIED_SHARED_MEMORY = 0x008,
   /// dynamic_allocators clause.
-  OMP_REQ_DYNAMIC_ALLOCATORS = 0x010
+  OMP_REQ_DYNAMIC_ALLOCATORS = 0x010,
+  /// Auto zero-copy extension:
+  /// when running on an APU, the GPU plugin may decide to
+  /// run in zero-copy even though the user did not program
+  /// their application with unified_shared_memory requirement.
+  OMPX_REQ_AUTO_ZERO_COPY = 0x020,
+  /// Eager Maps is an extension of auto zero-copy and
+  /// unified shared memory. Selected using an environment
+  /// varible OMPX_EAGER_ZERO_COPY_MAPS, it makes memory mapping
+  /// issue a GPU TLB prefaulting action. This allows applications
+  /// using unified memory to run with unified memory support disabled
+  /// (if possible on the target device).
+  OMPX_REQ_EAGER_ZERO_COPY_MAPS = 0x040
 };
 
 class RequirementCollection {
@@ -61,6 +73,14 @@ public:
     assert(NewFlags != OMP_REQ_UNDEFINED &&
            "illegal undefined flag for requires directive!");
     if (SetFlags == OMP_REQ_UNDEFINED) {
+      SetFlags = NewFlags;
+      return;
+    }
+
+    // Auto zero-copy is only valid when no other requirement has been set
+    // and it is computed at device initialization time, after the requirement
+    // flag has already been set to OMP_REQ_NONE.
+    if (SetFlags == OMP_REQ_NONE && NewFlags == OMPX_REQ_AUTO_ZERO_COPY) {
       SetFlags = NewFlags;
       return;
     }
