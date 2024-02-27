@@ -41,10 +41,10 @@ public:
     std::string filterDataTypeStr;
     std::string inputDataTypeStr;
     std::string outputDataTypeStr;
-    SmallVector<int, 5> dilationDims;
-    SmallVector<int, 5> strideDims;
-    SmallVector<int, 5> paddingLeftDims;
-    SmallVector<int, 5> paddingRightDims;
+    SmallVector<int64_t, 4> dilationDims;
+    SmallVector<int64_t, 4> strideDims;
+    SmallVector<int64_t, 4> paddingLeftDims;
+    SmallVector<int64_t, 4> paddingRightDims;
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
@@ -57,7 +57,7 @@ public:
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
 
-    SmallVector<int, 5> filterDims;
+    SmallVector<int64_t, 4> filterDims;
   };
 
   ConvGenerator(const std::string &arch = "", const std::string &chip = "",
