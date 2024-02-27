@@ -209,8 +209,8 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
   // There is a nan failure when the gemm1MPerBlock
   // is increased beyond gemm0MPerBlock when getMPerWave
   // is less than 32 (i.e. 16).
-  if (gemm0TuningParams.getMPerWave() >= 32) {
-    int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  if (gemm0TuningParams.getMPerWave() >= 32 && gemm0TuningParams.getMPerBlock() < gemm1M) {
     gemm1M = math_util::integer_least_multiple(
         gemm1M, gemm0TuningParams.getMPerBlock());
     Type gemm1ElemType =
