@@ -1,6 +1,6 @@
 # triton configs
 -with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 256 -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 128 -head_dim_v 128
--with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 128 -seq_len_q 2048 -seq_len_k 1024 -head_dim_qk 128 -head_dim_v 128
+-with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 128 -seq_len_q 2048 -seq_len_k 2048 -head_dim_qk 128 -head_dim_v 128
 -with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 64 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
 -with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 32 -seq_len_q 8192 -seq_len_k 8192 -head_dim_qk 128 -head_dim_v 128
 -with-attn-scale false -transO false -transV false -transK true -transQ false -t f16 -g 16 -seq_len_q 16384 -seq_len_k 16384 -head_dim_qk 128 -head_dim_v 128
