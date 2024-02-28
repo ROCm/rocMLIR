@@ -30,9 +30,9 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -49,9 +49,9 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -69,9 +69,9 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
@@ -86,13 +86,13 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
   // GRID-SAME: gridSize = 784
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
-    strides = [1 : i32, 1 : i32]
+    padding = [0 ,  0 ,  0 ,  0],
+    strides = [1, 1]
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -107,13 +107,13 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
   // GRID-SAME: gridSize = 784
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
-    strides = [1 : i32, 1 : i32]
+    padding = [0 ,  0 ,  0 ,  0],
+    strides = [1, 1]
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -130,9 +130,9 @@ func.func @rock_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input :
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0],
     kernelId = 0 : index
   } : memref<1x64x3x1x1xf32>, memref<11x1x3x15x15xf32>, memref<11x1x64x15x15xf32>
   return
@@ -150,9 +150,9 @@ func.func @rock_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input :
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0],
     kernelId = 0 : index
   } : memref<1x11x3x1x1xf32>, memref<128x1x3x15x15xf32>, memref<128x1x11x15x15xf32>
   return
@@ -171,9 +171,9 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -191,9 +191,9 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -211,9 +211,9 @@ func.func @rock_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %inpu
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
   return
 }
@@ -231,9 +231,9 @@ func.func @rock_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
+    dilations = [1,  1],
+    strides = [1,  1],
+    padding = [0,  0,  0 , 0]
   } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
   return
 }
@@ -248,15 +248,15 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
   // GRID-SAME: gridSize = 12544
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    padding = [0, 0, 0, 0],
     // Restore this once the kPack + padding support works
     // perf_config = "64,256,8,64,64,4,1,1",
     perf_config = "64,256,8,64,64,1,1,1",
-    strides = [2 : i32, 2 : i32]
+    strides = [2, 2]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -271,12 +271,12 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
   // GRID-SAME: gridSize = 12544
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    strides = [2 : i32, 2 : i32]
+    padding = [0, 0, 0, 0],
+    strides = [2, 2]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -291,13 +291,13 @@ func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memr
   // GRID-SAME: gridSize = 10
   rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     numCU = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    strides = [2 : i32, 2 : i32]
+    padding = [0, 0, 0, 0],
+    strides = [2, 2]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -312,16 +312,16 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
   // GRID-SAME: gridSize = 26450
   rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 1 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    padding = [0, 0, 0, 0],
     // Restore once kPack + padding work
     // perf_config = "16,128,8,16,64,4,1,1",
     perf_config = "16,128,8,16,64,1,1,1",
-    strides = [2 : i32, 2 : i32]
+    strides = [2, 2]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -336,13 +336,13 @@ func.func @rock_conv2d_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
   // GRID-SAME: gridSize = 52900
   rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    dilations = [1 : i32, 1 : i32],
+    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 1 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    strides = [2 : i32, 2 : i32]
+    padding = [0, 0, 0, 0],
+    strides = [2, 2]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }

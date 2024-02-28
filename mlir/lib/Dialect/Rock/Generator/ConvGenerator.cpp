@@ -879,22 +879,22 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       builder.getAttr<GemmFeaturesAttr>(config.features);
   attributes.push_back(builder.getNamedAttr("features", features));
 
-  SmallVector<int32_t, 4> paddingArray{
+  SmallVector<int64_t, 4> paddingArray{
       config.paddingLeftDims[DIM::HEIGHT], config.paddingRightDims[DIM::HEIGHT],
       config.paddingLeftDims[DIM::WIDTH], config.paddingRightDims[DIM::WIDTH]};
-  SmallVector<int32_t, 2> strideArray{config.strideDims[DIM::HEIGHT],
+  SmallVector<int64_t, 2> strideArray{config.strideDims[DIM::HEIGHT],
                                       config.strideDims[DIM::WIDTH]};
-  SmallVector<int32_t, 2> dilationArray{config.dilationDims[DIM::HEIGHT],
+  SmallVector<int64_t, 2> dilationArray{config.dilationDims[DIM::HEIGHT],
                                         config.dilationDims[DIM::WIDTH]};
 
   attributes.push_back(
-      builder.getNamedAttr("padding", builder.getI32ArrayAttr(paddingArray)));
+      builder.getNamedAttr("padding", builder.getI64ArrayAttr(paddingArray)));
 
   attributes.push_back(
-      builder.getNamedAttr("strides", builder.getI32ArrayAttr(strideArray)));
+      builder.getNamedAttr("strides", builder.getI64ArrayAttr(strideArray)));
 
   attributes.push_back(builder.getNamedAttr(
-      "dilations", builder.getI32ArrayAttr(dilationArray)));
+      "dilations", builder.getI64ArrayAttr(dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {
