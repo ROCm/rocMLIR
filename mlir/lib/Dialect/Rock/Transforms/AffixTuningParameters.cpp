@@ -200,25 +200,46 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
 }
 
-static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder,
-                        RockAccelTuningParamAttrInterface gemm0TuningParams,
-                        GemmFeatures features) {
+static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
+                                               AttentionOp op) {
+  auto gemm0TuningParams =
+      op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
+  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
+  int64_t gemm1MPerBlock = gemm0TuningParams.getMPerBlock();
+  // There is a nan failure when the gemm1MPerBlock
+  // is increased beyond gemm0MPerBlock when getMPerWave
+  // is less than 32 (i.e. 16).
+  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  if (gemm0TuningParams.getMPerWave() >= 32 &&
+      gemm0TuningParams.getMPerBlock() < gemm1M) {
+    gemm1M = math_util::integer_least_multiple(
+        gemm1M, gemm0TuningParams.getMPerBlock());
+    Type gemm1ElemType =
+        op.getValues().getType().cast<ShapedType>().getElementType();
+    int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
+    // This is good enough heuristic for now to guard from cases where
+    // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
+    int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
+    gemm1MPerBlock = std::min(gemm1M, gemm1MUpperBound);
+  }
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  return builder.getAttr<XdlopsGemmParamsAttr>(
-      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
+  return InitParamsAccel(
+      /*gemmMPerBlock=*/gemm1MPerBlock,
       /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-      /*gemmKPack=*/gemm1KPack,
-      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
+      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() *
+          (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
       /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
-      /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
+      /*gemmKPack=*/gemm1KPack,
+      /*forceUnroll=*/gemm0TuningParams.getForceUnroll(), false);
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
-  Value queries = op.getQueries();
-  Type elemType = queries.getType().cast<MemRefType>().getElementType();
+  Type elemTypeQ =
+      op.getQueries().getType().cast<MemRefType>().getElementType();
+  Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
+  Type elemTypeV = op.getValues().getType().cast<MemRefType>().getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
     op.emitError("Currently, attention op is only supported on GPUs "
@@ -248,19 +269,26 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
   op.setParams0Attr(accelParams0);
-  auto accelParams1 =
-      deriveGemm1TuningParams(builder, accelParams0, op.getFeatures());
+  auto initAccelParams1 = deriveGemm1TuningParams(builder, op);
+  Attribute params1 =
+      populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
+  auto accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
-  LogicalResult isValidBlockwiseGemm =
+  LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams, elemType, elemType, op.getArch(), blockSize,
+          initAccelParams, elemTypeQ, elemTypeK, op.getArch(), blockSize,
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
-  if (isValidBlockwiseGemm.failed()) {
+  LogicalResult isValidBlockwiseGemm1 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          initAccelParams1, elemTypeV, elemTypeV, op.getArch(), blockSize,
+          /*enableBlockSizeUpperLimit=*/false,
+          /*enableDPerWaveFiltering=*/false);
+  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
     op.emitError("The provided perf config is not valid");
     signalPassFailure();
     return;

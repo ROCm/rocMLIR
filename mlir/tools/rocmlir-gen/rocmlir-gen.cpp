@@ -449,13 +449,21 @@ static llvm::cl::opt<bool> emitTuningKey(
 // Attention related args
 // ----------------------
 
-static llvm::cl::opt<int64_t>
-    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
+static llvm::cl::opt<int64_t> sequenceLengthQ(
+    "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> sequenceLengthK(
+    "seq_len_k", llvm::cl::desc("sequence length of K in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
-    headDims("head_dim", llvm::cl::desc("head dimension of attention()"),
+    headDimQK("head_dim_qk",
+              llvm::cl::desc("head dimension of Q,K in attention()"),
+              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDimV("head_dim_v", llvm::cl::desc("head dimension of v in attention()"),
              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
@@ -469,29 +477,29 @@ static llvm::cl::opt<bool> hasAttnBias(
     llvm::cl::desc("Generate an attention kernel that is using a bias"),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeQ("transQ",
-               llvm::cl::desc("whether matrix Q of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeQ(
+    "transQ",
+    llvm::cl::desc("whether matrix Q of attention op is "
+                   "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeK("transK",
-               llvm::cl::desc("whether matrix K of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeK(
+    "transK",
+    llvm::cl::desc("whether matrix K of attention op is "
+                   "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeV("transV",
-               llvm::cl::desc("whether matrix V of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeV(
+    "transV",
+    llvm::cl::desc("whether matrix V of attention op is "
+                   "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeO("transO",
-               llvm::cl::desc("whether matrix O of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeO(
+    "transO",
+    llvm::cl::desc("whether matrix O of attention op is "
+                   "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
+    llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -896,8 +904,10 @@ static void populateDefaults() {
     }
     if (isAttention) {
       groupSize = 1;
-      sequenceLength = 1024;
-      headDims = 32;
+      sequenceLengthQ = 1024;
+      sequenceLengthK = 1024;
+      headDimQK = 32;
+      headDimV = 32;
     }
     if (isConv) {
       if (mfmaFeature != FeatureToggle::on) {
@@ -962,7 +972,7 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   }
   case rock::KernelType::Attention: {
     const static RequiredArgsType requiredAttenArgs = {
-        &groupSize, &sequenceLength, &headDims};
+        &groupSize, &sequenceLengthQ, &sequenceLengthK, &headDimQK, &headDimV};
     return requiredAttenArgs;
   }
   default: {
@@ -2216,16 +2226,22 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               ArrayRef<Type> elemTypes) {
-  SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
-  SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
+  SmallVector<int64_t> qDims{groupSize, sequenceLengthQ, headDimQK};
+  SmallVector<int64_t> transposedQDims{groupSize, headDimQK, sequenceLengthQ};
+  SmallVector<int64_t> kDims{groupSize, sequenceLengthK, headDimQK};
+  SmallVector<int64_t> transposedKDims{groupSize, headDimQK, sequenceLengthK};
+  SmallVector<int64_t> vDims{groupSize, sequenceLengthK, headDimV};
+  SmallVector<int64_t> transposedVDims{groupSize, headDimV, sequenceLengthK};
+  SmallVector<int64_t> oDims{groupSize, sequenceLengthQ, headDimV};
+  SmallVector<int64_t> transposedODims{groupSize, headDimV, sequenceLengthQ};
   bool isQuantized =
       elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
 
-  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
+  MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
                                      elemTypes[0]),
-             kType = MemRefType::get(transposeK ? dims : transposedDims,
+             kType = MemRefType::get(transposeK ? kDims : transposedKDims,
                                      elemTypes[1]),
-             vType = MemRefType::get(transposeV ? transposedDims : dims,
+             vType = MemRefType::get(transposeV ? transposedVDims : vDims,
                                      elemTypes[2]);
 
   result.push_back(qType);
@@ -2245,19 +2261,19 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
     result.push_back(qsType);
   }
   if (hasAttnScale) {
-    SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
+    SmallVector<int64_t> scaleDims{groupSize, sequenceLengthQ, sequenceLengthK};
     MemRefType sType =
         MemRefType::get(scaleDims, elemTypes[optionalArgsCounter++]);
     result.push_back(sType);
   }
   if (hasAttnBias) {
-    SmallVector<int64_t> biasDims{groupSize, sequenceLength, sequenceLength};
+    SmallVector<int64_t> biasDims{groupSize, sequenceLengthQ, sequenceLengthK};
     MemRefType bType =
         MemRefType::get(biasDims, elemTypes[optionalArgsCounter++]);
     result.push_back(bType);
   }
   MemRefType outType =
-      MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
+      MemRefType::get(transposeO ? transposedODims : oDims, elemTypes.back());
   result.push_back(outType);
 }
 
@@ -2358,7 +2374,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       qkElemType = IntegerType::get(ctx, 32);
     }
     MemRefType qkMemRefType = MemRefType::get(
-        {qShape[0], sequenceLength, sequenceLength}, qkElemType);
+        {qShape[0], sequenceLengthQ, sequenceLengthK}, qkElemType);
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
     Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
     if (isQuantized) {
@@ -2393,7 +2409,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           biasTensor);
     }
     MemRefType resMemRefType =
-        MemRefType::get({qShape[0], sequenceLength, sequenceLength},
+        MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         qkTensor.getType().cast<ShapedType>().getElementType());
     Value resMemref =
         builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
