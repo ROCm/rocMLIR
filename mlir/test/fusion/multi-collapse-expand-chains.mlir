@@ -16,7 +16,7 @@ module {
     %1 = rock.transform %arg1 by #transform_map0 : memref<4x3x3x3xf32> to memref<4x3x3x3x1xf32>
     %2 = rock.transform %arg2 by #transform_map0 : memref<4x3x3x3xf32> to memref<4x3x3x3x1xf32>
     %3 = rock.transform %0 by #transform_map1 : memref<4x4x1x1xf32> to memref<4x4x1x1x1xf32>
-    rock.conv2d(%2, %1, %3) features =  mfma|dot|atomic_add {arch = "gfx908:sramecc+:xnack-", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "ci", "hi", "wi", "gi"], output_layout = ["no", "ko", "ho", "wo", "go"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<4x3x3x3x1xf32>, memref<4x3x3x3x1xf32>, memref<4x4x1x1x1xf32>
+    rock.conv2d(%2, %1, %3) features =  mfma|dot|atomic_add {arch = "gfx908:sramecc+:xnack-", dilations = [1, 1], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "ci", "hi", "wi", "gi"], output_layout = ["no", "ko", "ho", "wo", "go"], padding = [0, 0, 0, 0], strides = [1, 1]} : memref<4x3x3x3x1xf32>, memref<4x3x3x3x1xf32>, memref<4x4x1x1x1xf32>
     %4 = memref.expand_shape %0 [[0], [1, 2], [3], [4]] : memref<4x4x1x1xf32> into memref<4x1x4x1x1xf32>
     %5 = memref.collapse_shape %4 [[0, 1], [2, 3, 4]] : memref<4x1x4x1x1xf32> into memref<4x4xf32>
     %6 = memref.collapse_shape %arg0 [[0, 1, 2, 3]] : memref<1x4x1x1xf32> into memref<4xf32>

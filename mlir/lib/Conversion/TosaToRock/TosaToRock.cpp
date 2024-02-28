@@ -178,9 +178,9 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   ArrayRef<int64_t> pad64 = pad;
   ArrayRef<int64_t> stride64 = stride;
   ArrayRef<int64_t> dilation64 = dilation;
-  SmallVector<int32_t, 4> paddingArray;
-  SmallVector<int32_t, 2> strideArray;
-  SmallVector<int32_t, 2> dilationArray;
+  SmallVector<int64_t, 4> paddingArray;
+  SmallVector<int64_t, 2> strideArray;
+  SmallVector<int64_t, 2> dilationArray;
   for (auto i : pad64)
     paddingArray.push_back(i);
   for (auto i : stride64)
@@ -194,8 +194,8 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      rw.getI32ArrayAttr(paddingArray), rw.getI32ArrayAttr(strideArray),
-      rw.getI32ArrayAttr(dilationArray),
+      rw.getI64ArrayAttr(paddingArray), rw.getI64ArrayAttr(strideArray),
+      rw.getI64ArrayAttr(dilationArray),
       /*params=*/nullptr, numCUAttr);
 
   // specify layout attributes

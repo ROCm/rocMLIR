@@ -19,7 +19,7 @@
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 3 : index.*}}
 
 // STRIDE2_1x1_TOP_LEVEL: rock.init_kernel %arg1 features = {{.*}} : memref<32x1x32x14x14xf32>
-// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}} {arch = {{.*}}, dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], kernelId = 0 : index, numCU = {{.*}} : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [2 : i32, 2 : i32]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
+// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}} {arch = {{.*}}, dilations = [1, 1], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], kernelId = 0 : index, numCU = {{.*}} : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1, 1, 1, 1], strides = [2, 2]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
 
 // STRIDE2_1x1_LOWERING-NOT: rock.init_kernel
 // STRIDE2_1x1_LOWERING: {{rock.gemm.*kernelId = 0 : index.*}}
