@@ -20,6 +20,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -258,10 +259,26 @@ std::tuple<Value, Value, Value>
 GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
                                            Location loc, int64_t splitKFactor,
                                            Value a, Value b, Value c) const {
+  // adjust the store method
   auto storeMethod =
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
   op.setStoreMethodAttr(storeMethod);
 
+  // set the prefill attribute
+  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+  auto attrName = mhal::PrefillAttr::getMnemonic();
+  auto elementType = c.getType().cast<MemRefType>().getElementType();
+  Attribute zero;
+  if (llvm::isa<FloatType>(elementType)) {
+    zero = builder.getFloatAttr(elementType, 0.0);
+  } else {
+    assert(llvm::isa<IntegerType>(elementType) &&
+           "expecting `int` element type");
+    zero = builder.getIntegerAttr(elementType, 0);
+  }
+  func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
+
+  // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
   ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
   ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
