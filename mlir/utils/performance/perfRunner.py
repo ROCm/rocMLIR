@@ -777,7 +777,7 @@ class AttentionConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len={self.seq_len!r}, head_dim={self.head_dim!r}, with_attn_scale={self.with_attn_scale!r},
+        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r},
                 transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
