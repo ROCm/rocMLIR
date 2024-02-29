@@ -92,16 +92,16 @@ static llvm::cl::alias aliasTestFuncName("fut",
 static llvm::cl::opt<rock::KernelType> operation(
     "operation", llvm::cl::desc("Convolution operation,"),
     llvm::cl::values(
-        clEnumValN(rock::KernelType::Conv2D, "conv2d", "Forward convolution"),
-        clEnumValN(rock::KernelType::Conv2DBwdData, "conv2d_bwd_data",
+        clEnumValN(rock::KernelType::Conv, "conv", "Forward convolution"),
+        clEnumValN(rock::KernelType::ConvBwdData, "conv_bwd_data",
                    "Backpropogate convolution data"),
-        clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
+        clEnumValN(rock::KernelType::ConvBwdWeight, "conv_bwd_weight",
                    "Backpropogate convolution weights"),
         clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication"),
         clEnumValN(rock::KernelType::Attention, "attention",
                    "Attention operation of transformer models")),
     llvm::cl::value_desc("kernel type"),
-    llvm::cl::init(rock::KernelType::Conv2D));
+    llvm::cl::init(rock::KernelType::Conv));
 
 static llvm::cl::opt<std::string> arch(
     "arch",
@@ -640,9 +640,9 @@ static llvm::cl::opt<std::string> randomSide(
     "rand_side",
     llvm::cl::desc(
         "To populate random numbers to a specified tensor: "
-        "For conv2d, -rand_side filter or -rand_side input; "
-        "For conv2d_bwd_data, -rand_side filter or -rand_side output; "
-        "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
+        "For conv, -rand_side filter or -rand_side input; "
+        "For conv_bwd_data, -rand_side filter or -rand_side output; "
+        "For conv_bwd_weight, -rand_side input or -rand_side output. "
         "By default, populate random numbers to both tensors."),
     llvm::cl::value_desc("tensor"), llvm::cl::init("both"));
 
@@ -1363,8 +1363,8 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
 }
 
 static std::tuple<int64_t, int64_t, int64_t>
-getConv2dBounds(rock::ConvOpType dir,
-                const rock::ConvGenerator::Config &genConfig) {
+getConvBounds(rock::ConvOpType dir,
+              const rock::ConvGenerator::Config &genConfig) {
   int64_t dim, dimH, dimW;
   char channel;
   StringRef layout;
@@ -1653,7 +1653,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   int64_t dimX, dimH, dimW;
   int64_t out_h, out_w;
   std::tie(dimX, dimH, dimW) =
-      getConv2dBounds(genConfig.operation.value(), genConfig);
+      getConvBounds(genConfig.operation.value(), genConfig);
 
   // Create the upper bounds
   switch (genConfig.operation.value()) {
@@ -1675,7 +1675,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   case rock::ConvOpType::BwdWeight:
     std::tie(std::ignore, out_h, out_w) =
-        getConv2dBounds(rock::ConvOpType::BwdData, genConfig);
+        getConvBounds(rock::ConvOpType::BwdData, genConfig);
     llvm::copy(genConfig.filterDimension, std::back_inserter(upperBounds));
     upperBounds.push_back(dimX);
     upperBounds.push_back(out_h);
@@ -1711,7 +1711,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   opd2 = ensureFloatIsF32(b, loc, opd2, floatType);
   result = ensureFloatIsF32(b, loc, result, floatType);
 
-  auto createConv2dLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
+  auto createConvLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
     Value heightIdx, widthIdx;
     Value heightTempIdx, widthTempIdx;
 
@@ -1850,7 +1850,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
   // Generate the loop nest
   affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
-                              createConv2dLoopNest);
+                              createConvLoopNest);
 
   if (!opd1.isa<BlockArgument>())
     b.create<memref::DeallocOp>(loc, opd1);
@@ -2128,7 +2128,7 @@ createCPUConvFunc(ModuleOp module,
   auto inputType = MemRefType::get(inputDimension, elemType);
   auto outputType = MemRefType::get(outputDimension, outputElemType);
 
-  // Create conv2d_host function
+  // Create conv_host function
   rock::ConvGenerator convGenerator(genConfig);
 
   bool hasWorkspace = false;
@@ -3172,14 +3172,14 @@ static LogicalResult populateHostHarnessLogic(
   SmallVector<int32_t, 2> outIndices;
   if (genParams.operation.has_value()) {
     switch (genParams.operation.value()) {
-    case rock::KernelType::Conv2D:
+    case rock::KernelType::Conv:
     case rock::KernelType::Gemm:
       outIndices.push_back(2);
       break;
-    case rock::KernelType::Conv2DBwdData:
+    case rock::KernelType::ConvBwdData:
       outIndices.push_back(1);
       break;
-    case rock::KernelType::Conv2DBwdWeight:
+    case rock::KernelType::ConvBwdWeight:
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:

@@ -409,7 +409,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*gemmFeatures=*/config.features,
                           /*gemmAType=*/dataType,
                           /*gemmBType=*/dataType,
-                          /*kernelType=*/KernelType::Conv2DBwdWeight,
+                          /*kernelType=*/KernelType::ConvBwdWeight,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
@@ -822,7 +822,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct a new Block.
   Block *block = func.addEntryBlock();
 
-  // Construct a new Conv2DOp.
+  // Construct a new ConvOp.
   SmallVector<StringAttr, 5> filterLayoutSpec;
   SmallVector<StringAttr, 5> inputLayoutSpec;
   SmallVector<StringAttr, 5> outputLayoutSpec;
@@ -911,8 +911,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
 
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
-    auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
-                                           ArrayRef<Type>{}, args, attributes);
+    auto convOp = builder.create<ConvOp>(builder.getUnknownLoc(),
+                                         ArrayRef<Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case ConvOpType::BwdData: {
@@ -925,7 +925,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInit);
     } else {
-      auto convOp = builder.create<Conv2DBwdDataOp>(
+      auto convOp = builder.create<ConvBwdDataOp>(
           builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
       block->push_front(convOp);
     }
@@ -952,7 +952,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           /*elemsPerThread=*/nullptr);
       block->push_front(conversionOp);
     } else {
-      auto convOp = builder.create<Conv2DBwdWeightOp>(
+      auto convOp = builder.create<ConvBwdWeightOp>(
           builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
       block->push_back(convOp);
     }

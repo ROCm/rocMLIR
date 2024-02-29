@@ -31,4 +31,3 @@ func.func @test_dequantization_migraphx(
     %scaled = "tosa.mul"(%shifted_cast, %scale) {shift = 0 : i32} : (tensor<1x8x8x8xf32>, tensor<8xf32>) -> tensor<1x8x8x8xf32>
     return %scaled : tensor<1x8x8x8xf32>
 }
-
