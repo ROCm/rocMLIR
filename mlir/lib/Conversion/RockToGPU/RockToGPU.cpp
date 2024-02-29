@@ -40,6 +40,8 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/SmallVector.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTROCKTOGPUPASS
@@ -176,6 +178,21 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
+
+    //Calculate lds usage
+    for (const auto &en : llvm::enumerate(gpuFunc.getWorkgroupAttributions())) {
+      BlockArgument ldsBuf = en.value();
+      ShapedType ldsBufType = ldsBuf.getType().cast<ShapedType>();
+      Type elemType = ldsBufType.getElementType();
+    }
+
+    StringAttr arch = rock::getArch(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    bool hasMoreWavesThanEUs = blockSize / (archInfo.numEUPerCU);
+
+
+    
+    
 
     if (auto attr = theFunc->getAttr("wave_size")) {
       int32_t waveSize = attr.template cast<IntegerAttr>().getInt();

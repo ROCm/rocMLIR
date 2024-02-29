@@ -616,3 +616,15 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
                                 std::nullopt};
   }
 }
+
+StringAttr mlir::rock::getArch(Operation* op) {
+  auto func = op->getParentOfType<func::FuncOp>();
+  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
+  if (!arch)
+    arch = func->getAttrOfType<StringAttr>("mhal.arch");
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
+  }
+  return arch;
+}

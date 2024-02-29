@@ -245,14 +245,7 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
   func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
 
   // Check for arch limitations exceeded
-  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
-  if (!arch)
-    arch = func->getAttrOfType<StringAttr>("mhal.arch");
-  if (!arch) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
-  }
-
+  StringAttr arch = getArch(op);
   if (arch) {
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
 
