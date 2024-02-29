@@ -146,7 +146,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     int64_t gemmKBlocks = 1;
     PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
-    auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
+    auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
     if (maybeWrwOp &&
         isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
       auto res = calculateKBlockNum(
@@ -163,7 +163,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     // Set kblocks attribute only for backward weight convolutions.
-    if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
+    if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
