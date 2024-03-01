@@ -10,7 +10,7 @@ module {
     %0 = migraphx.transpose %arg3 {permutation = [0, 1, 3, 2]} : <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     %1 = migraphx.dot %arg2, %0 : <1x4x32x32xf32, 4096x1024x32x1>, <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     %2 = migraphx.mul %1, %arg1 : <1x4x32x32xf32, 4096x1024x32x1>, <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
-    %3 = migraphx.softmax %2 {axis = 3 : i64} : <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
+    %3 = migraphx.softmax %2 {axis = 3 : i32} : <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     %4 = migraphx.dot %3, %arg0 : <1x4x32x32xf32, 4096x1024x32x1>, <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     return %4 : !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1>
   }

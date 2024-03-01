@@ -1206,7 +1206,7 @@ mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
   }
 
   // reset idxmaps
-  b.updateRootInPlace(laOp, [&]() {
+  b.modifyOpInPlace(laOp, [&]() {
     SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
     laOp.setIndexingMapsAttr(b.getAffineMapArrayAttr(newIdxMaps));
   });

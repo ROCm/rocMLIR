@@ -12,7 +12,7 @@ module {
     %0 = migraphx.quant_dot %arg0, %arg1: <1x7x3xi8, 21x3x1>, <1x3x7xi8, 21x7x1> -> <1x7x7xi32, 49x7x1>
     %1 = migraphx.dequantizelinear %0, %qscale : <1x7x7xi32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %biased = migraphx.add %1, %arg3 : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
-    %2 = migraphx.softmax %biased{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+    %2 = migraphx.softmax %biased{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %3 = migraphx.dot %2, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
     return %3 : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }
