@@ -210,7 +210,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true));
+      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP ));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref
