@@ -9,7 +9,7 @@ prefix = "--split-k="
 
 [[axis]]
 name = "data type"
-values = ["f32", "f16"]
+values = ["f32"]
 prefix = "-t "
 
 ## Gemm variants

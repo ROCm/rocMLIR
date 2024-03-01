@@ -193,6 +193,17 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   if (splitKFactor > 1) {
+    auto isAF32 =
+        a.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
+    auto isBF32 =
+        b.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
+    auto isCF32 =
+        c.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
+
+    if (!(isAF32 && isBF32 && isCF32)) {
+      return op.emitError(
+          "Split-K `GemmOp` currently supports only f32 element type");
+    }
     std::tie(a, b, c) =
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
   }
