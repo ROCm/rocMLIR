@@ -210,17 +210,18 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
   // is increased beyond gemm0MPerBlock when getMPerWave
   // is less than 32 (i.e. 16).
   int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  // This is good enough heuristic for now to guard from cases where
+  // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
+  Type gemm1ElemType =
+      op.getValues().getType().cast<ShapedType>().getElementType();
+  int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
+  int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
+  gemm1M = math_util::integer_least_multiple(gemm1M,
+                                             gemm0TuningParams.getMPerBlock());
+  int64_t gemm1MPerBlockNew = std::min(gemm1M, gemm1MUpperBound);
   if (gemm0TuningParams.getMPerWave() >= 32 &&
-      gemm0TuningParams.getMPerBlock() < gemm1M) {
-    gemm1M = math_util::integer_least_multiple(
-        gemm1M, gemm0TuningParams.getMPerBlock());
-    Type gemm1ElemType =
-        op.getValues().getType().cast<ShapedType>().getElementType();
-    int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
-    // This is good enough heuristic for now to guard from cases where
-    // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
-    int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
-    gemm1MPerBlock = std::min(gemm1M, gemm1MUpperBound);
+      gemm0TuningParams.getMPerBlock() < gemm1MPerBlockNew) {
+    gemm1MPerBlock = gemm1MPerBlockNew;
   }
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   return InitParamsAccel(

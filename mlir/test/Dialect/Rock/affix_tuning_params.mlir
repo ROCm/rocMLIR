@@ -18,6 +18,8 @@
 // CHECK-DAG: #[[$XDLOPS_PARAMS_5:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 1, mPerWave = 16, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_6:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 16, mPerBlock = 4, nPerBlock = 64, kpack = 1, mPerWave = 4, nPerWave = 64, forceUnroll = true>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_7:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 128, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_8:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 2, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, forceUnroll = true>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_9:.*]] = #rock.xdlops_gemm_params<kpackPerBlock = 16, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, forceUnroll = true>
 // CHECK-LABEL: @rock_conv2d
 // GRID-LABEL: rock_conv2d
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
@@ -421,5 +423,21 @@ func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
   } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>}
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_large
+// CHECK-SAME: block_size = 256
+// GRID-LABEL: func.func @rock_attention_large
+// GRID-SAME: grid_size = 512
+func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x512x16384xf32>, %arg2: memref<1x16384x512xf32>, %arg3: memref<1x16384x512xf32>) {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x16384x512xf32>
+  // CHECK: rock.attention
+  // CHECK: params0 = #[[$XDLOPS_PARAMS_8]]
+  // CHECK: params1 = #[[$XDLOPS_PARAMS_9]]
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
+    %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "128,128,2,64,64,8,1,1"}
   return
 }
