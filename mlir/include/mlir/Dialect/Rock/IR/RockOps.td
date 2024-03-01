@@ -58,7 +58,7 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
              /*summary=*/"Constraints the type to be either a Tensor or MemRef of certain types of elements.",
              "::mlir::ShapedType">;
 
-class I64ArrayLength<int n> : ConfinedAttr<I64ArrayAttr, [ArrayCount<n>]>;
+class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayCount<n>]>;
 
 class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
@@ -70,9 +70,9 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$derivedBlockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   I64ArrayLength<4>:$padding,
-                   I64ArrayLength<2>:$strides,
-                   I64ArrayLength<2>:$dilations,
+                   IndexArrayLength<4>:$padding,
+                   IndexArrayLength<2>:$strides,
+                   IndexArrayLength<2>:$dilations,
                    OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
