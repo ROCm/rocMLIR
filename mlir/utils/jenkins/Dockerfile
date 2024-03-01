@@ -1,10 +1,10 @@
 FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.7/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.0/
 ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-5.7
+ARG ROCM_PATH=/opt/rocm-6.0
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -130,7 +130,10 @@ RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2
 
 # python setup for tuna
 # --ignore-installed because of problems upgrading PyYAML.  See also -U.
-ADD "https://raw.githubusercontent.com/ROCmSoftwarePlatform/MITuna/develop/requirements.txt" tuna-requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/MITuna/develop/requirements.txt" tuna-requirements.txt
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install scipy pandas
+
+# Workaround for 6.0.0 rocprof not supporting navi3x:  add it to list.
+RUN sed --in-place 's/gfx94x")/gfx94x","gfx11xx")/' /opt/rocm/bin/rocprof

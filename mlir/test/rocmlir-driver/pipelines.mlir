@@ -29,6 +29,7 @@
 // GPU-SAME: rock-analyze-memory-use,
 // GPU-SAME: rock-sugar-to-loops,
 // GPU-SAME: rock-clean-math,
+// GPU-SAME: math-legalize-to-f32,
 // GPU-SAME: rock-buffer-load-merge,
 // GPU-SAME: rock-transform-to-memref,
 // GPU-SAME: rock-loops-to-cf),

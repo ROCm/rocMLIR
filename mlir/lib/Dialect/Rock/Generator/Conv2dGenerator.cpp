@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
@@ -416,11 +417,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
     uint32_t blockSize;
-    uint32_t gridSize;
-    int64_t gemmKBlocks;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
-        info, 0, config.perfConfig, validParams, blockSize, gridSize,
-        gemmKBlocks);
+        info, config.perfConfig, validParams, blockSize);
     if (succeeded(res)) {
       needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
                           validParams, gemmSize) != 0);
@@ -429,9 +427,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   } else {
     PopulateParams populateParams;
     InitParamsNonAccel validParams;
-    uint32_t gridSize;
-    auto res = populateParams.obtainTuningParameters(info, 0, config.perfConfig,
-                                                     validParams, gridSize);
+    auto res = populateParams.obtainTuningParameters(info, config.perfConfig,
+                                                     validParams);
 
     if (succeeded(res)) {
       needExtraPad =
@@ -600,8 +597,18 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 
   // Get the default features associated with the chip (and with the data type)
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
-  config.features = archInfo.getDefaultFeatures(getInputDataType(builder));
-
+  Type filterDataType = getFilterDataType(builder);
+  Type inputDataType = getInputDataType(builder);
+  Type filterElemType = mlir::getElementTypeOrSelf(filterDataType);
+  Type inputElemType = mlir::getElementTypeOrSelf(inputDataType);
+  Type dataType = inputDataType;
+  config.features = archInfo.getDefaultFeatures(dataType);
+  // Disable acceleration for mixed types
+  if (filterElemType.getIntOrFloatBitWidth() !=
+      inputElemType.getIntOrFloatBitWidth()) {
+    config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+    config.features = bitEnumClear(config.features, GemmFeatures::wmma);
+  }
   // Force acceleration if that's what the client wants
   int hasAccel = 0;
   strToInt("x2", hasAccel);

@@ -1,5 +1,5 @@
-FROM rocm/mlir:rocm5.7-latest
-ARG ROCM_PATH=/opt/rocm-5.7
+FROM rocm/mlir:rocm6.0-latest
+ARG ROCM_PATH=/opt/rocm-6.0
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
@@ -7,15 +7,15 @@ RUN pip3 install setuptools wheel
 RUN pip3 install onnxruntime==1.10.0
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/AMDMIGraphX ${MIGRAPHX_REF}) > migraphx-deps-commit-hash
+RUN wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
+RUN echo $(git ls-remote https://github.com/ROCm/AMDMIGraphX ${MIGRAPHX_REF}) > migraphx-deps-commit-hash
 RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++ --cc=/opt/rocm/llvm/bin/clang
 # Remove rocMLIR version as per MIGraphX requirements
 # as this image is being used for CI with tip of rocMLIR
 # that will be built in the job.
-RUN cget remove -p $PWD ROCmSoftwarePlatform/rocMLIR -y
+RUN cget remove -p $PWD ROCm/rocMLIR -y
 # Download models for testing
 RUN wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea9e02/vision/classification/resnet/model/resnet50-v1-7.onnx
 RUN wget https://github.com/stefankoncarevic/Onnx_models/raw/master/bert_base_cased_1.onnx

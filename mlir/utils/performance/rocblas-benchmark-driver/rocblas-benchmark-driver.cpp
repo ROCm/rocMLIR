@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 // With much credit to
-// https://github.com/ROCmSoftwarePlatform/rocBLAS-Examples/blob/develop/Level-3/gemm_strided_batched/gemm_strided_batched.cpp
+// https://github.com/ROCm/rocBLAS-Examples/blob/develop/Level-3/gemm_strided_batched/gemm_strided_batched.cpp
 
 // Include common utility functions
 #include "../common/benchmarkUtils.h"
@@ -48,22 +48,13 @@ static rocblas_datatype getRocblasType(bool isOut,
 }
 
 /// This code is taken from
-/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
+/// https://github.com/ROCm/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
 /// and is used to set the GEMM compute type (i.e., the type of the GEMM
 /// accumulation buffer)
 bool get_compute_fp32_flag() {
   const auto device_name = benchmark::get_device_name();
   return (device_name.find("gfx908") != std::string::npos ||
           device_name.find("gfx90a") != std::string::npos);
-}
-
-/// This code is taken from
-/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/84a8f450f20521242b74bd803824673739d6e858/src/targets/gpu/rocblas.cpp
-/// and is used to query if the `rocblas_gemm_flgas_pack_int8x4` is set
-bool get_int8_x4_format(rocblas_handle &handle) {
-  rocblas_gemm_flags flag;
-  rocblas_query_int8_layout_flag(handle, &flag);
-  return flag == rocblas_gemm_flags_pack_int8x4;
 }
 
 int main(int argc, char **argv) {
@@ -130,9 +121,7 @@ int main(int argc, char **argv) {
   ROCBLAS_ABORT_IF_FAIL(
       rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host));
 
-  rocblas_gemm_flags rocblas_flags = get_int8_x4_format(handle)
-                                         ? rocblas_gemm_flags_pack_int8x4
-                                         : rocblas_gemm_flags_none;
+  rocblas_gemm_flags rocblas_flags = rocblas_gemm_flags_none;
 
   for (int i = 0, e = args.kernelRepeats; i < e; ++i)
     if (args.gemmG == 1) {

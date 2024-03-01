@@ -3,6 +3,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 
@@ -23,11 +24,17 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType);
 
+void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
+                                   Value src, Value dst);
 /// Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 
 /// Utility function to get the number of bytes a value of type `type` takes up.
 int64_t getByteWidth(Type type);
+
+// Utility function to get a MemRef as a tensor
+Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
+                  bool isWritable = false);
 
 } // namespace rock
 } // namespace mlir

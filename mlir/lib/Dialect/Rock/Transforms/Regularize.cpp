@@ -142,43 +142,8 @@ struct RegularizeGenericRewritePattern
         return lgop.emitError("Only fully parallel supported");
     }
 
-    // 1 output
-    auto outs = lgop.getOutputs();
-    if (outs.size() > 1)
-      return lgop.emitError("Only 1 output supported");
-    Value out = outs[0];
-    auto outType = out.getType().cast<ShapedType>();
-
-    // all index maps must be identity
-    auto idxMaps = lgop.getIndexingMapsArray();
-    auto outIdxMap = idxMaps.back();
-    if (!outIdxMap.isIdentity()) {
-      return lgop.emitError("Only output identity map supported");
-    }
-
     // apply transforms to inputs
-    SmallVector<Value> inps(lgop.getInputs());
-    for (auto pair : llvm::zip(inps, idxMaps)) {
-      if (auto inp = std::get<0>(pair)) {
-        auto imap = std::get<1>(pair);
-        if (imap != outIdxMap) {
-          // inject a broadcast
-          auto invertOutIdxMap = inversePermutation(outIdxMap);
-          auto outToInpMap = imap.compose(invertOutIdxMap);
-          Value regInp = rock::insertTransposeAndBroadcastTransforms(
-              rw, outType.getShape(), inp, outToInpMap);
-          lgop->replaceUsesOfWith(inp, regInp);
-          lres = success();
-        }
-      }
-    }
-
-    // reset idxmaps
-    rw.modifyOpInPlace(lgop, [&]() {
-      SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
-      lgop.setIndexingMapsAttr(rw.getAffineMapArrayAttr(newIdxMaps));
-    });
-
+    lres = makeLinalgGenericWithIdentityAffMaps(rw, lgop);
     return lres;
   }
 };

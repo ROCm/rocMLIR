@@ -21,6 +21,13 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
+                                  int64_t mPerBlock, int64_t nPerBlock) {
+  int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+  int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
+  return (aCopyPerThread != 0 && bCopyPerThread != 0);
+}
+
 bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
   return isAccel(features) &&
@@ -515,6 +522,21 @@ FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
     // view-like operation
     if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
       curOp = viewOp.getViewSource().getDefiningOp();
+    } else if (auto extractMultiBufferOp =
+                   dyn_cast_or_null<ExtractMultiBufferOp>(curOp)) {
+      // If we meet an extract_multibuffer, we need to ensure that we can
+      // reroute it to the the single load. Otherwise, return failure
+      auto buffers = extractMultiBufferOp.getBuffers();
+      auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
+          extractMultiBufferOp.getSelectIndex().getDefiningOp());
+      if (buffers.size() > 1 && !selectIndex) {
+        return failure();
+      } else if (buffers.size() == 1) {
+        curOp = buffers.back().getDefiningOp();
+      } else {
+        int64_t index = selectIndex.value();
+        curOp = buffers[index].getDefiningOp();
+      }
     } else {
       return failure();
     }
@@ -534,4 +556,63 @@ std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
     return (ubValue - lbValue).getSExtValue();
   }
   return std::nullopt;
+}
+
+// The rows and columns of subtile view needs to
+// be transposed depending on which operand of
+// gemm the view is going to be.
+RegsAsMatrixSubTiles
+mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
+                                  RegsAsMatrixSubTiles subTileViews) {
+  ArrayAttr threadSubTile = subTileViews.threadSubTile;
+  SmallVector<Attribute, 4> threadSubTileMaps =
+      llvm::to_vector<4>(threadSubTile.getAsRange<Attribute>());
+  {
+    ArrayRef<int64_t> subTileShape = getLowerShape(threadSubTile);
+    TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+    viewBuilder.passThrough({0, 1}, {1, 0});
+    threadSubTileMaps.push_back(viewBuilder.get());
+  }
+
+  ArrayAttr blockSubTile = subTileViews.blockSubTile;
+  SmallVector<Attribute, 4> blockSubTileMaps =
+      llvm::to_vector<4>(blockSubTile.getAsRange<Attribute>());
+  {
+    ArrayRef<int64_t> subTileShape = getLowerShape(blockSubTile);
+    TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+    viewBuilder.passThrough({0, 1}, {1, 0});
+    blockSubTileMaps.push_back(viewBuilder.get());
+  }
+
+  ArrayAttr gridSubTile = subTileViews.gridSubTile;
+  SmallVector<Attribute, 4> gridSubTileMaps =
+      llvm::to_vector<4>(gridSubTile.getAsRange<Attribute>());
+  {
+    ArrayRef<int64_t> subTileShape = getLowerShape(gridSubTile);
+    TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+    viewBuilder.passThrough({0, 1, 2}, {0, 2, 1});
+    gridSubTileMaps.push_back(viewBuilder.get());
+  }
+
+  if (subTileViews.blockSubTileTidSlice.has_value()) {
+    SmallVector<Attribute, 4> blockSubTileTidSliceMaps = llvm::to_vector<4>(
+        subTileViews.blockSubTileTidSlice.value().getAsRange<Attribute>());
+    {
+      ArrayRef<int64_t> subTileShape =
+          getLowerShape(subTileViews.blockSubTileTidSlice.value());
+      TopDownTMBuilder viewBuilder(rewriter, subTileShape, loc);
+      viewBuilder.passThrough({0, 1}, {1, 0});
+      blockSubTileTidSliceMaps.push_back(viewBuilder.get());
+    }
+    return RegsAsMatrixSubTiles{
+        rewriter.getArrayAttr(gridSubTileMaps),
+        rewriter.getArrayAttr(blockSubTileMaps),
+        rewriter.getArrayAttr(threadSubTileMaps),
+        rewriter.getArrayAttr(blockSubTileTidSliceMaps)};
+  } else {
+    return RegsAsMatrixSubTiles{rewriter.getArrayAttr(gridSubTileMaps),
+                                rewriter.getArrayAttr(blockSubTileMaps),
+                                rewriter.getArrayAttr(threadSubTileMaps),
+                                std::nullopt};
+  }
 }

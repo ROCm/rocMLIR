@@ -9,6 +9,8 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -124,6 +126,26 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   return result;
 }
 
+//===----------------------------------------------------------------------===//
+// Utility function to create a linalg generic block to perform cast
+// and copy to another memref.
+//===----------------------------------------------------------------------===//
+void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
+                                   Value src, Value dst) {
+  MemRefType dstType = dst.getType().cast<MemRefType>();
+  SmallVector<AffineMap, 2> indexingMaps{
+      2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
+  SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
+                                                 utils::IteratorType::parallel);
+  rewriter.create<linalg::GenericOp>(
+      loc, ValueRange(src), ValueRange(dst), indexingMaps, iteratorTypes,
+      [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+        Value cast = createTypeConversionOp(rewriter, loc, args[0],
+                                            dstType.getElementType());
+        nestedBuilder.create<linalg::YieldOp>(nestedLoc, cast);
+      });
+}
+
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
   auto ctx = b.getContext();
   auto sourceType = source.getType().cast<ShapedType>();
@@ -155,5 +177,14 @@ int64_t getByteWidth(Type type) {
     return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
   return type.getIntOrFloatBitWidth() / 8;
 }
+
+Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
+                  bool isWritable) {
+  constexpr bool isRestrict{true};
+  Value origTensor = builder.create<bufferization::ToTensorOp>(
+      loc, value, isRestrict, isWritable);
+  return origTensor;
+}
+
 } // namespace rock
 } // namespace mlir

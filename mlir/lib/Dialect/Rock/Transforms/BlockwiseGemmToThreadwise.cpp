@@ -39,7 +39,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
@@ -157,7 +157,7 @@ struct BlockwiseFillRewritePattern
 //===----------------------------------------------------------------------===//
 
 // The structure of this lowing is documented at
-// https://github.com/ROCmSoftwarePlatform/rocMLIR/issues/719
+// https://github.com/ROCm/rocMLIR/issues/719
 struct BlockwiseGemmRewritePattern
     : public OpConversionPattern<BlockwiseGemmOp> {
   using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
@@ -437,11 +437,12 @@ struct BlockwiseGemmAccelRewritePattern
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
                << "argVectorType B: " << argTypeB << "\n"
-               << "k_base: " << kBase << "\n"
+               << "kBase: " << kBase << "\n"
                << "mPerWave: " << mPerWave << "\n"
                << "nPerWave: " << nPerWave << "\n"
                << "mRepeat: " << mRepeats << "\n"
                << "nRepeat: " << nRepeats << "\n"
+               << "kBasePerThread: " << kBasePerThread << "\n"
                << "kpackPerBlock: " << kpackPerBlock << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
@@ -455,7 +456,7 @@ struct BlockwiseGemmAccelRewritePattern
     //       threadwise_gemm(regsA, regsB)
     //
     // Which mimics:
-    // https://github.com/ROCmSoftwarePlatform/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
+    // https://github.com/ROCm/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
     //
     // Please note that different schedules might exist, so this can be
     // considered a temporary hack until we have a proper way of "searching"
@@ -472,35 +473,40 @@ struct BlockwiseGemmAccelRewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
-      Value m_i = mLoop.getInductionVar();
+      Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
       b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
                                      op.getBufferA(), b.getArrayAttr({}),
-                                     ValueRange{tid, m_i}, true, true);
+                                     ValueRange{tid, i}, true, true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
-        Value n_i = nLoop.getInductionVar();
+        Value j = nLoop.getInductionVar();
 
         // regsB = read B from LDS
         b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadB,
                                        op.getBufferB(), b.getArrayAttr({}),
-                                       ValueRange{tid, n_i}, true, true);
-
-        Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
-            b, loc, adaptor.getBufferA());
-        Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
-            b, loc, adaptor.getBufferB());
-        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
-            b, loc, adaptor.getMatrixC());
+                                       ValueRange{tid, j}, true, true);
 
         // regsC += regsA * regsB
-        b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                        ValueRange{m_i, n_i}, arch,
-                                        op.getFeaturesAttr(), tuningParams);
+        auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
+        {
+          OpBuilder::InsertionGuard guard(b);
+          b.setInsertionPointToStart(kLoop.getBody());
+          Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+              b, loc, adaptor.getBufferA());
+          Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+              b, loc, adaptor.getBufferB());
+          Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+              b, loc, adaptor.getMatrixC());
+          Value k = kLoop.getInductionVar();
+          b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
+                                          ValueRange{i, j, k}, arch,
+                                          op.getFeaturesAttr(), tuningParams);
+        }
       }
     }
     b.eraseOp(op);
@@ -558,13 +564,11 @@ struct BlockwiseReduceRewritePattern
     SmallVector<StringRef, 4> upperNameRefs;
     tensorToLDSViewBuilder.getStartNames(upperNameRefs);
 
-    int64_t nonReduceMergeDimSize = 1;
     SmallVector<StringRef, 4> nonReduceNameRefs;
     SmallVector<unsigned, 4> nonReduceDims;
     SmallVector<int64_t, 4> nonReduceDimSizes;
     for (auto [dim, dimSize] : llvm::enumerate(lowestShape)) {
       if (dim != (size_t)reduceAxis) {
-        nonReduceMergeDimSize *= dimSize;
         nonReduceNameRefs.push_back(upperNameRefs[dim]);
         nonReduceDims.push_back(dim);
         nonReduceDimSizes.push_back(dimSize);
@@ -842,8 +846,6 @@ struct BlockwiseReduceRewritePattern
         inputRawBuffer.getType().cast<MemRefType>().getNumElements();
     constexpr size_t nrDim = 0;
 
-    ArrayRef<int64_t> threadSubTileShape =
-        getLowerShape(inputThreadSubTile2dView);
     Type elemType =
         inputRawBuffer.getType().cast<MemRefType>().getElementType();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
@@ -887,9 +889,6 @@ struct BlockwiseReduceRewritePattern
     WorkitemIdOp tid =
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
 
     // First we iterate thread subtile along non-reduction
     // axis to get iter coordinate within the register
@@ -985,8 +984,6 @@ struct BlockwiseReduceRewritePattern
         lowerTr.getLowerBounds().asArrayRef();
     SmallVector<int64_t, 4> regTensorShape =
         llvm::to_vector<4>(lowerTrLowerBounds);
-    int64_t nonReductionDimSizeProduct =
-        calculateNonReductionDimProduct(regTensorShape, axis);
 
     // 2DView is alwasy nrDim x rdim
     constexpr size_t nrDim = 0;

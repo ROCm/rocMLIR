@@ -2,16 +2,17 @@
 
 // CHECK-LABEL: @access_ptr
 // CHECK-SAME: (%[[BASE:.+]]: !llvm.ptr, %[[IDX:.+]]: i64)
-llvm.func @access_ptr(%base: !llvm.ptr, %idx: i64) -> () attributes {rocdl.kernel} {
-  // CHECK: = llvm.getelementptr inbounds %[[BASE]][%[[IDX]]]
+llvm.func @access_ptr(%base: !llvm.ptr, %idx: i64) -> (!llvm.ptr) attributes {rocdl.kernel} {
   %p0 = llvm.getelementptr %base[%idx] : (!llvm.ptr, i64) -> !llvm.ptr, f32
   %c1 = llvm.mlir.constant(1) : i64
   // CHECK: %[[NEXT:.+]] = llvm.add %[[IDX]]
   %next = llvm.add %idx, %c1 : i64
   // CHECK: = llvm.getelementptr inbounds %[[BASE]][%[[NEXT]]]
   %p2 = llvm.getelementptr %base[%next] : (!llvm.ptr, i64) -> !llvm.ptr, f32
-  llvm.return
+  llvm.return %p2 : !llvm.ptr
 }
+
+// -----
 
 // CHECK-LABEL: @access_ptr_p7
 // CHECK-SAME: (%[[BASE:.+]]: !llvm.ptr<7>, %[[IDX:.+]]: i32)
@@ -83,4 +84,22 @@ llvm.func @atomic_clean(%arg0: !llvm.ptr<1>, %arg1: i32, %arg2: i32) attributes 
   // CHECK: syncscope("agent-one-as") monotonic monotonic
   %v2 = llvm.cmpxchg %arg0, %v1, %arg2 seq_cst seq_cst : !llvm.ptr<1>, i32
   llvm.return
+}
+
+// -----
+
+llvm.func @select_clean(%arg0: !llvm.struct<(ptr<3>, ptr<3>, i32, array<1 x i32>, array<1 x i32>)>,
+                        %arg1: !llvm.struct<(ptr<3>, ptr<3>, i32, array<1 x i32>, array<1 x i32>)>,
+                        %arg2: i32) -> !llvm.ptr<3> attributes {rocdl.kernel}{
+
+  %c0 = llvm.mlir.constant(0) : i32
+  %cond = llvm.icmp "ugt" %arg2, %c0: i32
+  //CHECK: %[[cond:.*]] = llvm.icmp
+  //CHECK: %[[ptr0:.*]] = llvm.extractvalue
+  //CHECK: %[[ptr1:.*]] = llvm.extractvalue
+  //CHECK: %[[ptr:.*]] = llvm.select %[[cond]], %[[ptr0]], %[[ptr1]]
+  //CHECK  llvm.return %[[ptr]]
+  %s = llvm.select %cond, %arg0, %arg1: i1, !llvm.struct<(ptr<3>, ptr<3>, i32, array<1 x i32>, array<1 x i32>)>
+  %ptr = llvm.extractvalue %s[0] : !llvm.struct<(ptr<3>, ptr<3>, i32, array<1 x i32>, array<1 x i32>)>
+  llvm.return %ptr : !llvm.ptr<3>
 }

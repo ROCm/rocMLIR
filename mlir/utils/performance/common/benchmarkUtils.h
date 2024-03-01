@@ -12,6 +12,7 @@
 #define MLIR_UTILS_PERFORMANCE_COMMON_BENCHMARKUTILS_H
 
 #include "hip/hip_runtime.h"
+#include <string>
 
 // Common options to the different benchmark drivers
 
@@ -27,6 +28,7 @@ struct BenchmarkArgs {
 
   bool transposeA{false};
   bool transposeB{false};
+  std::string fusion{""};
   int kernelRepeats{1};
 };
 

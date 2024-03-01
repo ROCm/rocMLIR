@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 
 #include "llvm/Support/Debug.h"
 
@@ -90,9 +91,7 @@ struct GemmLikeInterface
     if (!outBuffer) {
       return op->emitOpError("Couldn't find output argument\n");
     }
-
-    rewriter.create<Concrete>(op->getLoc(), TypeRange{}, bufferArgs,
-                              op->getAttrs());
+    clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
     replaceOpWithBufferizedValues(rewriter, op, outBuffer);
     return success();
   }

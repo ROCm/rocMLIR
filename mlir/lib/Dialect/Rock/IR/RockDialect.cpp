@@ -9,10 +9,13 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -510,12 +513,6 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Wmma gridwise supports only F16/BF16/int8 data types");
     }
   }
-  if (elemTypeA != elemTypeB &&
-      !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
-      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()))
-    return op->emitOpError("mixed input types (")
-           << elemTypeA << " and " << elemTypeB
-           << ") are only supported for 8-bit floats";
   if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
     return op->emitOpError("floating-point input type ")
            << elemTypeA
@@ -888,28 +885,16 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// ReinterpretMultiBufferOp
+// ExtractMultiBufferOp
 //===-----------------------------------------------------===//
 
-void ReinterpretMultiBufferOp::build(OpBuilder &b, OperationState &state,
-                                     Value input, MemRefType bufferType,
-                                     int64_t multibufferFactor) {
-  ArrayRef<int64_t> originalShape = bufferType.getShape();
-  SmallVector<int64_t, 4> multiBufferedShape;
-  multiBufferedShape.push_back(multibufferFactor);
-  llvm::append_range(multiBufferedShape, originalShape);
-
-  MemRefType mbMemRefType = MemRefType::Builder(bufferType)
-                                .setShape(multiBufferedShape)
-                                .setLayout(MemRefLayoutAttrInterface());
-  build(b, state, mbMemRefType, input, b.getIndexAttr(multibufferFactor));
-}
-
-LogicalResult ReinterpretMultiBufferOp::verify() {
-  MemRefType mbType = getOutput().getType();
-  ArrayRef<int64_t> mbShape = mbType.getShape();
-  if (mbShape[0] != getMultibufferFactor())
-    return failure();
+LogicalResult ExtractMultiBufferOp::verify() {
+  // Make sure the output buffer has the same type of
+  // the buffers we are selecting from
+  auto outputType = getOutput().getType();
+  for (auto buffer : getBuffers())
+    if (outputType != buffer.getType())
+      return failure();
   return success();
 }
 
@@ -1511,8 +1496,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = srcType.getElementType().dyn_cast<VectorType>();
   VectorType dstVectorType = destType.getElementType().dyn_cast<VectorType>();
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup)
-    return emitOpError("Vector buffers are only allowed when we read from LDS");
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
+      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+    return emitOpError(
+        "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
@@ -1691,8 +1678,11 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("B shape should be [N,K]");
   if (aShape.back() != bShape.back())
     return emitOpError("A and B K dimensions don't match");
-  if (cShape.size() != 2 + getExtraIndicesC().size())
-    return emitOpError("C shape should be [extraIndices, M,N]");
+  if (cShape.size() != 2)
+    return emitOpError("C shape should be [M,N]");
+  if (getComputeIndices().size() != 3)
+    return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
+
   return success();
 }
 
@@ -1702,43 +1692,16 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
 LogicalResult GridwiseAttentionAccelOp::verify() {
   RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
-  int64_t gemm0KpacksPerBlock = gemm0TuningParams.getKpackPerBlock();
-  int64_t gemm0MPerBlock = gemm0TuningParams.getMPerBlock();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
-  int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
   if (gemm0NPerBlock % gemm0kpack != 0) {
     return emitError("NPerBlock should be divisble by kpack.");
   }
 
-  // Calculate LDS requirement
-  MemRefType typeQ = getQueries().getType();
-  Type elemTypeQ = typeQ.getElementType();
-  MemRefType typeK = getKeys().getType();
-  Type elemTypeK = typeK.getElementType();
-  MemRefType typeV = getValues().getType();
-  Type elemTypeV = typeV.getElementType();
-  MemRefType typeO = getOut().getType();
-  ArrayRef<int64_t> outShape = typeO.getShape();
-  int64_t gemm1N = outShape[2];
-
-  // TODO: we can definitely improve re-use of LDS buffers
-  // through further refactors to blockwise gemm to accept
-  // LDS buffers that are larger than required -- Hence
-  // we can overlap following buffers between gemms.
-  int64_t gemm0ALdsSizeBytes = (gemm0KPerBlock * gemm0MPerBlock) *
-                               (elemTypeQ.getIntOrFloatBitWidth() / 8);
-  int64_t gemm0BLdsSizeBytes = (gemm0KPerBlock * gemm0NPerBlock) *
-                               (elemTypeK.getIntOrFloatBitWidth() / 8);
-  // Current implementation does the second gemm using the type of V input.
-  int64_t gemm1ALdsSizeBytes = (gemm0NPerBlock * gemm0MPerBlock) *
-                               (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t gemm1BLdsSizeBytes =
-      (gemm0NPerBlock * gemm1N) * (elemTypeV.getIntOrFloatBitWidth() / 8);
-  int64_t totalLDSSize = std::max(gemm0ALdsSizeBytes, gemm1ALdsSizeBytes) +
-                         std::max(gemm0BLdsSizeBytes, gemm1BLdsSizeBytes);
-  if (totalLDSSize > 64 * 1024) {
-    return emitError() << "totalLDSSize (" << totalLDSSize
-                       << ") exceeds 64KB\n";
+  int64_t linalgOpCount = 0;
+  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
+  if (linalgOpCount > 1) {
+    return emitError(
+        "More than 1 linalg generic op found in pre softmax fusion point.");
   }
   return success();
 }
@@ -2002,14 +1965,6 @@ LogicalResult AttentionOp::verify() {
   if (keyN != valueK) {
     return emitError("reduction dimensions of second gemm do not match");
   }
-
-  if (TypedValue<ShapedType> scale = getScale()) {
-    ShapedType scaleType = scale.getType();
-    if (vType.getRank() != scaleType.getRank()) {
-      return emitError("scale needs to be of same rank to other inputs");
-    }
-  }
-
   return success();
 }
 

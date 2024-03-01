@@ -37,6 +37,7 @@ struct MultiBufferingTestPass
 } // end namespace
 
 static const StringLiteral kMultiBuffer = "__multibuffer__";
+static const StringLiteral kReMultiBuffer = "__remultibuffer__";
 
 static LogicalResult testMultiBuffering(func::FuncOp f) {
   SmallVector<std::pair<rock::GpuAllocOp, int64_t>> toMultibuffer;
@@ -48,9 +49,26 @@ static LogicalResult testMultiBuffering(func::FuncOp f) {
       op->removeAttr(kMultiBuffer);
     }
   });
+  IRRewriter rewriter(f->getContext());
+  Location loc = f.getLoc();
 
-  for (auto alloc : toMultibuffer)
-    (void)rock::multiBuffer(alloc.first, alloc.second, true);
+  for (auto alloc : toMultibuffer) {
+    int newFactor = 0;
+    if (alloc.first->hasAttr(kReMultiBuffer)) {
+      auto reMultiBufferAttr =
+          alloc.first->getAttrOfType<IntegerAttr>(kReMultiBuffer);
+      newFactor = reMultiBufferAttr.getInt();
+      alloc.first->removeAttr(kReMultiBuffer);
+    }
+    SmallVector<rock::GpuAllocOp> mbAllocs;
+    auto mb =
+        rock::multiBuffer(rewriter, alloc.first, mbAllocs, alloc.second, true);
+    if (newFactor && succeeded(mb)) {
+      SmallVector<rock::GpuAllocOp> newAllocs;
+      (void)rock::updateMultiBuffer(rewriter, loc, mbAllocs, newAllocs,
+                                    newFactor);
+    }
+  }
 
   return success();
 }

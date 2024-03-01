@@ -404,7 +404,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
                  val.starts_with("bf8"))
           outputDataType = "f32";
-        else
+        else if (filterDataType == inputDataType)
           outputDataType = v;
       }
     }));
@@ -449,13 +449,21 @@ static llvm::cl::opt<bool> emitTuningKey(
 // Attention related args
 // ----------------------
 
-static llvm::cl::opt<int64_t>
-    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
+static llvm::cl::opt<int64_t> sequenceLengthQ(
+    "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> sequenceLengthK(
+    "seq_len_k", llvm::cl::desc("sequence length of K in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
-    headDims("head_dim", llvm::cl::desc("head dimension of attention()"),
+    headDimQK("head_dim_qk",
+              llvm::cl::desc("head dimension of Q,K in attention()"),
+              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDimV("head_dim_v", llvm::cl::desc("head dimension of v in attention()"),
              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
@@ -464,29 +472,34 @@ static llvm::cl::opt<bool>
                                 "scaling input for the first gemm"),
                  llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeQ("transQ",
-               llvm::cl::desc("whether matrix Q of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> hasAttnBias(
+    "with-attn-bias",
+    llvm::cl::desc("Generate an attention kernel that is using a bias"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeK("transK",
-               llvm::cl::desc("whether matrix K of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeQ(
+    "transQ",
+    llvm::cl::desc("whether matrix Q of attention op is "
+                   "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeV("transV",
-               llvm::cl::desc("whether matrix V of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeK(
+    "transK",
+    llvm::cl::desc("whether matrix K of attention op is "
+                   "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeO("transO",
-               llvm::cl::desc("whether matrix O of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeV(
+    "transV",
+    llvm::cl::desc("whether matrix V of attention op is "
+                   "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> transposeO(
+    "transO",
+    llvm::cl::desc("whether matrix O of attention op is "
+                   "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
+    llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -725,6 +738,18 @@ struct KernelIF {
   }
 };
 
+// This helper struct defines the argument ordering for
+// quantized attention operator.
+struct AttentionQuantizedArgIndex {
+  static const size_t q = 0;
+  static const size_t k = 1;
+  static const size_t v = 2;
+  static const size_t quantBias = 3;
+  static const size_t quantScale = 4;
+  static const size_t scale = 5;
+  static const size_t bias = 6;
+};
+
 struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
   SmallVector<Type, 5> types;
@@ -862,8 +887,14 @@ static void populateDefaults() {
   const bool isAttention = operation == rock::KernelType::Attention;
   const bool isConv = !(isGemm || isAttention);
   // Default f32 if we passed no `-t` arguments at all.
-  if (outputDataType.empty())
+  if (outputDataType.empty()) {
+    if (filterDataType != inputDataType) {
+      llvm::errs() << "Missing output type for mixed input types\n";
+      exit(1);
+    }
+
     outputDataType = "f32";
+  }
   if (populateDefaultValues) {
     if (isGemm) {
       groupSize = 1;
@@ -873,8 +904,10 @@ static void populateDefaults() {
     }
     if (isAttention) {
       groupSize = 1;
-      sequenceLength = 1024;
-      headDims = 32;
+      sequenceLengthQ = 1024;
+      sequenceLengthK = 1024;
+      headDimQK = 32;
+      headDimV = 32;
     }
     if (isConv) {
       if (mfmaFeature != FeatureToggle::on) {
@@ -939,7 +972,7 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   }
   case rock::KernelType::Attention: {
     const static RequiredArgsType requiredAttenArgs = {
-        &groupSize, &sequenceLength, &headDims};
+        &groupSize, &sequenceLengthQ, &sequenceLengthK, &headDimQK, &headDimV};
     return requiredAttenArgs;
   }
   default: {
@@ -2163,7 +2196,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
@@ -2175,6 +2207,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   b.setInsertionPointToStart(block);
   Value aVal = block->getArgument(0), bVal = block->getArgument(1),
         cVal = block->getArgument(2);
+
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
@@ -2182,6 +2215,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
   b.create<func::ReturnOp>(loc);
@@ -2192,27 +2226,83 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               ArrayRef<Type> elemTypes) {
-  SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
-  SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
+  SmallVector<int64_t> qDims{groupSize, sequenceLengthQ, headDimQK};
+  SmallVector<int64_t> transposedQDims{groupSize, headDimQK, sequenceLengthQ};
+  SmallVector<int64_t> kDims{groupSize, sequenceLengthK, headDimQK};
+  SmallVector<int64_t> transposedKDims{groupSize, headDimQK, sequenceLengthK};
+  SmallVector<int64_t> vDims{groupSize, sequenceLengthK, headDimV};
+  SmallVector<int64_t> transposedVDims{groupSize, headDimV, sequenceLengthK};
+  SmallVector<int64_t> oDims{groupSize, sequenceLengthQ, headDimV};
+  SmallVector<int64_t> transposedODims{groupSize, headDimV, sequenceLengthQ};
+  bool isQuantized =
+      elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
 
-  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
+  MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
                                      elemTypes[0]),
-             kType = MemRefType::get(transposeK ? dims : transposedDims,
+             kType = MemRefType::get(transposeK ? kDims : transposedKDims,
                                      elemTypes[1]),
-             vType = MemRefType::get(transposeV ? transposedDims : dims,
+             vType = MemRefType::get(transposeV ? transposedVDims : vDims,
                                      elemTypes[2]);
 
   result.push_back(qType);
   result.push_back(kType);
   result.push_back(vType);
+  unsigned optionalArgsCounter{3};
+  if (isQuantized) {
+    // quant bias is to be broadcasted
+    SmallVector<int64_t> quantBiasDims{1, 1, 1};
+    MemRefType qbType =
+        MemRefType::get(quantBiasDims, elemTypes[optionalArgsCounter++]);
+    result.push_back(qbType);
+    // quant scale is to be broadcasted
+    SmallVector<int64_t> quantScaleDims{1, 1, 1};
+    MemRefType qsType =
+        MemRefType::get(quantScaleDims, elemTypes[optionalArgsCounter++]);
+    result.push_back(qsType);
+  }
   if (hasAttnScale) {
-    SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
-    MemRefType sType = MemRefType::get(scaleDims, elemTypes[3]);
+    SmallVector<int64_t> scaleDims{groupSize, sequenceLengthQ, sequenceLengthK};
+    MemRefType sType =
+        MemRefType::get(scaleDims, elemTypes[optionalArgsCounter++]);
     result.push_back(sType);
   }
+  if (hasAttnBias) {
+    SmallVector<int64_t> biasDims{groupSize, sequenceLengthQ, sequenceLengthK};
+    MemRefType bType =
+        MemRefType::get(biasDims, elemTypes[optionalArgsCounter++]);
+    result.push_back(bType);
+  }
   MemRefType outType =
-      MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
+      MemRefType::get(transposeO ? transposedODims : oDims, elemTypes.back());
   result.push_back(outType);
+}
+
+template <typename TosaOp, typename... Args>
+static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
+                               Args &&...args) {
+  auto op =
+      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
+  InferShapedTypeOpInterface shapeInterface =
+      cast<InferShapedTypeOpInterface>(op.getOperation());
+  SmallVector<ShapedTypeComponents> returnShape;
+  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
+      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
+      op->getPropertiesStorage(), op->getRegions(), returnShape);
+  assert(shapeInferenceStatus.succeeded());
+  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
+  auto result = op->getResult(0);
+  result.setType(newOutTy);
+  return op;
+}
+
+Value addTensorArgToBlock(OpBuilder &builder, Location loc,
+                          Block *preSoftmaxElemwiseBlock, Value funcArg) {
+  ShapedType funcArgType = funcArg.getType().cast<ShapedType>();
+  Value funcArgMemRef = preSoftmaxElemwiseBlock->addArgument(
+      MemRefType::get(funcArgType.getShape(), funcArgType.getElementType()),
+      loc);
+  Value funcArgTensor = rock::getAsTensor(builder, loc, funcArgMemRef);
+  return funcArgTensor;
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
@@ -2228,6 +2318,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
+  bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
@@ -2243,19 +2334,90 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value keys = block->getArgument(1);
   Value values = block->getArgument(2);
 
+  Value quantBias;
+  Value quantScale;
   Value scale;
+  Value bias;
   Value output;
-  if (hasAttnScale) {
-    scale = block->getArgument(3);
-    output = block->getArgument(4);
-  } else {
-    output = block->getArgument(3);
+
+  SmallVector<Value> elemwiseInputs;
+  unsigned optionalArgsCounter{3};
+  if (isQuantized) {
+    quantBias = block->getArgument(optionalArgsCounter++);
+    elemwiseInputs.push_back(quantBias);
+    quantScale = block->getArgument(optionalArgsCounter++);
+    elemwiseInputs.push_back(quantScale);
   }
+  if (hasAttnScale) {
+    scale = block->getArgument(optionalArgsCounter++);
+    elemwiseInputs.push_back(scale);
+  }
+  if (hasAttnBias) {
+    bias = block->getArgument(optionalArgsCounter++);
+    elemwiseInputs.push_back(bias);
+  }
+  output = block->getArgument(optionalArgsCounter);
 
   auto attention = builder.create<rock::AttentionOp>(
-      loc, TypeRange{}, queries, keys, values, scale, output, transposeQ,
-      transposeK, transposeV, transposeO, archAttr, params.features,
+      loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
+      transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
       /*params0=*/nullptr, /*params1=*/nullptr);
+  {
+    Block *preSoftmaxElemwiseBlock =
+        &attention.getPreSoftmaxBody().emplaceBlock();
+    PatternRewriter::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
+    ShapedType qType = queries.getType().cast<ShapedType>();
+    ArrayRef<int64_t> qShape = qType.getShape();
+    Type qkElemType = qType.getElementType();
+    if (isQuantized) {
+      qkElemType = IntegerType::get(ctx, 32);
+    }
+    MemRefType qkMemRefType = MemRefType::get(
+        {qShape[0], sequenceLengthQ, sequenceLengthK}, qkElemType);
+    Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
+    Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
+    if (isQuantized) {
+      Value quantBiasI8 =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantBias);
+      Value quantScaleF16 = addTensorArgToBlock(
+          builder, loc, preSoftmaxElemwiseBlock, quantScale);
+      Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+          builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
+      qkTensor = createOpAndInfer<tosa::SubOp>(
+          builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
+      qkTensor = createOpAndInfer<tosa::CastOp>(
+          builder, loc, Float16Type::get(ctx), qkTensor);
+      qkTensor =
+          createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
+                                        qkTensor, quantScaleF16, /*shift=*/0);
+    }
+    if (hasAttnScale) {
+      Value scaleTensor =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
+      qkTensor = createOpAndInfer<tosa::MulOp>(
+          builder, loc,
+          scaleTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
+          scaleTensor, /*shift=*/0);
+    }
+    if (hasAttnBias) {
+      Value biasTensor =
+          addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
+      qkTensor = createOpAndInfer<tosa::AddOp>(
+          builder, loc,
+          biasTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
+          biasTensor);
+    }
+    MemRefType resMemRefType =
+        MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
+                        qkTensor.getType().cast<ShapedType>().getElementType());
+    Value resMemref =
+        builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
+    Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
+    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
+    builder.create<rock::YieldOp>(loc);
+  }
+
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
@@ -2342,24 +2504,6 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   return func;
 }
 
-template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&...args) {
-  auto op =
-      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
-  InferShapedTypeOpInterface shapeInterface =
-      cast<InferShapedTypeOpInterface>(op.getOperation());
-  SmallVector<ShapedTypeComponents> returnShape;
-  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
-      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
-      op->getPropertiesStorage(), op->getRegions(), returnShape);
-  assert(shapeInferenceStatus.succeeded());
-  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
-  auto result = op->getResult(0);
-  result.setType(newOutTy);
-  return op;
-}
-
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
                              ArrayRef<int64_t> perm) {
   auto elemType = src.getType().cast<RankedTensorType>().getElementType();
@@ -2378,6 +2522,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   OpBuilder builder(ctx);
   Location loc = module->getLoc();
 
+  bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
 
@@ -2418,32 +2563,66 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (transposeV) {
     valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
   }
-  Type elemType = params.types[0];
-  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(builder, loc, elemType,
-                                                    queriesTensor, keysTensor);
-  if (hasAttnScale) {
-    auto scaleTensor = getAsTensor(block->getArgument(3));
-    qkTensor = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, qkTensor,
-                                             scaleTensor, /*shift=*/0);
+  Type firstGemmOutElemType = params.types[0];
+  if (isQuantized) {
+    firstGemmOutElemType = IntegerType::get(ctx, 32);
   }
+  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor);
+  unsigned optionalArgsCounter{3};
+  if (isQuantized) {
+    auto quantBiasI8 = getAsTensor(block->getArgument(optionalArgsCounter++));
+    Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+        builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
+    qkTensor = createOpAndInfer<tosa::SubOp>(
+        builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
+    qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
+                                              Float16Type::get(ctx), qkTensor);
+    auto quantScaleF16 = getAsTensor(block->getArgument(optionalArgsCounter++));
+    qkTensor =
+        createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
+                                      qkTensor, quantScaleF16, /*shift=*/0);
+  }
+  if (hasAttnScale) {
+    auto scaleTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
+    qkTensor = createOpAndInfer<tosa::MulOp>(
+        builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(),
+        qkTensor, scaleTensor, /*shift=*/0);
+  }
+
+  if (hasAttnBias) {
+    auto biasTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
+    qkTensor = createOpAndInfer<tosa::AddOp>(
+        builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(),
+        qkTensor, biasTensor);
+  }
+
   constexpr int64_t reductionAxis{2};
-  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, elemType,
-                                                    qkTensor, reductionAxis);
-  auto normilizedQkTensor =
-      createOpAndInfer<tosa::SubOp>(builder, loc, elemType, qkTensor, qkMaxs);
-  auto expsTensor =
-      createOpAndInfer<tosa::ExpOp>(builder, loc, elemType, normilizedQkTensor);
+  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
+      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      qkTensor, reductionAxis);
+  auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(
+      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      qkTensor, qkMaxs);
+  auto expsTensor = createOpAndInfer<tosa::ExpOp>(
+      builder, loc,
+      normilizedQkTensor.getType().cast<ShapedType>().getElementType(),
+      normilizedQkTensor);
   auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
-      builder, loc, elemType, expsTensor, reductionAxis);
-  auto invExpsSums =
-      createOpAndInfer<tosa::ReciprocalOp>(builder, loc, elemType, expsSums);
+      builder, loc, expsTensor.getType().cast<ShapedType>().getElementType(),
+      expsTensor, reductionAxis);
+  auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
+      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      expsSums);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
-      builder, loc, elemType, expsTensor, invExpsSums, /*shift=*/0);
+      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      expsTensor, invExpsSums, /*shift=*/0);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
   softmaxTensor = qkTensor;
 #endif
   Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, elemType, softmaxTensor, valuesTensor);
+      builder, loc, softmaxTensor.getType().cast<ShapedType>().getElementType(),
+      softmaxTensor, valuesTensor);
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
@@ -2708,7 +2887,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
 // If the fut expects certain args (mostly output buffers),
 // this will populate the linalg.fill calls to do those based
-// on the presense of rock::PrefillAttr. This is to mimic the
+// on the presense of mhal::PrefillAttr. This is to mimic the
 // requirement on the kernel launcher to do the same for the
 // expected funtionality.
 void insertPrefills(func::FuncOp fut) {
@@ -2725,7 +2904,7 @@ void insertPrefills(func::FuncOp fut) {
         size_t argCount = calleeFunc.getArguments().size();
         for (size_t i = 0; i < argCount; i++) {
           if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+                  calleeFunc.getArgAttr(i, mhal::PrefillAttr::getMnemonic())) {
             argInitValues[i] = initAttr;
           }
         }
@@ -2786,9 +2965,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
-      isSmallFloatIn = ftype.getWidth() < 32;
+  if (!genParams.types.empty()) {
+    FloatType ftype, itype;
+    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
+        (itype = genParams.types[1].dyn_cast<FloatType>()))
+      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
@@ -2964,12 +3146,14 @@ static LogicalResult populateHostHarnessLogic(
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
   bool isSmallFloatIn = false;
-  if (!genParams.types.empty())
-    if (auto ftype = genParams.types[0].dyn_cast<FloatType>())
-      isSmallFloatIn = ftype.getWidth() < 32;
+  if (!genParams.types.empty()) {
+    FloatType ftype, itype;
+    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
+        (itype = genParams.types[1].dyn_cast<FloatType>()))
+      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
+  }
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
-
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
 
   if (isRandom) {
@@ -2993,11 +3177,12 @@ static LogicalResult populateHostHarnessLogic(
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:
-      if (hasAttnScale) {
-        outIndices.push_back(4);
-      } else {
-        outIndices.push_back(3);
-      }
+      int32_t optionalArgsCounter{3};
+      if (hasAttnScale)
+        ++optionalArgsCounter;
+      if (hasAttnBias)
+        ++optionalArgsCounter;
+      outIndices.push_back(optionalArgsCounter);
     }
   } else {
     outIndices = root0.outIndices;
@@ -3009,6 +3194,8 @@ static LogicalResult populateHostHarnessLogic(
     auto paramMRType = paramType.dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
+    bool isSmallFloat =
+        elemType.isa<FloatType>() && elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
@@ -3030,7 +3217,7 @@ static LogicalResult populateHostHarnessLogic(
         return failure();
     }
 
-    if (hasValidation || (isCPUKernel && isSmallFloatIn)) {
+    if (hasValidation || (isCPUKernel && isSmallFloat)) {
       // Emit validation var
       Type valElemType = floatType;
       if (genParams.operation.has_value() && elemType.isa<IntegerType>()) {
@@ -3042,7 +3229,7 @@ static LogicalResult populateHostHarnessLogic(
       } else if ((genValidation == "clone") || elemType.isInteger(8) ||
                  elemType.isInteger(32)) {
         valElemType = elemType;
-      } else if (!gpuValidation && isSmallFloatIn &&
+      } else if (!gpuValidation && isSmallFloat &&
                  genParams.operation.has_value()) {
         valElemType = elemType;
       }
@@ -3093,7 +3280,6 @@ static LogicalResult populateHostHarnessLogic(
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
                           func, root0);
-
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
@@ -3258,11 +3444,20 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
     LogicalResult status = success();
 
-    Type elemType = typeFromString(inputDataType.getValue(), context);
+    Type filterElemType = typeFromString(filterDataType.getValue(), context);
+    Type inputElemType = typeFromString(inputDataType.getValue(), context);
+    Type elemType = inputElemType;
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
-    if (mfmaFeature != FeatureToggle::infer)
+    if (mfmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType.getIntOrFloatBitWidth() !=
+          inputElemType.getIntOrFloatBitWidth()) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
+      }
+    } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
                                    mfmaFeature == FeatureToggle::on);
     if (dotFeature != FeatureToggle::infer)
@@ -3277,7 +3472,14 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
 
-    if (wmmaFeature != FeatureToggle::infer)
+    if (wmmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType.getIntOrFloatBitWidth() !=
+          inputElemType.getIntOrFloatBitWidth()) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
+      }
+    } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
 
@@ -3293,12 +3495,33 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
     } else if (isAttention) {
-      // Note: In the current implementation, all operands have the same type.
-      // This behaviour enforced by `-t`. See, detectMissingArguments()
-      auto elemTypes = typeFromString(inputDataType.getValue(), context);
-      constexpr size_t maxNumArgs{5};
-      for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
-        genParams.types.push_back(elemTypes);
+      auto elemType = typeFromString(inputDataType.getValue(), context);
+      // We only support first-gemm i8 version of attention
+      // This will be changed when we support both gemms of i8.
+      if (elemType == IntegerType::get(context, 8)) {
+        constexpr size_t maxNumArgs{7};
+        genParams.types.resize(maxNumArgs);
+        genParams.types[AttentionQuantizedArgIndex::q] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::k] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::v] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::quantBias] =
+            IntegerType::get(context, 8);
+        genParams.types[AttentionQuantizedArgIndex::quantScale] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::scale] =
+            Float16Type::get(context);
+        genParams.types[AttentionQuantizedArgIndex::bias] =
+            Float16Type::get(context);
+      } else {
+        constexpr size_t maxNumArgs{5};
+        // Note: In the current implementation, all operands have the same type.
+        // This behaviour enforced by `-t`. See, detectMissingArguments()
+        for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
+          genParams.types.push_back(elemType);
+        }
       }
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
@@ -3531,18 +3754,20 @@ int main(int argc, char **argv) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
+  }
 
-    if (applyBufferizationPipeline.getValue()) {
-      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+  // Running the bufferization pipeline when rocmlir-gen is actually
+  // generating a kernel.
+  if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
+    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
 
-      rock::BufferizeOptions bufferizeOptions;
-      bufferizeOptions.disableRock = true;
-      rock::buildBufferizePipeline(pm, bufferizeOptions);
+    rock::BufferizeOptions bufferizeOptions;
+    bufferizeOptions.disableRock = true;
+    rock::buildBufferizePipeline(pm, bufferizeOptions);
 
-      if (failed(pm.run(module))) {
-        llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
-        exit(1);
-      }
+    if (failed(pm.run(module))) {
+      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
+      exit(1);
     }
   }
 

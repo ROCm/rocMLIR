@@ -81,3 +81,22 @@ TEST_F(CollapseMergeTest, PartialLike) {
                             affD(1) % affC(6)},
                            &context));
 }
+
+TEST_F(CollapseMergeTest, BatchTransposeBug1407) {
+  auto tmbGemm = tmBuilder({"gemmM", "gemmN"}, {512, 256 * 256});
+  tmbGemm.passThrough({"k"}, {1}, {"gemmM"});
+  tmbGemm.merge({"h", "w", "n"}, {0, 2, 3}, "gemmN", {256, 256, 1});
+  TransformMapAttr gemmMap = tmbGemm.get();
+  auto tmbPerm = tmBuilder({"h", "k", "w", "n"}, {256, 512, 256, 1});
+  tmbPerm.passThrough({"n", "k", "h", "w"}, {0, 1, 2, 3}, {"n", "k", "h", "w"});
+  TransformMapAttr permMap = tmbPerm.get();
+  ArrayAttr arr = b.getArrayAttr({gemmMap, permMap});
+  ArrayAttr collapsedArr = collapseContiguousMerges(arr, {1, 512, 256, 256});
+  auto colMap = collapsedArr[0].cast<TransformMapAttr>();
+  EXPECT_EQ(colMap.getOps()[1].getParams()[0], 1);
+  EXPECT_EQ(colMap.getOps()[1].getParams()[1], 256 * 256);
+  EXPECT_EQ(colMap.getOps()[1].getParams()[2], 1);
+  EXPECT_EQ(
+      colMap.getMap().getAffineMap(),
+      AffineMap::get(2, 0, {affC(0), affD(0), affD(1), affC(0)}, &context));
+}

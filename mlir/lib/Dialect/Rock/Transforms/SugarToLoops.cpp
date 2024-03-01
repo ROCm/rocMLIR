@@ -31,6 +31,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -296,16 +297,32 @@ std::optional<int64_t> isConstantValue(Value v) {
   return std::nullopt;
 }
 
-struct ReinterpretMultiBufferRewritePattern
-    : public OpRewritePattern<ReinterpretMultiBufferOp> {
-  using OpRewritePattern<ReinterpretMultiBufferOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(ReinterpretMultiBufferOp op,
+struct ExtractMultiBufferRewritePattern
+    : public OpRewritePattern<ExtractMultiBufferOp> {
+  using OpRewritePattern<ExtractMultiBufferOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(ExtractMultiBufferOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    b.replaceOpWithNewOp<memref::ViewOp>(op, op.getOutput().getType(),
-                                         op.getInput(), zeroByteOffset,
-                                         ValueRange{});
+    // This operation lowers to a `switch` statement implemented via
+    // `arith.select`
+    SmallVector<Value> buffers = llvm::to_vector(op.getBuffers());
+    assert(!buffers.empty() && "There should be at least one buffer");
+    size_t multiBufferFactor = buffers.size();
+    Value mbFactor = b.createOrFold<ConstantIndexOp>(loc, multiBufferFactor);
+    Value currentBuffer = buffers.back();
+    Value modSelectIndex =
+        b.create<arith::RemUIOp>(loc, op.getSelectIndex(), mbFactor);
+    for (size_t i = 1; i < multiBufferFactor; i++) {
+      auto idx =
+          b.createOrFold<ConstantIndexOp>(loc, multiBufferFactor - i - 1);
+      auto cmp = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ugt,
+                                         modSelectIndex, idx);
+      currentBuffer = b.create<arith::SelectOp>(
+          loc, cmp, currentBuffer, buffers[multiBufferFactor - i - 1]);
+    }
+    b.replaceAllUsesWith(op.getResult(), currentBuffer);
+
+    b.eraseOp(op);
     return success();
   }
 };
@@ -1591,7 +1608,7 @@ void RockSugarToLoopsPass::runOnOperation() {
   // info about validity as possible.
   RewritePatternSet initialLoopPatterns(ctx);
   initialLoopPatterns
-      .add<ReinterpretMultiBufferRewritePattern, TransformingForRewritePattern>(
+      .add<ExtractMultiBufferRewritePattern, TransformingForRewritePattern>(
           ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                           std::move(initialLoopPatterns))))
@@ -1629,6 +1646,7 @@ void RockSugarToLoopsPass::runOnOperation() {
           return WalkResult::interrupt();
         return WalkResult::advance();
       });
+
   if (unrollResult.wasInterrupted())
     return signalPassFailure();
 

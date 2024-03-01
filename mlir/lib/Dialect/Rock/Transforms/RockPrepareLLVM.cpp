@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/SmallBitVector.h"
 
@@ -39,6 +40,38 @@ namespace rock {
 using namespace mlir;
 
 namespace {
+
+// Simple rewrite to transform:
+//  %s = llvm.select structA, structB
+//  %ptr = llvm.extractvalue %s
+// Into :
+//  %ptrA = llvm.extractvalue %structA
+//  %ptrB = llvm.extractvalue %structB
+//  %s = llvm.select %ptrA, %ptrB
+struct SelectExtractRewritePattern
+    : public OpRewritePattern<LLVM::ExtractValueOp> {
+  using OpRewritePattern<LLVM::ExtractValueOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LLVM::ExtractValueOp op,
+                                PatternRewriter &rw) const override {
+    auto selectOp =
+        dyn_cast_or_null<LLVM::SelectOp>(op.getContainer().getDefiningOp());
+    if (!selectOp)
+      return failure();
+
+    auto loc = op->getLoc();
+    auto extractTrueValue = rw.create<LLVM::ExtractValueOp>(
+        loc, selectOp.getTrueValue(), op.getPosition());
+    auto extractFalseValue = rw.create<LLVM::ExtractValueOp>(
+        loc, selectOp.getFalseValue(), op.getPosition());
+    auto newSelectOp = rw.create<LLVM::SelectOp>(
+        loc, selectOp.getCondition(), extractTrueValue, extractFalseValue,
+        selectOp.getFastmathFlags());
+    rw.replaceOp(op, newSelectOp);
+    return success();
+  }
+};
+
 struct RockPrepareLLVMPass
     : public rock::impl::RockPrepareLLVMPassBase<RockPrepareLLVMPass> {
   void runOnOperation() override;
@@ -189,4 +222,11 @@ void RockPrepareLLVMPass::runOnOperation() {
   });
 
   // 4. TODO: add some invariant.start calls once MLIR's got them.
+
+  // 5. Transform an extract of a select into a select of extracts
+  {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<SelectExtractRewritePattern>(patterns.getContext());
+    (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
+  }
 }

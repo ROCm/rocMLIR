@@ -204,12 +204,12 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [AllElementTypesMatch<["queries", "keys", "values", "scale"]>]>,
+  Rock_Op<"attention">,
   Arguments<(ins
-    Arg<TensorOrMemRefOf<[F32, F16]>, "queries", [MemRead]>:$queries,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "keys", [MemRead]>:$keys,
+    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "queries", [MemRead]>:$queries,
+    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "keys", [MemRead]>:$keys,
     Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
-    Arg<Optional<TensorOrMemRefOf<[F32, F16]>>, "scale", [MemRead]>:$scale,
+    Variadic<TensorOrMemRefOf<[F32, F16, I8]>>:$preSoftmaxElemWiseInputs,
     Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
@@ -236,9 +236,13 @@ def Rock_AttentionOp :
     `features` specifies what hardware features can be used in the generated code.
   }];
   let hasVerifier = 1;
+  let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
-    `:` type(operands) (`->` type($result)^)?
+    `{` `\n`
+        ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
+        (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
+        (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
@@ -423,15 +427,16 @@ def Rock_GridwiseGemmAccelOp :
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
     Rock_Op<"gridwise_attention_accel">,
-    Arguments<(ins MemRefRankOf<[F32, F16], [3]>:$queries,
-                   MemRefRankOf<[F32, F16], [3]>:$keys,
+    Arguments<(ins MemRefRankOf<[F32, F16, I8], [3]>:$queries,
+                   MemRefRankOf<[F32, F16, I8], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
-                   Optional<MemRefRankOf<[F32, F16], [3]>>:$scale,
+                   Variadic<TensorOrMemRefOf<[F32, F16, I8]>>:$preSoftmaxElemWiseInputs,
                    MemRefRankOf<[F32, F16], [3]>:$out,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
+                   UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
                    RockAccelTuningParamAttrInterface:$params0,
@@ -440,10 +445,13 @@ def Rock_GridwiseAttentionAccelOp :
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
   }];
+  let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+  }];
 }
 
 // Memory allocation on GPU memory hierachy.
@@ -463,27 +471,15 @@ def Rock_GpuAllocOp:
   }];
 }
 
-// Wrap an allocOp as a multibuffer, i.e., a buffer with #n copies
-def Rock_ReinterpretMultiBufferOp:
-    Rock_Op<"reinterpret_multibuffer", [Pure, ViewLikeOpInterface]>,
-    Arguments<(ins Arg<MemRefRankOf<[I8], [1]>, "raw allocation", [MemRead]>:$input,
-                   IndexAttr:$multibufferFactor)>,
-    Results<(outs AnyMemRef:$output)> {
-  let summary = "Reinterpret raw memory as a multi-buffer";
-
-  let description = [{ Wraps a raw memory allocation as a multibuffer, i.e., a buffer with
-    multiple copies. The first dimension of the output type is the multi-buffering factor}];
-  let assemblyFormat = [{
-    $input attr-dict
-    `:` type($input) `to` type($output)
-  }];
-  let builders = [
-    OpBuilder<(ins "Value":$input, "MemRefType":$bufferType, "int64_t":$mulbibufferFactor)>
-  ];
-  let extraClassDeclaration = [{
-    /// For ViewLikeOpInterface.
-    Value getViewSource() { return getInput(); }
-  }];
+// Select one among a set of multiple buffers
+def Rock_ExtractMultiBufferOp:
+    Rock_Op<"extract_multibuffer", [Pure]>,
+    Arguments<(ins Variadic<AnyMemRef>:$buffers,
+                   Index:$selectIndex)>,
+    Results<(outs AnyMemRef:$output)>{
+  let summary = "Multi-buffer selection op";
+  let description = [{" Select a single buffer among a set of `buffers` based on `selectIndex % `buffers.size()` "}];
+  let assemblyFormat = [{ `(` $buffers `)` `[` $selectIndex `]` attr-dict `(`type($buffers)`)` `:` type($output)}];
   let hasVerifier = 1;
 }
 
@@ -1214,7 +1210,7 @@ def Rock_ThreadwiseAccelGemmOp:
     Rock_Op<"threadwise_accel_gemm">,
     Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source register view A", [MemRead]>:$matrixA,
                    Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B", [MemRead]>:$matrixB,
-                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$extraIndicesC,
+                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
@@ -1226,7 +1222,7 @@ def Rock_ThreadwiseAccelGemmOp:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC(`[` $extraIndicesC^ `]`)? `+` `` `=` $matrixA `*` $matrixB `features` `=` $features attr-dict
+    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;

@@ -48,6 +48,13 @@ struct RegsAsMatrixSubTiles {
   std::optional<ArrayAttr> blockSubTileTidSlice;
 };
 
+// The rows and columns of subtile view needs to
+// be transposed depending on which operand of
+// gemm the view is going to be.
+RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
+                                           Location loc,
+                                           RegsAsMatrixSubTiles subTileViews);
+
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
@@ -77,6 +84,10 @@ bool isAccel(GemmFeatures features);
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);
+
+// Return true if the Block size is valid
+bool isValidBlockSize(int64_t blockSize, int64_t kPerBlock, int64_t mPerBlock,
+                      int64_t nPerBlock);
 
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.

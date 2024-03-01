@@ -104,14 +104,6 @@ static cl::opt<std::string> arch("arch", cl::desc("target architecture"),
                                  cl::value_desc("Target GPU architecture"),
                                  cl::init(""));
 
-static cl::opt<int> blockSize("block_size",
-                              cl::desc("Override block size for tuning"),
-                              cl::value_desc("Block size"), cl::init(0));
-
-static cl::opt<int> gridSize("grid_size",
-                             cl::desc("Override grid size for tuning"),
-                             cl::value_desc("Grid size"), cl::init(0));
-
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -437,7 +429,7 @@ int main(int argc, char **argv) {
                       scf::SCFDialect, affine::AffineDialect,
                       memref::MemRefDialect, math::MathDialect,
                       arith::ArithDialect, gpu::GPUDialect,
-                      bufferization::BufferizationDialect, mhal::MHALDialect>();
+                      bufferization::BufferizationDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 

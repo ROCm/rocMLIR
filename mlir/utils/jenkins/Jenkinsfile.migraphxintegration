@@ -33,8 +33,8 @@ echo "int8:$int8"
 echo "checkFor:$checkFor"
 
 docker run -itd --device=/dev/kfd --device=/dev/dri  -v /nas/models:/models --group-add video --hostname migraphx --name migraphx rocm/mlir-migraphx-ci:latest
-docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCmSoftwarePlatform/rocMLIR.git"
-docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git"
+docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCm/rocMLIR.git"
+docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCm/AMDMIGraphX.git"
 
 docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
 docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON .. && ninja package && cmake --install . --prefix /MIGraphXDeps"

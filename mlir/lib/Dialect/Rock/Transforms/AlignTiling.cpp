@@ -213,7 +213,8 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
-  if (latestOp->isBeforeInBlock(toMove))
+  if (latestOp->getBlock() != toMove->getBlock() ||
+      latestOp->isBeforeInBlock(toMove))
     toMove->moveBefore(latestOp);
   else
     LLVM_DEBUG(logger.startLine() << "   No move needed.\n");
@@ -565,7 +566,8 @@ Value getRegisterValue<ThreadwiseWriteAllOp>(ThreadwiseWriteAllOp op) {
 template <typename TiledOp>
 static Value
 makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
-                   ArrayRef<TransformMapAttr> globalCoordsToGenericViews) {
+                   ArrayRef<TransformMapAttr> globalCoordsToGenericViews,
+                   linalg::GenericOp laGeneric) {
   // 0. capture the memref containing the outputs being written or
   // (in the case of propagating tiling informatinon up to gemm-independent
   // code) where the values will be written.
@@ -585,6 +587,7 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
     forceUnroll = false;
     useIndexDiffs = false;
   }
+
   // 2. clone twcopy for <addend> into regs
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType()
                           << " tile type: " << tile.getType() << "\n");
@@ -592,10 +595,31 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
-  // 2.1. load into registers
-  b.create<ThreadwiseReadIntoOp>(loc, src, alloc, tiledOp.getExtraViews(),
-                                 /*extraIndices=*/tiledOp.getExtraIndices(),
-                                 forceUnroll, useIndexDiffs);
+  // 2.1. move linalg.generic if needed
+  // move linalg.generic after the definitions of threadwiseReadIntoOp's
+  // inputs to maintaine correct def-use chain.
+  Operation *lastIdxDef = nullptr;
+  for (Value idx : tiledOp.getExtraIndices()) {
+    Operation *idxOp = idx.getDefiningOp();
+    if (idxOp) {
+      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+        lastIdxDef = idxOp;
+      }
+    }
+  }
+  if (lastIdxDef)
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
+  // move linalg.generic in the same block of threadwiseReadIntoOp
+  if (laGeneric->getBlock() != tiledOp->getBlock()) {
+    b.moveBeforeIfNeeded(laGeneric, tiledOp);
+    b.setInsertionPoint(laGeneric);
+  }
+
+  // 2.2. load into registers
+  ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
+      loc, src, alloc, tiledOp.getExtraViews(),
+      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
 
   // 3. Mark linalg.generic operations that populate this source buffer as
   // operations that need to be re-checekd for fusion now that we know their
@@ -671,7 +695,8 @@ static void addRegisterReadsForTiledInput(
     if (inp == laGenericInputLeadingToWrite) {
       newInput = twWriteOp.getSource();
     } else {
-      newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite);
+      newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite,
+                                    laGeneric);
     }
     newInputs.push_back(newInput);
   }
@@ -686,7 +711,7 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                SmallVectorImpl<Value> &newInputs) {
   for (auto inp : laGeneric.getInputs()) {
     Value newInput =
-        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult);
+        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
     newInputs.push_back(newInput);
   }
 }

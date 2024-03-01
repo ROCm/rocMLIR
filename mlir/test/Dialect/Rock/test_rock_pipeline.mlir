@@ -15,24 +15,29 @@ func.func @rock_pipeline_3_stages_ii_1(%input : memref<16xi8, #gpu.address_space
     %lds = memref.view %rawLds[%c0][] : memref<16xi8, #gpu.address_space<workgroup>> to memref<16xi8, #gpu.address_space<workgroup>>
     %regA = memref.view %rawRegA[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
     %regB = memref.view %rawRegB[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
-    // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-    // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
+    // CHECK: %[[lds0:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[lds1:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: rock.reinterpret_multibuffer %[[rawLds]] {multibufferFactor = 2 : index}
-    // CHECK: rock.reinterpret_multibuffer %[[rawRegA]] {multibufferFactor = 2 : index}
+
+    // CHECK: %[[lds0View:.*]] = memref.view {{.*}}
+    // CHECK: %[[lds1View:.*]] = memref.view {{.*}}
+    // CHECK: %[[rawRegAView:.*]] = memref.view {{.*}}
+    // CHECK: %[[rawRegBView:.*]] = memref.view {{.*}}
 
     // CHECK: name = "S0"
-    // CHECK: name = "S0"
     // CHECK: name = "S1"
-    // CHECK scf.for
+    // CHECK: name = "S0"
+    // CHECK: scf.for
       // CHECK: name = "__fwd_barrier__"
-      // CHECK: name = "S0"
+      // CHECK: rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S1"
+      // CHECK: name = "S0"
+      // CHECK: rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S2"
-    // CHECK }
     // CHECK: name = "__fwd_barrier__"
-    // CHECK name = "S1"
-    // CHECK name = "S2"
+    // CHECK: name = "S1"
+    // CHECK: name = "S2"
     // CHECK: name = "__fwd_barrier__"
     // CHECK: name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
@@ -77,18 +82,22 @@ func.func @rock_pipeline_3_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: memref.view %[[rawLds]]
-    // CHECK: memref.view %[[rawRegA]]
-    // CHECK: memref.view %[[rawRegB]]
+    // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
+    // CHECK: %[[regAView:.*]] = memref.view %[[rawRegA]]
+    // CHECK: %[[regBView:.*]] = memref.view %[[rawRegB]]
 
     // CHECK: name = "S0"
     // CHECK: name = "__bwd_barrier__"
     // CHECK: name = "S1"
     // CHECK: scf.for
       // CHECK: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK name = "S0"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK name = "S2"
       // CHECK: name = "__bwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S1"
     // CHECK: name = "__fwd_barrier__"
     // CHECK name = "S2"
@@ -133,15 +142,19 @@ func.func @rock_pipeline_3_stages_ii_3(%input : memref<16xi8, #gpu.address_space
     // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: memref.view %[[rawLds]]
-    // CHECK: memref.view %[[rawRegA]]
-    // CHECK: memref.view %[[rawRegB]]
+    // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
+    // CHECK: %[[regAView:.*]] = memref.view %[[rawRegA]]
+    // CHECK: %[[regBView:.*]] = memref.view %[[rawRegB]]
 
     // CHECK: scf.for
       // CHECK: name = "__bwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK: name = "S0"
+      // CKECK: rock.extract_multibuffer(%[[ldsView]])
+      // CHECK: rock.extract_multibuffer(%[[regAView]])
       // CHECK: name = "S1"
       // CHECK: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
@@ -179,9 +192,11 @@ func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space
 
     %lds = memref.view %rawLds[%c0][] : memref<16xi8, #gpu.address_space<workgroup>> to memref<16xi8, #gpu.address_space<workgroup>>
     %reg = memref.view %rawReg[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
-    // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[rawLds0:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[rawLds1:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawReg:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
-    // CHECK: rock.reinterpret_multibuffer %[[rawLds]] {multibufferFactor = 2 : index}
+    // CHECK: %[[lds0View:.*]] = memref.view %[[rawLds0]]
+    // CHECK: %[[lds1View:.*]] = memref.view %[[rawLds1]]
     // CHECK: memref.view %[[rawReg]]
 
     // CHECK: name = "S0"
@@ -189,10 +204,13 @@ func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: name = "S1"
     // CHECK scf.for
       // CHECK: name = "__fwd_barrier__"
+      // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S0"
+      // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S2"
       // CHECK: name = "__fwd_barrier__"
       // CHECK name = "S1"
+      // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK name = "S3"
     // CHECK: name = "__fwd_barrier__"
     // CHECK name = "S2"
