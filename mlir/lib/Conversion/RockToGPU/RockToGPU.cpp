@@ -43,6 +43,8 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
+#define DEBUG_TYPE "convert-rock-to-gpu"
+
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTROCKTOGPUPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
@@ -177,32 +179,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gridSize = attr.template cast<IntegerAttr>().getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
-    }
-
-    //Calculate lds usage
-    for (const auto &en : llvm::enumerate(gpuFunc.getWorkgroupAttributions())) {
-      BlockArgument ldsBuf = en.value();
-      ShapedType ldsBufType = ldsBuf.getType().cast<ShapedType>();
-      Type elemType = ldsBufType.getElementType();
-    }
-
-    StringAttr arch = rock::getArch(op);
-    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    bool hasMoreWavesThanEUs = blockSize / (archInfo.numEUPerCU);
-
-
-    
-    
-
-    if (auto attr = theFunc->getAttr("wave_size")) {
-      int32_t waveSize = attr.template cast<IntegerAttr>().getInt();
-      if (blockSize / waveSize >= 2) {
-        gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
-      }
-    }
-
-    if (auto attr = theFunc->getAttr("rock.shared_buffer_size")) {
-      gpuFunc->setAttr("rock.shared_buffer_size", attr);
     }
 
     int32_t indexWidth = 32;
@@ -345,6 +321,68 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
+  });
+
+  //Post processing the created gpuFuncs
+  op.walk([](gpu::GPUFuncOp gpuFunc){
+    //Calculate lds usage
+    int64_t ldsUsage = 0;
+    for (const auto &en : llvm::enumerate(gpuFunc.getWorkgroupAttributions())) {
+      BlockArgument ldsBuf = en.value();
+      ShapedType ldsBufType = ldsBuf.getType().cast<ShapedType>();
+      Type elemType = ldsBufType.getElementType();
+      int64_t numElems = ldsBufType.getNumElements();
+      int64_t sizeBytes = (elemType.getIntOrFloatBitWidth() / 8) * numElems;
+      ldsUsage += sizeBytes;
+    }
+    OpBuilder b(gpuFunc.getContext());
+    // The following attribute is set to be used by check-residency pass
+    // later on.
+    if(ldsUsage != 0){
+      gpuFunc->setAttr("rock.shared_buffer_size", b.getI32IntegerAttr(ldsUsage));
+    }
+    LLVM_DEBUG(llvm::dbgs() << "Attempting to set wavesPerEU...\n");
+    if(!gpuFunc->hasAttrOfType<IntegerAttr>("block_size")){
+      LLVM_DEBUG(llvm::dbgs() << "blockSize not found in gpuFunc.\n");
+      return;
+    }
+    int64_t blockSize = gpuFunc->getAttrOfType<IntegerAttr>("block_size").getInt();
+    if(!gpuFunc->hasAttrOfType<IntegerAttr>("grid_size")){
+      LLVM_DEBUG(llvm::dbgs() << "gridSize not found in gpuFunc.\n");
+      return;
+    }
+    int64_t gridSize = gpuFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
+    StringAttr arch = rock::getArch(gpuFunc);
+    if(arch){
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+      int64_t wavesPerBlock = blockSize / (archInfo.numEUPerCU * archInfo.waveSize);
+      int64_t wgsPerCU = gridSize / archInfo.minNumCU;
+      LLVM_DEBUG(llvm::dbgs() << "wavesPerBlock:" << wavesPerBlock << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  blockSize:" << blockSize << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  waveSize:" << archInfo.waveSize << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "wgsPerCU:" << wgsPerCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  numCUs:" << archInfo.minNumCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
+      bool hasMoreThan2WavesPerBlock = wavesPerBlock >= 2;
+      bool hasMoreThan2WGsPerCU = wgsPerCU >= 2;
+      bool isUsingLessThanHalfLds = true;
+      if(ldsUsage > 0){
+        isUsingLessThanHalfLds = archInfo.maxSharedMemPerWG / ldsUsage >= 2;
+      }
+      // There is no point of instructing backend compiler to potentially reduce
+      // scalar code performance (via limiting VGPR usage) if we are already limited
+      // by the parallelsim within the kernel and/or lds usage.
+      if((hasMoreThan2WavesPerBlock || hasMoreThan2WGsPerCU) && isUsingLessThanHalfLds){
+        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:2" << "\n");
+        gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
+      }
+      else{
+        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu not set" << "\n");
+      }
+    }
   });
 
   if (gpuModCount == 0) {

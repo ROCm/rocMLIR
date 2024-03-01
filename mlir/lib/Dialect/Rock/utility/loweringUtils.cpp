@@ -17,6 +17,7 @@
 #include "mlir/IR/Matchers.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -618,7 +619,16 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
 }
 
 StringAttr mlir::rock::getArch(Operation* op) {
-  auto func = op->getParentOfType<func::FuncOp>();
+  Operation* func;
+  if(isa<func::FuncOp,gpu::GPUFuncOp>(op)){
+    func = op;
+  }
+  else{
+    func = op->getParentOfType<func::FuncOp>();
+    if(!func){
+      func = op->getParentOfType<gpu::GPUFuncOp>();
+    }
+  }
   StringAttr arch = op->getAttrOfType<StringAttr>("arch");
   if (!arch)
     arch = func->getAttrOfType<StringAttr>("mhal.arch");

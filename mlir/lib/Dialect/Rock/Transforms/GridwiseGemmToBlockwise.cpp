@@ -235,20 +235,10 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
   auto func = op->getParentOfType<func::FuncOp>();
 
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  // Set sharedMemSize attribute for this kernel
-  int64_t totalLDS = ldsBytes;
-  if (auto ldsAttr =
-          func->getAttrOfType<IntegerAttr>("rock.shared_buffer_size")) {
-    totalLDS += ldsAttr.getInt();
-  }
-  auto intTy = IntegerType::get(func->getContext(), 32);
-  func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
-
   // Check for arch limitations exceeded
   StringAttr arch = getArch(op);
   if (arch) {
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-
     return success(ldsBytes <= ldsSize);
   }
   return success();
