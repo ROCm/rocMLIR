@@ -447,7 +447,7 @@ func.func @test_intervening_adddim_allows_contiguous(%buf: memref<8x3xf32>) {
 }
 
 // or a broadcast
-// CHECK-LABEL: @intervening_broadcast_allows_contiguous
+// CHECK-LABEL: @test_intervening_broadcast_allows_contiguous
 func.func @test_intervening_broadcast_allows_contiguous(%buf: memref<8x1x3xf32>) {
   %0 = rock.transform %buf by #transform_shuffle_3 : memref<8x1x3xf32> to memref<8x5x3xf32>
   %1 = rock.transform %0 by #transform_merge_3 : memref<8x5x3xf32> to memref<24x5xf32>
@@ -579,7 +579,9 @@ func.func @test_merge_broadcast_middle_unmerge(%buf: memref<24xf32>) {
   %1 = rock.transform %0 by #transform_shuffle_6 : memref<8x1x3xf32> to memref<8x2x3xf32>
   %2 = rock.transform %1 by #transform_merge_9 : memref<8x2x3xf32> to memref<48xf32>
   // CHECK: get_length
-  // CHECK-SAME: result = 1
+  // CHECK-SAME: result = 3
+  // TODO: currently, the data type limiter is a gcd, but, really, this buffer
+  // should vectorize by 3 without problems.
   "get_length"(%2) {in_dim = 0 : index} : (memref<48xf32>) -> ()
   func.return
 }
@@ -612,7 +614,7 @@ func.func @test_inject_unit_const(%buf: memref<24xf32>) {
 
 // Even though we injected a 0, it _could_ have been a 1.
 // CHECK-LABEL: @test_inject_non_unit_const
-func.func @test40(%buf: memref<48xf32>) {
+func.func @test_inject_non_unit_const(%buf: memref<48xf32>) {
   %0 = rock.transform %buf by #transform_unmerge_injected_non_unit : memref<48xf32> to memref<8x2x3xf32>
   %1 = rock.transform %0 by #transform_inject_non_unit_const : memref<8x2x3xf32> to memref<8x3xf32>
   %2 = rock.transform %1 by #transform_merge : memref<8x3xf32> to memref<24xf32>
@@ -720,6 +722,46 @@ func.func @test_merge_unmerge_twisting(%buf: memref<1x16x768xf32>) {
   // CHECK: get_length
   // CHECK-SAME: result = 4
   "get_length"(%1) {in_dim = 2 : index, in_dim_len = 4 : index} : (memref<1x16x768xf32>) -> ()
+  func.return
+}
+
+#id2 = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: func @test_fusions_ignored_by_default
+func.func @test_fusions_ignored_by_default(%buf: memref<4x8xi8>) {
+  %alloc1 = memref.alloc() : memref<8x4xi8>
+  // This is incorrect, since the eventual memory layout is transposed
+  // CHECK: get_length
+  // CHECK-SAME: result = 4
+  "get_length"(%alloc1) {in_dim = 1 : index} : (memref<8x4xi8>) -> ()
+  %alloc2 = memref.alloc() : memref<4x8xi8>
+  %0 = rock.transform %alloc2 by #transform_map0 : memref<4x8xi8> to memref<8x4xi8>
+  linalg.generic {indexing_maps = [#id2, #id2], iterator_types = ["parallel", "parallel"]}
+    ins(%alloc1 : memref<8x4xi8>)
+    outs(%0 : memref<8x4xi8>) {
+    ^bb0(%i : i8, %o : i8):
+      linalg.yield %i : i8
+  }
+  memref.copy %alloc2, %buf : memref<4x8xi8> to memref<4x8xi8>
+  func.return
+}
+
+// CHECK-LABEL: func @test_fusion_traversal
+func.func @test_fusion_traversal(%buf: memref<4x8xi8>) {
+  %alloc1 = memref.alloc() : memref<8x4xi8>
+  // But here we see the transpose.
+  // CHECK: get_length
+  // CHECK-Same: fusionTraversalStatus = true
+  // CHECK-SAME: result = 1
+  "get_length"(%alloc1) {in_dim = 1 : index, traverseFusions} : (memref<8x4xi8>) -> ()
+  %alloc2 = memref.alloc() : memref<4x8xi8>
+  %0 = rock.transform %alloc2 by #transform_map0 : memref<4x8xi8> to memref<8x4xi8>
+  linalg.generic {indexing_maps = [#id2, #id2], iterator_types = ["parallel", "parallel"]}
+    ins(%alloc1 : memref<8x4xi8>)
+    outs(%0 : memref<8x4xi8>) {
+    ^bb0(%i : i8, %o : i8):
+      linalg.yield %i : i8
+  }
+  memref.copy %alloc2, %buf : memref<4x8xi8> to memref<4x8xi8>
   func.return
 }
 

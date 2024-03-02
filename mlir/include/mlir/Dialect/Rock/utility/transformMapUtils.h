@@ -82,9 +82,18 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 ///
 /// `max < bufferVectorSize` is a permissible outcome for this analysis, but
 /// indicates one should reconsider one's vectorization strategy.
+///
+/// `fusionTraversalStatus` indicates whether the call could successfully
+/// traverse sequences of temporary buffers and allocations to reach a function
+/// output, should such a sequence exist. When fusion traversal isn't requested,
+/// which is the default behavior, this status is always a success. Failure
+/// indicates irregular (including "not normalized via -rock-regularize") usage,
+/// complex usage patterns (like `mul(%v, f(%v))`), or other situations where
+/// "the underlying buffer" isn't a well-defined concept.
 struct VectorizationResult {
   int64_t max = 1;
   int64_t bufferVectorSize = 1;
+  LogicalResult fusionTraversalStatus = success();
 };
 
 /// Given a transformed Value `transformed`, which is the result of applying
@@ -97,6 +106,13 @@ struct VectorizationResult {
 /// `bufferVectorSize` will be set to a value > 1 to reflect an intervening
 /// `rock.scalarize` operation.
 ///
+/// If `operatonRootForFusionTraversal` is passed in, the vectorization will
+/// traverse past temporary mumerf.alloc operations to analyze all the
+/// transformations that'll be applied after fusion. This operation should be
+/// a pointer to the operation that's using `transformed` - this is needed to
+/// identify which memref.alloc user is the one we don't need to look at
+/// in the case that there're no transformations on the buffer it's writing to.
+///
 /// `ignoreDataType` forces vectorization even when the inferred vectorization
 /// length for `transformed` would cause vector operations on its data type
 /// to exceed the maximum hardware vector memory operation for that type. It
@@ -104,6 +120,7 @@ struct VectorizationResult {
 VectorizationResult
 getMaxVectorization(Value transformed, uint32_t dim,
                     std::optional<int64_t> inputDimLen = std::nullopt,
+                    Operation *operationRootForFusionTraversal = nullptr,
                     bool ignoreDataType = false);
 
 /// Returns a version of `transformed` transformed like `transformed` is but
