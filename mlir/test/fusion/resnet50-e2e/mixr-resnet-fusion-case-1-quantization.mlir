@@ -4,7 +4,6 @@
 
 module {
   func.func @test(%arg0: !migraphx.shaped<1x128x1x1xf32, 128x1x1x1>, %arg1: !migraphx.shaped<1x128x56x56xi8, 401408x3136x56x1>, %arg2: !migraphx.shaped<128x128x3x3xi8, 1152x9x3x1>) -> !migraphx.shaped<1x128x28x28xi8, 100352x784x28x1> {
-    %1 = migraphx.quant_convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : <1x128x56x56xi8, 401408x3136x56x1>, <128x128x3x3xi8, 1152x9x3x1> -> <1x128x28x28xi32, 100352x784x28x1>
     %2 = migraphx.dequantizelinear %1, %arg0 : <1x128x28x28xi32, 100352x784x28x1>, <1x128x1x1xf32, 128x1x1x1> -> <1x128x28x28xf32, 100352x784x28x1>
     %3 = migraphx.quantizelinear %2, %arg0 : <1x128x28x28xf32, 100352x784x28x1>, <1x128x1x1xf32, 128x1x1x1> -> <1x128x28x28xi8, 100352x784x28x1>
     return %3 : !migraphx.shaped<1x128x28x28xi8, 100352x784x28x1>

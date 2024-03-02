@@ -888,13 +888,13 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                                         config.dilationDims[DIM::WIDTH]};
 
   attributes.push_back(
-      builder.getNamedAttr("padding", builder.getI64ArrayAttr(paddingArray)));
+      builder.getNamedAttr("padding", builder.getIndexArrayAttr(paddingArray)));
 
   attributes.push_back(
-      builder.getNamedAttr("strides", builder.getI64ArrayAttr(strideArray)));
+      builder.getNamedAttr("strides", builder.getIndexArrayAttr(strideArray)));
 
   attributes.push_back(builder.getNamedAttr(
-      "dilations", builder.getI64ArrayAttr(dilationArray)));
+      "dilations", builder.getIndexArrayAttr(dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {
