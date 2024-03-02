@@ -5,4 +5,4 @@
 // BIN: ELF
 // TUNING: globalSize{{.*}}localSize{{.*}}
 
-// DRIVER: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1, 1], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0, 0, 0, 0], strides = [1, 1]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER: rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>

@@ -3637,6 +3637,7 @@ int main(int argc, char **argv) {
   mlir::registerMLIRContextCLOptions();
   mlir::registerPassManagerCLOptions();
   MLIRContext context(registry);
+  context.disableMultithreading();
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,

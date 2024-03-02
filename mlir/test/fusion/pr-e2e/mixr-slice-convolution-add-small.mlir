@@ -3,7 +3,6 @@
 // CHECK: [1 1 1]
 func.func private @mlir_slice_convolution_add(%arg0: !migraphx.shaped<1x2x4x4xf32, 32x16x4x1>, %arg1: !migraphx.shaped<1x8x4x4xf32, 128x16x4x1>, %arg2: !migraphx.shaped<2x2x1x7xf32, 14x7x7x1>) -> !migraphx.shaped<1x2x4x4xf32, 32x16x4x1> {
     %0 = migraphx.slice %arg1 {axes = [1], ends = [4], starts = [2]} : <1x8x4x4xf32, 128x16x4x1> -> <1x2x4x4xf32, 32x16x4x1>
-    %1 = migraphx.convolution %0, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [0, 3, 0, 3], padding_mode = 0 : i64, stride = [1, 1]} : <1x2x4x4xf32, 32x16x4x1>, <2x2x1x7xf32, 14x7x7x1> -> <1x2x4x4xf32, 32x16x4x1>
     %2 = migraphx.add %1, %arg0 : <1x2x4x4xf32, 32x16x4x1>, <1x2x4x4xf32, 32x16x4x1> -> <1x2x4x4xf32, 32x16x4x1>
     return %2 : !migraphx.shaped<1x2x4x4xf32, 32x16x4x1>
 }
