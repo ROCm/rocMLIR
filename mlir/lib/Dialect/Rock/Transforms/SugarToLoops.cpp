@@ -888,6 +888,42 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
   return result;
 }
 
+/// Atomic add for a scalar fp16. Using the CAS loop (atomicRMWOp) alternative
+/// is significantly slower so we extend the scalar in a vector and use the
+/// buffer_atomic_add_fp16 instead. We have to take care of the alignment
+/// manually
+static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
+                                 Value dest, ArrayRef<Value> coords) {
+  const bool useBufferOobChecks = true;
+  // Useful consts
+  Value zero = b.create<arith::ConstantIntOp>(loc, 0, 32);
+  Value one = b.create<arith::ConstantIntOp>(loc, 1, 32);
+  Value two = b.create<arith::ConstantIntOp>(loc, 2, 32);
+
+  // Extended packed data to use with the intrinsic
+  Value dataExt =
+      createZeroConstantOp(b, loc, vectorTypeOrSelf(b.getF16Type(), 2));
+  Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
+  Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
+
+  // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
+  Value stepBack = b.create<arith::SubIOp>(loc, coords[2], one);
+  Value alignment = b.create<arith::RemUIOp>(loc, coords[2], two);
+  Value notAligns =
+      b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
+
+  // Step back data and address
+  Value selectAddress =
+      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords[2]);
+  Value selectDataExt =
+      b.create<arith::SelectOp>(loc, notAligns, dataExt0, dataExt1);
+
+  SmallVector<Value> alignedCoords{coords[0], coords[1], selectAddress};
+  b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
+                                          alignedCoords, useBufferOobChecks,
+                                          nullptr, nullptr);
+}
+
 /// Call builder(int64_t base, Type thisElem) repeatedly, advancing `base` by
 /// the length of `thisElem` each time, where `thisElem` is a scalar or vector
 /// less than 128 bits long. This is temporary and needed for the buffer
@@ -1173,13 +1209,17 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     Value origLastCoord = coords.empty() ? nullptr : coords.back();
 
     if (isAtomic) {
-      for (int64_t i = 0; i < len; ++i) {
+      bool usePackedFp16 = (elemTy.isF16() && (len % 2 == 0));
+      int inc = (usePackedFp16 ? 2 : 1);
+      Type loadType = (usePackedFp16 ? vectorTypeOrSelf(elemTy, inc) : elemTy);
+
+      for (int64_t i = 0; i < len; i += inc) {
         Value thisSrc = sourceStart;
         if (i > 0)
           thisSrc = b.createOrFold<arith::AddIOp>(
               loc, thisSrc, b.createOrFold<arith::ConstantIndexOp>(loc, i));
         Value data =
-            b.create<memref::LoadOp>(loc, elemTy, op.getSource(), thisSrc);
+            b.create<InBoundsLoadOp>(loc, loadType, op.getSource(), thisSrc);
         if (i > 0) {
           Value offsetConst;
           if (useBufferOps)
@@ -1190,9 +1230,11 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
               b.createOrFold<arith::AddIOp>(loc, origLastCoord, offsetConst);
         }
         if (memoryOp == StoreMethod::AtomicAdd) {
-          if (useBufferOps)
+          if (useBufferOps && (usePackedFp16 || elemTy.isF32()))
             b.create<amdgpu::RawBufferAtomicFaddOp>(
                 loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
+          else if (useBufferOps && elemTy.isF16())
+            atomicFp16AddAligned(b, loc, data, dest, coords);
           else
             b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
                                           coords);
