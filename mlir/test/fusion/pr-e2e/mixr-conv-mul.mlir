@@ -7,6 +7,7 @@ module {
     %0 = migraphx.multibroadcast %arg3 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
     %1 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
     %2 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 2048, 7, 7]} : <1x2048x1x1xf32, 2048x1x1x1> -> <1x2048x7x7xf32, 0x1x0x0>
+    %3 = migraphx.convolution %arg4, %arg5 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [2, 2]} : <1x1024x14x14xf32, 200704x196x14x1>, <2048x1024x1x1xf32, 1024x1x1x1> -> <1x2048x7x7xf32, 100352x49x7x1>
     %4 = migraphx.mul %2, %3 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
     %5 = migraphx.mul %1, %4 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
     %6 = migraphx.mul %2, %arg2 : <1x2048x7x7xf32, 0x1x0x0>, <1x2048x7x7xf32, 100352x49x7x1> -> <1x2048x7x7xf32, 100352x49x7x1>
