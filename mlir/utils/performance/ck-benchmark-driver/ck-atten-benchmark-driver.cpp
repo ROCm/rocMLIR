@@ -6,8 +6,8 @@
 #include "ck/tensor_operation/gpu/device/device_batched_gemm_softmax_gemm_permute.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
+#include "ck/utility/data_type.hpp"
 #include <algorithm>
-#include <ck/utility/data_type.hpp>
 #include <cstddef>
 #include <iostream>
 #include <limits>
@@ -17,11 +17,11 @@
 #include <tuple>
 #include <utility>
 
-enum class EncodedType { F32, F16, I8 };
-
 struct Options {
-  ck::index_t sequenceLength{384};
-  ck::index_t headDims{64};
+  ck::index_t sequenceLengthQ{1024};
+  ck::index_t sequenceLengthK{1024};
+  ck::index_t headDimsQK{64};
+  ck::index_t headDimsV{64};
   ck::index_t groupSize{1};
   bool hasAttnBias{false};
   bool transposeQ{false};
@@ -30,7 +30,7 @@ struct Options {
   bool transposeO{false};
   bool onlyMatmulFlops{true};
   bool verbose{false};
-  benchmark::DataType elementType{benchmark::DataType::F32};
+  benchmark::DataType elementType{benchmark::DataType::F16};
 };
 
 auto getSize(std::vector<ck::index_t> &lengths) {
@@ -46,7 +46,7 @@ auto getStrides(std::vector<ck::index_t> &lengths) {
 }
 
 auto transpose(std::vector<ck::index_t> &strides) {
-  auto endIdx = strides.size() - 1;
+  const auto endIdx = strides.size() - 1;
   std::swap(strides[endIdx - 1], strides[endIdx]);
 }
 
@@ -54,35 +54,37 @@ struct Data {
   Data(Options options) : options(options) {
     const ck::index_t G0{1};
     const ck::index_t G1{options.groupSize};
-    const ck::index_t S{options.sequenceLength};
-    const ck::index_t H{options.headDims};
+    const ck::index_t SQ{options.sequenceLengthQ};
+    const ck::index_t SK{options.sequenceLengthK};
+    const ck::index_t HQK{options.headDimsQK};
+    const ck::index_t HV{options.headDimsV};
 
     // matrix Q
-    qLengths = std::vector<ck::index_t>{G0, G1, S, H};
+    qLengths = std::vector<ck::index_t>{G0, G1, SQ, HQK};
     qStrides = getStrides(qLengths);
     if (options.transposeQ)
       transpose(qStrides);
 
     // matrix K
-    kLengths = std::vector<ck::index_t>{G0, G1, S, H};
+    kLengths = std::vector<ck::index_t>{G0, G1, SK, HQK};
     kStrides = getStrides(kLengths);
     if (options.transposeK)
       transpose(kStrides);
 
     // matrix V
-    vLengths = std::vector<ck::index_t>{G0, G1, S, H};
+    vLengths = std::vector<ck::index_t>{G0, G1, SK, HV};
     vStrides = getStrides(vLengths);
     if (options.transposeV)
       transpose(vStrides);
 
     // matrix O
-    oLengths = std::vector<ck::index_t>{G0, G1, S, H};
+    oLengths = std::vector<ck::index_t>{G0, G1, SQ, HV};
     oStrides = getStrides(oLengths);
     if (options.transposeO)
       transpose(oStrides);
 
     // matrix Bias
-    biasLengths = std::vector<ck::index_t>{G0, G1, S, S};
+    biasLengths = std::vector<ck::index_t>{G0, G1, SQ, SK};
     biasStrides = getStrides(biasLengths);
 
     const auto qElems = getSize(qLengths);
@@ -156,28 +158,43 @@ private:
   Options options;
 };
 
-struct FlopCounts {
-  FlopCounts(int groupSize, int sequenceLength, int headDims) {
-    double g{static_cast<double>(groupSize)};
-    double N{static_cast<double>(sequenceLength)};
-    double D{static_cast<double>(headDims)};
-
-    gemm1 = 2.0 * g * N * N * D;
-    scale = N * N;
-    gemm2 = 2.0 * g * N * N * D;
-    softmax = 5.0 * N * D;
+template <typename T>
+std::ostream &operator<<(std::ostream &os, std::vector<T> &v) {
+  for (auto &item : v) {
+    os << item << ", ";
   }
+  return os;
+}
 
-  double get(bool onlyMatmulFlops = true) {
-    auto gemmFlopCount{gemm1 + gemm2 + scale};
-    return onlyMatmulFlops ? gemmFlopCount : gemmFlopCount + softmax;
-  }
+std::ostream &operator<<(std::ostream &os, Data &data) {
+  os << "Q\n\t"
+     << "lengths: " << data.qLengths << "\n\tstrides: " << data.qStrides
+     << "\n";
+  os << "K\n\t"
+     << "lengths: " << data.kLengths << "\n\tstrides: " << data.kStrides
+     << "\n";
+  os << "V\n\t"
+     << "lengths: " << data.vLengths << "\n\tstrides: " << data.vStrides;
+  return os;
+}
 
-  double gemm1{};
-  double scale{};
-  double gemm2{};
-  double softmax{};
-};
+double getGemmsFlopCount(const Options &options) {
+  const auto g{static_cast<double>(options.groupSize)};
+  const auto SQ{static_cast<double>(options.sequenceLengthQ)};
+  const auto SK{static_cast<double>(options.sequenceLengthK)};
+  const auto HQK{static_cast<double>(options.headDimsQK)};
+  const auto HV{static_cast<double>(options.headDimsV)};
+
+  const auto gemm1 = 2.0 * SQ * HQK * SK;
+  const auto scale = SQ * SK;
+  const auto gemm2 = 2.0 * SQ * SK * HV;
+  const auto softmax = 5.0 * SQ * SK;
+
+  const auto gemmFlopCount{gemm1 + gemm2 + scale};
+  const auto totalFlop =
+      options.onlyMatmulFlops ? gemmFlopCount : gemmFlopCount + softmax;
+  return g * totalFlop;
+}
 
 constexpr static auto MaskingSpec =
     ck::tensor_operation::device::MaskingSpecialization::MaskDisabled;
@@ -243,7 +260,7 @@ struct AttentionWithoutBias {
         {},
         AElementOp{},
         B0ElementOp{},
-        Acc0ElementOp{1 / sqrtf(options.sequenceLength)},
+        Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)},
         B1ElementOp{},
         CElementOp{});
     // clang-format on
@@ -256,9 +273,7 @@ struct AttentionWithoutBias {
   }
 
   static double getFlopCount(const Options &options) {
-    FlopCounts counts(options.groupSize, options.sequenceLength,
-                      options.headDims);
-    return counts.get(options.onlyMatmulFlops);
+    return getGemmsFlopCount(options);
   }
 };
 
@@ -318,7 +333,7 @@ struct AttentionWithBias {
         {},
         AElementOp{},
         B0ElementOp{},
-        Acc0ElementOp{1 / sqrtf(options.sequenceLength)},
+        Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)},
         B1ElementOp{},
         CElementOp{});
     // clang-format on
@@ -331,13 +346,13 @@ struct AttentionWithBias {
   }
 
   static double getFlopCount(const Options &options) {
-    FlopCounts counts(options.groupSize, options.sequenceLength,
-                      options.headDims);
+    const auto g{static_cast<double>(options.groupSize)};
+    const auto SQ{static_cast<double>(options.sequenceLengthQ)};
+    const auto SK{static_cast<double>(options.sequenceLengthK)};
+    const auto biasAddFlopCount = g * SQ * SK;
 
-    // scale and add are similar element-wise operations which
-    // operate on the same matrix size regarding the AttentionOp
-    counts.scale *= 2;
-    return counts.get(options.onlyMatmulFlops);
+    const auto flopCount = getGemmsFlopCount(options);
+    return flopCount + biasAddFlopCount;
   }
 };
 
@@ -354,6 +369,10 @@ void runBenchmark(const Options &options) {
   }
 
   Data data{options};
+  if (options.verbose) {
+    std::cout << "data layout info:" << std::endl;
+    std::cout << data << std::endl;
+  }
 
   std::string bestKernelName{"none"};
   int bestKernelId{-1};
@@ -439,10 +458,14 @@ int main(int argc, char *argv[]) {
   Options options{};
   CLI::App app{"elementwise example with multi-dim block/grid"};
 
-  app.add_option("--seq_len", options.sequenceLength,
-                 "sequence length of attention");
-  app.add_option("--head_dim", options.sequenceLength,
-                 "head dimension of attention");
+  app.add_option("--seq_len_q", options.sequenceLengthQ,
+                 "sequence length of Q in attention");
+  app.add_option("--seq_len_k", options.sequenceLengthK,
+                 "sequence length of K in attention");
+  app.add_option("--head_dim_qk", options.headDimsQK,
+                 "head dimension of Q,K in attention");
+  app.add_option("--head_dim_v", options.headDimsV,
+                 "head dimension of V in attention");
   app.add_option("--group_dim", options.groupSize,
                  "group dimension of attention");
   app.add_flag("--with-bias", options.hasAttnBias, "has bias term");
