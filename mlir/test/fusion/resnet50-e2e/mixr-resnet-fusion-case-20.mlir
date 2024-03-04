@@ -4,6 +4,7 @@
 
 module {
   func.func @test(%arg0: !migraphx.shaped<1x256x56x56xf32, 0x1x0x0>, %arg1: !migraphx.shaped<1x128x56x56xf32, 401408x3136x56x1>, %arg2: !migraphx.shaped<256x128x1x1xf32, 128x1x1x1>) -> !migraphx.shaped<1x256x56x56xf32, 802816x3136x56x1> {
+    %1 = migraphx.convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x128x56x56xf32, 401408x3136x56x1>, <256x128x1x1xf32, 128x1x1x1> -> <1x256x56x56xf32, 802816x3136x56x1>
     %2 = migraphx.add %1, %arg0 : <1x256x56x56xf32, 802816x3136x56x1>, <1x256x56x56xf32, 0x1x0x0> -> <1x256x56x56xf32, 802816x3136x56x1>
     %3 = migraphx.relu %2 : <1x256x56x56xf32, 802816x3136x56x1> -> <1x256x56x56xf32, 802816x3136x56x1>
     return %3 : !migraphx.shaped<1x256x56x56xf32, 802816x3136x56x1>
