@@ -133,13 +133,17 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             # Note, we don't need the -ph, this goes to the tuning driver
             kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
             kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
-                stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            tuningLoop = subprocess.Popen(
+                [paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
+                stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             kernelGen.stdout.close()
         else:
             # pipe to rocmlir_gen --emit-tuning-key
-            tuningKey = subprocess.Popen([paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', testVector],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            tuningKey = subprocess.Popen(
+                [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', testVector],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             output, _ = tuningKey.communicate()
             result = output.decode('utf-8').strip().split('\t')
             print(f"Tuning:{result[2]} from {testVector}", file=sys.stderr)
