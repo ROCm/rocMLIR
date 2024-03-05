@@ -376,7 +376,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       bool hasMoreThan2WGsPerCU = wgsPerCU >= 2;
       bool isUsingLessThanHalfLds = true;
       if (ldsUsage > 0) {
-        isUsingLessThanHalfLds = archInfo.maxSharedMemPerWG / ldsUsage >= 2;
+        isUsingLessThanHalfLds = archInfo.totalSharedMemPerCU / ldsUsage >= 2;
       }
       // There is no point of instructing backend compiler to potentially reduce
       // scalar code performance (via limiting VGPR usage) if we are already
