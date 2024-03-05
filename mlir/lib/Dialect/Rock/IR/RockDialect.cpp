@@ -610,6 +610,16 @@ Type Conv2DBwdWeightOp::getBType() {
   return getInput().getType().getElementType();
 }
 
+Type Conv2DOp::getCType() { return getOutput().getType().getElementType(); }
+
+Type Conv2DBwdDataOp::getCType() {
+  return getInput().getType().getElementType();
+}
+
+Type Conv2DBwdWeightOp::getCType() {
+  return getFilter().getType().getElementType();
+}
+
 OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
 OpOperand *Conv2DBwdDataOp::getOutArgument() {
@@ -760,6 +770,8 @@ KernelType GemmOp::getKernelType() { return KernelType::Gemm; }
 Type GemmOp::getAType() { return getA().getType().getElementType(); }
 
 Type GemmOp::getBType() { return getB().getType().getElementType(); }
+
+Type GemmOp::getCType() { return getC().getType().getElementType(); }
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 

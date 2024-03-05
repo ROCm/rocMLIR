@@ -18,14 +18,14 @@
 
 namespace benchmark {
 
-enum class DataType : uint32_t { F32, F16, BF16, I8, UNKNOWN };
+enum class DataType : uint32_t { F32, F16, BF16, I8, F8, I32, UNKNOWN };
 struct BenchmarkArgs {
   uint64_t gemmG{0};
   uint64_t gemmM{0};
   uint64_t gemmK{0};
   uint64_t gemmN{0};
   DataType dataType{DataType::UNKNOWN};
-
+  DataType outDataType{DataType::UNKNOWN};
   bool transposeA{false};
   bool transposeB{false};
   std::string fusion{""};
@@ -49,16 +49,16 @@ void printProblem(BenchmarkArgs args);
   } while (0)
 
 // Allocate and fill an area of memory on the host
-void *allocAndFill(DataType dataType, size_t byteSize, bool isOut);
+void *allocAndFill(DataType dataType, size_t byteSize);
 
 // Allocate and fill a single constant on the host
-void *makeHostConstant(float val, DataType dataType);
+void *makeHostConstant(float flt, DataType dataType);
 
 // Return sizeof(dataType)*elems in bytes
-size_t getByteSize(DataType dataType, size_t elems, bool isOut);
+size_t getByteSize(DataType dataType, size_t elems);
 
 // Return sizeof(dataType)
-size_t getBytesPerElement(DataType dataType, bool isOut);
+size_t getBytesPerElement(DataType dataType);
 
 // Allocate a device buffer and copy the date from host memory
 void *getGpuBuffer(const void *hostMem, size_t byteSize);
