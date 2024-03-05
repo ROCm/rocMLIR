@@ -198,7 +198,7 @@ void Fp8ExtToTableLookupPattern::rewrite(
 /// range instead of being rounded to NaN.
 ///
 /// Based off
-/// https://github.com/ROCmSoftwarePlatform/AMDMIGraphX/blob/a41cd5c0b493bbb7d21078f1a842675ff824d2b7/src/include/migraphx/float8_impl.hpp#L37
+/// https://github.com/ROCm/AMDMIGraphX/blob/a41cd5c0b493bbb7d21078f1a842675ff824d2b7/src/include/migraphx/float8_impl.hpp#L37
 /// but trimmed (Clip = true, NegativeZeroNan = true) and run through
 /// clang -O3 on godbolt to get LLVM IR that I could mechanically recreate.
 /// See mlir/docs/fnuz-float-software-truncation-sources/

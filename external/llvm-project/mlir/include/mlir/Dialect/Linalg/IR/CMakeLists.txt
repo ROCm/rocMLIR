@@ -3,7 +3,7 @@ function(add_linalg_ods_yaml_gen yaml_ast_file output_file)
   set(YAML_AST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/${yaml_ast_file})
   set(GEN_ODS_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.yamlgen.td)
   set(GEN_CPP_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.yamlgen.cpp.inc)
-  # Note: workaround for https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/524
+  # Note: workaround for https://github.com/ROCm/rocMLIR-internal/issues/524
   set(DUMMY_FILE ${CMAKE_CURRENT_BINARY_DIR}/dummy)
   set_source_files_properties(
     ${GEN_ODS_FILE}

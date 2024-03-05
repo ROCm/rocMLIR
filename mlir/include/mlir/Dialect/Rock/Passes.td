@@ -28,14 +28,9 @@ def RockAffixTuningParametersPass : Pass<"rock-affix-params", "::mlir::func::Fun
   let dependentDialects = ["rock::RockDialect",
                            "func::FuncDialect"];
   let options = [
-    Option<"blockSizeOverride", "block_size", "uint32_t", "0",
-      "Non-zero values fixes a particular block size">,
-    Option<"gridSizeOverride", "grid_size", "uint32_t", "0",
-      "Non-zero value fixes a particular grid size">,
     Option<"fallBackNoConfig", "fallback", "bool", "false",
       "Fall back to a heuristic system when hand-specified tuning parameters are invalid">
   ];
-
 }
 
 def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp"> {

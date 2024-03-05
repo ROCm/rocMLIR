@@ -135,7 +135,7 @@ func.func @rock_accel_gemm_one_result(%matrixA : memref<1x16xf32, 5>,
                                             %matrixB : memref<1x16xf32, 5>,
                                             %matrixC : memref<1x1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
-  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB features = mfma {
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
@@ -154,15 +154,16 @@ func.func @rock_accel_gemm_one_result(%matrixA : memref<1x16xf32, 5>,
 
 // ----
 
-#transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (2*d0 + d1)> by [<AddDim{1} ["i"] at [2] -> [] at []>, <AddDim{1} ["j"] at [3] -> [] at []>, <Unmerge{2, 2} ["ci", "cj"] at [0, 1] -> ["offset"] at [0]>] bounds = [2, 2, 1, 1] -> [4]>
+#transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (2*d0 + d1)> by [<Unmerge{2, 2} ["ci", "cj"] at [0, 1] -> ["offset"] at [0]>] bounds = [2, 2] -> [4]>
 
 func.func @rock_accel_gemm_two_results(%matrixA : memref<1x16xf32, 5>,
                                              %matrixB : memref<1x16xf32, 5>,
                                              %matrixC : memref<4xvector<32xf32>, 5>) {
   %c1 = arith.constant 1 : index
-  %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<32xf32>, 5> to memref<2x2x1x1xvector<32xf32>, 5>
+  %c0 = arith.constant 0 : index
+  %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<32xf32>, 5> to memref<2x2xvector<32xf32>, 5>
 
-  rock.threadwise_accel_gemm %matrixCView[%c1, %c1] += %matrixA * %matrixB features = mfma {
+  rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_params<
       mPerBlock = 256,
@@ -172,7 +173,7 @@ func.func @rock_accel_gemm_two_results(%matrixA : memref<1x16xf32, 5>,
       nPerWave = 64,
       kpack = 1,
       forceUnroll = true>
-  } : memref<2x2x1x1xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
+  } : memref<2x2xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
   return
 }
 

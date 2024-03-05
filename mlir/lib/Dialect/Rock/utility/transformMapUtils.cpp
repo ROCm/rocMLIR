@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -321,19 +322,30 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
     if (groupCandidate.size() > 1 &&
         std::is_sorted(dimPosition.begin(), dimPosition.end())) {
 
-      uint32_t lowerDim = groupCandidate.back();
+      uint32_t fastestDim = groupCandidate.back();
+      size_t fastestDimPosInMerge = dimPosition.back();
+      size_t slowestDimPosInMerge = dimPosition.front();
       for (auto d : groupCandidate)
-        contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+        contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
 
       // We also want to add the singleton dimensions of the merge the
       // groupCandidate belongs to. In this way we cover for situations like
-      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>
-      for (auto pair : llvm::zip(keyI.transform.getLowerDims(),
-                                 keyI.transform.getParams())) {
-        int64_t d = std::get<0>(pair);
-        int64_t p = std::get<1>(pair);
+      // - Merge{8,1,3}, <AddDim at [1]>, <Unmerge{8,3}>. However, it is
+      // unsound to collapse onto trailing unit dimensions not otherwise
+      // accounted for above, as they could be permuted out to
+      // arbitrary other positions. Therefore, we only examine unit dimensions
+      // which come earlier in the merge parameters than the first true
+      // collapsed dimension.
+      ArrayRef<uint32_t> thisMergeDims = keyI.transform.getLowerDims();
+      ArrayRef<int64_t> thisMergeParams = keyI.transform.getParams();
+      for (const auto [d, p] : llvm::zip(
+               thisMergeDims.slice(slowestDimPosInMerge,
+                                   fastestDimPosInMerge - slowestDimPosInMerge),
+               thisMergeParams.slice(slowestDimPosInMerge,
+                                     fastestDimPosInMerge -
+                                         slowestDimPosInMerge))) {
         if (p == 1)
-          contiguousGroups[keyI.transformPair()].unionSets(lowerDim, d);
+          contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
       }
     }
   }
@@ -854,6 +866,11 @@ ArrayAttr mlir::rock::collapseContiguousMerges(ArrayAttr transforms,
         ops.push_back(op);
         continue;
       }
+      LLVM_DEBUG({
+        llvm::dbgs() << "[collapseContigousMerges] Updating: " << op << " to ";
+        llvm::interleaveComma(newLengths, llvm::dbgs());
+        llvm::dbgs() << "\n";
+      });
       auto newMerge = TransformAttr::get(
           op.getContext(), TransformType::Merge, newLengths, op.getUpperNames(),
           op.getUpperDims(), op.getLowerNames(), op.getLowerDims());
@@ -1159,6 +1176,42 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     }
   }
   return inp;
+}
+
+LogicalResult
+mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
+                                                 linalg::GenericOp laOp) {
+  auto idxMaps = laOp.getIndexingMapsArray();
+  auto outIdxMap = idxMaps.back();
+
+  auto outs = laOp.getOutputs();
+  if (outs.size() > 1)
+    return laOp.emitError("Only 1 output supported");
+  Value out = outs[0];
+  auto outType = out.getType().cast<ShapedType>();
+
+  SmallVector<Value> inps(laOp.getInputs());
+  for (auto pair : llvm::zip(inps, idxMaps)) {
+    if (auto inp = std::get<0>(pair)) {
+      auto imap = std::get<1>(pair);
+      if (imap != outIdxMap) {
+        // inject a broadcast
+        auto invertOutIdxMap = inversePermutation(outIdxMap);
+        auto outToInpMap = imap.compose(invertOutIdxMap);
+        Value regInp = rock::insertTransposeAndBroadcastTransforms(
+            b, outType.getShape(), inp, outToInpMap);
+        laOp->replaceUsesOfWith(inp, regInp);
+      }
+    }
+  }
+
+  // reset idxmaps
+  b.updateRootInPlace(laOp, [&]() {
+    SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
+    laOp.setIndexingMapsAttr(b.getAffineMapArrayAttr(newIdxMaps));
+  });
+
+  return success();
 }
 
 TransformMapAttr mlir::rock::invertTransformMap(

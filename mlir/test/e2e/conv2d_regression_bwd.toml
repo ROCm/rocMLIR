@@ -47,7 +47,7 @@ config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=4 -i
 ## The following configs are reported from various tickets
 
 ############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/70 #
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/70 #
 ############################################################################################
 [[suite.test]]
 config = "-groupsize=1 -batchsize=16 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
@@ -71,7 +71,7 @@ config = "-groupsize=1 -batchsize=64 -in_channels=32 -out_channels=32 -in_h=14 -
 config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
 
 #############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/127 #
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/127 #
 #############################################################################################
 [[suite.test]]
 config = "-groupsize=1 -batchsize=128 -in_channels=256 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
@@ -83,7 +83,7 @@ config = "-groupsize=1 -batchsize=512 -in_channels=256 -out_channels=512 -in_h=7
 config = "-groupsize=1 -batchsize=64 -in_channels=256 -out_channels=64 -in_h=56 -in_w=56 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
 
 ############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/71 #
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/71 #
 ############################################################################################
 [[suite.test]]
 config = "-groupsize=1 -batchsize=32 -in_channels=32 -out_channels=32 -in_h=7 -in_w=7 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
@@ -92,7 +92,7 @@ config = "-groupsize=1 -batchsize=32 -in_channels=32 -out_channels=32 -in_h=7 -i
 config = "-groupsize=1 -batchsize=64 -in_channels=32 -out_channels=32 -in_h=7 -in_w=7 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
 
 #############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/136 #
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/136 #
 #############################################################################################
 [[suite.test]]
 config = "-groupsize=1 -batchsize=256 -in_channels=32 -out_channels=32 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"

@@ -1,6 +1,6 @@
 To start up the buildbot:
 
-  git clone https://github.com/ROCmSoftwarePlatform/rocMLIR.git
+  git clone https://github.com/ROCm/rocMLIR.git
   cd ./rocMLIR/mlir/utils/buildbot
   export BUILDBOT_PORT=9990
   export BUILDBOT_MASTER=lab.llvm.org

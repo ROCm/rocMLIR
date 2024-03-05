@@ -14,6 +14,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
@@ -22,6 +23,8 @@ namespace rock {
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
+
+#define DEBUG_TYPE "rock-affix-params"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -36,18 +39,6 @@ public:
   void runOnOperation() override;
 
 private:
-  // Block size can be set in two ways:
-  // * Through the MLIR lowering pass:
-  //   At this case, blockSizeOverride will be initialized to zero. Then
-  //   the affix tuning parameters pass will decide on a block size.
-  //   Finally, block size will be hinted back to rocmlir-driver.
-  // * Through cmd option "block_size":
-  //   At this case, rocmlir-driver assigns a blockSizeOverride. As
-  //   a result, affix tuning parameters pass should make its decisions
-  //   to generate tuning parameters based on this blockSizeOverride.
-  //   This guarantess that affix tuning parameters pass generate
-  //   coherent tuning parameters with the pre-set block size.
-
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(AttentionOp op);
@@ -133,32 +124,49 @@ void AffixTuningParameters::affixTuningParametersImpl(
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
     uint32_t blockSize = 0;
-    uint32_t gridSize = 0;
-    int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
-        gemmKBlocks);
+        op, perfConfig, validParams, blockSize);
 
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
-            op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
-            gemmKBlocks);
+            op, perfConfig, validParams, blockSize);
       }
       if (failed(status))
         signalPassFailure();
     }
 
-    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
-    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
+    auto origGemmSize = op.getGemmSize();
+    auto paddedGemmSize = calculatePaddedGemmSize(validParams, origGemmSize,
+                                                  validParams.gemmKPack);
+    const bool requiredPadding = !(paddedGemmSize == origGemmSize);
+
+    int64_t gemmKBlocks = 1;
+    PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
+    auto maybeWrwOp = (info.kernelType == KernelType::Conv2DBwdWeight);
+    if (maybeWrwOp &&
+        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
+      auto res = calculateKBlockNum(
+          info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
+          validParams.gemmNPerBlock, validParams.gemmKPerBlock,
+          validParams.gemmKPack, info.numCu, gemmKBlocks);
+
+      if (failed(res)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Invalid tuning parameters for computing KBlocks.\n");
+        signalPassFailure();
+        return;
+      }
+    }
 
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
+
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
 
     Attribute gemmParams =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
@@ -168,29 +176,17 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
-
   } else {
     InitParamsNonAccel validParams;
-    uint32_t gridSize;
 
     PopulateParams populateParams;
-    LogicalResult status = populateParams.obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, gridSize);
+    LogicalResult status =
+        populateParams.obtainTuningParameters(op, perfConfig, validParams);
 
     if (failed(status)) {
       signalPassFailure();
     }
-
-    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
-
-    // For non-accelerator path, do not use KPack for now.
-
-    // kPerThread and the cuwave parameters are hardcoded, may change in a
-    // different pass. Please visit
-    // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
@@ -200,32 +196,51 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }
 
-static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder,
-                        RockAccelTuningParamAttrInterface gemm0TuningParams,
-                        GemmFeatures features) {
+static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
+                                               AttentionOp op) {
+  auto gemm0TuningParams =
+      op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
+  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
+  int64_t gemm1MPerBlock = gemm0TuningParams.getMPerBlock();
+  // There is a nan failure when the gemm1MPerBlock
+  // is increased beyond gemm0MPerBlock when getMPerWave
+  // is less than 32 (i.e. 16).
+  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
+  // This is good enough heuristic for now to guard from cases where
+  // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
+  Type gemm1ElemType =
+      op.getValues().getType().cast<ShapedType>().getElementType();
+  int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
+  int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
+  gemm1M = math_util::integer_least_multiple(gemm1M,
+                                             gemm0TuningParams.getMPerBlock());
+  int64_t gemm1MPerBlockNew = std::min(gemm1M, gemm1MUpperBound);
+  if (gemm0TuningParams.getMPerWave() >= 32 &&
+      gemm0TuningParams.getMPerBlock() < gemm1MPerBlockNew) {
+    gemm1MPerBlock = gemm1MPerBlockNew;
+  }
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  return builder.getAttr<XdlopsGemmParamsAttr>(
-      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      /*gemmMPerBlock=*/gemm0TuningParams.getMPerBlock(),
+  return InitParamsAccel(
+      /*gemmMPerBlock=*/gemm1MPerBlock,
       /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-      /*gemmKPack=*/gemm1KPack,
-      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave(),
+      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() *
+          (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
       /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
-      /*forceUnroll=*/gemm0TuningParams.getForceUnroll());
+      /*gemmKPack=*/gemm1KPack,
+      /*forceUnroll=*/gemm0TuningParams.getForceUnroll(), false);
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
-  Value queries = op.getQueries();
-  Value keys = op.getKeys();
-  Value values = op.getValues();
-  Type elemType = queries.getType().cast<MemRefType>().getElementType();
+  Type elemTypeQ =
+      op.getQueries().getType().cast<MemRefType>().getElementType();
+  Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
+  Type elemTypeV = op.getValues().getType().cast<MemRefType>().getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
     op.emitError("Currently, attention op is only supported on GPUs "
@@ -255,60 +270,32 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
   op.setParams0Attr(accelParams0);
-  auto accelParams1 =
-      deriveGemm1TuningParams(builder, accelParams0, op.getFeatures());
+  auto initAccelParams1 = deriveGemm1TuningParams(builder, op);
+  Attribute params1 =
+      populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
+  auto accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
-  LogicalResult isValidBlockwiseGemm =
+  LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams, elemType, elemType, op.getArch(), blockSize,
+          initAccelParams, elemTypeQ, elemTypeK, op.getArch(), blockSize,
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
-  if (isValidBlockwiseGemm.failed()) {
+  LogicalResult isValidBlockwiseGemm1 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          initAccelParams1, elemTypeV, elemTypeV, op.getArch(), blockSize,
+          /*enableBlockSizeUpperLimit=*/false,
+          /*enableDPerWaveFiltering=*/false);
+  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
     op.emitError("The provided perf config is not valid");
     signalPassFailure();
     return;
   }
 
-  // Calculate (padded) grid size
-  SmallVector<int64_t, 3> queriesShape =
-      llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
-  // Note: the gridwise ops take K x M and K x N, so Q must be transposed if
-  // it's in the natural M x K form
-  if (!op.getQTransposed()) {
-    std::iter_swap(queriesShape.rbegin(), queriesShape.rbegin() + 1);
-  }
-  SmallVector<int64_t, 3> keysShape =
-      llvm::to_vector<3>(keys.getType().cast<MemRefType>().getShape());
-  if (op.getKTransposed()) {
-    std::iter_swap(keysShape.rbegin(), keysShape.rbegin() + 1);
-  }
-  SmallVector<int64_t, 3> valuesShape =
-      llvm::to_vector<3>(values.getType().cast<MemRefType>().getShape());
-  if (op.getVTransposed()) {
-    std::iter_swap(valuesShape.rbegin(), valuesShape.rbegin() + 1);
-  }
-  GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
-                     /*k=*/queriesShape[1],
-                     /*n=*/queriesShape[2]);
-  GemmSize gemm0ExtraPad =
-      requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1Size(/*g=*/queriesShape[0], /*m=*/valuesShape[2],
-                     /*k=*/valuesShape[1],
-                     /*n=*/keysShape[2]);
-  GemmSize gemm1ExtraPad =
-      requiredPadding(accelParams1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
-
-  int64_t gridSize =
-      ((gemm0Size.n + gemm0ExtraPad.n) / accelParams0.getNPerBlock()) *
-      ((gemm1Size.m + gemm1ExtraPad.m) / accelParams1.getMPerBlock()) *
-      gemm0Size.g;
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
-  IntegerAttr gridSizeAttr = builder.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = getOperation();
   funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
 }

@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -head_dim 32 --with-attn-scale -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_SCALE
-// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -head_dim 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 --with-attn-scale -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_SCALE
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
 
 // CHECK_SCALE: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
@@ -11,7 +11,10 @@
 // CHECK_SCALE-SAME: %[[output:.*4]]: memref<1x1024x32xf32>)
 // CHECK_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 
-// CHECK_SCALE-NEXT: rock.attention(%[[queries]], %[[keys]], %[[values]], %[[scale]], %[[output]])
+// CHECK_SCALE-NEXT: rock.attention
+// CHECK_SCALE-NEXT: qk = %[[queries]] * %[[keys]]
+// CHECK_SCALE-NEXT: qk = elementwise otherIns(%[[scale]]
+// CHECK_SCALE: %[[output]] = softmax(qk) * %[[values]]
 // CHECK_SCALE: return
 
 // CHECK_SCALE-LABEL: func.func @host_naive_attention
@@ -28,7 +31,7 @@
 
 // ----
 
-// RUN: rocmlir-gen --arch %arch --operation attention -seq_len 1024 -head_dim 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
+// RUN: rocmlir-gen --arch %arch --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK_NO_SCALE
 
 // CHECK_NO_SCALE: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
@@ -39,7 +42,9 @@
 // CHECK_NO_SCALE-SAME: %[[output:.*3]]: memref<1x1024x32xf32>)
 // CHECK_NO_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 
-// CHECK_NO_SCALE-NEXT: rock.attention(%[[queries]], %[[keys]], %[[values]], %[[output]])
+// CHECK_NO_SCALE-NEXT: rock.attention
+// CHECK_NO_SCALE-NEXT: qk = %[[queries]] * %[[keys]]
+// CHECK_NO_SCALE: %[[output]] = softmax(qk) * %[[values]]
 // CHECK_NO_SCALE: return
 
 // CHECK_NO_SCALE-LABEL: func.func @host_naive_attention

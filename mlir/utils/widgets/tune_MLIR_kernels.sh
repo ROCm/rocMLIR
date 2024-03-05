@@ -51,7 +51,7 @@ gitCheckoutMIOpen() {
         popd
     else
         echo ">>> git clone MIOpen@${miopen_branch}"
-        git clone -b ${miopen_branch} https://github.com/ROCmSoftwarePlatform/MIOpen.git
+        git clone -b ${miopen_branch} https://github.com/ROCm/MIOpen.git
     fi
 }
 

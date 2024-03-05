@@ -1,0 +1,56 @@
+directory = "PrAttentionI8"
+prefix = "rocmlir-gen"
+suffix = "--operation attention -t i8 --arch %arch -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "operation"
+values = ["attention"]
+prefix = "--operation "
+
+[[axis]]
+name = "transK"
+values = ["true", "false"]
+prefix = "--transK="
+
+## attention variant
+[[suite]]
+name = "pr_attention_i8"
+
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 -perf_config 32,64,32,32,32,4,1,1"
+
+## This one test kPerBlock (16 x 4) == head_dim case
+## Also it has drepeats > 1 to check correct fetching
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 -perf_config 128,128,32,64,64,4,1,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64"
+
+# Check a padding config
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 -perf_config 64,256,4,64,64,8,1,1"
+
+# Check lds bypass config
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 -perf_config 128,128,32,128,32,4,1,1"
+
+# check scale
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale"
+
+# check bias
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-bias"
+
+# check scale and bias together
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+
+# cross attention
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 27 -head_dim_qk 64 -head_dim_v 32 --with-attn-scale --with-attn-bias"
+

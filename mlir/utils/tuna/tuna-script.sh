@@ -16,7 +16,7 @@ function mysql_setup_generic
 function tuna_setup
 {
 #     rm -rf /tmp/MITuna
-#     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCmSoftwarePlatform/MITuna.git /tmp/MITuna
+#     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git /tmp/MITuna
 
     source /tuna-venv/bin/activate
     #export TUNA_DIR=/tmp/MITuna

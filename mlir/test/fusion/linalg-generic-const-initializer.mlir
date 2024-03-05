@@ -16,7 +16,7 @@
 #transform_map27 = #rock.transform_map<#map24 by [<AddDim{1} ["exp0"] at [0] -> [] at []>, <AddDim{1} ["exp1"] at [1] -> [] at []>, <AddDim{1} ["exp2"] at [2] -> [] at []>] bounds = [1, 1, 1] -> []>
 #transform_map28 = #rock.transform_map<#map25 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [32, 384, 3072] -> [1, 1, 1]>
 // A cut down version of the input from
-// https://github.com/ROCmSoftwarePlatform/rocMLIR-internal/issues/1098
+// https://github.com/ROCm/rocMLIR-internal/issues/1098
 // right before it headed down to linalg.generic. The actuall gemm part has been
 // removed for test simplicity.
 module {
