@@ -178,15 +178,15 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
                 /*n=*/bShape[2]);
 
-  GemmSize scale{1, 1, 1, 1};
+  GemmSize extraPaddingFactor{1, 1, 1, 1};
   int64_t splitKFactor{1};
   if (auto attr = op->getAttr("split-k-factor")) {
     splitKFactor = attr.cast<IntegerAttr>().getInt();
-    scale.k = splitKFactor;
+    extraPaddingFactor.k = splitKFactor;
   }
 
-  GemmSize extraPad =
-      requiredPadding(params, size, scale).value_or(GemmSize{0, 0, 0, 0});
+  GemmSize extraPad = requiredPadding(params, size, extraPaddingFactor)
+                          .value_or(GemmSize{0, 0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
