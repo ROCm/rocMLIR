@@ -635,5 +635,9 @@ StringAttr mlir::rock::getArch(Operation *op) {
     auto mod = func->getParentOfType<ModuleOp>();
     arch = mod->getAttrOfType<StringAttr>("mhal.arch");
   }
+  if (!arch) {
+    auto mod = func->getParentOfType<gpu::GPUModuleOp>();
+    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
+  }
   return arch;
 }
