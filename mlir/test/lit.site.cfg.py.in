@@ -108,8 +108,8 @@ config.features = None
 if config.rocm_path:
     try:
         if os.name != 'nt':
-            p = subprocess.run(["python", config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                               check=True, stdout=subprocess.PIPE, shell=True)
+            p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
+                               check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in p.stdout.split())
             if not agents:
                 # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
@@ -118,8 +118,9 @@ if config.rocm_path:
                                     check=True, stdout=subprocess.PIPE, shell=True)
                 agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         else:
-            # Hard coding for now. Windows has no rocm_agent_enumerator, so we must figure out the proper detection.
-            agents = {"gfx1030"}
+            p = subprocess.run([config.rocm_path + "/bin/amdgpu_arch.exe"],
+                               check=True, stdout=subprocess.PIPE, shell=True)
+            agents = set(p.stdout.decode("utf-8").split())           
         config.arch = ','.join(agents)
         for x in agents:
             if not config.features:
