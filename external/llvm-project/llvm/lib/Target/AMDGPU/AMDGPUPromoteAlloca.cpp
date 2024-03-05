@@ -52,7 +52,7 @@ namespace {
 static cl::opt<bool>
     DisablePromoteAllocaToVector("disable-promote-alloca-to-vector",
                                  cl::desc("Disable promote alloca to vector"),
-                                 cl::init(true));
+                                 cl::init(false));
 
 static cl::opt<bool>
     DisablePromoteAllocaToLDS("disable-promote-alloca-to-lds",
@@ -294,7 +294,7 @@ calculateVectorIndex(Value *Ptr,
 
   auto I = GEPIdx.find(GEP);
   assert(I != GEPIdx.end() && "Must have entry for GEP!");
-   return isa<Constant>(I->second) ? I->second :  ConstantInt::getNullValue(Type::getInt32Ty(Ptr->getContext()));
+   return I->second;
 }
 
 static Value *GEPToVectorIndex(GetElementPtrInst *GEP, AllocaInst *Alloca,
@@ -401,7 +401,7 @@ static Value *promoteAllocaUserToVector(
     // We're loading the full vector.
     Type *AccessTy = Inst->getType();
     TypeSize AccessSize = DL.getTypeStoreSize(AccessTy);
-    if (AccessSize == VecStoreSize && cast<Constant>(Index)->isZeroValue()) {
+    if (AccessSize == VecStoreSize && isa<Constant>(Index) && cast<Constant>(Index)->isZeroValue()) {
       if (AccessTy->isPtrOrPtrVectorTy())
         CurVal = CreateTempPtrIntCast(CurVal, AccessTy);
       else if (CurVal->getType()->isPtrOrPtrVectorTy())
@@ -456,7 +456,7 @@ static Value *promoteAllocaUserToVector(
     // We're storing the full vector, we can handle this without knowing CurVal.
     Type *AccessTy = Val->getType();
     TypeSize AccessSize = DL.getTypeStoreSize(AccessTy);
-    if (AccessSize == VecStoreSize && cast<Constant>(Index)->isZeroValue()) {
+    if (AccessSize == VecStoreSize && isa<Constant>(Index) && cast<Constant>(Index)->isZeroValue()) {
       if (AccessTy->isPtrOrPtrVectorTy())
         Val = CreateTempPtrIntCast(Val, AccessTy);
       else if (VectorTy->isPtrOrPtrVectorTy())
