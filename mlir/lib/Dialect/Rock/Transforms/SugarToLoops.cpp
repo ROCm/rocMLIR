@@ -895,6 +895,7 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
                                  Value dest, ArrayRef<Value> coords) {
   const bool useBufferOobChecks = true;
+  const int packedVectorLen = 2;
   // Useful consts
   Value zero = b.create<arith::ConstantIntOp>(loc, 0, 32);
   Value one = b.create<arith::ConstantIntOp>(loc, 1, 32);
@@ -902,23 +903,24 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
 
   // Extended packed data to use with the intrinsic
   Value dataExt =
-      createZeroConstantOp(b, loc, vectorTypeOrSelf(b.getF16Type(), 2));
+      createZeroConstantOp(b, loc, vectorTypeOrSelf(b.getF16Type(), packedVectorLen));
   Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
   // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
-  Value stepBack = b.create<arith::SubIOp>(loc, coords[2], one);
-  Value alignment = b.create<arith::RemUIOp>(loc, coords[2], two);
+  Value stepBack = b.create<arith::SubIOp>(loc, coords.back(), one);
+  Value alignment = b.create<arith::RemUIOp>(loc, coords.back(), two);
   Value notAligns =
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
 
   // Step back data and address
   Value selectAddress =
-      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords[2]);
+      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords.back());
   Value selectDataExt =
       b.create<arith::SelectOp>(loc, notAligns, dataExt0, dataExt1);
 
-  SmallVector<Value> alignedCoords{coords[0], coords[1], selectAddress};
+  SmallVector<Value> alignedCoords(coords);
+  alignedCoords.back() = selectAddress;
   b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
                                           alignedCoords, useBufferOobChecks,
                                           nullptr, nullptr);
