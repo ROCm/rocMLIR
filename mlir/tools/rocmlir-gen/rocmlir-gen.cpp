@@ -274,6 +274,10 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
 
+static llvm::cl::opt<int64_t>
+    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
+                 llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
     llvm::cl::values(
@@ -2224,6 +2228,9 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
+
+  gemm->setAttr("split-k-factor", b.getI32IntegerAttr(splitkFactor));
+
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);
