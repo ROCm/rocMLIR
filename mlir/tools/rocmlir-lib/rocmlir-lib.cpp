@@ -1,6 +1,6 @@
 #include "Miir.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
-#include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -91,7 +91,7 @@ private:
   }
 };
 
-LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
+LogicalResult RockEnabled(const mlir::rock::ConvGenerator::Config &conf) {
   const std::string &inLayout = conf.inputLayout;
   const std::string &filLayout = conf.filterLayout;
   const std::string &outLayout = conf.outputLayout;
@@ -119,16 +119,16 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   ModuleOp module = handle->getModule();
   OpBuilder builder(module.getContext());
 
-  mlir::rock::Conv2dGenerator conv2dGenerator;
-  if (failed(conv2dGenerator.parseConvConfig(builder, arguments))) {
+  mlir::rock::ConvGenerator convGenerator;
+  if (failed(convGenerator.parseConvConfig(builder, arguments))) {
     return nullptr;
   }
 
-  if (failed(conv2dGenerator.isApplicable())) {
+  if (failed(convGenerator.isApplicable())) {
     return nullptr;
   }
 
-  const auto &config = conv2dGenerator.getConfig();
+  const auto &config = convGenerator.getConfig();
   if (failed(RockEnabled(config))) {
     return nullptr;
   }
@@ -137,15 +137,15 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   handle->chip = config.chip;
   handle->features = config.chipFeatures;
 
-  if (failed(conv2dGenerator.getKernelCount(builder, handle->kernelCount))) {
+  if (failed(convGenerator.getKernelCount(builder, handle->kernelCount))) {
     return nullptr;
   }
 
-  if (failed(conv2dGenerator.getWorkspaceSize(module, handle->workspace))) {
+  if (failed(convGenerator.getWorkspaceSize(module, handle->workspace))) {
     return nullptr;
   }
 
-  if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
+  if (failed(convGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
   }
   return handle;

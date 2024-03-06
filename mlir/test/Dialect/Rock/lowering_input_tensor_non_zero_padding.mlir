@@ -13,9 +13,9 @@ func.func @rock_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %inp
     filter_layout = ["g", "c", "y", "x", "k"],
     input_layout = ["gi", "ci", "ni", "hi", "wi"],
     output_layout = ["go", "ko", "no", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [1 : i32,  1 : i32,  1 : i32,  1 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [1 : index,  1 : index,  1 : index,  1 : index]
   } : memref<1x8x3x3x128xf32>, memref<1x8x128x32x32xf32>, memref<1x128x128x32x32xf32>
   return
 }
