@@ -106,54 +106,15 @@ struct LaunchOpInterface
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
-    auto opOperandIdx = opOperand.getOperandNumber()
-      - launchOp.getDependencies().size();
-    mlir::CallOpInterface callOp(op);
-    FuncOp funcOp = getCalledFunction(callOp);
-    assert(funcOp && "expected CallOp to a FuncOp");
+    // operands are always inputs
+    return false;
 
-    if (getFuncOpAnalysisState(state, funcOp) != FuncOpAnalysisState::Analyzed)
-      // FuncOp not analyzed yet. Assume that OpOperand is written.
-      return true;
-
-    const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    return funcState.writtenBbArgs.lookup(funcOp).contains(opOperandIdx);
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
-    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
-    auto opOperandIdx = opOperand.getOperandNumber()
-      - launchOp.getDependencies().size();
-    mlir::CallOpInterface callOp(op);
-    FuncOp funcOp = getCalledFunction(callOp);
-    assert(funcOp && "expected CallOp to a FuncOp");
-    if (getFuncOpAnalysisState(state, funcOp) !=
-        FuncOpAnalysisState::Analyzed) {
-      // FuncOp not analyzed yet. Any OpResult may be aliasing.
-      return bufferization::detail::unknownGetAliasingValues(opOperand);
-    }
-
-    const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    auto aliasingReturnVals =
-      funcState.aliasingReturnVals.lookup(funcOp).lookup(opOperandIdx);
-
-    // Check if the aliasing OpResult is equivalent to the OpOperand.
-    std::optional<int64_t> equivalent = {};
-    if (aliasingReturnVals.size() == 1) {
-      equivalent = getEquivalentFuncArgIdx(funcOp, funcState,
-                                           aliasingReturnVals.front());
-      assert((!equivalent.has_value() ||
-              *equivalent == opOperandIdx) &&
-             "inconsistent analysis state");
-    }
+    // results never alias with operands
     AliasingValueList result;
-    for (int64_t resultIdx : aliasingReturnVals)
-      result.addAlias({callOp->getOpResult(resultIdx),
-                       equivalent.has_value() ? BufferRelation::Equivalent
-                                              : BufferRelation::Unknown,
-                       /*isDefinite=*/equivalent.has_value()});
     return result;
   }
 
