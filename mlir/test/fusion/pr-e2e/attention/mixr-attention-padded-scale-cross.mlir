@@ -9,7 +9,7 @@ module {
                                     -> (!migraphx.shaped<1x128x64xf32, 8192x64x1> {func.write_access}) {
     %0 = migraphx.dot %arg0, %arg1: <1x128x64xf32, 8192x64x1>, <1x64x27xf32, 1728x27x1> -> <1x128x27xf32, 3456x27x1>
     %biased = migraphx.mul %0, %arg3 : <1x128x27xf32, 3456x27x1>, <1x128x27xf32, 3456x27x1> -> <1x128x27xf32, 3456x27x1>
-    %1 = migraphx.softmax %biased{axis = 2 : i32} : <1x128x27xf32, 3456x27x1> -> <1x128x27xf32, 3456x27x1>
+    %1 = migraphx.softmax %biased{axis = 2 : i64} : <1x128x27xf32, 3456x27x1> -> <1x128x27xf32, 3456x27x1>
     %2 = migraphx.dot %1, %arg2: <1x128x27xf32, 3456x27x1>, <1x27x64xf32, 1728x64x1> -> <1x128x64xf32, 8192x64x1>
     return %2 : !migraphx.shaped<1x128x64xf32, 8192x64x1>
   }

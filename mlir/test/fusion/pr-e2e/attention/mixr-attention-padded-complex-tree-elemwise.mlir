@@ -21,7 +21,7 @@ module {
     // second level
     %scaled = migraphx.mul %0, %sub : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %biased = migraphx.add %scaled, %add : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
-    %1 = migraphx.softmax %biased{axis = 2 : i32} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
+    %1 = migraphx.softmax %biased{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %2 = migraphx.dot %1, %arg2: <1x7x7xf32, 49x7x1>, <1x7x3xf32, 21x3x1> -> <1x7x3xf32, 21x3x1>
     return %2 : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }

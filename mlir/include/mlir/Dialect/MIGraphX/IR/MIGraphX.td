@@ -491,7 +491,7 @@ def MIGraphX_DotOp :
 def MIGraphX_SoftmaxOp :
     MIGraphX_Op<"softmax">,
     Arguments<(ins AnyMIXRShaped:$input,
-                   I32Attr:$axis
+                   I64Attr:$axis
                    )>,
 	Results<(outs AnyMIXRShaped:$output)> {
   let summary = "softmax operation";
@@ -506,7 +506,7 @@ def MIGraphX_SoftmaxOp :
 def MIGraphX_ReduceMeanOp :
     MIGraphX_Op<"reduce_mean">,
     Arguments<(ins AnyMIXRShaped:$input,
-                   I32ArrayAttr:$axes
+                   I64ArrayAttr:$axes
                    )>,
 	Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Get the mean of the values in given axis";

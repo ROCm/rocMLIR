@@ -293,7 +293,7 @@ module  {
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
-    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i32]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1>
   }
 
@@ -305,7 +305,7 @@ module  {
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
-    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i32]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1>
   }
 
@@ -317,7 +317,7 @@ module  {
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
-    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i32]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1>
   }
 
@@ -329,7 +329,7 @@ module  {
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
-    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i32]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1>
   }
 
@@ -341,7 +341,7 @@ module  {
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE]]
   // CHECK: return %[[REDUCE_SUM]]
   func.func @func_reduce_mean_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
-    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i32]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
+    %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
   }
 
@@ -532,7 +532,7 @@ module {
   // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = tosa.reciprocal [[REDUCE_SUM]]
   // CHECK-DAG: tosa.mul [[EXP]], [[RECIPROCAL]]
   func.func @func_softmax_1d(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
-    %0 = migraphx.softmax %arg0 {axis = 0 : i32} : <16xf32, 1> -> <16xf32, 1>
+    %0 = migraphx.softmax %arg0 {axis = 0 : i64} : <16xf32, 1> -> <16xf32, 1>
      return %0 : !migraphx.shaped<16xf32, 1>
   }
 
@@ -544,7 +544,7 @@ module {
   // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = tosa.reciprocal [[REDUCE_SUM]]
   // CHECK-DAG: tosa.mul [[EXP]], [[RECIPROCAL]]
   func.func @func_softmax_4d(%arg0: !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>) -> !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1> {
-    %0 = migraphx.softmax %arg0 {axis = 1 : i32} : <16x16x16x16xf32, 4096x256x16x1> -> <16x16x16x16xf32, 4096x256x16x1>
+    %0 = migraphx.softmax %arg0 {axis = 1 : i64} : <16x16x16x16xf32, 4096x256x16x1> -> <16x16x16x16xf32, 4096x256x16x1>
      return %0 : !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>
   }
 }
