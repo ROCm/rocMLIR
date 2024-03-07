@@ -843,41 +843,56 @@ VectorizationResult mlir::rock::getMaxVectorization(
   Operation *currentUser = operationRootForFusionTraversal;
   Value currentVal = transformed;
   LogicalResult fusionTraversalStatus = success();
+  auto contiguousMerges = findContiguousGroups(transformed);
 
-  // In the outer loop, we handle cases that make us jump to a different
-  // transform stack. For example, if we're traversing fusions and we reach
-  // a memref.alloc, we know we need to find the fusion that reads from
-  // it in order to visit the transforms on its output. Similarly, if we see
-  // a rock.scalarize, we'll need to adjust the vectorization data
-  // to account for the underlying data type and then continue.
-  while (true) {
-    auto contiguousMerges = findContiguousGroups(transformed);
-    while (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
-      TransformMapAttr transformMap = trOp.getTransform();
-      LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
-      data.debugPrint();
-      LLVM_DEBUG(llvm::dbgs() << "Processing: " << transformMap << "\n");
-      data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
+  // Advance to the next operation to analyze, updating any vectorization
+  // analysis state as needed. This function must update currentVal and
+  // currentUser, and may update other variables. In the simplest case, this
+  // advances to the next rock.transform operation. However, it also handles:
+  // - If we recah a memref.alloc() and are following fusions, go to the
+  // source of post-fusion transforms (for an output fusion, the output of the
+  // fusion) to traverse its transform stack (which involves) recomputing
+  // contiguous merge data).
+  // - For rock.scalarize, adjust the vectorization data to account for the
+  // change in indexing scheme and continue.
+  auto advance = [&]() -> bool {
+    Operation *definingOp = currentVal.getDefiningOp();
+    if (!definingOp)
+      return false;
+    if (auto trOp = dyn_cast<TransformOp>(definingOp)) {
       currentVal = trOp.getInput();
-      currentUser = trOp.getOperation();
+      currentUser = definingOp;
+      return true;
     }
-    if (traverseFusions && currentVal.getDefiningOp<memref::AllocOp>()) {
+    if (traverseFusions && isa<memref::AllocOp>(definingOp)) {
       FailureOr<std::pair<Value, Operation *>> maybeNewStack =
           findPostFusionTransforms(currentVal, currentUser);
       if (failed(maybeNewStack)) {
         LLVM_DEBUG(llvm::dbgs()
                    << "[vectorization] Failed to advance past fusion\n");
         fusionTraversalStatus = failure();
-        break;
+        return false;
       }
       std::tie(currentVal, currentUser) = *maybeNewStack;
       LLVM_DEBUG(llvm::dbgs()
                      << "[vectorization] Advancing past fusion to new value "
-                     << currentVal << "\n";);
-    } else {
-      break;
+                     << currentVal << "with data: ";);
+      data.debugPrint();
+      contiguousMerges = findContiguousGroups(currentVal);
+      return true;
     }
-  }
+    return false;
+  };
+
+  do {
+    if (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
+      TransformMapAttr transformMap = trOp.getTransform();
+      LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
+      data.debugPrint();
+      LLVM_DEBUG(llvm::dbgs() << "Processing: " << transformMap << "\n");
+      data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
+    }
+  } while (advance());
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
   data.debugPrint();
 
@@ -920,6 +935,8 @@ Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
   SmallVector<TransformOp> transformOps;
   Value currentRes;
   std::tie(currentRes, std::ignore) = untransform(transformed, transformOps);
+  bool canEditInPlace = llvm::all_of(
+      transformOps, [](TransformOp op) { return op->hasOneUse(); });
   bool needCloning = false;
   for (TransformOp trOp : llvm::reverse(transformOps)) {
     bool changed = false;
@@ -973,10 +990,16 @@ Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
     if (changed) {
       newMap = TransformMapAttr::get(ops, map.getUpperBounds(),
                                      map.getLowerBounds());
-      // From now on, we have to copy the transform stack.
-      needCloning = true;
+      if (canEditInPlace)
+        trOp.setTransformAttr(newMap);
+      else
+        needCloning = true;
     }
 
+    // We start cloning the transform stack after our first edit if, at some
+    // point, the transformed value has multiple uses. This ensures that we
+    // don't introduce merge collapses into transform chains other than the one
+    // we've been asked to edit.
     if (needCloning) {
       IRMapping cloneMap;
       cloneMap.map(trOp.getInput(), currentRes);
