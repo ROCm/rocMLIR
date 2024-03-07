@@ -59,6 +59,8 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// be added to the given dimension.
 std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
+int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock, int64_t mPerWave, int64_t nPerWave);
+
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
   GemmSize gemmSize;

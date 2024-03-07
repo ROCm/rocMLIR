@@ -119,14 +119,16 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
-                  if (kind == TuningParamSetKind::Exhaustive ||
-                      (succeeded(
-                           tuningInfo.paramsProbablyValid(info, gemmParams)) &&
-                       succeeded(
-                           tuningInfo.couldBePerformant(info, gemmParams))))
-                    newSpace->tuningRange.push_back(
-                        cast<RockTuningParamAttrInterface>(
-                            tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                  if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
+                    if (kind == TuningParamSetKind::Exhaustive ||
+                        (succeeded(
+                            tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                        succeeded(
+                            tuningInfo.couldBePerformant(info, gemmParams))))
+                      newSpace->tuningRange.push_back(
+                          cast<RockTuningParamAttrInterface>(
+                              tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                  }
                 }
               }
             }

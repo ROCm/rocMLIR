@@ -497,18 +497,16 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 
 FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
                                                Type elementTypeB,
-                                               StringRef arch, int64_t mPerWave,
-                                               int64_t nPerWave) {
+                                               StringRef arch, int64_t mnPerXdl) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
                           << "arch: " << arch << "\n"
-                          << "mPerWave: " << mPerWave << "\n"
-                          << "nPerWave: " << nPerWave << "\n");
+                          << "mnPerXdl: " << mnPerXdl << "\n");
 
   // Use 64x64 as base unit in large waves
-  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mPerWave);
-  int64_t nPerMfmaGroup = getLenPerMfmaGroup(nPerWave);
+  int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
+  int64_t nPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
 
   MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB),
                                 mPerMfmaGroup, nPerMfmaGroup};

@@ -1475,9 +1475,8 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
-                                                    tuningParams.getMPerWave(),
-                                                    tuningParams.getNPerWave());
+    XdlopsGemmParamsAttr mfmaParams = tuningParams.cast<XdlopsGemmParamsAttr>();
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

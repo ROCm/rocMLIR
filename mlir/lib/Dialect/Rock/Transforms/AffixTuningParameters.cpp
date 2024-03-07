@@ -135,8 +135,11 @@ void AffixTuningParameters::affixTuningParametersImpl(
         status = populateParamsAccelPtr->obtainTuningParameters(
             op, perfConfig, validParams, blockSize);
       }
-      if (failed(status))
+      if (failed(status)){
+        LLVM_DEBUG(llvm::dbgs()
+                   << "obtainTuningParameters call fails.\n");
         signalPassFailure();
+      }
     }
 
     auto origGemmSize = op.getGemmSize();
@@ -166,13 +169,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
-
-    Attribute gemmParams =
-        populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-
-    op.setGemmParamsAttr(gemmParams);
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+    auto gemmParams =
+        populateParamsAccelPtr->getGemmParamsAttr(b, validParams).cast<RockAccelTuningParamAttrInterface>();
+    blockSize = obtainBlockSize(waveSize, gemmParams.getMPerBlock(), gemmParams.getNPerBlock(), gemmParams.getMPerWave(), gemmParams.getNPerWave());    
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+    op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));

@@ -263,6 +263,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
     "bool":$forceUnroll
   );
 
@@ -279,6 +280,51 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         .toVector(perfStr);
     }
   }];
+
+  let builders = [
+      AttrBuilder<(ins  "int64_t":$kpackPerBlock,
+                        "int64_t":$mPerBlock,
+                        "int64_t":$nPerBlock,
+                        "int64_t":$kpack,
+                        "int64_t":$mPerWave,
+                        "int64_t":$nPerWave,
+                        "bool":$forceUnroll), [{
+      int64_t mnPerXdl = std::min(mPerWave, nPerWave);
+      // maxWaves = waves_per_eu(2) * eus_per_cu(4) = 8
+      constexpr int64_t maxWaves = 8;
+      int64_t mWaves = mPerBlock / mPerWave;
+      int64_t nWaves = nPerBlock / nPerWave;
+      if (nWaves >= maxWaves) {
+        nWaves = maxWaves;
+        mWaves = 1;
+      }
+      else if (mWaves >= maxWaves) {
+        nWaves = 1;
+        mWaves = maxWaves;
+      }
+      else if (mWaves * nWaves > maxWaves){
+        if ( nWaves > mWaves ) {
+          mWaves = maxWaves / nWaves;
+        }
+        else {
+          nWaves = maxWaves / mWaves; 
+        }
+      }
+      mPerWave = mPerBlock / mWaves;
+      nPerWave = nPerBlock / nWaves;
+      return $_get(
+        $_ctxt,
+        kpackPerBlock,
+        mPerBlock, 
+        nPerBlock, 
+        kpack,
+        mPerWave,
+        nPerWave,
+        mnPerXdl,
+        forceUnroll
+      );
+    }]>
+  ];
 
   let assemblyFormat = [{
     `<` struct(params) `>`

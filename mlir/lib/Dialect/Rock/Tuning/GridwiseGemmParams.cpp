@@ -132,6 +132,10 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
   return calculatePadding(kPerBlock, mPerBlock, nPerBlock, gemmSize, kPack);
 }
 
+int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock, int64_t mPerWave, int64_t nPerWave) {
+  return waveSize * (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
+}
+
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonAccel &param) {
 
@@ -304,8 +308,7 @@ PopulateParamsAccel::calculatePaddingAmount(const InitParamsAccel &params,
 
 uint32_t PopulateParamsAccel::obtainBlockSize(const InitParamsAccel &params,
                                               int64_t waveSize) {
-  return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
-         (params.gemmMPerWave * params.gemmNPerWave);
+  return ::obtainBlockSize(waveSize, params.gemmMPerBlock, params.gemmNPerBlock, params.gemmMPerWave, params.gemmNPerWave);
 }
 
 LogicalResult
@@ -316,7 +319,7 @@ PopulateParamsAccel::populateDerived(const InitParamsAccel &params,
   blockSize = obtainBlockSize(params, waveSize);
 
   LogicalResult res = isValidBlockwiseGemm(
-      params, info.gemmAType, info.gemmBType, info.arch, blockSize);
+      params, info.gemmAType, info.gemmBType, info.arch, blockSize, false, false);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid accelerated gemm.\n");
     return failure();
@@ -618,8 +621,9 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   // Reject invalid KPACK values.
+  int64_t mnPerXdl = std::min(param.gemmMPerWave, param.gemmNPerWave);
   auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-      dataTypeA, dataTypeB, arch, param.gemmMPerWave, param.gemmNPerWave);
+      dataTypeA, dataTypeB, arch, mnPerXdl);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -654,8 +658,9 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   std::copy_if(
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
+        int64_t mnPerXdl = std::min(param.gemmMPerWave, param.gemmNPerWave);
         auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-            dataTypeA, dataTypeB, arch, param.gemmMPerWave, param.gemmNPerWave);
+            dataTypeA, dataTypeB, arch, mnPerXdl);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
