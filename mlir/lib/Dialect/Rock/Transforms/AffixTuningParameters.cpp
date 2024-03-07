@@ -172,6 +172,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
     auto gemmParams =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams).cast<RockAccelTuningParamAttrInterface>();
+    gemmParams = XdlopsGemmDerivedParamsAttr::get(gemmParams);
     blockSize = obtainBlockSize(waveSize, gemmParams.getMPerBlock(), gemmParams.getNPerBlock(), gemmParams.getMPerWave(), gemmParams.getNPerWave());    
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
@@ -271,11 +272,13 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     return;
   }
   auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+  accelParams0 = XdlopsGemmDerivedParamsAttr::get(accelParams0);
   op.setParams0Attr(accelParams0);
   auto initAccelParams1 = deriveGemm1TuningParams(builder, op);
   Attribute params1 =
       populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
   auto accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
+  accelParams1 = XdlopsGemmDerivedParamsAttr::get(accelParams1);
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *

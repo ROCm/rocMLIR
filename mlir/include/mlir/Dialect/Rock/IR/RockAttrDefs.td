@@ -250,9 +250,42 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-
 def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+        (Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .toVector(perfStr);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "xdlops_gemm_derived_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
   }];
@@ -282,13 +315,11 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 
   let builders = [
-      AttrBuilder<(ins  "int64_t":$kpackPerBlock,
-                        "int64_t":$mPerBlock,
-                        "int64_t":$nPerBlock,
-                        "int64_t":$kpack,
-                        "int64_t":$mPerWave,
-                        "int64_t":$nPerWave,
-                        "bool":$forceUnroll), [{
+      AttrBuilderWithInferredContext<(ins  "RockAccelTuningParamAttrInterface":$params), [{
+      int64_t mPerWave = params.getMPerWave();
+      int64_t nPerWave = params.getNPerWave();
+      int64_t mPerBlock = params.getMPerBlock();
+      int64_t nPerBlock = params.getNPerBlock();
       int64_t mnPerXdl = std::min(mPerWave, nPerWave);
       // maxWaves = waves_per_eu(2) * eus_per_cu(4) = 8
       constexpr int64_t maxWaves = 8;
@@ -313,15 +344,15 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
       mPerWave = mPerBlock / mWaves;
       nPerWave = nPerBlock / nWaves;
       return $_get(
-        $_ctxt,
-        kpackPerBlock,
+        params.getContext(),
+        params.getKpackPerBlock(),
         mPerBlock, 
         nPerBlock, 
-        kpack,
+        params.getKpack(),
         mPerWave,
         nPerWave,
         mnPerXdl,
-        forceUnroll
+        params.getForceUnroll()
       );
     }]>
   ];
