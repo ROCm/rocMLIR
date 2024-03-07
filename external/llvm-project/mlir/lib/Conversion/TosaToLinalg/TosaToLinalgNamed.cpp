@@ -256,7 +256,6 @@ public:
         !std::is_same<LinalgConvOp, linalg::Conv2DNhwgcGfhwcOp>::value && !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value )
       return rewriter.notifyMatchFailure(
           op, "tosa.conv ops should map to grouped convolution ops");
-
     
     if (group == 1 && isConv2DOp && 
         !std::is_same<LinalgConvOp, linalg::Conv2DNhwcFhwcOp>::value && !std::is_same<LinalgConvOp, linalg::Conv2DNhwcHwcfOp>::value)
@@ -393,6 +392,15 @@ public:
       newResultTy = RankedTensorType::get(newResultShape, resultETy);
     }
 
+    auto resultZeroAttr = rewriter.getZeroAttr(resultETy);
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+        loc, newResultTy.getShape(), resultETy, filteredDims);
+    Value zero = rewriter.create<arith::ConstantOp>(loc, resultZeroAttr);
+    Value zeroTensor = rewriter
+                           .create<linalg::FillOp>(loc, ValueRange{zero},
+                                                   ValueRange{emptyTensor})
+                           .result();
+
     // Extract the attributes for convolution.
     ArrayRef<int64_t> stride = strideTosaAttr;
     ArrayRef<int64_t> dilation = dilationTosaAttr;
@@ -400,6 +408,14 @@ public:
     // Create the convolution op.
     auto strideAttr = rewriter.getI64TensorAttr(stride);
     auto dilationAttr = rewriter.getI64TensorAttr(dilation);
+
+    SmallVector<AffineMap, 4> indexingMaps;
+    indexingMaps.push_back(AffineMap::get(
+        /*dimCount=*/resultTy.getRank(), /*symbolCount=*/0,
+        {rewriter.getAffineDimExpr(resultTy.getRank() - 1)},
+        rewriter.getContext()));
+    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
+    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
 
     Value biasEmptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, resultTy.getShape(), resultETy, filteredDims);
@@ -434,7 +450,7 @@ public:
     Value conv = rewriter
                      .create<LinalgConvOp>(
                          loc, newResultTy, ValueRange{input, weight},
-                         ValueRange{broadcastBias}, strideAttr, dilationAttr)
+                         ValueRange{zeroTensor}, strideAttr, dilationAttr)
                      ->getResult(0);
     if (isConv2DOp && group > 1) {
       conv = rewriter.create<tosa::ReshapeOp>(
@@ -442,7 +458,20 @@ public:
       rewriter.getDenseI64ArrayAttr(resultShape));
     }
 
-    rewriter.replaceOp(op, conv);
+      Value result =
+        rewriter
+            .create<linalg::GenericOp>(
+                loc, resultTy, ValueRange({bias, conv}), biasEmptyTensor,
+                indexingMaps, getNParallelLoopsAttrs(resultTy.getRank()),
+                [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                    ValueRange args) {
+                  Value added = nestedBuilder.create<arith::AddFOp>(
+                      loc, args[0], args[1]);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
+                })
+            .getResult(0);
+
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
