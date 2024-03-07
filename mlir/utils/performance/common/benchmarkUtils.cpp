@@ -95,7 +95,9 @@ void printUsage(const std::string &name) {
                "(f32|f16|bf16|i8) \n [-transA=(True|False)] "
                "[-transB=(True|False)] \n "
                "[--kernel-repeats numKernelRepeats]\n"
-               "[--fusion=(fastgelu_add_add)]\n";
+               "[--fusion=(fastgelu_add_add)]\n"
+               "[-split-k-factor]\n"
+               "[-v]\n";
 }
 
 // Get a pattern to fill the input tensors. This is because we want to avoid
@@ -248,6 +250,15 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       res.fusion = value;
     } else if (arg.rfind("-out_datatype", 0) == 0) {
       res.outDataType = strToDataType(argv[++i]);
+    } else if (arg.rfind("-split-k-factor", 0) == 0) {
+      res.splitKFactor = atoi(argv[++i]);
+      if (res.splitKFactor < 1) {
+        std::cerr << "`-split-k-factor` must be greater than 0\n";
+        printUsage(name);
+        exit(1);
+      }
+    } else if (arg.rfind("-v", 0) == 0) {
+      res.verbose = true;
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);
@@ -264,14 +275,15 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
 }
 
 void printProblem(BenchmarkArgs args) {
-  std::cout << "G:" << args.gemmG << "\n"
+  std::cout << "G: " << args.gemmG << "\n"
             << "M: " << args.gemmM << "\n"
             << "N: " << args.gemmN << "\n"
             << "K: " << args.gemmK << "\n"
             << "transA: " << (args.transposeA ? "true" : "false") << "\n"
             << "transB: " << (args.transposeB ? "true" : "false") << "\n"
             << "DataType: " << dataTypeToStr(args.dataType) << "\n"
-            << "OutDataType: " << dataTypeToStr(args.outDataType) << "\n";
+            << "OutDataType: " << dataTypeToStr(args.outDataType) << "\n"
+            << "SplitK Factor: " << args.splitKFactor << std::endl;
 }
 
 size_t getByteSize(DataType dataType, size_t elems) {
