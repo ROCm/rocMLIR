@@ -895,14 +895,14 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
                                  Value dest, ArrayRef<Value> coords) {
 
-
-  assert(data.getType().isa<ShapedType>() && "Data needs to have a shape!");
-  ArrayRef<int64_t> shape = cast<ShapedType>(data.getType()).getShape();
-  assert(coords.size() == shape.size() && "Shape and coordinates should have the same size!");
+  assert(dest.getType().isa<ShapedType>() && "Data needs to have a shape!");
+  ArrayRef<int64_t> shape = cast<ShapedType>(dest.getType()).getShape();
+  assert(coords.size() == shape.size() &&
+         "Shape and coordinates should have the same size!");
 
   // Get the last non-unit dimension
   int64_t lastNonUnitDim = shape.size() - 1;
-  while(shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
+  while (shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
     lastNonUnitDim--;
   const bool useBufferOobChecks = true;
   const int packedVectorLen = 2;
@@ -912,8 +912,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value two = b.create<arith::ConstantIntOp>(loc, 2, 32);
 
   // Extended packed data to use with the intrinsic
-  Value dataExt =
-      createZeroConstantOp(b, loc, vectorTypeOrSelf(b.getF16Type(), packedVectorLen));
+  Value dataExt = createZeroConstantOp(
+      b, loc, vectorTypeOrSelf(b.getF16Type(), packedVectorLen));
   Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
@@ -924,8 +924,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
 
   // Step back data and address
-  Value selectAddress =
-      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords[lastNonUnitDim]);
+  Value selectAddress = b.create<arith::SelectOp>(loc, notAligns, stepBack,
+                                                  coords[lastNonUnitDim]);
   Value selectDataExt =
       b.create<arith::SelectOp>(loc, notAligns, dataExt0, dataExt1);
 
