@@ -894,6 +894,16 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
 /// manually
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
                                  Value dest, ArrayRef<Value> coords) {
+
+
+  assert(data.getType().isa<ShapedType>() && "Data needs to have a shape!");
+  ArrayRef<int64_t> shape = cast<ShapedType>(data.getType()).getShape();
+  assert(coords.size() == shape.size() && "Shape and coordinates should have the same size!");
+
+  // Get the last non-unit dimension
+  int64_t lastNonUnitDim = shape.size() - 1;
+  while(shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
+    lastNonUnitDim--;
   const bool useBufferOobChecks = true;
   const int packedVectorLen = 2;
   // Useful consts
@@ -908,14 +918,14 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
   // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
-  Value stepBack = b.create<arith::SubIOp>(loc, coords.back(), one);
-  Value alignment = b.create<arith::RemUIOp>(loc, coords.back(), two);
+  Value stepBack = b.create<arith::SubIOp>(loc, coords[lastNonUnitDim], one);
+  Value alignment = b.create<arith::RemUIOp>(loc, coords[lastNonUnitDim], two);
   Value notAligns =
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
 
   // Step back data and address
   Value selectAddress =
-      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords.back());
+      b.create<arith::SelectOp>(loc, notAligns, stepBack, coords[lastNonUnitDim]);
   Value selectDataExt =
       b.create<arith::SelectOp>(loc, notAligns, dataExt0, dataExt1);
 
