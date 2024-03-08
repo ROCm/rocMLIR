@@ -61,6 +61,8 @@ std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
 int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock, int64_t mPerWave, int64_t nPerWave);
 
+int64_t obtainBlockSize(int64_t waveSize, RockAccelTuningParamAttrInterface params);
+
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
   GemmSize gemmSize;
@@ -247,7 +249,8 @@ public:
   // Succeed if the given `params` could be a valid set of tuning parameters for
   // `info`. This is not a guarantee that a given set of parameters will pass
   // applicability, but it should filter out inapplicable configs.
-  virtual LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+  virtual LogicalResult paramsProbablyValid(OpBuilder b,
+                                            const PopulateParamsInfo &info,
                                             const InitParamType &params) = 0;
 
   // Succced if `params` should be included in a "full" tuning space that
@@ -283,7 +286,8 @@ public:
                                        const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
 
-  LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
+  LogicalResult obtainTuningParameters(OpBuilder& b,
+                                       const PopulateParamsInfo &info,
                                        const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
 
@@ -295,7 +299,8 @@ public:
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;
 
-  LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder b,
+                                    const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
@@ -314,13 +319,12 @@ public:
 
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
-                                       InitParamsAccel &validParams,
-                                       uint32_t &blockSize);
+                                       InitParamsAccel &validParams);
 
-  virtual LogicalResult obtainTuningParameters(const PopulateParamsInfo &info,
+  virtual LogicalResult obtainTuningParameters(OpBuilder& b,
+                                               const PopulateParamsInfo &info,
                                                const StringRef perfConfig,
-                                               InitParamsAccel &validParams,
-                                               uint32_t &blockSize);
+                                               InitParamsAccel &validParams);
 
   int64_t calculatePaddingAmount(const InitParamsAccel &params,
                                  const GemmSize &gemmSize) const override;
@@ -336,28 +340,20 @@ public:
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
-  LogicalResult paramsProbablyValid(const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder b,
+                                    const PopulateParamsInfo &info,
                                     const InitParamsAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
                                   const InitParamsAccel &params) override;
 
   virtual LogicalResult
-  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch,
                        bool enableBlockSizeUpperLimit = true,
                        bool enableDPerWaveFiltering = true) = 0;
 
 protected:
-  // if can't select config from above , use this config to do
-  // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
-  // add more 3 gemmk.
-  uint32_t obtainBlockSize(const InitParamsAccel &params, int64_t waveSize);
-
-  LogicalResult populateDerived(const InitParamsAccel &validParams,
-                                const PopulateParamsInfo &info,
-                                uint32_t &blockSize);
-
   LogicalResult populatePaddingKernelDerived(RockGemmWrapperInterface op,
                                              const InitParamsAccel &validParams,
                                              GemmSize &gemmSize,
@@ -398,8 +394,8 @@ public:
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
   LogicalResult
-  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch,
                        bool enableBlockSizeUpperLimit = true,
                        bool enableDPerWaveFiltering = true) override;
 
@@ -433,8 +429,8 @@ public:
                     const InitParamsAccel &validParams) const override;
 
   LogicalResult
-  isValidBlockwiseGemm(const InitParamsAccel &param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch, uint32_t blockSize,
+  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch,
                        bool enableBlockSizeUpperLimit = true,
                        bool enableDPerWaveFiltering = true) override;
 

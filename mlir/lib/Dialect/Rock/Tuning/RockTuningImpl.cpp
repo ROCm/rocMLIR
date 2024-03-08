@@ -122,7 +122,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
                     if (kind == TuningParamSetKind::Exhaustive ||
                         (succeeded(
-                            tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                            tuningInfo.paramsProbablyValid(b, info, gemmParams)) &&
                         succeeded(
                             tuningInfo.couldBePerformant(info, gemmParams))))
                       newSpace->tuningRange.push_back(
@@ -152,7 +152,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
                   if (succeeded(
-                          tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                          tuningInfo.paramsProbablyValid(b, info, gemmParams)) &&
                       (kind == TuningParamSetKind::Exhaustive ||
                        succeeded(
                            tuningInfo.couldBePerformant(info, gemmParams))))
@@ -179,7 +179,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                               gemmNPerBlock, gemmKPerBlock,
                                               gemmMPerThread, gemmNPerThread);
                 if (succeeded(
-                        tuningInfo.paramsProbablyValid(info, gemmParams)) &&
+                        tuningInfo.paramsProbablyValid(b, info, gemmParams)) &&
                     (kind == TuningParamSetKind::Exhaustive ||
                      succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
                   newSpace->tuningRange.push_back(
@@ -206,7 +206,7 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
     }
@@ -217,7 +217,7 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
     }
@@ -228,7 +228,7 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
     }

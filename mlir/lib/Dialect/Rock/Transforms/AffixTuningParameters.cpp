@@ -123,17 +123,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
-    uint32_t blockSize = 0;
-
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, perfConfig, validParams, blockSize);
+        op, perfConfig, validParams);
 
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
-            op, perfConfig, validParams, blockSize);
+            op, perfConfig, validParams);
       }
       if (failed(status)){
         LLVM_DEBUG(llvm::dbgs()
@@ -173,7 +171,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     auto gemmParams =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams).cast<RockAccelTuningParamAttrInterface>();
     gemmParams = XdlopsGemmDerivedParamsAttr::get(gemmParams);
-    blockSize = obtainBlockSize(waveSize, gemmParams.getMPerBlock(), gemmParams.getNPerBlock(), gemmParams.getMPerWave(), gemmParams.getNPerWave());    
+    int64_t blockSize = obtainBlockSize(waveSize, gemmParams);    
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
 
@@ -286,12 +284,12 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams, elemTypeQ, elemTypeK, op.getArch(), blockSize,
+          accelParams0, elemTypeQ, elemTypeK, op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams1, elemTypeV, elemTypeV, op.getArch(), blockSize,
+          accelParams1, elemTypeV, elemTypeV, op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {

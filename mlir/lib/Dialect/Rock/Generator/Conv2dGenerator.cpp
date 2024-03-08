@@ -416,9 +416,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
-    uint32_t blockSize;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
-        info, config.perfConfig, validParams, blockSize);
+        builder, info, config.perfConfig, validParams);
     if (succeeded(res)) {
       needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
                           validParams, gemmSize) != 0);
@@ -427,7 +426,7 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   } else {
     PopulateParams populateParams;
     InitParamsNonAccel validParams;
-    auto res = populateParams.obtainTuningParameters(info, config.perfConfig,
+    auto res = populateParams.obtainTuningParameters(builder, info, config.perfConfig,
                                                      validParams);
 
     if (succeeded(res)) {
