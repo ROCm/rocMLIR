@@ -657,7 +657,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   // Reject invalid blockSize
-  int64_t kPerBlock = param.gemmKPerBlock;
+  int64_t kPerBlock = param.gemmKPerBlock * param.gemmKPack;
   int64_t mPerBlock = param.gemmMPerBlock;
   int64_t nPerBlock = param.gemmNPerBlock;
   if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
