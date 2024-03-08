@@ -230,7 +230,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     "int64_t":$kPerThread,
     "int64_t":$mPerThread,
     "int64_t":$nPerThread,
-    "int64_t":$kpack
+    "int64_t":$kpack,
+    "int64_t":$splitKFactor
   );
 
   let extraClassDeclaration = [{
@@ -240,7 +241,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread())).toVector(perfStr);
+      + Twine(getNPerThread()) + ","
+      + Twine(getSplitKFactor())).toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
   }];
@@ -263,6 +265,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
+    "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
 
@@ -274,6 +277,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -297,6 +301,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
+    "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
 
@@ -308,6 +313,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);

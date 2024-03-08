@@ -13,6 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_SERIALIZABLE_H
 #define MLIR_DIALECT_ROCK_SERIALIZABLE_H
 
+#include <algorithm>
 #include <numeric>
 #include <vector>
 
@@ -60,6 +61,15 @@ template <class Derived, char Seperator = ','> struct Serializable {
 
   bool deserialize(const std::string &s) {
     auto out = static_cast<const Derived &>(*this);
+
+    const auto numCommas =
+        std::count_if(s.begin(), s.end(), [](char c) { return c == ','; });
+    if (numCommas != 8) {
+      // string is supposed to contain 9 integers separated by ','.
+      // Thus, one should expect to see 8 commas
+      return false;
+    }
+
     bool ok = true;
     std::istringstream ss(s);
     Derived::visit(out,

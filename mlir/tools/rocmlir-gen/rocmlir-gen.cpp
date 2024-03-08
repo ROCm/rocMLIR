@@ -275,7 +275,7 @@ static llvm::cl::opt<bool>
                llvm::cl::init(false));
 
 static llvm::cl::opt<int64_t>
-    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
+    splitKFactor("split-k", llvm::cl::desc("split-k factor"),
                  llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
@@ -2229,7 +2229,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  gemm->setAttr("split-k-factor", b.getI32IntegerAttr(splitkFactor));
+  if (splitKFactor > 1)
+    gemm->setAttr("split-k-factor", b.getI32IntegerAttr(splitKFactor));
 
   b.create<func::ReturnOp>(loc);
 

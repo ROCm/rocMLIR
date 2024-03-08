@@ -179,9 +179,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                 /*n=*/bShape[2]);
 
   GemmSize extraPaddingFactor{1, 1, 1, 1};
-  int64_t splitKFactor{1};
-  if (auto attr = op->getAttr("split-k-factor")) {
-    splitKFactor = attr.cast<IntegerAttr>().getInt();
+  int64_t splitKFactor = op.getParams()->getSplitKFactor();
+  if (splitKFactor > 1) {
     extraPaddingFactor.k = splitKFactor;
   }
 

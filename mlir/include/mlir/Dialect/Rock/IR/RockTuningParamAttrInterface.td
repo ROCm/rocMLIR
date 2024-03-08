@@ -59,6 +59,16 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Returns splitKFactor
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getSplitKFactor",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
 
     // TODO: more methods here as needed
   ];
