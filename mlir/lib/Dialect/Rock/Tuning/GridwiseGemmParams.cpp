@@ -611,6 +611,9 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Reject invalid KPACK values.
   int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
+  if(auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()){
+    mnPerXdl = derivedParam.getMnPerXdl();
+  }
   auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
       dataTypeA, dataTypeB, arch, mnPerXdl);
   if (failed(maybeMfmaInsnGroup)) {
