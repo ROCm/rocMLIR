@@ -1302,16 +1302,18 @@ def getArch():
 def parseDataTypes(data_types):
     if not data_types:
         return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
-
     datatypes = []
     outMap = {}
     for dpair in data_types:
         dt = dpair.split('_')
         datatypes.append(dt[0])
-        outMap[dt[0]] = 'i32' if dt[0] == 'i8' else dt[0]
-        outMap[dt[0]] = 'f32' if dt[0] == 'fp8' else dt[0]
+        outMap[dt[0]] = dt[0]
         if len(dt) == 2:
             outMap[dt[0]] = dt[1]
+        elif dt[0] == 'i8':
+            outMap[dt[0]] = 'i32'
+        elif dt[0] == 'fp8':
+            outMap[dt[0]] = 'f32'
     return datatypes, outMap
 
 def getChip():
