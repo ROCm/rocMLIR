@@ -320,29 +320,15 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
       int64_t nPerWave = params.getNPerWave();
       int64_t mPerBlock = params.getMPerBlock();
       int64_t nPerBlock = params.getNPerBlock();
-      int64_t mnPerXdl = std::min(mPerWave, nPerWave);
+
       // maxWaves = waves_per_eu(2) * eus_per_cu(4) = 8
-      constexpr int64_t maxWaves = 8;
-      int64_t mWaves = mPerBlock / mPerWave;
-      int64_t nWaves = nPerBlock / nPerWave;
-      if (nWaves >= maxWaves) {
-        nWaves = maxWaves;
-        mWaves = 1;
-      }
-      else if (mWaves >= maxWaves) {
-        nWaves = 1;
-        mWaves = maxWaves;
-      }
-      else if (mWaves * nWaves > maxWaves){
-        if ( nWaves > mWaves ) {
-          mWaves = maxWaves / nWaves;
-        }
-        else {
-          nWaves = maxWaves / mWaves; 
-        }
-      }
-      mPerWave = mPerBlock / mWaves;
-      nPerWave = nPerBlock / nWaves;
+      constexpr int64_t maxWaves = 4;
+      int64_t mnPerXdl = nPerWave;
+      int64_t mWaves = std::min(mPerBlock / mPerWave, maxWaves);
+      int64_t nWaves = maxWaves / mWaves;
+
+      mPerWave = std::max(mPerBlock / mWaves, mnPerXdl);
+      nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
       return $_get(
         params.getContext(),
         params.getKpackPerBlock(),
