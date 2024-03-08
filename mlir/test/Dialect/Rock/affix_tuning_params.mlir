@@ -441,3 +441,20 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "128,128,2,64,64,8,1,1"}
   return
 }
+
+// CHECK-LABEL: func.func @rock_conv2d_tuning
+// GRID-LABEL: func.func @rock_conv2d_tuning
+func.func @rock_conv2d_tuning(%arg0: memref<1x1x1x3x3xf32>, %arg1: memref<64x1x1x14x14xf32>, %arg2: memref<64x1x1x14x14xf32>) attributes {kernel = 0 : i32, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
+  rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
+    arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-",
+    dilations = [1 : i32, 1 : i32],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    numCU = 110 : i32,
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32],
+    perf_config = "32,128,4,32,32,4,1,1",
+    strides = [1 : i32, 1 : i32]} : memref<1x1x1x3x3xf32>, memref<64x1x1x14x14xf32>, memref<64x1x1x14x14xf32>
+
+  return
+}
