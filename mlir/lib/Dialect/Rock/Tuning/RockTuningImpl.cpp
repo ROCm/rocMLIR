@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "llvm/ADT/SmallString.h"
+#include <algorithm>
 #include <vector>
 
 namespace mlir {
@@ -58,50 +59,69 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
   }
 }
 
-auto getOptinalSplitKFactors(RockGemmWrapperInterface gemmOp,
-                             int32_t gemmMPerBlock, int32_t gemmNPerBlock,
-                             int32_t gemmKPerBlock, int32_t kPack) {
+SmallVector<int64_t>
+computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
+                            int32_t gemmMPerBlock, int32_t gemmNPerBlock,
+                            int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
+  SmallVector<int64_t> splitKValues{1};
   if (not info.gemmAType.isF32()) {
-    return std::vector<int64_t>{1};
+    return splitKValues;
+  }
+
+  assert(gemmOp.getNumCU().has_value() &&
+         "splitK factor analysis requires the num CUs");
+  const double numCUs = gemmOp.getNumCU().value();
+
+  const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
+  const GemmSize gemmSize =
+      calculatePaddedGemmSize(params, info.gemmSize, kPack);
+  const double numMTiles = gemmSize.m / gemmMPerBlock;
+  const double numNTiles = gemmSize.n / gemmNPerBlock;
+
+  auto computeImbalance = [&](int32_t splitKFactor) -> double {
+    const double totalNumWorkGroups = numMTiles * numNTiles * splitKFactor;
+    const double maxWorkGroupsPerCU = std::ceil(totalNumWorkGroups / numCUs);
+    // imbalances = max. CU work / average work per CU
+    return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
+  };
+
+  const auto dataPrallelGemmImbalabce = computeImbalance(1);
+  constexpr double imbalaceThreshold{1.20};
+  if (dataPrallelGemmImbalabce < imbalaceThreshold) {
+    return splitKValues;
   }
 
   struct LocalData {
-    int64_t splitKFactor{};
+    int64_t splitKValue{};
     double workImbalance{};
   };
+  SmallVector<LocalData> factors{};
+  constexpr double minGain{1.30};
+  constexpr int32_t upperBound{32};
+  for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
+    const double imbalance = computeImbalance(splitKFactor);
+    const auto gain = dataPrallelGemmImbalabce / imbalance;
+    if (gain > minGain) {
+      factors.emplace_back(LocalData{splitKFactor, imbalance});
+    }
+  }
 
-  const auto numCUs = gemmOp.getNumCU().value();
-  std::vector<LocalData> factors{};
-  for (int32_t splitKFactor = 1; splitKFactor < 100; ++splitKFactor) {
-    auto kPerBlock = math_util::lcm(gemmKPerBlock * kPack, splitKFactor);
-    const InitParams params{gemmMPerBlock, gemmNPerBlock, kPerBlock};
-    const auto gemmSize = calculatePaddedGemmSize(params, info.gemmSize, kPack);
-    const auto numMTiles = gemmSize.m / gemmMPerBlock;
-    const auto numNTiles = gemmSize.m / gemmMPerBlock;
-    const auto totalNumWorkGroups = numMTiles * numNTiles * splitKFactor;
-    const auto maxWorkGroupsPerCU =
-        std::ceil(static_cast<double>(totalNumWorkGroups) / numCUs);
-
-    // imbalances = max. CU work / average work per CU
-    const double imbalances =
-        (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
-    factors.emplace_back(LocalData{splitKFactor, imbalances});
+  if (factors.empty()) {
+    return splitKValues;
   }
 
   std::sort(factors.begin(), factors.end(), [](LocalData &a, LocalData &b) {
     return a.workImbalance < b.workImbalance;
   });
 
-  std::vector<int64_t> splitKs{1};
-  constexpr double threshold{1.25};
-  for (size_t i = 0; i < 9; ++i) {
-    if (factors[i].workImbalance < threshold) {
-      splitKs.push_back(factors[i].splitKFactor);
-    }
-  }
+  size_t maxVariants{6};
+  maxVariants = factors.size() > maxVariants ? maxVariants : factors.size();
+  std::for_each(
+      factors.begin(), factors.begin() + maxVariants,
+      [&](LocalData &item) { splitKValues.push_back(item.splitKValue); });
 
-  return splitKs;
+  return splitKValues;
 }
 
 // The full space is a brute-force search starting with the configs that have
@@ -164,10 +184,10 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
             for (uint32_t gemmNPerWave : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
-                auto optimalSplitKFactors = getOptinalSplitKFactors(
+                auto optimalSplitKFactors = computeOptimalSplitKFactors(
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                     gemmKPack);
-                for (auto splitKFactor : optimalSplitKFactors) {
+                for (int64_t splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : xdlopsParams[6]) {
                     InitParamsAccel gemmParams(gemmMPerBlock, gemmNPerBlock,
                                                gemmKPerBlock, gemmMPerWave,
@@ -200,7 +220,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
           for (uint32_t gemmMPerWave : wmmaParams[3]) {
             for (uint32_t gemmNPerWave : wmmaParams[4]) {
               for (uint32_t gemmKPack : wmmaParams[5]) {
-                auto optimalSplitKFactors = getOptinalSplitKFactors(
+                auto optimalSplitKFactors = computeOptimalSplitKFactors(
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                     gemmKPack);
                 for (auto splitKFactor : optimalSplitKFactors) {
@@ -233,7 +253,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
         for (uint32_t gemmNPerBlock : validRangeGeneralGemmParams[2]) {
           for (uint32_t gemmKPerBlock : validRangeGeneralGemmParams[3]) {
             for (uint32_t gemmMPerThread : validRangeGeneralGemmParams[4]) {
-              auto optimalSplitKFactors = getOptinalSplitKFactors(
+              auto optimalSplitKFactors = computeOptimalSplitKFactors(
                   gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, 1);
               for (auto splitKFactor : optimalSplitKFactors) {
                 for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
