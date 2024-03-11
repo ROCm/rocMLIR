@@ -236,7 +236,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      (Twine(getBlockSize()) + ","
+      ("v2:" + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
@@ -271,7 +271,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        (Twine(getMPerBlock()) + ","
+        ("v2:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
@@ -307,7 +307,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        (Twine(getMPerBlock()) + ","
+        ("v2:" +  Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","

@@ -105,7 +105,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
         splitKFactor(splitKFactor) {}
 
   constexpr InitParamsNonAccel()
-      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL) {}
 
   InitParamsNonAccel(GeneralGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -124,7 +124,8 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
     f(self.gemmKPerBlock);
     f(self.gemmMPerThread);
     f(self.gemmNPerThread);
-    f(self.splitKFactor);
+    if (self.version != Version::V1)
+      f(self.splitKFactor);
   }
 };
 
@@ -140,7 +141,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, false, false) {}
 
   InitParamsAccel(XdlopsGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -175,7 +176,9 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     f(self.gemmMPerWave);
     f(self.gemmNPerWave);
     f(self.gemmKPack);
-    f(self.splitKFactor);
+    if (self.version != Version::V1) {
+      f(self.splitKFactor);
+    }
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
   }

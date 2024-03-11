@@ -65,12 +65,13 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues{1};
-  if (not info.gemmAType.isF32()) {
+  if (!info.gemmAType.isF32()) {
     return splitKValues;
   }
 
-  assert(gemmOp.getNumCU().has_value() &&
-         "splitK factor analysis requires the num CUs");
+  if (!gemmOp.getNumCU().has_value()) {
+    return splitKValues;
+  }
   const double numCUs = gemmOp.getNumCU().value();
 
   const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
@@ -98,6 +99,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   };
   SmallVector<LocalData> factors{};
   constexpr double minGain{1.30};
+  // TODO: comment `upperBound`
   constexpr int32_t upperBound{32};
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
     const double imbalance = computeImbalance(splitKFactor);

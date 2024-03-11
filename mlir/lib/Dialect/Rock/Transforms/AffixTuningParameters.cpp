@@ -259,7 +259,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
-  std::string perfConfigStr = "32,32,32,32,32,1,1,1";
+  std::string perfConfigStr = "v2:32,32,32,32,32,1,1,1,1";
   InitParamsAccel initAccelParams;
   if (!params0) {
     if (StringAttr perfConfigStrAttr =
