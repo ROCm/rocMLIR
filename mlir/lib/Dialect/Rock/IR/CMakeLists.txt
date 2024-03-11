@@ -22,7 +22,6 @@ add_rocmlir_dialect_library(MLIRRockOps
   MLIRRockAcceptingViewOpInterfaceIncGen
   MLIRRockWriterOpInterfaceIncGen
   MLIRRockOpsIncGen
-  
   )
 
 

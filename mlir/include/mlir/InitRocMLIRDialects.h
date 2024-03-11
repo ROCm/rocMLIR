@@ -50,17 +50,6 @@
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/InitMHALDialects.h"
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
-#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
-#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
-#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
-#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
-
-
 
 namespace mlir {
 
@@ -103,16 +92,6 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   tensor::registerInferTypeOpInterfaceExternalModels(registry);
   tensor::registerTilingInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
-
-  // Register all conversions to LLVM extensions.
-  arith::registerConvertArithToLLVMInterface(registry);
-  registerConvertFuncToLLVMInterface(registry);
-  registerConvertMathToLLVMInterface(registry);
-  registerConvertMemRefToLLVMInterface(registry);
-  registerConvertComplexToLLVMInterface(registry);
-  ub::registerConvertUBToLLVMInterface(registry);
-  cf::registerConvertControlFlowToLLVMInterface(registry);
-
 }
 
 // Add all the MLIR dialects to the provided registry.
