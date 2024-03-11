@@ -765,6 +765,27 @@ func.func @test_fusion_traversal(%buf: memref<4x8xi8>) {
   func.return
 }
 
+// CHECK-LABEL: func @test_fusion_traversal_fail
+func.func @test_fusion_traversal_fail(%buf: memref<4x8xi8>, %buf2: memref<8x4xi8>) {
+  %alloc1 = memref.alloc() : memref<8x4xi8>
+  // But here we see the transpose.
+  // CHECK: get_length
+  // CHECK-Same: fusionTraversalStatus = false
+  // CHECK-SAME: result = 4
+  "get_length"(%alloc1) {in_dim = 1 : index, traverseFusions} : (memref<8x4xi8>) -> ()
+  memref.copy %alloc1, %buf2 : memref<8x4xi8> to memref<8x4xi8>
+  %alloc2 = memref.alloc() : memref<4x8xi8>
+  %0 = rock.transform %alloc2 by #transform_map0 : memref<4x8xi8> to memref<8x4xi8>
+  linalg.generic {indexing_maps = [#id2, #id2], iterator_types = ["parallel", "parallel"]}
+    ins(%alloc1 : memref<8x4xi8>)
+    outs(%0 : memref<8x4xi8>) {
+    ^bb0(%i : i8, %o : i8):
+      linalg.yield %i : i8
+  }
+  memref.copy %alloc2, %buf : memref<4x8xi8> to memref<4x8xi8>
+  func.return
+}
+
 // CHECK-LABEL: func @test_vectorization_align_pad
 func.func @test_vectorization_align_pad() {
   func.return

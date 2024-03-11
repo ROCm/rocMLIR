@@ -864,7 +864,13 @@ VectorizationResult mlir::rock::getMaxVectorization(
       currentUser = definingOp;
       return true;
     }
-    if (traverseFusions && isa<memref::AllocOp>(definingOp)) {
+    if (isa<memref::AllocOp>(definingOp)) {
+      if (!traverseFusions) {
+        definingOp->emitError(
+            "vectorization analysis found intermediate allocation but isn't "
+            "following fusions, results may be incorrect\n");
+        return false;
+      }
       FailureOr<std::pair<Value, Operation *>> maybeNewStack =
           findPostFusionTransforms(currentVal, currentUser);
       if (failed(maybeNewStack)) {
