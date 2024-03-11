@@ -99,7 +99,12 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   };
   SmallVector<LocalData> factors{};
   constexpr double minGain{1.30};
-  // TODO: comment `upperBound`
+  // There are cases where perfect load balancing can be achieved with very
+  // high splitK values. However, experiments show that performance
+  // can considerably drop in such cases. Currently, we limit the `upperBound`
+  // on purpose because the current heuristics does not consider the overheads
+  // resulting from reducing partial solution along the split dimension.
+  // This needs to be improved in the future.
   constexpr int32_t upperBound{32};
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
     const double imbalance = computeImbalance(splitKFactor);
