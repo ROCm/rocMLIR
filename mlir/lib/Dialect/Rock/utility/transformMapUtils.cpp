@@ -1007,6 +1007,8 @@ Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
     // don't introduce merge collapses into transform chains other than the one
     // we've been asked to edit.
     if (needCloning) {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointAfterValue(trOp.getOutput());
       IRMapping cloneMap;
       cloneMap.map(trOp.getInput(), currentRes);
       auto newTrOp = cast<TransformOp>(b.clone(*trOp, cloneMap));

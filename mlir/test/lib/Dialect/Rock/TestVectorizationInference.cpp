@@ -26,7 +26,7 @@ struct VectorizationInferenceTestPass
 
   static constexpr auto kTestOpName = "get_length";
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<RockDialect>();
+    registry.insert<RockDialect, func::FuncDialect>();
   }
 
   StringRef getArgument() const final {
