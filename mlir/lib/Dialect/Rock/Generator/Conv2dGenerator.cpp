@@ -426,8 +426,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   } else {
     PopulateParams populateParams;
     InitParamsNonAccel validParams;
-    auto res = populateParams.obtainTuningParameters(builder, info, config.perfConfig,
-                                                     validParams);
+    auto res = populateParams.obtainTuningParameters(
+        builder, info, config.perfConfig, validParams);
 
     if (succeeded(res)) {
       needExtraPad =

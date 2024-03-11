@@ -132,12 +132,16 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
   return calculatePadding(kPerBlock, mPerBlock, nPerBlock, gemmSize, kPack);
 }
 
-int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock, int64_t mPerWave, int64_t nPerWave) {
+int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock,
+                                    int64_t nPerBlock, int64_t mPerWave,
+                                    int64_t nPerWave) {
   return waveSize * (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
 }
 
-int64_t mlir::rock::obtainBlockSize(int64_t waveSize, RockAccelTuningParamAttrInterface params) {
-  return obtainBlockSize(waveSize, params.getMPerBlock(), params.getNPerBlock(), params.getMPerWave(), params.getNPerWave());
+int64_t mlir::rock::obtainBlockSize(int64_t waveSize,
+                                    RockAccelTuningParamAttrInterface params) {
+  return obtainBlockSize(waveSize, params.getMPerBlock(), params.getNPerBlock(),
+                         params.getMPerWave(), params.getNPerWave());
 }
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
@@ -201,8 +205,7 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
 }
 
 LogicalResult
-PopulateParams::paramsProbablyValid(OpBuilder b,
-                                    const PopulateParamsInfo &info,
+PopulateParams::paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) {
   return populateDerived(params);
 }
@@ -216,11 +219,9 @@ PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
   return success();
 }
 
-LogicalResult
-PopulateParams::obtainTuningParameters(OpBuilder& b,
-                                       const PopulateParamsInfo &info,
-                                       const StringRef perfConfig,
-                                       InitParamsNonAccel &validParams) {
+LogicalResult PopulateParams::obtainTuningParameters(
+    OpBuilder &b, const PopulateParamsInfo &info, const StringRef perfConfig,
+    InitParamsNonAccel &validParams) {
 
   if (!perfConfig.empty()) {
     // Under two scenarios can we receive a perfConfig:
@@ -319,18 +320,18 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder b,
                                          const InitParamsAccel &params) {
   Attribute params0 = getGemmParamsAttr(b, params);
   RockAccelTuningParamAttrInterface accelParams0;
-  if(auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()){
+  if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
     int64_t mWaves = params.gemmMPerBlock / params.gemmMPerWave;
-    if(mWaves > maxWavesPerWG){
+    if (mWaves > maxWavesPerWG) {
       return failure();
     }
     auto xdlopsDerivedParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
     accelParams0 = xdlopsDerivedParams0;
-  }
-  else{
+  } else {
     accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
   }
-  return isValidBlockwiseGemm(accelParams0, info.gemmAType, info.gemmBType, info.arch, false, false);
+  return isValidBlockwiseGemm(accelParams0, info.gemmAType, info.gemmBType,
+                              info.arch, false, false);
 }
 
 LogicalResult
@@ -340,8 +341,7 @@ PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    OpBuilder& b,
-    const PopulateParamsInfo &info, const StringRef perfConfig,
+    OpBuilder &b, const PopulateParamsInfo &info, const StringRef perfConfig,
     InitParamsAccel &validParams) {
 
   if (!perfConfig.empty()) {
@@ -374,9 +374,10 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
   return res;
 }
 
-LogicalResult PopulateParamsAccel::obtainTuningParameters(
-    RockGemmWrapperInterface op, const StringRef perfConfig,
-    InitParamsAccel &validParams) {
+LogicalResult
+PopulateParamsAccel::obtainTuningParameters(RockGemmWrapperInterface op,
+                                            const StringRef perfConfig,
+                                            InitParamsAccel &validParams) {
   PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
   OpBuilder b(op);
   auto res = obtainTuningParameters(b, info, perfConfig, validParams);
@@ -551,10 +552,13 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   };
   // clang-format on
 
-  XdlopsGemmDerivedParamsAttr xdlopsDerivedParams = param.cast<XdlopsGemmDerivedParamsAttr>();
-  if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() || xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()){
-    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << xdlopsDerivedParams << "\n");
-      return failure();
+  XdlopsGemmDerivedParamsAttr xdlopsDerivedParams =
+      param.cast<XdlopsGemmDerivedParamsAttr>();
+  if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() ||
+      xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "mnPerXdl is too large:" << xdlopsDerivedParams << "\n");
+    return failure();
   }
 
   // Add broadcasts for non 8-bit types.
@@ -574,7 +578,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
   if (!((param.getMPerBlock() % minDPerWave == 0) &&
         (param.getNPerBlock() % minDPerWave == 0) &&
-        ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor == 0))) {
+        ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor ==
+         0))) {
     return failure();
   }
 
@@ -586,7 +591,9 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
                            it;
                        return (param.getMPerWave() == validMPerWave) &&
                               (param.getNPerWave() == validNPerWave) &&
-                              (param.getKpackPerBlock() * param.getKpack() % validKPerWave == 0);
+                              (param.getKpackPerBlock() * param.getKpack() %
+                                   validKPerWave ==
+                               0);
                      })) {
       return failure();
     }
@@ -627,11 +634,11 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Reject invalid KPACK values.
   int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
-  if(auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()){
+  if (auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()) {
     mnPerXdl = derivedParam.getMnPerXdl();
   }
-  auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-      dataTypeA, dataTypeB, arch, mnPerXdl);
+  auto maybeMfmaInsnGroup =
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -667,8 +674,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
         int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
-        auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-            dataTypeA, dataTypeB, arch, mnPerXdl);
+        auto maybeMfmaInsnGroup =
+            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
@@ -809,7 +816,8 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   }
   if (!((param.getMPerBlock() % minDPerWave == 0) &&
         (param.getNPerBlock() % minDPerWave == 0) &&
-        (param.getKpackPerBlock() * param.getKpack() % validKPerWaveFactor == 0))) {
+        (param.getKpackPerBlock() * param.getKpack() % validKPerWaveFactor ==
+         0))) {
     return failure();
   }
 
@@ -821,7 +829,9 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
                            it;
                        return (param.getMPerWave() == validMPerWave) &&
                               (param.getNPerWave() == validNPerWave) &&
-                              (param.getKpackPerBlock() * param.getKpack() % validKPerWave == 0);
+                              (param.getKpackPerBlock() * param.getKpack() %
+                                   validKPerWave ==
+                               0);
                      }))
       return failure();
   }
@@ -848,8 +858,8 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   }
 
   // Reject invalid KPACK values.
-  auto maybeWmmaInsn = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                        param.getMPerWave(), param.getNPerWave());
+  auto maybeWmmaInsn = WmmaInsn::select(
+      dataTypeA, dataTypeB, waveSize, param.getMPerWave(), param.getNPerWave());
   if (failed(maybeWmmaInsn)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
     return failure();

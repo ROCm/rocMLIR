@@ -59,9 +59,11 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// be added to the given dimension.
 std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
-int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock, int64_t mPerWave, int64_t nPerWave);
+int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
+                        int64_t mPerWave, int64_t nPerWave);
 
-int64_t obtainBlockSize(int64_t waveSize, RockAccelTuningParamAttrInterface params);
+int64_t obtainBlockSize(int64_t waveSize,
+                        RockAccelTuningParamAttrInterface params);
 
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
@@ -141,16 +143,16 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   InitParamsAccel(XdlopsGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()), gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()),
-        gemmKPack(attr.getKpack()),
+        gemmMPerWave(attr.getMPerWave()),
+        gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()), gemmNPerWaveOrMnPerXdl(attr.getNPerWave()),
-        gemmKPack(attr.getKpack()),
+        gemmMPerWave(attr.getMPerWave()),
+        gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
 
@@ -286,7 +288,7 @@ public:
                                        const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
 
-  LogicalResult obtainTuningParameters(OpBuilder& b,
+  LogicalResult obtainTuningParameters(OpBuilder &b,
                                        const PopulateParamsInfo &info,
                                        const StringRef perfConfig,
                                        InitParamsNonAccel &validParams);
@@ -299,8 +301,7 @@ public:
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;
 
-  LogicalResult paramsProbablyValid(OpBuilder b,
-                                    const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
@@ -321,7 +322,7 @@ public:
                                        const StringRef perfConfig,
                                        InitParamsAccel &validParams);
 
-  virtual LogicalResult obtainTuningParameters(OpBuilder& b,
+  virtual LogicalResult obtainTuningParameters(OpBuilder &b,
                                                const PopulateParamsInfo &info,
                                                const StringRef perfConfig,
                                                InitParamsAccel &validParams);
@@ -340,8 +341,7 @@ public:
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
-  LogicalResult paramsProbablyValid(OpBuilder b,
-                                    const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
                                     const InitParamsAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,

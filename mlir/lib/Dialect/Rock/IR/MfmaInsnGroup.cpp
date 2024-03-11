@@ -497,7 +497,8 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 
 FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
                                                Type elementTypeB,
-                                               StringRef arch, int64_t mnPerXdl) {
+                                               StringRef arch,
+                                               int64_t mnPerXdl) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"

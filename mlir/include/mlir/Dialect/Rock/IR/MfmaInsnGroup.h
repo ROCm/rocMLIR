@@ -149,7 +149,7 @@ public:
   Type getArgTypeB();
   VectorType getRetType();
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
-  SmallString<16> getROCDLIntrinsicName() {return groupAttr.insn;}
+  SmallString<16> getROCDLIntrinsicName() { return groupAttr.insn; }
 };
 
 } // namespace rock
