@@ -256,8 +256,8 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     // Restore this once the kPack + padding support works
-    // perf_config = "64,256,8,64,64,4,1,1",
-    perf_config = "64,256,8,64,64,1,1,1",
+    // perf_config = "v2:64,256,8,64,64,4,1,1,1",
+    perf_config = "v2:64,256,8,64,64,1,1,1,2",
     strides = [2 : index, 2 : index]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
@@ -321,8 +321,8 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     // Restore once kPack + padding work
-    // perf_config = "16,128,8,16,64,4,1,1",
-    perf_config = "16,128,8,16,64,1,1,1",
+    // perf_config = "v2:16,128,8,16,64,4,1,1,1",
+    perf_config = "v2:16,128,8,16,64,1,1,1,1",
     strides = [2 : index, 2 : index]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
@@ -438,7 +438,7 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.attention{
     qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "128,128,2,64,64,8,1,1"}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "v2:128,128,2,64,64,8,1,1,1"}
   return
 }
 
@@ -453,7 +453,7 @@ func.func @rock_conv2d_tuning(%arg0: memref<1x1x1x3x3xf32>, %arg1: memref<64x1x1
     numCU = 110 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [1 : index, 1 : index, 1 : index, 1 : index],
-    perf_config = "32,128,4,32,32,4,1,1",
+    perf_config = "v2:32,128,4,32,32,4,1,1,1",
     strides = [1 : index, 1 : index]} : memref<1x1x1x3x3xf32>, memref<64x1x1x14x14xf32>, memref<64x1x1x14x14xf32>
 
   return
