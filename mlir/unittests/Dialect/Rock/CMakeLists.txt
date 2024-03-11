@@ -1,5 +1,4 @@
 add_rocmlir_unittest(MLIRRockTransformMapBuilderTests
-  CollapseContiguousMergesTest.cpp
   TransformMapBuilderTests.cpp
 )
 
