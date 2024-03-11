@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
+#include <optional>
 
 namespace llvm {
 class raw_ostream;
@@ -57,7 +58,9 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// a given gemm size requires. Returns None if no padding is needed. The
 /// values in the returned gemm context represent the number of 0s that need to
 /// be added to the given dimension.
-std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
+std::optional<GemmSize>
+requiredPadding(Attribute params, GemmSize gemmSize,
+                std::optional<GemmSize> scale = std::nullopt);
 
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
