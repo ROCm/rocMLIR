@@ -74,7 +74,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {16, 32, 64, 128, 256},
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
-      {4, 8, 16, 32, 64, 128},
+      {4, 16, 32},
       {1, 4, 8},
       {0, 1}};
 
@@ -119,7 +119,8 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
-                  if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
+                  int64_t mWaves = gemmMPerBlock / gemmMPerWave;
+                  if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave && mWaves <= 4){
                     if (kind == TuningParamSetKind::Exhaustive ||
                         (succeeded(
                             tuningInfo.paramsProbablyValid(b, info, gemmParams)) &&
