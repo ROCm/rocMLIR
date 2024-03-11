@@ -392,15 +392,6 @@ public:
       newResultTy = RankedTensorType::get(newResultShape, resultETy);
     }
 
-    auto resultZeroAttr = rewriter.getZeroAttr(resultETy);
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, newResultTy.getShape(), resultETy, filteredDims);
-    Value zero = rewriter.create<arith::ConstantOp>(loc, resultZeroAttr);
-    Value zeroTensor = rewriter
-                           .create<linalg::FillOp>(loc, ValueRange{zero},
-                                                   ValueRange{emptyTensor})
-                           .result();
-
     // Extract the attributes for convolution.
     ArrayRef<int64_t> stride = strideTosaAttr;
     ArrayRef<int64_t> dilation = dilationTosaAttr;
@@ -409,20 +400,19 @@ public:
     auto strideAttr = rewriter.getI64TensorAttr(stride);
     auto dilationAttr = rewriter.getI64TensorAttr(dilation);
 
-    SmallVector<AffineMap, 4> indexingMaps;
-    indexingMaps.push_back(AffineMap::get(
-        /*dimCount=*/resultTy.getRank(), /*symbolCount=*/0,
-        {rewriter.getAffineDimExpr(resultTy.getRank() - 1)},
-        rewriter.getContext()));
-    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
-    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(resultTy.getRank()));
-
     Value biasEmptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, resultTy.getShape(), resultETy, filteredDims);
 
     Value broadcastBias =
         linalgBroadcastAndMaybeExtSI(rewriter, loc, bias, biasEmptyTensor);
 
+    if (isConv2DOp && group > 1) {
+      broadcastBias = rewriter.create<tosa::ReshapeOp>(
+        loc, RankedTensorType::get(newResultTy.getShape(), resultETy),
+        broadcastBias, rewriter.getDenseI64ArrayAttr(newResultTy.getShape()));
+    }
+
+    Value conv;
     if (isQuantized) {
       auto quantizationInfo = *op.getQuantizationInfo();
       auto iZp = rewriter.getI32IntegerAttr(quantizationInfo.getInputZp());
@@ -431,47 +421,27 @@ public:
       auto iZpVal = rewriter.create<arith::ConstantOp>(loc, iZp);
       auto kZpVal = rewriter.create<arith::ConstantOp>(loc, kZp);
 
-      Value conv =
+      conv =
           rewriter
               .create<LinalgConvQOp>(
                   loc, newResultTy, ValueRange{input, weight, iZpVal, kZpVal},
                   ValueRange{broadcastBias}, strideAttr, dilationAttr)
               ->getResult(0);
-        if (isConv2DOp && group > 1) {
-        conv = rewriter.create<tosa::ReshapeOp>(
-            loc, RankedTensorType::get(resultShape, resultETy), conv,
-            rewriter.getDenseI64ArrayAttr(resultShape));
-      }
-
-      rewriter.replaceOp(op, conv);
-      return success();
+    } else {
+      conv = rewriter
+        .create<LinalgConvOp>(
+          loc, newResultTy, ValueRange{input, weight},
+          ValueRange{broadcastBias}, strideAttr, dilationAttr)
+        ->getResult(0);
     }
 
-    Value conv = rewriter
-                     .create<LinalgConvOp>(
-                         loc, newResultTy, ValueRange{input, weight},
-                         ValueRange{zeroTensor}, strideAttr, dilationAttr)
-                     ->getResult(0);
     if (isConv2DOp && group > 1) {
       conv = rewriter.create<tosa::ReshapeOp>(
       loc, RankedTensorType::get(resultShape, resultETy), conv,
       rewriter.getDenseI64ArrayAttr(resultShape));
     }
 
-      Value result =
-        rewriter
-            .create<linalg::GenericOp>(
-                loc, resultTy, ValueRange({bias, conv}), biasEmptyTensor,
-                indexingMaps, getNParallelLoopsAttrs(resultTy.getRank()),
-                [&](OpBuilder &nestedBuilder, Location nestedLoc,
-                    ValueRange args) {
-                  Value added = nestedBuilder.create<arith::AddFOp>(
-                      loc, args[0], args[1]);
-                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
-                })
-            .getResult(0);
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, conv);
     return success();
   }
 };
