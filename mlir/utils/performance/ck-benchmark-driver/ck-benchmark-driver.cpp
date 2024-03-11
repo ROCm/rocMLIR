@@ -23,10 +23,12 @@
 #include "ck/library/tensor_operation_instance/gpu/batched_gemm.hpp"
 #include "ck/library/tensor_operation_instance/gpu/gemm.hpp"
 #include "ck/library/tensor_operation_instance/gpu/gemm_add_add_fastgelu.hpp"
+#include "ck/library/tensor_operation_instance/gpu/gemm_splitk.hpp"
 
 #include "ck/tensor_operation/gpu/device/device_batched_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/device_gemm.hpp"
 #include "ck/tensor_operation/gpu/device/device_gemm_multiple_d.hpp"
+#include "ck/tensor_operation/gpu/device/device_gemm_splitk.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
@@ -56,6 +58,10 @@ using GemmDeviceOp = ck::tensor_operation::device::DeviceGemm<
 
 template <typename ALayout, typename BLayout, typename DT>
 using BatchedGemmDeviceOp = ck::tensor_operation::device::DeviceBatchedGemm<
+    ALayout, BLayout, Row, DT, DT, DT, PassThrough, PassThrough, PassThrough>;
+
+template <typename ALayout, typename BLayout, typename DT>
+using DeviceGemmSplitKOp = ck::tensor_operation::device::DeviceGemmSplitK<
     ALayout, BLayout, Row, DT, DT, DT, PassThrough, PassThrough, PassThrough>;
 
 // Simple structure to wrap memory parameters together
@@ -138,6 +144,28 @@ struct BatchedGemmRunner {
   }
 };
 
+// Main utility functions to run batched GEMM
+template <typename ALayout, typename BLayout, typename DT>
+struct SplitKGemmRunner {
+  using D = DeviceGemmSplitKOp<ALayout, BLayout, DT>;
+  using Dptr = std::unique_ptr<D>;
+
+  static auto makeArg(const Dptr &opPtr, const GemmMemoryParameters &params,
+                      const benchmark::BenchmarkArgs &args) {
+    return opPtr->MakeArgumentPointer(
+        static_cast<DT *>(params.aDevice), static_cast<DT *>(params.bDevice),
+        static_cast<DT *>(params.cDevice), args.gemmM, args.gemmN, args.gemmK,
+        params.strideA, params.strideB, params.strideC, PassThrough{},
+        PassThrough{}, PassThrough{},
+        static_cast<ck::index_t>(args.splitKFactor));
+  }
+
+  static auto getInstances() {
+    return ck::tensor_operation::device::instance::
+        DeviceOperationInstanceFactory<D>::GetInstances();
+  }
+};
+
 // Given the layout of A and B and the data type, loop over the different
 // instances for a given problem size and pick the best configuration
 template <typename OpRunner>
@@ -192,14 +220,31 @@ void runLayout(const GemmMemoryParameters &params,
   assert(params.strideB != 0 && "stride of B should be set");
   assert(params.strideC != 0 && "stride of C should be set");
 
+  if (args.splitKFactor > 1) {
+    assert(args.fusion.empty() &&
+           "fusion option is not supported for the Split-K scheme in CK");
+    assert(args.gemmG == 1 &&
+           "Split-K scheme doesn't support the `batch` dimension");
+    if (args.verbose)
+      std::cout << "use: SplitKGemmRunner" << std::endl;
+    run<SplitKGemmRunner<ALayout, BLayout, DT>>(params, args);
+    return;
+  }
+
   if (args.gemmG == 1) {
     if (args.fusion == "fastgelu_add_add") {
+      if (args.verbose)
+        std::cout << "use: FastGeluAddAddGemmRunner" << std::endl;
       run<FastGeluAddAddGemmRunner<ALayout, BLayout, DT>>(params, args);
     } else {
       assert(args.fusion.empty() && "unsupported CK fusion!");
+      if (args.verbose)
+        std::cout << "use: GemmRunner" << std::endl;
       run<GemmRunner<ALayout, BLayout, DT>>(params, args);
     }
   } else {
+    if (args.verbose)
+      std::cout << "use: BatchedGemmRunner" << std::endl;
     run<BatchedGemmRunner<ALayout, BLayout, DT>>(params, args);
   }
 }
@@ -229,6 +274,11 @@ void runDataType(GemmMemoryParameters params,
 
 int main(int argc, char **argv) {
   auto args = benchmark::parseCommandLine("ck-benchmark-driver", argc, argv);
+  if (args.verbose) {
+    std::cout << "Problem Config:\n";
+    benchmark::printProblem(args);
+    std::cout << std::string(80, '-') << "\n";
+  }
 
   // Preliminary checks
   if (args.dataType == benchmark::DataType::F8 && args.gemmG != 1) {
