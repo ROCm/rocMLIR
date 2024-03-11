@@ -20,6 +20,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<4xvector<16xf32>, #priv> += memref<4xf32, #priv> from memref<256xvector<2xf32>, #wg> * memref<4xf32, #priv> from memref<256xvector<2xf32>, #wg>
   return
@@ -42,6 +43,7 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
       mPerWave = 32,
       nPerBlock = 64,
       nPerWave = 32,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1xvector<16xi32>, #priv> += memref<1xvector<4xi8>, #priv> from memref<128xvector<8xi8>, #wg> * memref<1xvector<4xi8>, #priv> from memref<128xvector<8xi8>, #wg>
   return
@@ -66,6 +68,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
       kpack = 8,
       mPerWave = 64,
       nPerWave = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> from memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>> * memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>> from memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
   return

@@ -25,6 +25,7 @@ func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
        mPerWave = 64,
        nPerBlock = 64,
        nPerWave = 32,
+       splitKFactor = 1,
        forceUnroll = true>
      } : memref<1x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
   return
@@ -52,6 +53,7 @@ func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
   return
@@ -79,6 +81,7 @@ func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
   return
@@ -106,6 +109,7 @@ func.func @accel_gemm_gfx90a_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
   return
@@ -130,6 +134,7 @@ func.func @accel_gemm_gfx940_i8(%matrixA : memref<1x4xvector<8xi8>, 5>,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<8xi8>, 5> * memref<1x4xvector<8xi8>, 5>
   return
@@ -154,6 +159,7 @@ func.func @accel_gemm_gfx908_bf16(%matrixA : memref<1x4xvector<2xbf16>, 5>,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<2xbf16>, 5> * memref<1x4xvector<2xbf16>, 5>
   return
@@ -178,6 +184,7 @@ func.func @accel_gemm_gfx90a_bf16(%matrixA : memref<1x4xvector<4xbf16>, 5>,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<4xbf16>, 5> * memref<1x4xvector<4xbf16>, 5>
   return
@@ -204,6 +211,7 @@ func.func @accel_gemm_fp8_bf8(%matrixA : memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.a
       kpack = 8,
       mPerWave = 64,
       nPerWave = 64,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> * memref<1x4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>
   return

@@ -76,7 +76,8 @@ func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1x
     kpack = 1,
     kPerThread = 1,
     mPerThread = 4,
-    nPerThread = 4>
+    nPerThread = 4,
+    splitKFactor = 1>
   } :  memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<8x128x1xf32, 3>
   return
 }
@@ -144,6 +145,7 @@ func.func @rock_accel_gemm_one_result(%matrixA : memref<1x16xf32, 5>,
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
   return
@@ -172,6 +174,7 @@ func.func @rock_accel_gemm_two_results(%matrixA : memref<1x16xf32, 5>,
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x2xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
   return
@@ -197,6 +200,7 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
   return
@@ -222,6 +226,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
       mPerWave = 128,
       nPerWave = 64,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
   return
