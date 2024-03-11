@@ -318,8 +318,18 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder b,
                                          const PopulateParamsInfo &info,
                                          const InitParamsAccel &params) {
   Attribute params0 = getGemmParamsAttr(b, params);
-  auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
-  accelParams0 = XdlopsGemmDerivedParamsAttr::get(accelParams0);
+  RockAccelTuningParamAttrInterface accelParams0;
+  if(auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()){
+    int64_t mWaves = params.gemmMPerBlock / params.gemmMPerWave;
+    if(mWaves > maxWavesPerWG){
+      return failure();
+    }
+    auto xdlopsDerivedParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
+    accelParams0 = xdlopsDerivedParams0;
+  }
+  else{
+    accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+  }
   return isValidBlockwiseGemm(accelParams0, info.gemmAType, info.gemmBType, info.arch, false, false);
 }
 
@@ -541,6 +551,12 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   };
   // clang-format on
 
+  XdlopsGemmDerivedParamsAttr xdlopsDerivedParams = param.cast<XdlopsGemmDerivedParamsAttr>();
+  if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() || xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()){
+    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << xdlopsDerivedParams << "\n");
+      return failure();
+  }
+
   // Add broadcasts for non 8-bit types.
   bool is8BitReduceOnly = dataTypeA.isInteger(8) ||
                           dataTypeA.isFloat8E4M3FNUZ() ||
@@ -650,7 +666,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   std::copy_if(
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
-        int64_t mnPerXdl = std::min(param.gemmMPerWave, param.gemmNPerWave);
+        int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
         auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
             dataTypeA, dataTypeB, arch, mnPerXdl);
         if (failed(maybeMfmaInsnGroup)) {
@@ -681,7 +697,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
   return builder.getAttr<XdlopsGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
-      validParams.gemmMPerWave, validParams.gemmNPerWave,
+      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
       validParams.gemmAThreadCopyMoreGemmK);
 }
 
@@ -870,7 +886,7 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
       [&](const InitParamsAccel &param) {
         auto maybeWmmaInsn =
             WmmaInsn::select(dataTypeA, dataTypeB, waveSize, param.gemmMPerWave,
-                             param.gemmNPerWave);
+                             param.gemmNPerWaveOrMnPerXdl);
         if (failed(maybeWmmaInsn)) {
           return false;
         }
@@ -898,6 +914,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
-      validParams.gemmMPerWave, validParams.gemmNPerWave,
+      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
       validParams.gemmAThreadCopyMoreGemmK);
 }

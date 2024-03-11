@@ -119,8 +119,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmNPerWave, gemmKPack, forceUnroll, true);
-                  int64_t mWaves = gemmMPerBlock / gemmMPerWave;
-                  if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave && mWaves <= 4){
+                  if(gemmMPerBlock >= gemmMPerWave && gemmNPerBlock >= gemmNPerWave){
                     if (kind == TuningParamSetKind::Exhaustive ||
                         (succeeded(
                             tuningInfo.paramsProbablyValid(b, info, gemmParams)) &&

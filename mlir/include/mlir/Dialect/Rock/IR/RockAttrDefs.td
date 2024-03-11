@@ -250,7 +250,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -261,7 +261,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
     "bool":$forceUnroll
   );
 
@@ -271,7 +271,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
@@ -315,20 +315,16 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
   }];
 
   let builders = [
-      AttrBuilderWithInferredContext<(ins  "RockAccelTuningParamAttrInterface":$params), [{
+      AttrBuilderWithInferredContext<(ins  "XdlopsGemmParamsAttr":$params), [{
       int64_t mPerWave = params.getMPerWave();
-      int64_t nPerWave = params.getNPerWave();
       int64_t mPerBlock = params.getMPerBlock();
       int64_t nPerBlock = params.getNPerBlock();
+      int64_t mnPerXdl = params.getMnPerXdl();
+      int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
+      int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
 
-      // maxWaves = waves_per_eu(2) * eus_per_cu(4) = 8
-      constexpr int64_t maxWaves = 4;
-      int64_t mnPerXdl = nPerWave;
-      int64_t mWaves = std::min(mPerBlock / mPerWave, maxWaves);
-      int64_t nWaves = maxWaves / mWaves;
-
-      mPerWave = std::max(mPerBlock / mWaves, mnPerXdl);
-      nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+      mPerWave = mPerBlock / mWaves;
+      int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
       return $_get(
         params.getContext(),
         params.getKpackPerBlock(),
