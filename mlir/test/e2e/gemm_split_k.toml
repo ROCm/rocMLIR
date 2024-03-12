@@ -8,7 +8,8 @@ values = ["v2:64,64,16,32,32,4,1,1,1",
           "v2:64,64,16,32,32,4,2,1,1",
           "v2:64,64,16,32,32,4,3,1,1",
           "v2:64,64,16,32,32,4,4,1,1",
-          "v2:64,64,16,32,32,4,5,1,1"]
+          "v2:64,64,16,32,32,4,5,1,1",
+          "v2:64,64,16,32,32,4,6,1,1"]
 prefix = "-perf_config"
 
 [[axis]]
@@ -21,5 +22,4 @@ prefix = "-t "
 name = "gemm_variants"
 
 [[suite.test]]
-## add a test with `-k 769` once the bug related to padding is fixed
-config = "-g 3 -m 256 -k 1011 -n 256"
+config = "-g 3 -m 256 -k 769 -n 256"
