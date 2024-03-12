@@ -361,34 +361,30 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
       FailureOr<int64_t> maybeNumCU = rock::getNumCU(gpuFunc);
       int64_t numCU = maybeNumCU.value_or(archInfo.minNumCU);
-      int64_t wavesPerBlock =
-          blockSize / (archInfo.numEUPerCU * archInfo.waveSize);
-      int64_t wgsPerCU = gridSize / numCU;
-      LLVM_DEBUG(llvm::dbgs() << "wavesPerBlock:" << wavesPerBlock << "\n");
+      int64_t totalEUs = archInfo.numEUPerCU * numCU;
+      int64_t totalWaves = (blockSize / archInfo.waveSize) * gridSize;
+      // Currently limiting wavesPerEU to be two
+      // it is a future to ticket to remove this constraint with further
+      // analysis
+      constexpr int64_t wavesPerEUUpperBound = 2;
+      int64_t wavesPerEU = std::min((totalWaves + totalEUs - 1) / totalEUs,
+                                    wavesPerEUUpperBound);
+      LLVM_DEBUG(llvm::dbgs() << "wavesPerEU:" << wavesPerEU << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  blockSize:" << blockSize << "\n");
-      LLVM_DEBUG(llvm::dbgs()
-                 << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  waveSize:" << archInfo.waveSize << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "wgsPerCU:" << wgsPerCU << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "  numCUs:" << numCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  numCU:" << numCU << "\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
       LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
-      bool hasMoreThan2WavesPerBlock = wavesPerBlock >= 2;
-      bool hasMoreThan2WGsPerCU = wgsPerCU >= 2;
-      bool isUsingLessThanHalfLds = true;
+      // limit wavesPerEU based on lds usage
       if (ldsUsage > 0) {
-        isUsingLessThanHalfLds = archInfo.totalSharedMemPerCU / ldsUsage >= 2;
+        wavesPerEU =
+            std::min(wavesPerEU, archInfo.totalSharedMemPerCU / ldsUsage);
       }
-      // There is no point of instructing backend compiler to potentially reduce
-      // scalar code performance (via limiting VGPR usage) if we are already
-      // limited by the parallelsim within the kernel and/or lds usage.
-      if ((hasMoreThan2WavesPerBlock || hasMoreThan2WGsPerCU) &&
-          isUsingLessThanHalfLds) {
-        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:2"
-                                << "\n");
-        gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(2));
+      if (wavesPerEU > 1) {
+        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:" << wavesPerEU << "\n");
+        gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(wavesPerEU));
       } else {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu not set"
                                 << "\n");
