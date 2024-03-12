@@ -620,12 +620,10 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename RetAttrType>
-static FailureOr<RetAttrType>
-getAttrFromOpOrParents(Operation *op, StringRef opAttr,
-                       std::optional<StringRef> maybeFuncAttr = std::nullopt,
-                       std::optional<StringRef> maybeModAttr = std::nullopt) {
-  StringRef funcAttr = maybeFuncAttr.value_or(opAttr);
-  StringRef modAttr = maybeModAttr.value_or(funcAttr);
+static FailureOr<RetAttrType> getAttrFromOpOrParents(
+    Operation *op, StringRef opAttr,
+    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
+  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
   Operation *func;
   if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
     func = op;
@@ -637,14 +635,14 @@ getAttrFromOpOrParents(Operation *op, StringRef opAttr,
   }
   RetAttrType arch = op->getAttrOfType<RetAttrType>(opAttr);
   if (!arch)
-    arch = func->getAttrOfType<RetAttrType>(funcAttr);
+    arch = func->getAttrOfType<RetAttrType>(dialectAttr);
   if (!arch) {
     auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<RetAttrType>(modAttr);
+    arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
   }
   if (!arch) {
     if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      arch = mod->getAttrOfType<RetAttrType>(modAttr);
+      arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
     }
   }
   if (!arch) {
