@@ -362,18 +362,17 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       FailureOr<int64_t> maybeNumCU = rock::getNumCU(gpuFunc);
       int64_t numCU = maybeNumCU.value_or(archInfo.minNumCU);
       int64_t totalEUs = archInfo.numEUPerCU * numCU;
-      int64_t totalWaves = (blockSize / archInfo.waveSize) * gridSize;
-      // Currently limiting wavesPerEU to be two
-      // it is a future to ticket to remove this constraint with further
-      // analysis
-      constexpr int64_t wavesPerEUUpperBound = 2;
-      int64_t wavesPerEU = std::min((totalWaves + totalEUs - 1) / totalEUs,
-                                    wavesPerEUUpperBound);
+      int64_t wavesPerBlock = (blockSize / archInfo.waveSize);
+      int64_t totalWaves = wavesPerBlock * gridSize;
+      int64_t wavesPerEUPerBlock = wavesPerBlock / archInfo.numEUPerCU;
+      int64_t wavesPerEUPerGrid = (totalWaves + totalEUs - 1) / totalEUs;
+      int64_t wavesPerEU = std::max(wavesPerEUPerBlock, wavesPerEUPerGrid);
       LLVM_DEBUG(llvm::dbgs() << "wavesPerEU:" << wavesPerEU << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  blockSize:" << blockSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  waveSize:" << archInfo.waveSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  numCU:" << numCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
       LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
@@ -382,6 +381,11 @@ void LowerRockOpsToGPUPass::runOnOperation() {
         wavesPerEU =
             std::min(wavesPerEU, archInfo.totalSharedMemPerCU / ldsUsage);
       }
+      // Currently limiting wavesPerEU to be two
+      // it is a future to ticket to remove this constraint with further
+      // analysis
+      constexpr int64_t wavesPerEUUpperBound = 2;
+      wavesPerEU = std::min(wavesPerEU, wavesPerEUUpperBound);
       if (wavesPerEU > 1) {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:" << wavesPerEU << "\n");
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(wavesPerEU));
