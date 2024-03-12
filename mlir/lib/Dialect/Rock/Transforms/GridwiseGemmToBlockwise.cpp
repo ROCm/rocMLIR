@@ -236,8 +236,9 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
 
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
   // Check for arch limitations exceeded
-  StringAttr arch = getArch(op);
-  if (arch) {
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (succeeded(maybeArch)) {
+    StringAttr arch = maybeArch.value();
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
     return success(ldsBytes <= ldsSize);
   }

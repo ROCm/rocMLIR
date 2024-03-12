@@ -164,7 +164,10 @@ FailureOr<rock::GpuAllocOp> findAlloc(Value value);
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
 // Get the arch from the op
-StringAttr getArch(Operation *op);
+FailureOr<StringAttr> getArch(Operation *op);
+
+// Get the num_cu from the op
+FailureOr<int64_t> getNumCU(Operation *op);
 
 } // end namespace rock
 } // end namespace mlir

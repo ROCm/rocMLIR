@@ -355,12 +355,15 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     }
     int64_t gridSize =
         gpuFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
-    StringAttr arch = rock::getArch(gpuFunc);
-    if (arch) {
+    FailureOr<StringAttr> maybeArch = rock::getArch(gpuFunc);
+    if (succeeded(maybeArch)) {
+      StringAttr arch = maybeArch.value();
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+      FailureOr<int64_t> maybeNumCU = rock::getNumCU(gpuFunc);
+      int64_t numCU = maybeNumCU.value_or(archInfo.minNumCU);
       int64_t wavesPerBlock =
           blockSize / (archInfo.numEUPerCU * archInfo.waveSize);
-      int64_t wgsPerCU = gridSize / archInfo.minNumCU;
+      int64_t wgsPerCU = gridSize / numCU;
       LLVM_DEBUG(llvm::dbgs() << "wavesPerBlock:" << wavesPerBlock << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  blockSize:" << blockSize << "\n");
       LLVM_DEBUG(llvm::dbgs()
@@ -368,7 +371,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       LLVM_DEBUG(llvm::dbgs() << "  waveSize:" << archInfo.waveSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "wgsPerCU:" << wgsPerCU << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "  numCUs:" << archInfo.minNumCU << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  numCUs:" << numCU << "\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
       LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
