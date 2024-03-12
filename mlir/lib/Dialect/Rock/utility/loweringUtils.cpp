@@ -7,8 +7,8 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -620,7 +620,10 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename RetAttrType>
-static FailureOr<RetAttrType> getAttrFromOpOrParents(Operation *op, StringRef opAttr, std::optional<StringRef> maybeFuncAttr = std::nullopt, std::optional<StringRef> maybeModAttr = std::nullopt){
+static FailureOr<RetAttrType>
+getAttrFromOpOrParents(Operation *op, StringRef opAttr,
+                       std::optional<StringRef> maybeFuncAttr = std::nullopt,
+                       std::optional<StringRef> maybeModAttr = std::nullopt) {
   StringRef funcAttr = maybeFuncAttr.value_or(opAttr);
   StringRef modAttr = maybeModAttr.value_or(funcAttr);
   Operation *func;
@@ -644,30 +647,33 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(Operation *op, StringRef op
       arch = mod->getAttrOfType<RetAttrType>(modAttr);
     }
   }
-  if(!arch){
+  if (!arch) {
     return failure();
   }
   return arch;
 }
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
- return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
+  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
 }
 
 FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
- FailureOr<StringAttr> maybeArch = getArch(op);
- if(failed(maybeArch)){
-  return failure();
- }
- StringAttr arch = maybeArch.value();
- FailureOr<IntegerAttr> maybeNumCU = getAttrFromOpOrParents<IntegerAttr>(op, "num_cu");
- if(failed(maybeNumCU)){
-  return failure();
- }
- IntegerAttr numCU = maybeNumCU.value();
- AmdArchInfo archInfo = rock::lookupArchInfo(arch);
- if(numCU.getSInt() < archInfo.minNumCU){
-  return op->emitError() << "num_cu=" << numCU << " cannot be lower than arch minNumCU=" << archInfo.minNumCU;
- }
- return numCU.getSInt();
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (failed(maybeArch)) {
+    return failure();
+  }
+  StringAttr arch = maybeArch.value();
+  FailureOr<IntegerAttr> maybeNumCU =
+      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu");
+  if (failed(maybeNumCU)) {
+    return failure();
+  }
+  IntegerAttr numCU = maybeNumCU.value();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (numCU.getSInt() < archInfo.minNumCU) {
+    return op->emitError() << "num_cu=" << numCU
+                           << " cannot be lower than arch minNumCU="
+                           << archInfo.minNumCU;
+  }
+  return numCU.getSInt();
 }
