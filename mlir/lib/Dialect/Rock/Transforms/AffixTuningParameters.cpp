@@ -120,11 +120,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     perfConfig = perfConfigAttr.getValue().str();
   }
 
-  int64_t splitKFactor{0};
-  if (auto attr = op->getAttr("split-k-factor")) {
-    splitKFactor = attr.cast<IntegerAttr>().getInt();
-  }
-
   GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
@@ -176,8 +171,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
 
-    if (splitKFactor)
-      validParams.splitKFactor = splitKFactor;
     Attribute gemmParams =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
 
@@ -197,8 +190,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
       return;
     }
 
-    if (splitKFactor)
-      validParams.splitKFactor = splitKFactor;
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
 
