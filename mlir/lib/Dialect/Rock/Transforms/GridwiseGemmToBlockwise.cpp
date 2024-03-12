@@ -232,8 +232,6 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
-  auto func = op->getParentOfType<func::FuncOp>();
-
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
   // Check for arch limitations exceeded
   FailureOr<StringAttr> maybeArch = getArch(op);

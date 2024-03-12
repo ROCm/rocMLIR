@@ -372,7 +372,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       LLVM_DEBUG(llvm::dbgs() << "  waveSize:" << archInfo.waveSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
       LLVM_DEBUG(llvm::dbgs() << "  numCU:" << numCU << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
       LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
