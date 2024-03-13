@@ -62,7 +62,7 @@ using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
-// Conv2D (forward, backward) lowering.
+// Conv (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 // High level convolution operation always have
 // [filter, input, output]
@@ -491,7 +491,7 @@ struct MatchLayoutsToInput final
 };
 
 /// Lowerings for particular convolution algorithms (TODO, new file?)
-LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
+LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
                                       PatternRewriter &b) {
   Location loc = op.getLoc();
 
@@ -691,13 +691,13 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
-  // Finally, erase the original Conv2D op.
+  // Finally, erase the original Conv op.
   b.eraseOp(op);
 
   return success();
 }
 
-LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
+LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
   IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
@@ -929,14 +929,14 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", kernelIdAttr);
 
-  // Finally, erase the original Conv2D op.
+  // Finally, erase the original Conv op.
   b.eraseOp(op);
 
   return success();
 }
 
 template <typename T>
-struct Conv2DRewritePattern : public OpRewritePattern<T> {
+struct ConvRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
@@ -946,7 +946,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     Type dataType = op.getInput().getType().getElementType();
     if (ConvOpType::BwdData == convOpType) {
-      return backwardData(cast<Conv2DBwdDataOp>(op), b);
+      return backwardData(cast<ConvBwdDataOp>(op), b);
     }
     Location loc = op.getLoc();
 
@@ -996,19 +996,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     if (ConvOpType::BwdWeight == convOpType &&
         isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
-      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
+      return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
 
     // Transform filter tensor.
 
     // set layout attribute.
-    // Weight tensor transformation for Conv2DOp
+    // Weight tensor transformation for ConvOp
     // - PassThrough G dimension to dimension 0, name it gemmG.
     // - Merge non-K dimensions to dimension 1, name it as gemmK.
     //   Optimization: If non-K dimensions are consequetive, apply unfold.
     // - PassThrough K dimension to dimension 2, name it as gemmM.
     //
-    // Weight tensor transformation for Conv2DBwdWeightOp
+    // Weight tensor transformation for ConvBwdWeightOp
     // - PassThrough G dimension to dimension 0, name it gemmG
     // - PassThrough K dimension to dimension 1, name it as gemmM.
     // - Merge non-K dimensions to dimension 2, name it as gemmN.
@@ -1089,11 +1089,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Input tensor step 3: GEMM'd input
     //
     // - PassThrough gi to dimension 0 and name it gemmG, then
-    // For Conv2DOp:
+    // For ConvOp:
     // - Merge ci, y, x dimensions to dimension 1, name it as gemmK.
     // - Merge ni, ho, wo dimensions to dimension 2, name it as gemmN.
     //
-    // For Conv2DBwdWeightOp:
+    // For ConvBwdWeightOp:
     // - Part 1: Merge ni, ho, wo dimensions to dimension 1, name it as gemmK.
     // - Part 2: Merge ci, y, x dimensions to dimension 2, name it as gemmN.
 
@@ -1128,7 +1128,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Transform output tensor.
     // - PassThrough G to dimmension 0, name it gemmG, then
-    // Output tensor transformation for Conv2DOp:
+    // Output tensor transformation for ConvOp:
     // - PassThrough K dimension to dimension 1, named gemmM
     // - Merge non-K dimensions to dimension2, named gemmN
 
@@ -1176,7 +1176,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 
-    // Finally, erase the original Conv2D op.
+    // Finally, erase the original Conv op.
     b.eraseOp(op);
 
     return success();
@@ -1184,37 +1184,37 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 };
 
 template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DOp>::fields = {
+const ArgumentFields ConvRewritePattern<ConvOp>::fields = {
     {0, 1, 2},
     {"KM", "KN", "MN"},
 };
 template <>
-const ConvOpType Conv2DRewritePattern<Conv2DOp>::convOpType = ConvOpType::Fwd;
+const ConvOpType ConvRewritePattern<ConvOp>::convOpType = ConvOpType::Fwd;
 
 template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DBwdDataOp>::fields = {
+const ArgumentFields ConvRewritePattern<ConvBwdDataOp>::fields = {
     {0, 2, 1},
     {"KM", "MN", "KN"},
 };
 
 template <>
-const ConvOpType Conv2DRewritePattern<Conv2DBwdDataOp>::convOpType =
+const ConvOpType ConvRewritePattern<ConvBwdDataOp>::convOpType =
     ConvOpType::BwdData;
 
 template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DBwdWeightOp>::fields = {
+const ArgumentFields ConvRewritePattern<ConvBwdWeightOp>::fields = {
     {2, 1, 0},
     {"MN", "KN", "KM"},
 };
 
 template <>
-const ConvOpType Conv2DRewritePattern<Conv2DBwdWeightOp>::convOpType =
+const ConvOpType ConvRewritePattern<ConvBwdWeightOp>::convOpType =
     ConvOpType::BwdWeight;
 
 // Explicitly instantiate the template to operation type
-template struct Conv2DRewritePattern<Conv2DOp>;
-template struct Conv2DRewritePattern<Conv2DBwdDataOp>;
-template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
+template struct ConvRewritePattern<ConvOp>;
+template struct ConvRewritePattern<ConvBwdDataOp>;
+template struct ConvRewritePattern<ConvBwdWeightOp>;
 
 void RockConvToGemmPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
@@ -1229,20 +1229,20 @@ void RockConvToGemmPass::runOnOperation() {
 
   ConversionTarget target(*ctx);
 
-  target.addIllegalOp<rock::Conv2DOp, rock::Conv2DBwdDataOp,
-                      rock::Conv2DBwdWeightOp, rock::InitKernelOp,
+  target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp,
+                      rock::ConvBwdWeightOp, rock::InitKernelOp,
                       rock::ConvertingCopyKernelOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
                     rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
                     rock::GpuAllocOp, rock::InBoundsStoreOp>();
-  // Below are required legalize for the lowering of Conv2DBwdWeightOp
+  // Below are required legalize for the lowering of ConvBwdWeightOp
   target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<
-      Conv2DRewritePattern<Conv2DOp>, Conv2DRewritePattern<Conv2DBwdDataOp>,
-      Conv2DRewritePattern<Conv2DBwdWeightOp>, ZeroInitKernelRewritePattern,
+      ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
+      ConvRewritePattern<ConvBwdWeightOp>, ZeroInitKernelRewritePattern,
       ConvertingCopyKernelRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,

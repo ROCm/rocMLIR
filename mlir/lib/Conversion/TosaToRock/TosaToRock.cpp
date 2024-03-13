@@ -139,7 +139,7 @@ getArchAttributes(Operation *op, Type inputType) {
   return {arch, num_cu, features};
 }
 
-static FailureOr<rock::Conv2DOp>
+static FailureOr<rock::ConvOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                // StringRef inputLayout, Value filter, StringRef filterLayout,
                // Value output, StringRef outputLayout,
@@ -184,7 +184,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   IntegerAttr numCUAttr =
       num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
-  auto cop = rw.create<rock::Conv2DOp>(
+  auto cop = rw.create<rock::ConvOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -242,7 +242,7 @@ public:
     int64_t group = 1;
     if (op.getGroup().has_value())
       group = *op.getGroup();
-    FailureOr<rock::Conv2DOp> rockConv =
+    FailureOr<rock::ConvOp> rockConv =
         makeRockConv2D(rw, op, input, filter, output, op.getPadAttr(),
                        op.getStrideAttr(), op.getDilationAttr(), group);
     if (failed(rockConv))
