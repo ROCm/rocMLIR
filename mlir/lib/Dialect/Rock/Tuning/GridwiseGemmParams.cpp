@@ -112,19 +112,24 @@ GemmSize mlir::rock::calculatePaddedGemmSize(const InitParams &params,
   return gemmSize;
 }
 
-std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
-                                                    GemmSize gemmSize) {
+std::optional<GemmSize>
+mlir::rock::requiredPadding(Attribute params, GemmSize gemmSize,
+                            std::optional<GemmSize> extraPadding) {
+  if (!extraPadding) {
+    extraPadding = GemmSize{1, 1, 1, 1};
+  }
+
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {
-    kPerBlock = generalParams.getKPerBlock();
-    mPerBlock = generalParams.getMPerBlock();
-    nPerBlock = generalParams.getNPerBlock();
+    kPerBlock = math_util::lcm(generalParams.getKPerBlock(), extraPadding->k);
+    mPerBlock = math_util::lcm(generalParams.getMPerBlock(), extraPadding->m);
+    nPerBlock = math_util::lcm(generalParams.getNPerBlock(), extraPadding->n);
   } else if (auto accelParams =
                  params.dyn_cast<RockAccelTuningParamAttrInterface>()) {
-    kPerBlock = accelParams.getKpackPerBlock();
-    mPerBlock = accelParams.getMPerBlock();
-    nPerBlock = accelParams.getNPerBlock();
+    kPerBlock = math_util::lcm(accelParams.getKpackPerBlock(), extraPadding->k);
+    mPerBlock = math_util::lcm(accelParams.getMPerBlock(), extraPadding->m);
+    nPerBlock = math_util::lcm(accelParams.getNPerBlock(), extraPadding->n);
     kPack = accelParams.getKpack();
   } else {
     llvm_unreachable("The tuning paramaters are general or xdlops");

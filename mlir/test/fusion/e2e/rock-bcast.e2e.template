@@ -8,7 +8,7 @@
 module {{
   func.func @test_fusion(%arg0: memref<1x1x32x32x8x{type}>, %arg1: memref<1x16x3x3x8x{type}>, %arg2: memref<16x{type}>, %arg3: memref<1x1x30x30x16x{type}>) attributes {{kernel, arch = ""}} {{
     %0 = memref.alloc() : memref<1x1x30x30x16x{type}>
-    rock.conv2d(%arg1, %arg0, %0) features = dot {{arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["gi", "ni", "hi", "wi", "ci"], output_layout = ["go", "no", "ho", "wo", "ko"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]}} : memref<1x16x3x3x8x{type}>, memref<1x1x32x32x8x{type}>, memref<1x1x30x30x16x{type}>
+    rock.conv2d(%arg1, %arg0, %0) features = dot {{arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["gi", "ni", "hi", "wi", "ci"], output_layout = ["go", "no", "ho", "wo", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}} : memref<1x16x3x3x8x{type}>, memref<1x1x32x32x8x{type}>, memref<1x1x30x30x16x{type}>
     %4 = memref.expand_shape %arg2 [[0, 1, 2, 3, 4]] : memref<16x{type}> into memref<1x1x1x1x16x{type}>
     linalg.generic {{indexing_maps = [#map1, #map2, #map1], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]}} ins(%0, %4 : memref<1x1x30x30x16x{type}>, memref<1x1x1x1x16x{type}>) outs(%arg3 : memref<1x1x30x30x16x{type}>) {{
     ^bb0(%arg4: {type}, %arg5: {type}, %arg6: {type}):

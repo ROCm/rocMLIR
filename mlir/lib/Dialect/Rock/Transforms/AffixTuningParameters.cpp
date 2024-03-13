@@ -136,6 +136,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       if (failed(status)) {
         LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
         signalPassFailure();
+        return;
       }
     }
 
@@ -181,7 +182,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   } else {
     InitParamsNonAccel validParams;
 
@@ -191,17 +191,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     if (failed(status)) {
       signalPassFailure();
+      return;
     }
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
 
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
-
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }
 

@@ -3,7 +3,7 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_rocmlir_dialect_library(MLIRRockConv2dGenerator
-  Conv2dGenerator.cpp
+  ConvGenerator.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock/Generator

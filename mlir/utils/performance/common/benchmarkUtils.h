@@ -30,6 +30,8 @@ struct BenchmarkArgs {
   bool transposeB{false};
   std::string fusion{""};
   int kernelRepeats{1};
+  int splitKFactor{1};
+  bool verbose{false};
 };
 
 // Parse command line arguments

@@ -1,4 +1,4 @@
-//===- Conv2dGenerator.h - MLIR to C++ option parsing ---------------===//
+//===- ConvGenerator.h - MLIR to C++ option parsing ---------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares mlir Conv2dGenerator class
+// This file declares mlir ConvGenerator class
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_ROCK_CONV2DGENERATOR_H_
-#define MLIR_DIALECT_ROCK_CONV2DGENERATOR_H_
+#ifndef MLIR_DIALECT_ROCK_CONVGENERATOR_H_
+#define MLIR_DIALECT_ROCK_CONVGENERATOR_H_
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -24,8 +24,10 @@ namespace mlir {
 namespace rock {
 struct ConvolutionDims;
 
-class Conv2dGenerator {
+class ConvGenerator {
 public:
+  enum DIM { HEIGHT = 0, WIDTH = 1 };
+
   struct Config {
     std::string arch;
     // TODO: drop these
@@ -39,10 +41,10 @@ public:
     std::string filterDataTypeStr;
     std::string inputDataTypeStr;
     std::string outputDataTypeStr;
-    int dilationHeight, dilationWidth;
-    int strideHeight, strideWidth;
-    int paddingHeightLeft, paddingHeightRight;
-    int paddingWidthLeft, paddingWidthRight;
+    SmallVector<int64_t, 4> dilationDims;
+    SmallVector<int64_t, 4> strideDims;
+    SmallVector<int64_t, 4> paddingLeftDims;
+    SmallVector<int64_t, 4> paddingRightDims;
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
@@ -55,29 +57,29 @@ public:
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
 
-    int filterHeight;
-    int filterWidth;
+    SmallVector<int64_t, 4> filterDims;
   };
 
-  Conv2dGenerator(
-      const std::string &arch = "", const std::string &chip = "",
-      const std::string &triple = "", const std::string &chipFeatures = "",
-      const std::string &perfConfig = "",
-      std::optional<int> num_cu = std::nullopt,
-      GemmFeatures features = GemmFeatures::none,
-      const std::optional<rock::ConvOpType> operation = std::nullopt,
-      const std::string &filterDataTypeStr = "f32",
-      const std::string &inputDataTypeStr = "f32",
-      const std::string &outputDataTypeStr = "", int dilationHeight = 1,
-      int dilationWidth = 1, int strideHeight = 1, int strideWidth = 1,
-      int paddingHeightLeft = 0, int paddingHeightRight = 0,
-      int paddingWidthLeft = 0, int paddingWidthRight = 0,
-      const std::string &filterLayout = "kcyx",
-      const std::string &inputLayout = "nchw",
-      const std::string &outputLayout = "nkhw",
-      const std::string &kernelBaseName = "");
+  ConvGenerator(const std::string &arch = "", const std::string &chip = "",
+                const std::string &triple = "",
+                const std::string &chipFeatures = "",
+                const std::string &perfConfig = "",
+                std::optional<int> num_cu = std::nullopt,
+                GemmFeatures features = GemmFeatures::none,
+                const std::optional<rock::ConvOpType> operation = std::nullopt,
+                const std::string &filterDataTypeStr = "f32",
+                const std::string &inputDataTypeStr = "f32",
+                const std::string &outputDataTypeStr = "",
+                int dilationHeight = 1, int dilationWidth = 1,
+                int strideHeight = 1, int strideWidth = 1,
+                int paddingHeightLeft = 0, int paddingHeightRight = 0,
+                int paddingWidthLeft = 0, int paddingWidthRight = 0,
+                const std::string &filterLayout = "kcyx",
+                const std::string &inputLayout = "nchw",
+                const std::string &outputLayout = "nkhw",
+                const std::string &kernelBaseName = "");
 
-  Conv2dGenerator(const Config &_config);
+  ConvGenerator(const Config &_config);
 
   const Config &getConfig() const { return config; }
   void setKernelName(const std::string &newName);
@@ -170,4 +172,4 @@ private:
 
 } // namespace rock
 } // namespace mlir
-#endif // MLIR_DIALECT_ROCK_CONV2DGENERATOR_H_
+#endif // MLIR_DIALECT_ROCK_CONVGENERATOR_H_
