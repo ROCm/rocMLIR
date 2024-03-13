@@ -23,17 +23,31 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+
+    // +++pf: update old keys.
+    if (key == "y")
+      key = "0";
+    if (key == "x")
+      key = "1";
+    if (key[0] == 'h')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("0") + key.drop_front());
+    if (key[0] == 'w')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("1") + key.drop_front());
+
     auto value = dim[i];
     dimIndexAndSize[key] = {i, value};
   }
 }
 
 ConvolutionDims ConvolutionContext::getConvDims() {
-  return ConvolutionDims(dimIndexAndSize["y"].size, dimIndexAndSize["x"].size,
-                         dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size,
-                         dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size,
-                         dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
-                         dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
+  return ConvolutionDims(
+      {dimIndexAndSize["0"].size, dimIndexAndSize["1"].size},
+      {dimIndexAndSize["0o"].size, dimIndexAndSize["1o"].size},
+      {dimIndexAndSize["0i"].size, dimIndexAndSize["1i"].size},
+      dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
+      dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
 }
 
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {

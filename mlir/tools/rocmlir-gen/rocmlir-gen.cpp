@@ -93,16 +93,16 @@ static llvm::cl::alias aliasTestFuncName("fut",
 static llvm::cl::opt<rock::KernelType> operation(
     "operation", llvm::cl::desc("Convolution operation,"),
     llvm::cl::values(
-        clEnumValN(rock::KernelType::Conv2D, "conv2d", "Forward convolution"),
-        clEnumValN(rock::KernelType::Conv2DBwdData, "conv2d_bwd_data",
+        clEnumValN(rock::KernelType::Conv, "conv", "Forward convolution"),
+        clEnumValN(rock::KernelType::ConvBwdData, "conv_bwd_data",
                    "Backpropogate convolution data"),
-        clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
+        clEnumValN(rock::KernelType::ConvBwdWeight, "conv_bwd_weight",
                    "Backpropogate convolution weights"),
         clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication"),
         clEnumValN(rock::KernelType::Attention, "attention",
                    "Attention operation of transformer models")),
     llvm::cl::value_desc("kernel type"),
-    llvm::cl::init(rock::KernelType::Conv2D));
+    llvm::cl::init(rock::KernelType::Conv));
 
 static llvm::cl::opt<std::string> arch(
     "arch",
@@ -653,9 +653,9 @@ static llvm::cl::opt<std::string> randomSide(
     "rand_side",
     llvm::cl::desc(
         "To populate random numbers to a specified tensor: "
-        "For conv2d, -rand_side filter or -rand_side input; "
-        "For conv2d_bwd_data, -rand_side filter or -rand_side output; "
-        "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
+        "For conv, -rand_side filter or -rand_side input; "
+        "For conv_bwd_data, -rand_side filter or -rand_side output; "
+        "For conv_bwd_weight, -rand_side input or -rand_side output. "
         "By default, populate random numbers to both tensors."),
     llvm::cl::value_desc("tensor"), llvm::cl::init("both"));
 
@@ -807,6 +807,20 @@ static void correctConvParameters() {
     inputLayout = "nhwgc";
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
+
+  // +++pf:  update old key names.
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
+               'y', '0');
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
+               'x', '1');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
+               'h', '0');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
+               'w', '1');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
+               'h', '0');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
+               'w', '1');
 
   auto validatePadding = [](llvm::cl::opt<int> &combined,
                             llvm::cl::opt<int> &left, llvm::cl::opt<int> &right,
@@ -1382,8 +1396,8 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
 }
 
 static std::tuple<int64_t, int64_t, int64_t>
-getConv2dBounds(rock::ConvOpType dir,
-                const rock::ConvGenerator::Config &genConfig) {
+getConvBounds(rock::ConvOpType dir,
+              const rock::ConvGenerator::Config &genConfig) {
   int64_t dim, dimH, dimW;
   char channel;
   StringRef layout;
@@ -1409,9 +1423,9 @@ getConv2dBounds(rock::ConvOpType dir,
     char c(std::get<0>(t));
     if (c == channel)
       dim = std::get<1>(t);
-    if (c == 'h')
+    if (c == '0')
       dimH = std::get<1>(t);
-    if (c == 'w')
+    if (c == '1')
       dimW = std::get<1>(t);
   }
   return std::make_tuple(dim, dimH, dimW);
@@ -1672,7 +1686,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   int64_t dimX, dimH, dimW;
   int64_t out_h, out_w;
   std::tie(dimX, dimH, dimW) =
-      getConv2dBounds(genConfig.operation.value(), genConfig);
+      getConvBounds(genConfig.operation.value(), genConfig);
 
   // Create the upper bounds
   switch (genConfig.operation.value()) {
@@ -1694,7 +1708,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   case rock::ConvOpType::BwdWeight:
     std::tie(std::ignore, out_h, out_w) =
-        getConv2dBounds(rock::ConvOpType::BwdData, genConfig);
+        getConvBounds(rock::ConvOpType::BwdData, genConfig);
     llvm::copy(genConfig.filterDimension, std::back_inserter(upperBounds));
     upperBounds.push_back(dimX);
     upperBounds.push_back(out_h);
@@ -1730,7 +1744,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   opd2 = ensureFloatIsF32(b, loc, opd2, floatType);
   result = ensureFloatIsF32(b, loc, result, floatType);
 
-  auto createConv2dLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
+  auto createConvLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
     Value heightIdx, widthIdx;
     Value heightTempIdx, widthTempIdx;
 
@@ -1740,20 +1754,20 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
       heightIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
-          ValueRange{ivs[genConfig.outputLayout.find('h')], ivs[6]});
+          ValueRange{ivs[genConfig.outputLayout.find('0')], ivs[6]});
       widthIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
-          ValueRange{ivs[genConfig.outputLayout.find('w')], ivs[7]});
+          ValueRange{ivs[genConfig.outputLayout.find('1')], ivs[7]});
       break;
     case rock::ConvOpType::BwdData:
       // out_h_tmp = in_h_idx + padding_h_l - fil_h_idx * dilation_h;
       // out_w_tmp = in_w_idx + padding_w_l - fil_w_idx * dilation_w;
       heightTempIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
-          ValueRange{ivs[genConfig.inputLayout.find('h')], ivs[6]});
+          ValueRange{ivs[genConfig.inputLayout.find('0')], ivs[6]});
       widthTempIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
-          ValueRange{ivs[genConfig.inputLayout.find('w')], ivs[7]});
+          ValueRange{ivs[genConfig.inputLayout.find('1')], ivs[7]});
       // out_h_idx = out_h_tmp / stride_h;
       // out_w_idx = out_w_tmp / stride_w;
       heightIdx = b.create<affine::AffineApplyOp>(loc, outputHeightMap,
@@ -1766,10 +1780,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
       heightIdx = b.create<affine::AffineApplyOp>(
           loc, heightMap,
-          ValueRange{ivs[6], ivs[genConfig.filterLayout.find('y')]});
+          ValueRange{ivs[6], ivs[genConfig.filterLayout.find('0')]});
       widthIdx = b.create<affine::AffineApplyOp>(
           loc, widthMap,
-          ValueRange{ivs[7], ivs[genConfig.filterLayout.find('x')]});
+          ValueRange{ivs[7], ivs[genConfig.filterLayout.find('1')]});
       break;
     }
 
@@ -1782,24 +1796,54 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
         layout = genConfig.inputLayout;
       else
         layout = genConfig.outputLayout;
+      auto direction = genConfig.operation.value();
       for (auto c : layout) {
-        auto direction = genConfig.operation.value();
         if ((direction == rock::ConvOpType::Fwd ||
              direction == rock::ConvOpType::BwdWeight) &&
             tensor == INPUT) {
-          if (c == 'h') {
+          if (c == '0') { // +++pf: may need adjustment to h/w.
             result.push_back(heightIdx);
             continue;
-          } else if (c == 'w') {
+          } else if (c == '1') {
             result.push_back(widthIdx);
             continue;
           }
-        } else if (direction == rock::ConvOpType::BwdData && tensor == OUTPUT) {
-          if (c == 'h') {
-            result.push_back(heightIdx);
+        } else if (direction == rock::ConvOpType::Fwd && tensor == FILTER) {
+          if (c == '0') {
+            result.push_back(ivs[loopIVs.find('y')]);
             continue;
-          } else if (c == 'w') {
-            result.push_back(widthIdx);
+          } else if (c == '1') {
+            result.push_back(ivs[loopIVs.find('x')]);
+            continue;
+          }
+        } else if (direction == rock::ConvOpType::BwdData) {
+          if (tensor == OUTPUT) {
+            if (c == '0') {
+              result.push_back(heightIdx);
+              continue;
+            } else if (c == '1') {
+              result.push_back(widthIdx);
+              continue;
+            }
+          } else if (tensor == FILTER) {
+            if (c == '0') {
+              result.push_back(ivs[loopIVs.find('y')]);
+              continue;
+            } else if (c == '1') {
+              result.push_back(ivs[loopIVs.find('x')]);
+              continue;
+            }
+          }
+        } else if (direction == rock::ConvOpType::BwdWeight &&
+                   tensor == OUTPUT) {
+          // Weird situation, because we need to distinguish filter from
+          // input/output while both are present in the IVs, so we have 'hw'
+          // in the loopIVs string as well as the layout's '01'.
+          if (c == '0') {
+            result.push_back(ivs[loopIVs.find('h')]);
+            continue;
+          } else if (c == '1') {
+            result.push_back(ivs[loopIVs.find('w')]);
             continue;
           }
         }
@@ -1833,13 +1877,13 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       getIndices(FILTER, idx1);
       getIndices(INPUT, idx2);
       break;
-    case rock::ConvOpType::BwdWeight:
-      getIndices(OUTPUT, idx1);
-      getIndices(INPUT, idx2);
-      break;
     case rock::ConvOpType::BwdData:
       getIndices(FILTER, idx1);
       getIndices(OUTPUT, idx2);
+      break;
+    case rock::ConvOpType::BwdWeight:
+      getIndices(OUTPUT, idx1);
+      getIndices(INPUT, idx2);
       break;
     }
 
@@ -1869,7 +1913,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
   // Generate the loop nest
   affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
-                              createConv2dLoopNest);
+                              createConvLoopNest);
 
   if (!isa<BlockArgument>(opd1))
     b.create<memref::DeallocOp>(loc, opd1);
@@ -2015,6 +2059,8 @@ static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   layoutConstOps['n'] = nConstantOp;
   layoutConstOps['h'] = hConstantOp;
   layoutConstOps['w'] = wConstantOp;
+  layoutConstOps['0'] = yConstantOp;
+  layoutConstOps['1'] = xConstantOp;
 
   // %3   = alloca() : memref<5xi8>
   // %4   = alloca() : memref<5xi8>
@@ -2035,6 +2081,9 @@ static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
     b.create<memref::StoreOp>(loc, layoutConstOps[fil_layout[i]],
                               filLayoutAllocOp, ValueRange{indexOpVec[i]});
   }
+
+  layoutConstOps['0'] = hConstantOp;
+  layoutConstOps['1'] = wConstantOp;
 
   for (int i = 0; i < 5; i++) {
     b.create<memref::StoreOp>(loc, layoutConstOps[in_layout[i]],
@@ -2147,7 +2196,7 @@ createCPUConvFunc(ModuleOp module,
   auto inputType = MemRefType::get(inputDimension, elemType);
   auto outputType = MemRefType::get(outputDimension, outputElemType);
 
-  // Create conv2d_host function
+  // Create conv_host function
   rock::ConvGenerator convGenerator(genConfig);
 
   bool hasWorkspace = false;
@@ -3235,14 +3284,14 @@ static LogicalResult populateHostHarnessLogic(
   SmallVector<int32_t, 2> outIndices;
   if (genParams.operation.has_value()) {
     switch (genParams.operation.value()) {
-    case rock::KernelType::Conv2D:
+    case rock::KernelType::Conv:
     case rock::KernelType::Gemm:
       outIndices.push_back(2);
       break;
-    case rock::KernelType::Conv2DBwdData:
+    case rock::KernelType::ConvBwdData:
       outIndices.push_back(1);
       break;
-    case rock::KernelType::Conv2DBwdWeight:
+    case rock::KernelType::ConvBwdWeight:
       outIndices.push_back(0);
       break;
     case rock::KernelType::Attention:

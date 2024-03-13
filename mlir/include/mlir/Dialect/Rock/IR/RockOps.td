@@ -60,7 +60,7 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
 
 class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayCount<n>]>;
 
-class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
+class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
@@ -83,12 +83,12 @@ defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
-def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
+def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution forward";
+  let summary = "N-D convolution forward";
   let description = [{
-    The `rock.conv2d` op computes 2D convolution forward.
+    The `rock.conv` op computes N-D convolution forward.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -97,13 +97,13 @@ def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes>
   }];
 }
 
-def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
+def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
   dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution backward data";
+  let summary = "N-D convolution backward data";
   let description = [{
-    The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
+    The `rock.conv_bwd_data` op computes N-D convolution backward data.
 
     The kernel ID represents which of the multiple backwards data kernels
     needed for the correct computation of the result this kernel is.
@@ -116,14 +116,14 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 }
 
 
-def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
+def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
                             OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution backward weight";
+  let summary = "N-D convolution backward weight";
   let description = [{
-    The `rock.conv2d_bwd_weight` op computes 2D convolution backward weight.
+    The `rock.conv_bwd_weight` op computes N-D convolution backward weight.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -366,7 +366,7 @@ def Rock_TensorUntransformCastOp :
     %t1 = rock.transform %buf : T to I1
     ...
     %output = rock.transform %tK : TK to U
-    %result = rock.conv2d(..., %output) : ..., U
+    %result = rock.conv(..., %output) : ..., U
     op(%result, ...)
     ```
     where op required a value of type %T.

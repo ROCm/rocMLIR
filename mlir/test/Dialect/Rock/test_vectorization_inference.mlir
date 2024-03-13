@@ -651,14 +651,14 @@ func.func @test_embed_tiebreak_1(%buf: memref<13xf32>) {
   bounds = [1, 256, 2880] -> [64, 1, 64, 2, 9, 2, 5]>
 #transform_map_over_vec_bottom2 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1, d2, d3 + d4, d5 + d6)>
   by [<PassThrough ["ni", "gi", "ci"] at [0, 1, 2] -> ["ni", "gi", "ci"] at [0, 1, 2]>,
-    <Embed{1, 1} ["y", "ho"] at [3, 4] -> ["hipad"] at [3]>,
-    <Embed{1, 1} ["x", "wo"] at [5, 6] -> ["wipad"] at [4]>]
+    <Embed{1, 1} ["y", "ho"] at [3, 4] -> ["0ipad"] at [3]>,
+    <Embed{1, 1} ["x", "wo"] at [5, 6] -> ["1ipad"] at [4]>]
   bounds = [64, 1, 64, 2, 9, 2, 5] -> [64, 1, 64, 10, 6]>
 #transform_map_over_vec_bottom3 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 3, d4)>
   by [<PassThrough ["ni"] at [0] -> ["ni"] at [0]>,
     <PassThrough ["gi"] at [1] -> ["gi"] at [1]>,
     <PassThrough ["ci"] at [2] -> ["ci"] at [2]>,
-    <Pad{3, 3, 0, 2} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>]
+    <Pad{3, 3, 0, 2} ["0ipad", "1ipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>]
   bounds = [64, 1, 64, 10, 6] -> [64, 1, 64, 4, 4]>
 
 // CHECK-LABEL: @test_padded_conv2gemm_input

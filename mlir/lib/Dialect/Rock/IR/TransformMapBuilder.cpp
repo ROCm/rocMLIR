@@ -260,7 +260,10 @@ StringRef TransformMapBuilder::endName(uint32_t dim) {
 }
 
 uint32_t TransformMapBuilder::startIndex(StringRef name) {
-  assert(startIndices.count(name) == 1 && "Key not in starting set of names");
+  if (startIndices.count(name) != 1) {
+    llvm::errs() << "Key not in starting set of names: " << name << "\n";
+    assert(0);
+  }
   return startIndices[name];
 }
 
@@ -897,7 +900,7 @@ llvm::StringMap<uint32_t> mlir::rock::expandNamesInPlace(
       offset--; // Handle extra count and dropping a dimension
     } else {
       bool insertResult = ret.insert({origName, origIndex + offset}).second;
-      assert(insertResult && "Dimsion already defined by expansion");
+      assert(insertResult && "Dimension already defined by expansion");
     }
   }
   return ret;
