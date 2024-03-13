@@ -109,6 +109,26 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
   return ret;
 }
 
+Value mlir::rock::isolateTransforms(OpBuilder &b, Value transformed) {
+  SmallVector<TransformOp> ops;
+  Value isolated;
+  std::tie(isolated, std::ignore) = untransform(transformed, ops);
+  bool needToClone = !llvm::all_of(ops, [](TransformOp op) -> bool {
+    return op->hasOneUse() || op->use_empty();
+  });
+  if (!needToClone)
+    return transformed;
+  for (TransformOp trOp : llvm::reverse(ops)) {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointAfterValue(trOp.getOutput());
+    IRMapping cloneMap;
+    cloneMap.map(trOp.getInput(), isolated);
+    Operation *newOp = b.clone(*trOp, cloneMap);
+    isolated = newOp->getResult(0);
+  }
+  return isolated;
+}
+
 bool mlir::rock::needs64BitIndices(TransformMapAttr map) {
   // Negative lengths are some form of dynamic index and therefore big.
   auto isBig = [](int64_t l) -> bool {
@@ -936,15 +956,14 @@ VectorizationResult mlir::rock::getMaxVectorization(
                              /*fusionTraversalStatus=*/fusionTraversalStatus};
 }
 
-Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
+void mlir::rock::collapseContiguousMerges(Value transformed) {
   ContiguousMergesMap contigousMerges = findContiguousGroups(transformed);
   SmallVector<TransformOp> transformOps;
-  Value currentRes;
-  std::tie(currentRes, std::ignore) = untransform(transformed, transformOps);
-  bool canEditInPlace = llvm::all_of(
-      transformOps, [](TransformOp op) { return op->hasOneUse(); });
-  bool needCloning = false;
+  std::tie(std::ignore, std::ignore) = untransform(transformed, transformOps);
   for (TransformOp trOp : llvm::reverse(transformOps)) {
+    assert((trOp->hasOneUse() || trOp->use_empty()) &&
+           "Transform ops whose merges will be collapsed must be isolated to "
+           "ensure other IR doesn't break");
     bool changed = false;
     TransformMapAttr map = trOp.getTransform();
     SmallVector<TransformAttr> ops;
@@ -996,29 +1015,9 @@ Value mlir::rock::collapseContiguousMerges(OpBuilder &b, Value transformed) {
     if (changed) {
       newMap = TransformMapAttr::get(ops, map.getUpperBounds(),
                                      map.getLowerBounds());
-      if (canEditInPlace)
-        trOp.setTransformAttr(newMap);
-      else
-        needCloning = true;
-    }
-
-    // We start cloning the transform stack after our first edit if, at some
-    // point, the transformed value has multiple uses. This ensures that we
-    // don't introduce merge collapses into transform chains other than the one
-    // we've been asked to edit.
-    if (needCloning) {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointAfterValue(trOp.getOutput());
-      IRMapping cloneMap;
-      cloneMap.map(trOp.getInput(), currentRes);
-      auto newTrOp = cast<TransformOp>(b.clone(*trOp, cloneMap));
-      newTrOp.setTransformAttr(newMap);
-      currentRes = newTrOp.getOutput();
-    } else {
-      currentRes = trOp.getOutput();
+      trOp.setTransformAttr(newMap);
     }
   }
-  return currentRes;
 }
 
 /// Embed operations can create some scenarios that lead to the need to

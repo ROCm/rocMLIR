@@ -329,8 +329,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     ThreadwiseCopyOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-  auto sourceView = adaptor.getSource();
-  auto destView = adaptor.getDest();
+  Value sourceView = adaptor.getSource();
+  Value destView = adaptor.getDest();
   auto srcViewShape = op.getSource().getType().getShape();
   auto dstViewShape = op.getDest().getType().getShape();
 
@@ -356,6 +356,11 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   sourceView = addPassThroughIndices(b, sourceView, extraIndicesDestShape,
                                      extraIndicesSourceSize);
   destView = addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+
+  // Almost certainly a noop, since adding extra indices creates fresh
+  // IR, but we call it just in case.
+  sourceView = isolateTransforms(b, sourceView);
+  destView = isolateTransforms(b, destView);
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
@@ -403,10 +408,18 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
       invertTransforms(b, loc, storeBufferViewForInverse);
   if (storeBufferViewInverted) {
     Value srcToDestView = transform(b, sourceView, storeBufferViewInverted);
+    // It may be the case that we had an isolated transform stack and didn't
+    // need to add extra indices. In that case, all the possible sources of
+    // cloning will have declined to trigger on account of everything already
+    // being in the right form. However, adding the inverses will introduce
+    // additional uses, causing sanity-check assertions to trip in
+    // collapseContiguousMerges(). To handle this case, we force a shallow
+    // clone.
+    srcToDestView = isolateTransforms(b, srcToDestView);
     VectorizationResult vecRes = getMaxVectorization(
         srcToDestView, extraIndicesSourceSize + extraIndicesDestSize);
     vecLen = vecRes.max;
-    srcToDestView = collapseContiguousMerges(b, srcToDestView);
+    collapseContiguousMerges(srcToDestView);
     std::tie(rawLoadBuffer, copyFromView, std::ignore) =
         untransform(b, srcToDestView);
     if (storeBufferLoadIdxsAttr)
@@ -475,6 +488,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   sourceView =
       cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
   sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
   auto sourceViewType = cast<MemRefType>(sourceView.getType());
   Value dest = adaptor.getDest();
   MemRefType dstBufferType = dest.getType().cast<MemRefType>();
@@ -502,7 +516,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         sourceView, extraIdxCount, /*inputDimLen=*/numValues);
     vectorSrcLen = vectorSrcRes.max;
     // In the future, this might get merged into the vectorizer.
-    sourceView = collapseContiguousMerges(b, sourceView);
+    collapseContiguousMerges(sourceView);
     srcStride = vectorSrcLen;
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
@@ -661,6 +675,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   ArrayAttr extraViews = op.getExtraViews();
   destView = transform(b, destView, extraViews);
   destView = addIterationIndexIfScalar(b, loc, destView);
+  destView = isolateTransforms(b, destView);
   auto destViewType = cast<MemRefType>(destView.getType());
   ArrayRef<int64_t> outputShape = destViewType.getShape();
   size_t extraIdxCount = op.getExtraIndices().size();
@@ -687,6 +702,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
                           << "\n");
 
+  collapseContiguousMerges(destView);
   auto [buffer, transforms, needs64BitIdx] = untransform(b, destView);
   MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
 

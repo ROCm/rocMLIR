@@ -61,6 +61,14 @@ bool needs64BitIndices(TransformMapAttr map);
 /// Apply a chain of transforms on a memref and return the final view
 Value transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms);
 
+/// Returns a version of `transformed` where all the `rock.transform`
+/// and `rock.scalarize` operations between `transformed` and the underlying
+/// memory have one user, cloning those intermediate operations if needed.
+/// This ensures that optimizations can edit those transformations in place
+/// without breaking any other uses that may have been merged together.
+/// If the transforms are already isolated, this function does nothing.
+Value isolateTransforms(OpBuilder &b, Value transformed);
+
 /// A helper to invert a chain of views
 ArrayAttr invertTransforms(OpBuilder &b, Location loc, ArrayAttr transforms);
 
@@ -123,16 +131,17 @@ getMaxVectorization(Value transformed, uint32_t dim,
                     Operation *operationRootForFusionTraversal = nullptr,
                     bool ignoreDataType = false);
 
-/// Returns a version of `transformed` transformed like `transformed` is but
-/// with contiguous merges collapsed. This creates new IR as needed and does not
-/// modify existing transformations in place.
-/// That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
-/// and then later either have y or z appear (with the same length) in the
-/// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
-/// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
-/// and merging. Note that the corresponding Unmerge or Embed is not updated by
-/// this function.
-Value collapseContiguousMerges(OpBuilder &b, Value transformed);
+/// Edits the transforms mapping  `transformed` to some underlying object to
+/// have contiguous merges collapsed. That is, if we begin with (x, y, z) <-
+/// Merge{A, B, C}(s) and then later either have y or z appear (with the same
+/// length) in the output or we later call (t) <- Unmerge{B, C}(y, z), we can
+/// write the Merge to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on
+/// pointless splitting and merging. Note that the corresponding Unmerge or
+/// Embed is not updated by this function. This function requires an "isolated"
+/// transform chain as input - that is, each rock.transform operation must hav
+/// exactly one user. This allows us to edit the transform attributes without
+/// fear of breaking existing IR.
+void collapseContiguousMerges(Value transformed);
 
 /// Returns true if the given `TransformMapAttr` has impacts on the validity
 /// of the underlying coordinates. If this returns true, the code generating
