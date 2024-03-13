@@ -13,11 +13,14 @@
 #ifndef MLIR_DIALECT_ROCK_SERIALIZABLE_H
 #define MLIR_DIALECT_ROCK_SERIALIZABLE_H
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Regex.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <numeric>
-#include <regex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -77,16 +80,16 @@ struct Serializable {
   }
 
   bool deserialize(std::string s) {
-    std::smatch match;
-    std::regex versionExpr{"^v(\\d)+:"};
-    if (std::regex_search(s, match, versionExpr)) {
-      assert(match.size() == 2 &&
+    llvm::Regex versionExpr("^v([0-9]+):");
+    llvm::SmallVector<llvm::StringRef, 2> matches;
+    if (versionExpr.match(s, &matches)) {
+      assert(matches.size() == 2 &&
              "a match of the version regex expected 2 items");
-      int32_t value = std::stoi(match[1]);
+      int32_t value = std::stoi(matches[1].str());
       if (value >= static_cast<int32_t>(Version::V1) &&
           value < static_cast<int32_t>(Version::Count)) {
-        version = static_cast<Version>(std::stoi(match[1]));
-        s = match.suffix();
+        version = static_cast<Version>(value);
+        s = std::string(s.begin() + matches[0].size(), s.end());
       } else {
         // unknown perf config version
         return false;
