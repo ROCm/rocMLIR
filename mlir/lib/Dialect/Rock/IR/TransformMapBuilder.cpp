@@ -260,7 +260,10 @@ StringRef TransformMapBuilder::endName(uint32_t dim) {
 }
 
 uint32_t TransformMapBuilder::startIndex(StringRef name) {
-  assert(startIndices.count(name) == 1 && "Key not in starting set of names");
+  if (startIndices.count(name) != 1) {
+    llvm::errs() << "Key not in starting set of names: " << name << "\n";
+    assert(0);
+  }
   return startIndices[name];
 }
 
