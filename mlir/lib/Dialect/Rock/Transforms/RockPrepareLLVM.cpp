@@ -114,8 +114,10 @@ static int64_t getAlign(Type type) {
 }
 
 void RockPrepareLLVMPass::runOnOperation() {
+  MLIRContext &ctx = getContext();
   LLVM::LLVMFuncOp func = getOperation();
-  if (!func->hasAttr(ROCDL::ROCDLDialect::getKernelFuncAttrName()))
+  auto *dialect = ctx.getLoadedDialect<ROCDL::ROCDLDialect>();
+  if (!dialect->getKernelAttrHelper().isAttrPresent(func))
     return;
   // We're willing to assert that our GEPs are in bounds, unless we're dealing
   // with buffer fat pointers (in which case, the offset is unsigned)
