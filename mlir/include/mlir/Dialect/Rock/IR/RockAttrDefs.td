@@ -50,23 +50,23 @@ class Rock_Attr<string name, list<Trait> traits = []> :
     AttrDef<Rock_Dialect, name, traits>;
 
 /// ConvOpType
-def ConvOp2DType : I32EnumAttrCase<"Fwd", 0, "conv2d">;
-def ConvOp2DBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv2d_bwd_data">;
-def ConvOp2DBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv2d_bwd_weight">;
+def ConvOpType : I32EnumAttrCase<"Fwd", 0, "conv">;
+def ConvOpBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv_bwd_data">;
+def ConvOpBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv_bwd_weight">;
 
-def ConvOpType : Rock_I32Enum<"ConvOpType", "The type of a 2D convolution operation",
-  [ConvOp2DType, ConvOp2DBwdDataType, ConvOp2DBwdWeightType]>;
+def ConvOpTypes : Rock_I32Enum<"ConvOpType", "The type of a convolution operation",
+  [ConvOpType, ConvOpBwdDataType, ConvOpBwdWeightType]>;
 
 /// Kerneltype
-def KernelTypeConv2D : I32EnumAttrCase<"Conv2D", 0>;
-def KernelTypeConv2DBwdData : I32EnumAttrCase<"Conv2DBwdData", 1>;
-def KernelTypeConv2DBwdWeight : I32EnumAttrCase<"Conv2DBwdWeight", 2>;
+def KernelTypeConv : I32EnumAttrCase<"Conv", 0>;
+def KernelTypeConvBwdData : I32EnumAttrCase<"ConvBwdData", 1>;
+def KernelTypeConvBwdWeight : I32EnumAttrCase<"ConvBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
 def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
 
 def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
-  [KernelTypeConv2D, KernelTypeConv2DBwdData,
-    KernelTypeConv2DBwdWeight, KernelTypeGemm,
+  [KernelTypeConv, KernelTypeConvBwdData,
+    KernelTypeConvBwdWeight, KernelTypeGemm,
     KernelTypeAttention]>;
 
 /// TransformType

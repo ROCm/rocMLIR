@@ -3,8 +3,8 @@
 // Run: rocmlir-opt -mlir-print-op-generic %s | rocmlir-opt | FileCheck %s
 
 
-func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none {
+func.func @rock_conv(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -15,11 +15,11 @@ func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d
-// CHECK-NEXT: rock.conv2d
+// CHECK-LABEL: func.func @rock_conv
+// CHECK-NEXT: rock.conv
 
-func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d(%filter, %input, %output) features = none {
+func.func @rock_conv_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
+  rock.conv(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g" ,"k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -30,11 +30,11 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d_f16
-// CHECK-NEXT: rock.conv2d
+// CHECK-LABEL: func.func @rock_conv_f16
+// CHECK-NEXT: rock.conv
 
-func.func @rock_conv2d_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d(%filter, %input, %output) features = mfma {
+func.func @rock_conv_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv(%filter, %input, %output) features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx940",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -45,11 +45,11 @@ func.func @rock_conv2d_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input 
   } : memref<?x?x?x?x?xf8E4M3FNUZ>, memref<?x?x?x?x?xf8E5M2FNUZ>, memref<?x?x?x?x?xf32>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d_fp8_mixed
-// CHECK-NEXT: rock.conv2d
+// CHECK-LABEL: func.func @rock_conv_fp8_mixed
+// CHECK-NEXT: rock.conv
 
-func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
+func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv_bwd_data(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 0 : index,
@@ -61,11 +61,11 @@ func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d_bwd_data
-// CHECK-NEXT: rock.conv2d_bwd_data
+// CHECK-LABEL: func.func @rock_conv_bwd_data
+// CHECK-NEXT: rock.conv_bwd_data
 
-func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
+func.func @rock_conv_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
+  rock.conv_bwd_data(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     kernelId = 0 : index,
@@ -77,11 +77,11 @@ func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : me
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d_bwd_data_f16
-// CHECK-NEXT: rock.conv2d_bwd_data
+// CHECK-LABEL: func.func @rock_conv_bwd_data_f16
+// CHECK-NEXT: rock.conv_bwd_data
 
-func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
+func.func @rock_conv_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
+  rock.conv_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -93,11 +93,11 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memr
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
-// CHECK-LABEL: func.func @rock_conv2d_bwd_weight
-// CHECK-NEXT: rock.conv2d_bwd_weight
+// CHECK-LABEL: func.func @rock_conv_bwd_weight
+// CHECK-NEXT: rock.conv_bwd_weight
 
-func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
+func.func @rock_conv_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
+  rock.conv_bwd_weight(%filter, %input, %output) features = none {
     arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -110,8 +110,8 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : 
   return
 }
 
-// CHECK-LABEL: func.func @rock_conv2d_bwd_weight_f16
-// CHECK-NEXT: rock.conv2d_bwd_weight
+// CHECK-LABEL: func.func @rock_conv_bwd_weight_f16
+// CHECK-NEXT: rock.conv_bwd_weight
 
 func.func @rock_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : memref<64x128xf32>) {
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
