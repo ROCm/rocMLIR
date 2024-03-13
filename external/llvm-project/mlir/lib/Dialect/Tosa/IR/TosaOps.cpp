@@ -357,6 +357,7 @@ static void buildConvOpWithQuantInfo(OpBuilder &builder, OperationState &result,
                                      Value bias, DenseI64ArrayAttr pad,
                                      DenseI64ArrayAttr stride,
                                      DenseI64ArrayAttr dilation) {
+
   result.addOperands({input, weight, bias});
   result.addAttribute("pad", pad);
   result.addAttribute("stride", stride);

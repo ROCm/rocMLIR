@@ -75,22 +75,15 @@ LogicalResult LegalizeToF32RewritePattern::matchAndRewrite(
     Operation *op, ArrayRef<Value> operands,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op->getLoc();
-  // Merge conflict resolver: Old MLIR commit didn't make this const yet.
   const TypeConverter *converter = getTypeConverter();
-  if (converter->isLegal(op))
-    return rewriter.notifyMatchFailure(loc, "op already legal");
-  OperationState newOp(loc, op->getName());
-  newOp.addOperands(operands);
+  FailureOr<Operation *> legalized =
+      convertOpResultTypes(op, operands, *converter, rewriter);
+  if (failed(legalized))
+    return failure();
 
-  SmallVector<Type> newResultTypes;
-  if (failed(converter->convertTypes(op->getResultTypes(), newResultTypes)))
-    return rewriter.notifyMatchFailure(loc, "couldn't convert return types");
-  newOp.addTypes(newResultTypes);
-  newOp.addAttributes(op->getAttrs());
-  Operation *legalized = rewriter.create(newOp);
-  SmallVector<Value> results = legalized->getResults();
-  for (auto [result, newType, origType] :
-       llvm::zip_equal(results, newResultTypes, op->getResultTypes())) {
+  SmallVector<Value> results = (*legalized)->getResults();
+  for (auto [result, newType, origType] : llvm::zip_equal(
+           results, (*legalized)->getResultTypes(), op->getResultTypes())) {
     if (newType != origType)
       result = rewriter.create<arith::TruncFOp>(loc, origType, result);
   }

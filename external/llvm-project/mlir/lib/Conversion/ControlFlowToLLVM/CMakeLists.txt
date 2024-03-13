@@ -18,5 +18,4 @@ add_mlir_conversion_library(MLIRControlFlowToLLVM
   MLIRLLVMDialect
   MLIRPass
   MLIRTransformUtils
-  MLIRTransforms
   )

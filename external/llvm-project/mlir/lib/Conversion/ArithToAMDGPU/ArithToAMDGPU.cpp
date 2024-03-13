@@ -128,15 +128,6 @@ static Value castToF32(Value value, Location loc, PatternRewriter &rewriter) {
   llvm_unreachable("The only 32-bit float type is f32");
 }
 
-static Value getMaybeVectorConstant(PatternRewriter &rewriter, Location loc,
-                                    const APFloat &value, Type type) {
-  if (isa<FloatType>(type))
-    return rewriter.createOrFold<arith::ConstantOp>(
-        loc, type, rewriter.getFloatAttr(type, value));
-  TypedAttr splat = DenseElementsAttr::get(cast<ShapedType>(type), value);
-  return rewriter.createOrFold<arith::ConstantOp>(loc, type, splat);
-}
-
 // If `in` is a finite value, clamp it between the maximum and minimum values
 // of `outElemType` so that subsequent conversion instructions don't
 // overflow those out-of-range values to NaN. These semantics are commonly

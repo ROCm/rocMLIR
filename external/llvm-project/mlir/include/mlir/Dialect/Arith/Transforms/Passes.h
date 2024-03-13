@@ -33,21 +33,6 @@ std::unique_ptr<Pass> createConstantBufferizePass(uint64_t alignment = 0);
 void populateArithWideIntEmulationPatterns(
     WideIntEmulationConverter &typeConverter, RewritePatternSet &patterns);
 
-/// Populate the type conversions needed to emulate the unsupported
-/// `sourceTypes` with `destType`
-void populateEmulateUnsupportedFloatsConversions(TypeConverter &converter,
-                                                 ArrayRef<Type> sourceTypes,
-                                                 Type targetType);
-
-/// Add rewrite patterns for converting operations that use illegal float types
-/// to ones that use legal ones.
-void populateEmulateUnsupportedFloatsPatterns(RewritePatternSet &patterns,
-                                              TypeConverter &converter);
-
-/// Set up a dialect conversion to reject arithmetic operations on unsupported
-/// float types.
-void populateEmulateUnsupportedFloatsLegality(ConversionTarget &target,
-                                              TypeConverter &converter);
 /// Adds patterns to emulate narrow Arith and Function ops into wide
 /// supported types. Users need to add conversions about the computation
 /// domain of narrow types.

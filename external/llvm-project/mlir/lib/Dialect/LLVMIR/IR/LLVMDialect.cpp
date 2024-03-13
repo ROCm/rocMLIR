@@ -2167,7 +2167,6 @@ LogicalResult ShuffleVectorOp::verify() {
 // Add the entry block to the function.
 Block *LLVMFuncOp::addEntryBlock() {
   assert(empty() && "function already has an entry block");
-
   auto *entry = new Block;
   push_back(entry);
 
@@ -3212,7 +3211,6 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
   // Create the global at the entry of the module.
   auto global = module.lookupSymbol<LLVM::GlobalOp>(name);
   if (!global) {
-    // Create the global at the entry of the module.
     OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
     global = moduleBuilder.create<LLVM::GlobalOp>(
        loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,

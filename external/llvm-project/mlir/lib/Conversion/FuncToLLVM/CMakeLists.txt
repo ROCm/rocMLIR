@@ -20,5 +20,4 @@ add_mlir_conversion_library(MLIRFuncToLLVM
   MLIRLLVMCommonConversion
   MLIRLLVMDialect
   MLIRTransformUtils
-  MLIRTransforms
   )

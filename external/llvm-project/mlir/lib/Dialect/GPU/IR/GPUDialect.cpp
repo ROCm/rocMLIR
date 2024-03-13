@@ -1620,20 +1620,20 @@ static void setAttributionAttr(GPUFuncOp op, unsigned index, StringAttr name,
   setAttributionAttrs(op, index, newDict, attrsName);
 }
 
-void GPUFuncOp::setPrivateAttributionAttr(unsigned index, StringAttr name,
-                                          Attribute value) {
-  assert(index < getNumPrivateAttributions() &&
-         "index must map to a private attribution");
-  setAttributionAttr(*this, index, name, value,
-                     getPrivateAttribAttrsAttrName());
-}
-
 void GPUFuncOp::setWorkgroupAttributionAttr(unsigned index, StringAttr name,
                                             Attribute value) {
   assert(index < getNumWorkgroupAttributions() &&
          "index must map to a workgroup attribution");
   setAttributionAttr(*this, index, name, value,
                      getWorkgroupAttribAttrsAttrName());
+}
+
+void GPUFuncOp::setPrivateAttributionAttr(unsigned index, StringAttr name,
+                                          Attribute value) {
+  assert(index < getNumPrivateAttributions() &&
+         "index must map to a private attribution");
+  setAttributionAttr(*this, index, name, value,
+                     getPrivateAttribAttrsAttrName());
 }
 
 LogicalResult GPUFuncOp::verifyType() {

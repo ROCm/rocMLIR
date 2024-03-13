@@ -166,7 +166,7 @@ public:
   /// Replace all uses of 'this' value with the new value, updating anything in
   /// the IR that uses 'this' to use the other value instead.  When this returns
   /// there are zero uses of 'this'.
-  void replaceAllUsesWith(Value newValue) const {
+  void replaceAllUsesWith(Value newValue) {
     impl->replaceAllUsesWith(newValue);
   }
 

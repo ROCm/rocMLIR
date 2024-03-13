@@ -133,7 +133,6 @@ void registerTestSliceAnalysisPass();
 void registerTestTensorCopyInsertionPass();
 void registerTestTensorTransforms();
 void registerTestTosaPartitionOptionsPass();
-void registerTestTilingInterface();
 void registerTestTopologicalSortAnalysisPass();
 void registerTestTransformDialectEraseSchedulePass();
 void registerTestTransformDialectInterpreterPass();
