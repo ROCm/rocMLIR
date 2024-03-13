@@ -25,7 +25,7 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
-      {32, 64, 128, 256}, {4, 16, 32}, {4, 8, 16}};
+      {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
   constexpr uint32_t forceUnroll = 1;
   OpBuilder b(attnOp.getContext());
   for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
