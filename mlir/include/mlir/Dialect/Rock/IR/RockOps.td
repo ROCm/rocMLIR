@@ -382,6 +382,113 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
+def Rock_ScalarizeOp :
+    Rock_Op<"scalarize", [Pure, ViewLikeOpInterface]>,
+    Arguments<(ins AnyTensorOrMemRef:$input)>,
+    Results<(outs AnyTensorOrMemRef:$output)> {
+  let summary = "View a buffer of vectors as a buffer of their elements";
+  let description = [{
+    Given a buffer (without loss of generality, a tensor),
+    `%v : tensor<... x vector<L x T>>`, return its scalar view of type
+    `tensor<... x L x T>`.
+
+    NOTES: A buffer produced by `scalarize` must only be used by the Rock
+    dialect's read and write operations, as general operations, like
+    `memref.load`, will ***NOT*** correctly handle the final length-L dimension.
+    While they might work for the obvious cases (like a vector<4xf32>), things
+    will fall apart catastrophically when buffers that have to be accessed
+    in vectors (like a buffer of `vector<2xi4>`).
+
+    In general, operations on a scalarized buffer will operate ignoring the
+    final index when accessing the input argument. That final index will be
+    used to take an index into or slice of the resulting vector if needed.
+    That is, for a length-1 write to a scalarized buffer, the whole vector will
+    be read, the element in question will be updated, and the whole vector
+    will be written back.
+
+    Therefore, care should be taken to ensure that accesses to such buffers are
+    properly vectorized.
+
+    Vector reads/writes that cross vector boundaries and are not aligned
+    to the width of the underlying vector are not supported. That is,
+    you may read 8 at a time starting from %scalarized[%x, 0] : tensor<4x4xT>,
+    you may not write 4 at a time starting at %scalarized[%x, 2] : tensor<4x4xT>.
+    We might add support for thta in the future, but, since our vectorization
+    analysis assumes that if you're vectorized by X elements, your operations
+    are also aligned to X elementts - should that change, we'll add the extra
+    complexity.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `to` type($output)
+  }];
+
+  let extraClassDeclaration = [{
+    Value getViewSource() { return getInput(); }
+  }];
+
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$input), [{
+      ::mlir::Type inType = input.getType();
+      ::mlir::Type outType = inType; // fallback, will fail verification
+      if (auto shapedIn = ::mlir::dyn_cast<::mlir::ShapedType>(inType)) {
+        ::mlir::Type elemType = shapedIn.getElementType();
+        if (auto vecIn = ::mlir::dyn_cast<::mlir::VectorType>(elemType)) {
+          ::llvm::SmallVector<int64_t> newShape(shapedIn.getShape());
+          ::llvm::append_range(newShape, vecIn.getShape());
+          ::mlir::Type scalarTy = vecIn.getElementType();
+          outType = shapedIn.cloneWith(newShape, scalarTy);
+        }
+      }
+      build($_builder, $_state, outType, input);
+    }]>
+  ];
+
+  let hasVerifier = 1;
+}
+
+def Rock_UnpackInt4Op :
+    Rock_Op<"unpack_int4", [AllRanksMatch<["in", "out"]>]>,
+    Arguments<(ins TensorOf<[I8]>:$in,
+                   IndexAttr:$axis)>,
+    Results<(outs TensorOf<[I8]>:$out)> {
+  let summary = "Unpack a tensor of packed unsigned int4 to bytes";
+  let description = [{
+    Given a tensor tensor<...xLx...xi8>, where the i8
+    values are packed unsigned int4 qualities, produce the tensor,
+    tensor<...x2Lx...xi8>, where each element is one of those int4s
+    represented as a whole byte. The tensor dimension to be expanded is given
+    by `axis`.
+
+    Note that the kernel-side lowering of this operator assumes that, ultimately,
+    the unpack axis will correspond to the dimension of its underlying memory
+    whose stride is 1, which is an invariant carried over from MIGraphX.
+    No attempt is made to enforce this invariant!
+
+    This operation exists:
+    1. To allow us to lower `migraphx.unpack` to something that works
+    on tensors as we're lowering to `tosa`, because the MIGraphX dialect uses
+    its own shaped types for this sort of thing.
+    2. So that we can handle lowering of this operation in a platform-dependent
+    fashion.
+
+    In kernel code, this op is a marker to start inserting bitcasts and
+    `rock.scalarize`s so that we can handle an int4 fusion, and evetually
+    turns into a `tosa.cast` from unsigned 4-bit integers to 8-bit ones that'll
+    get fused away.
+
+    In host code, it'll lower to, in effect
+    ```
+    out[2 * i] = in[i] & 0xf;
+    out[2 * i + 1] = (in[1] >> 1u);
+    ```
+    for all inputs `i`.
+  }];
+  let assemblyFormat = [{
+    attr-dict $in  `:` type($in) `to` type($out)
+  }];
+  let hasVerifier = 1;
+}
+
 def Rock_GridwiseGemmOp :
     Rock_Op<"gridwise_gemm">,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,

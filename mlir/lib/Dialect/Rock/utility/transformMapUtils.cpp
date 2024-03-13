@@ -392,14 +392,29 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
 // can split the merge group in
 // [[0] [2,3]]. This information will be used by the vectorizer. E.g., the
 // vectorizer can fulfill a vectorization by 4, since 8*3=24 is a multiple of 4.
-// In other words, every group of dimensions is treated as a single group
+// In other words, every group of dimensions is treated as a single group.
+// Vector buffer behavior: this function traverses past scalarizes but ensures that
+// the vector indexing dimension isn't part of a contiguous group.
 ContiguousMergesMap findContiguousGroups(Value transformed) {
   // Transform table. Will be overwritten after processing each transform_map
   DimToMergeMap dimToMerge;
   ContiguousMergesMap contiguousGroups;
 
   Value currentVal = transformed;
-  while (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
+  auto nextTransform = [&]() -> TransformOp {
+    auto maybeTrOp = currentVal.getDefiningOp<TransformOp>();
+    if (maybeTrOp)
+      return maybeTrOp;
+    auto maybeScalarizeOp = currentVal.getDefiningOp<ScalarizeOp>();
+    if (maybeScalarizeOp) {
+      // Forget the dimension of indexing within the vector.
+      dimToMerge.erase(maybeScalarizeOp.getOutput().getType().getRank() - 1);
+      currentVal = maybeScalarizeOp.getInput();
+      return currentVal.getDefiningOp<TransformOp>();
+    }
+    return nullptr;
+  };
+  while (auto trOp = nextTransform()) {
     TransformMapAttr transformMap = trOp.getTransform();
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
     DimToMergeMap thisDimToMerge;
@@ -495,7 +510,6 @@ ContiguousMergesMap findContiguousGroups(Value transformed) {
         break;
       }
     }
-    currentVal = trOp.getInput();
     dimToMerge = thisDimToMerge;
   }
 
@@ -798,6 +812,43 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
   return result;
 }
 
+static FailureOr<VectorizationData>
+convertScalarVectorizationInfoToVectorInfo(const VectorizationData& input, int64_t bufferVectorSize, uint32_t inVectorDim) {
+  if (!input[inVectorDim]) {
+    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension has no vectorization data (is held constant and isn't known to have unit stride)\n");
+    return failure();
+  }
+  VectorizationInfo inVectorInfo = *input[inVectorDim];
+  if (inVectorInfo.needsCoefficient != 1) {
+    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't using unit stride\n");
+    return failure();
+  }
+  if (inVectorInfo.maxLength != bufferVectorSize) {
+
+  }
+  if ((inVectorInfo.maxLength % bufferVectorSize != 0) || (inVectorInfo.alignment % bufferVectorSize != 0)) {
+    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't traversed by aligned whole vectors, can't proceed\n");
+    return failure();
+  }
+  VectorizationData result;
+  // This drops the space for the in-vector dimension.
+  result.grow(inVectorDim);
+  for (uint32_t i : llvm::iota_range<uint32_t>(0, inVectorDim, false)) {
+    std::optional<VectorizationInfo> scalarInfo = input[i];
+    if (!scalarInfo)
+      continue;
+    if (scalarInfo->needsCoefficient % bufferVectorSize != 0) {
+      LLVM_DEBUG(llvm::dbgs() << "At dimension " << i << " needed coefficient " << scalarInfo->needsCoefficient << " doesn't evenly divide vector size " << bufferVectorSize << "\n");
+      return failure();
+    }
+    if (scalarInfo->alignment % bufferVectorSize != 0) {
+      LLVM_DEBUG(llvm::dbgs() << "At dimension " << i << " alignment " << scalarInfo->needsCoefficient << " doesn't evenly divide vector size " << bufferVectorSize << "\n");
+      return failure();
+    }
+
+  }
+}
+
 static FailureOr<std::pair<Value, Operation *>>
 findPostFusionTransforms(Value buffer, Operation *currentUser) {
   Value newTransformed = nullptr;
@@ -862,6 +913,9 @@ VectorizationResult mlir::rock::getMaxVectorization(
   bool traverseFusions = (operationRootForFusionTraversal != nullptr);
   Operation *currentUser = operationRootForFusionTraversal;
   Value currentVal = transformed;
+  // The length of the vectors the buffer is hade of (this is needed for int4
+  // and also used to ensure that LDS is read in wide increments where possible.)
+  int64_t bufferVectorSize = 1;
   LogicalResult fusionTraversalStatus = success();
   auto contiguousMerges = findContiguousGroups(transformed);
 
@@ -873,8 +927,8 @@ VectorizationResult mlir::rock::getMaxVectorization(
   // source of post-fusion transforms (for an output fusion, the output of the
   // fusion) to traverse its transform stack (which involves) recomputing
   // contiguous merge data).
-  // - For rock.scalarize, adjust the vectorization data to account for the
-  // change in indexing scheme and continue.
+  // - For rock.scalarize, record the buffer vector size, drop the within-vector
+  // dimension from processing, and continue
   auto advance = [&]() -> bool {
     Operation *definingOp = currentVal.getDefiningOp();
     if (!definingOp)
@@ -883,6 +937,15 @@ VectorizationResult mlir::rock::getMaxVectorization(
       currentVal = trOp.getInput();
       currentUser = definingOp;
       return true;
+    }
+    if (auto scalarizeOp = dyn_cast<ScalarizeOp>(definingOp)) {
+      ShapedType scalarView = scalarizeOp.getOutput().getType();
+      uint32_t lastDim = scalarView.getRank() - 1;
+      bufferVectorSize = scalarView.getDimSize(lastDim);
+      LLVM_DEBUG(llvm::dbgs() << "Max vectorization data before scalarize: ");
+      data.debugPrint();
+      LLVM_DEBUG(llvm::dbgs() << "Handling scalarize of length: " << bufferVectorSize << "\n");
+
     }
     if (isa<memref::AllocOp>(definingOp)) {
       if (!traverseFusions) {

@@ -897,6 +897,24 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// UnpackInt4Op
+//===-----------------------------------------------------===//
+LogicalResult UnpackInt4Op::verify() {
+  uint64_t axis = getAxis().getZExtValue();
+  ArrayRef<int64_t> inShape = getIn().getType().getShape();
+  ArrayRef<int64_t> outShape = getOut().getType().getShape();
+  if (axis >= inShape.size())
+    return emitOpError("unpacking axis " + Twine(axis) + " out of range for input shape");
+  for (auto [idx, inLen, outLen] : llvm::enumerate(inShape, outShape)) {
+    if (idx == axis && outLen != (inLen * 2))
+      return emitOpError("expected unpack axis to double in length");
+    if (idx != axis && outLen != inLen)
+      return emitOpError("expected dimensions to not chang except along the unpack axis");
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ExtractMultiBufferOp
 //===-----------------------------------------------------===//
 
@@ -1370,6 +1388,33 @@ LogicalResult IndexDiffUpdateOp::verify() {
   if (nMapOut != nLowerIn)
     return emitOpError("Expected " + Twine(nMapOut) +
                        " lower coordinates but got " + Twine(nLowerIn));
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// ScalarizeOp
+//===-----------------------------------------------------===//
+LogicalResult ScalarizeOp::verify() {
+  ShapedType vectorsTy = getInput().getType();
+  ShapedType scalarsTy = getOutput().getType();
+
+  int64_t vectorRank = vectorsTy.getRank();
+  int64_t scalarRank = scalarsTy.getRank();
+  if (vectorRank == 0)
+    return emitOpError("scalarizing 0D buffers is unsupported");
+  if (vectorsTy.getRank() + 1 != scalarRank)
+    return emitOpError("expected vector buffer to have rank 1 less than scalar buffer, but got a rank " + Twine(vectorRank) + " and rank " + Twine(scalarRank) + " scalarized result");
+  auto vecTy = dyn_cast<VectorType>(vectorsTy.getElementType());
+  if (!vecTy)
+    return emitOpError("input to scalarize does not have vector elements");
+  if (vecTy.getRank() > 1)
+    return emitOpError("expected input vectors to be 1-D");
+  if (vecTy.getElementType() != scalarsTy.getElementType())
+    return emitOpError("expected input vector type ") << vecTy << " to have the same elements as the scalarized buffer, which has element type " << scalarsTy.getElementType();
+  if (scalarsTy.getShape().back() != vecTy.getNumElements())
+    return emitOpError("expected last dimension of scalar buffer to be ") << vecTy.getNumElements() << " to match the number of elements in " << vecTy << " but got the length " << scalarsTy.getShape().back();
+  if (scalarsTy.getShape().drop_back() != vectorsTy.getShape())
+    return emitOpError("expected the common dimensions between input ") << vectorsTy << " and output " << scalarsTy << " to match exactly";
   return success();
 }
 

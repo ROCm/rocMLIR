@@ -131,6 +131,7 @@ getMaxVectorization(Value transformed, uint32_t dim,
                     Operation *operationRootForFusionTraversal = nullptr,
                     bool ignoreDataType = false);
 
+<<<<<<< HEAD
 /// Edits the transforms mapping  `transformed` to some underlying object to
 /// have contiguous merges collapsed. That is, if we begin with (x, y, z) <-
 /// Merge{A, B, C}(s) and then later either have y or z appear (with the same
@@ -142,6 +143,24 @@ getMaxVectorization(Value transformed, uint32_t dim,
 /// exactly one user. This allows us to edit the transform attributes without
 /// fear of breaking existing IR.
 void collapseContiguousMerges(Value transformed);
+=======
+/// Returns a version of `transformed` transformed like `transformed` is but
+/// with contiguous merges collapsed. This creates new IR as needed and does not
+/// modify existing transformations in place.
+/// That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
+/// and then later either have y or z appear (with the same length) in the
+/// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
+/// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
+/// and merging. Note that the corresponding Unmerge or Embed is not updated by
+/// this function.
+/// This function will look through `rock.scalarize` and won't attach the
+/// within-vector dimension to any contiguous groups. (This property is only
+/// guaranteed if the within-vector dimension is constructed correctly:
+/// if you've scalarized vector<2xi4> and then set the trailing dimension to
+/// something other than 0 or 1, things can break - this function only guarantees
+/// that it won't introduce that issue.)
+Value collapseContiguousMerges(OpBuilder &b, Value transformed);
+>>>>>>> e7c063396ea1 (Stash commit for scalarize)
 
 /// Returns true if the given `TransformMapAttr` has impacts on the validity
 /// of the underlying coordinates. If this returns true, the code generating

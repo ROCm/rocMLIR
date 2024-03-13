@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
+#include "mlir/IR/BuiltinTypes.h"
 
 #include "llvm/Support/Debug.h"
 
@@ -140,6 +141,51 @@ struct TransformOpInterface
   }
 };
 
+/// Bufferization of rock.scalarize, which, like rock.transform, bufferizes to
+// itself on memrefs.
+struct ScalarizeOpInterface
+    : public BufferizableOpInterface::ExternalModel<ScalarizeOpInterface,
+                                                    rock::ScalarizeOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    return false;
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    return false;
+  }
+
+  AliasingOpResultList getAliasingOpResults(Operation *op, OpOperand &opOperand,
+                                            const AnalysisState &state) const {
+    AliasingOpResultList result;
+    for (auto opResult : op->getOpResults())
+      result.addAlias({opResult, BufferRelation::Equivalent});
+    return result;
+  }
+
+  // The output argument is equal to the returned value
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    return BufferRelation::Equivalent;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options) const {
+    auto scalarizeOp = mlir::cast<rock::ScalarizeOp>(op);
+    FailureOr<Value> input =
+        getBuffer(rewriter, scalarizeOp.getInput(), options);
+    if (failed(input))
+      return failure();
+
+    FailureOr<BaseMemRefType> outType = bufferization::getBufferType(scalarizeOp.getOutput(), options);
+    if (failed(outType))
+      return failure();
+    replaceOpWithNewBufferizedOp<rock::ScalarizeOp>(rewriter, op, *outType, *input);
+    return success();
+  }
+};
+
 /// Bufferization of rock.tensor_untransform_cast, which bufferizes to the
 /// buffer cerrosponding to the transformed argument (but untransformed)
 struct TensorUntransformCastOpInterface
@@ -230,6 +276,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     AttentionOp::attachInterface<GemmLikeInterface<AttentionOp>>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
+    ScalarizeOp::attachInterface<ScalarizeOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
         *ctx);
   });

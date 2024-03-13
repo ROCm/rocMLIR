@@ -164,10 +164,12 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 /// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
 /// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
 /// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
-/// 1 meaning just T). The resulting view must be iterated over with a stride of
-/// no less than min(kPerThread, kpack). Also note that the `d` dimension
+/// 1 meaning just T), which will then be scalarized to expose the kpack
+/// dimension. Due to the inherently-vectorized writes such a scalarization
+/// introduces, we must take care to ensure that this buffer's writes are
+/// vectorized at min(kpackPerThread, kpack). Also note that the `d` dimension
 /// might be rotated to minimize bank conflicts (i.e., depending on
-/// `rotateDWithK`
+/// `rotateDWithK`.
 // we can apply a transformation similar to `d=(d+kOuter)%D`)
 static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               Value buffer, Type ldsReadType,
@@ -195,7 +197,7 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   int64_t threadsPerKpack = kpack / kpackPerThread;
 
   Type ldsWriteType = vectorTypeOrSelf(dataType, kpackPerThread);
-  auto typedBuffer = viewBufferAs(b, buffer, ldsWriteType);
+  auto vectorTypedBuffer = viewBufferAs(b, buffer, ldsWriteType);
 
   TopDownTMBuilder mergeKpack{
       b, {"k", "d"}, {kOuter * threadsPerKpack * kpackPerThread, d}};
@@ -217,12 +219,15 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 
   reshapeBuf.unmerge("raw", 0, {"k_outer", dName, "kpack_idx"},
                      {kOuter, d, threadsPerKpack});
-  reshapeBuf.ignore("kpack_vec");
+  if (kpackPerThread == 1) // Buffer of scalars, the "_vec" dimesnion is trivial.
+    reshapeBuf.ignore("kpack_vec");
+  else
+    reshapeBuf.passThrough({"vec_offset"}, {1}, {"kpack_vec"});
   TransformMapAttr reshapeBufAttr = reshapeBuf.get();
   transformAttrs.push_back(reshapeBufAttr);
 
   ArrayAttr asMatrix = b.getArrayAttr(transformAttrs);
-  return transform(b, typedBuffer, asMatrix);
+  return transform(b, vectorTypedBuffer, asMatrix);
 }
 
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,

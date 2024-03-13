@@ -695,6 +695,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     vectorLen = elemVecType.getNumElements();
     elementType = elemVecType.getElementType();
   } else {
+    // XXX BELOW NEEDS REDONE FOR VECTOR-TYPED + SCALARIZED BUFFERS XXX.
     VectorizationResult vectorRes =
         getMaxVectorization(destView, extraIdxCount);
     vectorLen = vectorRes.max;
