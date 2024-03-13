@@ -451,11 +451,11 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
 
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   switch (kernelType) {
-  case KernelType::Conv2D:
+  case KernelType::Conv:
     return ConvOpType::Fwd;
-  case KernelType::Conv2DBwdData:
+  case KernelType::ConvBwdData:
     return ConvOpType::BwdData;
-  case KernelType::Conv2DBwdWeight:
+  case KernelType::ConvBwdWeight:
     return ConvOpType::BwdWeight;
   case KernelType::Gemm:
     llvm_unreachable(
@@ -470,11 +470,11 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
 KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
   switch (convOpType) {
   case ConvOpType::Fwd:
-    return KernelType::Conv2D;
+    return KernelType::Conv;
   case ConvOpType::BwdData:
-    return KernelType::Conv2DBwdData;
+    return KernelType::ConvBwdData;
   case ConvOpType::BwdWeight:
-    return KernelType::Conv2DBwdWeight;
+    return KernelType::ConvBwdWeight;
   }
   llvm_unreachable("Unsupported ConvOpType");
 }
@@ -574,68 +574,68 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   return success();
 }
 
-LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvOp::verify() { return verifyConvOp(*this); }
 
-LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }
 
-LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
 
-KernelType Conv2DOp::getKernelType() { return KernelType::Conv2D; }
+KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
-KernelType Conv2DBwdDataOp::getKernelType() {
-  return KernelType::Conv2DBwdData;
+KernelType ConvBwdDataOp::getKernelType() {
+  return KernelType::ConvBwdData;
 }
 
-KernelType Conv2DBwdWeightOp::getKernelType() {
-  return KernelType::Conv2DBwdWeight;
+KernelType ConvBwdWeightOp::getKernelType() {
+  return KernelType::ConvBwdWeight;
 }
 
-Type Conv2DOp::getAType() { return getFilter().getType().getElementType(); }
+Type ConvOp::getAType() { return getFilter().getType().getElementType(); }
 
-Type Conv2DBwdDataOp::getAType() {
+Type ConvBwdDataOp::getAType() {
   return getFilter().getType().getElementType();
 }
 
-Type Conv2DBwdWeightOp::getAType() {
+Type ConvBwdWeightOp::getAType() {
   return getOutput().getType().getElementType();
 }
 
-Type Conv2DOp::getBType() { return getInput().getType().getElementType(); }
+Type ConvOp::getBType() { return getInput().getType().getElementType(); }
 
-Type Conv2DBwdDataOp::getBType() {
+Type ConvBwdDataOp::getBType() {
   return getOutput().getType().getElementType();
 }
 
-Type Conv2DBwdWeightOp::getBType() {
+Type ConvBwdWeightOp::getBType() {
   return getInput().getType().getElementType();
 }
 
-Type Conv2DOp::getCType() { return getOutput().getType().getElementType(); }
+Type ConvOp::getCType() { return getOutput().getType().getElementType(); }
 
-Type Conv2DBwdDataOp::getCType() {
+Type ConvBwdDataOp::getCType() {
   return getInput().getType().getElementType();
 }
 
-Type Conv2DBwdWeightOp::getCType() {
+Type ConvBwdWeightOp::getCType() {
   return getFilter().getType().getElementType();
 }
 
-OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
+OpOperand *ConvOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-OpOperand *Conv2DBwdDataOp::getOutArgument() {
+OpOperand *ConvBwdDataOp::getOutArgument() {
   return &(*this)->getOpOperand(1);
 }
 
-OpOperand *Conv2DBwdWeightOp::getOutArgument() {
+OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
-GemmSize Conv2DOp::getGemmSize() {
+GemmSize ConvOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
 }
 
-GemmSize Conv2DBwdDataOp::getGemmSize() {
+GemmSize ConvBwdDataOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   auto padding = extractFromIntegerArrayAttr<int64_t>(this->getPadding());
   auto strides = extractFromIntegerArrayAttr<int64_t>(this->getStrides());
@@ -688,7 +688,7 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
-GemmSize Conv2DBwdWeightOp::getGemmSize() {
+GemmSize ConvBwdWeightOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
 }

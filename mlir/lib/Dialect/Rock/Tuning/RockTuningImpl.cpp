@@ -487,8 +487,8 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   // Num of Compute Units
   problemOS << numCU << tab;
 
-  if (opType == KernelType::Conv2D || opType == KernelType::Conv2DBwdData ||
-      opType == KernelType::Conv2DBwdWeight) { // conv cases
+  if (opType == KernelType::Conv || opType == KernelType::ConvBwdData ||
+      opType == KernelType::ConvBwdWeight) { // conv cases
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
 
     ShapedType inType = convIF.getInput().getType();
@@ -577,13 +577,13 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
     // OP direction
     switch (opType) {
-    case KernelType::Conv2D:
+    case KernelType::Conv:
       problemOS << "-F 1" << sep;
       break;
-    case KernelType::Conv2DBwdData:
+    case KernelType::ConvBwdData:
       problemOS << "-F 2" << sep;
       break;
-    case KernelType::Conv2DBwdWeight:
+    case KernelType::ConvBwdWeight:
       problemOS << "-F 4" << sep;
       break;
     default:
