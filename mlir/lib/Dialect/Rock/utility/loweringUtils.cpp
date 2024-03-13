@@ -7,8 +7,10 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -615,4 +617,61 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
                                 rewriter.getArrayAttr(threadSubTileMaps),
                                 std::nullopt};
   }
+}
+
+template <typename RetAttrType>
+static FailureOr<RetAttrType> getAttrFromOpOrParents(
+    Operation *op, StringRef opAttr,
+    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
+  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
+  Operation *func;
+  if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
+    func = op;
+  } else {
+    func = op->getParentOfType<func::FuncOp>();
+    if (!func) {
+      func = op->getParentOfType<gpu::GPUFuncOp>();
+    }
+  }
+  RetAttrType arch = op->getAttrOfType<RetAttrType>(opAttr);
+  if (!arch)
+    arch = func->getAttrOfType<RetAttrType>(dialectAttr);
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+  }
+  if (!arch) {
+    if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
+      arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+    }
+  }
+  if (!arch) {
+    return failure();
+  }
+  return arch;
+}
+
+FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
+  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
+}
+
+FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (failed(maybeArch)) {
+    return failure();
+  }
+  StringAttr arch = maybeArch.value();
+  FailureOr<IntegerAttr> maybeNumCU =
+      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu");
+  if (failed(maybeNumCU)) {
+    return failure();
+  }
+  IntegerAttr numCU = maybeNumCU.value();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (numCU.getSInt() < archInfo.minNumCU) {
+    return op->emitError() << "num_cu=" << numCU
+                           << " cannot be lower than arch minNumCU="
+                           << archInfo.minNumCU;
+  }
+  return numCU.getSInt();
 }

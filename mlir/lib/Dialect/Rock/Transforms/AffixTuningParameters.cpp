@@ -174,11 +174,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
 
     op.setGemmParamsAttr(gemmParams);
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   } else {
     InitParamsNonAccel validParams;
 
@@ -194,12 +192,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
 
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
-
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr("wave_size", b.getI32IntegerAttr(waveSize));
   }
 }
 
