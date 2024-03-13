@@ -744,39 +744,40 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
 
   int64_t dilationH = ctx.getDilationVal()[0];
   int64_t dilationW = ctx.getDilationVal()[1];
-  int64_t strideH = ctx.getStrideVal()[0];
-  int64_t strideW = ctx.getStrideVal()[1];
+  auto strides = ctx.getStrideVal();
+//   int64_t strideH = ctx.getStrideVal()[0];
+//   int64_t strideW = ctx.getStrideVal()[1];
   ConvolutionDims convDims = ctx.getConvDims();
   SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
   if (failed(getConvDimNames(op, filterNames, inputNames, outputNames))) {
     return failure();
   }
 
-  int64_t gcdStrideDilationH = math_util::gcd(strideH, dilationH);
-  int64_t gcdStrideDilationW = math_util::gcd(strideW, dilationW);
+  int64_t gcdStrideDilationH = math_util::gcd(strides[0], dilationH);
+  int64_t gcdStrideDilationW = math_util::gcd(strides[1], dilationW);
 
-  int64_t yTilda = strideH / gcdStrideDilationH;
-  int64_t xTilda = strideW / gcdStrideDilationW;
+  int64_t yTilda = strides[0] / gcdStrideDilationH;
+  int64_t xTilda = strides[1] / gcdStrideDilationW;
 
   int64_t yDot = math_util::integer_divide_ceil(convDims.fil[0], yTilda);
   int64_t xDot = math_util::integer_divide_ceil(convDims.fil[1], xTilda);
 
   int64_t hTilda = convDims.out[0] + math_util::integer_divide_ceil(
-                                     dilationH * (convDims.fil[0] - 1), strideH);
+                                     dilationH * (convDims.fil[0] - 1), strides[0]);
   int64_t wTilda = convDims.out[1] + math_util::integer_divide_ceil(
-                                     dilationW * (convDims.fil[1] - 1), strideW);
+                                     dilationW * (convDims.fil[1] - 1), strides[1]);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
+      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strides[0]);
   int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strideW);
+      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strides[1]);
 
   int64_t iHTildaRight = std::min(
       hTilda,
-      math_util::integer_divide_ceil(leftPadH + convDims.in[0] - 1, strideH) + 1);
+      math_util::integer_divide_ceil(leftPadH + convDims.in[0] - 1, strides[0]) + 1);
   int64_t iWTildaRight = std::min(
       wTilda,
-      math_util::integer_divide_ceil(leftPadW + convDims.in[1] - 1, strideW) + 1);
+      math_util::integer_divide_ceil(leftPadW + convDims.in[1] - 1, strides[1]) + 1);
 
   int64_t kernelId = kernelIdAttr.getInt();
   int64_t iYTilda = kernelId / xTilda;
@@ -802,9 +803,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
 
     embedWrap.passThrough({"g", "k", "c"});
     embedWrap.embed({"0dot", "0tilda"}, {yDot, yTilda}, "0",
-                    {strideH / gcdStrideDilationH, 1});
+                    {strides[0] / gcdStrideDilationH, 1});
     embedWrap.embed({"1dot", "1tilda"}, {xDot, xTilda}, "1",
-                    {strideW / gcdStrideDilationW, 1});
+                    {strides[1] / gcdStrideDilationW, 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embeddedFilter =
@@ -862,9 +863,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
     tildaEmbedWrap.embed({"0tilda", "htilda"}, {yTilda, hTilda}, "hipad",
-                         {dilationH, strideH});
+                         {dilationH, strides[0]});
     tildaEmbedWrap.embed({"1tilda", "wtilda"}, {xTilda, wTilda}, "wipad",
-                         {dilationW, strideW});
+                         {dilationW, strides[1]});
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded =
