@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm %s | FileCheck %s
 module  {
   func.func @rock_conv_bwd_weight_gkyxc_nghwc_nghwk_0(%arg0: memref<1x32x3x3x32xf32>, %arg1: memref<32x1x7x7x32xf32>, %arg2: memref<32x1x9x9x32xf32>) attributes {kernel = 0 : i32} {
-    rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], input_layout = ["ni", "gi", "0i", "1i", "ci"], numCU = 120 : i32, output_layout = ["no", "go", "0o", "1o", "ko"], padding = [2 : index, 2 : index, 2 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x32x3x3x32xf32>, memref<32x1x7x7x32xf32>, memref<32x1x9x9x32xf32>
+    rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "gi", "hi", "wi", "ci"], numCU = 120 : i32, output_layout = ["no", "go", "ho", "wo", "ko"], padding = [2 : index, 2 : index, 2 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x32x3x3x32xf32>, memref<32x1x7x7x32xf32>, memref<32x1x9x9x32xf32>
     return
   }
 }
