@@ -25,20 +25,20 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
-      {32, 64, 128, 256}, {32, 64, 128, 256}, {4, 8, 16}};
+      {32, 64, 128, 256}, {4, 16, 32}, {4, 8, 16}};
   constexpr uint32_t forceUnroll = 1;
   OpBuilder b(attnOp.getContext());
   for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
     for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
       for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
         for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
-          for (uint32_t gemmNPerWave : validRangeAccelGemmParams[4]) {
+          for (uint32_t gemmMnPerXdl : validRangeAccelGemmParams[4]) {
             for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
               if (gemmMPerBlock >= gemmMPerWave &&
-                  gemmNPerBlock >= gemmNPerWave) {
+                  gemmNPerBlock >= gemmMnPerXdl) {
                 InitParamsAccel gemmParams(
                     gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                    gemmNPerWave, gemmKPack, forceUnroll, true);
+                    gemmMnPerXdl, gemmKPack, forceUnroll, true);
                 GemmFeatures features = attnOp.getFeatures();
                 auto populateParamsAccelPtr =
                     PopulateParamsAccel::select(features);
@@ -113,14 +113,14 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
-            for (uint32_t gemmNPerWave : xdlopsParams[4]) {
+            for (uint32_t gemmMnPerXdl : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 for (uint32_t forceUnroll : xdlopsParams[6]) {
                   InitParamsAccel gemmParams(
                       gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                      gemmNPerWave, gemmKPack, forceUnroll, true);
+                      gemmMnPerXdl, gemmKPack, forceUnroll, true);
                   if (gemmMPerBlock >= gemmMPerWave &&
-                      gemmNPerBlock >= gemmNPerWave) {
+                      gemmNPerBlock >= gemmMnPerXdl) {
                     if (kind == TuningParamSetKind::Exhaustive ||
                         (succeeded(tuningInfo.paramsProbablyValid(
                              b, info, gemmParams)) &&
@@ -258,41 +258,41 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/32,
             /*nPerBlock=*/32, /*kpack=*/1,
-            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/32, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
 
     // add performant configs for tier1
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/8, /*mPerBlock=*/64,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/32, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/32, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/8, /*mPerBlock=*/64,
             /*nPerBlock=*/64, /*kpack=*/8,
-            /*mPerWave=*/64, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/64, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
 
     // add performant config for triton configs
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/16, /*mPerBlock=*/128,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/64, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/16, /*mPerBlock=*/128,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*nPerWave=*/64, /*forceUnroll=*/true)));
+            /*mPerWave=*/64, /*MnPerXdl=*/64, /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/128,
             /*nPerBlock=*/256, /*kpack=*/4,
-            /*mPerWave=*/128, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/128, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/64,
             /*nPerBlock=*/128, /*kpack=*/4,
-            /*mPerWave=*/64, /*nPerWave=*/32, /*forceUnroll=*/true)));
+            /*mPerWave=*/64, /*MnPerXdl=*/32, /*forceUnroll=*/true)));
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma
     PopulateParamsWmma tuningInfo;
