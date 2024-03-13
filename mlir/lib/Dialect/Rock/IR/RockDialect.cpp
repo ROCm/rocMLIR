@@ -447,7 +447,7 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
     }
   }
 
-  return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
+  return ConvolutionDims({y, x}, {ho, wo}, {hi, wi}, k, c, n, g);
 }
 
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
@@ -490,14 +490,14 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   case ConvOpType::Fwd:
     gemmGSize = sizes.g;
     gemmMSize = sizes.k;
-    gemmKSize = sizes.c * sizes.y * sizes.x;
-    gemmNSize = sizes.n * sizes.ho * sizes.wo;
+    gemmKSize = sizes.c * sizes.fil[0] * sizes.fil[1];
+    gemmNSize = sizes.n * sizes.out[0] * sizes.out[1];
     break;
   case ConvOpType::BwdWeight:
     gemmGSize = sizes.g;
     gemmMSize = sizes.k;
-    gemmKSize = sizes.n * sizes.ho * sizes.wo;
-    gemmNSize = sizes.c * sizes.y * sizes.x;
+    gemmKSize = sizes.n * sizes.out[0] * sizes.out[1];
+    gemmNSize = sizes.c * sizes.fil[0] * sizes.fil[1];
     break;
   case ConvOpType::BwdData:
     llvm_unreachable("Should've been caught be an assert");
@@ -656,10 +656,10 @@ GemmSize ConvBwdDataOp::getGemmSize() {
   int64_t yTilda = strideH / gcdStrideDilationH;
   int64_t xTilda = strideW / gcdStrideDilationW;
 
-  int64_t hTilda = sizes.ho + math_util::integer_divide_ceil(
-                                  dilationH * (sizes.y - 1), strideH);
-  int64_t wTilda = sizes.wo + math_util::integer_divide_ceil(
-                                  dilationW * (sizes.x - 1), strideW);
+  int64_t hTilda = sizes.out[0] + math_util::integer_divide_ceil(
+                                  dilationH * (sizes.fil[0] - 1), strideH);
+  int64_t wTilda = sizes.out[1] + math_util::integer_divide_ceil(
+                                  dilationW * (sizes.fil[1] - 1), strideW);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
       std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
@@ -668,18 +668,18 @@ GemmSize ConvBwdDataOp::getGemmSize() {
 
   int64_t iHTildaRight = std::min(
       hTilda,
-      math_util::integer_divide_ceil(leftPadH + sizes.hi - 1, strideH) + 1);
+      math_util::integer_divide_ceil(leftPadH + sizes.in[0] - 1, strideH) + 1);
   int64_t iWTildaRight = std::min(
       wTilda,
-      math_util::integer_divide_ceil(leftPadW + sizes.wi - 1, strideW) + 1);
+      math_util::integer_divide_ceil(leftPadW + sizes.in[1] - 1, strideW) + 1);
 
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
 
   int64_t iYTilda = kernelId / xTilda;
   int64_t iXTilda = kernelId % xTilda;
-  int64_t yDotSlice = math_util::integer_divide_ceil(sizes.y - iYTilda, yTilda);
-  int64_t xDotSlice = math_util::integer_divide_ceil(sizes.x - iXTilda, xTilda);
+  int64_t yDotSlice = math_util::integer_divide_ceil(sizes.fil[0] - iYTilda, yTilda);
+  int64_t xDotSlice = math_util::integer_divide_ceil(sizes.fil[1] - iXTilda, xTilda);
 
   int64_t g = sizes.g;
   int64_t m = sizes.c;

@@ -734,8 +734,8 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
-  return ConvolutionDims(filDim["y"], filDim["x"], outDim["h"], outDim["w"],
-                         inDim["h"], inDim["w"], filDim["k"], filDim["c"],
+  return ConvolutionDims({filDim["y"], filDim["x"]}, {outDim["h"], outDim["w"]},
+                         {inDim["h"], inDim["w"]}, filDim["k"], filDim["c"],
                          inDim["n"], inDim["g"]);
 }
 
