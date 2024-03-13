@@ -29,9 +29,9 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
 }
 
 ConvolutionDims ConvolutionContext::getConvDims() {
-  return ConvolutionDims(dimIndexAndSize["y"].size, dimIndexAndSize["x"].size,
-                         dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size,
-                         dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size,
+  return ConvolutionDims({dimIndexAndSize["y"].size, dimIndexAndSize["x"].size},
+                         {dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size},
+                         {dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size},
                          dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
                          dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
 }
