@@ -1170,14 +1170,15 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
     return failure();
   }
 
+  auto gpuBlob = binaryAttr.getValue();
+
   SmallString<128> nameBuffer(kernelModule.getName());
   nameBuffer.append(kGpuBinaryStorageSuffix);
   Value data =
       LLVM::createGlobalString(loc, rewriter, nameBuffer.str(),
-                               binaryAttr.getValue(), LLVM::Linkage::Internal);
+                               gpuBlob, LLVM::Linkage::Internal);
 
   // Pass the binary size. SPIRV requires binary size.
-  auto gpuBlob = binaryAttr.getValue();
   auto gpuBlobSize = rewriter.create<mlir::LLVM::ConstantOp>(
       loc, llvmInt64Type,
       mlir::IntegerAttr::get(llvmInt64Type,

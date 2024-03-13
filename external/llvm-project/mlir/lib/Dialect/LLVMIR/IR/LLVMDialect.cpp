@@ -3206,15 +3206,24 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
       builder.getInsertionBlock()->getParentOp()->getParentOfType<ModuleOp>();
   assert(module && "builder points to an op outside of a module");
 
-
-  // Create the global at the entry of the module.
-
-  OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
   MLIRContext *ctx = builder.getContext();
   auto type = LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
-  auto global = moduleBuilder.create<LLVM::GlobalOp>(
-      loc, type, /*isConstant=*/true, linkage, name,
-      builder.getStringAttr(value), /*alignment=*/0);
+
+  // Create the global at the entry of the module.
+  auto global = module.lookupSymbol<LLVM::GlobalOp>(name);
+  if (!global) {
+    // Create the global at the entry of the module.
+    OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
+    global = moduleBuilder.create<LLVM::GlobalOp>(
+       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+       builder.getStringAttr(value), /*alignment=*/0);
+  } else {
+    // Test for same value
+    auto globalVal = global.getValue();
+    assert(globalVal.has_value());
+    StringAttr globalStr = globalVal.value().dyn_cast_or_null<StringAttr>();
+    assert(globalStr && globalStr.getValue() == value);
+  }
 
   LLVMPointerType ptrType = LLVMPointerType::get(ctx);
   // Get the pointer to the first character in the global string.
