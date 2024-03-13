@@ -135,7 +135,7 @@ public:
       llvmAttrValue.append(value.getValue());
       llvmFunc->addFnAttr("amdgpu-flat-work-group-size", llvmAttrValue);
     }
-    if (ROCDL::ROCDLDialect::getMinWavesPerEu() == attribute.getName()) {
+    if (dialect->getWavesPerEuAttrHelper().getName() == attribute.getName()) {
       auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
       if (!func)
         return failure();

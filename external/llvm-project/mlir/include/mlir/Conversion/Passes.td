@@ -129,9 +129,7 @@ def ArithToAMDGPUConversionPass : Pass<"convert-arith-to-amdgpu"> {
   let options = [
     Option<"saturateFP8Truncf", "saturate-fp8-truncf", "bool",
            /*default=*/"false",
-
            "Use saturating truncation for 8-bit float types">,
-
   ];
 }
 
