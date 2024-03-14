@@ -561,10 +561,12 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
   int64_t rightPadH = ctx.getPaddingVal()[1];
   int64_t rightPadW = ctx.getPaddingVal()[3];
 
-  int64_t dilationH = ctx.getDilationVal()[0];
-  int64_t dilationW = ctx.getDilationVal()[1];
-  int64_t strideH = ctx.getStrideVal()[0];
-  int64_t strideW = ctx.getStrideVal()[1];
+  auto dilations = ctx.getDilationVal();
+//   int64_t dilationH = ctx.getDilationVal()[0];
+//   int64_t dilationW = ctx.getDilationVal()[1];
+  auto strides = ctx.getStrideVal();
+//   int64_t strideH = ctx.getStrideVal()[0];
+//   int64_t strideW = ctx.getStrideVal()[1];
   ConvolutionDims convDims = ctx.getConvDims();
 
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
@@ -644,9 +646,9 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
     embedWrap.embed({"0", "ho"}, {convDims.fil[0], convDims.out[0]}, "hipad",
-                    {dilationH, strideH});
+                    {dilations[0], strides[0]});
     embedWrap.embed({"1", "wo"}, {convDims.fil[1], convDims.out[1]}, "wipad",
-                    {dilationW, strideW});
+                    {dilations[1], strides[1]});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -742,8 +744,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   int64_t rightPadH = ctx.getPaddingVal()[1];
   int64_t rightPadW = ctx.getPaddingVal()[3];
 
-  int64_t dilationH = ctx.getDilationVal()[0];
-  int64_t dilationW = ctx.getDilationVal()[1];
+  auto dilations = ctx.getDilationVal();
+//   int64_t dilationH = ctx.getDilationVal()[0];
+//   int64_t dilationW = ctx.getDilationVal()[1];
   auto strides = ctx.getStrideVal();
 //   int64_t strideH = ctx.getStrideVal()[0];
 //   int64_t strideW = ctx.getStrideVal()[1];
@@ -753,39 +756,56 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     return failure();
   }
 
-  int64_t gcdStrideDilationH = math_util::gcd(strides[0], dilationH);
-  int64_t gcdStrideDilationW = math_util::gcd(strides[1], dilationW);
+  SmallVector<int64_t, 5> gcdStrideDilations;
+  assert(strides.size() == dilations.size());
+  for (const auto& [stride, dilation] : zip(strides, dilations)) {
+    gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
+  }
+//   int64_t gcdStrideDilationH = math_util::gcd(strides[0], dilations[0]);
+//   int64_t gcdStrideDilationW = math_util::gcd(strides[1], dilations[1]);
 
-  int64_t yTilda = strides[0] / gcdStrideDilationH;
-  int64_t xTilda = strides[1] / gcdStrideDilationW;
+  SmallVector<int64_t, 5> filTilda;
+  for (const auto& [stride, gcdSD] : zip(strides, gcdStrideDilations)) {
+    filTilda.push_back(stride / gcdSD);
+  }
+//   int64_t yTilda = strides[0] / gcdStrideDilationH;
+//   int64_t xTilda = strides[1] / gcdStrideDilationW;
 
-  int64_t yDot = math_util::integer_divide_ceil(convDims.fil[0], yTilda);
-  int64_t xDot = math_util::integer_divide_ceil(convDims.fil[1], xTilda);
+  SmallVector<int64_t, 5> Dots;
+  for (const auto& [fil, tilda] : zip(convDims.fil, filTilda)) {
+    Dots.push_back(math_util::integer_divide_ceil(fil, tilda));
+  }
+//   int64_t yDot = math_util::integer_divide_ceil(convDims.fil[0], yTilda);
+//   int64_t xDot = math_util::integer_divide_ceil(convDims.fil[1], xTilda);
 
-  int64_t hTilda = convDims.out[0] + math_util::integer_divide_ceil(
-                                     dilationH * (convDims.fil[0] - 1), strides[0]);
-  int64_t wTilda = convDims.out[1] + math_util::integer_divide_ceil(
-                                     dilationW * (convDims.fil[1] - 1), strides[1]);
+  SmallVector<int64_t, 5> outTilda;
+  for (const auto& [out, dilation, fil, stride] : zip(convDims.out, dilations, convDims.fil, strides)) {
+    outTilda.push_back(out + math_util::integer_divide_ceil(dilation * (fil - 1), stride));
+  }
+//   int64_t hTilda = convDims.out[0] + math_util::integer_divide_ceil(
+//                                      dilations[0] * (convDims.fil[0] - 1), strides[0]);
+//   int64_t wTilda = convDims.out[1] + math_util::integer_divide_ceil(
+//                                      dilations[1] * (convDims.fil[1] - 1), strides[1]);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strides[0]);
+      std::max((int64_t)0, leftPadH - dilations[0] * (filTilda[0] - 1)), strides[0]);
   int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strides[1]);
+      std::max((int64_t)0, leftPadW - dilations[1] * (filTilda[1] - 1)), strides[1]);
 
   int64_t iHTildaRight = std::min(
-      hTilda,
+      outTilda[0],
       math_util::integer_divide_ceil(leftPadH + convDims.in[0] - 1, strides[0]) + 1);
   int64_t iWTildaRight = std::min(
-      wTilda,
+      outTilda[1],
       math_util::integer_divide_ceil(leftPadW + convDims.in[1] - 1, strides[1]) + 1);
 
   int64_t kernelId = kernelIdAttr.getInt();
-  int64_t iYTilda = kernelId / xTilda;
-  int64_t iXTilda = kernelId % xTilda;
+  int64_t iYTilda = kernelId / filTilda[1];
+  int64_t iXTilda = kernelId % filTilda[1];
   int64_t yDotSlice =
-      math_util::integer_divide_ceil(convDims.fil[0] - iYTilda, yTilda);
+      math_util::integer_divide_ceil(convDims.fil[0] - iYTilda, filTilda[0]);
   int64_t xDotSlice =
-      math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, xTilda);
+      math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, filTilda[0]);
 
   // backward data only, it's igemm v4r1 algo
   // c is input chaneels , k is output channels
@@ -802,10 +822,10 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
     embedWrap.passThrough({"g", "k", "c"});
-    embedWrap.embed({"0dot", "0tilda"}, {yDot, yTilda}, "0",
-                    {strides[0] / gcdStrideDilationH, 1});
-    embedWrap.embed({"1dot", "1tilda"}, {xDot, xTilda}, "1",
-                    {strides[1] / gcdStrideDilationW, 1});
+    embedWrap.embed({"0dot", "0tilda"}, {Dots[0], filTilda[0]}, "0",
+                    {strides[0] / gcdStrideDilations[0], 1});
+    embedWrap.embed({"1dot", "1tilda"}, {Dots[1], filTilda[1]}, "1",
+                    {strides[1] / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embeddedFilter =
@@ -862,10 +882,10 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
-    tildaEmbedWrap.embed({"0tilda", "htilda"}, {yTilda, hTilda}, "hipad",
-                         {dilationH, strides[0]});
-    tildaEmbedWrap.embed({"1tilda", "wtilda"}, {xTilda, wTilda}, "wipad",
-                         {dilationW, strides[1]});
+    tildaEmbedWrap.embed({"0tilda", "htilda"}, {filTilda[0], outTilda[0]}, "hipad",
+                         {dilations[0], strides[0]});
+    tildaEmbedWrap.embed({"1tilda", "wtilda"}, {filTilda[1], outTilda[1]}, "wipad",
+                         {dilations[1], strides[1]});
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded =
@@ -906,10 +926,10 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    embedWrap.embed({"0dot", "htilda"}, {yDot, hTilda}, "ho",
-                    {(-dilationH) / gcdStrideDilationH, 1});
-    embedWrap.embed({"1dot", "wtilda"}, {xDot, wTilda}, "wo",
-                    {(-dilationW) / gcdStrideDilationW, 1});
+    embedWrap.embed({"0dot", "htilda"}, {Dots[0], outTilda[0]}, "ho",
+                    {(-dilations[0]) / gcdStrideDilations[0], 1});
+    embedWrap.embed({"1dot", "wtilda"}, {Dots[1], outTilda[1]}, "wo",
+                    {(-dilations[1]) / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -987,10 +1007,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     ArrayRef<int64_t> outputShape = outputType.getShape();
 
     // Obtain convolution parameters: padding / dialtion / stride.
-    int64_t dilationH = ctx.getDilationVal()[0];
-    int64_t dilationW = ctx.getDilationVal()[1];
-    int64_t strideH = ctx.getStrideVal()[0];
-    int64_t strideW = ctx.getStrideVal()[1];
+    auto dilations = ctx.getDilationVal();
+//     int64_t dilationH = ctx.getDilationVal()[0];
+//     int64_t dilationW = ctx.getDilationVal()[1];
+    auto strides = ctx.getStrideVal();
+//     int64_t strideH = ctx.getStrideVal()[0];
+//     int64_t strideW = ctx.getStrideVal()[1];
     ConvolutionDims convDims = ctx.getConvDims();
 
     llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
@@ -1081,9 +1103,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // Embedded input tensor transformation:
     // - PassThrough gi, ni, and ci
     // - Embed hipad to y and ho with size filter y by output h and
-    //   coefficients dilationH and strideH
+    //   coefficients dilations[0] and strides[0]
     // - Embed wipad to x and wo with size filter x by output h and
-    //   coefficients dilationW and strideW
+    //   coefficients dilations[1] and strides[1]
 
     llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
         padInputTransform, {{"hipad", {"0", "ho"}}, {"wipad", {"1", "wo"}}});
@@ -1093,9 +1115,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     embedInputWrap.embed({"0", "ho"}, {convDims.fil[0], convDims.out[0]}, "hipad",
-                         {dilationH, strideH});
+                         {dilations[0], strides[0]});
     embedInputWrap.embed({"1", "wo"}, {convDims.fil[1], convDims.out[1]}, "wipad",
-                         {dilationW, strideW});
+                         {dilations[1], strides[1]});
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput =
