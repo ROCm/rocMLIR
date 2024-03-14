@@ -105,7 +105,7 @@ struct Serializable {
 
     auto out = static_cast<const Derived &>(*this);
 
-    bool ok{true};
+    bool ok = true;
     std::istringstream ss(s);
     Derived::visit(out,
                    std::bind(DeserializeField{}, std::ref(ok), std::ref(ss),

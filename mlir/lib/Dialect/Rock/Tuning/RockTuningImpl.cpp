@@ -17,8 +17,6 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "llvm/ADT/SmallString.h"
-#include <algorithm>
-#include <vector>
 
 namespace mlir {
 namespace rock {
@@ -64,7 +62,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmMPerBlock, int32_t gemmNPerBlock,
                             int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
-  SmallVector<int64_t> splitKValues{1};
+  SmallVector<int64_t> splitKValues = {1};
   if (!info.gemmAType.isF32()) {
     return splitKValues;
   }
@@ -88,24 +86,24 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   };
 
   const auto dataPrallelGemmImbalabce = computeImbalance(1);
-  constexpr double imbalaceThreshold{1.20};
+  constexpr double imbalaceThreshold = 1.20;
   if (dataPrallelGemmImbalabce < imbalaceThreshold) {
     return splitKValues;
   }
 
   struct LocalData {
-    int64_t splitKValue{};
-    double workImbalance{};
+    int64_t splitKValue = 0;
+    double workImbalance = 0.0;
   };
-  SmallVector<LocalData> factors{};
-  constexpr double minGain{1.30};
+  SmallVector<LocalData> factors;
+  constexpr double minGain = 1.30;
   // There are cases where perfect load balancing can be achieved with very
   // high splitK values. However, experiments show that performance
   // can considerably drop in such cases. Currently, we limit the `upperBound`
   // on purpose because the current heuristics does not consider the overheads
   // resulting from reducing partial solution along the split dimension.
   // This needs to be improved in the future.
-  constexpr int32_t upperBound{32};
+  constexpr int32_t upperBound = 32;
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
 
     // In the current implementation, the padded value of K must be
@@ -140,7 +138,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return a.workImbalance < b.workImbalance;
   });
 
-  size_t maxVariants{6};
+  size_t maxVariants = 6;
   maxVariants = factors.size() > maxVariants ? maxVariants : factors.size();
   std::for_each(
       factors.begin(), factors.begin() + maxVariants,
