@@ -36,19 +36,17 @@ class Options:
 
 class PerfConfig:
     class Version(enum.Enum):
-        V1 = 1
         V2 = 2
 
-    def __init__(self, config: Sequence[int], version: Version = Version.V1):
+    def __init__(self, config: Sequence[int], version: Version = Version.V2):
         self._config = config
         self._version = version
+        self._version_map = {PerfConfig.Version.V2: "v2"}
+
 
     def __str__(self):
         suffix = ','.join(str(v) for v in self._config)
-        if self._version == PerfConfig.Version.V1:
-            return suffix
-        else:
-            return f'v2:{suffix}'
+        return f'{self._version_map[self._version]}:{suffix}'
 
 class MLIROnlyConfig(ConvConfiguration):
     def __repr__(self):

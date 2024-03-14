@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 
 namespace mlir {
@@ -79,15 +80,16 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   const double numNTiles = gemmSize.n / gemmNPerBlock;
 
   auto computeImbalance = [&](int32_t splitKFactor) -> double {
-    const double totalNumWorkGroups = numMTiles * numNTiles * splitKFactor;
+    const double totalNumWorkGroups =
+        gemmSize.g * numMTiles * numNTiles * splitKFactor;
     const double maxWorkGroupsPerCU = std::ceil(totalNumWorkGroups / numCUs);
     // imbalances = max. CU work / average work per CU
     return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
   };
 
-  const auto dataPrallelGemmImbalabce = computeImbalance(1);
+  const auto dataPrallelGemmImbalance = computeImbalance(1);
   constexpr double imbalaceThreshold = 1.20;
-  if (dataPrallelGemmImbalabce < imbalaceThreshold) {
+  if (dataPrallelGemmImbalance < imbalaceThreshold) {
     return splitKValues;
   }
 
@@ -106,7 +108,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   constexpr int32_t upperBound = 32;
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
     const double imbalance = computeImbalance(splitKFactor);
-    const auto gain = dataPrallelGemmImbalabce / imbalance;
+    const auto gain = dataPrallelGemmImbalance / imbalance;
     if (gain > minGain) {
       factors.emplace_back(LocalData{splitKFactor, imbalance});
     }
@@ -116,15 +118,15 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  std::sort(factors.begin(), factors.end(), [](LocalData &a, LocalData &b) {
+  llvm::sort(factors, [](LocalData &a, LocalData &b) {
     return a.workImbalance < b.workImbalance;
   });
 
   size_t maxVariants = 6;
   maxVariants = factors.size() > maxVariants ? maxVariants : factors.size();
-  std::for_each(
-      factors.begin(), factors.begin() + maxVariants,
-      [&](LocalData &item) { splitKValues.push_back(item.splitKValue); });
+  llvm::for_each(factors, [&](LocalData &item) {
+    splitKValues.push_back(item.splitKValue);
+  });
 
   return splitKValues;
 }
