@@ -105,24 +105,6 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   // This needs to be improved in the future.
   constexpr int32_t upperBound = 32;
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
-
-    // In the current implementation, the padded value of K must be
-    // multiple of both kPerBlock and splitKFactor. Ideally, the padding
-    // should be proportional to the least common multiple of kPerBlock
-    // and splitK. But it is somethng for the future. The current
-    // restriction can lead to a very large padding factor. Thus,
-    // there may be some idle blocks. Right now, we just exclude such cases.
-    const int32_t padFactor = splitKFactor * kPack * gemmKPerBlock;
-    const int32_t paddedGemmK =
-        ((gemmSize.k + padFactor - 1) / padFactor) * padFactor;
-    const int32_t iterPerSplit = paddedGemmK / (splitKFactor);
-
-    // The case contains idle blocks if the last k-split block doesn't
-    // include the last k element of the original matrices
-    const bool hasIdleBlocks = iterPerSplit * (splitKFactor - 1) >= gemmSize.k;
-    if (hasIdleBlocks)
-      continue;
-
     const double imbalance = computeImbalance(splitKFactor);
     const auto gain = dataPrallelGemmImbalabce / imbalance;
     if (gain > minGain) {

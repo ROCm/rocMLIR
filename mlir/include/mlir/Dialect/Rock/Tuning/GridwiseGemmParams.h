@@ -58,9 +58,7 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// a given gemm size requires. Returns None if no padding is needed. The
 /// values in the returned gemm context represent the number of 0s that need to
 /// be added to the given dimension.
-std::optional<GemmSize>
-requiredPadding(Attribute params, GemmSize gemmSize,
-                std::optional<GemmSize> scale = std::nullopt);
+std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
