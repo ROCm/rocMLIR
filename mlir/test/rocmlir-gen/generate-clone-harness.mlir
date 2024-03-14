@@ -21,4 +21,4 @@ func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x2x16x
 
 // CHECK_FULL-LABEL: module
 // CHECK_FULL: func.func private @mlir_reshape_convolution
-// CHECK_FULL-SAME: attributes {mhal.targets = [#mhal.kernel_pkg<GPU = {{.*}} : mlir_reshape_convolution [16, 64] -> #mhal.target_obj
+// CHECK_FULL-SAME: attributes {mhal.targets = [#mhal.kernel_pkg<GPU = {{.*}} : mlir_reshape_convolution [64, 64] -> #mhal.target_obj
