@@ -555,18 +555,10 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
   ShapedType outputType = op.getOutput().getType();
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  // Obtain convolution parameters: padding / dialtion / stride.
-  int64_t leftPadH = ctx.getPaddingVal()[0];
-  int64_t leftPadW = ctx.getPaddingVal()[2];
-  int64_t rightPadH = ctx.getPaddingVal()[1];
-  int64_t rightPadW = ctx.getPaddingVal()[3];
-
+  // Obtain convolution parameters: padding / dilation / stride.
+  auto pads = ctx.getPaddingVal();
   auto dilations = ctx.getDilationVal();
-//   int64_t dilationH = ctx.getDilationVal()[0];
-//   int64_t dilationW = ctx.getDilationVal()[1];
   auto strides = ctx.getStrideVal();
-//   int64_t strideH = ctx.getStrideVal()[0];
-//   int64_t strideW = ctx.getStrideVal()[1];
   ConvolutionDims convDims = ctx.getConvDims();
 
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
@@ -630,8 +622,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     firstWrap.unmerge({"n0", "n1"}, "ni",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
     firstWrap.passThrough("ci");
-    firstWrap.pad({"hipad", "wipad"}, {"hi", "wi"},
-                  {leftPadH, rightPadH, leftPadW, rightPadW});
+    firstWrap.pad({"hipad", "wipad"}, {"hi", "wi"}, pads);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -739,17 +730,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Obtain convolution parameters: padding / dialtion / stride.
-  int64_t leftPadH = ctx.getPaddingVal()[0];
-  int64_t leftPadW = ctx.getPaddingVal()[2];
-  int64_t rightPadH = ctx.getPaddingVal()[1];
-  int64_t rightPadW = ctx.getPaddingVal()[3];
-
+  auto pads = ctx.getPaddingVal();
   auto dilations = ctx.getDilationVal();
-//   int64_t dilationH = ctx.getDilationVal()[0];
-//   int64_t dilationW = ctx.getDilationVal()[1];
   auto strides = ctx.getStrideVal();
-//   int64_t strideH = ctx.getStrideVal()[0];
-//   int64_t strideW = ctx.getStrideVal()[1];
   ConvolutionDims convDims = ctx.getConvDims();
   SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
   if (failed(getConvDimNames(op, filterNames, inputNames, outputNames))) {
@@ -771,9 +754,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
 //   int64_t yTilda = strides[0] / gcdStrideDilationH;
 //   int64_t xTilda = strides[1] / gcdStrideDilationW;
 
-  SmallVector<int64_t, 5> Dots;
+  SmallVector<int64_t, 5> filDots;
   for (const auto& [fil, tilda] : zip(convDims.fil, filTilda)) {
-    Dots.push_back(math_util::integer_divide_ceil(fil, tilda));
+    filDots.push_back(math_util::integer_divide_ceil(fil, tilda));
   }
 //   int64_t yDot = math_util::integer_divide_ceil(convDims.fil[0], yTilda);
 //   int64_t xDot = math_util::integer_divide_ceil(convDims.fil[1], xTilda);
@@ -787,17 +770,21 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
 //   int64_t wTilda = convDims.out[1] + math_util::integer_divide_ceil(
 //                                      dilations[1] * (convDims.fil[1] - 1), strides[1]);
 
-  int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadH - dilations[0] * (filTilda[0] - 1)), strides[0]);
-  int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadW - dilations[1] * (filTilda[1] - 1)), strides[1]);
+  SmallVector<int64_t, 5> iTildaLeft;
+  SmallVector<int64_t, 5> iTildaRight;
+  for (const auto& [padindex, dilation, tilda, stride] : enumerate(dilations, filTilda, strides)) {
+    iTildaLeft.push_back(math_util::integer_divide_floor(
+       std::max((int64_t)0, pads[2*padindex] - dilation * (tilda - 1)), stride));
+  }
+//   int64_t iHTildaLeft = math_util::integer_divide_floor(
+//       std::max((int64_t)0, pads[0] - dilations[0] * (filTilda[0] - 1)), strides[0]);
+//   int64_t iWTildaLeft = math_util::integer_divide_floor(
+//       std::max((int64_t)0, pads[2] - dilations[1] * (filTilda[1] - 1)), strides[1]);
 
-  int64_t iHTildaRight = std::min(
-      outTilda[0],
-      math_util::integer_divide_ceil(leftPadH + convDims.in[0] - 1, strides[0]) + 1);
-  int64_t iWTildaRight = std::min(
-      outTilda[1],
-      math_util::integer_divide_ceil(leftPadW + convDims.in[1] - 1, strides[1]) + 1);
+  for (const auto& [padindex, out, in, stride] : enumerate(outTilda, convDims.in, strides)) {
+    iTildaRight.push_back(std::min(out,
+       math_util::integer_divide_ceil(pads[2*padindex] + in - 1, stride) + 1));
+  }
 
   int64_t kernelId = kernelIdAttr.getInt();
   int64_t iYTilda = kernelId / filTilda[1];
@@ -822,9 +809,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
     embedWrap.passThrough({"g", "k", "c"});
-    embedWrap.embed({"0dot", "0tilda"}, {Dots[0], filTilda[0]}, "0",
+    embedWrap.embed({"0dot", "0tilda"}, {filDots[0], filTilda[0]}, "0",
                     {strides[0] / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "1tilda"}, {Dots[1], filTilda[1]}, "1",
+    embedWrap.embed({"1dot", "1tilda"}, {filDots[1], filTilda[1]}, "1",
                     {strides[1] / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -867,7 +854,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
                           {padInputTransform.startIndex("hi"),
                            padInputTransform.startIndex("wi")},
                           {"hi", "wi"},
-                          {leftPadH, rightPadH, leftPadW, rightPadW});
+                          pads);
 
     TransformMapAttr padTransformAttr = padInputTransform.get();
     Value paddedInput =
@@ -899,8 +886,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.slice({"0slice", "1slice"}, {"0tilda", "1tilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
     sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"},
-                         {iHTildaLeft, iWTildaLeft},
-                         {iHTildaRight, iWTildaRight});
+                         iTildaLeft, iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
@@ -926,9 +912,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    embedWrap.embed({"0dot", "htilda"}, {Dots[0], outTilda[0]}, "ho",
+    embedWrap.embed({"0dot", "htilda"}, {filDots[0], outTilda[0]}, "ho",
                     {(-dilations[0]) / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "wtilda"}, {Dots[1], outTilda[1]}, "wo",
+    embedWrap.embed({"1dot", "wtilda"}, {filDots[1], outTilda[1]}, "wo",
                     {(-dilations[1]) / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -943,8 +929,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.slice({"0slice", "1slice"}, {"0dot", "1dot"}, {0, 0},
                          {yDotSlice, xDotSlice});
     sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"},
-                         {iHTildaLeft, iWTildaLeft},
-                         {iHTildaRight, iWTildaRight});
+                         iTildaLeft, iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced = b.create<TransformOp>(loc, embedded, sliceTransformAttr);
