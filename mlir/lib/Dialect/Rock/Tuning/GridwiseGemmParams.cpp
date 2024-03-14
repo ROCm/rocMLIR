@@ -210,7 +210,8 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
 }
 
 LogicalResult
-PopulateParams::paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
+PopulateParams::paramsProbablyValid(OpBuilder &b,
+                                    const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) {
   return populateDerived(params);
 }
@@ -320,7 +321,7 @@ PopulateParamsAccel::calculatePaddingAmount(const InitParamsAccel &params,
 }
 
 LogicalResult
-PopulateParamsAccel::paramsProbablyValid(OpBuilder b,
+PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
                                          const PopulateParamsInfo &info,
                                          const InitParamsAccel &params) {
   Attribute params0 = getGemmParamsAttr(b, params);
@@ -821,8 +822,7 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   }
   if (!((param.getMPerBlock() % minDPerWave == 0) &&
         (param.getNPerBlock() % minDPerWave == 0) &&
-        (param.getKpackPerBlock() * param.getKpack() % validKPerWaveFactor ==
-         0))) {
+        (param.getKpackPerBlock() % validKPerWaveFactor == 0))) {
     return failure();
   }
 
@@ -834,9 +834,7 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
                            it;
                        return (param.getMPerWave() == validMPerWave) &&
                               (param.getNPerWave() == validNPerWave) &&
-                              (param.getKpackPerBlock() * param.getKpack() %
-                                   validKPerWave ==
-                               0);
+                              (param.getKpackPerBlock() % validKPerWave == 0);
                      }))
       return failure();
   }

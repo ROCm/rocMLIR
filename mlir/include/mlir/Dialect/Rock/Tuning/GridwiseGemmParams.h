@@ -254,7 +254,7 @@ public:
   // Succeed if the given `params` could be a valid set of tuning parameters for
   // `info`. This is not a guarantee that a given set of parameters will pass
   // applicability, but it should filter out inapplicable configs.
-  virtual LogicalResult paramsProbablyValid(OpBuilder b,
+  virtual LogicalResult paramsProbablyValid(OpBuilder &b,
                                             const PopulateParamsInfo &info,
                                             const InitParamType &params) = 0;
 
@@ -304,7 +304,8 @@ public:
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;
 
-  LogicalResult paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder &b,
+                                    const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
@@ -344,7 +345,8 @@ public:
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
-  LogicalResult paramsProbablyValid(OpBuilder b, const PopulateParamsInfo &info,
+  LogicalResult paramsProbablyValid(OpBuilder &b,
+                                    const PopulateParamsInfo &info,
                                     const InitParamsAccel &params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
