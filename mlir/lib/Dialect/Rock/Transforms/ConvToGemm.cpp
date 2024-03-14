@@ -744,31 +744,21 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   for (const auto& [stride, dilation] : zip(strides, dilations)) {
     gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
   }
-//   int64_t gcdStrideDilationH = math_util::gcd(strides[0], dilations[0]);
-//   int64_t gcdStrideDilationW = math_util::gcd(strides[1], dilations[1]);
 
   SmallVector<int64_t, 5> filTilda;
   for (const auto& [stride, gcdSD] : zip(strides, gcdStrideDilations)) {
     filTilda.push_back(stride / gcdSD);
   }
-//   int64_t yTilda = strides[0] / gcdStrideDilationH;
-//   int64_t xTilda = strides[1] / gcdStrideDilationW;
 
   SmallVector<int64_t, 5> filDots;
   for (const auto& [fil, tilda] : zip(convDims.fil, filTilda)) {
     filDots.push_back(math_util::integer_divide_ceil(fil, tilda));
   }
-//   int64_t yDot = math_util::integer_divide_ceil(convDims.fil[0], yTilda);
-//   int64_t xDot = math_util::integer_divide_ceil(convDims.fil[1], xTilda);
 
   SmallVector<int64_t, 5> outTilda;
   for (const auto& [out, dilation, fil, stride] : zip(convDims.out, dilations, convDims.fil, strides)) {
     outTilda.push_back(out + math_util::integer_divide_ceil(dilation * (fil - 1), stride));
   }
-//   int64_t hTilda = convDims.out[0] + math_util::integer_divide_ceil(
-//                                      dilations[0] * (convDims.fil[0] - 1), strides[0]);
-//   int64_t wTilda = convDims.out[1] + math_util::integer_divide_ceil(
-//                                      dilations[1] * (convDims.fil[1] - 1), strides[1]);
 
   SmallVector<int64_t, 5> iTildaLeft;
   SmallVector<int64_t, 5> iTildaRight;
@@ -776,11 +766,6 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     iTildaLeft.push_back(math_util::integer_divide_floor(
        std::max((int64_t)0, pads[2*padindex] - dilation * (tilda - 1)), stride));
   }
-//   int64_t iHTildaLeft = math_util::integer_divide_floor(
-//       std::max((int64_t)0, pads[0] - dilations[0] * (filTilda[0] - 1)), strides[0]);
-//   int64_t iWTildaLeft = math_util::integer_divide_floor(
-//       std::max((int64_t)0, pads[2] - dilations[1] * (filTilda[1] - 1)), strides[1]);
-
   for (const auto& [padindex, out, in, stride] : enumerate(outTilda, convDims.in, strides)) {
     iTildaRight.push_back(std::min(out,
        math_util::integer_divide_ceil(pads[2*padindex] + in - 1, stride) + 1));
@@ -991,13 +976,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     ShapedType outputType = op.getOutput().getType();
     ArrayRef<int64_t> outputShape = outputType.getShape();
 
-    // Obtain convolution parameters: padding / dialtion / stride.
+    // Obtain convolution parameters: padding / dilation / stride.
     auto dilations = ctx.getDilationVal();
-//     int64_t dilationH = ctx.getDilationVal()[0];
-//     int64_t dilationW = ctx.getDilationVal()[1];
     auto strides = ctx.getStrideVal();
-//     int64_t strideH = ctx.getStrideVal()[0];
-//     int64_t strideW = ctx.getStrideVal()[1];
     ConvolutionDims convDims = ctx.getConvDims();
 
     llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
