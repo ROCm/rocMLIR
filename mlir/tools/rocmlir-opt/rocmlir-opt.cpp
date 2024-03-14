@@ -20,6 +20,7 @@ using namespace mlir;
 // In test directory, no header file
 namespace mlir {
 namespace rock {
+void registerCollapseContiguousMergesTestPass();
 void registerVectorizationInferenceTestPass();
 void registerMultiBufferingTestPass();
 } // end namespace rock
@@ -27,6 +28,7 @@ void registerMultiBufferingTestPass();
 
 #ifdef MLIR_INCLUDE_TESTS
 void registerRockTestPasses() {
+  rock::registerCollapseContiguousMergesTestPass();
   rock::registerVectorizationInferenceTestPass();
   rock::registerMultiBufferingTestPass();
 }
