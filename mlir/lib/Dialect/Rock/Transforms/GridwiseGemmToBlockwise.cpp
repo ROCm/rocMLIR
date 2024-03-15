@@ -100,22 +100,17 @@ static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
 static std::pair<GemmDimension, int64_t>
 bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
                         int64_t copyKPerThread, GemmDimension tiebreaker,
-                        int64_t kPerBlock, int64_t dPerBlock,
-                        Type elementType) {
-  Value tensor;
-  ArrayAttr transforms;
-  std::tie(tensor, transforms, std::ignore) = untransform(b, matrix);
-  ArrayRef<int64_t> tensorShape =
-      tensor.getType().cast<MemRefType>().getShape();
-  int64_t kVectorLen = getMaxVectorizationForDatatype(
-      transforms, static_cast<uint32_t>(GemmDimension::K),
-      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock), tensorShape,
-      elementType);
-
-  int64_t dVectorLen = getMaxVectorizationForDatatype(
-      transforms, static_cast<uint32_t>(GemmDimension::MorN),
-      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock), tensorShape,
-      elementType);
+                        int64_t kPerBlock, int64_t dPerBlock) {
+  // A future commit will account for the underlying buffer's vectorization
+  // here.
+  VectorizationResult kVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
+      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock));
+  int64_t kVectorLen = kVectorRes.max;
+  VectorizationResult dVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
+      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock));
+  int64_t dVectorLen = dVectorRes.max;
 
   if (kVectorLen > dVectorLen) {
     kVectorLen = math_util::gcd(kVectorLen, copyKPerThread);
@@ -232,30 +227,12 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
-  auto func = op->getParentOfType<func::FuncOp>();
-
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  // Set sharedMemSize attribute for this kernel
-  int64_t totalLDS = ldsBytes;
-  if (auto ldsAttr =
-          func->getAttrOfType<IntegerAttr>("rock.shared_buffer_size")) {
-    totalLDS += ldsAttr.getInt();
-  }
-  auto intTy = IntegerType::get(func->getContext(), 32);
-  func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
-
   // Check for arch limitations exceeded
-  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
-  if (!arch)
-    arch = func->getAttrOfType<StringAttr>("mhal.arch");
-  if (!arch) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
-  }
-
-  if (arch) {
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (succeeded(maybeArch)) {
+    StringAttr arch = maybeArch.value();
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-
     return success(ldsBytes <= ldsSize);
   }
   return success();
@@ -454,12 +431,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
-        b, op.getA(), copyMPerThread, aCopyKPerThread, vectorTiebreaker,
-        kPerBlock, mPerBlock, elementTypeA);
-    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
-        b, op.getB(), copyNPerThread, bCopyKPerThread, vectorTiebreaker,
-        kPerBlock, nPerBlock, elementTypeB);
+    std::tie(aVectorDim, aVectorLen) =
+        bestGlobalVectorization(b, op.getA(), copyMPerThread, aCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) =
+        bestGlobalVectorization(b, op.getB(), copyNPerThread, bCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -841,9 +818,9 @@ struct GridwiseAttentionAccelRewritePattern
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t vectorLen;
     GemmDimension vectorDim;
-    std::tie(vectorDim, vectorLen) = bestGlobalVectorization(
-        rewriter, in, copyDPerThread, copyKPerThread, vectorTiebreaker,
-        kPerBlock, dPerBlock, elemType);
+    std::tie(vectorDim, vectorLen) =
+        bestGlobalVectorization(rewriter, in, copyDPerThread, copyKPerThread,
+                                vectorTiebreaker, kPerBlock, dPerBlock);
     FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
     if (!isDestBufferLDS) {
       maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
@@ -2363,12 +2340,12 @@ struct GridwiseGemmAccelRewritePattern
     // Find the best way of vectorizing the layout
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
-        b, matA, copyMPerThread, aCopyKPerThread, vectorTiebreaker, kPerBlock,
-        mPerBlock, elementTypeA);
-    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
-        b, matB, copyNPerThread, bCopyKPerThread, vectorTiebreaker, kPerBlock,
-        nPerBlock, elementTypeB);
+    std::tie(aVectorDim, aVectorLen) =
+        bestGlobalVectorization(b, matA, copyMPerThread, aCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) =
+        bestGlobalVectorization(b, matB, copyNPerThread, bCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"

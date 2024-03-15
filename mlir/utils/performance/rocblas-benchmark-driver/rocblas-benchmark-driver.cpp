@@ -14,12 +14,16 @@
 // Include common utility functions
 #include "../common/benchmarkUtils.h"
 
+#include "rocblas/internal/rocblas-beta.h"
 #include "rocblas/rocblas.h"
+#include <hip/hip_runtime_api.h>
+#include <rocblas/internal/rocblas-types.h>
 // Drop weird backcompat macro
 #undef rocblas_gemm_strided_batched_ex
 #undef rocblas_gemm_ex
 
 #include <cstdio>
+#include <iostream>
 
 #define ROCBLAS_ABORT_IF_FAIL(expr)                                            \
   do {                                                                         \
@@ -31,17 +35,20 @@
     }                                                                          \
   } while (0)
 
-static rocblas_datatype getRocblasType(bool isOut,
-                                       benchmark::DataType dataType) {
+static rocblas_datatype getRocblasType(benchmark::DataType dataType) {
   switch (dataType) {
   case benchmark::DataType::F32:
     return rocblas_datatype_f32_r;
+  case benchmark::DataType::I32:
+    return rocblas_datatype_i32_r;
   case benchmark::DataType::F16:
     return rocblas_datatype_f16_r;
   case benchmark::DataType::BF16:
     return rocblas_datatype_bf16_r;
   case benchmark::DataType::I8:
-    return isOut ? rocblas_datatype_i32_r : rocblas_datatype_i8_r;
+    return rocblas_datatype_i8_r;
+  case benchmark::DataType::F8:
+    return rocblas_datatype_f8_r;
   case benchmark::DataType::UNKNOWN:
     assert(0 && "Data type unknown");
   }
@@ -54,7 +61,21 @@ static rocblas_datatype getRocblasType(bool isOut,
 bool get_compute_fp32_flag() {
   const auto device_name = benchmark::get_device_name();
   return (device_name.find("gfx908") != std::string::npos ||
-          device_name.find("gfx90a") != std::string::npos);
+          device_name.find("gfx90a") != std::string::npos ||
+          device_name.find("gfx94") != std::string::npos);
+}
+
+benchmark::DataType getComputeType(benchmark::DataType inputType,
+                                   benchmark::DataType outputType) {
+  if (inputType == benchmark::DataType::F8)
+    return benchmark::DataType::F32;
+  if ((inputType == benchmark::DataType::F16 ||
+       inputType == benchmark::DataType::BF16) &&
+      get_compute_fp32_flag())
+    return benchmark::DataType::F32;
+  if (inputType == benchmark::DataType::I8)
+    return benchmark::DataType::I32;
+  return outputType;
 }
 
 int main(int argc, char **argv) {
@@ -91,40 +112,55 @@ int main(int argc, char **argv) {
          strideC = args.gemmM * args.gemmN;
   size_t aElems = strideA * args.gemmG, bElems = strideB * args.gemmG,
          cElems = strideC * args.gemmG;
-  size_t aBytes = getByteSize(args.dataType, aElems, false),
-         bBytes = getByteSize(args.dataType, bElems, false),
-         cBytes = getByteSize(args.dataType, cElems, true);
+  size_t aBytes = getByteSize(args.dataType, aElems),
+         bBytes = getByteSize(args.dataType, bElems),
+         cBytes = getByteSize(benchmark::DataType::F32, cElems);
 
-  rocblas_datatype inType = getRocblasType(false, args.dataType);
-  rocblas_datatype outType = getRocblasType(true, args.dataType);
-  rocblas_datatype computeType = outType;
+  benchmark::DataType computeDataType =
+      getComputeType(args.dataType, args.outDataType);
 
-  if ((inType == rocblas_datatype_f16_r) && get_compute_fp32_flag()) {
-    computeType = rocblas_datatype_f32_r;
-  }
+  rocblas_datatype inType = getRocblasType(args.dataType);
+  rocblas_datatype outType = getRocblasType(args.outDataType);
+  rocblas_datatype computeType = getRocblasType(computeDataType);
 
   rocblas_initialize();
   rocblas_handle handle;
   ROCBLAS_ABORT_IF_FAIL(rocblas_create_handle(&handle));
 
-  void *aHost = benchmark::allocAndFill(args.dataType, aBytes, false);
-  void *bHost = benchmark::allocAndFill(args.dataType, bBytes, false);
-  void *cHost = benchmark::allocAndFill(args.dataType, cBytes, true);
+  void *aHost = benchmark::allocAndFill(args.dataType, aBytes);
+  void *bHost = benchmark::allocAndFill(args.dataType, bBytes);
+  void *cHost = benchmark::allocAndFill(args.outDataType, cBytes);
 
   void *aDevice = benchmark::getGpuBuffer(aHost, aBytes);
   void *bDevice = benchmark::getGpuBuffer(bHost, bBytes);
   void *cDevice = benchmark::getGpuBuffer(cHost, cBytes);
 
-  void *alpha = makeHostConstant(1.0, args.dataType);
-  void *beta = makeHostConstant(0.0, args.dataType);
+  void *alpha = makeHostConstant(1.0, computeDataType);
+  void *beta = makeHostConstant(0.0, computeDataType);
 
   ROCBLAS_ABORT_IF_FAIL(
       rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host));
 
   rocblas_gemm_flags rocblas_flags = rocblas_gemm_flags_none;
 
-  for (int i = 0, e = args.kernelRepeats; i < e; ++i)
-    if (args.gemmG == 1) {
+  float milliseconds = 0.0;
+  int warmupRuns = 1;
+  for (int i = 0, e = args.kernelRepeats + warmupRuns; i < e; ++i) {
+    hipEvent_t startEvent, stopEvent;
+    HIP_ABORT_IF_FAIL(hipEventCreate(&startEvent));
+    HIP_ABORT_IF_FAIL(hipEventCreate(&stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventRecord(startEvent, NULL));
+    if (args.gemmG == 1 && args.dataType == benchmark::DataType::F8) {
+      ROCBLAS_ABORT_IF_FAIL(
+          rocblas_gemm_ex3(handle, /*trans_a=*/blasTransB,
+                           /*trans_b=*/blasTransA, /*m=*/args.gemmN,
+                           /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+                           /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb,
+                           /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, beta,
+                           cDevice, outType, ldc, cDevice, outType, ldc,
+                           /*computeType=*/rocblas_compute_type_f32,
+                           rocblas_gemm_algo_standard, 0, rocblas_flags));
+    } else if (args.gemmG == 1) {
       ROCBLAS_ABORT_IF_FAIL(
           rocblas_gemm_ex(handle, /*trans_a=*/blasTransB,
                           /*trans_b=*/blasTransA, /*m=*/args.gemmN,
@@ -134,7 +170,16 @@ int main(int argc, char **argv) {
                           cDevice, outType, ldc, cDevice, outType, ldc,
                           /*computeType=*/computeType,
                           rocblas_gemm_algo_standard, 0, rocblas_flags));
-
+    } else if (args.dataType == benchmark::DataType::F8) {
+      ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_strided_batched_ex3(
+          handle, /*trans_a=*/blasTransB, /*trans_b=*/blasTransA,
+          /*m=*/args.gemmN, /*n=*/args.gemmM, /*k=*/args.gemmK, alpha,
+          /*a=*/bDevice, /*a_type=*/inType, /*lda=*/ldb, /*stride_a=*/strideB,
+          /*b=*/aDevice, /*b_type=*/inType, /*ldb=*/lda, /*stride_b=*/strideA,
+          beta, cDevice, outType, ldc, strideC, cDevice, outType, ldc, strideC,
+          args.gemmG,
+          /*computeType=*/rocblas_compute_type_f32, rocblas_gemm_algo_standard,
+          0, rocblas_flags));
     } else {
       ROCBLAS_ABORT_IF_FAIL(rocblas_gemm_strided_batched_ex(
           handle, /*trans_a=*/blasTransB, /*trans_b=*/blasTransA,
@@ -146,6 +191,25 @@ int main(int argc, char **argv) {
           /*computeType=*/computeType, rocblas_gemm_algo_standard, 0,
           rocblas_flags));
     }
+    float currentMilliseconds = 0.0;
+    HIP_ABORT_IF_FAIL(hipEventRecord(stopEvent, NULL));
+    HIP_ABORT_IF_FAIL(hipEventSynchronize(stopEvent));
+    HIP_ABORT_IF_FAIL(
+        hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventDestroy(stopEvent));
+    HIP_ABORT_IF_FAIL(hipEventDestroy(startEvent));
+    // Don't record the first run
+    if (i < warmupRuns)
+      continue;
+    milliseconds += currentMilliseconds;
+  }
+  float avgTime = milliseconds / args.kernelRepeats;
+  std::cout << "Best kernel time: " << avgTime << "\n";
+  std::cout << "Best kernel tflops: "
+            << ((2 * args.gemmG * args.gemmM * args.gemmN * args.gemmK) /
+                avgTime) *
+                   1e-9
+            << "\n";
 
   HIP_ABORT_IF_FAIL(hipMemcpy(cHost, cDevice, cBytes, hipMemcpyDeviceToHost));
   ROCBLAS_ABORT_IF_FAIL(rocblas_destroy_handle(handle));

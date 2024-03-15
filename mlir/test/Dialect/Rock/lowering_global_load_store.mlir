@@ -256,6 +256,34 @@ func.func @add_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %
     return
 }
 
+// CHECK-LABEL: func.func @add_scalar_oob_fp16
+// CHECK-SAME: (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
+func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) {
+    %c0 = arith.constant 0 : index
+    // CHECK: %[[mod:.*]] = arith.remui
+    // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[mod]]
+    // CHECK: %[[val:.*]] = arith.select %[[cmp]], {{.*}} : vector<2xf16>
+    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
+    rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
+        features = none {length = 1 : index}
+        : memref<5xf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xf16>
+    return
+}
+
+// CHECK-LABEL: func.func @add_packed_oob_fp16
+// CHECK-SAME: (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
+func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) {
+    %c0 = arith.constant 0 : index
+    // CHECK-DAG: %[[c192:.*]] = arith.constant 192
+    // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
+    // CHECK-DAG: %[[val:.*]] = vector.transfer_read %[[source]]
+    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
+    rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
+        features = none {length = 2 : index}
+        : memref<5xf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xf16>
+    return
+}
+
 // CHECK-LABEL: func.func @add_vector_in_bounds
 func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index

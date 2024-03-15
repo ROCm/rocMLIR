@@ -9,9 +9,9 @@ func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -24,9 +24,9 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
     filter_layout = ["g" ,"k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -39,9 +39,9 @@ func.func @rock_conv2d_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input 
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf8E4M3FNUZ>, memref<?x?x?x?x?xf8E5M2FNUZ>, memref<?x?x?x?x?xf32>
   return
 }
@@ -55,9 +55,9 @@ func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref
     kernelId = 0 : index,
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -71,9 +71,9 @@ func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : me
     kernelId = 0 : index,
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -87,9 +87,9 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memr
     input_layout = ["n", "gi", "c", "hi", "wi"],
     numCU = 64 : i32,
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -103,9 +103,9 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : 
     input_layout = ["n", "gi", "c", "hi", "wi"],
     numCU = 64 : i32,
     output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1 : i32,  1 : i32],
-    strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
+    dilations = [1 : index,  1 : index],
+    strides = [1 : index,  1 : index],
+    padding = [0 : index,  0 : index,  0 : index,  0 : index]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
