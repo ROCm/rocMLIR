@@ -634,21 +634,20 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(
     }
   }
   RetAttrType attr;
-  auto getAnyAttr = [&] (ArrayRef<StringRef> attrNames, Operation* op){
-    for (StringRef attrName : attrNames){
-      if (!attr){
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!attr) {
         attr = op->getAttrOfType<RetAttrType>(attrName);
-      }
-      else{
+      } else {
         return;
       }
     }
   };
   getAnyAttr({opAttr}, op);
-  if (!attr){
+  if (!attr) {
     llvm::errs() << *func << "\n";
     getAnyAttr({opAttr, dialectAttr}, func);
-    }
+  }
   if (!attr) {
     auto mod = func->getParentOfType<ModuleOp>();
     getAnyAttr({opAttr, dialectAttr}, mod);
@@ -690,10 +689,10 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   return numCU.getValue().getSExtValue();
 }
 
-FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op){
+FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
   return getAttrFromOpOrParents<UnitAttr>(op, reverseGridAttrName);
 }
 
-FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op){
+FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }

@@ -116,12 +116,12 @@ getArchAttributes(Operation *op, Type inputType) {
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
   FailureOr<StringAttr> maybeArch = rock::getArch(op);
-  if(succeeded(maybeArch)){
+  if (succeeded(maybeArch)) {
     arch = maybeArch.value();
   }
   std::optional<uint32_t> num_cu = std::nullopt;
   FailureOr<int64_t> maybeNumCU = rock::getNumCU(op);
-  if(succeeded(maybeNumCU)){
+  if (succeeded(maybeNumCU)) {
     num_cu = (uint32_t)maybeNumCU.value();
   }
   std::optional<bool> xdlopsV2 = std::nullopt;

@@ -813,7 +813,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
-  if(config.reverseGrid){
+  if (config.reverseGrid) {
     func->setAttr(rock::reverseGridAttrName, builder.getUnitAttr());
   }
   module.push_back(func);
