@@ -146,7 +146,6 @@ struct WorkgroupIdRewritePattern
       b.replaceOpWithNewOp<arith::SubIOp>(op, b.getIndexType(), gridSizeValSub1,
                                           blockIdVal);
     } else {
-      llvm::errs() << "reverse_grid not found.\n";
       b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
                                            gpu::Dimension::x);
     }
