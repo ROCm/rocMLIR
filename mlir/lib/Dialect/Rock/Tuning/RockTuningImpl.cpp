@@ -17,8 +17,10 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include <algorithm>
 
 namespace mlir {
 namespace rock {
@@ -129,9 +131,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return a.workImbalance < b.workImbalance;
   });
 
-  size_t maxVariants = 6;
-  maxVariants = factors.size() > maxVariants ? maxVariants : factors.size();
-  llvm::for_each(factors, [&](LocalData &item) {
+  const size_t maxVariants = std::min(static_cast<size_t>(6), factors.size());
+  llvm::ArrayRef<LocalData> view(factors.data(), maxVariants);
+  llvm::for_each(view, [&](const LocalData &item) {
     splitKValues.push_back(item.splitKValue);
   });
 

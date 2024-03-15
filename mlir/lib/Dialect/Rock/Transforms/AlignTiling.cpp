@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -48,6 +49,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <deque>
 #include <numeric>
@@ -539,7 +541,8 @@ static void markGenericWritersToRevisit(LinalgAlignRewriter &b, Value rawSrc) {
     b.scheduleVisit(genericWriter);
 }
 
-template <typename TiledOp> Value getRegisterValue(TiledOp op);
+template <typename TiledOp>
+Value getRegisterValue(TiledOp op);
 template <>
 Value getRegisterValue<ThreadwiseReadIntoOp>(ThreadwiseReadIntoOp op) {
   return op.getDest();
@@ -772,6 +775,13 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   SmallVector<TransformMapAttr> globalCoordsToGenericViews;
   Value laGenericArgLeadingToTile =
       findThreadwiseWrite(laGeneric, gemmStoreOp, globalCoordsToGenericViews);
+
+  if (gemmStoreOp) {
+    if (gemmStoreOp.getStoreMethod() != rock::StoreMethod::Set) {
+      return laGeneric.emitOpError("lingalg generic ops are only allowed to "
+                                   "operate with `Set` store method");
+    }
+  }
 
   // 1.2. If there is no input being written, try to find a threadwise_read_into
   // operation that reads from the output of this generic. If there is such an
