@@ -21,17 +21,19 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
                         llvm::StringMap<DimIndexAndSize> &dimIndexAndSize) {
   assert(layoutAttr.size() == dim.size());
   size_t dimValSize = layoutAttr.size();
+  llvm::errs() << "layoutAttr is " << layoutAttr << "\n";
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
     auto value = dim[i];
+    llvm::errs() << "key " << key << ", i " << i << ", value " << value << "\n";
     dimIndexAndSize[key] = {i, value};
   }
 }
 
 ConvolutionDims ConvolutionContext::getConvDims() {
-  return ConvolutionDims({dimIndexAndSize["y"].size, dimIndexAndSize["x"].size},
-                         {dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size},
-                         {dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size},
+  return ConvolutionDims({dimIndexAndSize["0"].size, dimIndexAndSize["1"].size},
+                         {dimIndexAndSize["0o"].size, dimIndexAndSize["1o"].size},
+                         {dimIndexAndSize["0i"].size, dimIndexAndSize["1i"].size},
                          dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
                          dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
 }
