@@ -927,7 +927,7 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value selectAddress = b.create<arith::SelectOp>(loc, notAligns, stepBack,
                                                   coords[lastNonUnitDim]);
   Value selectDataExt =
-      b.create<arith::SelectOp>(loc, notAligns, dataExt0, dataExt1);
+      b.create<arith::SelectOp>(loc, notAligns, dataExt1, dataExt0);
 
   SmallVector<Value> alignedCoords(coords);
   alignedCoords.back() = selectAddress;
@@ -1180,13 +1180,14 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dymanic shape case, we'll already be in the i64 case, so we don't set
     // this.
-    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
-                                       emitOobChecks || op.getCanStoreOffEnd());
-    bool useBufferOobChecks =
-        useBufferOps && (emitOobChecks || op.getCanStoreOffEnd());
-
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
+    bool isAtomicFadd = memoryOp == StoreMethod::AtomicAdd && elemTy.isF16();
+    bool useBufferOps =
+        !hasI64Idx && (numBytes.trunc(32).isNegative() || emitOobChecks ||
+                       op.getCanStoreOffEnd() || isAtomicFadd);
+    bool useBufferOobChecks =
+        useBufferOps && (emitOobChecks || op.getCanStoreOffEnd());
 
     if (!useBufferOps) {
       dest = asGlobal(b, dest);
