@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 
@@ -65,6 +66,12 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
   if (!info.gemmAType.isF32()) {
+    return splitKValues;
+  }
+
+  // TODO: remove after integrating split-K into MIGraphX
+  auto func = llvm::cast<func::FuncOp>(gemmOp->getParentOp());
+  if (!func->hasAttr("split-k-enabled")) {
     return splitKValues;
   }
 

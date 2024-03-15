@@ -2227,6 +2227,9 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
+  // TODO: remove after integrating split-K into MIGraphX
+  func->setAttr("split-k-enabled", b.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
