@@ -344,6 +344,7 @@ void LinalgAlignRewriter::notifyOperationModified(Operation *op) {
 }
 
 void LinalgAlignRewriter::notifyOperationInserted(Operation *op, InsertPoint previous) {
+  assert(!previous.isSet() && "expected newly created op");
   constexpr llvm::StringLiteral prefix("** Insert  : '");
   logOpActivity(prefix, op);
 }

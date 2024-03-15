@@ -15,7 +15,6 @@ set(LIBS
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
-  MLIRAffineTransformOps
   )
 
 if (MLIR_ENABLE_EXECUTION_ENGINE)
