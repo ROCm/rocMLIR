@@ -20,6 +20,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -119,6 +120,35 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
     return success();
   }
 };
+
+struct WorkgroupIdRewritePattern : public OpRewritePattern<rock::WorkgroupIdOp> {
+  using OpRewritePattern<rock::WorkgroupIdOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::WorkgroupIdOp op, PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    bool isReverseGrid = false;
+    auto maybeIsReverseGrid = rock::getReverseGrid(op);
+    if(succeeded(maybeIsReverseGrid)){
+      isReverseGrid = true;
+    }
+    if(isReverseGrid){
+      FailureOr<IntegerAttr> maybeGridSize = rock::getGridSize(op);
+      if(failed(maybeGridSize)){
+        return op->emitError("grid_size should ve been set by now.\n");
+      }
+      int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
+      gridSize--;
+      Value gridSizeValSub1 = b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
+      Value blockIdVal = b.create<gpu::BlockIdOp>(loc, gpu::Dimension::x);
+      b.replaceOpWithNewOp<arith::SubIOp>(op, b.getIndexType(), gridSizeValSub1, blockIdVal);
+    }
+    else{
+      llvm::errs() << "reverse_grid not found.\n";
+      b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(), gpu::Dimension::x);
+    }
+    return success();
+  }
+};
 } // namespace
 
 void LowerRockOpsToGPUPass::runOnOperation() {
@@ -179,6 +209,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gridSize = attr.template cast<IntegerAttr>().getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
+    }
+    auto maybeIsReverseGrid = rock::getReverseGrid(theFunc);
+    if(succeeded(maybeIsReverseGrid)){
+      gpuFunc->setAttr(rock::reverseGridAttrName, maybeIsReverseGrid.value());
     }
 
     int32_t indexWidth = 32;
@@ -315,7 +349,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     patterns.add<MIGPUAllocRewritePattern,
                  MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
                  MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
-                 MIIdRewritePattern<rock::WorkgroupIdOp, gpu::BlockIdOp>,
+                 WorkgroupIdRewritePattern,
                  MIIdRewritePattern<rock::WorkitemIdOp, gpu::ThreadIdOp>,
                  MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);
 

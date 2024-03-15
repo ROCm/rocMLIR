@@ -633,22 +633,35 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(
       func = op->getParentOfType<gpu::GPUFuncOp>();
     }
   }
-  RetAttrType arch = op->getAttrOfType<RetAttrType>(opAttr);
-  if (!arch)
-    arch = func->getAttrOfType<RetAttrType>(dialectAttr);
-  if (!arch) {
+  RetAttrType attr;
+  auto getAnyAttr = [&] (ArrayRef<StringRef> attrNames, Operation* op){
+    for (StringRef attrName : attrNames){
+      if (!attr){
+        attr = op->getAttrOfType<RetAttrType>(attrName);
+      }
+      else{
+        return;
+      }
+    }
+  };
+  getAnyAttr({opAttr}, op);
+  if (!attr){
+    llvm::errs() << *func << "\n";
+    getAnyAttr({opAttr, dialectAttr}, func);
+    }
+  if (!attr) {
     auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+    getAnyAttr({opAttr, dialectAttr}, mod);
   }
-  if (!arch) {
+  if (!attr) {
     if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+      getAnyAttr({opAttr, dialectAttr}, mod);
     }
   }
-  if (!arch) {
+  if (!attr) {
     return failure();
   }
-  return arch;
+  return attr;
 }
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
@@ -668,10 +681,19 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   }
   IntegerAttr numCU = maybeNumCU.value();
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (numCU.getSInt() < archInfo.minNumCU) {
+  llvm::errs() << numCU << "\n";
+  if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
     return op->emitError() << "num_cu=" << numCU
                            << " cannot be lower than arch minNumCU="
                            << archInfo.minNumCU;
   }
-  return numCU.getSInt();
+  return numCU.getValue().getSExtValue();
+}
+
+FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op){
+  return getAttrFromOpOrParents<UnitAttr>(op, reverseGridAttrName);
+}
+
+FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op){
+  return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
