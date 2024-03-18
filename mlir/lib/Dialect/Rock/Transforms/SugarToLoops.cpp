@@ -1182,7 +1182,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     // this.
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
-    bool isAtomicFadd = memoryOp == StoreMethod::AtomicAdd && elemTy.isF16();
+    bool isAtomicFadd = memoryOp == StoreMethod::AtomicAdd &&
+                        (elemTy.isF16() || elemTy.isF32());
     bool useBufferOps =
         !hasI64Idx && (numBytes.trunc(32).isNegative() || emitOobChecks ||
                        op.getCanStoreOffEnd() || isAtomicFadd);
