@@ -230,6 +230,12 @@ Value addPassThroughIndices(OpBuilder &b, Value transformed,
 
 ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 
+ArrayAttr removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                          const SetVector<int64_t> &removeeIndices);
+
+ArrayAttr removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                          const SetVector<StringRef> &removeeDimNames);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

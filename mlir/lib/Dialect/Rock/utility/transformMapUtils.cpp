@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
@@ -29,6 +30,7 @@
 #include <algorithm>
 #include <iterator>
 #include <numeric>
+#include <unordered_set>
 #include <utility>
 
 #define DEBUG_TYPE "rock-transform-map-utils"
@@ -1751,4 +1753,47 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
     ret = b.create<TransformOp>(trOp.getLoc(), ret, newMap);
   }
   return ret;
+}
+
+SetVector<StringRef>
+convertIndicesToDimNames(const ArrayAttr transformAttrs,
+                         const SetVector<int64_t> &removeeIndices) {
+  SetVector<StringRef> dimNames = {};
+  if (transformAttrs.empty()) {
+    return dimNames;
+  }
+
+  const auto firstTransformMapAttr =
+      transformAttrs[0].dyn_cast<TransformMapAttr>();
+  if (auto transformAttr = firstTransformMapAttr) {
+    int64_t upperDimCounter = 0;
+    for (auto op : transformAttr.getOps()) {
+      const auto tattr = op.cast<::rock::TransformAttr>();
+      for (auto name : tattr.getUpperNames()) {
+        if (removeeIndices.contains(upperDimCounter)) {
+          dimNames.insert(name);
+        }
+        ++upperDimCounter;
+      }
+    }
+  }
+
+  return dimNames;
+}
+
+ArrayAttr
+mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                            const SetVector<int64_t> &removeeIndices) {
+
+  SetVector<StringRef> removeDimNames =
+      convertIndicesToDimNames(transformAttrs, removeeIndices);
+  return removeUpperDims(b, transformAttrs, removeDimNames);
+}
+
+ArrayAttr
+mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                            const SetVector<StringRef> &removeeDimNames) {
+  SmallVector<Attribute> results;
+  // TODO (ravil):
+  return b.getArrayAttr(results);
 }
