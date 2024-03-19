@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -180,6 +181,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         b.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
     auto isCF32 =
         c.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
+
+    if (!bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_add)) {
+      return op.emitError(
+          "Split-K `GemmOp` requires support of `atomic_add` hardware feature");
+    }
 
     if (!(isAF32 && isBF32 && isCF32)) {
       return op.emitError(

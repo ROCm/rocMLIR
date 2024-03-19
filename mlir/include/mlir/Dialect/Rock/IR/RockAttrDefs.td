@@ -355,4 +355,10 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
     An attribute to express the properties of a loop to be pipelined
   }];
 }
+
+// It is a temporary attribute
+// TODO[split-K]: remove after integrating split-K into MIGraphX
+def Rock_EnableSpliKForTuning : Rock_Attr<"EnableSpliKForTuning"> {
+  let mnemonic = "enable_splik_for_tuning";
+}
 #endif

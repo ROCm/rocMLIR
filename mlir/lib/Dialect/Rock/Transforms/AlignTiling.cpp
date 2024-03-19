@@ -40,6 +40,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Rewrite/PatternApplicator.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
@@ -744,6 +745,34 @@ static void reconfigureLAGeneric(LinalgAlignRewriter &b,
   laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
 }
 
+static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
+                                         linalg::GenericOp laGeneric) {
+  bool isLegal = true;
+  for (auto &region : laGeneric->getRegions()) {
+    for (auto &block : region) {
+      for (auto &op : block) {
+        bool isTruncOp = llvm::isa<arith::TruncFOp, arith::TruncIOp>(op);
+        if (isTruncOp) {
+          OpResult result = op.getResult(0);
+          bool allowedType = result.getType() == b.getF32Type();
+          allowedType |= result.getType() == b.getF16Type();
+          if (!allowedType) {
+            isLegal = false;
+            break;
+          }
+        }
+
+        const bool isYieldOp = llvm::isa<linalg::YieldOp>(op);
+        if (!(isTruncOp || isYieldOp)) {
+          isLegal = false;
+          break;
+        }
+      }
+    }
+  }
+  return isLegal ? mlir::success() : mlir::failure();
+}
+
 LogicalResult
 LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                          LinalgAlignRewriter &b) const {
@@ -778,8 +807,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
   if (gemmStoreOp) {
     if (gemmStoreOp.getStoreMethod() != rock::StoreMethod::Set) {
-      return laGeneric.emitOpError("lingalg generic ops are only allowed to "
-                                   "operate with `Set` store method");
+      if (failed(canFuseAcrossAtomic(b, laGeneric))) {
+        return laGeneric.emitOpError(
+            "is infusible with non-`Set` store method");
+      }
     }
   }
 

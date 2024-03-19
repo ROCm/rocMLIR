@@ -713,6 +713,12 @@ static llvm::cl::opt<bool> applyBufferizationPipeline(
     llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
     llvm::cl::init(true));
 
+// TODO[split-K]: remove after integrating with MIGraphX
+static llvm::cl::opt<bool> disableSplitKForTuning(
+    "disable-split-k-for-tuning",
+    llvm::cl::desc("disable split-K GEMM scheme for tuning"),
+    llvm::cl::init(false));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -2227,8 +2233,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
-  // TODO: remove after integrating split-K into MIGraphX
-  func->setAttr("split-k-enabled", b.getUnitAttr());
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSpliKForTuningAttr::getMnemonic(),
+                  b.getUnitAttr());
 
   module.push_back(func);
   return func;

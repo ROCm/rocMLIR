@@ -24,7 +24,7 @@
 // TRB-SAME:   %[[b:.*]]: memref<3x512x769xf32>,
 // NOTRC-SAME: %[[c:.*]]: memref<3x1024x512xf32>)
 // TRC-SAME:   %[[c:.*]]: memref<3x512x1024xf32>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]", "split-k-enabled"}
+// CHECK-SAME: attributes {enable_splik_for_tuning, kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK-NEXT: rock.gemm
 // NOTRC-SAME: %[[c]] =
 // TRC-SAME:   tr %[[c]] =
