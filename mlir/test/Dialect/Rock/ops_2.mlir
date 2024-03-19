@@ -137,12 +137,13 @@ func.func @rock_accel_gemm_one_result(%matrixA : memref<1x16xf32, 5>,
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
@@ -165,12 +166,13 @@ func.func @rock_accel_gemm_two_results(%matrixA : memref<1x16xf32, 5>,
 
   rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       forceUnroll = true>
   } : memref<2x2xvector<32xf32>, 5> += memref<1x16xf32, 5> * memref<1x16xf32, 5>
@@ -190,12 +192,13 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       forceUnroll = true>
   } : memref<1xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
@@ -215,12 +218,13 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       forceUnroll = true>
   } : memref<2xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
