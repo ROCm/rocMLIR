@@ -645,7 +645,6 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(
   };
   getAnyAttr({opAttr}, op);
   if (!attr) {
-    llvm::errs() << *func << "\n";
     getAnyAttr({opAttr, dialectAttr}, func);
   }
   if (!attr) {
@@ -680,7 +679,6 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   }
   IntegerAttr numCU = maybeNumCU.value();
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  llvm::errs() << numCU << "\n";
   if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
     return op->emitError() << "num_cu=" << numCU
                            << " cannot be lower than arch minNumCU="
