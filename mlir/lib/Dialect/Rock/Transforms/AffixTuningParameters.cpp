@@ -124,19 +124,18 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
-    uint32_t blockSize = 0;
-
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, perfConfig, validParams, blockSize);
+        op, perfConfig, validParams);
 
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
-        status = populateParamsAccelPtr->obtainTuningParameters(
-            op, perfConfig, validParams, blockSize);
+        status = populateParamsAccelPtr->obtainTuningParameters(op, perfConfig,
+                                                                validParams);
       }
       if (failed(status)) {
+        LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
         signalPassFailure();
         return;
       }
@@ -169,11 +168,17 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
-
-    Attribute gemmParams =
+    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+    RockAccelTuningParamAttrInterface gemmParams;
+    Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-
+    if (auto xdlopsParams = gemmParamsAttr.dyn_cast<XdlopsGemmParamsAttr>()) {
+      gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
+    } else {
+      gemmParams = gemmParamsAttr.cast<RockAccelTuningParamAttrInterface>();
+    }
+    int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
@@ -223,13 +228,18 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
     gemm1MPerBlock = gemm1MPerBlockNew;
   }
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
+  if (auto gemm0XdlDerivedParams =
+          op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
+    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
+  }
   return InitParamsAccel(
       /*gemmMPerBlock=*/gemm1MPerBlock,
       /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
       /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
       /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() *
           (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
-      /*gemmNPerWave=*/gemm0TuningParams.getNPerWave(),
+      /*gemmNPerWaveOrMnPerXdl=*/gemmNPerWaveOrMnPerXdl,
       /*gemmKPack=*/gemm1KPack,
       /*splitKFactor*/ 1,
       /*forceUnroll=*/gemm0TuningParams.getForceUnroll(), false);
@@ -268,12 +278,22 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     signalPassFailure();
     return;
   }
-  auto accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+  RockAccelTuningParamAttrInterface accelParams0;
+  if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
+    accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
+  } else {
+    accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+  }
   op.setParams0Attr(accelParams0);
   auto initAccelParams1 = deriveGemm1TuningParams(builder, op);
   Attribute params1 =
       populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
-  auto accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
+  RockAccelTuningParamAttrInterface accelParams1;
+  if (auto xdlopsParams1 = params1.dyn_cast<XdlopsGemmParamsAttr>()) {
+    accelParams1 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams1);
+  } else {
+    accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
+  }
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
@@ -281,12 +301,12 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams, elemTypeQ, elemTypeK, op.getArch(), blockSize,
+          accelParams0, elemTypeQ, elemTypeK, op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          initAccelParams1, elemTypeV, elemTypeV, op.getArch(), blockSize,
+          accelParams1, elemTypeV, elemTypeV, op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {

@@ -252,8 +252,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -264,7 +263,44 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$splitKFactor,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+        ("v2:" + Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .toVector(perfStr);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "xdlops_gemm_derived_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
     "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
@@ -283,6 +319,32 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         .toVector(perfStr);
     }
   }];
+
+  let builders = [
+      AttrBuilderWithInferredContext<(ins  "XdlopsGemmParamsAttr":$params), [{
+      int64_t mPerWave = params.getMPerWave();
+      int64_t mPerBlock = params.getMPerBlock();
+      int64_t nPerBlock = params.getNPerBlock();
+      int64_t mnPerXdl = params.getMnPerXdl();
+      int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
+      int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
+
+      mPerWave = mPerBlock / mWaves;
+      int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+      return $_get(
+        params.getContext(),
+        params.getKpackPerBlock(),
+        mPerBlock, 
+        nPerBlock, 
+        params.getKpack(),
+        mPerWave,
+        nPerWave,
+        mnPerXdl,
+        params.getSplitKFactor(),
+        params.getForceUnroll()
+      );
+    }]>
+  ];
 
   let assemblyFormat = [{
     `<` struct(params) `>`

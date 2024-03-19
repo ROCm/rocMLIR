@@ -736,7 +736,8 @@ LogicalResult GemmOp::verify() {
   bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
+    if (isXdlops &&
+        !params.isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !params.isa<GeneralGemmParamsAttr>())

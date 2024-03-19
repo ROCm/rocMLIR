@@ -31,12 +31,13 @@ func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4x
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       splitKFactor = 1,
       forceUnroll = true>
@@ -55,12 +56,13 @@ func.func @rock_xdlops_gemm_accel_two_results_f16(%matrixA : memref<1x4xvector<4
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       splitKFactor = 1,
       forceUnroll = true>
@@ -82,12 +84,13 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 16,
       nPerWave = 16,
+      mnPerXdl = 16,
       kpack = 1,
       splitKFactor = 1,
       forceUnroll = true>
@@ -108,12 +111,13 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
       mPerWave = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       kpack = 1,
       splitKFactor = 1,
       forceUnroll = true>

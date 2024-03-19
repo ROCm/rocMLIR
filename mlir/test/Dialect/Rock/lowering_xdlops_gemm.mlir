@@ -18,13 +18,14 @@ func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<2xvector<16xf32>, 5> to memref<1x2xvector<16xf32>, 5>
   rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
        kpackPerBlock = 4,
        kpack = 1,
        mPerBlock = 128,
        mPerWave = 64,
        nPerBlock = 64,
        nPerWave = 32,
+       mnPerXdl = 32,
        splitKFactor = 1,
        forceUnroll = true>
      } : memref<1x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
@@ -46,13 +47,14 @@ func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<16xf32>, 5> to memref<2x2xvector<16xf32>, 5>
   rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
       mPerBlock = 128,
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
@@ -74,13 +76,14 @@ func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 8,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
@@ -102,13 +105,14 @@ func.func @accel_gemm_gfx90a_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 8,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
@@ -127,13 +131,14 @@ func.func @accel_gemm_gfx940_i8(%matrixA : memref<1x4xvector<8xi8>, 5>,
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx940",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 16,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<8xi8>, 5> * memref<1x4xvector<8xi8>, 5>
@@ -152,13 +157,14 @@ func.func @accel_gemm_gfx908_bf16(%matrixA : memref<1x4xvector<2xbf16>, 5>,
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx908",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 4,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<2xbf16>, 5> * memref<1x4xvector<2xbf16>, 5>
@@ -177,13 +183,14 @@ func.func @accel_gemm_gfx90a_bf16(%matrixA : memref<1x4xvector<4xbf16>, 5>,
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 8,
       mPerWave = 32,
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<4xbf16>, 5> * memref<1x4xvector<4xbf16>, 5>
@@ -204,13 +211,14 @@ func.func @accel_gemm_fp8_bf8(%matrixA : memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.a
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<16xf32>, #gpu.address_space<private>> to memref<2x2xvector<16xf32>, #gpu.address_space<private>>
   rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx940",
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
       nPerBlock = 128,
       kpack = 8,
       mPerWave = 64,
       nPerWave = 64,
+      mnPerXdl = 32,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> * memref<1x4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>
