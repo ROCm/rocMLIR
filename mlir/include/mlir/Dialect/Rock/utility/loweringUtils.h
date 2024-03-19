@@ -175,6 +175,9 @@ FailureOr<UnitAttr> getReverseGrid(Operation *op);
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
+// Return an affine map to reverse loop coordinates
+AffineMap getIdxReversalMap(OpBuilder &b);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

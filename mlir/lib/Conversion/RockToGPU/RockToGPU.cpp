@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
@@ -139,12 +140,12 @@ struct WorkgroupIdRewritePattern
         return op->emitError("grid_size should ve been set by now.\n");
       }
       int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
-      gridSize--;
-      Value gridSizeValSub1 =
-          b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
+      AffineMap reverseMap = rock::getIdxReversalMap(b);
+      Value gridSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
       Value blockIdVal = b.create<gpu::BlockIdOp>(loc, gpu::Dimension::x);
-      b.replaceOpWithNewOp<arith::SubIOp>(op, b.getIndexType(), gridSizeValSub1,
-                                          blockIdVal);
+      b.replaceOpWithNewOp<affine::AffineApplyOp>(
+          op, b.getIndexType(), reverseMap,
+          ValueRange{blockIdVal, gridSizeVal});
     } else {
       b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
                                            gpu::Dimension::x);

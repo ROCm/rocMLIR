@@ -696,3 +696,10 @@ FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
+
+AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
+  auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
+  auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
+  auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
+  return affineMap;
+}
