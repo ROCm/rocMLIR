@@ -14,6 +14,7 @@ func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x12
       kPerThread = 1,
       mPerThread = 4,
       nPerThread = 4,
+      splitKFactor = 1,
       kpack = 1>
   } : memref<8x8xf16, 5> += memref<8x128x1xf16, 3> * memref<8x128x1xf16, 3>
   return
@@ -38,6 +39,7 @@ func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4x
       nPerWave = 64,
       mnPerXdl = 32,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf16>, 5> * memref<1x4xvector<4xf16>, 5>
   return
@@ -62,6 +64,7 @@ func.func @rock_xdlops_gemm_accel_two_results_f16(%matrixA : memref<1x4xvector<4
       nPerWave = 64,
       mnPerXdl = 32,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf16>, 5> * memref<1x4xvector<4xf16>, 5>
   return
@@ -89,6 +92,7 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
       nPerWave = 16,
       mnPerXdl = 16,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1xvector<32xf32>, 5> +=  memref<4xvector<4xf16>, 5> from memref<8192xf16, 3> * memref<4xvector<4xf16>, 5> from memref<4096xf16, 3>
   return
@@ -115,6 +119,7 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
       nPerWave = 64,
       mnPerXdl = 32,
       kpack = 1,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2xvector<32xf32>, 5> += memref<4xvector<4xf16>, 5> from memref<8192xf16, 3> * memref<4xvector<4xf16>, 5> from memref<4096xf16, 3>
   return

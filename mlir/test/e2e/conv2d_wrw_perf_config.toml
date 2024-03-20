@@ -15,9 +15,9 @@ values = ["-fil_layout=kcyx -in_layout=nchw -out_layout=nkhw"]
 name = "config"
 
 ## Restore once kPack + padding work
-## --perf_config 256,128,8,64,128,8,0,1
+## --perf_config v2:256,128,8,64,128,8,1,0,1
 [[suite.test]]
-config = "--perf_config 256,128,8,64,128,1,1,1 -t f16 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 256 --in_channels 64 --in_h 56 --in_w 56 --out_channels 64 --fil_h 3 --fil_w 3 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 1 --padding_w 1"
+config = "--perf_config v2:256,128,8,64,128,1,1,1,1 -t f16 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 256 --in_channels 64 --in_h 56 --in_w 56 --out_channels 64 --fil_h 3 --fil_w 3 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 1 --padding_w 1"
 
 [[suite.test]]
-config = "--perf_config 64,64,2,64,64,2,1,1 -t f32 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0"
+config = "--perf_config v2:64,64,2,64,64,2,1,1,1 -t f32 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0"
