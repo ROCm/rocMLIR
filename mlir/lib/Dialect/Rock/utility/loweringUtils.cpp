@@ -688,7 +688,8 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
-  return getAttrFromOpOrParents<UnitAttr>(op, reverseGridAttrName);
+  return getAttrFromOpOrParents<UnitAttr>(
+      op, rock::ReverseGridAttrAttr::getMnemonic());
 }
 
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {

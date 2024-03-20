@@ -214,9 +214,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
-    auto maybeIsReverseGrid = rock::getReverseGrid(theFunc);
-    if (succeeded(maybeIsReverseGrid)) {
-      gpuFunc->setAttr(rock::reverseGridAttrName, maybeIsReverseGrid.value());
+    if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
+      gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);
     }
 
     int32_t indexWidth = 32;

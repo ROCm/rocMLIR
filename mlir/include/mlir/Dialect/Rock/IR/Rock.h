@@ -59,8 +59,6 @@ ArrayAttr noTransformsArray(Builder &b, size_t n);
 
 ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 
-const char reverseGridAttrName[] = "reverse_grid";
-
 } // end namespace rock
 } // end namespace mlir
 

@@ -349,4 +349,8 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
     An attribute to express the properties of a loop to be pipelined
   }];
 }
+
+def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
+  let mnemonic = "reverse_grid";
+}
 #endif

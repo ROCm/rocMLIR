@@ -2219,7 +2219,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
   if (reverse_grid) {
-    func->setAttr(rock::reverseGridAttrName, b.getUnitAttr());
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
   }
 
   Block *block = func.addEntryBlock();
@@ -2350,7 +2350,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(argTypes, {}), funcAttrs);
   if (reverse_grid) {
-    func->setAttr(rock::reverseGridAttrName, builder.getUnitAttr());
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
   }
 
   Block *block = func.addEntryBlock();

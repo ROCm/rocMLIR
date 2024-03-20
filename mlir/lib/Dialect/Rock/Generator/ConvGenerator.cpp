@@ -562,7 +562,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  strToInt(rock::reverseGridAttrName, config.reverseGrid);
+  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -814,7 +814,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
   if (config.reverseGrid) {
-    func->setAttr(rock::reverseGridAttrName, builder.getUnitAttr());
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
   }
   module.push_back(func);
   if (!is_verifier)
