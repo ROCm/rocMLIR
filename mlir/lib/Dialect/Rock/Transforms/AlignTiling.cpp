@@ -219,8 +219,7 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
-  if (latestOp->getBlock() != toMove->getBlock() ||
-      latestOp->isBeforeInBlock(toMove))
+  if (latestOp->isBeforeInBlock(toMove))
     toMove->moveBefore(latestOp);
   else
     LLVM_DEBUG(logger.startLine() << "   No move needed.\n");
@@ -870,7 +869,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                    globalCoordsToGenericViews, newInputs);
 
     // Prevent SSA weirdness from register allocations introduced too late.
-    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
+    if (newOutput.getDefiningOp()->getBlock() == laGeneric.getBlock())
+      b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
     b.eraseOp(tileReadOp);
     return success();
