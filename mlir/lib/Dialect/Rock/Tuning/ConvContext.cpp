@@ -21,11 +21,20 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
                         llvm::StringMap<DimIndexAndSize> &dimIndexAndSize) {
   assert(layoutAttr.size() == dim.size());
   size_t dimValSize = layoutAttr.size();
-  llvm::errs() << "layoutAttr is " << layoutAttr << "\n";
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+
+    // +++pf: update old keys.
+    if (key == "y") key = "0";
+    if (key == "x") key = "1";
+    if (key[0] == 'h')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("0") + key.drop_front());
+    if (key[0] == 'w')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("1") + key.drop_front());
+
     auto value = dim[i];
-    llvm::errs() << "key " << key << ", i " << i << ", value " << value << "\n";
     dimIndexAndSize[key] = {i, value};
   }
 }

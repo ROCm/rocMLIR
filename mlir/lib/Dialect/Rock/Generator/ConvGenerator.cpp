@@ -186,9 +186,9 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   // Note: hasDimensions() prints error messages
-  if (failed(hasDimensions(inDim, "ngchw", "input")) ||
-      failed(hasDimensions(filDim, "gkcyx", "filter")) ||
-      failed(hasDimensions(outDim, "ngkhw", "output"))) {
+  if (failed(hasDimensions(inDim, "ngc01", "input")) ||
+      failed(hasDimensions(filDim, "gkc01", "filter")) ||
+      failed(hasDimensions(outDim, "ngk01", "output"))) {
     return failure();
   }
 
@@ -215,37 +215,37 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   }
 
   int64_t expectedOutHeight = outputDim(
-      inDim["h"], filDim["y"], config.paddingLeftDims[DIM::HEIGHT],
+      inDim["0"], filDim["0"], config.paddingLeftDims[DIM::HEIGHT],
       config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
       config.dilationDims[DIM::HEIGHT]);
   int64_t expectedOutWidth =
-      outputDim(inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
+      outputDim(inDim["1"], filDim["1"], config.paddingLeftDims[DIM::WIDTH],
                 config.paddingRightDims[DIM::WIDTH],
                 config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
-  if (outDim["h"] != expectedOutHeight) {
+  if (outDim["0"] != expectedOutHeight) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Output height " << outDim["h"] << " doesn't match height "
+               << "Output height " << outDim["0"] << " doesn't match height "
                << expectedOutHeight << " computed from other parameters\n");
     return failure();
   }
-  if (outDim["w"] != expectedOutWidth) {
+  if (outDim["1"] != expectedOutWidth) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Output width " << outDim["w"] << " doesn't match width "
+               << "Output width " << outDim["1"] << " doesn't match width "
                << expectedOutWidth << " computed from other parameters\n");
     return failure();
   }
 
-  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT] +
+  if (inDim["0"] + config.paddingLeftDims[DIM::HEIGHT] +
           config.paddingRightDims[DIM::HEIGHT] <
-      filDim["y"]) {
+      filDim["0"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
-  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] +
+  if (inDim["1"] + config.paddingLeftDims[DIM::WIDTH] +
           config.paddingRightDims[DIM::WIDTH] <
-      filDim["x"]) {
+      filDim["1"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is narrower than the filter\n");
     return failure();
@@ -510,16 +510,13 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
                      })) {
       return false;
     }
+
     static const std::vector<std::string> layoutArgs = {
         "fil_layout", "in_layout", "out_layout"};
-
-    if (!std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
+    return std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
                      [&argMap](const std::string &key) {
                        return argMap[key].length() == 5;
-                     })) {
-      return false;
-    }
-    return true;
+                     });
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
@@ -654,15 +651,15 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                              int64_t filterHeight, int64_t filterWidth) {
   config.filterDims[DIM::HEIGHT] = filterHeight;
   config.filterDims[DIM::WIDTH] = filterWidth;
-  static const std::string filterKeys = "kgcyx";
+  static const std::string filterKeys = "kgc01";
   int64_t filterVals[] = {outputChannel / groupSize, groupSize,
                           inputChannel / groupSize, filterHeight, filterWidth};
 
-  static const std::string inputKeys = "ngchw";
+  static const std::string inputKeys = "ngc01";
   int64_t inputVals[] = {batchSize, groupSize, inputChannel / groupSize,
                          inputHeight, inputWidth};
 
-  static const std::string outputKeys = "ngkhw";
+  static const std::string outputKeys = "ngk01";
   int64_t outputVals[] = {batchSize, groupSize, outputChannel / groupSize,
                           outputHeight, outputWidth};
 

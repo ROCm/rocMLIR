@@ -38,6 +38,20 @@ struct ConvolutionDims {
                   int64_t g)
     : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
 
+  void dump() {
+    auto printVector = [](ArrayRef<int64_t> v) {
+                         llvm::errs() << "{ ";
+                         for (auto f : v) llvm::errs() << f << " ";
+                         llvm::errs() << "}\n";
+                       };
+    llvm::errs() << "fil: ";
+    printVector(fil);
+    llvm::errs() << "out: ";
+    printVector(out);
+    llvm::errs() << "in: ";
+    printVector(in);
+    llvm::errs() << "k/c/n/g: " << k << " " << c << " " << n << " " << g << "\n";
+  }
 
   static ConvolutionDims fromOp(Operation *op);
 };

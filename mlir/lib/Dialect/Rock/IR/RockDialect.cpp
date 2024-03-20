@@ -411,6 +411,7 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   auto outputType = op->getOperand(2).getType().template cast<MemRefType>();
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
+  // +++pf:  needs to be reworked to generalise to N dimensions.
   int64_t y, x, ho, wo, hi, wi, k, c, n, g;
   y = x = ho = wo = hi = wi = k = c = n = g = 0;
 
@@ -419,9 +420,9 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
     auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
     auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
 
-    if (filterAttr.getValue() == "y") {
+    if (filterAttr.getValue() == "0") {
       y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
+    } else if (filterAttr.getValue() == "1") {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
@@ -431,17 +432,17 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       g = filterShape[i];
     }
 
-    if (inputAttr.getValue() == "hi") {
+    if (inputAttr.getValue() == "0i") {
       hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
+    } else if (inputAttr.getValue() == "1i") {
       wi = inputShape[i];
     } else if (inputAttr.getValue() == "ni") {
       n = inputShape[i];
     }
 
-    if (outputAttr.getValue() == "ho") {
+    if (outputAttr.getValue() == "0o") {
       ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
+    } else if (outputAttr.getValue() == "1o") {
       wo = outputShape[i];
     }
   }
@@ -555,9 +556,9 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
-  if (isDisjointed("filter_layout", "0", "1") ||
-      isDisjointed("input_layout", "0i", "1i"))
-    return op->emitError("Disjointed 01 or 0i1i!");
+  if ((isDisjointed("filter_layout", "y", "x") && isDisjointed("filter_layout", "0", "1")) ||
+      (isDisjointed("input_layout", "hi", "wi") && isDisjointed("input_layout", "0i", "1i")))
+    return op->emitError("Disjointed xy or hw!");
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
 

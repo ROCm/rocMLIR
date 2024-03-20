@@ -793,6 +793,14 @@ static void correctConvParameters() {
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
 
+  // +++pf:  update old key names.
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(), 'y', '0');
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(), 'x', '1');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(), 'h', '0');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(), 'w', '1');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(), 'h', '0');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(), 'w', '1');
+
   auto validatePadding = [](llvm::cl::opt<int> &combined,
                             llvm::cl::opt<int> &left, llvm::cl::opt<int> &right,
                             StringRef name) {
@@ -871,9 +879,9 @@ static void verifyConvLayout() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
 
-  if (filterLayoutValue.find("01") == std::string::npos &&
-      filterLayoutValue.find("10") == std::string::npos) {
-    llvm::errs() << "Unsupported filter layout: disjointed 01!\n";
+  if (filterLayoutValue.find("yx") == std::string::npos &&
+      filterLayoutValue.find("xy") == std::string::npos) {
+    llvm::errs() << "Unsupported filter layout: disjointed xy!\n";
     exit(1);
   }
 }
