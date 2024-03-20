@@ -622,11 +622,11 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType()
                           << " tile type: " << tile.getType() << "\n");
 
-  // Reset the insertion point if laGeneric and tiledOp are in different blocks.
-  // Insert new transform operations and threadwiseReadIntoOp where
-  // linalg.generic is if linalg.generic reads from the output of tiledOp.
-  // Otherwise, if tiledOp reads from the output of linalg.generic, insert
-  // transformation and threadwiseReadIntoOp where tiledOp is.
+  // Reset the insertion point if laGeneric and tiledOp are in different blocks
+  // and tiledOp reads from the output of linalg.generic. In such cases, we
+  // should insert new transform operations and threadwiseReadIntoOp inside the
+  // block of tiledOp, as their arguments may depend on that control flow. Later
+  // we will also move linalg.generic into the block.
   if (laGeneric->getBlock() != tiledOp->getBlock() &&
       laGeneric.getOperation() != sink)
     b.setInsertionPoint(sink);
