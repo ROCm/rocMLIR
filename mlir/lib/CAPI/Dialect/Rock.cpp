@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 
+#include <cstdint>
 #include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
@@ -138,3 +139,31 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
   strncpy(buf, perfStr.c_str(), bufLen);
   return perfStr.size();
 }
+
+// TODO (ravil)
+MLIR_CAPI_EXPORTED
+enum RocmlirSplitKSelectionLikelihood
+mlirIsSplitKFaster(int32_t mDim, int32_t nDim, int32_t kDim, int32_t numCUs) {
+  return RocmlirSplitKSelectionLikelihood::maybe;
+}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+bool isModuleFusible(MlirModule module, MlirStringRef perfStr) { return true; }
+
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumPrefillArgs(MlirModule module) { return 0; }
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
+                            MlirAttribute *initValues) {}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumAuxBuffers(MlirModule module) { return 0; }
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
+                           MlirAttribute *initValues) {}

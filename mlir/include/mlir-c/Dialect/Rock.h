@@ -140,6 +140,35 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
                                                size_t bufLen);
 
+// TODO (ravil): document
+enum RocmlirSplitKSelectionLikelihood { never = 0, maybe = 1, always = 2 };
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+enum RocmlirSplitKSelectionLikelihood mlirIsSplitKFaster(int mDim, int nDim,
+                                                         int kDim, int numCUs);
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+bool isModuleFusible(MlirModule module, MlirStringRef perfStr);
+
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumPrefillArgs(MlirModule module);
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
+                            MlirAttribute *initValues);
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumAuxBuffers(MlirModule module);
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
+                           MlirAttribute *initValues);
+
 #ifdef __cplusplus
 }
 #endif
