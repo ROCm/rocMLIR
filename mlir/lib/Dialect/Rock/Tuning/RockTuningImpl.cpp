@@ -72,7 +72,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   }
 
   // TODO[split-K]: remove after integrating split-K into MIGraphX
-  auto func = llvm::cast<func::FuncOp>(gemmOp->getParentOp());
+  auto func = cast<func::FuncOp>(gemmOp->getParentOp());
   if (!func->hasAttr(rock::EnableSpliKForTuningAttr::getMnemonic())) {
     return splitKValues;
   }
@@ -85,8 +85,8 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
   const GemmSize gemmSize =
       calculatePaddedGemmSize(params, info.gemmSize, kPack);
-  const double numMTiles = gemmSize.m / gemmMPerBlock;
-  const double numNTiles = gemmSize.n / gemmNPerBlock;
+  const auto numMTiles = (gemmSize.m + gemmMPerBlock - 1) / gemmMPerBlock;
+  const auto numNTiles = (gemmSize.n + gemmNPerBlock - 1) / gemmNPerBlock;
 
   auto computeImbalance = [&](int32_t splitKFactor) -> double {
     const double totalNumWorkGroups =
@@ -127,7 +127,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  llvm::sort(factors, [](LocalData &a, LocalData &b) {
+  llvm::sort(factors.rbegin(), factors.rend(), [](LocalData &a, LocalData &b) {
     return a.workImbalance < b.workImbalance;
   });
 

@@ -1,3 +1,4 @@
+// TODO[split-K]: remove `-disable-split-k-for-tuning` after integrating split-K into MIGraphX
 // RUN: rocmlir-gen --arch gfx908  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu -disable-split-k-for-tuning | FileCheck %s
 
 // CHECK: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {

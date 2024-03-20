@@ -48,6 +48,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
@@ -751,26 +752,24 @@ static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
   for (auto &region : laGeneric->getRegions()) {
     for (auto &block : region) {
       for (auto &op : block) {
-        bool isTruncOp = llvm::isa<arith::TruncFOp, arith::TruncIOp>(op);
-        if (isTruncOp) {
-          OpResult result = op.getResult(0);
-          bool allowedType = result.getType() == b.getF32Type();
-          allowedType |= result.getType() == b.getF16Type();
-          if (!allowedType) {
-            isLegal = false;
-            break;
-          }
+        Type resultType = op.getResult(0).getType();
+        if (llvm::isa<arith::TruncFOp>(op)) {
+          isLegal = resultType == b.getF32Type();
+          isLegal |= resultType == b.getF16Type();
+        } else if (llvm::isa<arith::TruncIOp>(op)) {
+          isLegal = resultType == b.getI32Type();
+        } else if (llvm::isa<linalg::YieldOp>(op)) {
+          isLegal = true;
+        } else {
+          isLegal = false;
         }
 
-        const bool isYieldOp = llvm::isa<linalg::YieldOp>(op);
-        if (!(isTruncOp || isYieldOp)) {
-          isLegal = false;
+        if (!isLegal)
           break;
-        }
       }
     }
   }
-  return isLegal ? mlir::success() : mlir::failure();
+  return success(isLegal);
 }
 
 LogicalResult
