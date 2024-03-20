@@ -144,6 +144,8 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             kernelGen.stdout.close()
+            # Ensure tuning DB results are in canonical form
+            testVector = config.toCommandLine()
         else:
             # pipe to rocmlir_gen --emit-tuning-key
             tuningKey = subprocess.Popen(

@@ -69,10 +69,19 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
-
+    InterfaceMethod<
+        /*desc=*/[{
+          Return a version of these tuning parameters that swaps M and N
+          everywhere if it would be legal to do so, otherwise returns std::nullopt.
+        }],
+        /*retType=*/"::std::optional<::mlir::rock::RockTuningParamAttrInterface>",
+        /*methodName=*/"swapMandNDimensions",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
     // TODO: more methods here as needed
   ];
-
 }
 
 #endif // ROCK_TUNING_PARAM_INTERFACE

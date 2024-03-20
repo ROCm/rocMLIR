@@ -19,6 +19,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
@@ -315,6 +316,91 @@ getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   return cfg;
 }
 
+/// Rewrite rock.gridwise_gemm* %c = %a * %b to
+///   %transposeC = rock.transform %c by #transpose_m_and_n
+///   rock.gridwise_gemm* %transposeC = %b * %a
+/// exchanging the tuning parameters' M and N values along the way, if it is
+/// both possible to do so and it will lead to increased output vectorization
+/// performance.
+///
+/// The rock.gridwise_gemm_* all have a matrix C that's M x N,
+/// a matrix A that's K x M, and a matrix B that's K x N, with K, M, and N
+/// padded out to the approprite [dim]PerBlock values from the tuning
+/// parameters. So, we can always rewrite the operation to target a N x M output
+/// with a K x N matrix A and a K x M matrix B, assuming that we switch around
+/// all the M and N-based tuning parameters (so that the padding that was needed
+/// on M dimensions is now the padding needed on N dimensions).
+///
+/// This is profitable when writes in the original M dimension can be vectorized
+/// while writes in the original N dimmension cannot be. If that's the case,
+/// we know that transposition will allow each thread to write a larger chunk of
+/// values, improving store performance. We know that threads will, in almost
+/// all cases, have such a chunk because the matrix acceleration instructions
+/// return groups of contiguous values in the N dimension to each lane (up to
+/// some point where the tiling grows more complex).
+///
+/// Note that the transformation may not always be legal: if the tuning
+/// parameters available aren't symmetric in M and N (as is the case with 4x64
+/// or 8x64 MFMAs) or we can't accurately determine the vectorization of the
+/// output, there's no reason to perform this rewrite.
+template <typename GemmOp, typename TuningParams>
+static void swapMandMDimensionsIfKnownHelpful(GemmOp op, PatternRewriter &b) {
+  TuningParams params = op.getParams();
+  std::optional<RockTuningParamAttrInterface> maybeSwappedParams =
+      params.swapMandNDimensions();
+  if (!maybeSwappedParams.has_value()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << params
+               << " are not symmetric, can't do a vectorization swap\n");
+    return;
+  }
+  TuningParams swappedParams = cast<TuningParams>(*maybeSwappedParams);
+  int64_t currentMPerBlock = params.getMPerBlock();
+  int64_t currentNPerBlock = params.getNPerBlock();
+  VectorizationResult mVectorization = getMaxVectorization(
+      op.getC(), 1, /*inputDimLen=*/currentMPerBlock, op.getOperation());
+  if (failed(mVectorization.fusionTraversalStatus)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Can't swap M and N because we couldn't fully analyze the "
+                  "fusion chains while vectorizing in M\n");
+    return;
+  }
+  VectorizationResult nVectorization = getMaxVectorization(
+      op.getC(), 2, /*inputDimLen=*/currentNPerBlock, op.getOperation());
+  if (failed(nVectorization.fusionTraversalStatus)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Can't swap M and N because we couldn't fully analyze the "
+                  "fusion chains while vectorizing in N\n");
+    return;
+  }
+  LLVM_DEBUG(
+      llvm::dbgs() << "While considering M/N transpose:\n"
+                   << "mVectorization.max: " << mVectorization.max << "\n"
+                   << "nVectorization.max: " << nVectorization.max << "\n");
+  if (nVectorization.max >= mVectorization.max) {
+    return;
+  }
+  Value newA = op.getB();
+  Value newB = op.getA();
+  Value oldC = op.getC();
+  ArrayRef<int64_t> oldCShape = op.getC().getType().getShape();
+  SmallVector<StringRef, 3> names = {"gemmG", "gemmM", "gemmN"};
+  Location loc = op.getLoc();
+  BottomUpTMBuilder cTransposeBuilder(b, names, oldCShape, loc);
+  cTransposeBuilder.passThrough(names, {0, 2, 1}, names);
+  TransformMapAttr cTransposeAttr = cTransposeBuilder.get();
+  Value newC = b.create<TransformOp>(loc, oldC, cTransposeAttr);
+  b.updateRootInPlace(op.getOperation(), [&]() {
+    op.getAMutable().assign(newA);
+    op.getBMutable().assign(newB);
+    op.getCMutable().assign(newC);
+    op.setParamsAttr(swappedParams);
+  });
+  LLVM_DEBUG(
+      llvm::dbgs() << "After the M/N swap, the gridwise gemm operation is "
+                   << op << "\n");
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -327,6 +413,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
+    swapMandMDimensionsIfKnownHelpful<GridwiseGemmOp, GeneralGemmParamsAttr>(op,
+                                                                             b);
     // Obtain data type.
     Type elementTypeA = op.getA().getType().getElementType();
     Type elementTypeB = op.getB().getType().getElementType();
@@ -2475,6 +2563,8 @@ struct GridwiseGemmAccelRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
+    swapMandMDimensionsIfKnownHelpful<GridwiseGemmAccelOp,
+                                      RockAccelTuningParamAttrInterface>(op, b);
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
     auto elementTypeB = op.getB().getType().getElementType();

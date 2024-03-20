@@ -249,6 +249,21 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
       + Twine(getSplitKFactor())).toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
+    std::optional<::mlir::rock::RockTuningParamAttrInterface>
+    swapMandNDimensions() {
+      // M and N are symetric for the accelerator-free GEMM.
+      return ::mlir::rock::GeneralGemmParamsAttr::get(
+        /*ctx=*/getContext(),
+        /*blockSize=*/getBlockSize(),
+        /*kPerBlock=*/getKPerBlock(),
+        /*mPerBlock=*/getNPerBlock(),
+        /*nPerBlock=*/getMPerBlock(),
+        /*kPerThread=*/getKPerThread(),
+        /*mPerThread=*/getNPerThread(),
+        /*nPerThread=*/getMPerThread(),
+        /*kpack=*/getKpack()
+      );
+    }
   }];
 
   let assemblyFormat = [{
@@ -325,6 +340,24 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
+    }
+    std::optional<::mlir::rock::RockTuningParamAttrInterface>
+    swapMandNDimensions() {
+      // The 4x64 and 8x64 (so 4x64 twice) MFMA cases aren't symmetric
+      // because the broadcast parameters for B don't allow a four-lane broadcast
+      // like the ones for the A input do.
+      if (getMPerWave() <= 8)
+        return std::nullopt;
+      return ::mlir::rock::XdlopsGemmParamsAttr::get(
+        /*ctx=*/getContext(),
+        /*kpackPerBlock=*/getKpackPerBlock(),
+        /*mPerBlock=*/getNPerBlock(),
+        /*nPerBlock=*/getMPerBlock(),
+        /*kpack=*/getKpack(),
+        /*mPerWave=*/getNPerWave(),
+        /*nPerWave=*/getMPerWave(),
+        /*forceUnroll=*/getForceUnroll()
+      );
     }
   }];
 
@@ -424,6 +457,20 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
+    }
+    std::optional<::mlir::rock::RockTuningParamAttrInterface>
+    swapMandNDimensions() {
+      // M and N are symetric for WMMA.
+      return ::mlir::rock::WmmaGemmParamsAttr::get(
+        /*ctx=*/getContext(),
+        /*kpackPerBlock=*/getKpackPerBlock(),
+        /*mPerBlock=*/getNPerBlock(),
+        /*nPerBlock=*/getMPerBlock(),
+        /*kpack=*/getKpack(),
+        /*mPerWave=*/getNPerWave(),
+        /*nPerWave=*/getMPerWave(),
+        /*forceUnroll=*/getForceUnroll()
+      );
     }
   }];
 
