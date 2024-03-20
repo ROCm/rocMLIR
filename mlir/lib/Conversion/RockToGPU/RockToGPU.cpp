@@ -129,12 +129,8 @@ struct WorkgroupIdRewritePattern
   LogicalResult matchAndRewrite(rock::WorkgroupIdOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-    bool isReverseGrid = false;
     auto maybeIsReverseGrid = rock::getReverseGrid(op);
     if (succeeded(maybeIsReverseGrid)) {
-      isReverseGrid = true;
-    }
-    if (isReverseGrid) {
       FailureOr<IntegerAttr> maybeGridSize = rock::getGridSize(op);
       if (failed(maybeGridSize)) {
         return op->emitError("grid_size should ve been set by now.\n");
