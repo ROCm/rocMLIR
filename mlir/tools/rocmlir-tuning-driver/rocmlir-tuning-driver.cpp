@@ -318,6 +318,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // TODO: remove this once perf_config gets parsed earlier
     SmallString<64> perfConfig;
     tuningAttr.getPerfConfigStr(perfConfig);
+    llvm::outs() << perfConfig << "\t";
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
     tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
       op->setAttr("perf_config", perfConfigAttr);
@@ -326,8 +327,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       op->setAttr("perf_config", perfConfigAttr);
     });
     if (failed(applicability.run(tuneCopy))) {
-      llvm::outs() << perfConfig << "\t"
-                   << "N/A\n";
+      llvm::outs() << "N/A\n";
       continue;
     }
 
@@ -371,7 +371,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
     }
-    llvm::outs() << perfConfig << "\t" << timing << "\n";
+    llvm::outs() << timing << "\n";
     tuneCopy->erase();
   }
   for (void *buffer : hostBuffers) {
