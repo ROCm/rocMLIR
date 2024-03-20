@@ -864,13 +864,13 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
       b.setInsertionPoint(laGeneric);
     }
     Value newOutput = tileReadOp.getDest();
+    // Prevent SSA weirdness from register allocations introduced too late.
+    // Do this before calling addRegisterReadsForTiledOutput() as
+    // addRegisterReadsForTiledOutput() may move laGeneric.
+    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     SmallVector<Value> newInputs;
     addRegisterReadsForTiledOutput(b, laGeneric, tileReadOp,
                                    globalCoordsToGenericViews, newInputs);
-
-    // Prevent SSA weirdness from register allocations introduced too late.
-    if (newOutput.getDefiningOp()->getBlock() == laGeneric.getBlock())
-      b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
     b.eraseOp(tileReadOp);
     return success();

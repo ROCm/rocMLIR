@@ -25,6 +25,7 @@ module {
     %2 = rock.workitem_id : index
     %3 = rock.transform %alloc by #transform_map : memref<64x64x64xf32> to memref<4x64x1x1x16x16x4x1xf32>
     %4 = rock.transform %3 by #transform_map1 : memref<4x64x1x1x16x16x4x1xf32> to memref<4x64x1x1x256x4xf32>
+    // CHECK: [[tiled_out_1:%.+]] = rock.alloc() : memref<2xf32
     // CHECK: [[tiled_out:%.+]] = rock.alloc() : memref<4xf32
     %out = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
     %c1_1 = arith.constant 1 : index
@@ -45,7 +46,6 @@ module {
     // CHECK: [[arg3_alloc:%.+]] = rock.alloc() : memref<4xf32
     // CHECK: [[arg0_alloc_1:%.+]] = rock.alloc() : memref<2xf16
     // CHECK: [[arg3_alloc_1:%.+]] = rock.alloc() : memref<2xf32
-    // CHECK: [[tiled_out_1:%.+]] = rock.alloc() : memref<2xf32
     %tiled_out = rock.alloc() : memref<2xf32, #gpu.address_space<private>>
     affine.for %arg4 = 1 to 4 {
       // CHECK: [[arg0_tf:%.+]] = rock.transform %arg0 by [[MAP]]
