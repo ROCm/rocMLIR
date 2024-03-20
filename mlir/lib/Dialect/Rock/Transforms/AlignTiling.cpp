@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -39,6 +40,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Rewrite/PatternApplicator.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
@@ -46,8 +48,10 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <deque>
 #include <numeric>
@@ -541,7 +545,8 @@ static void markGenericWritersToRevisit(LinalgAlignRewriter &b, Value rawSrc) {
     b.scheduleVisit(genericWriter);
 }
 
-template <typename TiledOp> Value getRegisterValue(TiledOp op);
+template <typename TiledOp>
+Value getRegisterValue(TiledOp op);
 template <>
 Value getRegisterValue<ThreadwiseReadIntoOp>(ThreadwiseReadIntoOp op) {
   return op.getDest();
@@ -743,6 +748,32 @@ static void reconfigureLAGeneric(LinalgAlignRewriter &b,
   laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
 }
 
+static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
+                                         linalg::GenericOp laGeneric) {
+  bool isLegal = true;
+  for (auto &region : laGeneric->getRegions()) {
+    for (auto &block : region) {
+      for (auto &op : block) {
+        Type resultType = op.getResult(0).getType();
+        if (llvm::isa<arith::TruncFOp>(op)) {
+          isLegal = resultType == b.getF32Type();
+          isLegal |= resultType == b.getF16Type();
+        } else if (llvm::isa<arith::TruncIOp>(op)) {
+          isLegal = resultType == b.getI32Type();
+        } else if (llvm::isa<linalg::YieldOp>(op)) {
+          isLegal = true;
+        } else {
+          isLegal = false;
+        }
+
+        if (!isLegal)
+          break;
+      }
+    }
+  }
+  return success(isLegal);
+}
+
 LogicalResult
 LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                          LinalgAlignRewriter &b) const {
@@ -774,6 +805,15 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   SmallVector<TransformMapAttr> globalCoordsToGenericViews;
   Value laGenericArgLeadingToTile =
       findThreadwiseWrite(laGeneric, gemmStoreOp, globalCoordsToGenericViews);
+
+  if (gemmStoreOp) {
+    if (gemmStoreOp.getStoreMethod() != rock::StoreMethod::Set) {
+      if (failed(canFuseAcrossAtomic(b, laGeneric))) {
+        return laGeneric.emitOpError(
+            "is infusible with non-`Set` store method");
+      }
+    }
+  }
 
   // 1.2. If there is no input being written, try to find a threadwise_read_into
   // operation that reads from the output of this generic. If there is such an

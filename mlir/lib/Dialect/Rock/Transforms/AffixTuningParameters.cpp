@@ -119,6 +119,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
+
   GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
@@ -240,6 +241,7 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
           (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
       /*gemmNPerWaveOrMnPerXdl=*/gemmNPerWaveOrMnPerXdl,
       /*gemmKPack=*/gemm1KPack,
+      /*splitKFactor*/ 1,
       /*forceUnroll=*/gemm0TuningParams.getForceUnroll(), false);
 }
 
@@ -258,7 +260,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
-  std::string perfConfigStr = "32,32,32,32,32,1,1,1";
+  std::string perfConfigStr = "v2:32,32,32,32,32,1,1,1,1";
   InitParamsAccel initAccelParams;
   if (!params0) {
     if (StringAttr perfConfigStrAttr =
