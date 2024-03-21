@@ -888,6 +888,38 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
   return result;
 }
 
+// Manually flatten a set of coordinates into a single address
+static Value flattenCoords(OpBuilder &b, Location loc, ArrayRef<Value> coords,
+                           ArrayRef<int64_t> shape) {
+  Value flatCoord = coords.back();
+  int64_t stride = 1;
+  for (int i = shape.size() - 2; i >= 0; i--) {
+    stride *= shape[i + 1];
+    flatCoord = b.create<arith::AddIOp>(
+        loc, flatCoord,
+        b.create<arith::MulIOp>(
+            loc, coords[i], b.create<arith::ConstantIntOp>(loc, stride, 32)));
+  }
+
+  return flatCoord;
+}
+
+// Manually unflatten a single address into a set of coordinates
+static void unflattenCoords(OpBuilder &b, Location loc, Value flatAddress,
+                            ArrayRef<int64_t> shape,
+                            SmallVector<Value> &unflattenedAddress) {
+  unflattenedAddress.resize(shape.size());
+  int64_t coeff = 1;
+  for (int i = shape.size() - 1; i >= 0; i--) {
+    Value thisCoord = b.create<arith::DivUIOp>(
+        loc, flatAddress, b.create<arith::ConstantIntOp>(loc, coeff, 32));
+    thisCoord = b.create<arith::RemUIOp>(
+        loc, thisCoord, b.create<arith::ConstantIntOp>(loc, shape[i], 32));
+    unflattenedAddress[i] = thisCoord;
+    coeff *= shape[i];
+  }
+}
+
 /// Atomic add for a scalar fp16. Using the CAS loop (atomicRMWOp) alternative
 /// is significantly slower so we extend the scalar in a vector and use the
 /// buffer_atomic_add_fp16 instead. We have to take care of the alignment
@@ -901,11 +933,42 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   assert(coords.size() == shape.size() &&
          "Shape and coordinates should have the same size!");
 
-  // Get the last non-unit dimension
+  // Always try to pack a scalar fp16 into a vector of 2 elements
+  const int packedVectorLen = 2;
+
+  // Compute the last non-unit dim
   int64_t lastNonUnitDim = shape.size() - 1;
   while (shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
     lastNonUnitDim--;
-  const int packedVectorLen = 2;
+
+  // Get the flattened size
+  int64_t flattenedSize = 1;
+  for (auto s : shape) {
+    flattenedSize *= s;
+  }
+
+  // If last non-unit dimension is odd, we need to work on the flattened version
+  // of the matrix
+  Value address = coords[lastNonUnitDim];
+  if (shape[lastNonUnitDim] % 2 != 0)
+    address = flattenCoords(b, loc, coords, shape);
+
+  // If all the shapes are odd, we have no choice: we need to add a guard and
+  // use unpacked atomic_rmw to compute the atomic addition for the last
+  // element: In that case, the last element  will be aligned, but it will be
+  // "half" out of boundaries, which means the hardware will simply give up and
+  // won't do  anything. However, we cannot step back, because the step back
+  // would be unaligned
+  if (flattenedSize % 2 != 0) {
+    Value lastElem = b.create<arith::ConstantIntOp>(loc, flattenedSize - 1, 32);
+    Value isNotLastElem = b.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::ult, address, lastElem);
+    auto guard = b.create<scf::IfOp>(loc, isNotLastElem, true);
+    b.setInsertionPointToStart(&guard.getElseRegion().front());
+    b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest, coords);
+    b.setInsertionPointToStart(&guard.getThenRegion().front());
+  }
+
   // Useful consts
   Value zero = b.create<arith::ConstantIntOp>(loc, 0, 32);
   Value one = b.create<arith::ConstantIntOp>(loc, 1, 32);
@@ -918,21 +981,25 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
   // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
-  Value stepBack = b.create<arith::SubIOp>(loc, coords[lastNonUnitDim], one);
-  Value alignment = b.create<arith::RemUIOp>(loc, coords[lastNonUnitDim], two);
-  Value notAligns =
+  Value stepBack = b.create<arith::SubIOp>(loc, address, one);
+  Value alignment = b.create<arith::RemUIOp>(loc, address, two);
+  Value stepBackCond =
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
 
   // Step back data and address
-  Value selectAddress = b.create<arith::SelectOp>(loc, notAligns, stepBack,
-                                                  coords[lastNonUnitDim]);
+  Value selectAddress =
+      b.create<arith::SelectOp>(loc, stepBackCond, stepBack, address);
   Value selectDataExt =
-      b.create<arith::SelectOp>(loc, notAligns, dataExt1, dataExt0);
+      b.create<arith::SelectOp>(loc, stepBackCond, dataExt1, dataExt0);
 
   SmallVector<Value> alignedCoords(coords);
   alignedCoords[lastNonUnitDim] = selectAddress;
-  // TODO(giuseros): This should lower to a amdgcn_global_atomic_fadd when we
-  // don't need oob checks.
+
+  // If the last non-unit dim is odd, we need to unflatten the address back and
+  // use the structured address to write back to memory
+  if (shape[lastNonUnitDim] % 2 != 0)
+    unflattenCoords(b, loc, selectAddress, shape, alignedCoords);
+
   b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
                                           alignedCoords, useBufferOobChecks,
                                           nullptr, nullptr);
