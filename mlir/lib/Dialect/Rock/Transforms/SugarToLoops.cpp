@@ -930,7 +930,7 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
       b.create<arith::SelectOp>(loc, notAligns, dataExt1, dataExt0);
 
   SmallVector<Value> alignedCoords(coords);
-  alignedCoords.back() = selectAddress;
+  alignedCoords[lastNonUnitDim] = selectAddress;
   // TODO(giuseros): This should lower to a amdgcn_global_atomic_fadd when we
   // don't need oob checks.
   b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
