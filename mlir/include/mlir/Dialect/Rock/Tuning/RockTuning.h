@@ -73,6 +73,15 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
+double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
+                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
+                            int32_t kPack, uint32_t numCUs,
+                            int32_t splitKFactor = 1);
+
+SmallVector<int64_t>
+computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
+                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
+                            int32_t kPack, uint32_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

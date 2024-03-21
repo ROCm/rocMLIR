@@ -11,11 +11,22 @@
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
@@ -143,21 +154,222 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
 // TODO (ravil)
 MLIR_CAPI_EXPORTED
 enum RocmlirSplitKSelectionLikelihood
-mlirIsSplitKFaster(int32_t mDim, int32_t nDim, int32_t kDim, int32_t numCUs) {
+mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
+                   int64_t numCUs, RocmlirTuningParamSetKind tuningLevel) {
+
+  // M/block N/block K/block M/wave N/wave kPack
+  const std::vector<std::vector<uint32_t>> rangeGemmParams = {
+      {4, 8, 16, 32, 64, 128, 256},
+      {16, 32, 64, 128, 256},
+      {1, 2, 4, 8},
+      {1, 4, 8, 16}};
+
+  rock::GemmSize gemmSize(gDim, mDim, kDim, nDim);
+  llvm::SmallSetVector<int64_t, 10> splitKValues = {};
+  double minWorkImbalance = std::numeric_limits<double>::max();
+  for (uint32_t mPerBlock : rangeGemmParams[0]) {
+    for (uint32_t nPerBlock : rangeGemmParams[1]) {
+      for (uint32_t kPerBlock : rangeGemmParams[2]) {
+        for (uint32_t kPack : rangeGemmParams[3]) {
+          const double currWorkImbalance = computeWorkImbalance(
+              gemmSize, mPerBlock, nPerBlock, kPerBlock, kPack, numCUs);
+          minWorkImbalance = std::min(currWorkImbalance, minWorkImbalance);
+
+          llvm::SmallVector<int64_t> currSplitKValues =
+              computeOptimalSplitKFactors(gemmSize, mPerBlock, nPerBlock,
+                                          kPerBlock, kPack, numCUs);
+          std::for_each(
+              currSplitKValues.begin(), currSplitKValues.end(),
+              [&splitKValues](int64_t value) { splitKValues.insert(value); });
+        }
+      }
+    }
+  }
+
+  if (splitKValues.size() == 1) {
+    return RocmlirSplitKSelectionLikelihood::never;
+  }
+  constexpr double workImbalanceThreshold{1.8};
+  if (minWorkImbalance > workImbalanceThreshold) {
+    return RocmlirSplitKSelectionLikelihood::always;
+  }
   return RocmlirSplitKSelectionLikelihood::maybe;
+}
+
+template <typename Derived>
+struct GemmDenedencyAnalysis {
+  GemmDenedencyAnalysis(llvm::SmallSetVector<Value, 8> &trackableValues)
+      : trackableValues(trackableValues) {}
+  bool hasDependency(Operation *op) {
+    if (!op) {
+      return false;
+    }
+
+    if (auto gemmOp = dyn_cast<rock::RockGemmWrapperInterface>(op)) {
+      if ((reinterpret_cast<Derived *>(this))->hasDependencyImpl(gemmOp)) {
+        return true;
+      }
+    }
+
+    for (auto opResult : op->getResults()) {
+      if (trackableValues.contains(opResult)) {
+        for (auto opOperand : op->getOperands()) {
+          trackableValues.insert(opOperand);
+        }
+        break;
+      }
+    }
+
+    return hasDependency(op->getPrevNode());
+  }
+
+protected:
+  llvm::SmallSetVector<Value, 8> trackableValues;
+};
+
+struct WriteGemmDependencyAnalysis
+    : GemmDenedencyAnalysis<WriteGemmDependencyAnalysis> {
+  WriteGemmDependencyAnalysis(llvm::SmallSetVector<Value, 8> &trackableValues)
+      : GemmDenedencyAnalysis<WriteGemmDependencyAnalysis>(trackableValues) {}
+
+  bool hasDependencyImpl(rock::RockGemmWrapperInterface gemmOp) {
+    Value gemmResult = gemmOp->getOperand(2);
+    return trackableValues.contains(gemmResult);
+  }
+};
+
+struct ReadGemmDependencyAnalysis
+    : GemmDenedencyAnalysis<ReadGemmDependencyAnalysis> {
+  ReadGemmDependencyAnalysis(llvm::SmallSetVector<Value, 8> &trackableValues)
+      : GemmDenedencyAnalysis<ReadGemmDependencyAnalysis>(trackableValues) {}
+
+  bool hasDependencyImpl(rock::RockGemmWrapperInterface gemmOp) {
+    llvm::SmallVector<Value, 2> readOperands = {gemmOp->getOperand(0),
+                                                gemmOp->getOperand(1)};
+    return std::any_of(readOperands.begin(), readOperands.end(),
+                       [this](Value gemmOperand) {
+                         return this->trackableValues.contains(gemmOperand);
+                       });
+  }
+};
+
+template <typename ParamType>
+int64_t retrieveSplitKValueImpl(StringRef perfConfig) {
+  ParamType params;
+  params.deserialize(perfConfig.str());
+  return params.splitKFactor;
+}
+
+int64_t retrieveSplitKValue(rock::RockGemmWrapperInterface op,
+                            StringRef perfConfig) {
+  rock::GemmFeatures features = op.getGemmFeatures();
+  if (isAccel(features)) {
+    return retrieveSplitKValueImpl<rock::InitParamsAccel>(perfConfig);
+  }
+  return retrieveSplitKValueImpl<rock::InitParamsNonAccel>(perfConfig);
 }
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED
-bool isModuleFusible(MlirModule module, MlirStringRef perfStr) { return true; }
+bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
+  auto mod = unwrap(module);
+  StringRef perfConfig = unwrap(perfStr);
 
+  WalkResult gemmWalkResult =
+      mod.walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        int64_t splitKFactor = retrieveSplitKValue(op, perfConfig);
+        if (splitKFactor > 1) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+
+  if (!gemmWalkResult.wasInterrupted()) {
+    return true;
+  }
+
+  WalkResult result = mod.walk([&](linalg::GenericOp laGeneric) -> WalkResult {
+    // find all inputs of linalg::GenericOp
+    llvm::SmallSetVector<Value, 8> inputValues;
+    for (Value operand : laGeneric->getOperands()) {
+      inputValues.insert(operand);
+    }
+
+    // find all outputs of linalg::GenericOp
+    llvm::SmallSetVector<Value, 8> outputValues;
+    for (Value result : laGeneric.getResults()) {
+      outputValues.insert(result);
+    }
+
+    // read-after-write
+    WriteGemmDependencyAnalysis rawAnalysis(inputValues);
+    if (rawAnalysis.hasDependency(laGeneric->getPrevNode())) {
+      return WalkResult::interrupt();
+    }
+
+    // write-after-read
+    ReadGemmDependencyAnalysis warAnalysis(outputValues);
+    if (warAnalysis.hasDependency(laGeneric->getPrevNode())) {
+      return WalkResult::interrupt();
+    }
+
+    // write-after-write
+    WriteGemmDependencyAnalysis wawAnalysis(outputValues);
+    if (wawAnalysis.hasDependency(laGeneric->getPrevNode())) {
+      return WalkResult::interrupt();
+    }
+
+    return WalkResult::advance();
+  });
+
+  return !result.wasInterrupted();
+}
+
+// TODO (ravil): document
 MLIR_CAPI_EXPORTED
-size_t mlirGetNumPrefillArgs(MlirModule module) { return 0; }
+size_t mlirGetNumPrefillArgs(MlirModule module) {
+  auto mod = unwrap(module);
+  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+
+  size_t prefillAttrCounter = 0;
+  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
+    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+        for (auto attr : arrayAttr) {
+          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+            ++prefillAttrCounter;
+          }
+        }
+      }
+    }
+  });
+  return prefillAttrCounter;
+}
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED
 void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
-                            MlirAttribute *initValues) {}
+                            MlirAttribute *initValues) {
+  auto mod = unwrap(module);
+  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+
+  size_t counter = 0;
+  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
+    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+        for (auto attr : arrayAttr) {
+          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+            indices[counter] = prefillAttr.getArgIndex();
+            initValues[counter] = wrap(prefillAttr.getInitValue());
+            ++counter;
+          }
+        }
+      }
+    }
+  });
+}
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED

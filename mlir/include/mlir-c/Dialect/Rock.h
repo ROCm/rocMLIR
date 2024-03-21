@@ -145,12 +145,13 @@ enum RocmlirSplitKSelectionLikelihood { never = 0, maybe = 1, always = 2 };
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED
-enum RocmlirSplitKSelectionLikelihood mlirIsSplitKFaster(int mDim, int nDim,
-                                                         int kDim, int numCUs);
+enum RocmlirSplitKSelectionLikelihood
+mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
+                   int64_t numCUs, RocmlirTuningParamSetKind tuningLevel);
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED
-bool isModuleFusible(MlirModule module, MlirStringRef perfStr);
+bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr);
 
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumPrefillArgs(MlirModule module);

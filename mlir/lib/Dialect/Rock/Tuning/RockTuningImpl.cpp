@@ -61,44 +61,32 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
   }
 }
 
-SmallVector<int64_t>
-computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
-                            int32_t gemmMPerBlock, int32_t gemmNPerBlock,
-                            int32_t gemmKPerBlock, int32_t kPack) {
-  auto info = PopulateParamsInfo::fromOp(gemmOp);
-  SmallVector<int64_t> splitKValues = {1};
-  const bool isAllowedTypeA = info.gemmAType.isF32() || info.gemmAType.isF16();
-  const bool isAllowedTypeB = info.gemmBType.isF32() || info.gemmBType.isF16();
-  if (!(isAllowedTypeA && isAllowedTypeB)) {
-    return splitKValues;
-  }
-
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
-  auto func = cast<func::FuncOp>(gemmOp->getParentOp());
-  if (!func->hasAttr(rock::EnableSpliKForTuningAttr::getMnemonic())) {
-    return splitKValues;
-  }
-
-  if (!gemmOp.getNumCU().has_value()) {
-    return splitKValues;
-  }
-  const double numCUs = gemmOp.getNumCU().value();
-
+double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
+                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
+                            int32_t kPack, uint32_t numCUs,
+                            int32_t splitKFactor) {
   const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
   const GemmSize gemmSize =
-      calculatePaddedGemmSize(params, info.gemmSize, kPack);
+      calculatePaddedGemmSize(params, origGemmSize, kPack);
   const auto numMTiles = (gemmSize.m + gemmMPerBlock - 1) / gemmMPerBlock;
   const auto numNTiles = (gemmSize.n + gemmNPerBlock - 1) / gemmNPerBlock;
 
-  auto computeImbalance = [&](int32_t splitKFactor) -> double {
-    const double totalNumWorkGroups =
-        gemmSize.g * numMTiles * numNTiles * splitKFactor;
-    const double maxWorkGroupsPerCU = std::ceil(totalNumWorkGroups / numCUs);
-    // imbalances = max. CU work / average work per CU
-    return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
-  };
+  const double totalNumWorkGroups =
+      gemmSize.g * numMTiles * numNTiles * splitKFactor;
+  const double maxWorkGroupsPerCU = std::ceil(totalNumWorkGroups / numCUs);
+  // imbalances = max. CU work / average work per CU
+  return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
+}
 
-  const auto dataPrallelGemmImbalance = computeImbalance(1);
+SmallVector<int64_t>
+computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
+                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
+                            int32_t kPack, uint32_t numCUs) {
+  SmallVector<int64_t> splitKValues = {1};
+
+  const auto dataPrallelGemmImbalance = computeWorkImbalance(
+      origGemmSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, kPack, numCUs);
+
   constexpr double imbalaceThreshold = 1.20;
   if (dataPrallelGemmImbalance < imbalaceThreshold) {
     return splitKValues;
@@ -118,7 +106,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   // This needs to be improved in the future.
   constexpr int32_t upperBound = 32;
   for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
-    const double imbalance = computeImbalance(splitKFactor);
+    const double imbalance =
+        computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
+                             gemmKPerBlock, kPack, numCUs, splitKFactor);
     const auto gain = dataPrallelGemmImbalance / imbalance;
     if (gain > minGain) {
       factors.emplace_back(LocalData{splitKFactor, imbalance});
@@ -140,6 +130,33 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
   });
 
   return splitKValues;
+}
+
+SmallVector<int64_t>
+computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
+                            int32_t gemmMPerBlock, int32_t gemmNPerBlock,
+                            int32_t gemmKPerBlock, int32_t kPack) {
+  auto info = PopulateParamsInfo::fromOp(gemmOp);
+  SmallVector<int64_t> splitKValues = {1};
+  const bool isAllowedTypeC =
+      gemmOp.getCType().isF32() || gemmOp.getCType().isF16();
+  if (!isAllowedTypeC) {
+    return splitKValues;
+  }
+
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  auto func = cast<func::FuncOp>(gemmOp->getParentOp());
+  if (!func->hasAttr(rock::EnableSpliKForTuningAttr::getMnemonic())) {
+    return splitKValues;
+  }
+
+  if (!gemmOp.getNumCU().has_value()) {
+    return splitKValues;
+  }
+  const uint32_t numCUs = gemmOp.getNumCU().value();
+  return computeOptimalSplitKFactors(info.gemmSize, gemmMPerBlock,
+                                     gemmNPerBlock, gemmKPerBlock, kPack,
+                                     numCUs);
 }
 
 // The full space is a brute-force search starting with the configs that have
