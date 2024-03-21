@@ -232,8 +232,10 @@ func.func @store_scalar_oob_large(%source: memref<5xf32, #gpu.address_space<priv
 func.func @add_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
+    // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fadd
+    // CHECK: memref.atomic_rmw addf %[[val]], %[[cast]]
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
         features = none {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -298,8 +300,11 @@ func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<privat
 func.func @add_scalar_to_scalar_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>) {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
-    // CHECK: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fadd {boundsCheck = false} %[[val]] -> %[[mem]]
+    // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
+    // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
+    // CHECK-NOT: scf.if
+    // CHECK: memref.atomic_rmw addf %[[val]], %[[cast]]
     rock.global_store atomic_add %source[%c0] -> %mem[] if %true
         features = none {length = 1 : index}
         : memref<1xf32, #gpu.address_space<private>> -> memref<f32>

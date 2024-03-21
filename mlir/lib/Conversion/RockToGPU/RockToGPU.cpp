@@ -223,6 +223,18 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
+    // Detect if we are using `atomic_rmw fadd` and ask LLVM to
+    // use intrinsics instead of CAS loops
+    funcBody.walk([&](memref::AtomicRMWOp op) -> WalkResult {
+      auto type = op.getMemRefType().getElementType();
+      if (op.getKind() == arith::AtomicRMWKind::addf &&
+          (type.isF32() || type.isF16())) {
+        gpuFunc->setAttr("rocdl.unsafe_fp_atomics", b.getUnitAttr());
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
     // Clone in global constants
     llvm::SmallDenseMap<SymbolRefAttr, FlatSymbolRefAttr> clonedConsts;
     WalkResult result = funcBody.walk([&](memref::GetGlobalOp op)

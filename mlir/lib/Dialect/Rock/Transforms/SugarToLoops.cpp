@@ -893,7 +893,8 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
 /// buffer_atomic_add_fp16 instead. We have to take care of the alignment
 /// manually
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
-                                 Value dest, ArrayRef<Value> coords) {
+                                 Value dest, ArrayRef<Value> coords,
+                                 bool useBufferOobChecks) {
 
   assert(dest.getType().isa<ShapedType>() && "Data needs to have a shape!");
   ArrayRef<int64_t> shape = cast<ShapedType>(dest.getType()).getShape();
@@ -904,7 +905,6 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   int64_t lastNonUnitDim = shape.size() - 1;
   while (shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
     lastNonUnitDim--;
-  const bool useBufferOobChecks = true;
   const int packedVectorLen = 2;
   // Useful consts
   Value zero = b.create<arith::ConstantIntOp>(loc, 0, 32);
@@ -931,6 +931,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
 
   SmallVector<Value> alignedCoords(coords);
   alignedCoords.back() = selectAddress;
+  // TODO(giuseros): This should lower to a amdgcn_global_atomic_fadd when we
+  // don't need oob checks.
   b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
                                           alignedCoords, useBufferOobChecks,
                                           nullptr, nullptr);
@@ -1182,11 +1184,11 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     // this.
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
-    bool isAtomicFadd = memoryOp == StoreMethod::AtomicAdd &&
-                        (elemTy.isF16() || elemTy.isF32());
+
+    bool isAtomicF16add = memoryOp == StoreMethod::AtomicAdd && elemTy.isF16();
     bool useBufferOps =
         !hasI64Idx && (numBytes.trunc(32).isNegative() || emitOobChecks ||
-                       op.getCanStoreOffEnd() || isAtomicFadd);
+                       op.getCanStoreOffEnd() || isAtomicF16add);
     bool useBufferOobChecks =
         useBufferOps && (emitOobChecks || op.getCanStoreOffEnd());
 
@@ -1248,7 +1250,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
             b.create<amdgpu::RawBufferAtomicFaddOp>(
                 loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
           else if (useBufferOps && elemTy.isF16())
-            atomicFp16AddAligned(b, loc, data, dest, coords);
+            atomicFp16AddAligned(b, loc, data, dest, coords,
+                                 useBufferOobChecks);
           else
             b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
                                           coords);
