@@ -1900,6 +1900,7 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
 
+    bool isReverseGrid = succeeded(rock::getReverseGrid(op));
     affine::AffineForOp mLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
     {
@@ -1908,7 +1909,14 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value kIterationsGemm0Val =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
+      Value mIterationsGemm0Val =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value mLoopIV = mLoopOp.getInductionVar();
+      if (isReverseGrid) {
+        AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
+        mLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
+            loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
+      }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
@@ -1925,11 +1933,6 @@ struct GridwiseAttentionAccelRewritePattern
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
-        bool isReverseGrid = false;
-        auto maybeIsReverseGrid = rock::getReverseGrid(op);
-        if (succeeded(maybeIsReverseGrid)) {
-          isReverseGrid = true;
-        }
         // Purpose of reversing the grid is to exploit
         // (if any) temporal locality between producers
         // and consumers of data between kernels.
@@ -2596,11 +2599,7 @@ struct GridwiseGemmAccelRewritePattern
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
       Value iv = loopOp.getInductionVar();
-      bool isReverseGrid = false;
-      auto maybeIsReverseGrid = rock::getReverseGrid(op);
-      if (succeeded(maybeIsReverseGrid)) {
-        isReverseGrid = true;
-      }
+      bool isReverseGrid = succeeded(rock::getReverseGrid(op));
       // Purpose of reversing the grid is to exploit
       // (if any) temporal locality between producers
       // and consumers of data between kernels.
