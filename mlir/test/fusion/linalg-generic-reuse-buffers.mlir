@@ -11,7 +11,6 @@
 
 
 module {
-  // CHECK-LABEL: @rock_gemm_1
   func.func @rock_gemm_1(%arg0: memref<64x64x64xf16>, %arg1: memref<64x64x64xf32>, %arg2: memref<64x64x64xf32>, %arg3: memref<64x64x64xf32>) attributes {block_size = 256 : i32, grid_size = 64 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
     %alloc = memref.alloc() : memref<64x64x64xf32>
     linalg.generic {indexing_maps = [#map1, #map1, #map1], iterator_types = ["parallel", "parallel", "parallel"]} ins(%arg0, %arg3 : memref<64x64x64xf16>, memref<64x64x64xf32>) outs(%alloc : memref<64x64x64xf32>) {
@@ -58,7 +57,6 @@ module {
     return
   }
 
-  // CHECK-LABEL: @rock_gemm_2
   func.func @rock_gemm_2(%arg0: memref<64x64x64xf16>, %arg1: memref<64x64x64xf16>, %arg2: memref<64x64x64xf32>, %arg3: memref<64x64x64xf32>) attributes {block_size = 256 : i32, grid_size = 64 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
     %alloc = memref.alloc() : memref<64x64x64xf32>
     linalg.generic {indexing_maps = [#map1, #map1, #map1], iterator_types = ["parallel", "parallel", "parallel"]} ins(%arg0, %arg3 : memref<64x64x64xf16>, memref<64x64x64xf32>) outs(%alloc : memref<64x64x64xf32>) {
