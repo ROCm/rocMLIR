@@ -965,7 +965,11 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
         loc, arith::CmpIPredicate::ult, address, lastElem);
     auto guard = b.create<scf::IfOp>(loc, isNotLastElem, true);
     b.setInsertionPointToStart(&guard.getElseRegion().front());
-    b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest, coords);
+    SmallVector<Value> indexCoords;
+    for (auto c : coords)
+      indexCoords.push_back(b.create<IndexCastOp>(loc, b.getIndexType(), c));
+    b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
+                                  indexCoords);
     b.setInsertionPointToStart(&guard.getThenRegion().front());
   }
 
