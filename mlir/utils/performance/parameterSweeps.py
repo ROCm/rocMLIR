@@ -34,13 +34,28 @@ class Options:
     flags: list
     concurrent_tests: int
 
+class PerfConfig:
+    class Version(enum.Enum):
+        V2 = 2
+
+    def __init__(self, config: Sequence[int], version: Version = Version.V2):
+        self._config = config
+        self._version = version
+        self._version_map = {PerfConfig.Version.V2: "v2"}
+
+
+    def __str__(self):
+        suffix = ','.join(str(v) for v in self._config)
+        return f'{self._version_map[self._version]}:{suffix}'
+
 class MLIROnlyConfig(ConvConfiguration):
     def __repr__(self):
+        perf_config_str = str(self.perfConfig) if self.perfConfig else ""
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
-                group={self.group!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
+                group={self.group!r}, arch={self.arch!r}, perfConfig={perf_config_str!r})"""
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags) -> Sequence[str]:
         direction = {'fwd': 'conv2d',
@@ -73,7 +88,7 @@ class MLIROnlyConfig(ConvConfiguration):
 
         if self.perfConfig is not None:
             result.append('--perf_config')
-            result.append(','.join(str(v) for v in self.perfConfig))
+            result.append(str(self.perfConfig))
 
         return result
 
@@ -82,7 +97,7 @@ class MLIROnlyConfig(ConvConfiguration):
                     convStrideH: int, convStrideW: int,
                     paddingHL: int, paddingHR: int, paddingWL: int, paddingWR: int,
                     dilationH: int, dilationW: int, group: int, arch: str,
-                    perfConfig: Optional[Sequence[int]]=None):
+                    perfConfig: Optional[PerfConfig]=None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
@@ -307,7 +322,9 @@ WMMA_PERF_CONFIG = itertools.product(
     # NPerWave (exponent)
     range(2, 8),
     # KPack (exponent)
-    range(2, 5)
+    range(2, 5),
+    # splitKFactor (exponent)
+    range(0, 1)
 )
 
 MFMA_PERF_CONFIG = itertools.product(
@@ -328,17 +345,20 @@ MFMA_PERF_CONFIG = itertools.product(
     # NPerWave (exponent)
     range(2, 8),
     # KPack (exponent)
-    range(1, 4)
+    range(1, 4),
+    # splitKFactor (exponent)
+    range(0, 1)
 )
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave,\
-         n_per_wave, kpack = params
-    perf_config = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
-        1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1, 1)
+         n_per_wave, kpack, split_k = params
+    perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
+        1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1 << split_k, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, options.arch, perf_config)
+        phr, pwl, pwr, dh, dw, g, options.arch,
+        PerfConfig(perf_config_tuple, PerfConfig.Version.V2))
 
 VANILLA_PERF_CONFIG = itertools.product(
     # op
@@ -358,17 +378,20 @@ VANILLA_PERF_CONFIG = itertools.product(
     # MPerThread (exponent)
     range(1, 3),
     # NPerThread (exponent)
-    range(1, 3)
+    range(1, 3),
+    # splitKFactor (exponent)
+    range(0, 1)
 )
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block,\
-        m_per_thread,n_per_thread = params
-    perf_config = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
-        1 << k_per_block, 1 << m_per_thread, n_per_thread)
+        m_per_thread,n_per_thread, split_k = params
+    perf_config_tuple = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
+        1 << k_per_block, 1 << m_per_thread, n_per_thread, 1 << split_k)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, options.arch, perf_config)
+        phr, pwl, pwr, dh, dw, g, options.arch,
+        PerfConfig(perf_config_tuple, PerfConfig.Version.V2))
 
 async def runConfig(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],

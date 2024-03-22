@@ -9,7 +9,7 @@
 
 // Arbitrary testcase: the tuning parameters are set to prevent needing to go
 // through `-rock-affix-params` and can be replaced as needed.
-#general_gemm_params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kPerThread = 1, mPerThread = 4, nPerThread = 2, kpack = 1>
+#general_gemm_params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kPerThread = 1, mPerThread = 4, nPerThread = 2, kpack = 1, splitKFactor = 1>
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
 // BLOCKWISE-LABEL: @rock_gemm
 // BLOCKWISE: needs64BitIdx
@@ -25,7 +25,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
 
 // -----
 
-#general_gemm_params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kPerThread = 1, mPerThread = 4, nPerThread = 2, kpack = 1>
+#general_gemm_params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kPerThread = 1, mPerThread = 4, nPerThread = 2, kpack = 1, splitKFactor = 1>
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
 // BLOCKWISE-LABEL: @rock_gemm
 // BLOCKWISE-NOT: rock.64bitindex
