@@ -152,11 +152,15 @@ public:
     }
     if (ROCDL::ROCDLDialect::getUnsafeFpAtomics() == attribute.getName()) {
       auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
+      if (!func)
+        return failure();
+      auto value = attribute.getValue().dyn_cast<BoolAttr>();
+
       llvm::Function *llvmFunc =
           moduleTranslation.lookupFunction(func.getName());
       llvm::SmallString<8> llvmAttrValue;
       llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
-      attrValueStream << "true";
+      attrValueStream << value.getValue();
       llvmFunc->addFnAttr("amdgpu-unsafe-fp-atomics", llvmAttrValue);
     }
 
