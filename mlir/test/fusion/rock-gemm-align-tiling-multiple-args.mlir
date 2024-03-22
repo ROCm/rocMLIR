@@ -9,6 +9,6 @@ func.func @rock_gemm(%arg0: memref<64x64x64xf16>, %arg1: memref<64x64x64xf32>, %
     linalg.yield %2 : f32
   }
   %0 = rock.transform %alloc by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmK", "gemmM"] at [1, 2] -> ["gemmK", "gemmM"] at [2, 1]>] bounds = [64, 64, 64] -> [64, 64, 64]> : memref<64x64x64xf32> to memref<64x64x64xf32>
-  rock.gridwise_gemm %arg2 = %0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 {gridSize = 64 : i32, numCU = 48 : i32, params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>} : memref<64x64x64xf32> = memref<64x64x64xf32> * memref<64x64x64xf32>
+  rock.gridwise_gemm %arg2 = %0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 {gridSize = 64 : i32, numCU = 48 : i32, params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>} : memref<64x64x64xf32> = memref<64x64x64xf32> * memref<64x64x64xf32>
   return
 }
