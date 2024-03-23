@@ -270,6 +270,50 @@ func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
     return
 }
 
+// CHECK-LABEL:  func.func @add_scalar_last_dim_odd_fp16
+// CHECK-SAME  (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x16x15xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
+func.func @add_scalar_last_dim_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x16x15xf16>, %idx: index, %valid: i1) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    // CHECK: %[[c0:.*]] = arith.constant 0 : i32
+    // CHECK: %[[c15:.*]] = arith.constant 15 : i32
+    // CHECK: %[[c1:.*]] = arith.constant 1 : i32
+    // CHECK: %[[c2:.*]] = arith.constant 2 : i32
+    // CHECK: %[[c16:.*]] = arith.constant 16 : i32
+    // CHECK: %[[i:.*]] = arith.index_cast {{.*}} : index to i32
+    // CHECK: %[[j:.*]] = arith.index_cast {{.*}} : index to i32
+    // CHECK: %[[partial:.*]] = arith.muli %[[i]], %[[c15]] : i32
+    // CHECK: %[[flat:.*]] = arith.addi %[[j]], %[[partial]] : i32
+    // CHECK: %[[rem:.*]] = arith.remui %[[flat]], %[[c2]]
+    // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[rem]], %[[c0]]
+    // CHECK: %[[addr:.*]] = arith.select %[[cmp]], {{.*}}, {{.*}} : i32
+    // CHECK: %[[unflat1:.*]] = arith.remui %[[addr]], %[[c15]] : i32
+    // CHECK: %[[unflat0_0:.*]] = arith.divui %[[addr]], %[[c15]] : i32
+    // CHECK: %[[unflat0:.*]] = arith.remui %[[unflat0_0]], %[[c16]]
+    // CHECK: amdgpu.raw_buffer_atomic_fadd {{.*}} -> {{.*}}[%[[c0]], %[[unflat0]], %[[unflat1]]]
+    rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c1, %idx] if %valid
+        features = none {length = 1 : index}
+        : memref<5xf16, #gpu.address_space<private>> -> memref<1x16x15xf16>
+    return
+}
+
+// CHECK-LABEL:  func.func @add_scalar_all_dims_odd_fp16
+// CHECK-SAME:  (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x15x15xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
+func.func @add_scalar_all_dims_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x15x15xf16>, %idx: index, %valid: i1) {
+    // CHECK: %[[c224:.*]] = arith.constant 224 : i32
+    // CHECK: %[[notlastelem:.*]] = arith.cmpi ult, {{.*}}, %[[c224]] : i32
+    // CHECK: scf.if %[[notlastelem]]
+    // CHECK: amdgpu.raw_buffer_atomic_fadd
+    // CHECK: else
+    // CHECK: memref.atomic_rmw addf
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c1, %idx] if %valid
+        features = none {length = 1 : index}
+        : memref<5xf16, #gpu.address_space<private>> -> memref<1x15x15xf16>
+    return
+}
+
 // CHECK-LABEL: func.func @add_packed_oob_fp16
 // CHECK-SAME: (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
 func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) {
