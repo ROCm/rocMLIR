@@ -146,10 +146,14 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
                            auto ctx = name.getContext();
                            if (name == "y") return StringAttr::get(ctx, "0");
                            if (name == "x") return StringAttr::get(ctx, "1");
-                           if (name.strref().starts_with_insensitive("h"))
-                             return StringAttr::get(ctx, (name.str()[0] = '0', name.str()));
-                           if (name.strref().starts_with_insensitive("w"))
-                             return StringAttr::get(ctx, (name.str()[0] = '1', name.str()));
+                           if (name.strref().starts_with_insensitive("h")) {
+                             auto namestr = name.str();
+                             return StringAttr::get(ctx, std::string("0") + namestr.substr(1, namestr.length()-1));
+                           }
+                           if (name.strref().starts_with_insensitive("w")) {
+                             auto namestr = name.str();
+                             return StringAttr::get(ctx, std::string("1") + namestr.substr(1, namestr.length()-1));
+                           }
 #endif  /* 1 */
                            return name;
                          };
@@ -168,9 +172,9 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   }
   if (failed(
           checkNames(filterNames, {"k", "g", "c", "0", "1"}, "filter", op)) ||
-      failed(checkNames(inputNames, {"ni", "gi", "ci", "hi", "wi"}, "input",
+      failed(checkNames(inputNames, {"ni", "gi", "ci", "0i", "1i"}, "input",
                         op)) ||
-      failed(checkNames(outputNames, {"no", "go", "ko", "ho", "wo"}, "output",
+      failed(checkNames(outputNames, {"no", "go", "ko", "0o", "1o"}, "output",
                         op))) {
     return failure();
   }
@@ -406,7 +410,7 @@ struct ConvertingCopyKernelRewritePattern final
 
 /// Make the dimensions that are the values in `mapping` and exist within
 /// `toLayout` be in the same relative order as the dimensions that the keys of
-/// `mappping` have within `fromLayout`, where both layout are given by the
+/// `mapping` have within `fromLayout`, where both layout are given by the
 /// names of the attributes containing them.
 ///
 /// To enable usage in rewrite patterns, returns failure() when no change is
@@ -495,12 +499,12 @@ struct MatchLayoutsToInput final
     TypedValue<ShapedType> filter = op.getFilter(), output = op.getOutput();
     const llvm::StringMap<StringAttr> inputToFilter = {
         {"ci", b.getStringAttr("c")},
-        {"hi", b.getStringAttr("y")},
-        {"wi", b.getStringAttr("x")}};
+        {"0i", b.getStringAttr("0")},
+        {"1i", b.getStringAttr("1")}};
     const llvm::StringMap<StringAttr> inputToOutput = {
         {"ni", b.getStringAttr("no")},
-        {"hi", b.getStringAttr("ho")},
-        {"wi", b.getStringAttr("wo")}};
+        {"0i", b.getStringAttr("0o")},
+        {"1i", b.getStringAttr("1o")}};
 
     LogicalResult didRelayoutFilter = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", filter, "filter_layout", inputToFilter);
@@ -613,7 +617,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     // is what's left
     llvm::StringMap<uint32_t> firstTransformOutDims = expandNamesInPlace(
         inputNames,
-        {{"ni", {"n0", "n1"}}, {"hi", {"hipad"}}, {"wi", {"wipad"}}});
+        {{"ni", {"n0", "n1"}}, {"0i", {"hipad"}}, {"1i", {"wipad"}}});
 
     BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
     BottomUpTMTopDimsWrapper firstWrap(firstTransform,
@@ -622,7 +626,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     firstWrap.unmerge({"n0", "n1"}, "ni",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
     firstWrap.passThrough("ci");
-    firstWrap.pad({"hipad", "wipad"}, {"hi", "wi"}, pads);
+    firstWrap.pad({"hipad", "wipad"}, {"0i", "1i"}, pads);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -631,14 +635,14 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
     llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
-        firstTransform, {{"hipad", {"0", "ho"}}, {"wipad", {"1", "wo"}}});
+        firstTransform, {{"hipad", {"0", "0o"}}, {"wipad", {"1", "1o"}}});
     auto embedTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
-    embedWrap.embed({"0", "ho"}, {convDims.fil[0], convDims.out[0]}, "hipad",
+    embedWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]}, "hipad",
                     {dilations[0], strides[0]});
-    embedWrap.embed({"1", "wo"}, {convDims.fil[1], convDims.out[1]}, "wipad",
+    embedWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]}, "wipad",
                     {dilations[1], strides[1]});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -651,7 +655,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "0", "1"};
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "ho", "wo"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "0o", "1o"};
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     // In the gemmG dimension, unlike with gemmN, we don't have the same
@@ -675,7 +679,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     firstWrap.passThrough("go");
     firstWrap.unmerge({"n0", "n1"}, "no",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
-    firstWrap.passThrough({"ko", "ho", "wo"});
+    firstWrap.passThrough({"ko", "0o", "1o"});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
@@ -684,7 +688,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op,
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmOutputTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "ho", "wo"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "0o", "1o"};
     matchUnderlyingOrder(nhwDims, gemmOutputTransform);
     gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
     gemmOutputTransform.merge("gemmK", 1, nhwDims);
@@ -836,9 +840,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough({"gi", "ni", "ci"});
     padInputTransform.pad({"hipad", "wipad"},
-                          {padInputTransform.startIndex("hi"),
-                           padInputTransform.startIndex("wi")},
-                          {"hi", "wi"},
+                          {padInputTransform.startIndex("0i"),
+                           padInputTransform.startIndex("1i")},
+                          {"0i", "1i"},
                           pads);
 
     TransformMapAttr padTransformAttr = padInputTransform.get();
@@ -893,13 +897,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   {
     // Embed ho to ydot and htilda and wo to xdot and ytilda
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        outputNames, {{"ho", {"0dot", "htilda"}}, {"wo", {"1dot", "wtilda"}}});
+        outputNames, {{"0o", {"0dot", "htilda"}}, {"1o", {"1dot", "wtilda"}}});
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    embedWrap.embed({"0dot", "htilda"}, {filDots[0], outTilda[0]}, "ho",
+    embedWrap.embed({"0dot", "htilda"}, {filDots[0], outTilda[0]}, "0o",
                     {(-dilations[0]) / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "wtilda"}, {filDots[1], outTilda[1]}, "wo",
+    embedWrap.embed({"1dot", "wtilda"}, {filDots[1], outTilda[1]}, "1o",
                     {(-dilations[1]) / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -1056,8 +1060,8 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     padInputTransform.passThrough("ci");
 
     llvm::SmallVector<uint32_t, 2> padOutDims = {
-        padInputTransform.startIndex("hi"), padInputTransform.startIndex("wi")};
-    padInputTransform.pad({"hipad", "wipad"}, padOutDims, {"hi", "wi"},
+        padInputTransform.startIndex("0i"), padInputTransform.startIndex("1i")};
+    padInputTransform.pad({"hipad", "wipad"}, padOutDims, {"0i", "1i"},
                           ctx.getPaddingVal());
 
     TransformMapAttr padInputTransformAttr = padInputTransform.get();
@@ -1074,15 +1078,15 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     //   coefficients dilations[1] and strides[1]
 
     llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
-        padInputTransform, {{"hipad", {"0", "ho"}}, {"wipad", {"1", "wo"}}});
+        padInputTransform, {{"hipad", {"0", "0o"}}, {"wipad", {"1", "1o"}}});
     BottomUpTMBuilder embedInputTransform =
         BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
     BottomUpTMTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
-    embedInputWrap.embed({"0", "ho"}, {convDims.fil[0], convDims.out[0]}, "hipad",
+    embedInputWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]}, "hipad",
                          {dilations[0], strides[0]});
-    embedInputWrap.embed({"1", "wo"}, {convDims.fil[1], convDims.out[1]}, "wipad",
+    embedInputWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]}, "wipad",
                          {dilations[1], strides[1]});
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
@@ -1106,7 +1110,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "0", "1"};
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"ni", "ho", "wo"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"ni", "0o", "1o"};
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;

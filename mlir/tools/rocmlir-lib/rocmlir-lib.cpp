@@ -98,7 +98,9 @@ LogicalResult RockEnabled(const mlir::rock::ConvGenerator::Config &conf) {
 
   const static std::set<std::tuple<std::string, std::string, std::string>>
       supportedLayouts = {{"ngchw", "gkcyx", "ngkhw"},
-                          {"nhwgc", "gkyxc", "nhwgk"}};
+                          {"nhwgc", "gkyxc", "nhwgk"},
+                          {"ngc01", "gkc01", "ngk01"},
+                          {"n01gc", "gk01c", "n01gk"}};
 
   bool layoutSupported =
       supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
@@ -121,15 +123,18 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   mlir::rock::ConvGenerator convGenerator;
   if (failed(convGenerator.parseConvConfig(builder, arguments))) {
+    llvm::errs() << "lib fail 1\n";
     return nullptr;
   }
 
   if (failed(convGenerator.isApplicable())) {
+    llvm::errs() << "lib fail 2\n";
     return nullptr;
   }
 
   const auto &config = convGenerator.getConfig();
   if (failed(RockEnabled(config))) {
+    llvm::errs() << "lib fail 3\n";
     return nullptr;
   }
 
@@ -138,14 +143,17 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   handle->features = config.chipFeatures;
 
   if (failed(convGenerator.getKernelCount(builder, handle->kernelCount))) {
+    llvm::errs() << "lib fail 4\n";
     return nullptr;
   }
 
   if (failed(convGenerator.getWorkspaceSize(module, handle->workspace))) {
+    llvm::errs() << "lib fail 5\n";
     return nullptr;
   }
 
   if (failed(convGenerator.genConvModule(module, config.kernelId))) {
+    llvm::errs() << "lib fail 6\n";
     return nullptr;
   }
   return handle;

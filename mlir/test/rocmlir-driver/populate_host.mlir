@@ -54,20 +54,20 @@
 // CHECK-NEXT: vector.extractelement
 // CHECK-NEXT: memref.store %{{.*}}, %[[flatOutput]][%[[io]]] : memref<[[NGKHOWO]]x[[OTYPE]]>
 // CHECK-NEXT: }
-// CHECK-NEXT: call @rock_conv_gkcyx_ngchw_ngkhw_0_gpu({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>) -> ()
+// CHECK-NEXT: call @rock_conv_gkc01_ngc01_ngk01_0_gpu({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>) -> ()
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>
 // CHECK-NEXT: return
 
-// CHECK: func.func @rock_conv_gkcyx_ngchw_ngkhw_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>)
+// CHECK: func.func @rock_conv_gkc01_ngc01_ngk01_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>)
 // CHECK-NEXT: gpu.alloc  () : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>,  memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.alloc  () : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>,  memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
 // CHECK-NEXT: gpu.alloc  () : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>,  memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>
-// CHECK-NEXT: call @rock_conv_gkcyx_ngchw_ngkhw_0(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>) -> ()
+// CHECK-NEXT: call @rock_conv_gkc01_ngc01_ngk01_0(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[OTYPE]]>) -> ()
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>,  memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.dealloc  %{{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>,  memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>

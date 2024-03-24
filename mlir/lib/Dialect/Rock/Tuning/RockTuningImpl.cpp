@@ -677,18 +677,18 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     // dimensions need to be mapped 1 to 1.
     fLayout[fLayoutMap["k"]] = 'N';
     fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["y"]] = 'H';
-    fLayout[fLayoutMap["x"]] = 'W';
+    fLayout[fLayoutMap["0"]] = '0';
+    fLayout[fLayoutMap["1"]] = '1';
     fLayout[fLayoutMap["g"]] = 'G';
     iLayout[iLayoutMap["ni"]] = 'N';
     iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["hi"]] = 'H';
-    iLayout[iLayoutMap["wi"]] = 'W';
+    iLayout[iLayoutMap["0i"]] = '0';
+    iLayout[iLayoutMap["1i"]] = '1';
     iLayout[iLayoutMap["gi"]] = 'G';
     oLayout[oLayoutMap["no"]] = 'N';
     oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["ho"]] = 'H';
-    oLayout[oLayoutMap["wo"]] = 'W';
+    oLayout[oLayoutMap["0o"]] = '0';
+    oLayout[oLayoutMap["1o"]] = '1';
     oLayout[oLayoutMap["go"]] = 'G';
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
@@ -746,15 +746,15 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     // C
     problemOS << "-c " << inShape[iLayoutMap["ci"]] << sep;
     // H
-    problemOS << "-H " << inShape[iLayoutMap["hi"]] << sep;
+    problemOS << "-H " << inShape[iLayoutMap["0i"]] << sep;
     // W
-    problemOS << "-W " << inShape[iLayoutMap["wi"]] << sep;
+    problemOS << "-W " << inShape[iLayoutMap["1i"]] << sep;
     // K
     problemOS << "-k " << filShape[fLayoutMap["k"]] << sep;
     // Y
-    problemOS << "-y " << filShape[fLayoutMap["y"]] << sep;
+    problemOS << "-y " << filShape[fLayoutMap["0"]] << sep;
     // X
-    problemOS << "-x " << filShape[fLayoutMap["x"]] << sep;
+    problemOS << "-x " << filShape[fLayoutMap["1"]] << sep;
 
     auto paddingVal = extractFromIntegerArrayAttr<int64_t>(convIF.getPadding());
     auto strideVal = extractFromIntegerArrayAttr<int64_t>(convIF.getStrides());

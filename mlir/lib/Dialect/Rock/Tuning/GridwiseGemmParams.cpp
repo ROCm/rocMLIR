@@ -371,7 +371,7 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
     validParams = params;
     break;
   }
-  LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "perf config: " << genDebugForParams(validParams) << "\n");
   return res;
 }
 
