@@ -422,7 +422,11 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
 
     if (filterAttr.getValue() == "y") {
       y = filterShape[i];
+    } else if (filterAttr.getValue() == "0") {
+      y = filterShape[i];
     } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "1") {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
@@ -436,6 +440,10 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       hi = inputShape[i];
     } else if (inputAttr.getValue() == "wi") {
       wi = inputShape[i];
+    } else if (inputAttr.getValue() == "0i") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "1i") {
+      wi = inputShape[i];
     } else if (inputAttr.getValue() == "ni") {
       n = inputShape[i];
     }
@@ -443,6 +451,10 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
     if (outputAttr.getValue() == "ho") {
       ho = outputShape[i];
     } else if (outputAttr.getValue() == "wo") {
+      wo = outputShape[i];
+    } else if (outputAttr.getValue() == "0o") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "1o") {
       wo = outputShape[i];
     }
   }
@@ -556,8 +568,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
-  if (isDisjointed("filter_layout", "y", "x") ||
-      isDisjointed("input_layout", "hi", "wi"))
+  if ((isDisjointed("filter_layout", "y", "x") && isDisjointed("filter_layout", "0", "1")) ||
+      (isDisjointed("input_layout", "hi", "wi") && isDisjointed("input_layout", "0i", "1i")))
     return op->emitError("Disjointed yx or hw!");
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
