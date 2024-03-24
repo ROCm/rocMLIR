@@ -66,6 +66,9 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 
   int64_t gemmKBlock = 1;
 
+  assert(gemmM > 0 && gemmN > 0 && gemmK > 0);
+  assert(MPerBlock > 0 && NPerBlock > 0 && KPerBlock > 0 && KPack > 0 && batchSize > 0);
+
   if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
       (gemmK % (KPerBlock * KPack) != 0))
     return failure();

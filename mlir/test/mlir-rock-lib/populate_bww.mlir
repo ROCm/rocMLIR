@@ -10,7 +10,7 @@
 // KERNELCOUNT1: Kernel count=1
 // BIN1: ELF
 // TUNING1: globalSize{{.*}}localSize{{.*}}
-// DRIVER1: rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER1: rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 2 GPU kernels.
@@ -28,7 +28,7 @@
 // TUNING2_0: globalSize=2048, localSize=64
 // TUNING2_1: globalSize{{.*}}localSize{{.*}}
 // DRIVER2: rock.init_kernel %arg0 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
-// DRIVER2: rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER2: rock.conv_bwd_weight(%arg0, %arg1, %arg2) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 3 GPU kernels.
@@ -49,5 +49,5 @@
 // TUNING3_1: globalSize{{.*}}localSize{{.*}}
 // TUNING3_2: globalSize=2048, localSize=64
 // DRIVER3: rock.init_kernel %arg3 features =  mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32>
-// DRIVER3: rock.conv_bwd_weight(%arg0, %arg1, %arg2, %arg3) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf16>, memref<64x1x1024x14x14xf16>, memref<64x1x1024x14x14xf16>, memref<1x1024x1024x1x1xf32>
+// DRIVER3: rock.conv_bwd_weight(%arg0, %arg1, %arg2, %arg3) features = mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], numCU = 120 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf16>, memref<64x1x1024x14x14xf16>, memref<64x1x1024x14x14xf16>, memref<1x1024x1024x1x1xf32>
 // DRIVER3: rock.converting_copy_kernel %arg3 to %arg0 features = mfma|dot|atomic_add : memref<1x1024x1024x1x1xf32> to memref<1x1024x1024x1x1xf16>

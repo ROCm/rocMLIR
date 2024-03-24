@@ -186,9 +186,9 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   // Note: hasDimensions() prints error messages
-  if (failed(hasDimensions(inDim, "ngchw", "input")) ||
-      failed(hasDimensions(filDim, "gkcyx", "filter")) ||
-      failed(hasDimensions(outDim, "ngkhw", "output"))) {
+  if (failed(hasDimensions(inDim, "ngc01", "input")) ||
+      failed(hasDimensions(filDim, "gkc01", "filter")) ||
+      failed(hasDimensions(outDim, "ngk01", "output"))) {
     return failure();
   }
 
@@ -215,37 +215,37 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   }
 
   int64_t expectedOutHeight = outputDim(
-      inDim["h"], filDim["y"], config.paddingLeftDims[DIM::HEIGHT],
+      inDim["0"], filDim["0"], config.paddingLeftDims[DIM::HEIGHT],
       config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
       config.dilationDims[DIM::HEIGHT]);
   int64_t expectedOutWidth =
-      outputDim(inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
+      outputDim(inDim["1"], filDim["1"], config.paddingLeftDims[DIM::WIDTH],
                 config.paddingRightDims[DIM::WIDTH],
                 config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
-  if (outDim["h"] != expectedOutHeight) {
+  if (outDim["0"] != expectedOutHeight) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Output height " << outDim["h"] << " doesn't match height "
+               << "Output height " << outDim["0"] << " doesn't match height "
                << expectedOutHeight << " computed from other parameters\n");
     return failure();
   }
-  if (outDim["w"] != expectedOutWidth) {
+  if (outDim["1"] != expectedOutWidth) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Output width " << outDim["w"] << " doesn't match width "
+               << "Output width " << outDim["1"] << " doesn't match width "
                << expectedOutWidth << " computed from other parameters\n");
     return failure();
   }
 
-  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT] +
+  if (inDim["0"] + config.paddingLeftDims[DIM::HEIGHT] +
           config.paddingRightDims[DIM::HEIGHT] <
-      filDim["y"]) {
+      filDim["0"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
-  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] +
+  if (inDim["1"] + config.paddingLeftDims[DIM::WIDTH] +
           config.paddingRightDims[DIM::WIDTH] <
-      filDim["x"]) {
+      filDim["1"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is narrower than the filter\n");
     return failure();
@@ -654,30 +654,38 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                              int64_t filterHeight, int64_t filterWidth) {
   config.filterDims[DIM::HEIGHT] = filterHeight;
   config.filterDims[DIM::WIDTH] = filterWidth;
-  static const std::string filterKeys = "kgcyx";
-  int64_t filterVals[] = {outputChannel / groupSize, groupSize,
-                          inputChannel / groupSize, filterHeight, filterWidth};
 
-  static const std::string inputKeys = "ngchw";
-  int64_t inputVals[] = {batchSize, groupSize, inputChannel / groupSize,
-                         inputHeight, inputWidth};
+  llvm::StringMap<int64_t> filterMap = {{"k", outputChannel / groupSize},
+                                        {"g", groupSize},
+                                        {"c", inputChannel / groupSize},
+                                        {"y", filterHeight},
+                                        {"x", filterWidth},
+                                        {"0", filterHeight},
+                                        {"1", filterWidth}};
+  llvm::StringMap<int64_t> inputMap = {{"n", batchSize},
+                                       {"g", groupSize},
+                                       {"c", inputChannel / groupSize},
+                                       {"h", inputHeight},
+                                       {"w", inputWidth},
+                                       {"0", inputHeight},
+                                       {"1", inputWidth}};
+  llvm::StringMap<int64_t> outputMap = {{"n", batchSize},
+                                        {"g", groupSize},
+                                        {"k", outputChannel / groupSize},
+                                        {"h", outputHeight},
+                                        {"w", outputWidth},
+                                        {"0", outputHeight},
+                                        {"1", outputWidth}};
 
-  static const std::string outputKeys = "ngkhw";
-  int64_t outputVals[] = {batchSize, groupSize, outputChannel / groupSize,
-                          outputHeight, outputWidth};
-
-  auto convertLayout = [](char &key, const std::string &kmap, int64_t vals[],
-                          auto &dims) {
-    auto keyl = std::tolower(key);
-    auto ii = kmap.find(keyl);
-    if (ii == std::string::npos) {
-      static std::string nchw = "ngchw";
-      ii = nchw.find(keyl);
-      if (ii == std::string::npos)
+  auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap, auto &dims) {
+    auto keyl = std::string{static_cast<char>(std::tolower(key))};
+    if (!kmap.contains(keyl)) {
+      keyl = "k";
+      if (!kmap.contains(keyl))
         return false;
     }
-    dims.push_back(vals[ii]);
-    key = kmap[ii];
+    dims.push_back(kmap[keyl]);
+    key = keyl[0];
     return true;
   };
 
@@ -688,11 +696,11 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   }
   // Determine dimensions.
   for (size_t i = 0; i < layoutLen; ++i) {
-    if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
+    if (!convertLayout(config.filterLayout[i], filterMap,
                        config.filterDimension) ||
-        !convertLayout(config.inputLayout[i], inputKeys, inputVals,
+        !convertLayout(config.inputLayout[i], inputMap,
                        config.inputDimension) ||
-        !convertLayout(config.outputLayout[i], outputKeys, outputVals,
+        !convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
       return failure();
     }
@@ -733,8 +741,8 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
-  return ConvolutionDims({filDim["y"], filDim["x"]}, {outDim["h"], outDim["w"]},
-                         {inDim["h"], inDim["w"]}, filDim["k"], filDim["c"],
+  return ConvolutionDims({filDim["0"], filDim["1"]}, {outDim["0"], outDim["1"]},
+                         {inDim["0"], inDim["1"]}, filDim["k"], filDim["c"],
                          inDim["n"], inDim["g"]);
 }
 
