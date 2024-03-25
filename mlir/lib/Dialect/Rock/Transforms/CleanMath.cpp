@@ -45,21 +45,6 @@ struct RockCleanMathPass
     : public rock::impl::RockCleanMathPassBase<RockCleanMathPass> {
   void runOnOperation() override;
 };
-
-/// This is a rewrite for a specific and irritating pattern that shows up in our
-/// code a bunch on account of the whole index diff thing.
-/// Specifically:
-///    %prev = arith.remui %blah, %c1
-///    %cur = arith.addi %prev, %c(M < N, usually 1)
-///    %curModulus = arith.remui %cur, %cN
-///    %checkWrap = arith.subi %curWrapped, %prev
-///    %val = arith.addi %checkWrap, %cN
-///
-/// If %prev + 1 is still less than N, this is (%prev + 1) mod N - %prev + N
-struct SimplifyCheckingSmallConstantOverflow
-    : public OpRewritePattern<arith::RemUIOp> {
-  using OpRewritePattern<arith::RemUIOp>::OpRewritePattern;
-};
 } // end namespace
 
 /// This function hasn't come from anywhere and is relying on the overall
