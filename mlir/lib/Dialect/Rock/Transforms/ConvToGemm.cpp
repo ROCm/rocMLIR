@@ -500,11 +500,15 @@ struct MatchLayoutsToInput final
     const llvm::StringMap<StringAttr> inputToFilter = {
         {"ci", b.getStringAttr("c")},
         {"0i", b.getStringAttr("0")},
-        {"1i", b.getStringAttr("1")}};
+        {"1i", b.getStringAttr("1")},
+        {"hi", b.getStringAttr("y")},
+        {"wi", b.getStringAttr("x")}};
     const llvm::StringMap<StringAttr> inputToOutput = {
         {"ni", b.getStringAttr("no")},
         {"0i", b.getStringAttr("0o")},
-        {"1i", b.getStringAttr("1o")}};
+        {"1i", b.getStringAttr("1o")},
+        {"hi", b.getStringAttr("ho")},
+        {"wi", b.getStringAttr("wo")}};
 
     LogicalResult didRelayoutFilter = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", filter, "filter_layout", inputToFilter);
