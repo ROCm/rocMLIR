@@ -184,12 +184,13 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   int64_t nResultVectors = imms.size();
   Value nResultVectorsConst = b.create<ConstantIndexOp>(loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
+  auto regCOffsetEndVal = regCOffset.back();
+  regCOffsetEndVal = b.create<MulIOp>(loc, regCOffsetEndVal, nResultVectorsConst);
   auto outputOffset = llvm::to_vector(regCOffset);
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
     offset = b.create<AddIOp>(
-        loc, offset,
-        b.create<MulIOp>(loc, outputOffset.back(), nResultVectorsConst));
+        loc, offset, regCOffsetEndVal);
     outputOffset.back() = offset;
     auto vectorC =
         b.create<memref::LoadOp>(loc, vectorType, bufferC, outputOffset);
@@ -272,9 +273,9 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
 
   // Note n has the 4x4 => 4x64 behavior that necessitated
   // inputSpansPerMfmaIn
-  int64_t n = mfmaAttr.inputSpanLen;
   int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
   int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
+  int64_t n = mfmaAttr.inputSpanLen;
   int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
 
   int64_t retNumElements = accVectorType.getNumElements();
@@ -1478,7 +1479,7 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     XdlopsGemmDerivedParamsAttr mfmaParams =
         tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
-                                                    mfmaParams.getMnPerXdl());
+                                                    mfmaParams.getMnPerXdl(), mfmaParams.getMPerWave(), mfmaParams.getNPerWave());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

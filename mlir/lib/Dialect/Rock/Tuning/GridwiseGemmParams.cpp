@@ -640,11 +640,15 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Reject invalid KPACK values.
   int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
+  int64_t mPerWave = param.getMPerWave();
+  int64_t nPerWave = param.getNPerWave();
   if (auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()) {
     mnPerXdl = derivedParam.getMnPerXdl();
+    mPerWave = derivedParam.getMPerWave();
+    nPerWave = derivedParam.getNPerWave();
   }
   auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl, mPerWave, nPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -656,6 +660,21 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
         << "Mfma instruction group selection is not compatible with k.\n");
     return failure();
   }
+
+  int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
+  int64_t nRepeats = mfmaGroup.getMRepeats(mPerWave);
+  int64_t mPerRepeat = mPerWave / mRepeats;
+  int64_t nPerRepeat = nPerWave / nRepeats;
+  auto mfmaAttr = mfmaGroup.getInsnAttr();
+
+  int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (mfmaAttr.mfmaNonKDim * mfmaAttr.inputSpanLen);
+  if(blocksPerRepeat < mfmaAttr.blocksMfma){
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "blocks per repeat should be larger than blocks in the mfma\n");
+    return failure();
+  }
+  
 
   return success();
 }
@@ -679,9 +698,11 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   std::copy_if(
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
-        int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
+        OpBuilder builder(dataTypeA.getContext());
+        XdlopsGemmParamsAttr xdlopParam = getGemmParamsAttr(builder, param).cast<XdlopsGemmParamsAttr>();
+        auto xdlopDerivedParam = XdlopsGemmDerivedParamsAttr::get(xdlopParam);
         auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, xdlopDerivedParam.getMnPerXdl(), xdlopDerivedParam.getMPerWave(), xdlopDerivedParam.getNPerWave());
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }

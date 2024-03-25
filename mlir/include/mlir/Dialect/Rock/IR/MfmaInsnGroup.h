@@ -80,6 +80,7 @@ constexpr typename std::underlying_type<T>::type cast_as_underlying(T t) {
 
 struct MfmaInsnGroupSelectKey {
   MfmaTypeId type;
+  int64_t mnPerXdl;
   int64_t mPerWave;
   int64_t nPerWave;
 };
@@ -87,11 +88,11 @@ struct MfmaInsnGroupSelectKey {
 struct MfmaInsnGroupSelectKeyInfo
     : public llvm::DenseMapInfo<MfmaInsnGroupSelectKey> {
   static inline MfmaInsnGroupSelectKey getEmptyKey() {
-    return {MfmaTypeId::Fp32TyId, 0, 0};
+    return {MfmaTypeId::Fp32TyId, 0, 0, 0};
   }
 
   static inline MfmaInsnGroupSelectKey getTombstoneKey() {
-    return {MfmaTypeId::Fp32TyId, -1, -1};
+    return {MfmaTypeId::Fp32TyId, -1, -1, -1};
   }
 
   static inline bool isEqual(const MfmaInsnGroupSelectKey &lhs,
@@ -136,7 +137,7 @@ private:
 
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
-                                         StringRef arch, int64_t mnPerXdl);
+                                         StringRef arch, int64_t mnPerXdl, int64_t mPerWave, int64_t nPerWave);
   MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
