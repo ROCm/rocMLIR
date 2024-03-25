@@ -1572,7 +1572,7 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
                                       ArrayRef<StringRef> afterDims,
                                       SmallVector<Attribute> &transformAttrs) {
   if (condition) {
-    // d = (d+k_outer)
+    // d = (d+stride*k_outer)
     TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);
     if (!beforeDims.empty())
       rotateD0.passThrough(beforeDims);
@@ -1582,7 +1582,7 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
     TransformMapAttr rotateD0Attr = rotateD0.get();
     transformAttrs.push_back(rotateD0Attr);
 
-    // d = (d+k_outer) % d
+    // d = (d+stride*k_outer) % d
     TopDownTMBuilder rotateD1 = TopDownTMBuilder::below(rotateD0, rotateD0Attr);
     if (!beforeDims.empty())
       rotateD1.passThrough(beforeDims);
