@@ -33,14 +33,12 @@ int main(int argc, char **argv) {
   if (option.getValue() == "tuningparams") {
     status = miirLowerTuningParams(handle);
     if (status != MIIR_SUCCESS) {
-      llvm::errs() << "lib fail 10\n";
       return status;
     }
 
     size_t globalSize, localSize;
     status = miirGetExecutionDims(handle, &globalSize, &localSize);
     if (status != MIIR_SUCCESS) {
-      llvm::errs() << "lib fail 11\n";
       return status;
     }
     std::cout << "ExecutionDims - globalSize=" << globalSize
@@ -53,7 +51,6 @@ int main(int argc, char **argv) {
     int count = miirGetKernelCount(handle);
 
     if (count < 1) {
-      llvm::errs() << "lib fail 12\n";
       return MIIR_INVALID_PARAM;
     }
 
@@ -64,7 +61,6 @@ int main(int argc, char **argv) {
 
       status = miirLowerBin(newHandle);
       if (status != MIIR_SUCCESS) {
-        llvm::errs() << "lib fail 13\n";
         return status;
       }
 
@@ -76,7 +72,6 @@ int main(int argc, char **argv) {
       std::vector<char> buffer(size);
       status = miirBufferGet(newHandle, buffer.data(), &size);
       if (status != MIIR_SUCCESS) {
-        llvm::errs() << "lib fail 14\n";
         return status;
       }
       std::for_each(buffer.begin(), buffer.end(),
@@ -86,7 +81,6 @@ int main(int argc, char **argv) {
       size_t globalSize, localSize;
       status = miirGetExecutionDims(newHandle, &globalSize, &localSize);
       if (status != MIIR_SUCCESS) {
-        llvm::errs() << "lib fail 15\n";
         return status;
       }
       std::cout << "ExecutionDims - globalSize=" << globalSize

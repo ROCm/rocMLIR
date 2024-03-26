@@ -1790,52 +1790,40 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
         layout = genConfig.inputLayout;
       else
         layout = genConfig.outputLayout;
-
       auto direction = genConfig.operation.value();
-      llvm::errs() << "loopIVs: " << loopIVs << ", layout: " << layout << ", direction: " << direction << ", tensor: " << tensor << "\n";
-
       for (auto c : layout) {
-        llvm::errs() << "c is " << c;
         if ((direction == rock::ConvOpType::Fwd ||
              direction == rock::ConvOpType::BwdWeight) &&
             tensor == INPUT) {
           if (c == '0') {               // +++pf: may need adjustment to h/w.
-            llvm::errs() << ", push " << 6 << "\n";
             result.push_back(heightIdx);
             continue;
           } else if (c == '1') {
-            llvm::errs() << ", push " << 7 << "\n";
             result.push_back(widthIdx);
             continue;
           }
         } else if (direction == rock::ConvOpType::Fwd && tensor == FILTER) {
           if (c == '0') {
-            llvm::errs() << ", push " << loopIVs.find('y') << "\n";
             result.push_back(ivs[loopIVs.find('y')]);
             continue;
           } else if (c == '1') {
-            llvm::errs() << ", push " << loopIVs.find('x') << "\n";
             result.push_back(ivs[loopIVs.find('x')]);
             continue;
           }
         } else if (direction == rock::ConvOpType::BwdData) {
           if (tensor == OUTPUT) {
             if (c == '0') {
-              llvm::errs() << ", push " << 6 << "\n";
               result.push_back(heightIdx);
               continue;
             } else if (c == '1') {
-              llvm::errs() << ", push " << 7 << "\n";
               result.push_back(widthIdx);
               continue;
             }
           } else if (tensor == FILTER) {
             if (c == '0') {
-              llvm::errs() << ", push " << loopIVs.find('y') << "\n";
               result.push_back(ivs[loopIVs.find('y')]);
               continue;
             } else if (c == '1') {
-              llvm::errs() << ", push " << loopIVs.find('x') << "\n";
               result.push_back(ivs[loopIVs.find('x')]);
               continue;
             }
@@ -1845,16 +1833,13 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
           // input/output while both are present in the IVs, so we have 'hw'
           // in the loopIVs string as well as the layout's '01'.
           if (c == '0') {
-            llvm::errs() << ", push " << loopIVs.find('h') << "\n";
             result.push_back(ivs[loopIVs.find('h')]);
             continue;
           } else if (c == '1') {
-            llvm::errs() << ", push " << loopIVs.find('w') << "\n";
             result.push_back(ivs[loopIVs.find('w')]);
             continue;
           }
         }
-        llvm::errs() << ", push " << loopIVs.find(c) << " (default)\n";
         result.push_back(ivs[loopIVs.find(c)]);
       }
       return;
