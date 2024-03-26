@@ -150,6 +150,19 @@ public:
       attrValueStream << value.getInt();
       llvmFunc->addFnAttr("amdgpu-waves-per-eu", llvmAttrValue);
     }
+    if (dialect->getUnsafeFpAtomicsAttrHelper().getName() == attribute.getName()) {
+      auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
+      if (!func)
+        return failure();
+      auto value = attribute.getValue().dyn_cast<BoolAttr>();
+
+      llvm::Function *llvmFunc =
+          moduleTranslation.lookupFunction(func.getName());
+      llvm::SmallString<8> llvmAttrValue;
+      llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
+      attrValueStream << value.getValue();
+      llvmFunc->addFnAttr("amdgpu-unsafe-fp-atomics", llvmAttrValue);
+    }
 
     // Set reqd_work_group_size metadata
     if (dialect->getReqdWorkGroupSizeAttrHelper().getName() ==
