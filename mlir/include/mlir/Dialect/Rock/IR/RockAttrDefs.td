@@ -263,7 +263,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
-    "int64_t":$mnPerXdl,
+    "int64_t":$mnkPerXdl,
     "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
@@ -274,7 +274,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
-        + Twine(getMnPerXdl()) + ","
+        + Twine(getMnkPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
@@ -301,6 +301,7 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
     "int64_t":$mnPerXdl,
+    "int64_t":$kPerXdl,
     "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
@@ -325,7 +326,10 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
       int64_t mPerWave = params.getMPerWave();
       int64_t mPerBlock = params.getMPerBlock();
       int64_t nPerBlock = params.getNPerBlock();
-      int64_t mnPerXdl = params.getMnPerXdl();
+      int64_t mnkPerXdl = params.getMnkPerXdl();
+      int64_t mnPerXdl = mnkPerXdl / 100;
+      int64_t kPerXdl = mnkPerXdl % 100;
+
       int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
       int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
 
@@ -340,6 +344,7 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
         mPerWave,
         nPerWave,
         mnPerXdl,
+        kPerXdl,
         params.getSplitKFactor(),
         params.getForceUnroll()
       );

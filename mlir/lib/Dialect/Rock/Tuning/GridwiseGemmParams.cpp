@@ -356,6 +356,7 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
       return paramsProbablyValid(b, info, validParams);
     }
     // Signal the client if perfCofnig is passed in but is invalid
+    LLVM_DEBUG(llvm::dbgs() << "Invalid perf config:" << perfConfig << "\n");
     return failure();
   }
 
@@ -581,6 +582,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
         (param.getNPerBlock() % minDPerWave == 0) &&
         ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor ==
          0))) {
+    LLVM_DEBUG(llvm::dbgs() << "invalid tile size\n");
     return failure();
   }
 
@@ -601,6 +603,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   if (blockSize < waveSize) {
+    LLVM_DEBUG(llvm::dbgs() << "blockSize less than waveSize\n");
     return failure();
   }
 
@@ -611,10 +614,12 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   if ((param.getMPerBlock() % param.getMPerWave()) != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "MPerBlock is not divisible by MPerWave\n");
     return failure();
   }
 
   if ((param.getNPerBlock() % param.getNPerWave()) != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "NPerBlock is not divisible by NPerWave\n");
     return failure();
   }
 
@@ -634,16 +639,14 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   // Reject invalid KPACK values.
-  int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
-  int64_t mPerWave = param.getMPerWave();
-  int64_t nPerWave = param.getNPerWave();
-  if (auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()) {
-    mnPerXdl = derivedParam.getMnPerXdl();
-    mPerWave = derivedParam.getMPerWave();
-    nPerWave = derivedParam.getNPerWave();
-  }
+  auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>();
+  int64_t mnPerXdl = derivedParam.getMnPerXdl();
+  int64_t mPerWave = derivedParam.getMPerWave();
+  int64_t nPerWave = derivedParam.getNPerWave();
+  int64_t kPerXdl = derivedParam.getKPerXdl();
+
   auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl, mPerWave, nPerWave);
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl, kPerXdl, mPerWave, nPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -662,8 +665,16 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   int64_t nPerRepeat = nPerWave / nRepeats;
   auto mfmaAttr = mfmaGroup.getInsnAttr();
 
-  int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (mfmaAttr.mfmaNonKDim * mfmaAttr.inputSpanLen);
+  int64_t blocksPerRepeat = math_util::integer_divide_ceil(mPerRepeat * nPerRepeat, mfmaAttr.mfmaNonKDim * mfmaAttr.inputSpanLen);
   if(blocksPerRepeat < mfmaAttr.blocksMfma){
+    LLVM_DEBUG(llvm::dbgs() << "mPerWave=" << mPerWave <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "nPerWave=" << nPerWave <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "mPerRepeat=" << mPerRepeat <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "nPerRepeat=" << nPerRepeat <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.mfmaNonKDim=" << mfmaAttr.mfmaNonKDim <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.inputSpanLen=" << mfmaAttr.inputSpanLen <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "blocksPerRepeat=" << blocksPerRepeat <<  "\n");
+    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.blocksMfma=" << mfmaAttr.blocksMfma <<  "\n");
     LLVM_DEBUG(
         llvm::dbgs()
         << "blocks per repeat should be larger than blocks in the mfma\n");
@@ -697,7 +708,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
         XdlopsGemmParamsAttr xdlopParam = getGemmParamsAttr(builder, param).cast<XdlopsGemmParamsAttr>();
         auto xdlopDerivedParam = XdlopsGemmDerivedParamsAttr::get(xdlopParam);
         auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, xdlopDerivedParam.getMnPerXdl(), xdlopDerivedParam.getMPerWave(), xdlopDerivedParam.getNPerWave());
+            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, xdlopDerivedParam.getMnPerXdl(), xdlopDerivedParam.getKPerXdl(), xdlopDerivedParam.getMPerWave(), xdlopDerivedParam.getNPerWave());
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
@@ -726,7 +737,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
   return builder.getAttr<XdlopsGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
-      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
+      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnkPerXdl,
       validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
 }
 
@@ -915,7 +926,7 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
       [&](const InitParamsAccel &param) {
         auto maybeWmmaInsn =
             WmmaInsn::select(dataTypeA, dataTypeB, waveSize, param.gemmMPerWave,
-                             param.gemmNPerWaveOrMnPerXdl);
+                             param.gemmNPerWaveOrMnkPerXdl);
         if (failed(maybeWmmaInsn)) {
           return false;
         }
@@ -943,6 +954,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
-      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
+      validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnkPerXdl,
       validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
 }

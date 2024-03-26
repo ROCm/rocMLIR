@@ -29,8 +29,13 @@ namespace rock {
 void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
-      {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
+      {32, 64, 128, 256}, // gemmMPerBlock
+      {32, 64, 128, 256}, // gemmNPerBlock
+      {8, 16, 32, 64}, // gemmKPerBlock
+      {32, 64, 128, 256}, // gemmMPerWave
+      {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 1632, 3201, 3202, 3204, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl    
+      {4, 8, 16}
+  };
   constexpr uint64_t splitKFactor = 1;
   constexpr uint32_t forceUnroll = 1;
   OpBuilder b(attnOp.getContext());
@@ -38,13 +43,15 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
     for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
       for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
         for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
-          for (uint32_t gemmMnPerXdl : validRangeAccelGemmParams[4]) {
+          for (uint32_t gemmMnkPerXdl : validRangeAccelGemmParams[4]) {
+            uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
+            uint32_t gemmkPerXdl = gemmMnkPerXdl % 100;
             for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
               if (gemmMPerBlock >= gemmMPerWave &&
                   gemmNPerBlock >= gemmMnPerXdl) {
                 InitParamsAccel gemmParams(
                     gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                    gemmMnPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
+                    gemmMnkPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
                 GemmFeatures features = attnOp.getFeatures();
                 auto populateParamsAccelPtr =
                     PopulateParamsAccel::select(features);
@@ -153,23 +160,23 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  // M/block N/block K/block M/wave gemmMnkPerXdl kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
-      {4, 16, 32},
+      {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 3201, 3202, 3204, 3208}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl   
       {1, 4, 8},
       {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  // M/block N/block K/block M/wave gemmMnkPerXdl kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
       validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
                                                 {16, 32, 64, 128, 256},
                                                 {4, 8, 16, 32},
                                                 {4, 8, 16, 32, 64, 128},
-                                                {4, 8, 16, 32, 64, 128},
+                                                {1616, 1632, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl
                                                 {1, 4, 8, 16},
                                                 {0, 1}};
 
@@ -198,7 +205,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
-            for (uint32_t gemmMnPerXdl : xdlopsParams[4]) {
+            for (uint32_t gemmMnkPerXdl : xdlopsParams[4]) {
+              uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
+              uint32_t gemmkPerXdl = gemmMnkPerXdl % 100;
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 auto optimalSplitKFactors = computeOptimalSplitKFactors(
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
@@ -207,7 +216,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   for (uint32_t forceUnroll : xdlopsParams[6]) {
                     InitParamsAccel gemmParams(gemmMPerBlock, gemmNPerBlock,
                                                gemmKPerBlock, gemmMPerWave,
-                                               gemmMnPerXdl, gemmKPack,
+                                               gemmMnkPerXdl, gemmKPack,
                                                splitKFactor, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {

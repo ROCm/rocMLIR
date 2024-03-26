@@ -136,11 +136,11 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
 struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
-                            int64_t nPerWaveOrMnPerXdl, int64_t kPack,
+                            int64_t nPerWaveOrMnkPerXdl, int64_t kPack,
                             int64_t splitKFactor, bool aThreadCopyMoreGemmK,
                             bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
+        gemmNPerWaveOrMnkPerXdl(nPerWaveOrMnkPerXdl), gemmKPack(kPack),
         splitKFactor(splitKFactor),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
@@ -152,7 +152,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
         gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
+        gemmNPerWaveOrMnkPerXdl(attr.getMnkPerXdl()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
@@ -161,7 +161,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
         gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
+        gemmNPerWaveOrMnkPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
@@ -169,7 +169,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   int64_t getKPack() { return gemmKPack; }
 
   int64_t gemmMPerWave;
-  int64_t gemmNPerWaveOrMnPerXdl;
+  int64_t gemmNPerWaveOrMnkPerXdl;
   int64_t gemmKPack;
   int64_t splitKFactor;
   bool gemmAThreadCopyMoreGemmK;
@@ -181,7 +181,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     f(self.gemmNPerBlock);
     f(self.gemmKPerBlock);
     f(self.gemmMPerWave);
-    f(self.gemmNPerWaveOrMnPerXdl);
+    f(self.gemmNPerWaveOrMnkPerXdl);
     f(self.gemmKPack);
     if (self.version != Version::V1) {
       f(self.splitKFactor);

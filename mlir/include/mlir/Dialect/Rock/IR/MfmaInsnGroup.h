@@ -81,6 +81,7 @@ constexpr typename std::underlying_type<T>::type cast_as_underlying(T t) {
 struct MfmaInsnGroupSelectKey {
   MfmaTypeId type;
   int64_t mnPerXdl;
+  int64_t kPerXdl;
   int64_t mPerWave;
   int64_t nPerWave;
 };
@@ -88,23 +89,23 @@ struct MfmaInsnGroupSelectKey {
 struct MfmaInsnGroupSelectKeyInfo
     : public llvm::DenseMapInfo<MfmaInsnGroupSelectKey> {
   static inline MfmaInsnGroupSelectKey getEmptyKey() {
-    return {MfmaTypeId::Fp32TyId, 0, 0, 0};
+    return {MfmaTypeId::Fp32TyId, 0, 0, 0, 0};
   }
 
   static inline MfmaInsnGroupSelectKey getTombstoneKey() {
-    return {MfmaTypeId::Fp32TyId, -1, -1, -1};
+    return {MfmaTypeId::Fp32TyId, -1, -1, -1, -1};
   }
 
   static inline bool isEqual(const MfmaInsnGroupSelectKey &lhs,
                              const MfmaInsnGroupSelectKey &rhs) {
     return lhs.type == rhs.type && lhs.mPerWave == rhs.mPerWave &&
-           lhs.nPerWave == rhs.nPerWave;
+           lhs.nPerWave == rhs.nPerWave && lhs.mnPerXdl == rhs.mnPerXdl && lhs.kPerXdl == rhs.kPerXdl;
   }
 
   static unsigned getHashValue(const MfmaInsnGroupSelectKey &key) {
     return llvm::detail::combineHashValue(
-        cast_as_underlying(key.type),
-        llvm::detail::combineHashValue(key.mPerWave, key.nPerWave));
+        cast_as_underlying(key.type), 
+        llvm::hash_combine(key.mPerWave, key.nPerWave, key.mnPerXdl, key.kPerXdl));
   }
 };
 
@@ -137,7 +138,7 @@ private:
 
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
-                                         StringRef arch, int64_t mnPerXdl, int64_t mPerWave, int64_t nPerWave);
+                                         StringRef arch, int64_t mnPerXdl, int64_t kPerXdl, int64_t mPerWave, int64_t nPerWave);
   MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
