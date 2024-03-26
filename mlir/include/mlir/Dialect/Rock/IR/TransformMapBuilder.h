@@ -171,6 +171,7 @@ public:
   // This is implemented as a `Broadcast{length}` operation. The input dimension
   // doesn't need to evenly divide the `length`.
   void takeRemainder(StringRef name, int64_t length);
+
 protected:
   void addTransform(TransformType type, ArrayRef<int64_t> params,
                     ArrayRef<StringRef> startNames,

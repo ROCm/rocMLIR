@@ -243,7 +243,6 @@ TEST_F(TMBuilderTest, LongBroadcast) {
   EXPECT_EQ(resUp.getMap().getAffineMap(),
             AffineMap::get(2, 0, {affD(0) % affC(2), affD(1)}, &context));
   EXPECT_EQ(resUp, resDown);
-
 }
 
 TEST_F(TMBuilderTest, GemmOut) {
