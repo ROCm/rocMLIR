@@ -219,26 +219,28 @@ auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
                     {ROCDL::mfma_f32_32x32x2f32::getOperationName()}},
                    {{MfmaTypeId::Fp32TyId, 16, 16, 16},
                     {ROCDL::mfma_f32_16x16x4f32::getOperationName()}},
-                   // f16
+                   // f16 - 32x32x8
                    {{MfmaTypeId::Fp16TyId, 32, 64, 64},
                     {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
                    {{MfmaTypeId::Fp16TyId, 32, 64, 32},
                     {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
-                   {{MfmaTypeId::Fp16TyId, 16, 64, 16},
-                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
-                   {{MfmaTypeId::Fp16TyId, 16, 16, 64},
-                    {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
+                   {{MfmaTypeId::Fp16TyId, 32, 32, 32},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
+                   {{MfmaTypeId::Fp16TyId, 32, 32, 64},
+                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
+                   // f16 - 4x4x4
                    {{MfmaTypeId::Fp16TyId, 4, 8, 64},
                     {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
                      {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 4, 4, 64},
                     {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
                      {{4, 0, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Fp16TyId, 32, 32, 32},
-                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
-                   {{MfmaTypeId::Fp16TyId, 32, 32, 64},
-                    {ROCDL::mfma_f32_32x32x8f16::getOperationName()}},
-
+                   // f16 - 16x16x16
+                  //  {{MfmaTypeId::Fp16TyId, 16, 64, 16},
+                  //   {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
+                  //  {{MfmaTypeId::Fp16TyId, 16, 16, 64},
+                  //   {ROCDL::mfma_f32_16x16x16f16::getOperationName()}},
+                   // f16 - 16x16x4
                    {{MfmaTypeId::Fp16TyId, 16, 64, 64},
                     {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{2, 0, MFMAPermB::none}, {2, 1, MFMAPermB::none}, {2, 2, MFMAPermB::none}, {2, 3, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 16, 32, 64},
@@ -250,7 +252,17 @@ auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
                    {{MfmaTypeId::Fp16TyId, 16, 16, 32},
                     {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{1, 0, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 16, 16, 16},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName()}}
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName()}},
+                   {{MfmaTypeId::Fp16TyId, 16, 64, 64},
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}, {0, 0, MFMAPermB::bcast_third_16}, {0, 0, MFMAPermB::bcast_fourth_16}}}},
+                   {{MfmaTypeId::Fp16TyId, 16, 64, 32},
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}}}},
+                   {{MfmaTypeId::Fp16TyId, 16, 64, 16},
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}}}},
+                   {{MfmaTypeId::Fp16TyId, 16, 32, 32},
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}}}},
+                   {{MfmaTypeId::Fp16TyId, 16, 32, 16},
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}}}},
                     
                     };
                     // {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}, {0, 0, MFMAPermB::bcast_third_16}, {0, 0, MFMAPermB::bcast_fourth_16}}}}};
