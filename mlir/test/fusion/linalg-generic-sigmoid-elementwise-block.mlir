@@ -34,6 +34,7 @@ module {
     %alloc_12 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
     %alloc_13 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
 
+    // CHECK: [[cst_alloc0:%.+]] = rock.alloc() : memref<16xf32
     // CHECK: [[arg0_alloc:%.+]] = rock.alloc() : memref<16xf32
     // CHECK-NEXT: [[arg0_group:%.+]] = rock.transform [[arg0]]
     // CHECK-SAME: memref<2x5xf32> to memref<1x2x5xf32>
@@ -50,7 +51,6 @@ module {
     // CHECK-NEXT: rock.threadwise_read_into
     // CHECK-SAME: [[arg1_padded]]
     // CHECK-SAME: [[arg1_alloc]]
-    // CHECK-NEXT: [[cst_alloc0:%.+]] = rock.alloc() : memref<16xf32
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: ins([[arg0_alloc]], [[arg1_alloc]]
     // CHECK-SAME: outs([[cst_alloc0]]
@@ -58,9 +58,9 @@ module {
     // Since the original allocation is read twice by the second generic, we
     // have two copies of said generic floating around, as is needed for general
     // correctness.
+    // CHECK: [[cst_alloc1:%.+]] = rock.alloc
     // CHECK: rock.threadwise_read_into
     // CHECK: rock.threadwise_read_into
-    // CHECK-NEXT: [[cst_alloc1:%.+]] = rock.alloc
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: outs([[cst_alloc1]]
     linalg.generic {indexing_maps = [#map20, #map20, #map20], iterator_types = ["parallel", "parallel"]} ins(%arg0, %arg1 : memref<2x5xf32>, memref<2x5xf32>) outs(%alloc_13 : memref<2x5xf32>) {
