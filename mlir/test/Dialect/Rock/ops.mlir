@@ -189,7 +189,8 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
       mPerBlock = 128,
       mPerThread = 4,
       nPerBlock = 128,
-      nPerThread = 4>
+      nPerThread = 4,
+      splitKFactor = 1>
   } : memref<2x128x256xf32> = memref<2x72x128xf32> * memref<2x72x256xf32>
   return
 }
@@ -203,13 +204,15 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     numCU = 64 : i32,
-    params = #rock.xdlops_gemm_params<
+    params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x1024x1024xf32>, memref<2x1024x2048xf32>, memref<2x1024x2048xf32>
   return

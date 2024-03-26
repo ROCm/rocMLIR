@@ -26,7 +26,7 @@ To build the static library that is used by MIGraphX
 ```sh
 mkdir build
 cd build
-cmake -G Ninja .. -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_BUILD_TYPE=Release -
+cmake -G Ninja .. -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
 ninja
 ```
 

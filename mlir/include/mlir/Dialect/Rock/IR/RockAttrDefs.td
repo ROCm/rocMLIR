@@ -230,17 +230,19 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     "int64_t":$kPerThread,
     "int64_t":$mPerThread,
     "int64_t":$nPerThread,
-    "int64_t":$kpack
+    "int64_t":$kpack,
+    "int64_t":$splitKFactor
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      (Twine(getBlockSize()) + ","
+      ("v2:" + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread())).toVector(perfStr);
+      + Twine(getNPerThread()) + ","
+      + Twine(getSplitKFactor())).toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
   }];
@@ -250,8 +252,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
-
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -262,23 +263,88 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        (Twine(getMPerBlock()) + ","
+        ("v2:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
     }
   }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "xdlops_gemm_derived_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
+  }];
+  let parameters = (ins
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$splitKFactor,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+        ("v2:" + Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .toVector(perfStr);
+    }
+  }];
+
+  let builders = [
+      AttrBuilderWithInferredContext<(ins  "XdlopsGemmParamsAttr":$params), [{
+      int64_t mPerWave = params.getMPerWave();
+      int64_t mPerBlock = params.getMPerBlock();
+      int64_t nPerBlock = params.getNPerBlock();
+      int64_t mnPerXdl = params.getMnPerXdl();
+      int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
+      int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
+
+      mPerWave = mPerBlock / mWaves;
+      int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+      return $_get(
+        params.getContext(),
+        params.getKpackPerBlock(),
+        mPerBlock, 
+        nPerBlock, 
+        params.getKpack(),
+        mPerWave,
+        nPerWave,
+        mnPerXdl,
+        params.getSplitKFactor(),
+        params.getForceUnroll()
+      );
+    }]>
+  ];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -297,17 +363,19 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
+    "int64_t":$splitKFactor,
     "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        (Twine(getMPerBlock()) + ","
+        ("v2:" +  Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -348,5 +416,11 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   let description = [{
     An attribute to express the properties of a loop to be pipelined
   }];
+}
+
+// It is a temporary attribute
+// TODO[split-K]: remove after integrating split-K into MIGraphX
+def Rock_EnableSpliKForTuning : Rock_Attr<"EnableSpliKForTuning"> {
+  let mnemonic = "enable_splik_for_tuning";
 }
 #endif

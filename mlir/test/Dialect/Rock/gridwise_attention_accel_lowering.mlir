@@ -1,6 +1,6 @@
 // RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize %s | FileCheck %s
 
-#xdlops_gemm_params = #rock.xdlops_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+#xdlops_gemm_params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor=1, forceUnroll = true>
 // CHECK-LABEL: @gridwise_attn_simple
 // CHECK-SAME: (%[[Q:.+]]: memref<1x384x64xf32>, %[[K:.+]]: memref<1x64x384xf32>, %[[V:.+]]: memref<1x384x64xf32>, %[[O:.+]]: memref<1x384x64xf32>)
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
@@ -237,8 +237,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx908"} {
       arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
       blockSize = 64 : i32,
       gridSize = 24 : i32,
-      params0 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>,
-      params1 = #rock.xdlops_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, forceUnroll = true>,
+      params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
+      params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
       operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
     } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
     return
