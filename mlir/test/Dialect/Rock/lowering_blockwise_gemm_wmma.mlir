@@ -22,6 +22,7 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
       mPerWave = 16,
       nPerBlock = 16,
       nPerWave = 16,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg>
   return
@@ -47,6 +48,7 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
       mPerWave = 16,
       nPerWave = 16,
       kpack = 8,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg>
   return
@@ -72,6 +74,7 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
       mPerWave = 32,
       nPerWave = 32,
       kpack = 16,
+      splitKFactor = 1,
       forceUnroll = true>
   } : memref<4xvector<8xi32>, #priv> += memref<4xvector<16xi8>, #priv> from memref<32xvector<16xi8>, #wg> * memref<4xvector<16xi8>, #priv> from memref<32xvector<16xi8>, #wg>
   return

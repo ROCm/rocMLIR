@@ -223,6 +223,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
+    // Ask LLVM to use atomic intrinsics instead of generic CAS loops whenever
+    // it can
+    gpuFunc->setAttr("rocdl.unsafe_fp_atomics", b.getBoolAttr(true));
+
     // Clone in global constants
     llvm::SmallDenseMap<SymbolRefAttr, FlatSymbolRefAttr> clonedConsts;
     WalkResult result = funcBody.walk([&](memref::GetGlobalOp op)

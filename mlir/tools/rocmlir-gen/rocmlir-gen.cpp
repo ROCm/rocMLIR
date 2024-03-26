@@ -274,10 +274,6 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
 
-static llvm::cl::opt<int64_t>
-    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
-                 llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
-
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
     llvm::cl::values(
@@ -716,6 +712,12 @@ static llvm::cl::opt<bool> applyBufferizationPipeline(
     "apply-bufferization-pipeline",
     llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
     llvm::cl::init(true));
+
+// TODO[split-K]: remove after integrating with MIGraphX
+static llvm::cl::opt<bool> disableSplitKForTuning(
+    "disable-split-k-for-tuning",
+    llvm::cl::desc("disable split-K GEMM scheme for tuning"),
+    llvm::cl::init(false));
 
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
@@ -2229,9 +2231,12 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  gemm->setAttr("split-k-factor", b.getI32IntegerAttr(splitkFactor));
-
   b.create<func::ReturnOp>(loc);
+
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSpliKForTuningAttr::getMnemonic(),
+                  b.getUnitAttr());
 
   module.push_back(func);
   return func;

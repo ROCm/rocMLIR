@@ -13,10 +13,19 @@
 #ifndef MLIR_DIALECT_ROCK_SERIALIZABLE_H
 #define MLIR_DIALECT_ROCK_SERIALIZABLE_H
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Regex.h"
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
 #include <numeric>
+#include <sstream>
+#include <string>
 #include <vector>
 
-template <class T> struct Parse {
+template <class T>
+struct Parse {
   static bool apply(const std::string &s, T &result) {
     std::stringstream ss;
     ss.str(s);
@@ -25,7 +34,8 @@ template <class T> struct Parse {
   }
 };
 
-template <class Derived, char Seperator = ','> struct Serializable {
+template <class Derived, char Seperator = ','>
+struct Serializable {
   struct SerializeField {
     template <class T>
     void operator()(std::ostream &stream, char &sep, const T &x) const {
@@ -52,14 +62,49 @@ template <class Derived, char Seperator = ','> struct Serializable {
     }
   };
   void serialize(std::ostream &stream) const {
+    stream << "v" << static_cast<int32_t>(version) << ":";
     char sep = 0;
     Derived::visit(static_cast<const Derived &>(*this),
                    std::bind(SerializeField{}, std::ref(stream), std::ref(sep),
                              std::placeholders::_1));
   }
 
-  bool deserialize(const std::string &s) {
+  bool checkVersionFormat(const std::string &s) {
+    const int32_t maxNumTokens = version == Version::V1 ? 8 : 9;
+    const int32_t maxNumSeperators = maxNumTokens - 1;
+    const int32_t minNumSeperators = maxNumSeperators - 2;
+    const auto numFoundSeperators = std::count_if(
+        s.begin(), s.end(), [](char c) { return c == Seperator; });
+    return numFoundSeperators >= minNumSeperators &&
+           numFoundSeperators <= maxNumSeperators;
+  }
+
+  bool deserialize(std::string s) {
+    llvm::Regex versionExpr("^v([0-9]+):");
+    llvm::SmallVector<llvm::StringRef, 2> matches;
+    if (versionExpr.match(s, &matches)) {
+      assert(matches.size() == 2 &&
+             "a match of the version regex expected 2 items");
+      int32_t value = std::stoi(matches[1].str());
+      if (value >= static_cast<int32_t>(Version::V1) &&
+          value < static_cast<int32_t>(Version::Count)) {
+        version = static_cast<Version>(value);
+        s = std::string(s.begin() + matches[0].size(), s.end());
+      } else {
+        // unknown perf config version
+        return false;
+      }
+    } else {
+      version = Version::V1;
+    }
+
+    if (!checkVersionFormat(s)) {
+      // incorrect perf config format
+      return false;
+    }
+
     auto out = static_cast<const Derived &>(*this);
+
     bool ok = true;
     std::istringstream ss(s);
     Derived::visit(out,
@@ -77,6 +122,12 @@ template <class Derived, char Seperator = ','> struct Serializable {
     c.serialize(os);
     return os;
   }
+
+  enum class Version : int32_t { V1 = 1, V2, Count };
+  Version getVersion() { return version; }
+
+protected:
+  Version version{Version::V2};
 };
 
 template <class Strings>
