@@ -156,6 +156,12 @@ struct PushTransformsUpRewritePattern
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
   /////////////////////////////////////////////////////////////////////
+  static bool isFusorOp(Operation *useOp) {
+    return dyn_cast<rock::GridwiseGemmOp>(useOp) ||
+           dyn_cast<rock::GridwiseGemmAccelOp>(useOp) ||
+           dyn_cast<rock::GridwiseAttentionAccelOp>(useOp) ||
+           dyn_cast<rock::ThreadwiseWriteAllOp>(useOp);
+  } 
   static bool collectChain(Value result, Operation *forwOp,
                            SmallVector<Operation *> &chain) {
     while (auto top = dyn_cast<rock::TransformOp>(forwOp)) {
@@ -196,26 +202,35 @@ struct PushTransformsUpRewritePattern
     // find writer and readChains (must be a transform)
     bool hasTransforms = false;
     Operation *writer = nullptr;
+    Operation *fusor = nullptr;
     SmallVector<SmallVector<Operation *>> readChains;
     for (auto &use : buffer.getUses()) {
       Operation *useOp = use.getOwner();
       SmallVector<Operation *> chain;
+
       bool isWriter = collectChain(buffer, useOp, chain);
+
+      bool isFusor = isFusorOp(chain.back());
       if (isWriter) {
         assert(writer == nullptr);
         writer = useOp;
-      } else {
+      } 
+      if (isFusor) {
+        fusor = useOp;
+      }
+      else {
         hasTransforms |= chain.size() > 1;
         readChains.push_back(chain);
       }
     }
-    if (hasTransforms) {
+    if (fusor && hasTransforms) {
       PatternRewriter::InsertionGuard guard(rw);
       rw.setInsertionPoint(alloc);
       Location loc = alloc.getLoc();
 
       for (auto readChain : readChains) {
         if (readChain.size() > 1) {
+
           Operation *readOp = readChain.back();
           readChain.pop_back();
           assert(!isa<rock::TransformOp>(readOp));
@@ -244,7 +259,6 @@ struct PushTransformsUpRewritePattern
           MemRefType nbufferType = readInp.getType().cast<MemRefType>();
           Value nbuffer =
               rw.create<memref::AllocOp>(loc, nbufferType).getResult();
-
           // update reader with new buffer input
           readOp->replaceUsesOfWith(readInp, nbuffer);
 
