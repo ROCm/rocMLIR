@@ -31,4 +31,4 @@
 
 // Check for MLIRContext options
 
-// RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 --operation conv2d --mlir-disable-threading | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx900 --mlir-disable-threading | rocmlir-translate -gpu-module-to-rocdlir --mlir-disable-threading | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900
+// RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 --operation conv --mlir-disable-threading | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx900 --mlir-disable-threading | rocmlir-translate -gpu-module-to-rocdlir --mlir-disable-threading | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900

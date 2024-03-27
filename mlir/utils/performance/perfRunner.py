@@ -319,9 +319,9 @@ class ConvConfiguration(PerfConfiguration):
         self.perfConfig = perf_config
 
     def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
-        direction = {'fwd':'--operation conv2d',
-                     'bwd':'--operation conv2d_bwd_data',
-                     'wrw':'--operation conv2d_bwd_weight'}[self.direction]
+        direction = {'fwd':'--operation conv',
+                     'bwd':'--operation conv_bwd_data',
+                     'wrw':'--operation conv_bwd_weight'}[self.direction]
 
         result = ' '.join([direction,
                            '-t', self.dataType,

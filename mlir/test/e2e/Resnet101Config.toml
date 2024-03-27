@@ -4,7 +4,7 @@ suffix = "--arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c |
 
 [[axis]]
 name = "operation"
-values = ["conv2d", "conv2d_bwd_data", "conv2d_bwd_weight"]
+values = ["conv", "conv_bwd_data", "conv_bwd_weight"]
 prefix = "--operation "
 
 [[axis]]
