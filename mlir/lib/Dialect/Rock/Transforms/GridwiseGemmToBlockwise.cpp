@@ -1900,13 +1900,23 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
 
+    bool isReverseGrid = succeeded(rock::getReverseGrid(op));
     affine::AffineForOp mLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
+      Value kIterationsGemm0Val =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
+      Value mIterationsGemm0Val =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value mLoopIV = mLoopOp.getInductionVar();
+      if (isReverseGrid) {
+        AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
+        mLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
+            loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
+      }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
@@ -1923,6 +1933,16 @@ struct GridwiseAttentionAccelRewritePattern
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
+        // Purpose of reversing the grid is to exploit
+        // (if any) temporal locality between producers
+        // and consumers of data between kernels.
+        // Towards that goal, the kLoop has to be reversed
+        // to use latest producer.
+        if (isReverseGrid) {
+          AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
+          kLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
+              loc, reverseMap, ValueRange{kLoopIV, kIterationsGemm0Val});
+        }
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
         if (gemm0K != gemm0KPerBlock) {
@@ -2578,8 +2598,18 @@ struct GridwiseGemmAccelRewritePattern
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
-
       Value iv = loopOp.getInductionVar();
+      bool isReverseGrid = succeeded(rock::getReverseGrid(op));
+      // Purpose of reversing the grid is to exploit
+      // (if any) temporal locality between producers
+      // and consumers of data between kernels.
+      // Towards that goal, the kLoop has to be reversed
+      // to use latest producer.
+      if (isReverseGrid) {
+        AffineMap reverseMap = rock::getIdxReversalMap(b);
+        iv = b.createOrFold<affine::AffineApplyOp>(loc, reverseMap,
+                                                   ValueRange{iv, nIterations});
+      }
       auto stage0 = b.create<StageOp>(loc, "GlobalRead");
       {
         PatternRewriter::InsertionGuard guard(b);

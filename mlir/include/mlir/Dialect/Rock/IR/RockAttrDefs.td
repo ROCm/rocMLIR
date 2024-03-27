@@ -418,6 +418,10 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   }];
 }
 
+def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
+  let mnemonic = "reverse_grid";
+}
+
 // It is a temporary attribute
 // TODO[split-K]: remove after integrating split-K into MIGraphX
 def Rock_EnableSpliKForTuning : Rock_Attr<"EnableSpliKForTuning"> {

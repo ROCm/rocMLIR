@@ -633,22 +633,33 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(
       func = op->getParentOfType<gpu::GPUFuncOp>();
     }
   }
-  RetAttrType arch = op->getAttrOfType<RetAttrType>(opAttr);
-  if (!arch)
-    arch = func->getAttrOfType<RetAttrType>(dialectAttr);
-  if (!arch) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+  RetAttrType attr;
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!attr) {
+        attr = op->getAttrOfType<RetAttrType>(attrName);
+      } else {
+        return;
+      }
+    }
+  };
+  getAnyAttr({opAttr}, op);
+  if (!attr) {
+    getAnyAttr({opAttr, dialectAttr}, func);
   }
-  if (!arch) {
+  if (!attr) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    getAnyAttr({opAttr, dialectAttr}, mod);
+  }
+  if (!attr) {
     if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      arch = mod->getAttrOfType<RetAttrType>(dialectAttr);
+      getAnyAttr({opAttr, dialectAttr}, mod);
     }
   }
-  if (!arch) {
+  if (!attr) {
     return failure();
   }
-  return arch;
+  return attr;
 }
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
@@ -668,10 +679,26 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   }
   IntegerAttr numCU = maybeNumCU.value();
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (numCU.getSInt() < archInfo.minNumCU) {
+  if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
     return op->emitError() << "num_cu=" << numCU
                            << " cannot be lower than arch minNumCU="
                            << archInfo.minNumCU;
   }
-  return numCU.getSInt();
+  return numCU.getValue().getSExtValue();
+}
+
+FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
+  return getAttrFromOpOrParents<UnitAttr>(
+      op, rock::ReverseGridAttrAttr::getMnemonic());
+}
+
+FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
+  return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
+}
+
+AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
+  auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
+  auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
+  auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
+  return affineMap;
 }
