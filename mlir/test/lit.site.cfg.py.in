@@ -76,7 +76,7 @@ def set_arch_features(arch: str):
     major = chip_name[:-2]
     minor = chip_name[-2:]
     if major == 'gfx9':
-        if minor in ['08', '0a', '40']:
+        if minor in ['08', '0a', '40', '42']:
             arch_features = 'mfma|dot|atomic_add'
         elif minor == '06':
             arch_features = 'dot'
