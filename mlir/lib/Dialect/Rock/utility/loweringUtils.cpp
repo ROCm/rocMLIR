@@ -257,8 +257,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
                           {0, 1}, isKContigousDim);
     TransformMapAttr splitIdAttr = threadwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_iter"}, {kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dIterName}, {dPerThread});
+    toGlobalIdx.passThrough({"k"}, 0, {"k_iter"});
+    toGlobalIdx.passThrough({dName}, 1, {dIterName});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
@@ -358,7 +358,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
     toGlobalIdx.unmerge("k", 0, {"kouterPerThread", "kpackPerThread"},
                         {kOuterPerThread, kpackPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dIterName}, {dPerThread});
+    toGlobalIdx.passThrough({dName}, 1, {dIterName});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
