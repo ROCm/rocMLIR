@@ -568,8 +568,10 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
-  if ((isDisjointed("filter_layout", "y", "x") && isDisjointed("filter_layout", "0", "1")) ||
-      (isDisjointed("input_layout", "hi", "wi") && isDisjointed("input_layout", "0i", "1i")))
+  if ((isDisjointed("filter_layout", "y", "x") &&
+       isDisjointed("filter_layout", "0", "1")) ||
+      (isDisjointed("input_layout", "hi", "wi") &&
+       isDisjointed("input_layout", "0i", "1i")))
     return op->emitError("Disjointed yx or hw!");
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
@@ -595,9 +597,7 @@ LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
 
 KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
-KernelType ConvBwdDataOp::getKernelType() {
-  return KernelType::ConvBwdData;
-}
+KernelType ConvBwdDataOp::getKernelType() { return KernelType::ConvBwdData; }
 
 KernelType ConvBwdWeightOp::getKernelType() {
   return KernelType::ConvBwdWeight;
@@ -625,9 +625,7 @@ Type ConvBwdWeightOp::getBType() {
 
 Type ConvOp::getCType() { return getOutput().getType().getElementType(); }
 
-Type ConvBwdDataOp::getCType() {
-  return getInput().getType().getElementType();
-}
+Type ConvBwdDataOp::getCType() { return getInput().getType().getElementType(); }
 
 Type ConvBwdWeightOp::getCType() {
   return getFilter().getType().getElementType();
@@ -635,9 +633,7 @@ Type ConvBwdWeightOp::getCType() {
 
 OpOperand *ConvOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-OpOperand *ConvBwdDataOp::getOutArgument() {
-  return &(*this)->getOpOperand(1);
-}
+OpOperand *ConvBwdDataOp::getOutArgument() { return &(*this)->getOpOperand(1); }
 
 OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
@@ -669,9 +665,9 @@ GemmSize ConvBwdDataOp::getGemmSize() {
   int64_t xTilda = strideW / gcdStrideDilationW;
 
   int64_t hTilda = sizes.out[0] + math_util::integer_divide_ceil(
-                                  dilationH * (sizes.fil[0] - 1), strideH);
+                                      dilationH * (sizes.fil[0] - 1), strideH);
   int64_t wTilda = sizes.out[1] + math_util::integer_divide_ceil(
-                                  dilationW * (sizes.fil[1] - 1), strideW);
+                                      dilationW * (sizes.fil[1] - 1), strideW);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
       std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
@@ -690,8 +686,10 @@ GemmSize ConvBwdDataOp::getGemmSize() {
 
   int64_t iYTilda = kernelId / xTilda;
   int64_t iXTilda = kernelId % xTilda;
-  int64_t yDotSlice = math_util::integer_divide_ceil(sizes.fil[0] - iYTilda, yTilda);
-  int64_t xDotSlice = math_util::integer_divide_ceil(sizes.fil[1] - iXTilda, xTilda);
+  int64_t yDotSlice =
+      math_util::integer_divide_ceil(sizes.fil[0] - iYTilda, yTilda);
+  int64_t xDotSlice =
+      math_util::integer_divide_ceil(sizes.fil[1] - iXTilda, xTilda);
 
   int64_t g = sizes.g;
   int64_t m = sizes.c;

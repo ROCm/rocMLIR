@@ -36,8 +36,7 @@ struct ConvolutionDims {
   ConvolutionDims(ArrayRef<int64_t> fil, ArrayRef<int64_t> out,
                   ArrayRef<int64_t> in, int64_t k, int64_t c, int64_t n,
                   int64_t g)
-    : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
-
+      : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
 
   static ConvolutionDims fromOp(Operation *op);
 };

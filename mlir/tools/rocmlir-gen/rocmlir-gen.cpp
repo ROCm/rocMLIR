@@ -809,12 +809,18 @@ static void correctConvParameters() {
     inputLayout = "g" + inputLayoutValue;
 
   // +++pf:  update old key names.
-  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(), 'y', '0');
-  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(), 'x', '1');
-  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(), 'h', '0');
-  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(), 'w', '1');
-  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(), 'h', '0');
-  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(), 'w', '1');
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
+               'y', '0');
+  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
+               'x', '1');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
+               'h', '0');
+  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
+               'w', '1');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
+               'h', '0');
+  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
+               'w', '1');
 
   auto validatePadding = [](llvm::cl::opt<int> &combined,
                             llvm::cl::opt<int> &left, llvm::cl::opt<int> &right,
@@ -1795,7 +1801,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
         if ((direction == rock::ConvOpType::Fwd ||
              direction == rock::ConvOpType::BwdWeight) &&
             tensor == INPUT) {
-          if (c == '0') {               // +++pf: may need adjustment to h/w.
+          if (c == '0') { // +++pf: may need adjustment to h/w.
             result.push_back(heightIdx);
             continue;
           } else if (c == '1') {
@@ -1828,7 +1834,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
               continue;
             }
           }
-        } else if (direction == rock::ConvOpType::BwdWeight && tensor == OUTPUT) {
+        } else if (direction == rock::ConvOpType::BwdWeight &&
+                   tensor == OUTPUT) {
           // Weird situation, because we need to distinguish filter from
           // input/output while both are present in the IVs, so we have 'hw'
           // in the loopIVs string as well as the layout's '01'.

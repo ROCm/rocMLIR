@@ -663,22 +663,17 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                         {"x", filterWidth},
                                         {"0", filterHeight},
                                         {"1", filterWidth}};
-  llvm::StringMap<int64_t> inputMap = {{"n", batchSize},
-                                       {"g", groupSize},
-                                       {"c", inputChannel / groupSize},
-                                       {"h", inputHeight},
-                                       {"w", inputWidth},
-                                       {"0", inputHeight},
-                                       {"1", inputWidth}};
-  llvm::StringMap<int64_t> outputMap = {{"n", batchSize},
-                                        {"g", groupSize},
-                                        {"k", outputChannel / groupSize},
-                                        {"h", outputHeight},
-                                        {"w", outputWidth},
-                                        {"0", outputHeight},
-                                        {"1", outputWidth}};
+  llvm::StringMap<int64_t> inputMap = {
+      {"n", batchSize},   {"g", groupSize},  {"c", inputChannel / groupSize},
+      {"h", inputHeight}, {"w", inputWidth}, {"0", inputHeight},
+      {"1", inputWidth}};
+  llvm::StringMap<int64_t> outputMap = {
+      {"n", batchSize},    {"g", groupSize},   {"k", outputChannel / groupSize},
+      {"h", outputHeight}, {"w", outputWidth}, {"0", outputHeight},
+      {"1", outputWidth}};
 
-  auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap, auto &dims) {
+  auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap,
+                          auto &dims) {
     auto keyl = std::string{static_cast<char>(std::tolower(key))};
     if (!kmap.contains(keyl)) {
       keyl = "k";
