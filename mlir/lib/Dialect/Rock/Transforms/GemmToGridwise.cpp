@@ -145,8 +145,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   MemRefType typeA = a.getType().cast<MemRefType>();
   MemRefType typeB = b.getType().cast<MemRefType>();
+  MemRefType typeC = c.getType().cast<MemRefType>();
   Type elemTypeA = typeA.getElementType();
   Type elemTypeB = typeB.getElementType();
+  Type elemTypeC = typeC.getElementType();
   ArrayRef<int64_t> aShape = typeA.getShape();
   ArrayRef<int64_t> bShape = typeB.getShape();
 
@@ -175,21 +177,21 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
   if (splitKFactor > 1) {
-    auto isAF32 =
-        a.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
-    auto isBF32 =
-        b.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
-    auto isCF32 =
-        c.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
+    const auto isAllowedTypeA =
+        elemTypeA == rw.getF32Type() || elemTypeA == rw.getF16Type();
+    const auto isAllowedTypeB =
+        elemTypeB == rw.getF32Type() || elemTypeB == rw.getF16Type();
+    const auto isAllowedTypeC =
+        elemTypeC == rw.getF32Type() || elemTypeC == rw.getF16Type();
 
     if (!bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_add)) {
       return op.emitError(
           "Split-K `GemmOp` requires support of `atomic_add` hardware feature");
     }
 
-    if (!(isAF32 && isBF32 && isCF32)) {
+    if (!(isAllowedTypeA && isAllowedTypeB && isAllowedTypeC)) {
       return op.emitError(
-          "Split-K `GemmOp` currently supports only f32 element type");
+          "Split-K `GemmOp` currently supports only f32/f16 element types");
     }
     std::tie(a, b, c) =
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);

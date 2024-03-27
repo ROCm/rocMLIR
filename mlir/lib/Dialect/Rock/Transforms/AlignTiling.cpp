@@ -770,11 +770,12 @@ static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
   for (auto &region : laGeneric->getRegions()) {
     for (auto &block : region) {
       for (auto &op : block) {
-        Type resultType = op.getResult(0).getType();
         if (llvm::isa<arith::TruncFOp>(op)) {
+          Type resultType = op.getResult(0).getType();
           isLegal = resultType == b.getF32Type();
           isLegal |= resultType == b.getF16Type();
         } else if (llvm::isa<arith::TruncIOp>(op)) {
+          Type resultType = op.getResult(0).getType();
           isLegal = resultType == b.getI32Type();
         } else if (llvm::isa<linalg::YieldOp>(op)) {
           isLegal = true;
