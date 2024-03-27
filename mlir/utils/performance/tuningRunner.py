@@ -37,6 +37,7 @@ class Options:
     rocmlir_gen_flags: str
     verifyMode: str
     tflops: bool
+    compact_print: bool
 
 def verifyModeFlags(verifyMode: str) -> str:
     if verifyMode == "none":
@@ -98,7 +99,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
-        if not options.quiet and i > 0 and i % 100 == 0:
+        if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
             print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
         if options.debug:
             print(result, file=sys.stderr)
@@ -116,6 +117,8 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
             winningConfig = perfConfig
+            if options.compact_print and not options.quiet:
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 
@@ -315,6 +318,12 @@ def main(args=None):
         default=False,
         help="Include the TFlops along with the winning perf-configs")
 
+    parser.add_argument(
+        "--compact-print",
+        action='store_true',
+        default=False,
+        help="Print info only when a change happens")
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
@@ -336,7 +345,8 @@ def main(args=None):
         tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode,
-        tflops=parsed_args.tflops)
+        tflops=parsed_args.tflops,
+        compact_print=parsed_args.compact_print)
 
     if opType == Operation.FUSION:
         opType = extractFusionConfigs(parsed_args.test_dir, paths, options)
