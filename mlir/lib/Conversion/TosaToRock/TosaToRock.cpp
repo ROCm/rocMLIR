@@ -172,9 +172,8 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto cop = rw.create<rock::ConvOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      rw.getIndexArrayAttr(pad), rw.getIndexArrayAttr(stride),
-      rw.getIndexArrayAttr(dilation),
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
+      rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
       /*params=*/nullptr, numCUAttr);
 
   // specify layout attributes

@@ -25,8 +25,10 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
 
     // +++pf: update old keys.
-    if (key == "y") key = "0";
-    if (key == "x") key = "1";
+    if (key == "y")
+      key = "0";
+    if (key == "x")
+      key = "1";
     if (key[0] == 'h')
       key = StringAttr::get(layoutAttr.getContext(),
                             std::string("0") + key.drop_front());
@@ -40,11 +42,12 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
 }
 
 ConvolutionDims ConvolutionContext::getConvDims() {
-  return ConvolutionDims({dimIndexAndSize["0"].size, dimIndexAndSize["1"].size},
-                         {dimIndexAndSize["0o"].size, dimIndexAndSize["1o"].size},
-                         {dimIndexAndSize["0i"].size, dimIndexAndSize["1i"].size},
-                         dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
-                         dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
+  return ConvolutionDims(
+      {dimIndexAndSize["0"].size, dimIndexAndSize["1"].size},
+      {dimIndexAndSize["0o"].size, dimIndexAndSize["1o"].size},
+      {dimIndexAndSize["0i"].size, dimIndexAndSize["1i"].size},
+      dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
+      dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
 }
 
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
