@@ -232,7 +232,7 @@ def main(args=None):
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
-        description="A script for tunning MLIR conv2d or gemm kernels",
+        description="A script for tuning MLIR conv or gemm kernels",
         allow_abbrev=False,
     )
 
