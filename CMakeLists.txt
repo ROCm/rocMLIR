@@ -25,6 +25,12 @@ endif()
 # Set policy CMP0057 to support IN_LIST operators
 cmake_policy(SET CMP0057 NEW)
 
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND (CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo))
+  message(STATUS "Adding -gz to compile flags")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -gz")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -gz")
+endif()
+
 # Rock dialect.
 set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
