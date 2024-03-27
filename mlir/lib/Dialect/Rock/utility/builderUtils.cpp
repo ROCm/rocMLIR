@@ -153,6 +153,8 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
          "Only memrefs with static shapes are allowed");
 
   auto shape = sourceType.getShape();
+  if (shape.size() == 1)
+    return source;
   uint64_t collapsedDim = 1;
   SmallVector<AffineExpr, 2> exprs;
   for (uint32_t dim = 0; dim < shape.size(); ++dim) {

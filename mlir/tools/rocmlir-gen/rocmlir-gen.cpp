@@ -22,6 +22,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -734,9 +735,13 @@ struct KernelIF {
     llvm::SmallDenseSet<Value> outs;
     auto walker = [&](memref::CopyOp copy) { outs.insert(copy.getTarget()); };
     func.walk(walker);
+    auto realTypes = func->getAttrOfType<ArrayAttr>("rock.flat_call_kernel");
     size_t argCount = func.getArguments().size();
     for (size_t i = 0; i < argCount; i++) {
-      params.push_back(func.getArgument(i).getType());
+      if (realTypes)
+        params.push_back(cast<TypeAttr>(realTypes[i]).getValue());
+      else
+        params.push_back(func.getArgument(i).getType());
       if (outs.contains(func.getArgument(i))) {
         outIndices.push_back(i);
       }
@@ -1109,6 +1114,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
   SmallVector<Value, 4> cpuMem;
   SmallVector<Value, 4> gpuMem;
+  SmallVector<Value, 4> gpuArgs;
+  bool isFlatCall = kfunc->hasAttr("rock.flat_call_kernel");
   for (auto pair : llvm::enumerate(kernel.params)) {
     Value arg = block->getArgument(pair.index());
     cpuMem.push_back(arg);
@@ -1122,15 +1129,19 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
     // Emit CPU->GPU memcpy function calls.
     b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
+    if (isFlatCall)
+      gpuArgs.push_back(makeNDMemRef(b, gpuAlloc, 1));
+    else
+      gpuArgs.push_back(gpuAlloc);
   }
 
   // Emit kernel function call, repeating it if needed.
   // We assume that the repeated atomic add usages in a wrw kernel will not
   // substantially impact performance as the result becomes large
-  auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
-                                            Value ignoredIv,
-                                            ValueRange noArgs) {
-    auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
+  auto emitWrappedCall = [&kernel, &gpuArgs](OpBuilder &b, Location loc,
+                                             Value ignoredIv,
+                                             ValueRange noArgs) {
+    auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuArgs);
     wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
     if (ignoredIv) { // we're creating an actual loop
       b.create<scf::YieldOp>(loc);
@@ -2208,17 +2219,35 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  SmallVector<NamedAttribute, 3> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("mhal.arch", archAttr)};
+      b.getNamedAttr("mhal.arch", archAttr),
+      b.getNamedAttr("rock.flat_call_kernel", b.getTypeArrayAttr(argTypes))};
+  SmallVector<Type, 3> flatTypes =
+      llvm::map_to_vector(argTypes, [](Type t) -> Type {
+        auto mt = cast<MemRefType>(t);
+        return MemRefType::get(mt.getNumElements(), mt.getElementType(),
+                               nullptr, mt.getMemorySpace());
+      });
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
-                             b.getFunctionType(argTypes, {}), funcAttrs);
+                             b.getFunctionType(flatTypes, {}), funcAttrs);
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
-  Value aVal = block->getArgument(0), bVal = block->getArgument(1),
-        cVal = block->getArgument(2);
+  SmallVector<Value, 3> expandedArgs;
+  expandedArgs.reserve(3);
+  for (auto [arg, t] : llvm::zip(block->getArguments(), argTypes)) {
+    auto logicalType = cast<MemRefType>(t);
+    rock::TopDownTMBuilder flattener(b, logicalType.getShape(), loc);
+    SmallVector<StringRef, 3> names;
+    names.reserve(3);
+    flattener.getStartNames(names);
+    flattener.unmerge("raw", 0, names, logicalType.getShape());
+    rock::TransformMapAttr expandAttr = flattener.get();
+    expandedArgs.push_back(b.create<rock::TransformOp>(loc, arg, expandAttr));
+  }
+  Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
