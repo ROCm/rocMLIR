@@ -25,9 +25,9 @@ namespace rock {
 
 /// Structure for holding the dimensions of a convolution problem
 struct ConvolutionDims {
-  SmallVector<int64_t, 5> fil;
-  SmallVector<int64_t, 5> out;
-  SmallVector<int64_t, 5> in;
+  llvm::SmallVector<int64_t, 5> fil;
+  llvm::SmallVector<int64_t, 5> out;
+  llvm::SmallVector<int64_t, 5> in;
   int64_t k;
   int64_t c;
   int64_t n;
