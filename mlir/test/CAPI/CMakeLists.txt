@@ -2,6 +2,7 @@ set(LLVM_OPTIONAL_SOURCES
   mixrir.c
   tosa_miir.cpp
   mixr_cobj.cpp
+  mixr_split_k.cpp
   mixr_full.c
 )
 
@@ -62,4 +63,21 @@ target_link_libraries(mlir-mixr-fullc-test
   MLIRCAPIMIGraphX
   MLIRCAPIRock
   MLIRCAPIGPU
+)
+
+add_llvm_executable(mlir-mixr-split-k-test
+  EXCLUDE_FROM_ALL
+  mixr_split_k.cpp
+  )
+llvm_update_compile_flags(mlir-mixr-split-k-test)
+
+target_link_libraries(mlir-mixr-split-k-test
+  PRIVATE
+  MLIRCAPIIR
+  MLIRCAPIRegisterRocMLIR
+  MLIRCAPIMIGraphX
+  MLIRCAPIRock
+  MLIRCAPIGPU
+  MLIRMIGraphXPipeline
+  MLIRRockPipeline
 )

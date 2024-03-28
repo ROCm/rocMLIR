@@ -11,10 +11,15 @@
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Support/LLVM.h"
 
+#include <cstdint>
 #include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
@@ -138,3 +143,72 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
   strncpy(buf, perfStr.c_str(), bufLen);
   return perfStr.size();
 }
+
+// TODO (ravil)
+MLIR_CAPI_EXPORTED
+enum RocmlirSplitKSelectionLikelihood
+mlirIsSplitKFaster(int64_t mDim, int64_t nDim, int64_t kDim, int64_t numCUs,
+                   RocmlirTuningParamSetKind tuningLevel) {
+  return RocmlirSplitKSelectionLikelihood::maybe;
+}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
+  return true;
+}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumPrefillArgs(MlirModule module) {
+  auto mod = unwrap(module);
+  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+
+  size_t prefillAttrCounter = 0;
+  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
+    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+        for (auto attr : arrayAttr) {
+          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+            ++prefillAttrCounter;
+          }
+        }
+      }
+    }
+  });
+  return prefillAttrCounter;
+}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
+                            MlirAttribute *initValues) {
+  auto mod = unwrap(module);
+  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+
+  size_t counter = 0;
+  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
+    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+        for (auto attr : arrayAttr) {
+          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+            indices[counter] = prefillAttr.getArgIndex();
+            initValues[counter] = wrap(prefillAttr.getInitValue());
+            ++counter;
+          }
+        }
+      }
+    }
+  });
+}
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumAuxBuffers(MlirModule module) { return 0; }
+
+// TODO (ravil): document
+MLIR_CAPI_EXPORTED
+void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
+                           MlirAttribute *initValues) {}
