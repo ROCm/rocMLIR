@@ -157,10 +157,10 @@ struct PushTransformsUpRewritePattern
 
   /////////////////////////////////////////////////////////////////////
   static bool isFusorOp(Operation *useOp) {
-    return dyn_cast<rock::GridwiseGemmOp>(useOp) ||
-           dyn_cast<rock::GridwiseGemmAccelOp>(useOp) ||
-           dyn_cast<rock::GridwiseAttentionAccelOp>(useOp) ||
-           dyn_cast<rock::ThreadwiseWriteAllOp>(useOp);
+    return isa<rock::GridwiseGemmOp>(useOp) ||
+           isa<rock::GridwiseGemmAccelOp>(useOp) ||
+           isa<rock::GridwiseAttentionAccelOp>(useOp) ||
+           isa<rock::ThreadwiseWriteAllOp>(useOp);
   } 
   static bool collectChain(Value result, Operation *forwOp,
                            SmallVector<Operation *> &chain) {
