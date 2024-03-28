@@ -76,7 +76,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SerializeToHsacoPass)
 
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
-                       int optLevel);
+                       int optLevel, bool suppressDiagnostic = false);
   SerializeToHsacoPass(const SerializeToHsacoPass &other);
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -126,8 +126,9 @@ std::string SerializeToHsacoPass::getRocmPath() {
 }
 
 // Sets the 'option' to 'value' unless it already has a value.
-static void maybeSetOption(Pass::Option<std::string> &option,
-                           function_ref<std::string()> getValue) {
+template <typename T>
+static void maybeSetOption(Pass::Option<T> &option,
+                           function_ref<T()> getValue) {
   if (!option.hasValue())
     option = getValue();
 }
@@ -135,7 +136,8 @@ static void maybeSetOption(Pass::Option<std::string> &option,
 llvm::once_flag SerializeToHsacoPass::initializeBackendOnce;
 
 SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
-                                           StringRef features, int optLevel) {
+                                           StringRef features, int optLevel,
+                                           bool suppressDiagnostic) {
   // No matter how this pass is constructed, ensure that the AMDGPU backend
   // is initialized exactly once.
   llvm::call_once(initializeBackendOnce, []() {
@@ -146,13 +148,17 @@ SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
     LLVMInitializeAMDGPUTargetInfo();
     LLVMInitializeAMDGPUTargetMC();
   });
-  maybeSetOption(this->triple, [&triple] { return triple.str(); });
-  maybeSetOption(this->chip, [&arch] { return arch.str(); });
-  maybeSetOption(this->features, [&features] { return features.str(); });
+  maybeSetOption<std::string>(this->triple, [&triple] { return triple.str(); });
+  maybeSetOption<std::string>(this->chip, [&arch] { return arch.str(); });
+  maybeSetOption<std::string>(this->features,
+                              [&features] { return features.str(); });
+  maybeSetOption<bool>(this->suppressDiagnostic,
+                       [&] { return suppressDiagnostic; });
+  // maybeSetOption(this->suppressDiagnostic [&suppressDiagnostic] { return
+  // suppressDiagnostic;});
   if (this->optLevel.getNumOccurrences() == 0)
     this->optLevel.setValue(optLevel);
 }
-
 
 #ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
 #include "Transforms/AmdDeviceLibs.cpp.inc"
@@ -534,12 +540,12 @@ void mlir::registerGpuSerializeToHsacoPass() {
 
 /// Create an instance of the GPU kernel function to HSAco binary serialization
 /// pass.
-std::unique_ptr<Pass> mlir::createGpuSerializeToHsacoPass(StringRef triple,
-                                                          StringRef arch,
-                                                          StringRef features,
-                                                          int optLevel) {
+std::unique_ptr<Pass>
+mlir::createGpuSerializeToHsacoPass(StringRef triple, StringRef arch,
+                                    StringRef features, int optLevel,
+                                    bool suppressDiagnostic) {
   return std::make_unique<SerializeToHsacoPass>(triple, arch, features,
-                                                optLevel);
+                                                optLevel, suppressDiagnostic);
 }
 
 void SerializeToHsacoPass::getDependentDialects(
