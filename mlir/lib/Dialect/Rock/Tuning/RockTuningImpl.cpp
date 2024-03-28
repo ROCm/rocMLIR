@@ -538,19 +538,15 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 
   Type elemTypeQ = queries.getType().getElementType();
   problemOS << "-t ";
-  if(elemTypeQ.isF32()){
+  if (elemTypeQ.isF32()) {
     problemOS << "f32" << sep;
-  }
-  else if(elemTypeQ.isF16()){
+  } else if (elemTypeQ.isF16()) {
     problemOS << "f16" << sep;
-  }
-  else if(elemTypeQ.isInteger(8)){
+  } else if (elemTypeQ.isInteger(8)) {
     problemOS << "i8" << sep;
-  }
-  else{
+  } else {
     return attnOp.emitError("invalid type:") << elemTypeQ << "\n";
   }
-
 
   // TransQ
   problemOS << "-transQ ";
