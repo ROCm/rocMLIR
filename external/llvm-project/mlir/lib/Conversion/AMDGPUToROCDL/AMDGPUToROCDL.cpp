@@ -830,6 +830,142 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
   return success();
 }
 
+// Implement the AMDGPU_DPPLowering class that will convert the amdgpu.dpp
+// operation into the corresponding ROCDL instructions.
+struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
+  AMDGPUDPPLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<DPPOp>(converter), chipset(chipset) {}
+  Chipset chipset;
+
+  Value createConstantOrUseDefault(Operation *op,
+                                   ConversionPatternRewriter &rewriter,
+                                   StringRef attrName, Type type) const {
+    auto attr = op->getAttr(attrName);
+    return rewriter.create<LLVM::ConstantOp>(op->getLoc(), type, attr);
+  }
+
+  LogicalResult
+  matchAndRewrite(DPPOp DppOp, DPPOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Convert the source operand to the corresponding LLVM type
+    Location loc = DppOp.getLoc();
+    Value src = adaptor.getSrc();
+    Type srcType = src.getType();
+    auto llvmI32Type = typeConverter->convertType(rewriter.getI32Type());
+    auto llvmI1Type = typeConverter->convertType(rewriter.getI1Type());
+    auto llvmSrcIntType = typeConverter->convertType(
+        rewriter.getIntegerType(srcType.getIntOrFloatBitWidth()));
+    Value dppCtrl;
+
+    // If the source type is less or equal to i32 or f32, use bitcast to convert it to i32.
+    if (llvm::isa<FloatType>(srcType)) {
+      src = rewriter.create<LLVM::BitcastOp>(loc, llvmSrcIntType, src);
+    }
+
+    if (srcType.getIntOrFloatBitWidth() < 32) {
+      auto llvmVecType = typeConverter->convertType(mlir::VectorType::get(
+          32 / srcType.getIntOrFloatBitWidth(), llvmSrcIntType));
+      Value undefVec = rewriter.create<LLVM::UndefOp>(loc, llvmVecType);
+      src = rewriter.create<LLVM::InsertElementOp>(
+          loc, undefVec, src, createI32Constant(rewriter, loc, 0));
+      src = rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, src);
+    }
+
+    // This is taken from the following file llvm/lib/Target/AMDGPU/SIDefines.h
+    enum DppCtrl : unsigned {
+      ROW_SHL0 = 0x100,
+      ROW_SHR0 = 0x110,
+      ROW_ROR0 = 0x120,
+      WAVE_SHL1 = 0x130,
+      WAVE_ROL1 = 0x134,
+      WAVE_SHR1 = 0x138,
+      WAVE_ROR1 = 0x13C,
+      ROW_MIRROR = 0x140,
+      ROW_HALF_MIRROR = 0x141,
+      BCAST15 = 0x142,
+      BCAST31 = 0x143,
+    };
+
+    // List of all attributes to check for dppCtrl.
+    llvm::ArrayRef<std::string> attributeNames = {
+        "quad_perm",  "row_shl",         "row_shr",      "row_ror",
+        "row_mirror", "row_half_mirror", "wave_shl",     "wave_shr",
+        "wave_ror",   "wave_rol",        "row_bcast_15", "row_bcast_31"};
+
+    for (const auto &attrName : attributeNames) {
+      if (auto attr = DppOp->getAttr(attrName)) {
+        int attrValue = 0;
+        if (attrName == "row_shl" || attrName == "row_shr" ||
+            attrName == "row_ror") {
+          auto intAttr = attr.dyn_cast<IntegerAttr>();
+          // If attribute is IntegerAttr, use its value for dppCtrl
+          attrValue = intAttr.getInt();
+          if (attrName == "row_shl")
+            attrValue += DppCtrl::ROW_SHL0;
+          else if (attrName == "row_shr")
+            attrValue += DppCtrl::ROW_SHR0;
+          else if (attrName == "row_ror")
+            attrValue += DppCtrl::ROW_ROR0;
+        }
+        else if (attrName == "wave_shl")
+          attrValue = DppCtrl::WAVE_SHL1;
+        else if (attrName == "wave_shr")
+          attrValue = DppCtrl::WAVE_SHR1;
+        else if (attrName == "wave_ror")
+          attrValue = DppCtrl::WAVE_ROR1;
+        else if (attrName == "wave_rol")
+          attrValue = DppCtrl::WAVE_ROL1;
+        else if (attrName == "row_mirror")
+          attrValue = DppCtrl::ROW_MIRROR;
+        else if (attrName == "row_half_mirror")
+          attrValue = DppCtrl::ROW_HALF_MIRROR;
+        else if (attrName == "row_bcast_15")
+          attrValue = DppCtrl::BCAST15;
+        else if (attrName == "row_bcast_31")
+          attrValue = DppCtrl::BCAST31;
+        else if (attrName == "quad_perm") {
+          auto quadPermAttr = DppOp->getAttrOfType<ArrayAttr>("quad_perm");
+          for (int i = 3; i >= 0; --i) {
+            auto intAttr = quadPermAttr[i].dyn_cast<IntegerAttr>();
+            int num = intAttr.getInt();
+            attrValue |= num << (i * 2);
+          }
+        }
+        dppCtrl =
+            rewriter.create<LLVM::ConstantOp>(loc, llvmI32Type, attrValue);
+      }
+    }
+
+    // Check for row_mask, bank_mask, bound_ctrl if they exist and create
+    // constants
+    auto rowMask =
+        createConstantOrUseDefault(DppOp, rewriter, "row_mask", llvmI32Type);
+    auto bankMask =
+        createConstantOrUseDefault(DppOp, rewriter, "bank_mask", llvmI32Type);
+    auto boundCtrl =
+        createConstantOrUseDefault(DppOp, rewriter, "bound_ctrl", llvmI1Type);
+
+    // create a ROCDL_DPPMovOp instruction with the appropriate attributes
+    auto dppMovOp = rewriter.create<ROCDL::DPPMovOp>(
+        loc, llvmI32Type, src, dppCtrl, rowMask, bankMask, boundCtrl);
+
+    Value result = dppMovOp.getRes();
+    if (srcType.getIntOrFloatBitWidth() < 32) {
+      result = rewriter.create<LLVM::TruncOp>(loc, llvmSrcIntType, result);
+    }
+
+    if (llvm::isa<FloatType>(srcType)) {
+      result = rewriter.create<LLVM::BitcastOp>(loc, srcType, result);
+    }
+
+    // We are replacing the AMDGPU_DPPOp instruction with the new
+    // ROCDL_DPPMovOp instruction
+    rewriter.replaceOp(DppOp, ValueRange(result));
+    return success();
+  }
+};
+
 struct ConvertAMDGPUToROCDLPass
     : public impl::ConvertAMDGPUToROCDLBase<ConvertAMDGPUToROCDLPass> {
   ConvertAMDGPUToROCDLPass() = default;
@@ -881,8 +1017,8 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           LDSBarrierOpLowering, MFMAOpLowering, WMMAOpLowering,
-           ExtPackedFp8OpLowering, PackedTruncFp8x2OpLowering,
+           AMDGPUDPPLowering, LDSBarrierOpLowering, MFMAOpLowering,
+           WMMAOpLowering, ExtPackedFp8OpLowering, PackedTruncFp8x2OpLowering,
            PackedStochRoundFp8OpLowering>(converter, chipset);
 }
 
