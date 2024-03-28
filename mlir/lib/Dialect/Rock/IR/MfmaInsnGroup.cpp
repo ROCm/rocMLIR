@@ -269,11 +269,11 @@ auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
                    {{MfmaTypeId::Fp16TyId, 16, 4, 32, 64},
                     {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{2, 0, MFMAPermB::none}, {2, 1, MFMAPermB::none}}}},
                    {{MfmaTypeId::Fp16TyId, 16, 4, 16, 64},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{2, 0, MFMAPermB::none}}}},
-                   {{MfmaTypeId::Fp16TyId, 16, 4, 64, 32},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}}}},
-                   {{MfmaTypeId::Fp16TyId, 16, 4, 64, 16},
-                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}}}}
+                    {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{2, 0, MFMAPermB::none}}}}
+                  //  {{MfmaTypeId::Fp16TyId, 16, 4, 64, 32},
+                  //   {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}, {0, 0, MFMAPermB::bcast_second_16}}}},
+                  //  {{MfmaTypeId::Fp16TyId, 16, 4, 64, 16},
+                  //   {ROCDL::mfma_f32_16x16x4f16::getOperationName(), {{0, 0, MFMAPermB::bcast_first_16}}}}
                     };
                     
   return groupAttrMap;

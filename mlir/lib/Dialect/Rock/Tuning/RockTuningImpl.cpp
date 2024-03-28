@@ -28,42 +28,87 @@ namespace rock {
 // The full space is a brute-force search for attention kernels
 void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
-  static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {32, 64, 128, 256}, // gemmMPerBlock
-      {32, 64, 128, 256}, // gemmNPerBlock
-      {8, 16, 32, 64}, // gemmKPerBlock
-      {32, 64, 128, 256}, // gemmMPerWave
-      {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 1632, 3201, 3202, 3204, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl    
-      {4, 8, 16}
-  };
-  constexpr uint64_t splitKFactor = 1;
-  constexpr uint32_t forceUnroll = 1;
-  OpBuilder b(attnOp.getContext());
-  for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
-    for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
-      for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
-        for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
-          for (uint32_t gemmMnkPerXdl : validRangeAccelGemmParams[4]) {
-            uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
-            for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
-              if (gemmMPerBlock >= gemmMPerWave &&
-                  gemmNPerBlock >= gemmMnPerXdl) {
-                InitParamsAccel gemmParams(
-                    gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                    gemmMnkPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
-                GemmFeatures features = attnOp.getFeatures();
-                auto populateParamsAccelPtr =
-                    PopulateParamsAccel::select(features);
-                Attribute params =
-                    populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
-                newSpace->tuningRange.push_back(
-                    cast<RockTuningParamAttrInterface>(params));
+  GemmFeatures features = attnOp.getFeatures();
+  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+    // PopulateParamsXDL tuningInfo;
+    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
+        {4, 8, 16, 32, 64, 128, 256}, // gemmMPerBlock
+        {4, 8, 16, 32, 64, 128, 256}, // gemmNPerBlock
+        {2, 4, 8, 16, 32, 64}, // gemmKPerBlock
+        {16, 32, 64, 128, 256}, // gemmMPerWave
+        {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 1632, 3201, 3202, 3204, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl    
+        {4, 8, 16}
+    };
+    constexpr uint64_t splitKFactor = 1;
+    constexpr uint32_t forceUnroll = 1;
+    OpBuilder b(attnOp.getContext());
+    for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
+      for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
+        for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
+          for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
+            for (uint32_t gemmMnkPerXdl : validRangeAccelGemmParams[4]) {
+              uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
+              for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
+                if (gemmMPerBlock >= gemmMPerWave &&
+                    gemmNPerBlock >= gemmMnPerXdl) {
+                  InitParamsAccel gemmParams(
+                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmMnkPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
+                    GemmFeatures features = attnOp.getFeatures();
+                    auto populateParamsAccelPtr =
+                        PopulateParamsAccel::select(features);
+                    Attribute gemmParamsAttr =
+                        populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
+                    auto xdlopsParams = gemmParamsAttr.cast<XdlopsGemmParamsAttr>();
+                    auto derivedParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
+                    Type qType = attnOp.getQueries().getType().getElementType();
+                    Type kType = attnOp.getKeys().getType().getElementType();
+                    if(succeeded(populateParamsAccelPtr->isValidBlockwiseGemm(derivedParams, qType, kType, attnOp.getArch(), false, false))){
+                      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(xdlopsParams));
+                    }
+                  }
               }
             }
           }
         }
       }
     }
+  }
+  else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
+        {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
+        {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
+    constexpr uint64_t splitKFactor = 1;
+    constexpr uint32_t forceUnroll = 1;
+    OpBuilder b(attnOp.getContext());
+    for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
+      for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
+        for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
+          for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
+            for (uint32_t gemmNPerWave : validRangeAccelGemmParams[4]) {
+              for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
+                if (gemmMPerBlock >= gemmMPerWave &&
+                    gemmNPerBlock >= gemmNPerWave) {
+                  InitParamsAccel gemmParams(
+                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmNPerWave, gemmKPack, splitKFactor, forceUnroll, true);
+                  GemmFeatures features = attnOp.getFeatures();
+                  auto populateParamsAccelPtr =
+                      PopulateParamsAccel::select(features);
+                  Attribute params =
+                      populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
+                  newSpace->tuningRange.push_back(
+                      cast<RockTuningParamAttrInterface>(params));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  else{
+    llvm_unreachable("rock.attention is not supported on GPU with matrix accelerators");
   }
 }
 
