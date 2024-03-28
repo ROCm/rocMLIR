@@ -52,7 +52,7 @@ namespace {
 static cl::opt<bool>
     DisablePromoteAllocaToVector("disable-promote-alloca-to-vector",
                                  cl::desc("Disable promote alloca to vector"),
-                                 cl::init(true));
+                                 cl::init(false));
 
 static cl::opt<bool>
     DisablePromoteAllocaToLDS("disable-promote-alloca-to-lds",
