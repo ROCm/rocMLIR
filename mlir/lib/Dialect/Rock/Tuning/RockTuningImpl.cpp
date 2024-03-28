@@ -538,6 +538,18 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   ArrayRef<int64_t> vShape = values.getType().getShape();
   int64_t g = qShape[0];
 
+  Type elemTypeQ = queries.getType().getElementType();
+  problemOS << "-t ";
+  if (elemTypeQ.isF32()) {
+    problemOS << "f32" << sep;
+  } else if (elemTypeQ.isF16()) {
+    problemOS << "f16" << sep;
+  } else if (elemTypeQ.isInteger(8)) {
+    problemOS << "i8" << sep;
+  } else {
+    return attnOp.emitError("invalid type:") << elemTypeQ << "\n";
+  }
+
   // TransQ
   problemOS << "-transQ ";
   if (attnOp.getQTransposed()) {
@@ -580,7 +592,7 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   problemOS << "-g " << g << sep;
   problemOS << "-seq_len_q " << seqLenQ << sep;
   problemOS << "-seq_len_k " << seqLenK << sep;
-  problemOS << "-head_dim_qk " << headDimQK;
+  problemOS << "-head_dim_qk " << headDimQK << sep;
   problemOS << "-head_dim_v " << headDimV;
   return success();
 }
