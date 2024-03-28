@@ -231,7 +231,7 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
           op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
-    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
+    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl() * 100 + gemm0XdlDerivedParams.getKPerXdl();
   }
   return InitParamsAccel(
       /*gemmMPerBlock=*/gemm1MPerBlock,
@@ -260,7 +260,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
-  std::string perfConfigStr = "v2:32,32,32,32,32,1,1,1,1";
+  std::string perfConfigStr = "v2:128,128,16,64,3200,1,1,1,1";
   InitParamsAccel initAccelParams;
   if (!params0) {
     if (StringAttr perfConfigStrAttr =
@@ -280,6 +280,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   RockAccelTuningParamAttrInterface accelParams0;
   if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
+    LLVM_DEBUG(llvm::dbgs() << "xdlopsParams0:" << xdlopsParams0 << "\n");
     accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
   } else {
     accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
@@ -290,6 +291,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
       populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
   RockAccelTuningParamAttrInterface accelParams1;
   if (auto xdlopsParams1 = params1.dyn_cast<XdlopsGemmParamsAttr>()) {
+    LLVM_DEBUG(llvm::dbgs() << "xdlopsParams1:" << xdlopsParams1 << "\n");
     accelParams1 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams1);
   } else {
     accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
@@ -310,6 +312,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
+    LLVM_DEBUG(llvm::dbgs() << "accelParams0:" << accelParams0 << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "accelParams1:" << accelParams1 << "\n");
     op.emitError("The provided perf config is not valid");
     signalPassFailure();
     return;
