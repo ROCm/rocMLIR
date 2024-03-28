@@ -45,7 +45,6 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
         for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
           for (uint32_t gemmMnkPerXdl : validRangeAccelGemmParams[4]) {
             uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
-            uint32_t gemmkPerXdl = gemmMnkPerXdl % 100;
             for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
               if (gemmMPerBlock >= gemmMPerWave &&
                   gemmNPerBlock >= gemmMnPerXdl) {
@@ -207,7 +206,6 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
             for (uint32_t gemmMnkPerXdl : xdlopsParams[4]) {
               uint32_t gemmMnPerXdl = gemmMnkPerXdl / 100;
-              uint32_t gemmkPerXdl = gemmMnkPerXdl % 100;
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 auto optimalSplitKFactors = computeOptimalSplitKFactors(
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,

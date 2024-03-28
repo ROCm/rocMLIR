@@ -397,7 +397,7 @@ class PopulateParamsXDL : public PopulateParamsAccel {
   // Tuning parameters for fp16/bf16 convolutions.
   static const InitParamsAccel initParametersFp16[nInitParametersFp16];
 
-  static constexpr size_t nInitParametersForward8Bit = 40;
+  static constexpr size_t nInitParametersForward8Bit = 80;
   // Tuning parameters for i8 convolutions.
   static const InitParamsAccel
       initParametersForward8Bit[nInitParametersForward8Bit];
