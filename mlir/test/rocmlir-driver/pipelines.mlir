@@ -45,7 +45,7 @@
 // BINARY-SAME: llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // BINARY-SAME: cse,
 // BINARY-SAME: rock-prepare-llvm),
-// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},
+// BINARY-SAME: gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= suppress-diagnostic=false triple=amdgcn-amd-amdhsa},
 // BINARY-SAME: rock-check-residency),
 // BINARY-SAME: emulate-fp8-ext-trunc){{$}}
 
@@ -59,7 +59,7 @@
 // BINARY_MI300-SAME: llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // BINARY_MI300-SAME: cse,
 // BINARY_MI300-SAME: rock-prepare-llvm),
-// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= triple=amdgcn-amd-amdhsa},
+// BINARY_MI300-SAME: gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= suppress-diagnostic=false triple=amdgcn-amd-amdhsa},
 // BINARY_MI300-SAME: rock-check-residency),
 // BINARY_MI300-SAME: emulate-fp8-ext-trunc){{$}}
 

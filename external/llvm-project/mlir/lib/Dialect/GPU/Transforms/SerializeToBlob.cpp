@@ -30,6 +30,14 @@
 
 #define DEBUG_TYPE "serialize-to-blob"
 
+// This is an empty diagnostic handler, to suppress errors/warnings coming
+// from the backend
+class SuppressDiagnosticHandler : public llvm::DiagnosticHandler {
+  virtual bool handleDiagnostics(const llvm::DiagnosticInfo &DI) override {
+    return true;
+  }
+};
+
 using namespace mlir;
 
 std::string gpu::getDefaultGpuBinaryAnnotation() { return "gpu.binary"; }
@@ -44,6 +52,11 @@ std::optional<std::string>
 gpu::SerializeToBlobPass::translateToISA(llvm::Module &llvmModule,
                                          llvm::TargetMachine &targetMachine) {
   llvmModule.setDataLayout(targetMachine.createDataLayout());
+  if (this->suppressDiagnostic) {
+    SuppressDiagnosticHandler suppressDiagnostic;
+    llvmModule.getContext().setDiagnosticHandler(
+        std::make_unique<SuppressDiagnosticHandler>(suppressDiagnostic));
+  }
 
   if (failed(optimizeLlvm(llvmModule, targetMachine)))
     return std::nullopt;

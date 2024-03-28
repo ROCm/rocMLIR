@@ -134,6 +134,9 @@ protected:
   Option<int> optLevel{*this, "opt-level",
                        llvm::cl::desc("Optimization level for compilation"),
                        llvm::cl::init(2)};
+  Option<bool> suppressDiagnostic{*this, "suppress-diagnostic",
+                                  llvm::cl::desc("Suppress diagnostic output"),
+                                  llvm::cl::init(false)};
   Option<std::string> gpuBinaryAnnotation{
       *this, "gpu-binary-annotation",
       llvm::cl::desc("Annotation attribute string for GPU binary"),
@@ -159,7 +162,8 @@ LLVM_DEPRECATED("use Target attributes instead", "")
 std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
                                                     StringRef arch,
                                                     StringRef features,
-                                                    int optLevel);
+                                                    int optLevel,
+                                                    bool suppressDiagnostic);
 
 /// Collect a set of patterns to decompose memrefs ops.
 void populateGpuDecomposeMemrefsPatterns(RewritePatternSet &patterns);
