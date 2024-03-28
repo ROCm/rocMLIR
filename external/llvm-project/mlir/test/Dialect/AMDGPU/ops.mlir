@@ -11,10 +11,10 @@ func.func @ext_packed_fp8(%v: vector<4xf8E4M3FNUZ>) -> f32 {
   func.return %ret : f32
 }
 
-// CHECK-LABEL: func @packed_trunc_fp8x2
-// CHECK: amdgpu.packed_trunc_fp8x2
-func.func @packed_trunc_fp8x2(%v1: f32, %v2: f32, %others: vector<4xf8E5M2FNUZ>, %stoch: i32) -> vector<4xf8E5M2FNUZ> {
-  %ret = amdgpu.packed_trunc_fp8x2 %v1, %v2 into %others[word 1] : f32 to vector<4xf8E5M2FNUZ> into vector<4xf8E5M2FNUZ>
+// CHECK-LABEL: func @packed_trunc_2xfp8
+// CHECK: amdgpu.packed_trunc_2xfp8
+func.func @packed_trunc_2xfp8(%v1: f32, %v2: f32, %others: vector<4xf8E5M2FNUZ>, %stoch: i32) -> vector<4xf8E5M2FNUZ> {
+  %ret = amdgpu.packed_trunc_2xfp8 %v1, %v2 into %others[word 1] : f32 to vector<4xf8E5M2FNUZ> into vector<4xf8E5M2FNUZ>
   func.return %ret : vector<4xf8E5M2FNUZ>
 }
 

@@ -80,9 +80,7 @@ public:
                            OptionElementVector &opt_element_vector) override {
     if (!m_exe_ctx.HasProcessScope())
       return;
-
-    lldb_private::CommandCompletions::InvokeCommonCompletionCallbacks(
-        GetCommandInterpreter(), lldb::eRegisterCompletion, request, nullptr);
+    CommandObject::HandleArgumentCompletion(request, opt_element_vector);
   }
 
   Options *GetOptions() override { return &m_option_group; }
@@ -161,7 +159,7 @@ public:
   }
 
 protected:
-  bool DoExecute(Args &command, CommandReturnObject &result) override {
+  void DoExecute(Args &command, CommandReturnObject &result) override {
     Stream &strm = result.GetOutputStream();
     RegisterContext *reg_ctx = m_exe_ctx.GetRegisterContext();
 
@@ -234,7 +232,6 @@ protected:
         }
       }
     }
-    return result.Succeeded();
   }
 
   class CommandOptions : public OptionGroup {
@@ -348,7 +345,7 @@ public:
   }
 
 protected:
-  bool DoExecute(Args &command, CommandReturnObject &result) override {
+  void DoExecute(Args &command, CommandReturnObject &result) override {
     DataExtractor reg_data;
     RegisterContext *reg_ctx = m_exe_ctx.GetRegisterContext();
 
@@ -378,7 +375,7 @@ protected:
             // has been written.
             m_exe_ctx.GetThreadRef().Flush();
             result.SetStatus(eReturnStatusSuccessFinishNoResult);
-            return true;
+            return;
           }
         }
         if (error.AsCString()) {
@@ -396,7 +393,6 @@ protected:
                                      reg_name.str().c_str());
       }
     }
-    return result.Succeeded();
   }
 };
 
@@ -406,8 +402,9 @@ public:
   CommandObjectRegisterInfo(CommandInterpreter &interpreter)
       : CommandObjectParsed(interpreter, "register info",
                             "View information about a register.", nullptr,
-                            eCommandRequiresRegContext |
-                                eCommandProcessMustBeLaunched) {
+                            eCommandRequiresFrame | eCommandRequiresRegContext |
+                                eCommandProcessMustBeLaunched |
+                                eCommandProcessMustBePaused) {
     SetHelpLong(R"(
 Name             The name lldb uses for the register, optionally with an alias.
 Size             The size of the register in bytes and again in bits.
@@ -441,15 +438,14 @@ different for the same register when connected to different debug servers.)");
                            OptionElementVector &opt_element_vector) override {
     if (!m_exe_ctx.HasProcessScope() || request.GetCursorIndex() != 0)
       return;
-    CommandCompletions::InvokeCommonCompletionCallbacks(
-        GetCommandInterpreter(), lldb::eRegisterCompletion, request, nullptr);
+    CommandObject::HandleArgumentCompletion(request, opt_element_vector);
   }
 
 protected:
-  bool DoExecute(Args &command, CommandReturnObject &result) override {
+  void DoExecute(Args &command, CommandReturnObject &result) override {
     if (command.GetArgumentCount() != 1) {
       result.AppendError("register info takes exactly 1 argument: <reg-name>");
-      return result.Succeeded();
+      return;
     }
 
     llvm::StringRef reg_name = command[0].ref();
@@ -463,8 +459,6 @@ protected:
     } else
       result.AppendErrorWithFormat("No register found with name '%s'.\n",
                                    reg_name.str().c_str());
-
-    return result.Succeeded();
   }
 };
 

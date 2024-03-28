@@ -45,6 +45,7 @@
 using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::dwarf;
+using namespace lldb_private::plugin::dwarf;
 
 // DWARFExpression constructor
 DWARFExpression::DWARFExpression() : m_data() {}
@@ -408,13 +409,33 @@ bool DWARFExpression::Update_DW_OP_addr(const DWARFUnit *dwarf_cu,
       // the heap data so "m_data" will now correctly manage the heap data.
       m_data.SetData(encoder.GetDataBuffer());
       return true;
-    } else {
-      const offset_t op_arg_size =
-          GetOpcodeDataSize(m_data, offset, op, dwarf_cu);
-      if (op_arg_size == LLDB_INVALID_OFFSET)
-        break;
-      offset += op_arg_size;
     }
+    if (op == DW_OP_addrx) {
+      // Replace DW_OP_addrx with DW_OP_addr, since we can't modify the
+      // read-only debug_addr table.
+      // Subtract one to account for the opcode.
+      llvm::ArrayRef data_before_op = m_data.GetData().take_front(offset - 1);
+
+      // Read the addrx index to determine how many bytes it needs.
+      const lldb::offset_t old_offset = offset;
+      m_data.GetULEB128(&offset);
+      if (old_offset == offset)
+        return false;
+      llvm::ArrayRef data_after_op = m_data.GetData().drop_front(offset);
+
+      DataEncoder encoder(m_data.GetByteOrder(), m_data.GetAddressByteSize());
+      encoder.AppendData(data_before_op);
+      encoder.AppendU8(DW_OP_addr);
+      encoder.AppendAddress(file_addr);
+      encoder.AppendData(data_after_op);
+      m_data.SetData(encoder.GetDataBuffer());
+      return true;
+    }
+    const offset_t op_arg_size =
+        GetOpcodeDataSize(m_data, offset, op, dwarf_cu);
+    if (op_arg_size == LLDB_INVALID_OFFSET)
+      break;
+    offset += op_arg_size;
   }
   return false;
 }
@@ -587,11 +608,10 @@ static bool Evaluate_DW_OP_entry_value(std::vector<Value> &stack,
   StackFrameSP parent_frame = nullptr;
   addr_t return_pc = LLDB_INVALID_ADDRESS;
   uint32_t current_frame_idx = current_frame->GetFrameIndex();
-  uint32_t num_frames = thread->GetStackFrameCount();
-  for (uint32_t parent_frame_idx = current_frame_idx + 1;
-       parent_frame_idx < num_frames; ++parent_frame_idx) {
+
+  for (uint32_t parent_frame_idx = current_frame_idx + 1;;parent_frame_idx++) {
     parent_frame = thread->GetStackFrameAtIndex(parent_frame_idx);
-    // Require a valid sequence of frames.
+    // If this is null, we're at the end of the stack.
     if (!parent_frame)
       break;
 

@@ -17,8 +17,8 @@
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Core/StreamFile.h"
 #include "lldb/Core/StructuredDataImpl.h"
+#include "lldb/Host/StreamFile.h"
 #include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/RegisterContext.h"
@@ -38,6 +38,7 @@
 #include "lldb/API/SBFileSpec.h"
 #include "lldb/API/SBMemoryRegionInfo.h"
 #include "lldb/API/SBMemoryRegionInfoList.h"
+#include "lldb/API/SBScriptObject.h"
 #include "lldb/API/SBStream.h"
 #include "lldb/API/SBStringList.h"
 #include "lldb/API/SBStructuredData.h"
@@ -1243,6 +1244,17 @@ lldb::SBProcessInfo SBProcess::GetProcessInfo() {
   return sb_proc_info;
 }
 
+lldb::SBFileSpec SBProcess::GetCoreFile() {
+  LLDB_INSTRUMENT_VA(this);
+
+  ProcessSP process_sp(GetSP());
+  FileSpec core_file;
+  if (process_sp) {
+    core_file = process_sp->GetCoreFile();
+  }
+  return SBFileSpec(core_file);
+}
+
 lldb::addr_t SBProcess::AllocateMemory(size_t size, uint32_t permissions,
                                        lldb::SBError &sb_error) {
   LLDB_INSTRUMENT_VA(this, size, permissions, sb_error);
@@ -1285,8 +1297,10 @@ lldb::SBError SBProcess::DeallocateMemory(lldb::addr_t ptr) {
   return sb_error;
 }
 
-ScriptedObject SBProcess::GetScriptedImplementation() {
+lldb::SBScriptObject SBProcess::GetScriptedImplementation() {
   LLDB_INSTRUMENT_VA(this);
   ProcessSP process_sp(GetSP());
-  return (process_sp) ? process_sp->GetImplementation() : nullptr;
+  return lldb::SBScriptObject((process_sp) ? process_sp->GetImplementation()
+                                           : nullptr,
+                              eScriptLanguageDefault);
 }

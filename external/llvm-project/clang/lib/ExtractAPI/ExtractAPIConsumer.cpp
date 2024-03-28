@@ -17,6 +17,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/Basic/DiagnosticFrontend.h"
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
@@ -29,6 +30,7 @@
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Frontend/MultiplexConsumer.h"
+#include "clang/InstallAPI/HeaderFile.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
@@ -60,9 +62,6 @@ std::optional<std::string> getRelativeIncludeName(const CompilerInstance &CI,
          "CompilerInstance does not have a FileNamager!");
 
   using namespace llvm::sys;
-  // Matches framework include patterns
-  const llvm::Regex Rule("/(.+)\\.framework/(.+)?Headers/(.+)");
-
   const auto &FS = CI.getVirtualFileSystem();
 
   SmallString<128> FilePath(File.begin(), File.end());
@@ -104,10 +103,10 @@ std::optional<std::string> getRelativeIncludeName(const CompilerInstance &CI,
       // Special case Apple .sdk folders since the search path is typically a
       // symlink like `iPhoneSimulator14.5.sdk` while the file is instead
       // located in `iPhoneSimulator.sdk` (the real folder).
-      if (NI->endswith(".sdk") && DI->endswith(".sdk")) {
+      if (NI->ends_with(".sdk") && DI->ends_with(".sdk")) {
         StringRef NBasename = path::stem(*NI);
         StringRef DBasename = path::stem(*DI);
-        if (DBasename.startswith(NBasename))
+        if (DBasename.starts_with(NBasename))
           continue;
       }
 
@@ -146,7 +145,8 @@ std::optional<std::string> getRelativeIncludeName(const CompilerInstance &CI,
       // include name `<Framework/Header.h>`
       if (Entry.IsFramework) {
         SmallVector<StringRef, 4> Matches;
-        Rule.match(File, &Matches);
+        clang::installapi::HeaderFile::getFrameworkIncludeRule().match(
+            File, &Matches);
         // Returned matches are always in stable order.
         if (Matches.size() != 4)
           return std::nullopt;
@@ -167,6 +167,12 @@ std::optional<std::string> getRelativeIncludeName(const CompilerInstance &CI,
   return std::nullopt;
 }
 
+std::optional<std::string> getRelativeIncludeName(const CompilerInstance &CI,
+                                                  FileEntryRef FE,
+                                                  bool *IsQuoted = nullptr) {
+  return getRelativeIncludeName(CI, FE.getNameAsRequested(), IsQuoted);
+}
+
 struct LocationFileChecker {
   bool operator()(SourceLocation Loc) {
     // If the loc refers to a macro expansion we need to first get the file
@@ -177,35 +183,31 @@ struct LocationFileChecker {
     if (FID.isInvalid())
       return false;
 
-    const auto *File = SM.getFileEntryForID(FID);
+    OptionalFileEntryRef File = SM.getFileEntryRefForID(FID);
     if (!File)
       return false;
 
-    if (KnownFileEntries.count(File))
+    if (KnownFileEntries.count(*File))
       return true;
 
-    if (ExternalFileEntries.count(File))
+    if (ExternalFileEntries.count(*File))
       return false;
-
-    StringRef FileName = File->tryGetRealPathName().empty()
-                             ? File->getName()
-                             : File->tryGetRealPathName();
 
     // Try to reduce the include name the same way we tried to include it.
     bool IsQuoted = false;
-    if (auto IncludeName = getRelativeIncludeName(CI, FileName, &IsQuoted))
+    if (auto IncludeName = getRelativeIncludeName(CI, *File, &IsQuoted))
       if (llvm::any_of(KnownFiles,
                        [&IsQuoted, &IncludeName](const auto &KnownFile) {
                          return KnownFile.first.equals(*IncludeName) &&
                                 KnownFile.second == IsQuoted;
                        })) {
-        KnownFileEntries.insert(File);
+        KnownFileEntries.insert(*File);
         return true;
       }
 
     // Record that the file was not found to avoid future reverse lookup for
     // the same file.
-    ExternalFileEntries.insert(File);
+    ExternalFileEntries.insert(*File);
     return false;
   }
 

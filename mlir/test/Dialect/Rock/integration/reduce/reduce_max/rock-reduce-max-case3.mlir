@@ -16,7 +16,7 @@ module {
     %0 = memref.collapse_shape %arg1 [[0, 1], [2]] : memref<1x30x10xf32> into memref<30x10xf32>
     linalg.generic {indexing_maps = [#map0, #map1], iterator_types = ["reduction", "parallel", "parallel"]} ins(%arg0 : memref<20x30x10xf32>) outs(%0 : memref<30x10xf32>) {
     ^bb0(%arg2: f32, %arg3: f32):
-      %2 = arith.maxf %arg2, %arg3 : f32
+      %2 = arith.maximumf %arg2, %arg3 : f32
       linalg.yield %2 : f32
     }
     return

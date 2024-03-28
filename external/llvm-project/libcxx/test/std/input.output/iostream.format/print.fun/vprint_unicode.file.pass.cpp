@@ -13,9 +13,12 @@
 // TODO PRINT Enable again
 // https://reviews.llvm.org/D150044
 // https://lab.llvm.org/buildbot/#/builders/237/builds/3578
-// UNSUPPORTED: msan
+// UNSUPPORTED: asan, hwasan, msan
 
 // XFAIL: availability-fp_to_chars-missing
+
+// The error exception has no system error string.
+// XFAIL: LIBCXX-ANDROID-FIXME
 
 // <print>
 
@@ -107,11 +110,8 @@ static void test_read_only() {
   TEST_VALIDATE_EXCEPTION(
       std::system_error,
       [&]([[maybe_unused]] const std::system_error& e) {
-#ifdef _AIX
-        [[maybe_unused]] std::string_view what{"failed to write formatted output: Broken pipe"};
-#else
-        [[maybe_unused]] std::string_view what{"failed to write formatted output: Operation not permitted"};
-#endif
+        [[maybe_unused]] std::string_view what{
+            "failed to write formatted output: " TEST_IF_AIX("Broken pipe", "Operation not permitted")};
         TEST_LIBCPP_REQUIRE(
             e.what() == what,
             TEST_WRITE_CONCATENATED("\nExpected exception ", what, "\nActual exception   ", e.what(), '\n'));

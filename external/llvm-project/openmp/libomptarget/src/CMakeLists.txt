@@ -9,33 +9,28 @@
 # Build offloading library libomptarget.so.
 #
 ##===----------------------------------------------------------------------===##
-# libhsakmt.a
-find_library ( HSAKMT_LIB libhsakmt.a REQURIED HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
-get_filename_component ( HSAKMT_LIB_PATH ${HSAKMT_LIB} DIRECTORY )
-link_directories (${HSAKMT_LIB_PATH})
-
-# lib_amdgpu
-pkg_check_modules(drm_amdgpu REQUIRED IMPORTED_TARGET libdrm_amdgpu)
-
-# libnuma
-find_library(numa libnuma.so REQUIRED HINTS /usr/lib/x86_64-linux-gnu/)
-
 add_llvm_library(omptarget
   SHARED
 
-  api.cpp
   device.cpp
   interface.cpp
-  ompt_buffer_mgr.cpp
-  ompt_callback.cpp
-  interop.cpp
   omptarget.cpp
-  rtl.cpp
+  OmptTracing.cpp
+  OmptTracingBuffer.cpp
+  OffloadRTL.cpp
   LegacyAPI.cpp
+  PluginManager.cpp
+  DeviceImage.cpp
+
+  OpenMP/API.cpp
+  OpenMP/Mapping.cpp
+  OpenMP/InteropAPI.cpp
+  OpenMP/OMPT/Callback.cpp
+
 
   ADDITIONAL_HEADER_DIRS
   ${LIBOMPTARGET_INCLUDE_DIR}
-  
+
   LINK_COMPONENTS
   Support
   Object
@@ -72,14 +67,44 @@ target_include_directories(omptarget PRIVATE ${LIBOMPTARGET_INCLUDE_DIR})
 
 target_link_libraries(
   omptarget
-  PRIVATE hsakmt
-  PRIVATE drm_amdgpu
-  PRIVATE numa
   PRIVATE
   ${CMAKE_DL_LIBS}
   ${LLVM_OFFLOAD_ARCH}
   "-Wl,--no-allow-shlib-undefined")
+# Define the TARGET_NAME and DEBUG_PREFIX.
+target_compile_definitions(omptarget PRIVATE
+  TARGET_NAME=omptarget
+  DEBUG_PREFIX="omptarget"
+)
+
+target_compile_options(omptarget PUBLIC ${offload_compile_flags})
+target_link_options(omptarget PUBLIC ${offload_link_flags})
+
+macro(check_plugin_target target)
+if (TARGET omptarget.rtl.${target})
+	list(APPEND LIBOMPTARGET_PLUGINS_TO_LOAD ${target})
+endif()
+endmacro()
+
+set(LIBOMPTARGET_PLUGINS_TO_LOAD "" CACHE STRING
+  "Comma separated list of plugin names to look for at runtime")
+if (NOT LIBOMPTARGET_PLUGINS_TO_LOAD)
+	check_plugin_target(amdgpu)
+	check_plugin_target(cuda)
+	check_plugin_target(x86_64)
+	check_plugin_target(aarch64)
+	check_plugin_target(ppc64)
+endif()
+
+list(TRANSFORM LIBOMPTARGET_PLUGINS_TO_LOAD PREPEND "\"libomptarget.rtl.")
+list(TRANSFORM LIBOMPTARGET_PLUGINS_TO_LOAD APPEND "\"")
+list(JOIN LIBOMPTARGET_PLUGINS_TO_LOAD "," ENABLED_OFFLOAD_PLUGINS)
+target_compile_definitions(omptarget PRIVATE ENABLED_OFFLOAD_PLUGINS=${ENABLED_OFFLOAD_PLUGINS})
 
 # libomptarget.so needs to be aware of where the plugins live as they
 # are now separated in the build directory.
+set_target_properties(omptarget PROPERTIES
+                      POSITION_INDEPENDENT_CODE ON
+                      INSTALL_RPATH "$ORIGIN"
+                      BUILD_RPATH "$ORIGIN:${CMAKE_CURRENT_BINARY_DIR}/..")
 install(TARGETS omptarget LIBRARY COMPONENT omptarget DESTINATION "${RUN_PACKAGE}${OPENMP_INSTALL_LIBDIR}")

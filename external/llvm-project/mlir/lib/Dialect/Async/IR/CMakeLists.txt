@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRAsyncDialect
   LINK_LIBS PUBLIC
   MLIRControlFlowInterfaces
   MLIRCallInterfaces
+  MLIRFunctionInterfaces
   MLIRDialect
   MLIRInferTypeOpInterface
   MLIRIR

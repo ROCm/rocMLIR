@@ -21,7 +21,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "mlir/IR/FunctionInterfaces.td"
+include "mlir/Interfaces/FunctionInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 
 
@@ -36,7 +36,7 @@ class Async_Op<string mnemonic, list<Trait> traits = []> :
 def Async_ExecuteOp :
   Async_Op<"execute", [SingleBlockImplicitTerminator<"YieldOp">,
                        DeclareOpInterfaceMethods<RegionBranchOpInterface,
-                                                 ["getSuccessorEntryOperands",
+                                                 ["getEntrySuccessorOperands",
                                                   "areTypesCompatible"]>,
                        AttrSizedOperandSegments,
                        AutomaticAllocationScope]> {
@@ -106,8 +106,7 @@ def Async_ExecuteOp :
 }
 
 def Async_FuncOp : Async_Op<"func",
-    [CallableOpInterface, FunctionOpInterface,
-     IsolatedFromAbove, OpAsmOpInterface, Symbol]> {
+    [FunctionOpInterface, IsolatedFromAbove, OpAsmOpInterface]> {
   let summary = "async function operation";
   let description = [{
     An async function is like a normal function, but supports non-blocking
@@ -155,7 +154,7 @@ def Async_FuncOp : Async_Op<"func",
 
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
-    // CallableOpInterface
+    // FunctionOpInterface Methods
     //===------------------------------------------------------------------===//
 
     /// Returns the region on the current operation that is callable. This may
@@ -163,27 +162,6 @@ def Async_FuncOp : Async_Op<"func",
     /// function.
     ::mlir::Region *getCallableRegion() { return isExternal() ? nullptr
                                                               : &getBody(); }
-
-    /// Returns the results types that the callable region produces when
-    /// executed.
-    ArrayRef<Type> getCallableResults() { return getFunctionType()
-                                                    .getResults(); }
-
-    /// Returns the argument attributes for all callable region arguments or
-    /// null if there are none.
-    ::mlir::ArrayAttr getCallableArgAttrs() {
-      return getArgAttrs().value_or(nullptr);
-    }
-
-    /// Returns the result attributes for all callable region results or
-    /// null if there are none.
-    ::mlir::ArrayAttr getCallableResAttrs() {
-      return getResAttrs().value_or(nullptr);
-    }
-
-    //===------------------------------------------------------------------===//
-    // FunctionOpInterface Methods
-    //===------------------------------------------------------------------===//
 
     /// Returns the argument types of this async function.
     ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
@@ -268,6 +246,10 @@ def Async_CallOp : Async_Op<"call",
       return {arg_operand_begin(), arg_operand_end()};
     }
 
+    MutableOperandRange getArgOperandsMutable() {
+      return getOperandsMutable();
+    }
+
     operand_iterator arg_operand_begin() { return operand_begin(); }
     operand_iterator arg_operand_end() { return operand_end(); }
 
@@ -312,8 +294,7 @@ def Async_ReturnOp : Async_Op<"return",
 
 def Async_YieldOp :
     Async_Op<"yield", [
-      HasParent<"ExecuteOp">, Pure, Terminator,
-      DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface>]> {
+      HasParent<"ExecuteOp">, Pure, Terminator, ReturnLike]> {
   let summary = "terminator for Async execute operation";
   let description = [{
     The `async.yield` is a special terminator operation for the block inside
@@ -322,7 +303,6 @@ def Async_YieldOp :
 
   let arguments = (ins Variadic<AnyType>:$operands);
   let assemblyFormat = "($operands^ `:` type($operands))? attr-dict";
-  let hasVerifier = 1;
 }
 
 def Async_AwaitOp : Async_Op<"await"> {

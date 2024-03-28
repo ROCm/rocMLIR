@@ -17,15 +17,15 @@ func.func @forward(%arg0: tensor<2x128x128xf32> {func.read_access}, %arg1: tenso
   %12 = "tosa.matmul"(%11, %10) : (tensor<1x256x128xf32>, tensor<1x128x512xf32>) -> tensor<1x256x512xf32>
   %13 = "tosa.reshape"(%12) <{new_shape = array<i64: 2, 128, 512>}> : (tensor<1x256x512xf32>) -> tensor<2x128x512xf32>
   %14 = "tosa.add"(%13, %arg2) : (tensor<2x128x512xf32>, tensor<1x1x512xf32>) -> tensor<2x128x512xf32>
-  %15 = "tosa.mul"(%14, %7) <{shift = 0 : i32}> : (tensor<2x128x512xf32>, tensor<1x1x1xf32>) -> tensor<2x128x512xf32>
+  %15 = "tosa.mul"(%14, %7) <{shift = 0 : i8}> : (tensor<2x128x512xf32>, tensor<1x1x1xf32>) -> tensor<2x128x512xf32>
   %16 = "tosa.abs"(%15) : (tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
-  %19 = "tosa.mul"(%16, %16) <{shift = 0 : i32}> : (tensor<2x128x512xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
+  %19 = "tosa.mul"(%16, %16) <{shift = 0 : i8}> : (tensor<2x128x512xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
   %28 = "tosa.reciprocal"(%19) : (tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
   %31 = "tosa.sub"(%6, %28) : (tensor<1x1x1xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
   %32 = "tosa.greater_equal"(%15, %5) : (tensor<2x128x512xf32>, tensor<1x1x1xf32>) -> tensor<2x128x512xi1>
   %33 = "tosa.negate"(%31) : (tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
   %34 = "tosa.select"(%32, %31, %33) : (tensor<2x128x512xi1>, tensor<2x128x512xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
-  %37 = "tosa.mul"(%14, %34) <{shift = 0 : i32}> : (tensor<2x128x512xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
+  %37 = "tosa.mul"(%14, %34) <{shift = 0 : i8}> : (tensor<2x128x512xf32>, tensor<2x128x512xf32>) -> tensor<2x128x512xf32>
   func.return %37 : tensor<2x128x512xf32>
 }
 }

@@ -329,7 +329,7 @@ public:
         b.create<func::CallOp>(fusedLoc, outlinedFunc, _inputs.getArrayRef());
 
     for (auto it : llvm::zip(_results, callOp->getResults())) {
-      std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
+      const_cast<Value&>(std::get<0>(it)).replaceAllUsesWith(std::get<1>(it));
     }
   }
 

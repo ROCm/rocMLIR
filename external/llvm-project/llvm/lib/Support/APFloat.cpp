@@ -3148,7 +3148,7 @@ bool IEEEFloat::convertFromStringSpecials(StringRef str) {
       return false;
   }
 
-  if (str.startswith("nan") || str.startswith("NaN")) {
+  if (str.starts_with("nan") || str.starts_with("NaN")) {
     str = str.drop_front(3);
 
     // A NaN without payload.
@@ -3586,30 +3586,8 @@ APInt IEEEFloat::convertFloat8E5M2APFloatToAPInt() const {
 }
 
 APInt IEEEFloat::convertFloat8E5M2FNUZAPFloatToAPInt() const {
-  assert(semantics == (const llvm::fltSemantics *)&semFloat8E5M2FNUZ);
   assert(partCount() == 1);
-
-  uint32_t myexponent, mysignificand;
-
-  if (isFiniteNonZero()) {
-    myexponent = exponent + 16; // bias
-    mysignificand = (uint32_t)*significandParts();
-    if (myexponent == 1 && !(mysignificand & 0x4))
-      myexponent = 0; // denormal
-  } else if (category == fcZero) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else if (category == fcInfinity) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else {
-    assert(category == fcNaN && "Unknown category!");
-    myexponent = 0;
-    mysignificand = (uint32_t)*significandParts();
-  }
-
-  return APInt(8, (((sign & 1) << 7) | ((myexponent & 0x1f) << 2) |
-                   (mysignificand & 0x3)));
+  return convertIEEEFloatToAPInt<semFloat8E5M2FNUZ>();
 }
 
 APInt IEEEFloat::convertFloat8E4M3FNAPFloatToAPInt() const {
@@ -3617,36 +3595,14 @@ APInt IEEEFloat::convertFloat8E4M3FNAPFloatToAPInt() const {
   return convertIEEEFloatToAPInt<semFloat8E4M3FN>();
 }
 
+APInt IEEEFloat::convertFloat8E4M3FNUZAPFloatToAPInt() const {
+  assert(partCount() == 1);
+  return convertIEEEFloatToAPInt<semFloat8E4M3FNUZ>();
+}
+
 APInt IEEEFloat::convertFloat8E4M3B11FNUZAPFloatToAPInt() const {
   assert(partCount() == 1);
   return convertIEEEFloatToAPInt<semFloat8E4M3B11FNUZ>();
-}
-
-APInt IEEEFloat::convertFloat8E4M3FNUZAPFloatToAPInt() const {
-  assert(semantics == (const llvm::fltSemantics *)&semFloat8E4M3FNUZ);
-  assert(partCount() == 1);
-
-  uint32_t myexponent, mysignificand;
-
-  if (isFiniteNonZero()) {
-    myexponent = exponent + 8; // bias
-    mysignificand = (uint32_t)*significandParts();
-    if (myexponent == 1 && !(mysignificand & 0x8))
-      myexponent = 0; // denormal
-  } else if (category == fcZero) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else if (category == fcInfinity) {
-    myexponent = 0;
-    mysignificand = 0;
-  } else {
-    assert(category == fcNaN && "Unknown category!");
-    myexponent = 0;
-    mysignificand = (uint32_t)*significandParts();
-  }
-
-  return APInt(8, (((sign & 1) << 7) | ((myexponent & 0xf) << 3) |
-                   (mysignificand & 0x7)));
 }
 
 APInt IEEEFloat::convertFloatTF32APFloatToAPInt() const {
@@ -3883,63 +3839,19 @@ void IEEEFloat::initFromFloat8E5M2APInt(const APInt &api) {
 }
 
 void IEEEFloat::initFromFloat8E5M2FNUZAPInt(const APInt &api) {
-  uint32_t i = (uint32_t)*api.getRawData();
-  uint32_t myexponent = (i >> 2) & 0x1f;
-  uint32_t mysignificand = i & 0x3;
-
-  initialize(&semFloat8E5M2FNUZ);
-  assert(partCount() == 1);
-
-  sign = i >> 7;
-  if (myexponent == 0 && mysignificand == 0 && sign == 0) {
-    makeZero(sign);
-  } else if (myexponent == 0 && mysignificand == 0 && sign == 1) {
-    category = fcNaN;
-    exponent = exponentNaN();
-    *significandParts() = mysignificand;
-  } else {
-    category = fcNormal;
-    exponent = myexponent - 16; // bias
-    *significandParts() = mysignificand;
-    if (myexponent == 0) // denormal
-      exponent = -15;
-    else
-      *significandParts() |= 0x4; // integer bit
-  }
+  initFromIEEEAPInt<semFloat8E5M2FNUZ>(api);
 }
 
 void IEEEFloat::initFromFloat8E4M3FNAPInt(const APInt &api) {
   initFromIEEEAPInt<semFloat8E4M3FN>(api);
 }
 
-void IEEEFloat::initFromFloat8E4M3B11FNUZAPInt(const APInt &api) {
-  initFromIEEEAPInt<semFloat8E4M3B11FNUZ>(api);
+void IEEEFloat::initFromFloat8E4M3FNUZAPInt(const APInt &api) {
+  initFromIEEEAPInt<semFloat8E4M3FNUZ>(api);
 }
 
-void IEEEFloat::initFromFloat8E4M3FNUZAPInt(const APInt &api) {
-  uint32_t i = (uint32_t)*api.getRawData();
-  uint32_t myexponent = (i >> 3) & 0xf;
-  uint32_t mysignificand = i & 0x7;
-
-  initialize(&semFloat8E4M3FNUZ);
-  assert(partCount() == 1);
-
-  sign = i >> 7;
-  if (myexponent == 0 && mysignificand == 0 && sign == 0) {
-    makeZero(sign);
-  } else if (myexponent == 0 && mysignificand == 0 && sign == 1) {
-    category = fcNaN;
-    exponent = exponentNaN();
-    *significandParts() = mysignificand;
-  } else {
-    category = fcNormal;
-    exponent = myexponent - 8; // bias
-    *significandParts() = mysignificand;
-    if (myexponent == 0) // denormal
-      exponent = -7;
-    else
-      *significandParts() |= 0x8; // integer bit
-  }
+void IEEEFloat::initFromFloat8E4M3B11FNUZAPInt(const APInt &api) {
+  initFromIEEEAPInt<semFloat8E4M3B11FNUZ>(api);
 }
 
 void IEEEFloat::initFromFloatTF32APInt(const APInt &api) {
@@ -4378,6 +4290,35 @@ bool IEEEFloat::getExactInverse(APFloat *inv) const {
     *inv = APFloat(reciprocal, *semantics);
 
   return true;
+}
+
+int IEEEFloat::getExactLog2Abs() const {
+  if (!isFinite() || isZero())
+    return INT_MIN;
+
+  const integerPart *Parts = significandParts();
+  const int PartCount = partCountForBits(semantics->precision);
+
+  int PopCount = 0;
+  for (int i = 0; i < PartCount; ++i) {
+    PopCount += llvm::popcount(Parts[i]);
+    if (PopCount > 1)
+      return INT_MIN;
+  }
+
+  if (exponent != semantics->minExponent)
+    return exponent;
+
+  int CountrParts = 0;
+  for (int i = 0; i < PartCount;
+       ++i, CountrParts += APInt::APINT_BITS_PER_WORD) {
+    if (Parts[i] != 0) {
+      return exponent - semantics->precision + CountrParts +
+             llvm::countr_zero(Parts[i]) + 1;
+    }
+  }
+
+  llvm_unreachable("didn't find the set bit");
 }
 
 bool IEEEFloat::isSignaling() const {
@@ -5173,6 +5114,16 @@ bool DoubleAPFloat::getExactInverse(APFloat *inv) const {
   auto Ret = Tmp.getExactInverse(&Inv);
   *inv = APFloat(semPPCDoubleDouble, Inv.bitcastToAPInt());
   return Ret;
+}
+
+int DoubleAPFloat::getExactLog2() const {
+  // TODO: Implement me
+  return INT_MIN;
+}
+
+int DoubleAPFloat::getExactLog2Abs() const {
+  // TODO: Implement me
+  return INT_MIN;
 }
 
 DoubleAPFloat scalbn(const DoubleAPFloat &Arg, int Exp,

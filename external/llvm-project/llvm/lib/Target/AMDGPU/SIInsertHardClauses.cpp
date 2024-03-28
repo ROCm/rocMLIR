@@ -185,7 +185,8 @@ public:
   bool emitClause(const ClauseInfo &CI, const SIInstrInfo *SII) {
     if (CI.First == CI.Last)
       return false;
-    assert(CI.Length <= MaxInstructionsInClause && "Hard clause is too long!");
+    assert(CI.Length <= MaxInstructionsInClause &&
+           "Hard clause is too long!");
 
     auto &MBB = *CI.First->getParent();
     auto ClauseMI =
@@ -237,7 +238,10 @@ public:
               // scheduler it limits the size of the cluster to avoid increasing
               // register pressure too much, but this pass runs after register
               // allocation so there is no need for that kind of limit.
-              !SII->shouldClusterMemOps(CI.BaseOps, BaseOps, 2, 2)))) {
+              // We also lie about the Offset and OffsetIsScalable parameters,
+              // as they aren't used in the SIInstrInfo implementation.
+              !SII->shouldClusterMemOps(CI.BaseOps, 0, false, BaseOps, 0, false,
+                                        2, 2)))) {
           // Finish the current clause.
           Changed |= emitClause(CI, SII);
           CI = ClauseInfo();

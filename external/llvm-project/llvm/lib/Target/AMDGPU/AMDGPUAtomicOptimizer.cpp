@@ -567,7 +567,6 @@ Value *AMDGPUAtomicOptimizerImpl::buildShiftRight(IRBuilder<> &B, Value *V,
 std::pair<Value *, Value *> AMDGPUAtomicOptimizerImpl::buildScanIteratively(
     IRBuilder<> &B, AtomicRMWInst::BinOp Op, Value *const Identity, Value *V,
     Instruction &I, BasicBlock *ComputeLoop, BasicBlock *ComputeEnd) const {
-
   auto *Ty = I.getType();
   auto *WaveTy = B.getIntNTy(ST->getWavefrontSize());
   auto *EntryBB = I.getParent();
@@ -639,7 +638,6 @@ static Constant *getIdentityValueForAtomicOp(Type *const Ty,
                                              AtomicRMWInst::BinOp Op) {
   LLVMContext &C = Ty->getContext();
   const unsigned BitWidth = Ty->getPrimitiveSizeInBits();
-
   switch (Op) {
   default:
     llvm_unreachable("Unhandled atomic op");
@@ -991,7 +989,7 @@ void AMDGPUAtomicOptimizerImpl::optimizeAtomic(Instruction &I,
 
     if (IsPixelShader) {
       // Need a final PHI to reconverge to above the helper lane branch mask.
-      B.SetInsertPoint(PixelExitBB->getFirstNonPHI());
+      B.SetInsertPoint(PixelExitBB, PixelExitBB->getFirstNonPHIIt());
 
       PHINode *const PHI = B.CreatePHI(Ty, 2);
       PHI->addIncoming(PoisonValue::get(Ty), PixelEntryBB);

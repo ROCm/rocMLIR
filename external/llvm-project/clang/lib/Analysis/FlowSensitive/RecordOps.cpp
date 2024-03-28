@@ -14,55 +14,65 @@
 
 #define DEBUG_TYPE "dataflow"
 
-void clang::dataflow::copyRecord(AggregateStorageLocation &Src,
-                                 AggregateStorageLocation &Dst,
-                                 Environment &Env) {
+void clang::dataflow::copyRecord(RecordStorageLocation &Src,
+                                 RecordStorageLocation &Dst, Environment &Env) {
+  auto SrcType = Src.getType().getCanonicalType().getUnqualifiedType();
+  auto DstType = Dst.getType().getCanonicalType().getUnqualifiedType();
+
+  auto SrcDecl = SrcType->getAsCXXRecordDecl();
+  auto DstDecl = DstType->getAsCXXRecordDecl();
+
+  bool compatibleTypes =
+      SrcType == DstType ||
+      (SrcDecl && DstDecl && SrcDecl->isDerivedFrom(DstDecl));
+  (void)compatibleTypes;
+
   LLVM_DEBUG({
-    if (Dst.getType().getCanonicalType().getUnqualifiedType() !=
-        Src.getType().getCanonicalType().getUnqualifiedType()) {
+    if (!compatibleTypes) {
       llvm::dbgs() << "Source type " << Src.getType() << "\n";
       llvm::dbgs() << "Destination type " << Dst.getType() << "\n";
     }
   });
-  assert(Dst.getType().getCanonicalType().getUnqualifiedType() ==
-         Src.getType().getCanonicalType().getUnqualifiedType());
+  assert(compatibleTypes);
 
-  for (auto [Field, SrcFieldLoc] : Src.children()) {
-    assert(SrcFieldLoc != nullptr);
+  for (auto [Field, DstFieldLoc] : Dst.children()) {
+    StorageLocation *SrcFieldLoc = Src.getChild(*Field);
 
-    StorageLocation &DstFieldLoc = Dst.getChild(*Field);
+    assert(Field->getType()->isReferenceType() ||
+           (SrcFieldLoc != nullptr && DstFieldLoc != nullptr));
 
     if (Field->getType()->isRecordType()) {
-      copyRecord(cast<AggregateStorageLocation>(*SrcFieldLoc),
-                 cast<AggregateStorageLocation>(DstFieldLoc), Env);
+      copyRecord(cast<RecordStorageLocation>(*SrcFieldLoc),
+                 cast<RecordStorageLocation>(*DstFieldLoc), Env);
+    } else if (Field->getType()->isReferenceType()) {
+      Dst.setChild(*Field, SrcFieldLoc);
     } else {
       if (Value *Val = Env.getValue(*SrcFieldLoc))
-        Env.setValue(DstFieldLoc, *Val);
+        Env.setValue(*DstFieldLoc, *Val);
       else
-        Env.clearValue(DstFieldLoc);
+        Env.clearValue(*DstFieldLoc);
     }
   }
 
-  StructValue *SrcVal = cast_or_null<StructValue>(Env.getValue(Src));
-  StructValue *DstVal = cast_or_null<StructValue>(Env.getValue(Dst));
-
-  if (SrcVal == nullptr || DstVal == nullptr)
-    return;
-
-  auto DstChildren = DstVal->children();
-  DstVal = &Env.create<StructValue>(llvm::DenseMap<const ValueDecl *, Value *>(
-      DstChildren.begin(), DstChildren.end()));
-  Env.setValue(Dst, *DstVal);
-
-  for (const auto &[Name, Value] : SrcVal->properties()) {
-    if (Value != nullptr)
-      DstVal->setProperty(Name, *Value);
+  for (const auto &[Name, SynthFieldLoc] : Src.synthetic_fields()) {
+    if (SynthFieldLoc->getType()->isRecordType()) {
+      copyRecord(*cast<RecordStorageLocation>(SynthFieldLoc),
+                 cast<RecordStorageLocation>(Dst.getSyntheticField(Name)), Env);
+    } else {
+      if (Value *Val = Env.getValue(*SynthFieldLoc))
+        Env.setValue(Dst.getSyntheticField(Name), *Val);
+      else
+        Env.clearValue(Dst.getSyntheticField(Name));
+    }
   }
+
+  RecordValue *DstVal = &Env.create<RecordValue>(Dst);
+  Env.setValue(Dst, *DstVal);
 }
 
-bool clang::dataflow::recordsEqual(const AggregateStorageLocation &Loc1,
+bool clang::dataflow::recordsEqual(const RecordStorageLocation &Loc1,
                                    const Environment &Env1,
-                                   const AggregateStorageLocation &Loc2,
+                                   const RecordStorageLocation &Loc2,
                                    const Environment &Env2) {
   LLVM_DEBUG({
     if (Loc2.getType().getCanonicalType().getUnqualifiedType() !=
@@ -75,50 +85,33 @@ bool clang::dataflow::recordsEqual(const AggregateStorageLocation &Loc1,
          Loc1.getType().getCanonicalType().getUnqualifiedType());
 
   for (auto [Field, FieldLoc1] : Loc1.children()) {
-    assert(FieldLoc1 != nullptr);
+    StorageLocation *FieldLoc2 = Loc2.getChild(*Field);
 
-    StorageLocation &FieldLoc2 = Loc2.getChild(*Field);
+    assert(Field->getType()->isReferenceType() ||
+           (FieldLoc1 != nullptr && FieldLoc2 != nullptr));
 
     if (Field->getType()->isRecordType()) {
-      if (!recordsEqual(cast<AggregateStorageLocation>(*FieldLoc1), Env1,
-                        cast<AggregateStorageLocation>(FieldLoc2), Env2))
+      if (!recordsEqual(cast<RecordStorageLocation>(*FieldLoc1), Env1,
+                        cast<RecordStorageLocation>(*FieldLoc2), Env2))
         return false;
     } else if (Field->getType()->isReferenceType()) {
-      auto *RefVal1 = cast_or_null<ReferenceValue>(Env1.getValue(*FieldLoc1));
-      auto *RefVal2 = cast_or_null<ReferenceValue>(Env1.getValue(FieldLoc2));
-      if (RefVal1 && RefVal2) {
-        if (&RefVal1->getReferentLoc() != &RefVal2->getReferentLoc())
-          return false;
-      } else {
-        // If either of `RefVal1` and `RefVal2` is null, we only consider them
-        // equal if they're both null.
-        if (RefVal1 || RefVal2)
-          return false;
-      }
-    } else {
-      if (Env1.getValue(*FieldLoc1) != Env2.getValue(FieldLoc2))
+      if (FieldLoc1 != FieldLoc2)
         return false;
+    } else if (Env1.getValue(*FieldLoc1) != Env2.getValue(*FieldLoc2)) {
+      return false;
     }
   }
 
-  llvm::StringMap<Value *> Props1, Props2;
-
-  if (StructValue *Val1 = cast_or_null<StructValue>(Env1.getValue(Loc1)))
-    for (const auto &[Name, Value] : Val1->properties())
-      Props1[Name] = Value;
-  if (StructValue *Val2 = cast_or_null<StructValue>(Env2.getValue(Loc2)))
-    for (const auto &[Name, Value] : Val2->properties())
-      Props2[Name] = Value;
-
-  if (Props1.size() != Props2.size())
-    return false;
-
-  for (const auto &[Name, Value] : Props1) {
-    auto It = Props2.find(Name);
-    if (It == Props2.end())
+  for (const auto &[Name, SynthFieldLoc1] : Loc1.synthetic_fields()) {
+    if (SynthFieldLoc1->getType()->isRecordType()) {
+      if (!recordsEqual(
+              *cast<RecordStorageLocation>(SynthFieldLoc1), Env1,
+              cast<RecordStorageLocation>(Loc2.getSyntheticField(Name)), Env2))
+        return false;
+    } else if (Env1.getValue(*SynthFieldLoc1) !=
+               Env2.getValue(Loc2.getSyntheticField(Name))) {
       return false;
-    if (Value != It->second)
-      return false;
+    }
   }
 
   return true;

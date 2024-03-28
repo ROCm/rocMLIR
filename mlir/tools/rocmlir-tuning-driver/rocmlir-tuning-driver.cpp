@@ -289,6 +289,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   std::string backendFeatures = deviceName.getFeaturesForBackend();
   backendOpts.features = backendFeatures;
   backendOpts.optLevel = 3;
+  backendOpts.suppressDiagnostic = true;
   rock::buildBackendPipeline(compilation, backendOpts);
 
   // Now that we're in the kernel execution zone, turn off error messages

@@ -2,7 +2,6 @@ if (MHAL_ENABLE_HOST_RUNNER)
   set(host_runner_libs
   MLIRAsyncTransforms
   MLIRGPUTransforms
-  MLIRLinalgToLLVM
   MLIRMathToLLVM
   MLIRMathToLibm
   MLIRGPUToROCDLTransforms

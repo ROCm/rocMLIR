@@ -86,7 +86,7 @@ public:
     None,                  ///< No attributes have been set
     #define GET_ATTR_ENUM
     #include "llvm/IR/Attributes.inc"
-    EndAttrKinds,          ///< Sentinal value useful for loops
+    EndAttrKinds,          ///< Sentinel value useful for loops
     EmptyKey,              ///< Use as Empty key for DenseMap of AttrKind
     TombstoneKey,          ///< Use as Tombstone key for DenseMap of AttrKind
   };
@@ -250,6 +250,9 @@ public:
 
   /// Return the FPClassTest for nofpclass
   FPClassTest getNoFPClass() const;
+
+  /// Return if global variable is instrumented by AddrSanitizer.
+  bool isSanitizedPaddedGlobal() const;
 
   /// The Attribute is converted to a string of equivalent mnemonic. This
   /// is, presumably, for writing out the mnemonics for the assembly writer.

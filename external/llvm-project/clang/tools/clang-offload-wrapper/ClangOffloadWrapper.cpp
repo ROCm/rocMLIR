@@ -112,7 +112,6 @@ class BinaryWrapper {
   StructType *EntryTy = nullptr;
   StructType *ImageTy = nullptr;
   StructType *DescTy = nullptr;
-  StructType *ImageInfoTy = nullptr;
 
   std::string ToolName;
   std::string ObjcopyPath;
@@ -125,7 +124,7 @@ class BinaryWrapper {
 
 private:
   IntegerType *getSizeTTy() {
-    switch (M.getDataLayout().getPointerTypeSize(Type::getInt8PtrTy(C))) {
+    switch (M.getDataLayout().getPointerTypeSize(PointerType::getUnqual(C))) {
     case 4u:
       return Type::getInt32Ty(C);
     case 8u:
@@ -143,8 +142,8 @@ private:
   // };
   StructType *getEntryTy() {
     if (!EntryTy)
-      EntryTy = StructType::create("__tgt_offload_entry", Type::getInt8PtrTy(C),
-                                   Type::getInt8PtrTy(C), getSizeTTy(),
+      EntryTy = StructType::create("__tgt_offload_entry", PointerType::getUnqual(C),
+                                   PointerType::getUnqual(C), getSizeTTy(),
                                    Type::getInt32Ty(C), Type::getInt32Ty(C));
     return EntryTy;
   }
@@ -159,8 +158,8 @@ private:
   // };
   StructType *getDeviceImageTy() {
     if (!ImageTy)
-      ImageTy = StructType::create("__tgt_device_image", Type::getInt8PtrTy(C),
-                                   Type::getInt8PtrTy(C), getEntryPtrTy(),
+      ImageTy = StructType::create("__tgt_device_image", PointerType::getUnqual(C),
+                                   PointerType::getUnqual(C), getEntryPtrTy(),
                                    getEntryPtrTy());
     return ImageTy;
   }
@@ -185,27 +184,6 @@ private:
 
   PointerType *getBinDescPtrTy() {
     return PointerType::getUnqual(getBinDescTy());
-  }
-
-  // This matches the runtime struct definition of __tgt_image_info
-  // declared in openmp/libomptarget/include/omptarget.h /
-  // struct __tgt_image_info {
-  //   int32_t version;
-  //   int32_t image_number;
-  //   int32_t number_images;
-  //   char* offload_arch;
-  //   char* target_compile_opts;
-  // };
-  StructType *getImageInfoTy() {
-    if (!ImageInfoTy)
-      ImageInfoTy = StructType::create(
-          "__tgt_image_info", Type::getInt32Ty(C), Type::getInt32Ty(C),
-          Type::getInt32Ty(C), Type::getInt8PtrTy(C), Type::getInt8PtrTy(C));
-    return ImageInfoTy;
-  }
-
-  PointerType *getImageInfoPtrTy() {
-    return PointerType::getUnqual(getImageInfoTy());
   }
 
   /// Creates binary descriptor for the given device images. Binary descriptor
@@ -476,13 +454,13 @@ public:
     // If we fail to add the note section, we just pass through the original
     // ELF image for wrapping. At some point we should enforce the note section
     // and start emitting errors vs warnings.
-    support::endianness Endianness;
+    llvm::endianness Endianness;
     if (isa<ELF64LEObjectFile>(BinOrErr->get()) ||
         isa<ELF32LEObjectFile>(BinOrErr->get())) {
-      Endianness = support::little;
+      Endianness = llvm::endianness::little;
     } else if (isa<ELF64BEObjectFile>(BinOrErr->get()) ||
                isa<ELF32BEObjectFile>(BinOrErr->get())) {
-      Endianness = support::big;
+      Endianness = llvm::endianness::big;
     } else {
       warningOS() << OriginalFileName
                   << " is an ELF image of unrecognized format.\n";
@@ -645,7 +623,8 @@ Expected<SmallVector<std::unique_ptr<MemoryBuffer>>>
 bundleImage(ArrayRef<OffloadingImage> Images) {
   SmallVector<std::unique_ptr<MemoryBuffer>> Buffers;
   for (const OffloadingImage &Image : Images)
-    Buffers.emplace_back(OffloadBinary::write(Image));
+    Buffers.emplace_back(
+	MemoryBuffer::getMemBufferCopy(OffloadBinary::write(Image)));
 
   return std::move(Buffers);
 }

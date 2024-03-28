@@ -24,6 +24,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LIBOMPTARGET_LIBRARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LIBOMPTARGET_LIBRARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LIBOMPTARGET_LIBRARY_DIR})
 
+if(NOT LLVM_LIBRARY_OUTPUT_INTDIR)
+  set(LIBOMPTARGET_INTDIR ${LIBOMPTARGET_LIBRARY_DIR})
+else()
+  set(LIBOMPTARGET_INTDIR ${LLVM_LIBRARY_OUTPUT_INTDIR})
+endif()
+
 # Message utilities.
 include(LibomptargetUtils)
 
@@ -81,6 +87,30 @@ if (LIBOMPTARGET_OMPD_SUPPORT)
   add_definitions(-DOMPD_SUPPORT=1)
 endif()
 
+# No exceptions and no RTTI, except if requested.
+set(offload_compile_flags -fno-exceptions)
+if(NOT LLVM_ENABLE_RTTI)
+  set(offload_compile_flags ${offload_compile_flags} -fno-rtti)
+endif()
+
+# TODO: Consider enabling LTO by default if supported.
+# https://cmake.org/cmake/help/latest/module/CheckIPOSupported.html can be used
+# to test for working LTO. However, before CMake 3.24 this will test the
+# default linker and ignore options such as LLVM_ENABLE_LLD. As a result, CMake
+# would test whether LTO works with the default linker but build with another one.
+# In a typical scenario, libomptarget is compiled with the in-tree Clang, but
+# linked with ld.gold, which requires the LLVMgold plugin, when it actually
+# would work with the lld linker (or also fail because the system lld is too old
+# to understand opaque pointers). Using gcc as the compiler would pass the test, but fail
+# when linking with lld since does not understand gcc's LTO format.
+set(LIBOMPTARGET_USE_LTO FALSE CACHE BOOL "Use LTO for the offload runtimes if available")
+if (LIBOMPTARGET_USE_LTO)
+  # CMake sets CMAKE_CXX_COMPILE_OPTIONS_IPO depending on the compiler and is
+  # also what CheckIPOSupported uses to test support.
+  list(APPEND offload_compile_flags ${CMAKE_CXX_COMPILE_OPTIONS_IPO})
+  list(APPEND offload_link_flags ${CMAKE_CXX_COMPILE_OPTIONS_IPO})
+endif()
+
 # OMPT support for libomptarget
 # Follow host OMPT support and check if host support has been requested.
 # LIBOMP_HAVE_OMPT_SUPPORT indicates whether host OMPT support has been implemented.
@@ -95,6 +125,7 @@ if (LIBOMPTARGET_OMPT_SUPPORT)
   add_definitions(-DOMPT_SUPPORT=1)
   message(STATUS "OMPT target enabled")
 else()
+  set(LIBOMPTARGET_OMPT_SUPPORT FALSE)
   message(STATUS "OMPT target disabled")
 endif()
 
@@ -107,6 +138,7 @@ if("libc" IN_LIST LLVM_ENABLE_RUNTIMES AND (LIBC_GPU_BUILD OR
                                             LIBC_GPU_ARCHITECTURES))
   set(LIBC_GPU_SUPPORT TRUE)
 endif()
+
 set(LIBOMPTARGET_GPU_LIBC_SUPPORT ${LIBC_GPU_SUPPORT} CACHE BOOL
     "Libomptarget support for the GPU libc")
 pythonize_bool(LIBOMPTARGET_GPU_LIBC_SUPPORT)
@@ -150,10 +182,6 @@ else()
   message(" ====== WARNING! no LLVM found! some libomptarget components may be skipped")
 endif()
 
-# Build target agnostic offloading library.
-set(LIBOMPTARGET_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-add_subdirectory(${LIBOMPTARGET_SRC_DIR})
-
 # Definitions for testing, for reuse when testing libomptarget-nvptx.
 set(LIBOMPTARGET_OPENMP_HEADER_FOLDER "${LIBOMP_INCLUDE_DIR}" CACHE STRING
   "Path to folder containing omp.h")
@@ -161,22 +189,28 @@ set(LIBOMPTARGET_OPENMP_HOST_RTL_FOLDER "${LIBOMP_LIBRARY_DIR}" CACHE STRING
   "Path to folder containing libomp.so, and libLLVMSupport.so with profiling enabled")
 set(LIBOMPTARGET_LLVM_LIBRARY_DIR "${LLVM_LIBRARY_DIR}" CACHE STRING
   "Path to folder containing llvm library libomptarget.so")
+set(LIBOMPTARGET_LLVM_LIBRARY_INTDIR "${LIBOMPTARGET_INTDIR}" CACHE STRING
+  "Path to folder where intermediate libraries will be output")
 
 # Build offloading plugins and device RTLs if they are available.
-add_subdirectory(plugins)
 add_subdirectory(plugins-nextgen)
-# Currently device libm functions are created by clang headers.  These do not
-# work for FORTRAN. The libm here  builds a libm device library by turning on
-# __BUILD_MATH_BUILTINS_LIB__ This converts the math functions in the clang
-# headers from static to extern to build device linkable libm for FORTRAN.
-# Eventually, we can make a linkable device libm for c and c++ and remove a
-# lot of header definitions that get compiled with every offload compilation.
-add_subdirectory(libm)
 
-add_subdirectory(hostexec)
 add_subdirectory(tools)
 set(PREP_TOOL $<TARGET_FILE:prep-libomptarget-bc>)
+add_subdirectory(hostexec)
 add_subdirectory(DeviceRTL)
+
+# Build target agnostic offloading library.
+set(LIBOMPTARGET_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_subdirectory(${LIBOMPTARGET_SRC_DIR})
 
 # Add tests.
 add_subdirectory(test)
+
+# Add unit tests if GMock/GTest is present
+if (EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest)
+  if (NOT TARGET llvm_gtest)
+    add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
+  endif()
+  add_subdirectory(unittests)
+endif()

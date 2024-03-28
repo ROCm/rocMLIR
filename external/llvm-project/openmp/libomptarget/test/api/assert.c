@@ -1,4 +1,6 @@
+// XFAIL: amdgcn-amd-amdhsa
 // RUN: %libomptarget-compile-run-and-check-generic
+// RUN: %libomptarget-compileopt-run-and-check-generic
 
 #include <assert.h>
 #include <stdio.h>

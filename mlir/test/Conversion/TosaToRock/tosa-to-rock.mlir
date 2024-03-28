@@ -3,7 +3,7 @@
 // CHECK-LABEL: test_fusion
 // CHECK: %[[convRes:.*]] = rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features = {{none|xdlops}} {arch = {{.*}}, dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x8x3x3xf32>, tensor<128x8x32x1x32xf32>, tensor<128x128x30x1x30xf32> -> tensor<128x128x30x1x30xf32>
 // CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<128x128x30x1x30xf32> to tensor<128x128x30x30xf32>
-// CHECK-NEXT: "tosa.abs"(%[[castRes]])
+// CHECK-NEXT: tosa.abs %[[castRes]]
 
 func.func @test_fusion(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>) -> tensor<128x128x30x30xf32> attributes {kernel, arch = ""} {
   %zero = arith.constant dense<0.0> : tensor<128xf32>

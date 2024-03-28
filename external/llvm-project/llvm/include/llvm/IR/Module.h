@@ -213,6 +213,27 @@ private:
 /// @name Constructors
 /// @{
 public:
+  /// Is this Module using intrinsics to record the position of debugging
+  /// information, or non-intrinsic records? See IsNewDbgInfoFormat in
+  /// \ref BasicBlock.
+  bool IsNewDbgInfoFormat;
+
+  /// \see BasicBlock::convertToNewDbgValues.
+  void convertToNewDbgValues() {
+    for (auto &F : *this) {
+      F.convertToNewDbgValues();
+    }
+    IsNewDbgInfoFormat = true;
+  }
+
+  /// \see BasicBlock::convertFromNewDbgValues.
+  void convertFromNewDbgValues() {
+    for (auto &F : *this) {
+      F.convertFromNewDbgValues();
+    }
+    IsNewDbgInfoFormat = false;
+  }
+
   /// The Module constructor. Note that there is no default constructor. You
   /// must provide a name for the module upon construction.
   explicit Module(StringRef ModuleID, LLVMContext& C);
@@ -251,7 +272,7 @@ public:
   }
 
   /// Get the data layout for the module's target platform.
-  const DataLayout &getDataLayout() const;
+  const DataLayout &getDataLayout() const { return DL; }
 
   /// Get the target triple which is a string describing the target host.
   /// @returns a string containing the target triple.
@@ -516,8 +537,6 @@ public:
   void addModuleFlag(MDNode *Node);
   /// Like addModuleFlag but replaces the old module flag if it already exists.
   void setModuleFlag(ModFlagBehavior Behavior, StringRef Key, Metadata *Val);
-  void setModuleFlag(ModFlagBehavior Behavior, StringRef Key, Constant *Val);
-  void setModuleFlag(ModFlagBehavior Behavior, StringRef Key, uint32_t Val);
 
   /// @}
   /// @name Materialization
@@ -922,6 +941,17 @@ public:
 
   /// Set the code model (tiny, small, kernel, medium or large)
   void setCodeModel(CodeModel::Model CL);
+  /// @}
+
+  /// @}
+  /// @name Utility function for querying and setting the large data threshold
+  /// @{
+
+  /// Returns the code model (tiny, small, kernel, medium or large model)
+  std::optional<uint64_t> getLargeDataThreshold() const;
+
+  /// Set the code model (tiny, small, kernel, medium or large)
+  void setLargeDataThreshold(uint64_t Threshold);
   /// @}
 
   /// @name Utility functions for querying and setting PGO summary

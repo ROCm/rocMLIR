@@ -130,6 +130,10 @@ template <typename T> bool isAnyArm64(T Machine) {
   return Machine == IMAGE_FILE_MACHINE_ARM64 || isArm64EC(Machine);
 }
 
+template <typename T> bool is64Bit(T Machine) {
+  return Machine == IMAGE_FILE_MACHINE_AMD64 || isAnyArm64(Machine);
+}
+
 enum Characteristics : unsigned {
   C_Invalid = 0,
 
@@ -712,7 +716,10 @@ enum ImportNameType : unsigned {
   IMPORT_NAME_NOPREFIX = 2,
   /// The import name is the public symbol name, but skipping the leading ?,
   /// @, or optionally _, and truncating at the first @.
-  IMPORT_NAME_UNDECORATE = 3
+  IMPORT_NAME_UNDECORATE = 3,
+  /// The import name is specified as a separate string in the import library
+  /// object file.
+  IMPORT_NAME_EXPORTAS = 4
 };
 
 enum class GuardFlags : uint32_t {

@@ -15,6 +15,7 @@
 #include "hostexec_internal.h"
 #include <stdint.h>
 #include <stdio.h>
+#include "Platform.h"
 
 #pragma omp declare target
 
@@ -210,8 +211,8 @@ long hostexec_long_execute(char *print_buffer, uint32_t bufsz) {
 
 // Keep these declarations in sync with the ones in DeviceRTL/src/State.cpp
 // See https://github.com/llvm/llvm-project/issues/63597
-extern "C" uint64_t __ockl_dm_alloc(uint64_t bufsz);
-extern "C" void __ockl_dm_dealloc(uint64_t ptr);
+__attribute__((noinline)) extern "C" uint64_t __ockl_dm_alloc(uint64_t bufsz);
+__attribute__((noinline)) extern "C" void __ockl_dm_dealloc(uint64_t ptr);
 
 // FIXME: Deprecate upstream, change test cases to use malloc & free directly
 __attribute__((flatten, always_inline)) char *global_allocate(uint32_t bufsz) {

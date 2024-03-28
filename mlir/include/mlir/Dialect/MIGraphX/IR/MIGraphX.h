@@ -13,6 +13,7 @@
 #ifndef MLIR_MIGRAPHX_IR_MIGRAPHX_H_
 #define MLIR_MIGRAPHX_IR_MIGRAPHX_H_
 
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"

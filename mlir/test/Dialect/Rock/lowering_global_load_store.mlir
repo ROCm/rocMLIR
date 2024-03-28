@@ -275,11 +275,11 @@ func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
 func.func @add_scalar_last_dim_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x16x15xf16>, %idx: index, %valid: i1) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+    // CHECK: %[[c16:.*]] = arith.constant 16 : i32
+    // CHECK: %[[c2:.*]] = arith.constant 2 : i32
+    // CHECK: %[[c1:.*]] = arith.constant 1 : i32
     // CHECK: %[[c0:.*]] = arith.constant 0 : i32
     // CHECK: %[[c15:.*]] = arith.constant 15 : i32
-    // CHECK: %[[c1:.*]] = arith.constant 1 : i32
-    // CHECK: %[[c2:.*]] = arith.constant 2 : i32
-    // CHECK: %[[c16:.*]] = arith.constant 16 : i32
     // CHECK: %[[i:.*]] = arith.index_cast {{.*}} : index to i32
     // CHECK: %[[j:.*]] = arith.index_cast {{.*}} : index to i32
     // CHECK: %[[partial:.*]] = arith.muli %[[i]], %[[c15]] : i32
@@ -376,7 +376,7 @@ func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_spac
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: memref.atomic_rmw maxf %[[val]], %[[cast]]
+    // CHECK: memref.atomic_rmw maximumf %[[val]], %[[cast]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
          features = atomic_fmax_f32 {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -405,7 +405,7 @@ func.func @emulated_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_sp
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: memref.atomic_rmw maxf %[[val]], %[[cast]]
+    // CHECK: memref.atomic_rmw maximumf %[[val]], %[[cast]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %c0] if %true
         features = none {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>

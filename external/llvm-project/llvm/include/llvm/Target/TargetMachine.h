@@ -101,7 +101,8 @@ protected: // Can only create subclasses.
 
   Reloc::Model RM = Reloc::Static;
   CodeModel::Model CMModel = CodeModel::Small;
-  CodeGenOpt::Level OptLevel = CodeGenOpt::Default;
+  uint64_t LargeDataThreshold = 0;
+  CodeGenOptLevel OptLevel = CodeGenOptLevel::Default;
 
   /// Contains target specific asm information.
   std::unique_ptr<const MCAsmInfo> AsmInfo;
@@ -116,7 +117,6 @@ protected: // Can only create subclasses.
   std::optional<PGOOptions> PGOOption;
 
 public:
-  const TargetOptions DefaultOptions;
   mutable TargetOptions Options;
 
   TargetMachine(const TargetMachine &) = delete;
@@ -233,10 +233,14 @@ public:
   /// target default.
   CodeModel::Model getCodeModel() const { return CMModel; }
 
+  /// Returns the maximum code size possible under the code model.
+  uint64_t getMaxCodeSize() const;
+
   /// Set the code model.
   void setCodeModel(CodeModel::Model CM) { CMModel = CM; }
 
-  bool isLargeData() const;
+  void setLargeDataThreshold(uint64_t LDT) { LargeDataThreshold = LDT; }
+  bool isLargeGlobalValue(const GlobalValue *GV) const;
 
   bool isPositionIndependent() const;
 
@@ -245,14 +249,17 @@ public:
   /// Returns true if this target uses emulated TLS.
   bool useEmulatedTLS() const;
 
+  /// Returns true if this target uses TLS Descriptors.
+  bool useTLSDESC() const;
+
   /// Returns the TLS model which should be used for the given global variable.
   TLSModel::Model getTLSModel(const GlobalValue *GV) const;
 
   /// Returns the optimization level: None, Less, Default, or Aggressive.
-  CodeGenOpt::Level getOptLevel() const;
+  CodeGenOptLevel getOptLevel() const;
 
   /// Overrides the optimization level.
-  void setOptLevel(CodeGenOpt::Level Level);
+  void setOptLevel(CodeGenOptLevel Level);
 
   void setFastISel(bool Enable) { Options.EnableFastISel = Enable; }
   bool getO0WantsFastISel() { return O0WantsFastISel; }
@@ -368,7 +375,9 @@ public:
   virtual TargetTransformInfo getTargetTransformInfo(const Function &F) const;
 
   /// Allow the target to modify the pass pipeline.
-  virtual void registerPassBuilderCallbacks(PassBuilder &) {}
+  // TODO: Populate all pass names by using <Target>PassRegistry.def.
+  virtual void registerPassBuilderCallbacks(PassBuilder &,
+                                            bool PopulateClassToPassNames) {}
 
   /// Allow the target to register alias analyses with the AAManager for use
   /// with the new pass manager. Only affects the "default" AAManager.
@@ -431,7 +440,7 @@ protected: // Can only create subclasses.
   LLVMTargetMachine(const Target &T, StringRef DataLayoutString,
                     const Triple &TT, StringRef CPU, StringRef FS,
                     const TargetOptions &Options, Reloc::Model RM,
-                    CodeModel::Model CM, CodeGenOpt::Level OL);
+                    CodeModel::Model CM, CodeGenOptLevel OL);
 
   void initAsmInfo();
 
@@ -464,11 +473,6 @@ public:
                                      PassInstrumentationCallbacks *) {
     return make_error<StringError>("buildCodeGenPipeline is not overridden",
                                    inconvertibleErrorCode());
-  }
-
-  virtual std::pair<StringRef, bool> getPassNameFromLegacyName(StringRef) {
-    llvm_unreachable(
-        "getPassNameFromLegacyName parseMIRPipeline is not overridden");
   }
 
   /// Add passes to the specified pass manager to get machine code emitted with

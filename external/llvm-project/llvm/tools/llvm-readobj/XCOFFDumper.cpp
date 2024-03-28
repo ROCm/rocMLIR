@@ -33,7 +33,7 @@ public:
   void printAuxiliaryHeader() override;
   void printSectionHeaders() override;
   void printRelocations() override;
-  void printSymbols() override;
+  void printSymbols(bool ExtraSymInfo) override;
   void printDynamicSymbols() override;
   void printUnwindInfo() override;
   void printStackMap() const override;
@@ -710,7 +710,7 @@ static StringRef GetSymbolValueName(XCOFF::StorageClass SC) {
 const EnumEntry<XCOFF::CFileLangId> CFileLangIdClass[] = {
 #define ECase(X)                                                               \
   { #X, XCOFF::X }
-    ECase(TB_C), ECase(TB_CPLUSPLUS)
+    ECase(TB_C), ECase(TB_Fortran), ECase(TB_CPLUSPLUS)
 #undef ECase
 };
 
@@ -903,7 +903,7 @@ void XCOFFDumper::printSymbol(const SymbolRef &S) {
   }
 }
 
-void XCOFFDumper::printSymbols() {
+void XCOFFDumper::printSymbols(bool /*ExtraSymInfo*/) {
   ListScope Group(W, "Symbols");
   for (const SymbolRef &S : Obj.symbols())
     printSymbol(S);
@@ -980,6 +980,17 @@ const EnumEntry<XCOFF::SectionTypeFlags> SectionTypeFlagsNames[] = {
     ECase(STYP_INFO),   ECase(STYP_TDATA), ECase(STYP_TBSS),
     ECase(STYP_LOADER), ECase(STYP_DEBUG), ECase(STYP_TYPCHK),
     ECase(STYP_OVRFLO)
+#undef ECase
+};
+
+const EnumEntry<XCOFF::DwarfSectionSubtypeFlags>
+    DWARFSectionSubtypeFlagsNames[] = {
+#define ECase(X)                                                               \
+  { #X, XCOFF::X }
+        ECase(SSUBTYP_DWINFO),  ECase(SSUBTYP_DWLINE),  ECase(SSUBTYP_DWPBNMS),
+        ECase(SSUBTYP_DWPBTYP), ECase(SSUBTYP_DWARNGE), ECase(SSUBTYP_DWABREV),
+        ECase(SSUBTYP_DWSTR),   ECase(SSUBTYP_DWRNGES), ECase(SSUBTYP_DWLOC),
+        ECase(SSUBTYP_DWFRAME), ECase(SSUBTYP_DWMAC)
 #undef ECase
 };
 
@@ -1180,6 +1191,7 @@ void XCOFFDumper::printSectionHeaders(ArrayRef<T> Sections) {
 
     W.printNumber("Index", Index++);
     uint16_t SectionType = Sec.getSectionType();
+    int32_t SectionSubtype = Sec.getSectionSubtype();
     switch (SectionType) {
     case XCOFF::STYP_OVRFLO:
       printOverflowSectionHeader(Sec);
@@ -1197,8 +1209,13 @@ void XCOFFDumper::printSectionHeaders(ArrayRef<T> Sections) {
     }
     if (Sec.isReservedSectionType())
       W.printHex("Flags", "Reserved", SectionType);
-    else
+    else {
       W.printEnum("Type", SectionType, ArrayRef(SectionTypeFlagsNames));
+      if (SectionType == XCOFF::STYP_DWARF) {
+        W.printEnum("DWARFSubType", SectionSubtype,
+                    ArrayRef(DWARFSectionSubtypeFlagsNames));
+      }
+    }
   }
 
   if (opts::SectionRelocations)

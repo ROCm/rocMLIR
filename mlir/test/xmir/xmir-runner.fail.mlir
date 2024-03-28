@@ -25,8 +25,8 @@ module {
     linalg.generic {indexing_maps = [#map1, #map1], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%3 : memref<1x32x32x64xf32>) outs(%arg2 : memref<1x32x32x64xf32>) {
     ^bb0(%arg3: f32, %arg4: f32):
       %4 = arith.addf %arg3, %cst_0 : f32
-      %5 = arith.minf %4, %cst : f32
-      %6 = arith.maxf %5, %cst_0 : f32
+      %5 = arith.minimumf %4, %cst : f32
+      %6 = arith.maximumf %5, %cst_0 : f32
       linalg.yield %6 : f32
     }
     memref.dealloc %0 : memref<1x34x34x64xf32>

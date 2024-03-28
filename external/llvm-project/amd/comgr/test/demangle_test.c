@@ -57,6 +57,7 @@ int main(int argc, char *argv[]) {
   test("____Z3fooi_block_invoke", "invocation function for block in foo(int)");
   test("?foo@@YAXH@Z", "void __cdecl foo(int)");
   test("foo", "foo");
+  test("_RNvC3foo3bar", "foo::bar");
   test("_Z3fooILi79EEbU7_ExtIntIXT_EEi", "bool foo<79>(int _ExtInt<79>)");
 
   // Some additional test cases.

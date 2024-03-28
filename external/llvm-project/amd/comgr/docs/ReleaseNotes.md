@@ -21,6 +21,8 @@ prevents other LLVM tools or instances from registering a -h option in the same
 process, which is an issue because -h is a common short form for -help.
 -  Updated default code object version used when linking code object specific
 device library from v4 to v5
+-  Updated shared library name on Windows 64-bit to include Comgr major version
+(libamd\_comgr.dll -> libamd\_comgr\_X.dll, where X is the major version)
 
 New Features
 ------------
@@ -33,6 +35,7 @@ implementation and tests.
 an std::scoped\_lock()
 - Added support for bitcode and archive unbundling during linking via the new
 llvm OffloadBundler API.
+- Added support for code object v6 and generic targets.
 
 Bug Fixes
 ---------
@@ -59,7 +62,14 @@ lld::elf::link in Comgr's linkWithLLD()
 - Added -x assembler option to assembly compilation. Before, if an assembly file
 did not end with a .s file extension, it was not handled properly by the Comgr
 ASSEMBLE\_SOURCE\_TO\_RELOCATABLE action.
-
+- Switched getline() from C++ to C-style to avoid issues with stdlibc++ and
+pytorch
+- Added new -relink-builtin-bitcode-postop LLVM option to device library. This
+fixes an issue with the \*COMPILE\_SOURCE\_WITH\_DEVICE\_LIBRARIES\_TO\_BC where
+OpenCL applications that leveraged AMDGPUSimplifyLibCalls optimizations would
+need to re-link bitcodes separately to avoid errors at runtime.
+- Correctly set directory to object file path when forwarding -save-temps for
+HIP compilations with AMD\_COMGR\_SAVE\_TEMPS set
 
 New APIs
 --------
@@ -137,6 +147,7 @@ unbundling.
 output for Comgr actions. This can help us debug issues more quickly in cases
 where reporters provide Comgr logs.
 - Fix multiple bugs with mangled names test
+- Update default arch for test binaries from gfx830 to gfx900
 - Refactor nested kernel behavior into new test, as this behavior is less common
 and shouldn't be featured in the baseline tests
 
@@ -148,6 +159,10 @@ New Targets
  - gfx1036
  - gfx1150
  - gfx1151
+ - gfx9-generic
+ - gfx10-1-generic
+ - gfx10-3-generic
+ - gfx11-generic
 
 Removed Targets
 ---------------

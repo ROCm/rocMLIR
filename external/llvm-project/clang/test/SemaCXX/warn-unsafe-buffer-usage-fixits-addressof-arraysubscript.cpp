@@ -1,8 +1,13 @@
+<<<<<<< HEAD
 // RUN: %clang_cc1 -std=c++20 -Wunsafe-buffer-usage \
 // RUN:            -fsafe-buffer-usage-suggestions \
 // RUN:            -triple=arm-apple \
 // RUN:            -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
+// XFAIL: *
 
+=======
+// RUN: %clang_cc1 -triple=arm-apple -std=c++20 -Wunsafe-buffer-usage -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
+>>>>>>> 991d7848b740 ([SafeBufferUsage] restore safe buffer usage warnings for MIOpen GTest)
 int f(unsigned long, void *);
 
 [[clang::unsafe_buffer_usage]]
@@ -52,7 +57,7 @@ void ignore_unsafe_calls(int x) {
 	   &p[x]);
 
   int * q = new int[10];
-  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:3-[[@LINE-1]]:12}:"std::span<int> q"
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:3-[[@LINE-1]]:8}:"std::span<int>"
   // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:13-[[@LINE-2]]:13}:"{"
   // CHECK: fix-it:"{{.*}}":{[[@LINE-3]]:24-[[@LINE-3]]:24}:", 10}"
   unsafe_f((unsigned long) &q[5],
@@ -78,7 +83,7 @@ void index_is_zero() {
 
 void pointer_subtraction(int x) {
   int * p = new int[10];
-  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:3-[[@LINE-1]]:12}:"std::span<int> p"
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:3-[[@LINE-1]]:8}:"std::span<int>"
   // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:13-[[@LINE-2]]:13}:"{"
   // CHECK: fix-it:"{{.*}}":{[[@LINE-3]]:24-[[@LINE-3]]:24}:", 10}"
 

@@ -8,6 +8,7 @@
 
 #include "ABIInfoImpl.h"
 #include "TargetInfo.h"
+#include "clang/Basic/DiagnosticFrontend.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
@@ -136,6 +137,10 @@ public:
 
     Fn->addFnAttr("branch-target-enforcement",
                   BPI.BranchTargetEnforcement ? "true" : "false");
+    Fn->addFnAttr("branch-protection-pauth-lr",
+                  BPI.BranchProtectionPAuthLR ? "true" : "false");
+    Fn->addFnAttr("guarded-control-stack",
+                  BPI.GuardedControlStack ? "true" : "false");
   }
 
   bool isScalarizableAsmOperand(CodeGen::CodeGenFunction &CGF,
@@ -151,6 +156,11 @@ public:
     }
     return TargetCodeGenInfo::isScalarizableAsmOperand(CGF, Ty);
   }
+
+  void checkFunctionCallABI(CodeGenModule &CGM, SourceLocation CallLoc,
+                            const FunctionDecl *Caller,
+                            const FunctionDecl *Callee,
+                            const CallArgList &Args) const override;
 };
 
 class WindowsAArch64TargetCodeGenInfo : public AArch64TargetCodeGenInfo {
@@ -185,7 +195,7 @@ ABIArgInfo AArch64ABIInfo::coerceIllegalVector(QualType Ty) const {
   assert(Ty->isVectorType() && "expected vector type!");
 
   const auto *VT = Ty->castAs<VectorType>();
-  if (VT->getVectorKind() == VectorType::SveFixedLengthPredicateVector) {
+  if (VT->getVectorKind() == VectorKind::SveFixedLengthPredicate) {
     assert(VT->getElementType()->isBuiltinType() && "expected builtin type!");
     assert(VT->getElementType()->castAs<BuiltinType>()->getKind() ==
                BuiltinType::UChar &&
@@ -194,7 +204,7 @@ ABIArgInfo AArch64ABIInfo::coerceIllegalVector(QualType Ty) const {
         llvm::Type::getInt1Ty(getVMContext()), 16));
   }
 
-  if (VT->getVectorKind() == VectorType::SveFixedLengthDataVector) {
+  if (VT->getVectorKind() == VectorKind::SveFixedLengthData) {
     assert(VT->getElementType()->isBuiltinType() && "expected builtin type!");
 
     const auto *BT = VT->getElementType()->castAs<BuiltinType>();
@@ -323,12 +333,11 @@ AArch64ABIInfo::classifyArgumentType(QualType Ty, bool IsVariadic,
       return ABIArgInfo::getDirect(
           llvm::ArrayType::get(CGT.ConvertType(QualType(Base, 0)), Members));
 
-    // For alignment adjusted HFAs, cap the argument alignment to 16, leave it
-    // default otherwise.
+    // For HFAs/HVAs, cap the argument alignment to 16, otherwise
+    // set it to 8 according to the AAPCS64 document.
     unsigned Align =
         getContext().getTypeUnadjustedAlignInChars(Ty).getQuantity();
-    unsigned BaseAlign = getContext().getTypeAlignInChars(Base).getQuantity();
-    Align = (Align > BaseAlign && Align >= 16) ? 16 : 0;
+    Align = (Align >= 16) ? 16 : 8;
     return ABIArgInfo::getDirect(
         llvm::ArrayType::get(CGT.ConvertType(QualType(Base, 0)), Members), 0,
         nullptr, true, Align);
@@ -369,8 +378,8 @@ ABIArgInfo AArch64ABIInfo::classifyReturnType(QualType RetTy,
     return ABIArgInfo::getIgnore();
 
   if (const auto *VT = RetTy->getAs<VectorType>()) {
-    if (VT->getVectorKind() == VectorType::SveFixedLengthDataVector ||
-        VT->getVectorKind() == VectorType::SveFixedLengthPredicateVector)
+    if (VT->getVectorKind() == VectorKind::SveFixedLengthData ||
+        VT->getVectorKind() == VectorKind::SveFixedLengthPredicate)
       return coerceIllegalVector(RetTy);
   }
 
@@ -444,8 +453,8 @@ bool AArch64ABIInfo::isIllegalVectorType(QualType Ty) const {
     // Check whether VT is a fixed-length SVE vector. These types are
     // represented as scalable vectors in function args/return and must be
     // coerced from fixed vectors.
-    if (VT->getVectorKind() == VectorType::SveFixedLengthDataVector ||
-        VT->getVectorKind() == VectorType::SveFixedLengthPredicateVector)
+    if (VT->getVectorKind() == VectorKind::SveFixedLengthData ||
+        VT->getVectorKind() == VectorKind::SveFixedLengthPredicate)
       return true;
 
     // Check whether VT is legal.
@@ -809,6 +818,43 @@ Address AArch64ABIInfo::EmitMSVAArg(CodeGenFunction &CGF, Address VAListAddr,
                           CGF.getContext().getTypeInfoInChars(Ty),
                           CharUnits::fromQuantity(8),
                           /*allowHigherAlign*/ false);
+}
+
+static bool isStreaming(const FunctionDecl *F) {
+  if (F->hasAttr<ArmLocallyStreamingAttr>())
+    return true;
+  if (const auto *T = F->getType()->getAs<FunctionProtoType>())
+    return T->getAArch64SMEAttributes() & FunctionType::SME_PStateSMEnabledMask;
+  return false;
+}
+
+static bool isStreamingCompatible(const FunctionDecl *F) {
+  if (const auto *T = F->getType()->getAs<FunctionProtoType>())
+    return T->getAArch64SMEAttributes() &
+           FunctionType::SME_PStateSMCompatibleMask;
+  return false;
+}
+
+void AArch64TargetCodeGenInfo::checkFunctionCallABI(
+    CodeGenModule &CGM, SourceLocation CallLoc, const FunctionDecl *Caller,
+    const FunctionDecl *Callee, const CallArgList &Args) const {
+  if (!Caller || !Callee || !Callee->hasAttr<AlwaysInlineAttr>())
+    return;
+
+  bool CallerIsStreaming = isStreaming(Caller);
+  bool CalleeIsStreaming = isStreaming(Callee);
+  bool CallerIsStreamingCompatible = isStreamingCompatible(Caller);
+  bool CalleeIsStreamingCompatible = isStreamingCompatible(Callee);
+
+  if (!CalleeIsStreamingCompatible &&
+      (CallerIsStreaming != CalleeIsStreaming || CallerIsStreamingCompatible))
+    CGM.getDiags().Report(CallLoc,
+                          diag::err_function_always_inline_attribute_mismatch)
+        << Caller->getDeclName() << Callee->getDeclName() << "streaming";
+  if (auto *NewAttr = Callee->getAttr<ArmNewAttr>())
+    if (NewAttr->isNewZA())
+      CGM.getDiags().Report(CallLoc, diag::err_function_always_inline_new_za)
+          << Callee->getDeclName();
 }
 
 std::unique_ptr<TargetCodeGenInfo>

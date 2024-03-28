@@ -5,111 +5,146 @@
  * License. See LICENSE.TXT for details.
  *===------------------------------------------------------------------------*/
 
-static bool
-samesign(half x, half y)
+static float compute_expylnx_f16(half ax, half y)
 {
-    return ((AS_USHORT(x) ^ AS_USHORT(y)) & (ushort)0x8000) == (ushort)0;
+    return BUILTIN_AMDGPU_EXP2_F32((float)y * BUILTIN_AMDGPU_LOG2_F32((float)ax));
 }
 
-REQUIRES_16BIT_INSTS CONSTATTR half
-#if defined(COMPILING_POWR)
-MATH_MANGLE(powr)(half x, half y)
-#elif defined(COMPILING_POWN)
-MATH_MANGLE(pown)(half x, int ny)
-#elif defined(COMPILING_ROOTN)
-MATH_MANGLE(rootn)(half x, int ny)
-#else
-MATH_MANGLE(pow)(half x, half y)
-#endif
+static bool is_integer(half ay)
 {
+    return BUILTIN_TRUNC_F16(ay) == ay;
+}
+
+static bool is_even_integer(half ay) {
+    // Even integers are still integers after division by 2.
+    return is_integer(0.5h * ay);
+}
+
+static bool is_odd_integer(half ay) {
+    return is_integer(ay) && !is_even_integer(ay);
+}
+
+#if defined(COMPILING_POW)
+
+CONSTATTR half
+MATH_MANGLE(pow)(half x, half y)
+{
+    if (x == 1.0h)
+        y = 1.0h;
+    if (y == 0.0h)
+        x = 1.0h;
+
     half ax = BUILTIN_ABS_F16(x);
+    float p = compute_expylnx_f16(ax, y);
 
-#if defined(COMPILING_POWN)
-    float fy = (float)ny;
-#elif defined(COMPILING_ROOTN)
-    float fy = BUILTIN_AMDGPU_RCP_F32((float)ny);
-#else
-    float fy = (float)y;
-#endif
-
-    float p = BUILTIN_AMDGPU_EXP2_F32(fy * BUILTIN_AMDGPU_LOG2_F32((float)ax));
-
-    // Classify y:
-    //   inty = 0 means not an integer.
-    //   inty = 1 means odd integer.
-    //   inty = 2 means even integer.
-
-#if defined(COMPILING_POWN) || defined(COMPILING_ROOTN)
-    int inty = 2 - (ny & 1);
-#else
-    half ay = BUILTIN_ABS_F16(y);
-    int inty;
-    {
-        half tay = BUILTIN_TRUNC_F16(ay);
-        inty = ay == tay;
-        inty += inty & (BUILTIN_FRACTION_F16(tay*0.5h) == 0.0h);
-    }
-#endif
-
-    half ret = BUILTIN_COPYSIGN_F16((half)p, ((inty == 1) & (x < 0.0h)) ? -0.0f : 0.0f);
+    bool is_odd_y = is_odd_integer(y);
+    half ret = BUILTIN_COPYSIGN_F16((half)p, is_odd_y ? x : 1.0f);
 
     // Now all the edge cases
-#if defined COMPILING_POWR
-    half iz = y < 0.0h ? PINF_F16 : 0.0h;
-    half zi = y < 0.0h ? 0.0h : PINF_F16;
-
-    if (x == 0.0h)
-        ret = iz;
-
-    if (BUILTIN_ISINF_F16(x))
-        ret = zi;
-
-    if (BUILTIN_ISINF_F16(y))
-        ret = ax < 1.0h ? iz : zi;
-
-    if (y == 0.0h)
-        ret = x == 0.0h || BUILTIN_ISINF_F16(x) ? QNAN_F16 : 1.0h;
-
-    if (x == 1.0h)
-        ret = BUILTIN_ISINF_F16(y) ? QNAN_F16 : 1.0h;
-
-    if (x < 0.0h || BUILTIN_ISUNORDERED_F16(x, y))
-        ret = QNAN_F16;
-#elif defined COMPILING_POWN
-    if (BUILTIN_ISINF_F16(ax) || x == 0.0h)
-        ret = BUILTIN_COPYSIGN_F16((x == 0.0h) ^ (ny < 0) ? 0.0h : PINF_F16,
-                                   inty == 1 ? x : 0.0h);
-
-    if (BUILTIN_ISNAN_F16(x))
+    if (x < 0.0h && !is_integer(y))
         ret = QNAN_F16;
 
-    if (ny == 0)
-        ret = 1.0h;
-#elif defined COMPILING_ROOTN
-    if (BUILTIN_ISINF_F16(ax) || x == 0.0h)
-        ret = BUILTIN_COPYSIGN_F16((x == 0.0h) ^ (ny < 0) ? 0.0h : PINF_F16,
-                                   inty == 1 ? x : 0.0h);
+    half ay = BUILTIN_ABS_F16(y);
+    if (BUILTIN_ISINF_F16(ay)) {
+        // FIXME: Missing backend optimization to save on
+        // materialization cost of mixed sign constant infinities.
+        bool y_is_neg_inf = y != ay;
+        ret = ax == 1.0h ? ax : ((ax < 1.0h) ^ y_is_neg_inf ? 0.0h : ay);
+    }
 
-    if ((x < 0.0h && inty != 1) || ny == 0)
-        ret = QNAN_F16;
-#else
-    if (x < 0.0h && !inty)
-        ret = QNAN_F16;
-
-    if (BUILTIN_ISINF_F16(ay))
-        ret = ax == 1.0h ? ax : (samesign(y, ax - 1.0h) ? ay : 0.0h);
-
-    if (BUILTIN_ISINF_F16(ax) || x == 0.0h)
+    if (BUILTIN_ISINF_F16(ax) || x == 0.0h) {
         ret = BUILTIN_COPYSIGN_F16((x == 0.0h) ^ (y < 0.0h) ? 0.0h : PINF_F16,
-                                   inty == 1 ? x : 0.0h);
+                                   is_odd_y ? x : 0.0h);
+    }
 
     if (BUILTIN_ISUNORDERED_F16(x, y))
         ret = QNAN_F16;
 
-    if (x == 1.0h || y == 0.0h)
-        ret = 1.0h;
-#endif
+    return ret;
+}
+
+#elif defined(COMPILING_POWR)
+
+CONSTATTR half
+MATH_MANGLE(powr)(half x, half y)
+{
+    if (x < 0.0h)
+        x = QNAN_F16;
+
+    half ret = (half)compute_expylnx_f16(x, y);
+
+    // Now all the edge cases
+    half iz = y < 0.0h ? PINF_F16 : 0.0h;
+    half zi = y < 0.0h ? 0.0h : PINF_F16;
+
+    if (x == 0.0h)
+        ret = y == 0.0h ? QNAN_F16 : iz;
+
+    if (x == PINF_F16 && y != 0.0h)
+        ret = zi;
+
+    if (BUILTIN_ISINF_F16(y) && x != 1.0h)
+        ret = x < 1.0h ? iz : zi;
+
+    if (BUILTIN_ISUNORDERED_F16(x, y))
+        ret = QNAN_F16;
 
     return ret;
 }
 
+
+#elif defined(COMPILING_POWN)
+
+CONSTATTR half
+MATH_MANGLE(pown)(half x, int ny)
+{
+    if (ny == 0)
+        x = 1.0h;
+
+    half ax = BUILTIN_ABS_F16(x);
+
+    float fy = (float)ny;
+
+    float p = BUILTIN_AMDGPU_EXP2_F32(fy * BUILTIN_AMDGPU_LOG2_F32((float)ax));
+
+    bool is_odd_y = ny & 1;
+
+    half ret = BUILTIN_COPYSIGN_F16((half)p, is_odd_y ? x : 1.0f);
+
+    // Now all the edge cases
+    if (BUILTIN_ISINF_F16(ax) || x == 0.0h)
+        ret = BUILTIN_COPYSIGN_F16((x == 0.0h) ^ (ny < 0) ? 0.0h : PINF_F16,
+                                   is_odd_y ? x : 0.0h);
+
+    return ret;
+}
+
+#elif defined(COMPILING_ROOTN)
+
+CONSTATTR half
+MATH_MANGLE(rootn)(half x, int ny)
+{
+    half ax = BUILTIN_ABS_F16(x);
+
+    float fy = BUILTIN_AMDGPU_RCP_F32((float)ny);
+
+    float p = BUILTIN_AMDGPU_EXP2_F32(fy * BUILTIN_AMDGPU_LOG2_F32((float)ax));
+
+    bool is_odd_y = ny & 1;
+
+    half ret = BUILTIN_COPYSIGN_F16((half)p, is_odd_y ? x : 1.0f);
+
+    // Now all the edge cases
+    if (BUILTIN_ISINF_F16(ax) || x == 0.0h)
+        ret = BUILTIN_COPYSIGN_F16((x == 0.0h) ^ (ny < 0) ? 0.0h : PINF_F16,
+                                   is_odd_y ? x : 0.0h);
+
+    if ((x < 0.0h && !is_odd_y) || ny == 0)
+        ret = QNAN_F16;
+
+    return ret;
+}
+
+#else
+#error missing function macro
+#endif

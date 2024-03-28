@@ -65,6 +65,10 @@ static cl::opt<bool> Verbose("v",
                              cl::desc("Print information about actions taken"),
                              cl::init(false));
 
+static cl::opt<bool> DmAlloc("dm",
+                             cl::desc("Only apply linkonce to dm_alloc/dm_dealloc"),
+                             cl::init(false));
+
 static cl::opt<bool> DirectCalls("d", cl::desc("Enable direct calls"),
                                  cl::init(true));
 
@@ -131,8 +135,11 @@ static bool convertExternsToLinkOnce(Module *MOUT, LLVMContext &Ctx) {
         errs() << "Function attribute cleanup for\'"
                << F->getName().str().c_str() << "\' \n";
       if (i->getCallingConv() == llvm::CallingConv::AMDGPU_KERNEL) {
+        // Should not expect kernel functions in prep tool
         F->removeFnAttr(llvm::Attribute::OptimizeNone);
       } else {
+        F->setLinkage(GlobalValue::LinkOnceODRLinkage);
+        F->setVisibility(GlobalValue::ProtectedVisibility);
         if (!strncmp(F->getName().str().c_str(), "__ockl_devmem_request",
                      strlen("__ockl_devmem_request")))
           continue;
@@ -146,11 +153,39 @@ static bool convertExternsToLinkOnce(Module *MOUT, LLVMContext &Ctx) {
                      strlen("hostexec_invoke")))
           continue;
         // all other functions
-        F->setLinkage(GlobalValue::LinkOnceODRLinkage);
-        F->setVisibility(GlobalValue::ProtectedVisibility);
         F->removeFnAttr(llvm::Attribute::OptimizeNone);
         F->removeFnAttr(llvm::Attribute::NoInline);
         F->addFnAttr(llvm::Attribute::AlwaysInline);
+      }
+    }
+  }
+  return true;
+}
+
+static bool convertDmAllocToLinkOnce(Module *MOUT, LLVMContext &Ctx) {
+  // Convert __ockl_dm_alloc and __ockl_dm_de_alloc to LinkOnceODR
+  // to avoid using the dm_alloc brought in by State.cpp, which uses
+  // the wrong devmem_request from libdevice. This allows us to
+  // correctly override with our hostexec version of devmem_request.
+  // This was done to accomadate usage of -mlink-builtin-bitcode.
+  for (Module::iterator i = MOUT->begin(), e = MOUT->end(); i != e; ++i) {
+    llvm::Function *F = &*i;
+    if (!i->isDeclaration()) {
+      if (Verbose)
+        errs() << "Function attribute cleanup for\'"
+               << F->getName().str().c_str() << "\' \n";
+      if (i->getCallingConv() == llvm::CallingConv::AMDGPU_KERNEL) {
+        // Should not expect kernel functions in prep tool
+        F->removeFnAttr(llvm::Attribute::OptimizeNone);
+      } else {
+        if (!strncmp(F->getName().str().c_str(), "__ockl_dm_alloc",
+                     strlen("__ockl_dm_alloc")) ||
+            !strncmp(F->getName().str().c_str(), "__ockl_dm_dealloc",
+                     strlen("__ockl_dm_dealloc"))) {
+          F->setLinkage(GlobalValue::LinkOnceODRLinkage);
+          F->setVisibility(GlobalValue::ProtectedVisibility);
+        }
+          continue;
       }
     }
   }
@@ -174,8 +209,13 @@ int main(int argc, char **argv) {
     return 1;
 
   Module *MOUT = &*Composite;
-  if (!convertExternsToLinkOnce(MOUT, Context))
-    return 1;
+  if (DmAlloc) {
+    if (!convertDmAllocToLinkOnce(MOUT, Context))
+      return 1;
+  } else {
+    if (!convertExternsToLinkOnce(MOUT, Context))
+      return 1;
+  }
 
   std::error_code EC;
   ToolOutputFile Out(OutputFilename, EC, sys::fs::OF_None);

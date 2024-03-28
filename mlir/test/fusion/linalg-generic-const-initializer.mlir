@@ -54,8 +54,8 @@ module {
       %55 = arith.addf %53, %in_20 : f32
       %61 = arith.mulf %55, %in_21 : f32
       %62 = math.roundeven %61 : f32
-      %63 = arith.minf %62, %cst_4 : f32
-      %64 = arith.maxf %63, %cst_5 : f32
+      %63 = arith.minimumf %62, %cst_4 : f32
+      %64 = arith.maximumf %63, %cst_5 : f32
       %65 = arith.fptosi %64 : f32 to i8
       linalg.yield %65 : i8
     }

@@ -1,14 +1,11 @@
-// FIXME: this test isn't working for reasons I don't want to dig into right
-// this second, could be device libraries versions
-// RUN: true
-// FIXME: mlir-opt %s \
-// FIXME: | mlir-opt -pass-pipeline='builtin.module(gpu.module(strip-debuginfo,convert-gpu-to-rocdl{index-bitwidth=32 runtime=HIP},gpu-to-hsaco{chip=%chip}))' \
-// FIXME: | mlir-opt -gpu-to-llvm \
-// FIXME: | mlir-cpu-runner \
-// FIXME:   --shared-libs=%mlir_rocm_runtime \
-// FIXME:   --shared-libs=%mlir_runner_utils \
-// FIXME:   --entry-point-result=void \
-// FIXME: | FileCheck %s
+// RUN: mlir-opt %s \
+// RUN: | mlir-opt -pass-pipeline='builtin.module(gpu.module(strip-debuginfo,convert-gpu-to-rocdl{index-bitwidth=32 runtime=HIP}),rocdl-attach-target{chip=%chip})' \
+// RUN: | mlir-opt -gpu-to-llvm -gpu-module-to-binary \
+// RUN: | mlir-cpu-runner \
+// RUN:   --shared-libs=%mlir_rocm_runtime \
+// RUN:   --shared-libs=%mlir_runner_utils \
+// RUN:   --entry-point-result=void \
+// RUN: | FileCheck %s
 
 // CHECK: Hello from 0
 // CHECK: Hello from 1

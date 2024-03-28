@@ -1,5 +1,4 @@
 // REQUIRES: x86-registered-target
-// XFAIL: *
 // UNSUPPORTED: system-windows
 //   Windows is unsupported because we use the Unix path separator `\`.
 

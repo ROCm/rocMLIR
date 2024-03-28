@@ -147,9 +147,20 @@ enum LocationAtom {
 };
 
 enum LlvmUserLocationAtom {
-#define HANDLE_DW_OP_LLVM_USEROP(ID, NAME) DW_OP_LLVM_##NAME = ID,
+#define HANDLE_DW_OP_LLVM_USEROP(ID, NAME) DW_OP_LLVM_USER_##NAME = ID,
 #include "llvm/BinaryFormat/Dwarf.def"
 };
+
+inline std::optional<LlvmUserLocationAtom> getUserOp(uint8_t Op) {
+  switch (Op) {
+#define HANDLE_HETEROGENEOUS_OP(NAME)                                          \
+  case DW_OP_LLVM_##NAME:                                                      \
+    return DW_OP_LLVM_USER_##NAME;
+#include "llvm/BinaryFormat/Dwarf.def"
+  default:
+    return std::nullopt;
+  }
+}
 
 enum TypeKind : uint8_t {
 #define HANDLE_DW_ATE(ID, NAME, VERSION, VENDOR) DW_ATE_##NAME = ID,
@@ -625,6 +636,25 @@ enum AcceleratorTable {
   // Daniel J. Bernstein hash.
   DW_hash_function_djb = 0u
 };
+
+// Uniquify the string hashes and calculate the bucket count for the
+// DWARF v5 Accelerator Table. NOTE: This function effectively consumes the
+// 'hashes' input parameter.
+inline uint32_t getDebugNamesBucketCount(MutableArrayRef<uint32_t> hashes,
+                                         uint32_t &uniqueHashCount) {
+  uint32_t BucketCount = 0;
+
+  sort(hashes);
+  uniqueHashCount = llvm::unique(hashes) - hashes.begin();
+  if (uniqueHashCount > 1024)
+    BucketCount = uniqueHashCount / 4;
+  else if (uniqueHashCount > 16)
+    BucketCount = uniqueHashCount / 2;
+  else
+    BucketCount = std::max<uint32_t>(uniqueHashCount, 1);
+
+  return BucketCount;
+}
 
 // Constants for the GNU pubnames/pubtypes extensions supporting gdb index.
 enum GDBIndexEntryKind {

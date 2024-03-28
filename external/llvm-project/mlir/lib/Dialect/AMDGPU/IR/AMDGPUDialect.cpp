@@ -43,10 +43,25 @@ void AMDGPUDialect::initialize() {
       >();
 }
 
+bool amdgpu::AMDGPUDialect::isSharedMemoryAddressSpace(Attribute memorySpace) {
+  if (!memorySpace)
+    return false;
+  if (auto intAttr = llvm::dyn_cast<IntegerAttr>(memorySpace))
+    return intAttr.getInt() == AMDGPUDialect::kSharedMemoryAddressSpace;
+  if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+    return gpuAttr.getValue() == gpu::AddressSpace::Workgroup;
+  return false;
+}
+
+bool amdgpu::AMDGPUDialect::hasSharedMemoryAddressSpace(MemRefType type) {
+  Attribute memorySpace = type.getMemorySpace();
+  return isSharedMemoryAddressSpace(memorySpace);
+}
+
 //===----------------------------------------------------------------------===//
 // 8-bit float ops
 //===----------------------------------------------------------------------===//
-LogicalResult PackedTruncFp8x2Op::verify() {
+LogicalResult PackedTrunc2xFp8Op::verify() {
   if (getExisting() && getExisting().getType() != getResult().getType())
     return emitOpError("existing values must have same type as result");
   return success();

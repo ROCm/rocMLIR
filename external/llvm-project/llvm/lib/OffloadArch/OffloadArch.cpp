@@ -27,7 +27,7 @@
 using namespace llvm;
 using namespace object;
 
-std::string getFileContents(std::string fname) {
+std::string getFileContents(const std::string &fname) {
   std::string file_contents;
   std::string line;
   std::ifstream myfile(fname);
@@ -105,7 +105,7 @@ getPCIIds(const char *driver_search_phrase, const char *pci_id_search_phrase) {
   return PCI_IDS;
 }
 
-std::vector<std::string> lookupCodename(std::string lookup_codename) {
+std::vector<std::string> lookupCodename(const std::string &lookup_codename) {
   std::vector<std::string> PCI_IDS;
   for (const AOT_CODENAME_ID_TO_STRING id2str : AOT_CODENAMES)
     if (lookup_codename.compare(id2str.codename) == 0)
@@ -164,10 +164,10 @@ std::string getOffloadArch(uint16_t VendorID, uint16_t DeviceID) {
 }
 
 std::string
-getVendorCapabilities(std::pair<std::string, std::string> offloadarch) {
+getVendorCapabilities(const std::pair<std::string, std::string> &offloadarch) {
 
-  if (llvm::StringRef(offloadarch.first).starts_with_insensitive("gfx") &&
-      llvm::StringRef(offloadarch.second).starts_with_insensitive("gpu")) {
+  if (StringRef(offloadarch.first).starts_with_insensitive("gfx") &&
+      StringRef(offloadarch.second).starts_with_insensitive("gpu")) {
     return getAMDGPUCapabilitiesForOffloadarch(offloadarch.second);
   }
 
@@ -187,8 +187,8 @@ getVendorCapabilities(std::pair<std::string, std::string> offloadarch) {
   return "";
 }
 
-std::string getTriple(std::string offloadarch) {
-  llvm::StringRef OffloadarchRef(offloadarch);
+std::string getTriple(const std::string& offloadarch) {
+  StringRef OffloadarchRef(offloadarch);
 
   if (OffloadarchRef.starts_with_insensitive("gfx"))
     return (std::string("amdgcn-amd-amdhsa"));
@@ -284,27 +284,4 @@ getOffloadArchFromBinary(const std::string &input_filename) {
     }
   }
   return results;
-}
-
-bool isHomogeneousSystemOf(std::string arch) {
-
-  std::vector<std::string> archPCI_IDs = lookupOffloadArch(arch);
-  std::vector<std::pair<std::string,std::string>> allPCI_IDs = getAllPCIIds(false);
-
-  // arch PCI_IDs could be saved with letters in upper or lower case
-  // make comparison case insensitive
-  for (auto it : allPCI_IDs) {
-    auto find_it = std::find_if(
-        archPCI_IDs.begin(), archPCI_IDs.end(), [&](std::string &archID) {
-          if (archID.size() != it.second.size())
-            return false;
-          for (long unsigned int i = 0; i < archID.size(); i++)
-            if (std::toupper(archID[i]) != std::toupper((it.second.c_str())[i]))
-              return false;
-          return true;
-        });
-    if (find_it == archPCI_IDs.end()) // not found
-      return false;
-  }
-  return true;
 }

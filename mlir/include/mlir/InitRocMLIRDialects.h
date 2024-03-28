@@ -49,6 +49,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitMHALDialects.h"
 
 namespace mlir {
@@ -79,7 +80,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   rock::registerBufferizableOpInterfaceExternalModels(registry);
 
   // Register all dialect extensions.
-  bufferization::registerTransformDialectExtension(registry);
+  registerAllExtensions(registry);
 
   // Register all external models.
   arith::registerBufferizableOpInterfaceExternalModels(registry);

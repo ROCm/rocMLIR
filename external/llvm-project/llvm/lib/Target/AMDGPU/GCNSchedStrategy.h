@@ -74,6 +74,7 @@ public:
   // schedule() have seen register pressure over the critical limits and had to
   // track register pressure for actual scheduling heuristics.
   bool HasHighPressure;
+
   // Schedule known to have excess register pressure. Be more conservative in
   // increasing ILP and preserving VGPRs.
   bool KnownExcessRP = false;
@@ -88,6 +89,7 @@ public:
 
   // Bias for VGPR limits under a high register pressure.
   const unsigned HighRPVGPRBias = 7;
+
   unsigned SGPRCriticalLimit;
 
   unsigned VGPRCriticalLimit;
@@ -370,7 +372,7 @@ private:
   MapVector<unsigned, MapVector<MachineInstr *, MachineInstr *>>
       RematerializableInsts;
 
-  // Map a trivially remateriazable def to a list of regions at MinOccupancy
+  // Map a trivially rematerializable def to a list of regions at MinOccupancy
   // that has the defined reg as a live-in.
   DenseMap<MachineInstr *, SmallVector<unsigned, 4>> RematDefToLiveInRegions;
 
@@ -388,8 +390,11 @@ private:
 
 public:
   bool initGCNSchedStage() override;
+
   bool initGCNRegion() override;
+
   bool shouldRevertScheduling(unsigned WavesAfter) override;
+
   PreRARematStage(GCNSchedStageID StageID, GCNScheduleDAGMILive &DAG)
       : GCNSchedStage(StageID, DAG) {}
 };
@@ -405,14 +410,19 @@ public:
 class GCNPostScheduleDAGMILive final : public ScheduleDAGMI {
 private:
   std::vector<std::unique_ptr<ScheduleDAGMutation>> SavedMutations;
+
   bool HasIGLPInstrs = false;
+
 public:
   void schedule() override;
+
   void finalizeSchedule() override;
+
   GCNPostScheduleDAGMILive(MachineSchedContext *C,
                            std::unique_ptr<MachineSchedStrategy> S,
                            bool RemoveKillFlags);
 };
+
 } // End namespace llvm
 
 #endif // LLVM_LIB_TARGET_AMDGPU_GCNSCHEDSTRATEGY_H

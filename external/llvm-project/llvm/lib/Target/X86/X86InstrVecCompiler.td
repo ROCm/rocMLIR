@@ -17,6 +17,8 @@
 
 let Predicates = [NoAVX512] in {
   // A vector extract of the first f32/f64 position is a subregister copy
+  def : Pat<(f16 (extractelt (v8f16 VR128:$src), (iPTR 0))),
+            (COPY_TO_REGCLASS (v8f16 VR128:$src), FR16)>;
   def : Pat<(f32 (extractelt (v4f32 VR128:$src), (iPTR 0))),
             (COPY_TO_REGCLASS (v4f32 VR128:$src), FR32)>;
   def : Pat<(f64 (extractelt (v2f64 VR128:$src), (iPTR 0))),
@@ -34,8 +36,8 @@ let Predicates = [HasAVX512] in {
 }
 
 let Predicates = [NoVLX] in {
-  def : Pat<(v8f16 (scalar_to_vector FR16X:$src)),
-            (COPY_TO_REGCLASS FR16X:$src, VR128)>;
+  def : Pat<(v8f16 (scalar_to_vector FR16:$src)),
+            (COPY_TO_REGCLASS FR16:$src, VR128)>;
   // Implicitly promote a 32-bit scalar to a vector.
   def : Pat<(v4f32 (scalar_to_vector FR32:$src)),
             (COPY_TO_REGCLASS FR32:$src, VR128)>;
@@ -128,6 +130,9 @@ let Predicates = [HasAVX, NoVLX] in {
   defm : subvec_zero_lowering<"DQA", VR128, v32i8, v16i8, sub_xmm>;
 }
 
+let Predicates = [HasAVXNECONVERT, NoVLX] in
+  defm : subvec_zero_lowering<"DQA", VR128, v16bf16, v8bf16, sub_xmm>;
+
 let Predicates = [HasVLX] in {
   defm : subvec_zero_lowering<"APDZ128", VR128X, v4f64, v2f64, sub_xmm>;
   defm : subvec_zero_lowering<"APSZ128", VR128X, v8f32, v4f32, sub_xmm>;
@@ -171,6 +176,12 @@ let Predicates = [HasFP16, HasVLX] in {
   defm : subvec_zero_lowering<"APSZ128", VR128X, v16f16, v8f16, sub_xmm>;
   defm : subvec_zero_lowering<"APSZ128", VR128X, v32f16, v8f16, sub_xmm>;
   defm : subvec_zero_lowering<"APSZ256", VR256X, v32f16, v16f16, sub_ymm>;
+}
+
+let Predicates = [HasBF16, HasVLX] in {
+  defm : subvec_zero_lowering<"APSZ128", VR128X, v16bf16, v8bf16, sub_xmm>;
+  defm : subvec_zero_lowering<"APSZ128", VR128X, v32bf16, v8bf16, sub_xmm>;
+  defm : subvec_zero_lowering<"APSZ256", VR256X, v32bf16, v16bf16, sub_ymm>;
 }
 
 class maskzeroupper<ValueType vt, RegisterClass RC> :

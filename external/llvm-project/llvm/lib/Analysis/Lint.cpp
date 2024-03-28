@@ -77,6 +77,11 @@
 
 using namespace llvm;
 
+static const char LintAbortOnErrorArgName[] = "lint-abort-on-error";
+static cl::opt<bool>
+    LintAbortOnError(LintAbortOnErrorArgName, cl::init(false),
+                     cl::desc("In the Lint pass, abort on errors."));
+
 namespace {
 namespace MemRef {
 static const unsigned Read = 1;
@@ -234,6 +239,10 @@ void Lint::visitCallBase(CallBase &I) {
               continue;
             // If both arguments are readonly, they have no dependence.
             if (Formal->onlyReadsMemory() && I.onlyReadsMemory(ArgNo))
+              continue;
+            // Skip readnone arguments since those are guaranteed not to be
+            // dereferenced anyway.
+            if (I.doesNotAccessMemory(ArgNo))
               continue;
             if (AI != BI && (*BI)->getType()->isPointerTy()) {
               AliasResult Result = AA->alias(*AI, *BI);
@@ -653,11 +662,12 @@ Value *Lint::findValueImpl(Value *V, bool OffsetOk,
     BasicBlock::iterator BBI = L->getIterator();
     BasicBlock *BB = L->getParent();
     SmallPtrSet<BasicBlock *, 4> VisitedBlocks;
+    BatchAAResults BatchAA(*AA);
     for (;;) {
       if (!VisitedBlocks.insert(BB).second)
         break;
       if (Value *U =
-              FindAvailableLoadedValue(L, BB, BBI, DefMaxInstsToScan, AA))
+              FindAvailableLoadedValue(L, BB, BBI, DefMaxInstsToScan, &BatchAA))
         return findValueImpl(U, OffsetOk, Visited);
       if (BBI != BB->begin())
         break;
@@ -710,6 +720,10 @@ PreservedAnalyses LintPass::run(Function &F, FunctionAnalysisManager &AM) {
   Lint L(Mod, DL, AA, AC, DT, TLI);
   L.visit(F);
   dbgs() << L.MessagesStr.str();
+  if (LintAbortOnError && !L.MessagesStr.str().empty())
+    report_fatal_error(Twine("Linter found errors, aborting. (enabled by --") +
+                           LintAbortOnErrorArgName + ")",
+                       false);
   return PreservedAnalyses::all();
 }
 

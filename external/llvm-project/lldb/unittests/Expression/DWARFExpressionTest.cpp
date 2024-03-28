@@ -25,6 +25,7 @@
 
 using namespace lldb_private;
 using namespace lldb_private::dwarf;
+using namespace lldb_private::plugin::dwarf;
 
 static llvm::Expected<Scalar> Evaluate(llvm::ArrayRef<uint8_t> expr,
                                        lldb::ModuleSP module_sp = {},
@@ -522,6 +523,11 @@ DWARF:
   ASSERT_TRUE(evaluate(expr, status, result)) << status.ToError();
   ASSERT_EQ(result.GetValueType(), Value::ValueType::LoadAddress);
   ASSERT_EQ(result.GetScalar().UInt(), 0x5678u);
+
+  ASSERT_TRUE(expr.Update_DW_OP_addr(dwarf_cu, 0xdeadbeef));
+  ASSERT_TRUE(evaluate(expr, status, result)) << status.ToError();
+  ASSERT_EQ(result.GetValueType(), Value::ValueType::LoadAddress);
+  ASSERT_EQ(result.GetScalar().UInt(), 0xdeadbeefu);
 }
 
 class CustomSymbolFileDWARF : public SymbolFileDWARF {

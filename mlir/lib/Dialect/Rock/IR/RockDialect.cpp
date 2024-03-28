@@ -1332,7 +1332,6 @@ LogicalResult TransformingForOp::verify() {
 }
 
 // Cribbed from AffineForOp
-Region &TransformingForOp::getLoopBody() { return getRegion(); }
 bool TransformingForOp::isDefinedOutsideOfLoop(Value value) {
   return !getRegion().isAncestor(value.getParentRegion());
 }
@@ -1340,6 +1339,7 @@ void TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
   for (auto *op : ops)
     op->moveBefore(*this);
 }
+SmallVector<Region *> TransformingForOp::getLoopRegions() { return {&getRegion()}; }
 
 //===-----------------------------------------------------===//
 // IndexDiffUpdateOp

@@ -51,11 +51,10 @@ THE SOFTWARE.
 # define HIPCC_VERBOSE                  "HIPCC_VERBOSE"
 # define HCC_AMDGPU_TARGET              "HCC_AMDGPU_TARGET"
 
-# define HIP_BASE_VERSION_MAJOR     "4"
-# define HIP_BASE_VERSION_MINOR     "4"
+# define HIP_BASE_VERSION_MAJOR     "6"
+# define HIP_BASE_VERSION_MINOR     "1"
 # define HIP_BASE_VERSION_PATCH     "0"
 # define HIP_BASE_VERSION_GITHASH   "0"
-
 
 enum PlatformType {
   amd = 0,
@@ -338,14 +337,7 @@ void HipBinBase::constructRoccmPath() {
   if (!rocm_path_name.empty())
     variables_.roccmPathEnv_ = rocm_path_name;
   else if (envVariables_.roccmPathEnv_.empty()) {
-    const string& hipPath = getHipPath();
-    fs::path roccm_path(hipPath);
-    roccm_path = roccm_path.parent_path();
-    fs::path rocm_agent_enumerator_file(roccm_path);
-    rocm_agent_enumerator_file /= "bin/rocm_agent_enumerator";
-    if (!fs::exists(rocm_agent_enumerator_file)) {
-      roccm_path = "/opt/rocm";
-    }
+    variables_.roccmPathEnv_ = getHipPath();
   } else {
     variables_.roccmPathEnv_ = envVariables_.roccmPathEnv_;}
 }
@@ -355,7 +347,11 @@ void HipBinBase::readHipVersion() {
   string hipVersion;
   const string& hipPath = getHipPath();
   fs::path hipVersionPath = hipPath;
-  hipVersionPath /= "bin/.hipVersion";
+  const OsType& os = getOSInfo();
+  if (os == windows) 
+    hipVersionPath /= "bin/.hipVersion";
+  else
+    hipVersionPath /= "share/hip/version";
   map<string, string> hipVersionMap;
   hipVersionMap = hipBinUtilPtr_->parseConfigFile(hipVersionPath);
   string hip_version_major, hip_version_minor,
@@ -373,7 +369,7 @@ void HipBinBase::readHipVersion() {
                       hipVersionMap, "HIP_VERSION_GITHASH",
                       HIP_BASE_VERSION_GITHASH);
   hipVersion = hip_version_major + "." + hip_version_minor +
-               "." + hip_version_patch + "-" + hip_version_githash;
+               "." + hip_version_patch  + "-" + hip_version_githash;
   hipVersion_ = hipVersion;
 }
 
@@ -460,14 +456,14 @@ void HipBinBase::printUsage() const {
 
 // compiler canRun or not
 bool HipBinBase::canRunCompiler(string exeName, string& cmdOut) {
-  string complierName = exeName;
+  string compilerName = exeName;
   string temp_dir = hipBinUtilPtr_->getTempDir();
   fs::path templateFs = temp_dir;
   templateFs /= "canRunXXXXXX";
   string tmpFileName = hipBinUtilPtr_->mktempFile(templateFs.string());
-  complierName += " --version > " + tmpFileName + " 2>&1";
+  compilerName += " --version > " + tmpFileName + " 2>&1";
   bool executable = false;
-  if (system(const_cast<char*>(complierName.c_str()))) {
+  if (system(const_cast<char*>(compilerName.c_str()))) {
     executable = false;
   } else {
     string myline;

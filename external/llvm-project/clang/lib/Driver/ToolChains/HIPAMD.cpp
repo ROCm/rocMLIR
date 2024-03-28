@@ -149,6 +149,11 @@ void AMDGCN::Linker::constructLldCommand(Compilation &C, const JobAction &JA,
         !A->getOption().matches(options::OPT_ggdb0))
       LldArgs.push_back("-plugin-opt=-amdgpu-spill-cfi-saved-regs");
 
+  for (const Arg *A : Args.filtered(options::OPT_mllvm)) {
+    LldArgs.push_back(
+        Args.MakeArgString(Twine("-plugin-opt=") + A->getValue(0)));
+  }
+
   if (C.getDriver().isSaveTempsEnabled())
     LldArgs.push_back("-save-temps");
 
@@ -243,13 +248,6 @@ HIPAMDToolChain::HIPAMDToolChain(const Driver &D, const llvm::Triple &Triple,
 void HIPAMDToolChain::addActionsFromClangTargetOptions(
     const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args,
     const JobAction &JA, Compilation &C, const InputInfoList &Inputs) const {
-  StringRef GpuArch = DriverArgs.getLastArgValue(options::OPT_mcpu_EQ);
-  if (!DriverArgs.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc,
-                          false))
-    AddStaticDeviceLibsLinking(C, *getTool(JA.getKind()), JA, Inputs,
-                               DriverArgs, CC1Args, "amdgcn", GpuArch,
-                               /* bitcode SDL?*/ true,
-                               /* PostClang Link? */ true);
 }
 
 void HIPAMDToolChain::addClangTargetOptions(
@@ -261,10 +259,6 @@ void HIPAMDToolChain::addClangTargetOptions(
          "Only HIP offloading kinds are supported for GPUs.");
 
   CC1Args.push_back("-fcuda-is-device");
-
-if (DriverArgs.hasFlag(options::OPT_fcuda_approx_transcendentals,
-                         options::OPT_fno_cuda_approx_transcendentals, false))
-    CC1Args.push_back("-fcuda-approx-transcendentals");
 
   if (!DriverArgs.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc,
                           false))
@@ -328,6 +322,7 @@ Tool *HIPAMDToolChain::buildLinker() const {
 }
 
 void HIPAMDToolChain::addClangWarningOptions(ArgStringList &CC1Args) const {
+  AMDGPUToolChain::addClangWarningOptions(CC1Args);
   HostTC.addClangWarningOptions(CC1Args);
 }
 
