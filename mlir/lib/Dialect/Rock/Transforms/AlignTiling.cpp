@@ -226,7 +226,7 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
 }
 
 void LinalgAlignRewriter::moveBefore(Operation *toMove, Operation *latestOp) {
-  constexpr llvm::StringLiteral movePrefix("** Move    : ");
+  constexpr llvm::StringLiteral movePrefix("$$ Move    : ");
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
@@ -594,13 +594,19 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   for (Value idx : tiledOp.getExtraIndices()) {
     Operation *idxOp = idx.getDefiningOp();
     if (idxOp) {
-      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+      if (idxOp->getBlock() == laGeneric->getBlock()
+         && (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp))) {
         lastIdxDef = idxOp;
       }
     }
   }
   if (lastIdxDef)
-    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+  {
+    if (laGeneric->getBlock() != lastIdxDef->getBlock())
+      laGeneric->moveAfter(lastIdxDef);
+    else
+      b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+  }
 
   // 1. create a second allocation of the same type to hold loaded elements
   // where the laGeneric is located.
@@ -727,7 +733,8 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                ThreadwiseReadIntoOp twReadOp,
                                ArrayRef<TransformMapAttr> relativeViewsOnResult,
                                SmallVectorImpl<Value> &newInputs) {
-  for (auto inp : laGeneric.getInputs()) {
+ llvm::errs()<<"\nin TiledOutput\n";
+ for (auto inp : laGeneric.getInputs()) {
     Value newInput = makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult,
                                         laGeneric, twReadOp);
     newInputs.push_back(newInput);
@@ -868,7 +875,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     // Prevent SSA weirdness from register allocations introduced too late.
     // Do this before calling addRegisterReadsForTiledOutput() as
     // addRegisterReadsForTiledOutput() may move laGeneric.
-    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
+    if (newOutput.getDefiningOp()->getBlock() == laGeneric->getBlock())
+      b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     SmallVector<Value> newInputs;
     addRegisterReadsForTiledOutput(b, laGeneric, tileReadOp,
                                    globalCoordsToGenericViews, newInputs);
