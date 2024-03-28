@@ -14,7 +14,7 @@ prefix = "-perf_config"
 
 [[axis]]
 name = "data type"
-values = ["f32"]
+values = ["f32", "f16 -RMS_threshold=1e-3"]
 prefix = "-t "
 
 ## Gemm variants

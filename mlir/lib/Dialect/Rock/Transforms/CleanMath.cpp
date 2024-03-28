@@ -15,6 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -45,6 +46,46 @@ struct RockCleanMathPass
   void runOnOperation() override;
 };
 } // end namespace
+
+/// This function hasn't come from anywhere and is relying on the overall
+/// tests of the integer range inference implementation for its correctness.
+static LogicalResult deleteTrivialRemainder(DataFlowSolver &solver,
+                                            Operation &op) {
+  if (!isa<arith::RemSIOp, arith::RemUIOp>(op))
+    return failure();
+  Value result = op.getResult(0);
+  Value lhs = op.getOperand(0);
+  Value rhs = op.getOperand(1);
+  auto rhsConstVal = rhs.getDefiningOp<arith::ConstantOp>();
+  if (!rhsConstVal)
+    return failure();
+  APInt modulus = cast<IntegerAttr>(rhsConstVal.getValue()).getValue();
+  if (!modulus.isStrictlyPositive())
+    return failure();
+  auto *maybeLhsRange = solver.lookupState<IntegerValueRangeLattice>(lhs);
+  if (!maybeLhsRange || maybeLhsRange->getValue().isUninitialized())
+    return failure();
+  const ConstantIntRanges &lhsRange = maybeLhsRange->getValue().getValue();
+  const APInt &min =
+      llvm::isa<arith::RemUIOp>(op) ? lhsRange.umin() : lhsRange.smin();
+  const APInt &max =
+      llvm::isa<arith::RemUIOp>(op) ? lhsRange.umax() : lhsRange.smax();
+  // The minima and maxima here are given as closed ranges, we must be strictly
+  // less than the modulus.
+  if (min.isNegative() || min.uge(modulus))
+    return failure();
+  if (max.isNegative() || max.uge(modulus))
+    return failure();
+  if (!min.ule(max))
+    return failure();
+
+  // With all those conditions out of the way, we know thas this invocation of
+  // a remainder is a noop because the input is strictly within the range
+  // [0, modulus), so get rid of it.
+  result.replaceAllUsesWith(lhs);
+  op.erase();
+  return success();
+}
 
 /// From
 /// external/llvm-project/mlir/test/lib/Transforms/TestIntRangeInference.cpp
@@ -96,6 +137,8 @@ static void rewrite(DataFlowSolver &solver, MLIRContext *context,
     for (Operation &op : llvm::make_early_inc_range(*block)) {
       builder.setInsertionPoint(&op);
 
+      if (succeeded(deleteTrivialRemainder(solver, op)))
+        continue;
       // Replace any result with constants.
       bool replacedAll = op.getNumResults() != 0;
       for (Value res : op.getResults())

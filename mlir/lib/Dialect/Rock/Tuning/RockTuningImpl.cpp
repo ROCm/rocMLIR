@@ -67,7 +67,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
-  if (!info.gemmAType.isF32()) {
+  const bool isAllowedTypeA = info.gemmAType.isF32() || info.gemmAType.isF16();
+  const bool isAllowedTypeB = info.gemmBType.isF32() || info.gemmBType.isF16();
+  if (!(isAllowedTypeA && isAllowedTypeB)) {
     return splitKValues;
   }
 

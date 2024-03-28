@@ -1572,7 +1572,7 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
                                       ArrayRef<StringRef> afterDims,
                                       SmallVector<Attribute> &transformAttrs) {
   if (condition) {
-    // d = (d+k_outer)
+    // d = (d+stride*k_outer)
     TopDownTMBuilder rotateD0 = TopDownTMBuilder::below(builder, attr);
     if (!beforeDims.empty())
       rotateD0.passThrough(beforeDims);
@@ -1582,31 +1582,16 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
     TransformMapAttr rotateD0Attr = rotateD0.get();
     transformAttrs.push_back(rotateD0Attr);
 
-    // d = (d+k_outer) % d
-    unsigned int numBeforeDims = beforeDims.size();
-    unsigned int idx = numBeforeDims;
+    // d = (d+stride*k_outer) % d
     TopDownTMBuilder rotateD1 = TopDownTMBuilder::below(rotateD0, rotateD0Attr);
     if (!beforeDims.empty())
       rotateD1.passThrough(beforeDims);
-    rotateD1.merge({"to_discard", dName}, {idx, ++idx}, dName, {kOuter, d});
-    for (auto dim : afterDims)
-      rotateD1.passThrough({dim}, ++idx, {dim});
+    rotateD1.takeRemainder(dName, d);
+    if (!afterDims.empty())
+      rotateD1.passThrough(afterDims);
     TransformMapAttr rotateD1Attr = rotateD1.get();
     transformAttrs.push_back(rotateD1Attr);
-
-    // discard the additional dimension
-    TopDownTMBuilder rotateD2 = TopDownTMBuilder::below(rotateD1, rotateD1Attr);
-    idx = numBeforeDims;
-    if (!beforeDims.empty())
-      rotateD2.passThrough(beforeDims);
-    rotateD2.ignore("to_discard");
-    rotateD2.passThrough({dName}, {idx++}, {dName});
-    for (auto dim : afterDims)
-      rotateD2.passThrough({dim}, idx++, {dim});
-    TransformMapAttr rotateD2Attr = rotateD2.get();
-    transformAttrs.push_back(rotateD2Attr);
-
-    TopDownTMBuilder rotated = TopDownTMBuilder::below(rotateD2, rotateD2Attr);
+    TopDownTMBuilder rotated = TopDownTMBuilder::below(rotateD1, rotateD1Attr);
     return rotated;
   } else {
     TopDownTMBuilder unrotated = TopDownTMBuilder::below(builder, attr);

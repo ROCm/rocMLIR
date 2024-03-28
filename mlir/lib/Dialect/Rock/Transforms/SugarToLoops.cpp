@@ -167,6 +167,12 @@ struct TransformingForRewritePattern
     for (const auto &pair : llvm::zip(bounds, strides)) {
       int64_t bound, stride;
       std::tie(bound, stride) = pair;
+      // This is a one-iteration loop, so don't actually emit a loop so as to
+      // enable constant folding.
+      if (bound == stride && bound > 0) {
+        ivs.push_back(b.createOrFold<arith::ConstantIndexOp>(loc, 0));
+        continue;
+      }
       llvm::SmallVector<Value, 3> iterInits;
       if (loops.empty())
         llvm::copy(op.getIterInits(), std::back_inserter(iterInits));
@@ -241,7 +247,24 @@ struct TransformingForRewritePattern
         cloneMap.map(validities[i], isValid);
       }
     }
-
+    // One-iteration loops should be inlined, do so here.
+    if (loops.empty()) {
+      auto yieldOp = cast<rock::YieldOp>(op.getBody()->getTerminator());
+      b.replaceAllUsesWith(op.getResults(), yieldOp.getOperands());
+      SmallVector<Value> blockArgValues;
+      for (auto [blockArg, initValue] :
+           llvm::zip(op.getIterArgs(), op.getIterInits())) {
+        cloneMap.map(blockArg, initValue);
+      }
+      blockArgValues.reserve(op.getBody()->getNumArguments());
+      for (auto blockArg : op.getBody()->getArguments())
+        blockArgValues.push_back(cloneMap.lookup(blockArg));
+      b.inlineBlockBefore(op.getBody(), op.getOperation()->getBlock(),
+                          op.getOperation()->getIterator(), blockArgValues);
+      b.eraseOp(yieldOp);
+      b.eraseOp(op);
+      return success();
+    }
     // Map loop arguments, clone operations in body
     affine::AffineForOp il = loops[loops.size() - 1];
     for (auto p : llvm::zip(op.getIterArgs(), il.getRegionIterArgs())) {
@@ -1752,13 +1775,21 @@ void RockSugarToLoopsPass::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 
-  // Apply loop invariant code motion to all loops before unrolling
-  WalkResult licmResult =
-      op.walk<WalkOrder::PostOrder>([](LoopLikeOpInterface loop) -> WalkResult {
+  IRRewriter b(op.getContext());
+  // Apply loop invariant code motion to all loops before unrolling.
+  WalkResult loopMinimizationResult = op.walk<WalkOrder::PostOrder>(
+      [&b](LoopLikeOpInterface loop) -> WalkResult {
+        (void)loop.promoteIfSingleIteration(b);
+        // Affine loops don't implement the iteration promoter interface and
+        // need their own method.
+        if (auto affineLoop =
+                dyn_cast<affine::AffineForOp>(loop.getOperation())) {
+          (void)affine::promoteIfSingleIteration(affineLoop);
+        }
         moveLoopInvariantCode(loop);
         return WalkResult::advance();
       });
-  if (licmResult.wasInterrupted())
+  if (loopMinimizationResult.wasInterrupted())
     return signalPassFailure();
 
   // Note that the reason unrolling is a separate call here is that

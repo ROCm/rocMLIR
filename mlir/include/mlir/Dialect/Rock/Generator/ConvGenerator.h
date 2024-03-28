@@ -36,6 +36,7 @@ public:
     std::string chipFeatures;
     std::string perfConfig;
     std::optional<int> num_cu;
+    bool reverseGrid;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
     std::string filterDataTypeStr;
@@ -65,6 +66,7 @@ public:
                 const std::string &chipFeatures = "",
                 const std::string &perfConfig = "",
                 std::optional<int> num_cu = std::nullopt,
+                bool reverseGrid = false,
                 GemmFeatures features = GemmFeatures::none,
                 const std::optional<rock::ConvOpType> operation = std::nullopt,
                 const std::string &filterDataTypeStr = "f32",

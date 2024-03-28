@@ -30,6 +30,11 @@ name = "pr_gemm"
 
 [[suite.test]]
 config = "-g 3 -m 1024 -k 769 -n 1024"
+
+## reverse grid test
+[[suite.test]]
+config = "-g 3 -m 1024 -k 769 -n 1024 --reverse_grid"
+
 # Don't re-test f16 and i8 with transposes: it won't give us much new
 [[suite.test.exclude]]
 name = "data type"
