@@ -889,7 +889,7 @@ llvm::StringMap<uint32_t> mlir::rock::expandNamesInPlace(
       offset--; // Handle extra count and dropping a dimension
     } else {
       bool insertResult = ret.insert({origName, origIndex + offset}).second;
-      assert(insertResult && "Dimsion already defined by expansion");
+      assert(insertResult && "Dimension already defined by expansion");
     }
   }
   return ret;
