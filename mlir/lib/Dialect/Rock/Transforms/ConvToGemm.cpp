@@ -829,7 +829,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   int64_t yDotSlice =
       math_util::integer_divide_ceil(convDims.fil[0] - iYTilda, filTilda[0]);
   int64_t xDotSlice =
-      math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, filTilda[0]);
+      math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, filTilda[1]);
 
   // backward data only, it's igemm v4r1 algo
   // c is input channels , k is output channels
