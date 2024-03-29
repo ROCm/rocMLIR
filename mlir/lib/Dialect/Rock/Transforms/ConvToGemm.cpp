@@ -623,7 +623,16 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // is what's left
     llvm::StringMap<uint32_t> firstTransformOutDims = expandNamesInPlace(
         inputNames,
-        {{"ni", {"n0", "n1"}}, {"0i", {"hipad"}}, {"1i", {"wipad"}}});
+        {{"ni", {"n0", "n1"}}, {"0i", {"0ipad"}}, {"1i", {"1ipad"}}});
+
+
+//     llvm::StringMap<uint32_t> firstTransformOutDimsB = expandNamesInPlace(
+//         inputNames,
+//         {{"ni", {"n0", "n1"}}});
+//     for (auto& x : firstTransformOutDimsB)
+//       firstTransformOutDims.insert(&x);
+
+
 
     BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
     BottomUpTMTopDimsWrapper firstWrap(firstTransform,
@@ -632,7 +641,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     firstWrap.unmerge({"n0", "n1"}, "ni",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
     firstWrap.passThrough("ci");
-    firstWrap.pad({"hipad", "wipad"}, {"0i", "1i"}, pads);
+    firstWrap.pad({"0ipad", "1ipad"}, {"0i", "1i"}, pads);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -641,14 +650,14 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
     llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
-        firstTransform, {{"hipad", {"0", "0o"}}, {"wipad", {"1", "1o"}}});
+        firstTransform, {{"0ipad", {"0", "0o"}}, {"1ipad", {"1", "1o"}}});
     auto embedTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
-    embedWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]}, "hipad",
+    embedWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]}, "0ipad",
                     {dilations[0], strides[0]});
-    embedWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]}, "wipad",
+    embedWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]}, "1ipad",
                     {dilations[1], strides[1]});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -852,7 +861,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   {
     BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough({"gi", "ni", "ci"});
-    padInputTransform.pad({"hipad", "wipad"},
+    padInputTransform.pad({"0ipad", "1ipad"},
                           {padInputTransform.startIndex("0i"),
                            padInputTransform.startIndex("1i")},
                           {"0i", "1i"}, pads);
@@ -861,19 +870,19 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     Value paddedInput =
         b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
 
-    // Split hipad, wipad into ytilda, htilda, xtilda, wtilda
+    // Split 0ipad, 1ipad into ytilda, htilda, xtilda, wtilda
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
         padInputTransform,
-        {{"hipad", {"0tilda", "htilda"}}, {"wipad", {"1tilda", "wtilda"}}});
+        {{"0ipad", {"0ftilda", "0itilda"}}, {"1ipad", {"1ftilda", "1itilda"}}});
     auto tildaEmbedTransform =
         BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
     BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
-    tildaEmbedWrap.embed({"0tilda", "htilda"}, {filTilda[0], outTilda[0]},
-                         "hipad", {dilations[0], strides[0]});
-    tildaEmbedWrap.embed({"1tilda", "wtilda"}, {filTilda[1], outTilda[1]},
-                         "wipad", {dilations[1], strides[1]});
+    tildaEmbedWrap.embed({"0ftilda", "0itilda"}, {filTilda[0], outTilda[0]},
+                         "0ipad", {dilations[0], strides[0]});
+    tildaEmbedWrap.embed({"1ftilda", "1itilda"}, {filTilda[1], outTilda[1]},
+                         "1ipad", {dilations[1], strides[1]});
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded =
@@ -884,9 +893,9 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto sliceTransform =
         BottomUpTMBuilder::above(tildaEmbedTransform, tildaEmbedTransformAttr);
     sliceTransform.passThrough({"gi", "ni", "ci"});
-    sliceTransform.slice({"0slice", "1slice"}, {"0tilda", "1tilda"},
+    sliceTransform.slice({"0slice", "1slice"}, {"0ftilda", "1ftilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
-    sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"}, iTildaLeft,
+    sliceTransform.slice({"0islice", "1islice"}, {"0itilda", "1itilda"}, iTildaLeft,
                          iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
@@ -899,7 +908,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
         BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmTransform.passThrough({"gemmG"}, {0}, {"gi"});
     gemmTransform.merge("gemmM", 1, {"ci", "0slice", "1slice"});
-    gemmTransform.merge("gemmN", 2, {"ni", "hslice", "wslice"});
+    gemmTransform.merge("gemmN", 2, {"ni", "0islice", "1islice"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
@@ -907,29 +916,29 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
 
   // Transform output tensor
   {
-    // Embed ho to ydot and htilda and wo to xdot and ytilda
+    // Embed 0o to 0dot and 0tilda and 1o to 1dot and 1tilda
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        outputNames, {{"0o", {"0dot", "htilda"}}, {"1o", {"1dot", "wtilda"}}});
+        outputNames, {{"0o", {"0dot", "0tilda"}}, {"1o", {"1dot", "1tilda"}}});
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    embedWrap.embed({"0dot", "htilda"}, {filDots[0], outTilda[0]}, "0o",
+    embedWrap.embed({"0dot", "0tilda"}, {filDots[0], outTilda[0]}, "0o",
                     {(-dilations[0]) / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "wtilda"}, {filDots[1], outTilda[1]}, "1o",
+    embedWrap.embed({"1dot", "1tilda"}, {filDots[1], outTilda[1]}, "1o",
                     {(-dilations[1]) / gcdStrideDilations[1], 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
         b.create<TransformOp>(loc, op.getOutput(), embedTransformAttr);
 
-    // Take the same slices in ydot, xdot, htilda, and wtilda as were taken in
+    // Take the same slices in ydot, xdot, 0tilda, and 1tilda as were taken in
     // the filter and input
     auto sliceTransform =
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
     sliceTransform.passThrough({"go", "no", "ko"});
     sliceTransform.slice({"0slice", "1slice"}, {"0dot", "1dot"}, {0, 0},
                          {yDotSlice, xDotSlice});
-    sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"}, iTildaLeft,
+    sliceTransform.slice({"0islice", "1islice"}, {"0tilda", "1tilda"}, iTildaLeft,
                          iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
@@ -940,7 +949,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
         BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmOutputTransform.passThrough({"gemmG"}, {0}, {"go"});
     gemmOutputTransform.merge("gemmK", 1, {"ko", "0slice", "1slice"});
-    gemmOutputTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
+    gemmOutputTransform.merge("gemmN", 2, {"no", "0islice", "1islice"});
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
@@ -1065,7 +1074,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // Padded input tensor transformation:
     // - Pass through ni, gi, and ci, not renaming them
     // - Padd hi and wi as specified in padding attributes, renaming them to
-    // hipad and wipad
+    // 0ipad and 1ipad
     BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough("ni");
     padInputTransform.passThrough("gi");
@@ -1073,7 +1082,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<uint32_t, 2> padOutDims = {
         padInputTransform.startIndex("0i"), padInputTransform.startIndex("1i")};
-    padInputTransform.pad({"hipad", "wipad"}, padOutDims, {"0i", "1i"},
+    padInputTransform.pad({"0ipad", "1ipad"}, padOutDims, {"0i", "1i"},
                           ctx.getPaddingVal());
 
     TransformMapAttr padInputTransformAttr = padInputTransform.get();
@@ -1084,22 +1093,23 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // Input tensor step 2 : embedded input.
     // Embedded input tensor transformation:
     // - PassThrough gi, ni, and ci
-    // - Embed hipad to y and ho with size filter y by output h and
+    // - Embed 0ipad to y and ho with size filter y by output h and
     //   coefficients dilations[0] and strides[0]
-    // - Embed wipad to x and wo with size filter x by output h and
+    // - Embed 1ipad to x and wo with size filter x by output h and
     //   coefficients dilations[1] and strides[1]
 
     llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
-        padInputTransform, {{"hipad", {"0", "0o"}}, {"wipad", {"1", "1o"}}});
+        padInputTransform, {{"0ipad", {"0", "0o"}}, {"1ipad", {"1", "1o"}}});
+
     BottomUpTMBuilder embedInputTransform =
         BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
     BottomUpTMTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     embedInputWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]},
-                         "hipad", {dilations[0], strides[0]});
+                         "0ipad", {dilations[0], strides[0]});
     embedInputWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]},
-                         "wipad", {dilations[1], strides[1]});
+                         "1ipad", {dilations[1], strides[1]});
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput =
