@@ -3,21 +3,21 @@
 
 // CHECK-DAG: #[[$ON_OP:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-  by [<PassThrough ["x", "y", "z"] at [0, 1, 2] -> ["x", "y", "z"] at [0, 1, 2]>]
+  by [<PassThrough ["1", "0", "z"] at [0, 1, 2] -> ["1", "0", "z"] at [0, 1, 2]>]
   bounds = [2, 64, 32] -> [2, 64, 32]>
 // CHECK-DAG: #[[$IN_FUNC:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1]{{.*}}[0, 1]{{.*}}Pad{2, 0}
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
-  by [<PassThrough ["x", "y"] at [0, 1]  -> ["x", "y"] at [0, 1]>,
+  by [<PassThrough ["1", "0"] at [0, 1]  -> ["1", "0"] at [0, 1]>,
     <Pad{2, 0} ["z"] at [2] -> ["z"] at [2]>]
   bounds = [2, 64, 32] -> [2, 64, 30]>
 
 // CHECK-DAG: #[[$ON_OP_IDX:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2, 3]{{.*}}[0, 1, 2, 3]
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-  by [<PassThrough ["w", "x", "y", "z"] at [0, 1, 2, 3] -> ["w", "x", "y", "z"] at [0, 1, 2, 3]>]
+  by [<PassThrough ["1", "1", "0", "z"] at [0, 1, 2, 3] -> ["1", "1", "0", "z"] at [0, 1, 2, 3]>]
   bounds = [3, 2, 64, 32] -> [3, 2, 64, 32]>
 // CHECK-DAG: #[[$IN_FUNC_IDX:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]{{.*}}Pad{2, 0}
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3 - 2)>
-  by [<PassThrough ["w", "x", "y"] at [0, 1, 2]  -> ["w", "x", "y"] at [0, 1, 2]>,
+  by [<PassThrough ["1", "1", "0"] at [0, 1, 2]  -> ["1", "1", "0"] at [0, 1, 2]>,
     <Pad{2, 0} ["z"] at [3] -> ["z"] at [3]>]
   bounds = [3, 2, 64, 32] -> [3, 2, 64, 30]>
 
