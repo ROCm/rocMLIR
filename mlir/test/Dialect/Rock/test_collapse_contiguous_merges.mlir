@@ -5,11 +5,11 @@
 #unmerge_trmap = #rock.transform_map<
   affine_map<(d0, d1) -> (d0 floordiv 6, (d0 mod 6) floordiv 3, d0 mod 2, d1)>
   by [<PassThrough ["a"] at [1] -> ["a"] at [3]>,
-    <Merge{4, 3, 2} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
+    <Merge{4, 3, 2} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
   bounds = [24, 5] -> [4, 3, 2, 5]>
 
 // CHECK: [[MAP:#.+]] = affine_map<(d0, d1) -> (d0 floordiv 6, (d0 mod 6) floordiv 3, d0 mod 2, d1)>
-// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{4, 3, 2} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
+// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{4, 3, 2} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
 // CHECK: func @test_wrong_shape([[ARG0:%.+]]: memref<5x4x3x5xf32>)
 // CHECK-NEXT: [[MERGED:%.+]] = rock.transform [[ARG0]] by [[TRMAP]]
 // CHECK-NEXT: "collapse_merges"([[MERGED]])
@@ -24,7 +24,7 @@ func.func @test_wrong_shape(%arg0: memref<5x4x3x5xf32>) {
 // -----
 
 // CHECK: [[MAP:#.+]] = affine_map<(d0, d1) -> (0, 0, d0, d1)>
-// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{1, 1, 24} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
+// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{1, 1, 24} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
 // CHECK: func @test_basic_unmerge([[ARG0:%.+]]: memref<4x3x2x5xf32>)
 // CHECK-NEXT: [[MERGED:%.+]] = rock.transform [[ARG0]] by [[TRMAP]]
 // CHECK-NEXT: "collapse_merges"([[MERGED]])
@@ -32,7 +32,7 @@ func.func @test_wrong_shape(%arg0: memref<5x4x3x5xf32>) {
 #unmerge_trmap = #rock.transform_map<
   affine_map<(d0, d1) -> (d0 floordiv 6, (d0 mod 6) floordiv 3, d0 mod 2, d1)>
   by [<PassThrough ["a"] at [1] -> ["a"] at [3]>,
-    <Merge{4, 3, 2} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
+    <Merge{4, 3, 2} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
   bounds = [24, 5] -> [4, 3, 2, 5]>
 
 func.func @test_basic_unmerge(%arg0: memref<4x3x2x5xf32>) {
@@ -46,14 +46,14 @@ func.func @test_basic_unmerge(%arg0: memref<4x3x2x5xf32>) {
 // -----
 
 // CHECK: [[MAP:#.+]] = affine_map<(d0, d1) -> (d1 floordiv 6, d0, 0, d1 mod 6)>
-// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>, <Merge{4, 1, 6} ["gemmN"] at [1] -> ["n", "h", "w"] at [0, 2, 3]>] bounds = [5, 24] -> [4, 5, 3, 2]>
+// CHECK: [[TRMAP:#.+]] = #rock.transform_map<[[MAP]] by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>, <Merge{4, 1, 6} ["gemmN"] at [1] -> ["n", "0", "1"] at [0, 2, 3]>] bounds = [5, 24] -> [4, 5, 3, 2]>
 // CHECK: func @test_partial_merge_conv2gemm([[ARG0:%.+]]: memref<4x5x3x2xf32>)
 // CHECK-NEXT: [[MERGED:%.+]] = rock.transform [[ARG0]] by [[TRMAP]]
 // CHECK-NEXT: "collapse_merges"([[MERGED]])
 #conv2gemm_trmap = #rock.transform_map<
   affine_map<(d0, d1) -> (d0 floordiv 6, d1, (d0 mod 6) floordiv 3, d0 mod 2)>
   by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>,
-    <Merge{4, 3, 2} ["gemmN"] at [1] -> ["n", "h", "w"] at [0, 2, 3]>]
+    <Merge{4, 3, 2} ["gemmN"] at [1] -> ["n", "0", "1"] at [0, 2, 3]>]
   bounds = [5, 24] -> [4, 5, 3, 2]>
 
 func.func @test_partial_merge_conv2gemm(%arg0: memref<4x5x3x2xf32>) {
@@ -69,19 +69,19 @@ func.func @test_partial_merge_conv2gemm(%arg0: memref<4x5x3x2xf32>) {
 // CHECK: [[PERM_MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d3, d1, d0, d2)>
 // CHECK: [[CONV2GEMM_MAP:#.+]] = affine_map<(d0, d1) -> (0, d0, d1, 0)>
 // CHECK: [[PERM_TRMAP:#.+]] = #rock.transform_map<[[PERM_MAP]]
-// CHECK: [[CONV2GEMM_TRMAP:#.+]] = #rock.transform_map<[[CONV2GEMM_MAP]] by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>, <Merge{1, 65536, 1} ["gemmN"] at [1] -> ["h", "w", "n"] at [0, 2, 3]>] bounds = [512, 65536] -> [256, 512, 256, 1]>
+// CHECK: [[CONV2GEMM_TRMAP:#.+]] = #rock.transform_map<[[CONV2GEMM_MAP]] by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>, <Merge{1, 65536, 1} ["gemmN"] at [1] -> ["0", "1", "n"] at [0, 2, 3]>] bounds = [512, 65536] -> [256, 512, 256, 1]>
 // CHECK: func @test_batch_transpose_bug_1407([[ARG0:%.+]]: memref<1x512x256x256xf32>)
 // CHECK-NEXT: [[PERMED:%.+]] = rock.transform [[ARG0]] by [[PERM_TRMAP]]
 // CHECK-NEXT: [[MERGED:%.+]] = rock.transform [[PERMED]] by [[CONV2GEMM_TRMAP]]
 // CHECK-NEXT: "collapse_merges"([[MERGED]])
 #perm_trmap = #rock.transform_map<
   affine_map<(d0, d1, d2, d3) -> (d3, d1, d0, d2)>
-  by [<PassThrough ["n", "k", "h", "w"] at [3, 1, 0, 2]-> ["n", "k", "h", "w"] at [0, 1, 2, 3]>]
+  by [<PassThrough ["n", "k", "0", "1"] at [3, 1, 0, 2]-> ["n", "k", "0", "1"] at [0, 1, 2, 3]>]
   bounds = [256, 512, 256, 1] -> [1, 512, 256, 256]>
 #conv2gemm_trmap = #rock.transform_map<
   affine_map<(d0, d1) ->(d0 floordiv 6, d1, (d0 mod 6) floordiv 3, d0 mod 2)>
   by [<PassThrough ["gemmM"] at [0] -> ["k"] at [1]>,
-    <Merge{256, 256, 1} ["gemmN"] at [1] -> ["h", "w", "n"] at [0, 2, 3]>]
+    <Merge{256, 256, 1} ["gemmN"] at [1] -> ["0", "1", "n"] at [0, 2, 3]>]
   bounds = [512, 65536] -> [256, 512, 256, 1]>
 
 func.func @test_batch_transpose_bug_1407(%arg0: memref<1x512x256x256xf32>) {
@@ -97,9 +97,9 @@ func.func @test_batch_transpose_bug_1407(%arg0: memref<1x512x256x256xf32>) {
 // CHECK: [[OLD_MAP:#.+]] = affine_map<(d0, d1) -> (d0 floordiv 6, (d0 mod 6) floordiv 3, d0 mod 2, d1)>
 // CHECK: [[NEW_MAP:#.+]] = affine_map<(d0, d1) -> (0, 0, d0, d1)>
 // CHECK: [[PERM_MAP:#.+]] = affine_map<(d0, d1) -> (d1, d0)>
-// CHECK: [[OLD_TRMAP:#.+]] = #rock.transform_map<[[OLD_MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{4, 3, 2} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
-// CHECK: [[NEW_TRMAP:#.+]] = #rock.transform_map<[[NEW_MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{1, 1, 24} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
-// CHECK: [[PERM_TRMAP:#.+]] = #rock.transform_map<[[PERM_MAP]] by [<PassThrough ["x", "a"] at [1, 0] -> ["x", "a"] at [0, 1]>] bounds = [5, 24] -> [24, 5]>
+// CHECK: [[OLD_TRMAP:#.+]] = #rock.transform_map<[[OLD_MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{4, 3, 2} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
+// CHECK: [[NEW_TRMAP:#.+]] = #rock.transform_map<[[NEW_MAP]] by [<PassThrough ["a"] at [1] -> ["a"] at [3]>, <Merge{1, 1, 24} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>] bounds = [24, 5] -> [4, 3, 2, 5]>
+// CHECK: [[PERM_TRMAP:#.+]] = #rock.transform_map<[[PERM_MAP]] by [<PassThrough ["1", "a"] at [1, 0] -> ["1", "a"] at [0, 1]>] bounds = [5, 24] -> [24, 5]>
 // CHECK: func @test_need_for_clone([[ARG0:%.+]]: memref<4x3x2x5xf32>)
 // CHECK-NEXT: [[OLD_MERGED:%.+]] = rock.transform [[ARG0]] by [[OLD_TRMAP]]
 // CHECK-NEXT: [[NEW_MERGED:%.+]] = rock.transform [[ARG0]] by [[NEW_TRMAP]]
@@ -111,11 +111,11 @@ func.func @test_batch_transpose_bug_1407(%arg0: memref<1x512x256x256xf32>) {
 #unmerge_trmap = #rock.transform_map<
   affine_map<(d0, d1) -> (d0 floordiv 6, (d0 mod 6) floordiv 3, d0 mod 2, d1)>
   by [<PassThrough ["a"] at [1] -> ["a"] at [3]>,
-    <Merge{4, 3, 2} ["x"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
+    <Merge{4, 3, 2} ["1"] at [0] -> ["b", "c", "d"] at [0, 1, 2]>]
   bounds = [24, 5] -> [4, 3, 2, 5]>
 #perm_trmap = #rock.transform_map<
   affine_map<(d0, d1) -> (d1, d0)>
-  by [<PassThrough ["x", "a"] at [1, 0] -> ["x", "a"] at [0, 1]>]
+  by [<PassThrough ["1", "a"] at [1, 0] -> ["1", "a"] at [0, 1]>]
   bounds = [5, 24] -> [24, 5]>
 
 func.func @test_need_for_clone(%arg0: memref<4x3x2x5xf32>) {
