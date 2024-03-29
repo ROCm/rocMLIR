@@ -67,7 +67,7 @@ using namespace mlir::rock;
 // High level convolution operation always have
 // [filter, input, output]
 // as the convolution argument. The only difference between different
-// hight level convolution operations is the argument sequence. For
+// height level convolution operations is the argument sequence. For
 // simplicity, we always arrange the first two arguments to be input
 // and the last argument to be output
 
@@ -594,7 +594,10 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
                                            std::move(kBlockDims));
     addKBlockWrap.passThrough("g");
     addKBlockWrap.addDim("kBlock", gemmKBlocks);
-    addKBlockWrap.passThrough({"k", "c", "0", "1"});
+    SmallVector<StringRef, 5> throughDims{"k", "c"};
+    for (size_t i = 0;  i < convDims.fil.size();  i++)
+      throughDims.push_back(b.getStringAttr(Twine(i)));
+    addKBlockWrap.passThrough(throughDims);
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value filterTensorInUse =
@@ -621,18 +624,15 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   {
     // Pad H and W and split N into  n0 and n1 where n0 has size kBlocks and n1
     // is what's left
+    llvm::StringMap<SmallVector<StringRef, 2>> expansions;
+    expansions.insert({"ni", {"n0", "n1"}});
+    for (int i = 0;  i < 2;  i++) {
+      StringAttr key = b.getStringAttr(Twine(i) + "i");
+      StringAttr val = b.getStringAttr(Twine(i) + "ipad");
+      expansions.insert({key, {val}});
+    }
     llvm::StringMap<uint32_t> firstTransformOutDims = expandNamesInPlace(
-        inputNames,
-        {{"ni", {"n0", "n1"}}, {"0i", {"0ipad"}}, {"1i", {"1ipad"}}});
-
-
-//     llvm::StringMap<uint32_t> firstTransformOutDimsB = expandNamesInPlace(
-//         inputNames,
-//         {{"ni", {"n0", "n1"}}});
-//     for (auto& x : firstTransformOutDimsB)
-//       firstTransformOutDims.insert(&x);
-
-
+        inputNames, expansions);
 
     BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
     BottomUpTMTopDimsWrapper firstWrap(firstTransform,
@@ -641,7 +641,13 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     firstWrap.unmerge({"n0", "n1"}, "ni",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
     firstWrap.passThrough("ci");
-    firstWrap.pad({"0ipad", "1ipad"}, {"0i", "1i"}, pads);
+    SmallVector<StringRef, 3> outs;
+    SmallVector<StringRef, 3> ins;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
+      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    }
+    firstWrap.pad(outs, ins, pads);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -649,16 +655,27 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
+    expansions.clear();
+    for (size_t i = 0;  i < convDims.out.size();  i++) {
+      StringAttr key = b.getStringAttr(Twine(i) + "ipad");
+      StringAttr val1 = b.getStringAttr(Twine(i));
+      StringAttr val2 = b.getStringAttr(Twine(i) + "o");
+      expansions.insert({key, {val1, val2}});
+    }
     llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
-        firstTransform, {{"0ipad", {"0", "0o"}}, {"1ipad", {"1", "1o"}}});
+        firstTransform, expansions);
     auto embedTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
-    embedWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]}, "0ipad",
-                    {dilations[0], strides[0]});
-    embedWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]}, "1ipad",
-                    {dilations[1], strides[1]});
+    assert(convDims.fil.size() == convDims.out.size());
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr val1 = b.getStringAttr(Twine(i));
+      StringAttr val2 = b.getStringAttr(Twine(i) + "o");
+      StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
+      embedWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]},
+                      val3, {dilations[i], strides[i]});
+    }
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -668,9 +685,13 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     auto gemmInputTransform =
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
 
-    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "0", "1"};
+    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci"};
+    for (size_t i = 0;  i < convDims.in.size(); i++)
+      nonNHWDims.push_back(b.getStringAttr(Twine(i)));
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "0o", "1o"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1"};
+    for (size_t i = 0;  i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     // In the gemmG dimension, unlike with gemmN, we don't have the same
@@ -694,7 +715,10 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     firstWrap.passThrough("go");
     firstWrap.unmerge({"n0", "n1"}, "no",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
-    firstWrap.passThrough({"ko", "0o", "1o"});
+    SmallVector<StringRef, 3> names{"ko"};
+    for (size_t i = 0;  i < convDims.out.size();  i++)
+      names.push_back(b.getStringAttr(Twine(i)+"o"));
+    firstWrap.passThrough(names);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
@@ -703,7 +727,9 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmOutputTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "0o", "1o"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1"};
+    for (size_t i = 0;  i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
     matchUnderlyingOrder(nhwDims, gemmOutputTransform);
     gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
     gemmOutputTransform.merge("gemmK", 1, nhwDims);
@@ -748,7 +774,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   ShapedType outputType = op.getOutput().getType();
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  // Obtain convolution parameters: padding / dialtion / stride.
+  // Obtain convolution parameters: padding / dilation / stride.
   auto pads = ctx.getPaddingVal();
   auto dilations = ctx.getDilationVal();
   auto strides = ctx.getStrideVal();
@@ -806,7 +832,7 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
       math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, filTilda[0]);
 
   // backward data only, it's igemm v4r1 algo
-  // c is input chaneels , k is output channels
+  // c is input channels , k is output channels
   // n is batch , yDotSlice,xDotSlice computed in above
 
   Value gemmFilter, gemmInput, gemmOutput;
@@ -814,16 +840,26 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   {
     // Embed y/x into {y/x}dot and {y/x}tilda (Why the
     // particular embed coefficients is in a presentation somewhere)
+    llvm::StringMap<SmallVector<StringRef, 2>> expansions;
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr key = b.getStringAttr(Twine(i));
+      StringAttr val1 = b.getStringAttr(Twine(i) + "dot");
+      StringAttr val2 = b.getStringAttr(Twine(i) + "tilda");
+      expansions.insert({key, {val1, val2}});
+    }
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        filterNames, {{"0", {"0dot", "0tilda"}}, {"1", {"1dot", "1tilda"}}});
+        filterNames, expansions);
     BottomUpTMBuilder embedTransform(b, filterNames, filterShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
     embedWrap.passThrough({"g", "k", "c"});
-    embedWrap.embed({"0dot", "0tilda"}, {filDots[0], filTilda[0]}, "0",
-                    {strides[0] / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "1tilda"}, {filDots[1], filTilda[1]}, "1",
-                    {strides[1] / gcdStrideDilations[1], 1});
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr upper1 = b.getStringAttr(Twine(i) + "dot");
+      StringAttr upper2 = b.getStringAttr(Twine(i) + "tilda");
+      StringAttr lower = b.getStringAttr(Twine(i));
+      embedWrap.embed({upper1, upper2}, {filDots[i], filTilda[i]}, lower,
+                      {strides[i] / gcdStrideDilations[i], 1});
+    }
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embeddedFilter =
@@ -834,10 +870,21 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto sliceTransform =
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
     sliceTransform.passThrough({"g", "k", "c"});
-    sliceTransform.slice({"0dotslice", "1dotslice"}, {"0dot", "1dot"}, {0, 0},
-                         {yDotSlice, xDotSlice});
-    sliceTransform.slice({"0tildaslice", "1tildaslice"}, {"0tilda", "1tilda"},
-                         {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
+    llvm::SmallVector<StringRef, 2> uppers;
+    llvm::SmallVector<StringRef, 2> lowers;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"dotslice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"dot"));
+    }
+    sliceTransform.slice(uppers, lowers, {0, 0}, {yDotSlice, xDotSlice});
+    uppers.clear();
+    lowers.clear();
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"tildaslice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"tilda"));
+    }
+    sliceTransform.slice(uppers, lowers, {iYTilda, iXTilda},
+                         {iYTilda + 1, iXTilda + 1});
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value slicedFilter =
@@ -849,8 +896,16 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto gemmFilterTransform =
         BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmFilterTransform.passThrough({"gemmG"}, {0}, {"g"});
-    gemmFilterTransform.merge("gemmK", 1, {"k", "0dotslice", "1dotslice"});
-    gemmFilterTransform.merge("gemmM", 2, {"c", "0tildaslice", "1tildaslice"});
+    lowers.clear();
+    lowers.push_back("k");
+    for (size_t i = 0;  i < convDims.fil.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"dotslice"));
+    gemmFilterTransform.merge("gemmK", 1, lowers);
+    lowers.clear();
+    lowers.push_back("c");
+    for (size_t i = 0;  i < convDims.fil.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"tildaslice"));
+    gemmFilterTransform.merge("gemmM", 2, lowers);
 
     TransformMapAttr gemmFilterTransformAttr = gemmFilterTransform.get();
     gemmFilter =
@@ -861,28 +916,43 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   {
     BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough({"gi", "ni", "ci"});
-    padInputTransform.pad({"0ipad", "1ipad"},
-                          {padInputTransform.startIndex("0i"),
-                           padInputTransform.startIndex("1i")},
-                          {"0i", "1i"}, pads);
+
+    llvm::SmallVector<uint32_t, 2> padDims;
+    llvm::SmallVector<StringRef, 2> outs;
+    llvm::SmallVector<StringRef, 2> ins;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      padDims.push_back(padInputTransform.startIndex(std::to_string(i)+"i"));
+      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
+      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    }
+    padInputTransform.pad(outs, padDims, ins, pads);
 
     TransformMapAttr padTransformAttr = padInputTransform.get();
     Value paddedInput =
-        b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
+      b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
 
-    // Split 0ipad, 1ipad into ytilda, htilda, xtilda, wtilda
+    // Split 0ipad, 1ipad into 0ftilda, 0itilda, 1ftilda, 1itilda
+    llvm::StringMap<SmallVector<StringRef, 2>> expansions;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      StringAttr key = b.getStringAttr(Twine(i) + "ipad");
+      StringAttr val1 = b.getStringAttr(Twine(i) + "ftilda");
+      StringAttr val2 = b.getStringAttr(Twine(i) + "itilda");
+      expansions.insert({key, {val1, val2}});
+    }
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        padInputTransform,
-        {{"0ipad", {"0ftilda", "0itilda"}}, {"1ipad", {"1ftilda", "1itilda"}}});
+        padInputTransform, expansions);
     auto tildaEmbedTransform =
-        BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
+      BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
     BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
-    tildaEmbedWrap.embed({"0ftilda", "0itilda"}, {filTilda[0], outTilda[0]},
-                         "0ipad", {dilations[0], strides[0]});
-    tildaEmbedWrap.embed({"1ftilda", "1itilda"}, {filTilda[1], outTilda[1]},
-                         "1ipad", {dilations[1], strides[1]});
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr upper1 = b.getStringAttr(Twine(i) + "ftilda");
+      StringAttr upper2 = b.getStringAttr(Twine(i) + "itilda");
+      StringAttr lower = b.getStringAttr(Twine(i) + "ipad");
+      tildaEmbedWrap.embed({upper1, upper2}, {filTilda[i], outTilda[i]}, lower,
+                           {dilations[i], strides[i]});
+    }
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded =
@@ -893,10 +963,21 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto sliceTransform =
         BottomUpTMBuilder::above(tildaEmbedTransform, tildaEmbedTransformAttr);
     sliceTransform.passThrough({"gi", "ni", "ci"});
-    sliceTransform.slice({"0slice", "1slice"}, {"0ftilda", "1ftilda"},
-                         {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
-    sliceTransform.slice({"0islice", "1islice"}, {"0itilda", "1itilda"}, iTildaLeft,
-                         iTildaRight);
+    llvm::SmallVector<StringRef, 2> uppers;
+    llvm::SmallVector<StringRef, 2> lowers;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"slice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"ftilda"));
+    }
+    sliceTransform.slice(uppers, lowers, {iYTilda, iXTilda},
+                         {iYTilda + 1, iXTilda + 1});
+    uppers.clear();
+    lowers.clear();
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"islice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"itilda"));
+    }
+    sliceTransform.slice(uppers, lowers, iTildaLeft, iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
@@ -907,8 +988,16 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto gemmTransform =
         BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmTransform.passThrough({"gemmG"}, {0}, {"gi"});
-    gemmTransform.merge("gemmM", 1, {"ci", "0slice", "1slice"});
-    gemmTransform.merge("gemmN", 2, {"ni", "0islice", "1islice"});
+    lowers.clear();
+    lowers.push_back("ci");
+    for (size_t i = 0;  i < convDims.fil.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"slice"));
+    gemmTransform.merge("gemmM", 1, lowers);
+    lowers.clear();
+    lowers.push_back("ni");
+    for (size_t i = 0;  i < convDims.fil.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"islice"));
+    gemmTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
@@ -917,15 +1006,25 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   // Transform output tensor
   {
     // Embed 0o to 0dot and 0tilda and 1o to 1dot and 1tilda
+    llvm::StringMap<SmallVector<StringRef, 2>> expansions;
+    for (size_t i = 0;  i < convDims.out.size();  i++) {
+      StringAttr key = b.getStringAttr(Twine(i) + "o");
+      StringAttr val1 = b.getStringAttr(Twine(i) + "dot");
+      StringAttr val2 = b.getStringAttr(Twine(i) + "tilda");
+      expansions.insert({key, {val1, val2}});
+    }
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        outputNames, {{"0o", {"0dot", "0tilda"}}, {"1o", {"1dot", "1tilda"}}});
+        outputNames, expansions);
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    embedWrap.embed({"0dot", "0tilda"}, {filDots[0], outTilda[0]}, "0o",
-                    {(-dilations[0]) / gcdStrideDilations[0], 1});
-    embedWrap.embed({"1dot", "1tilda"}, {filDots[1], outTilda[1]}, "1o",
-                    {(-dilations[1]) / gcdStrideDilations[1], 1});
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr upper1 = b.getStringAttr(Twine(i) + "dot");
+      StringAttr upper2 = b.getStringAttr(Twine(i) + "tilda");
+      StringAttr lower = b.getStringAttr(Twine(i) + "o");
+      embedWrap.embed({upper1, upper2}, {filDots[i], outTilda[i]}, lower,
+                      {(-dilations[i]) / gcdStrideDilations[i], 1});
+    }
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -936,10 +1035,20 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto sliceTransform =
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
     sliceTransform.passThrough({"go", "no", "ko"});
-    sliceTransform.slice({"0slice", "1slice"}, {"0dot", "1dot"}, {0, 0},
-                         {yDotSlice, xDotSlice});
-    sliceTransform.slice({"0islice", "1islice"}, {"0tilda", "1tilda"}, iTildaLeft,
-                         iTildaRight);
+    llvm::SmallVector<StringRef, 2> uppers;
+    llvm::SmallVector<StringRef, 2> lowers;
+    for (size_t i = 0;  i < convDims.out.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"slice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"dot"));
+    }
+    sliceTransform.slice(uppers, lowers, {0, 0}, {yDotSlice, xDotSlice});
+    lowers.clear();
+    uppers.clear();
+    for (size_t i = 0;  i < convDims.out.size();  i++) {
+      uppers.push_back(b.getStringAttr(Twine(i)+"islice"));
+      lowers.push_back(b.getStringAttr(Twine(i)+"tilda"));
+    }
+    sliceTransform.slice(uppers, lowers, iTildaLeft, iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced = b.create<TransformOp>(loc, embedded, sliceTransformAttr);
@@ -948,8 +1057,16 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     auto gemmOutputTransform =
         BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmOutputTransform.passThrough({"gemmG"}, {0}, {"go"});
-    gemmOutputTransform.merge("gemmK", 1, {"ko", "0slice", "1slice"});
-    gemmOutputTransform.merge("gemmN", 2, {"no", "0islice", "1islice"});
+    lowers.clear();
+    lowers.push_back("ko");
+    for (size_t i = 0;  i < convDims.out.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"slice"));
+    gemmOutputTransform.merge("gemmK", 1, lowers);
+    lowers.clear();
+    lowers.push_back("no");
+    for (size_t i = 0;  i < convDims.out.size();  i++)
+      lowers.push_back(b.getStringAttr(Twine(i)+"islice"));
+    gemmOutputTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
@@ -1035,7 +1152,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // Weight tensor transformation for ConvOp
     // - PassThrough G dimension to dimension 0, name it gemmG.
     // - Merge non-K dimensions to dimension 1, name it as gemmK.
-    //   Optimization: If non-K dimensions are consequetive, apply unfold.
+    //   Optimization: If non-K dimensions are consecutive, apply unfold.
     // - PassThrough K dimension to dimension 2, name it as gemmM.
     //
     // Weight tensor transformation for ConvBwdWeightOp
@@ -1073,17 +1190,22 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // set layout attribute.
     // Padded input tensor transformation:
     // - Pass through ni, gi, and ci, not renaming them
-    // - Padd hi and wi as specified in padding attributes, renaming them to
+    // - Pad hi and wi as specified in padding attributes, renaming them to
     // 0ipad and 1ipad
     BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough("ni");
     padInputTransform.passThrough("gi");
     padInputTransform.passThrough("ci");
 
-    llvm::SmallVector<uint32_t, 2> padOutDims = {
-        padInputTransform.startIndex("0i"), padInputTransform.startIndex("1i")};
-    padInputTransform.pad({"0ipad", "1ipad"}, padOutDims, {"0i", "1i"},
-                          ctx.getPaddingVal());
+    llvm::SmallVector<uint32_t, 2> padOutDims;
+    llvm::SmallVector<StringRef, 2> outs;
+    llvm::SmallVector<StringRef, 2> ins;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      padOutDims.push_back(padInputTransform.startIndex(std::to_string(i)+"i"));
+      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
+      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    }
+    padInputTransform.pad(outs, padOutDims, ins, ctx.getPaddingVal());
 
     TransformMapAttr padInputTransformAttr = padInputTransform.get();
 
@@ -1098,18 +1220,29 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // - Embed 1ipad to x and wo with size filter x by output h and
     //   coefficients dilations[1] and strides[1]
 
+    llvm::StringMap<SmallVector<StringRef, 2>> expansions;
+    for (size_t i = 0;  i < convDims.in.size();  i++) {
+      StringAttr key = b.getStringAttr(Twine(i) + "ipad");
+      StringAttr val1 = b.getStringAttr(Twine(i));
+      StringAttr val2 = b.getStringAttr(Twine(i) + "o");
+      expansions.insert({key, {val1, val2}});
+    }
     llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
-        padInputTransform, {{"0ipad", {"0", "0o"}}, {"1ipad", {"1", "1o"}}});
+        padInputTransform, expansions);
 
     BottomUpTMBuilder embedInputTransform =
         BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
     BottomUpTMTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
-    embedInputWrap.embed({"0", "0o"}, {convDims.fil[0], convDims.out[0]},
-                         "0ipad", {dilations[0], strides[0]});
-    embedInputWrap.embed({"1", "1o"}, {convDims.fil[1], convDims.out[1]},
-                         "1ipad", {dilations[1], strides[1]});
+    assert(convDims.fil.size() == convDims.out.size());
+    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+      StringAttr val1 = b.getStringAttr(Twine(i));
+      StringAttr val2 = b.getStringAttr(Twine(i) + "o");
+      StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
+      embedInputWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]},
+                           val3, {dilations[i], strides[i]});
+    }
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput =
@@ -1130,9 +1263,13 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
         BottomUpTMBuilder::above(embedInputTransform, embedInputTransformAttr);
     gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
 
-    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "0", "1"};
+    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci"};
+    for (size_t i = 0;  i < convDims.in.size(); i++)
+      nonNHWDims.push_back(b.getStringAttr(Twine(i)));
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
-    llvm::SmallVector<StringRef, 3> nhwDims = {"ni", "0o", "1o"};
+    llvm::SmallVector<StringRef, 3> nhwDims = {"ni"};
+    for (size_t i = 0;  i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
@@ -1156,7 +1293,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
         b.create<TransformOp>(loc, embeddedInput, gemmInputTransformAttr);
 
     // Transform output tensor.
-    // - PassThrough G to dimmension 0, name it gemmG, then
+    // - PassThrough G to dimension 0, name it gemmG, then
     // Output tensor transformation for ConvOp:
     // - PassThrough K dimension to dimension 1, named gemmM
     // - Merge non-K dimensions to dimension2, named gemmN
