@@ -15,7 +15,8 @@
 #ifndef MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 #define MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 
-#include "llvm/ADT/ArrayRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cstdint>
 
@@ -33,10 +34,10 @@ struct ConvolutionDims {
   int64_t n;
   int64_t g;
 
-  ConvolutionDims(ArrayRef<int64_t> fil, ArrayRef<int64_t> out,
-                  ArrayRef<int64_t> in, int64_t k, int64_t c, int64_t n,
-                  int64_t g)
-      : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
+  ConvolutionDims(ArrayRef<int64_t> fil_, ArrayRef<int64_t> out_,
+                  ArrayRef<int64_t> in_, int64_t k_, int64_t c_, int64_t n_,
+                  int64_t g_)
+      : fil(fil_), out(out_), in(in_), k(k_), c(c_), n(n_), g(g_) {}
 
   static ConvolutionDims fromOp(Operation *op);
 };
