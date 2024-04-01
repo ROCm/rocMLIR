@@ -698,30 +698,6 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
         << "Mfma instruction group selection is not compatible with k.\n");
     return failure();
   }
-
-  int64_t mRepeats = mfmaGroup.getMRepeats(mPerWave);
-  int64_t nRepeats = mfmaGroup.getMRepeats(mPerWave);
-  int64_t mPerRepeat = mPerWave / mRepeats;
-  int64_t nPerRepeat = nPerWave / nRepeats;
-  auto mfmaAttr = mfmaGroup.getInsnAttr();
-
-  int64_t blocksPerRepeat = math_util::integer_divide_ceil(mPerRepeat * nPerRepeat, mfmaAttr.mfmaNonKDim * mfmaAttr.inputSpanLen);
-  if(blocksPerRepeat < mfmaAttr.blocksMfma){
-    LLVM_DEBUG(llvm::dbgs() << "mPerWave=" << mPerWave <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "nPerWave=" << nPerWave <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "mPerRepeat=" << mPerRepeat <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "nPerRepeat=" << nPerRepeat <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.mfmaNonKDim=" << mfmaAttr.mfmaNonKDim <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.inputSpanLen=" << mfmaAttr.inputSpanLen <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "blocksPerRepeat=" << blocksPerRepeat <<  "\n");
-    LLVM_DEBUG(llvm::dbgs() << "mfmaAttr.blocksMfma=" << mfmaAttr.blocksMfma <<  "\n");
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "blocks per repeat should be larger than blocks in the mfma\n");
-    return failure();
-  }
-  
-
   return success();
 }
 
