@@ -594,14 +594,13 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   for (Value idx : tiledOp.getExtraIndices()) {
     Operation *idxOp = idx.getDefiningOp();
     if (idxOp) {
-      if (idxOp->getBlock() == laGeneric->getBlock()
-         && (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp))) {
+      if (idxOp->getBlock() == laGeneric->getBlock() &&
+          (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp))) {
         lastIdxDef = idxOp;
       }
     }
   }
-  if (lastIdxDef)
-  {
+  if (lastIdxDef) {
     if (laGeneric->getBlock() != lastIdxDef->getBlock())
       laGeneric->moveAfter(lastIdxDef);
     else
@@ -733,8 +732,7 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                ThreadwiseReadIntoOp twReadOp,
                                ArrayRef<TransformMapAttr> relativeViewsOnResult,
                                SmallVectorImpl<Value> &newInputs) {
- llvm::errs()<<"\nin TiledOutput\n";
- for (auto inp : laGeneric.getInputs()) {
+  for (auto inp : laGeneric.getInputs()) {
     Value newInput = makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult,
                                         laGeneric, twReadOp);
     newInputs.push_back(newInput);
@@ -813,7 +811,6 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (laGeneric.getOutputs().size() != 1)
     return laGeneric.emitOpError("only 1 output supported");
   Value out = *laGeneric.getOutputs().begin();
-
   // 0.2. Prevent re-applying pattern to existing fusions.
   if (out.getDefiningOp<rock::GpuAllocOp>())
     return b.notifyMatchFailure(loc,
@@ -843,6 +840,11 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // operation that reads from the output of this generic. If there is such an
   ThreadwiseReadIntoOp tileReadOp;
   if (!gemmStoreOp) {
+    if (!out.getDefiningOp<memref::AllocOp>()) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "generic output is not suitable for input fusion\n");
+      return success();
+    }
     if (failed(findThreadwiseRead(laGeneric, tileReadOp,
                                   globalCoordsToGenericViews)))
       return b.notifyMatchFailure(

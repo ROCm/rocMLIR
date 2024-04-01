@@ -157,11 +157,11 @@ struct PushTransformsUpRewritePattern
 
   /////////////////////////////////////////////////////////////////////
   static bool isFusorOp(Operation *useOp) {
-    return isa<rock::GridwiseGemmOp>(useOp) ||
-           isa<rock::GridwiseGemmAccelOp>(useOp) ||
-           isa<rock::GridwiseAttentionAccelOp>(useOp) ||
-           isa<rock::ThreadwiseWriteAllOp>(useOp);
-  } 
+    return isa<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
+               rock::GridwiseAttentionAccelOp, rock::ThreadwiseWriteAllOp>(
+        useOp);
+  }
+
   static bool collectChain(Value result, Operation *forwOp,
                            SmallVector<Operation *> &chain) {
     while (auto top = dyn_cast<rock::TransformOp>(forwOp)) {
@@ -207,18 +207,16 @@ struct PushTransformsUpRewritePattern
     for (auto &use : buffer.getUses()) {
       Operation *useOp = use.getOwner();
       SmallVector<Operation *> chain;
-
       bool isWriter = collectChain(buffer, useOp, chain);
 
       bool isFusor = isFusorOp(chain.back());
       if (isWriter) {
         assert(writer == nullptr);
         writer = useOp;
-      } 
+      }
       if (isFusor) {
         fusor = useOp;
-      }
-      else {
+      } else {
         hasTransforms |= chain.size() > 1;
         readChains.push_back(chain);
       }
