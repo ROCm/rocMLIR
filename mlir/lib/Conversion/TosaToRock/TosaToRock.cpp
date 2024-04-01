@@ -111,7 +111,7 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
   auto func = op->getParentOfType<func::FuncOp>();
-  auto mod = func->getParentOfType<ModuleOp>();
+  // auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");

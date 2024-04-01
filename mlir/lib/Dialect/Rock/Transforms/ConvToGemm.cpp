@@ -87,12 +87,6 @@ template <typename T>
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
                          T op) {
-  //   printf("checkNames({");
-  //   for (auto name : actual) printf("%s,", name);
-  //   printf("}, {");
-  //   for (auto name : expected) printf("%s,", name);
-  //   printf("}\n");
-
   if (actual.size() != expected.size()) {
     return op.emitOpError("Layout mismatch in ")
            << argName << " tensor: Expected " << expected.size()
@@ -141,7 +135,6 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   outputNames.reserve(size);
 
   auto update_old_name = [](StringAttr name) {
-#if 1
     auto ctx = name.getContext();
     if (name == "y")
       return StringAttr::get(ctx, "0");
@@ -157,7 +150,6 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
       return StringAttr::get(ctx, std::string("1") +
                                       namestr.substr(1, namestr.length() - 1));
     }
-#endif /* 1 */
     return name;
   };
 
@@ -173,14 +165,23 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
     inputNames.push_back(inputAttr.getValue());
     outputNames.push_back(outputAttr.getValue());
   }
-  if (failed(
-          checkNames(filterNames, {"k", "g", "c", "0", "1"}, "filter", op)) ||
-      failed(checkNames(inputNames, {"ni", "gi", "ci", "0i", "1i"}, "input",
-                        op)) ||
-      failed(checkNames(outputNames, {"no", "go", "ko", "0o", "1o"}, "output",
-                        op))) {
+
+  SmallVector<StringRef> filterCheck{"k", "g", "c"};
+  SmallVector<StringRef> inputCheck{"ni", "gi", "ci"};
+  SmallVector<StringRef> outputCheck{"no", "go", "ko"};
+  auto ctx = op.getContext();
+  for (size_t i = 0; i < filterNames.size() - 3; i++) {
+    filterCheck.push_back(StringAttr::get(ctx, std::to_string(i)));
+    inputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "i"));
+    outputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "o"));
+  }
+
+  if (failed(checkNames(filterNames, filterCheck, "filter", op)) ||
+      failed(checkNames(inputNames, inputCheck, "input", op)) ||
+      failed(checkNames(outputNames, outputCheck, "output", op))) {
     return failure();
   }
+
   return success();
 }
 
@@ -500,25 +501,26 @@ struct MatchLayoutsToInput final
   LogicalResult matchAndRewrite(RockConvInterface op,
                                 PatternRewriter &b) const override {
     TypedValue<ShapedType> filter = op.getFilter(), output = op.getOutput();
-    const llvm::StringMap<StringAttr> inputToFilter = {
-        {"ci", b.getStringAttr("c")},
-        {"0i", b.getStringAttr("0")},
-        {"1i", b.getStringAttr("1")},
-        {"hi", b.getStringAttr("y")},
-        {"wi", b.getStringAttr("x")}};
-    const llvm::StringMap<StringAttr> inputToOutput = {
-        {"ni", b.getStringAttr("no")},
-        {"0i", b.getStringAttr("0o")},
-        {"1i", b.getStringAttr("1o")},
-        {"hi", b.getStringAttr("ho")},
-        {"wi", b.getStringAttr("wo")}};
+    llvm::StringMap<StringAttr> inputToFilter = {{"ci", b.getStringAttr("c")},
+                                                 {"hi", b.getStringAttr("y")},
+                                                 {"wi", b.getStringAttr("x")}};
+    llvm::StringMap<StringAttr> inputToOutput = {{"ni", b.getStringAttr("no")},
+                                                 {"hi", b.getStringAttr("ho")},
+                                                 {"wi", b.getStringAttr("wo")}};
 
-    LogicalResult didRelayoutFilter = makeToLayoutLikeFromLayoutAlong(
+    for (auto i = 0; i < filter.getType().getRank() - 3; i++) {
+      auto key = b.getStringAttr(Twine(i) + Twine("i"));
+      inputToFilter.insert_or_assign(key, b.getStringAttr(Twine(i)));
+      inputToOutput.insert_or_assign(key,
+                                     b.getStringAttr(Twine(i) + Twine("o")));
+    }
+
+    LogicalResult didReLayoutFilter = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", filter, "filter_layout", inputToFilter);
-    LogicalResult didRelayoutOutput = makeToLayoutLikeFromLayoutAlong(
+    LogicalResult didReLayoutOutput = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", output, "output_layout", inputToOutput);
-    return success(didRelayoutFilter.succeeded() ||
-                   didRelayoutOutput.succeeded());
+    return success(didReLayoutFilter.succeeded() ||
+                   didReLayoutOutput.succeeded());
   }
 };
 
@@ -595,7 +597,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     addKBlockWrap.passThrough("g");
     addKBlockWrap.addDim("kBlock", gemmKBlocks);
     SmallVector<StringRef, 5> throughDims{"k", "c"};
-    for (size_t i = 0;  i < convDims.fil.size();  i++)
+    for (size_t i = 0; i < convDims.fil.size(); i++)
       throughDims.push_back(b.getStringAttr(Twine(i)));
     addKBlockWrap.passThrough(throughDims);
 
@@ -626,13 +628,13 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // is what's left
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
     expansions.insert({"ni", {"n0", "n1"}});
-    for (int i = 0;  i < 2;  i++) {
+    for (int i = 0; i < 2; i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "i");
       StringAttr val = b.getStringAttr(Twine(i) + "ipad");
       expansions.insert({key, {val}});
     }
-    llvm::StringMap<uint32_t> firstTransformOutDims = expandNamesInPlace(
-        inputNames, expansions);
+    llvm::StringMap<uint32_t> firstTransformOutDims =
+        expandNamesInPlace(inputNames, expansions);
 
     BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
     BottomUpTMTopDimsWrapper firstWrap(firstTransform,
@@ -643,9 +645,9 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     firstWrap.passThrough("ci");
     SmallVector<StringRef, 3> outs;
     SmallVector<StringRef, 3> ins;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
-      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
-      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    for (size_t i = 0; i < convDims.in.size(); i++) {
+      outs.push_back(b.getStringAttr(Twine(i) + "ipad"));
+      ins.push_back(b.getStringAttr(Twine(i) + "i"));
     }
     firstWrap.pad(outs, ins, pads);
 
@@ -656,25 +658,25 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
     expansions.clear();
-    for (size_t i = 0;  i < convDims.out.size();  i++) {
+    for (size_t i = 0; i < convDims.out.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "ipad");
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       expansions.insert({key, {val1, val2}});
     }
-    llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
-        firstTransform, expansions);
+    llvm::StringMap<uint32_t> embedOutDims =
+        expandNamesInPlace(firstTransform, expansions);
     auto embedTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
     assert(convDims.fil.size() == convDims.out.size());
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
-      embedWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]},
-                      val3, {dilations[i], strides[i]});
+      embedWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]}, val3,
+                      {dilations[i], strides[i]});
     }
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -686,12 +688,12 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci"};
-    for (size_t i = 0;  i < convDims.in.size(); i++)
+    for (size_t i = 0; i < convDims.in.size(); i++)
       nonNHWDims.push_back(b.getStringAttr(Twine(i)));
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
     llvm::SmallVector<StringRef, 3> nhwDims = {"n1"};
-    for (size_t i = 0;  i < convDims.out.size(); i++)
-      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i) + "o"));
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     // In the gemmG dimension, unlike with gemmN, we don't have the same
@@ -716,8 +718,8 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     firstWrap.unmerge({"n0", "n1"}, "no",
                       {gemmKBlocks, convDims.n / gemmKBlocks});
     SmallVector<StringRef, 3> names{"ko"};
-    for (size_t i = 0;  i < convDims.out.size();  i++)
-      names.push_back(b.getStringAttr(Twine(i)+"o"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      names.push_back(b.getStringAttr(Twine(i) + "o"));
     firstWrap.passThrough(names);
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
@@ -728,8 +730,8 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     auto gemmOutputTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     llvm::SmallVector<StringRef, 3> nhwDims = {"n1"};
-    for (size_t i = 0;  i < convDims.out.size(); i++)
-      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i) + "o"));
     matchUnderlyingOrder(nhwDims, gemmOutputTransform);
     gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
     gemmOutputTransform.merge("gemmK", 1, nhwDims);
@@ -823,13 +825,34 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
             1));
   }
 
+  // i2tilda = kernelid % filtilda[2]
+  // i1tilda = (kernelid % (filtilda[2] * filtilda[1])) / filtilda[2]
+  // i0tilda = kernelid / (filtilda[2] * filtilda[1])
+  //  get-backward-kernel-count or similar
+
   int64_t kernelId = kernelIdAttr.getInt();
-  int64_t iYTilda = kernelId / filTilda[1];
-  int64_t iXTilda = kernelId % filTilda[1];
-  int64_t yDotSlice =
-      math_util::integer_divide_ceil(convDims.fil[0] - iYTilda, filTilda[0]);
-  int64_t xDotSlice =
-      math_util::integer_divide_ceil(convDims.fil[1] - iXTilda, filTilda[1]);
+  SmallVector<int64_t, 3> iTilda;
+  SmallVector<int64_t, 3> iDotSlice;
+  int64_t product = 1;
+  for (size_t i = 1; i < convDims.fil.size(); i++)
+    product *= filTilda[i];
+  int64_t divisor = 1;
+  iTilda.resize(convDims.fil.size());
+  switch (convDims.fil.size()) {
+  default:
+    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    break;
+  case 3:
+    divisor = filTilda[2];
+    iTilda[2] = kernelId % divisor;
+    [[fallthrough]];
+  case 2:
+    iTilda[1] = (kernelId % product) / divisor;
+    iTilda[0] = kernelId / product;
+  }
+  for (size_t i = 0; i < convDims.fil.size(); i++)
+    iDotSlice.push_back(math_util::integer_divide_ceil(
+        convDims.fil[i] - iTilda[i], filTilda[i]));
 
   // backward data only, it's igemm v4r1 algo
   // c is input channels , k is output channels
@@ -841,19 +864,20 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     // Embed y/x into {y/x}dot and {y/x}tilda (Why the
     // particular embed coefficients is in a presentation somewhere)
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i));
       StringAttr val1 = b.getStringAttr(Twine(i) + "dot");
       StringAttr val2 = b.getStringAttr(Twine(i) + "tilda");
       expansions.insert({key, {val1, val2}});
     }
-    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        filterNames, expansions);
+    llvm::StringMap<uint32_t> embedDims =
+        expandNamesInPlace(filterNames, expansions);
     BottomUpTMBuilder embedTransform(b, filterNames, filterShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    // array of smallstring?
 
     embedWrap.passThrough({"g", "k", "c"});
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr upper1 = b.getStringAttr(Twine(i) + "dot");
       StringAttr upper2 = b.getStringAttr(Twine(i) + "tilda");
       StringAttr lower = b.getStringAttr(Twine(i));
@@ -872,19 +896,21 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.passThrough({"g", "k", "c"});
     llvm::SmallVector<StringRef, 2> uppers;
     llvm::SmallVector<StringRef, 2> lowers;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"dotslice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"dot"));
+    for (size_t i = 0; i < convDims.in.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "dotslice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "dot"));
     }
-    sliceTransform.slice(uppers, lowers, {0, 0}, {yDotSlice, xDotSlice});
+    sliceTransform.slice(uppers, lowers, {0, 0}, iDotSlice);
     uppers.clear();
     lowers.clear();
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"tildaslice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"tilda"));
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "tildaslice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "tilda"));
     }
-    sliceTransform.slice(uppers, lowers, {iYTilda, iXTilda},
-                         {iYTilda + 1, iXTilda + 1});
+    llvm::SmallVector<int64_t, 3> iTildasPlusOne;
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      iTildasPlusOne.push_back(iTilda[i] + 1);
+    sliceTransform.slice(uppers, lowers, iTilda, iTildasPlusOne);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value slicedFilter =
@@ -898,13 +924,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     gemmFilterTransform.passThrough({"gemmG"}, {0}, {"g"});
     lowers.clear();
     lowers.push_back("k");
-    for (size_t i = 0;  i < convDims.fil.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"dotslice"));
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "dotslice"));
     gemmFilterTransform.merge("gemmK", 1, lowers);
     lowers.clear();
     lowers.push_back("c");
-    for (size_t i = 0;  i < convDims.fil.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"tildaslice"));
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "tildaslice"));
     gemmFilterTransform.merge("gemmM", 2, lowers);
 
     TransformMapAttr gemmFilterTransformAttr = gemmFilterTransform.get();
@@ -920,33 +946,33 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     llvm::SmallVector<uint32_t, 2> padDims;
     llvm::SmallVector<StringRef, 2> outs;
     llvm::SmallVector<StringRef, 2> ins;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
-      padDims.push_back(padInputTransform.startIndex(std::to_string(i)+"i"));
-      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
-      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    for (size_t i = 0; i < convDims.in.size(); i++) {
+      padDims.push_back(padInputTransform.startIndex(std::to_string(i) + "i"));
+      outs.push_back(b.getStringAttr(Twine(i) + "ipad"));
+      ins.push_back(b.getStringAttr(Twine(i) + "i"));
     }
     padInputTransform.pad(outs, padDims, ins, pads);
 
     TransformMapAttr padTransformAttr = padInputTransform.get();
     Value paddedInput =
-      b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
+        b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
 
     // Split 0ipad, 1ipad into 0ftilda, 0itilda, 1ftilda, 1itilda
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
+    for (size_t i = 0; i < convDims.in.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "ipad");
       StringAttr val1 = b.getStringAttr(Twine(i) + "ftilda");
       StringAttr val2 = b.getStringAttr(Twine(i) + "itilda");
       expansions.insert({key, {val1, val2}});
     }
-    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        padInputTransform, expansions);
+    llvm::StringMap<uint32_t> embedDims =
+        expandNamesInPlace(padInputTransform, expansions);
     auto tildaEmbedTransform =
-      BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
+        BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
     BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr upper1 = b.getStringAttr(Twine(i) + "ftilda");
       StringAttr upper2 = b.getStringAttr(Twine(i) + "itilda");
       StringAttr lower = b.getStringAttr(Twine(i) + "ipad");
@@ -965,17 +991,19 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.passThrough({"gi", "ni", "ci"});
     llvm::SmallVector<StringRef, 2> uppers;
     llvm::SmallVector<StringRef, 2> lowers;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"slice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"ftilda"));
+    for (size_t i = 0; i < convDims.in.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "slice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "ftilda"));
     }
-    sliceTransform.slice(uppers, lowers, {iYTilda, iXTilda},
-                         {iYTilda + 1, iXTilda + 1});
+    llvm::SmallVector<int64_t, 3> iTildasPlusOne;
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      iTildasPlusOne.push_back(iTilda[i] + 1);
+    sliceTransform.slice(uppers, lowers, iTilda, iTildasPlusOne);
     uppers.clear();
     lowers.clear();
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"islice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"itilda"));
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "islice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "itilda"));
     }
     sliceTransform.slice(uppers, lowers, iTildaLeft, iTildaRight);
 
@@ -990,13 +1018,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     gemmTransform.passThrough({"gemmG"}, {0}, {"gi"});
     lowers.clear();
     lowers.push_back("ci");
-    for (size_t i = 0;  i < convDims.fil.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"slice"));
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "slice"));
     gemmTransform.merge("gemmM", 1, lowers);
     lowers.clear();
     lowers.push_back("ni");
-    for (size_t i = 0;  i < convDims.fil.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"islice"));
+    for (size_t i = 0; i < convDims.fil.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "islice"));
     gemmTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
@@ -1007,18 +1035,18 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
   {
     // Embed 0o to 0dot and 0tilda and 1o to 1dot and 1tilda
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
-    for (size_t i = 0;  i < convDims.out.size();  i++) {
+    for (size_t i = 0; i < convDims.out.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "o");
       StringAttr val1 = b.getStringAttr(Twine(i) + "dot");
       StringAttr val2 = b.getStringAttr(Twine(i) + "tilda");
       expansions.insert({key, {val1, val2}});
     }
-    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
-        outputNames, expansions);
+    llvm::StringMap<uint32_t> embedDims =
+        expandNamesInPlace(outputNames, expansions);
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr upper1 = b.getStringAttr(Twine(i) + "dot");
       StringAttr upper2 = b.getStringAttr(Twine(i) + "tilda");
       StringAttr lower = b.getStringAttr(Twine(i) + "o");
@@ -1037,16 +1065,16 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.passThrough({"go", "no", "ko"});
     llvm::SmallVector<StringRef, 2> uppers;
     llvm::SmallVector<StringRef, 2> lowers;
-    for (size_t i = 0;  i < convDims.out.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"slice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"dot"));
+    for (size_t i = 0; i < convDims.out.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "slice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "dot"));
     }
-    sliceTransform.slice(uppers, lowers, {0, 0}, {yDotSlice, xDotSlice});
+    sliceTransform.slice(uppers, lowers, {0, 0}, iDotSlice);
     lowers.clear();
     uppers.clear();
-    for (size_t i = 0;  i < convDims.out.size();  i++) {
-      uppers.push_back(b.getStringAttr(Twine(i)+"islice"));
-      lowers.push_back(b.getStringAttr(Twine(i)+"tilda"));
+    for (size_t i = 0; i < convDims.out.size(); i++) {
+      uppers.push_back(b.getStringAttr(Twine(i) + "islice"));
+      lowers.push_back(b.getStringAttr(Twine(i) + "tilda"));
     }
     sliceTransform.slice(uppers, lowers, iTildaLeft, iTildaRight);
 
@@ -1059,13 +1087,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     gemmOutputTransform.passThrough({"gemmG"}, {0}, {"go"});
     lowers.clear();
     lowers.push_back("ko");
-    for (size_t i = 0;  i < convDims.out.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"slice"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "slice"));
     gemmOutputTransform.merge("gemmK", 1, lowers);
     lowers.clear();
     lowers.push_back("no");
-    for (size_t i = 0;  i < convDims.out.size();  i++)
-      lowers.push_back(b.getStringAttr(Twine(i)+"islice"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      lowers.push_back(b.getStringAttr(Twine(i) + "islice"));
     gemmOutputTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
@@ -1200,10 +1228,11 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     llvm::SmallVector<uint32_t, 2> padOutDims;
     llvm::SmallVector<StringRef, 2> outs;
     llvm::SmallVector<StringRef, 2> ins;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
-      padOutDims.push_back(padInputTransform.startIndex(std::to_string(i)+"i"));
-      outs.push_back(b.getStringAttr(Twine(i)+"ipad"));
-      ins.push_back(b.getStringAttr(Twine(i)+"i"));
+    for (size_t i = 0; i < convDims.in.size(); i++) {
+      padOutDims.push_back(
+          padInputTransform.startIndex(std::to_string(i) + "i"));
+      outs.push_back(b.getStringAttr(Twine(i) + "ipad"));
+      ins.push_back(b.getStringAttr(Twine(i) + "i"));
     }
     padInputTransform.pad(outs, padOutDims, ins, ctx.getPaddingVal());
 
@@ -1221,14 +1250,14 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     //   coefficients dilations[1] and strides[1]
 
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
-    for (size_t i = 0;  i < convDims.in.size();  i++) {
+    for (size_t i = 0; i < convDims.in.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "ipad");
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       expansions.insert({key, {val1, val2}});
     }
-    llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
-        padInputTransform, expansions);
+    llvm::StringMap<uint32_t> embeddedInputDims =
+        expandNamesInPlace(padInputTransform, expansions);
 
     BottomUpTMBuilder embedInputTransform =
         BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
@@ -1236,7 +1265,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     assert(convDims.fil.size() == convDims.out.size());
-    for (size_t i = 0;  i < convDims.fil.size();  i++) {
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
@@ -1264,12 +1293,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci"};
-    for (size_t i = 0;  i < convDims.in.size(); i++)
+    for (size_t i = 0; i < convDims.in.size(); i++)
       nonNHWDims.push_back(b.getStringAttr(Twine(i)));
     matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
     llvm::SmallVector<StringRef, 3> nhwDims = {"ni"};
-    for (size_t i = 0;  i < convDims.out.size(); i++)
-      nhwDims.push_back(b.getStringAttr(Twine(i)+"o"));
+    for (size_t i = 0; i < convDims.out.size(); i++)
+      nhwDims.push_back(b.getStringAttr(Twine(i) + "o"));
     matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;

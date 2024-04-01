@@ -26,7 +26,7 @@ struct ConvolutionDims;
 
 class ConvGenerator {
 public:
-  enum DIM { HEIGHT = 0, WIDTH = 1 };
+  enum DIM { HEIGHT = 0, WIDTH = 1, DEPTH = 2 };
 
   struct Config {
     std::string arch;
@@ -61,25 +61,22 @@ public:
     SmallVector<int64_t, 4> filterDims;
   };
 
-  ConvGenerator(const std::string &arch = "", const std::string &chip = "",
-                const std::string &triple = "",
-                const std::string &chipFeatures = "",
-                const std::string &perfConfig = "",
-                std::optional<int> num_cu = std::nullopt,
-                bool reverseGrid = false,
-                GemmFeatures features = GemmFeatures::none,
-                const std::optional<rock::ConvOpType> operation = std::nullopt,
-                const std::string &filterDataTypeStr = "f32",
-                const std::string &inputDataTypeStr = "f32",
-                const std::string &outputDataTypeStr = "",
-                int dilationHeight = 1, int dilationWidth = 1,
-                int strideHeight = 1, int strideWidth = 1,
-                int paddingHeightLeft = 0, int paddingHeightRight = 0,
-                int paddingWidthLeft = 0, int paddingWidthRight = 0,
-                const std::string &filterLayout = "kcyx",
-                const std::string &inputLayout = "nchw",
-                const std::string &outputLayout = "nkhw",
-                const std::string &kernelBaseName = "");
+  ConvGenerator(
+      const std::string &arch = "", const std::string &chip = "",
+      const std::string &triple = "", const std::string &chipFeatures = "",
+      const std::string &perfConfig = "",
+      std::optional<int> num_cu = std::nullopt, bool reverseGrid = false,
+      GemmFeatures features = GemmFeatures::none,
+      const std::optional<rock::ConvOpType> operation = std::nullopt,
+      const std::string &filterDataTypeStr = "f32",
+      const std::string &inputDataTypeStr = "f32",
+      const std::string &outputDataTypeStr = "",
+      ArrayRef<int> dilations = {1, 1}, ArrayRef<int> strides = {1, 1},
+      ArrayRef<int> paddingLeft = {0, 0}, ArrayRef<int> paddingRight = {0, 0},
+      const std::string &filterLayout = "kcyx",
+      const std::string &inputLayout = "nchw",
+      const std::string &outputLayout = "nkhw",
+      const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);
 
@@ -112,10 +109,10 @@ public:
   LogicalResult parseConvConfig(OpBuilder &builder, const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
-                              int64_t inputChannel, int64_t inputHeight,
-                              int64_t inputWidth, int64_t outputChannel,
-                              int64_t outputHeight, int64_t outputWidth,
-                              int64_t filterHeight, int64_t filterWidth);
+                              int64_t inputChannel, ArrayRef<int64_t> inputDims,
+                              int64_t outputChannel,
+                              ArrayRef<int64_t> outputDims,
+                              ArrayRef<int64_t> filterDims);
 
   LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
                               bool is_verifier = false,
@@ -126,19 +123,30 @@ public:
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
                               const Vector &targetSpec) {
+#if 0
     auto permutation = layoutPermutation(src, srcSpec);
 
     std::string targetLayout;
     std::transform(permutation.begin(), permutation.end(),
                    std::back_inserter(targetLayout),
                    [&targetSpec](int64_t p) { return targetSpec[p]; });
+#else
+    std::string targetLayout;
+    for (auto ch : src) {
+      auto pos = srcSpec.find(ch);
+      if (pos != std::string::npos) {
+        targetLayout.push_back(targetSpec[pos]);
+      } else {
+        targetLayout.push_back(std::tolower(ch));
+      }
+    }
+#endif /* 1 */
 
     // +++pf:  update old key names.
     std::replace(targetLayout.begin(), targetLayout.end(), 'y', '0');
     std::replace(targetLayout.begin(), targetLayout.end(), 'x', '1');
     std::replace(targetLayout.begin(), targetLayout.end(), 'h', '0');
     std::replace(targetLayout.begin(), targetLayout.end(), 'w', '1');
-
     return targetLayout;
   }
   LogicalResult isApplicable(bool checkChip = true) const;
@@ -156,7 +164,7 @@ private:
   template <typename Vector>
   std::vector<int64_t> layoutPermutation(const Vector &src,
                                          const Vector &srcSpec) {
-    std::vector<int64_t> permutation(srcSpec.size(), 0);
+    std::vector<int64_t> permutation(src.size(), 0);
     std::transform(src.begin(), src.end(), permutation.begin(),
                    [&srcSpec](const char &s) {
                      auto it = std::find(srcSpec.begin(), srcSpec.end(), s);

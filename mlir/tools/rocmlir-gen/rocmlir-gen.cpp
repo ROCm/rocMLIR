@@ -169,6 +169,11 @@ static llvm::cl::opt<int64_t>
     inputWidth("in_w", llvm::cl::desc("Input width"),
                llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
+// Di
+static llvm::cl::opt<int64_t>
+    inputDepth("in_d", llvm::cl::desc("Input depth"),
+               llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
+
 // K
 static llvm::cl::opt<int64_t>
     outputChannel("out_channels", llvm::cl::desc("Output channels"),
@@ -184,6 +189,11 @@ static llvm::cl::opt<int64_t>
     filterHeight("fil_h", llvm::cl::desc("Filter height"),
                  llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
+// Z
+static llvm::cl::opt<int64_t>
+    filterDepth("fil_d", llvm::cl::desc("Filter depth"),
+                llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
+
 // Ho
 static llvm::cl::opt<int64_t> outputHeight(
     "out_h", llvm::cl::desc("Output height"),
@@ -193,6 +203,12 @@ static llvm::cl::opt<int64_t> outputHeight(
 // Wo
 static llvm::cl::opt<int64_t> outputWidth(
     "out_w", llvm::cl::desc("Output width"),
+    llvm::cl::value_desc("ouput dimension value, does not need to set."),
+    llvm::cl::init(-1));
+
+// Do
+static llvm::cl::opt<int64_t> outputDepth(
+    "out_d", llvm::cl::desc("Output depth"),
     llvm::cl::value_desc("ouput dimension value, does not need to set."),
     llvm::cl::init(-1));
 
@@ -207,6 +223,12 @@ static llvm::cl::opt<int> dilationWidth("dilation_w",
                                         llvm::cl::value_desc("attribute value"),
                                         llvm::cl::init(1));
 
+// dilation depth
+static llvm::cl::opt<int> dilationDepth("dilation_d",
+                                        llvm::cl::desc("Dilation depth"),
+                                        llvm::cl::value_desc("attribute value"),
+                                        llvm::cl::init(1));
+
 // stride height
 static llvm::cl::opt<int> strideHeight("conv_stride_h",
                                        llvm::cl::desc("Stride height"),
@@ -216,6 +238,12 @@ static llvm::cl::opt<int> strideHeight("conv_stride_h",
 // stride width
 static llvm::cl::opt<int> strideWidth("conv_stride_w",
                                       llvm::cl::desc("Stride width"),
+                                      llvm::cl::value_desc("attribute value"),
+                                      llvm::cl::init(1));
+
+// stride depth
+static llvm::cl::opt<int> strideDepth("conv_stride_d",
+                                      llvm::cl::desc("Stride depth"),
                                       llvm::cl::value_desc("attribute value"),
                                       llvm::cl::init(1));
 
@@ -247,6 +275,22 @@ static llvm::cl::opt<int>
 
 static llvm::cl::opt<int>
     paddingWidthRight("padding_w_r", llvm::cl::desc("Padding width Right"),
+                      llvm::cl::value_desc("attribute value"),
+                      llvm::cl::init(0));
+
+// padding depth
+static llvm::cl::opt<int> paddingDepth("padding_d",
+                                       llvm::cl::desc("Padding depth"),
+                                       llvm::cl::value_desc("attribute value"),
+                                       llvm::cl::init(0));
+
+static llvm::cl::opt<int>
+    paddingDepthLeft("padding_d_l", llvm::cl::desc("Padding depth Left"),
+                     llvm::cl::value_desc("attribute value"),
+                     llvm::cl::init(0));
+
+static llvm::cl::opt<int>
+    paddingDepthRight("padding_d_r", llvm::cl::desc("Padding depth Right"),
                       llvm::cl::value_desc("attribute value"),
                       llvm::cl::init(0));
 
@@ -845,6 +889,8 @@ static void correctConvParameters() {
                   "padding_h");
   validatePadding(paddingWidth, paddingWidthLeft, paddingWidthRight,
                   "padding_w");
+  validatePadding(paddingDepth, paddingDepthLeft, paddingDepthRight,
+                  "padding_d");
 
   // adjust the padding size
   // getOutputDim can give us correct output size
@@ -868,7 +914,7 @@ static void correctConvParameters() {
                         conv_dilation_h);
   int hi_minimum = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
   int hi_specified = hi + in_left_pad_h + in_right_pad_h;
-  // hi_minimum is the miminum number of input elements needed to correctly
+  // hi_minimum is the mininum number of input elements needed to correctly
   // apply the filter in the h direction, which is a function of the stride and
   // dilation parameters. If the specified input height is less than this value,
   // add extra padding on the right to allow the convolution to execute
@@ -894,6 +940,25 @@ static void correctConvParameters() {
   // successfully.
   if (wi_minimum > wi_specified)
     paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
+
+  int di = inputDepth.getValue();
+  int z = filterDepth.getValue();
+  int in_left_pad_d = paddingDepthLeft.getValue();
+  int in_right_pad_d = paddingDepthRight.getValue();
+  int conv_stride_d = strideDepth.getValue();
+  int conv_dilation_d = dilationDepth.getValue();
+  int d_o = getOutputDim(di, z, in_left_pad_d, in_right_pad_d, conv_stride_d,
+                         conv_dilation_d);
+
+  int di_minimum = 1 + (z - 1) * conv_dilation_d + (d_o - 1) * conv_stride_d;
+  int di_specified = di + in_left_pad_d + in_right_pad_d;
+  // di_minimum is the miminum number of input elements needed to correctly
+  // apply the filter in the d direction, which is a function of the stride and
+  // dilation parameters. If the specified input height is less than this value,
+  // add extra padding on the right to allow the convolution to execute
+  // successfully.
+  if (di_minimum > di_specified)
+    paddingDepthRight = in_right_pad_d + (di_minimum - di_specified);
 }
 
 static void verifyConvLayout() {
@@ -949,16 +1014,22 @@ static void populateDefaults() {
         outputChannel = 128;
         inputHeight = 32;
         inputWidth = 32;
+        inputDepth = 1;
         filterHeight = 3;
         filterWidth = 3;
+        filterDepth = 1;
         dilationHeight = 1;
         dilationWidth = 1;
+        dilationDepth = 1;
         strideHeight = 1;
         strideWidth = 1;
+        strideDepth = 1;
         paddingHeightLeft = 0;
         paddingHeightRight = 0;
         paddingWidthLeft = 0;
         paddingWidthRight = 0;
+        paddingDepthLeft = 0;
+        paddingDepthRight = 0;
       } else {
         groupSize = 1;
         batchSize = 128;
@@ -966,16 +1037,22 @@ static void populateDefaults() {
         outputChannel = 1024;
         inputHeight = 14;
         inputWidth = 14;
+        inputDepth = 1;
         filterHeight = 1;
         filterWidth = 1;
+        filterDepth = 1;
         dilationHeight = 1;
         dilationWidth = 1;
+        dilationDepth = 1;
         strideHeight = 1;
         strideWidth = 1;
+        strideDepth = 1;
         paddingHeightLeft = 0;
         paddingHeightRight = 0;
         paddingWidthLeft = 0;
         paddingWidthRight = 0;
+        paddingDepthLeft = 0;
+        paddingDepthRight = 0;
       }
     }
   }
@@ -991,6 +1068,13 @@ static void populateDefaults() {
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
+  }
+  if (isConv && outputDepth.getNumOccurrences() == 0 &&
+      inputDepth.getNumOccurrences() > 0) {
+    outputDepth = rock::ConvGenerator::outputDim(
+        inputDepth.getValue(), filterDepth.getValue(),
+        paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
+        strideDepth.getValue(), dilationDepth.getValue());
   }
 }
 
@@ -3509,25 +3593,25 @@ static OwningOpRef<ModuleOp> readTestFile(std::string inputFilenameStr,
 static void generateKernel(MLIRContext *context, GenParams &genParams,
                            ModuleOp module) {
   OpBuilder builder(context);
-  static rock::ConvGenerator convGenerator;
+  static rock::ConvGenerator convGenerator; // genParams keeps pointer to config
 
   const bool isGemm = operation == rock::KernelType::Gemm;
   const bool isAttention = operation == rock::KernelType::Attention;
   const bool isConv = !(isGemm || isAttention);
-  auto convConfig = populateConvConfig.getValue();
+  auto convConfigStr = populateConvConfig.getValue();
 
-  if (!convConfig.empty() && !isConv) {
+  if (!convConfigStr.empty() && !isConv) {
     llvm::errs() << "Cannot use --conv-config with gemm/attention operations\n";
     exit(1);
   }
 
-  if (convConfig.empty() && failed(detectMissingArguments())) {
+  if (convConfigStr.empty() && failed(detectMissingArguments())) {
     exit(1);
   }
 
   // Scenario 1: We use conv config to initialize everything
-  if (!convConfig.empty()) {
-    if (failed(convGenerator.parseConvConfig(builder, convConfig.c_str()))) {
+  if (!convConfigStr.empty()) {
+    if (failed(convGenerator.parseConvConfig(builder, convConfigStr.c_str()))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
@@ -3643,6 +3727,31 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
     } else {
+      int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
+      SmallVector<int, 4> dilations;
+      SmallVector<int, 4> strides;
+      SmallVector<int, 4> paddingLeft;
+      SmallVector<int, 4> paddingRight;
+
+      // +++pf: needs generalising, coupled with command-line options.
+      dilations.push_back(dilationHeight.getValue());
+      strides.push_back(strideHeight.getValue());
+      paddingLeft.push_back(paddingHeightLeft.getValue());
+      paddingRight.push_back(paddingHeightRight.getValue());
+
+      if (nDims > 1) {
+        dilations.push_back(dilationWidth.getValue());
+        strides.push_back(strideWidth.getValue());
+        paddingLeft.push_back(paddingWidthLeft.getValue());
+        paddingRight.push_back(paddingWidthRight.getValue());
+      }
+      if (nDims > 2) {
+        dilations.push_back(dilationDepth.getValue());
+        strides.push_back(strideDepth.getValue());
+        //         paddingLeft.push_back(paddingDepthLeft.getValue());
+        //         paddingRight.push_back(paddingDepthRight.getValue());
+      }
+
       convGenerator = rock::ConvGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
@@ -3650,16 +3759,23 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           reverse_grid, enabledFeatures,
           rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
-          outputDataType.getValue(), dilationHeight.getValue(),
-          dilationWidth.getValue(), strideHeight.getValue(),
-          strideWidth.getValue(), paddingHeightLeft.getValue(),
-          paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
-          paddingWidthRight.getValue(), filterLayout.getValue(),
-          inputLayout.getValue(), outputLayout.getValue());
+          outputDataType.getValue(), dilations, strides, paddingLeft,
+          paddingRight, filterLayout.getValue(), inputLayout.getValue(),
+          outputLayout.getValue());
 
-      status = convGenerator.parseConvDims(
-          batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-          outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
+      SmallVector<int64_t> inDims{inputHeight, inputWidth};
+      if (nDims > 2)
+        inDims.push_back(inputDepth);
+      SmallVector<int64_t> outDims{outputHeight, outputWidth};
+      if (nDims > 2)
+        outDims.push_back(outputDepth);
+      SmallVector<int64_t> filDims{filterHeight, filterWidth};
+      if (nDims > 2)
+        filDims.push_back(filterDepth);
+
+      status =
+          convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
+                                      inDims, outputChannel, outDims, filDims);
       if (failed(status)) {
         llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);

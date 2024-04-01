@@ -58,23 +58,22 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
              /*summary=*/"Constraints the type to be either a Tensor or MemRef of certain types of elements.",
              "::mlir::ShapedType">;
 
-class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayCount<n>]>;
+class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>;
 
 class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockConvInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
-    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5]>:$filter,
-                              TensorOrMemRefRankOf<inputTypes, [5]>:$input,
-                              TensorOrMemRefRankOf<outputTypes, [5]>:$output,
-                              StrAttr:$arch,
-                              Rock_GemmFeaturesAttr:$features,
-                              OptionalAttr<I32Attr>:$derivedBlockSize,
-                              OptionalAttr<I32Attr>:$gridSize,
-                              IndexArrayLength<4>:$padding,
-                              IndexArrayLength<2>:$strides,
-                              IndexArrayLength<2>:$dilations,
-                              OptionalAttr<RockTuningParamAttrInterface>:$params);
+                       DeclareOpInterfaceMethods<RockConvInterface>]>{
+    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
+                   TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
+                   TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
+                   StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$derivedBlockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   IndexArrayLength<4>:$padding,
+                   IndexArrayLength<2>:$strides,
+                   IndexArrayLength<2>:$dilations,
+                   OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
