@@ -430,6 +430,7 @@ int main(int argc, char **argv) {
                       memref::MemRefDialect, math::MathDialect,
                       arith::ArithDialect, gpu::GPUDialect,
                       bufferization::BufferizationDialect>();
+  context.disableMultithreading();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 
