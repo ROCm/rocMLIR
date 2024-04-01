@@ -148,9 +148,13 @@ def Rock_TransformAttr : Rock_Attr<"Transform"> {
           This has the effect of concatentating the dimensions if they are consecutive
         - AddDim{size} - Adds one upper dimension of the given size that does not
           correspond to any lower dimension.
-        - Broadcast{c1, c2, ..., cN} - Broadcast lower dimensions of size 1 to
-          upper dimensions.
-        - ConstDim{c1, l1, c2, l2, .. cN, lN} a
+        - Broadcast{c1, c2, ..., cN} - Broadcast lower dimensions of size
+          c1, c2, ... cN to upper dimensions whose size isn't (currently) recorded
+          in the parameters. Note that the upper dimension's length doesn't have to
+          evenly divide into the lower one.
+        - ConstDim{c1, l1, c2, l2, .. cN, lN} an operator that sets the lower
+          dimensions of length l1, ... lN to the values c1, ..., cN. It takes no
+          input arguments.
     }];
 
     let parameters = (ins
@@ -338,8 +342,8 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
       return $_get(
         params.getContext(),
         params.getKpackPerBlock(),
-        mPerBlock, 
-        nPerBlock, 
+        mPerBlock,
+        nPerBlock,
         params.getKpack(),
         mPerWave,
         nPerWave,
@@ -421,6 +425,10 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   let description = [{
     An attribute to express the properties of a loop to be pipelined
   }];
+}
+
+def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
+  let mnemonic = "reverse_grid";
 }
 
 // It is a temporary attribute

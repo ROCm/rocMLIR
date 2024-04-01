@@ -476,9 +476,9 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
-      b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
-                                     op.getBufferA(), b.getArrayAttr({}),
-                                     ValueRange{tid, i}, true, true);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedLDSBufferForLoadA, op.getBufferA(), b.getArrayAttr({}),
+          ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
@@ -487,9 +487,9 @@ struct BlockwiseGemmAccelRewritePattern
         Value j = nLoop.getInductionVar();
 
         // regsB = read B from LDS
-        b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadB,
-                                       op.getBufferB(), b.getArrayAttr({}),
-                                       ValueRange{tid, j}, true, true);
+        b.create<ThreadwiseReadIntoOp>(
+            loc, wrappedLDSBufferForLoadB, op.getBufferB(), b.getArrayAttr({}),
+            ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);

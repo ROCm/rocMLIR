@@ -139,6 +139,9 @@ public:
   /// the IR.
   void moveBeforeIfNeeded(Operation *toMove, Operation *latestOp);
 
+  /// Move `toMove` before `latestPoint` unconditionally
+  void moveBefore(Operation *toMove, Operation *latestOp);
+
   /// Debug utilities.
   void notifyOperationModified(Operation *op) override;
   void notifyOperationInserted(Operation *op) override;
@@ -216,11 +219,18 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
-  if (latestOp->getBlock() != toMove->getBlock() ||
-      latestOp->isBeforeInBlock(toMove))
+  if (latestOp->isBeforeInBlock(toMove))
     toMove->moveBefore(latestOp);
   else
     LLVM_DEBUG(logger.startLine() << "   No move needed.\n");
+}
+
+void LinalgAlignRewriter::moveBefore(Operation *toMove, Operation *latestOp) {
+  constexpr llvm::StringLiteral movePrefix("** Move    : ");
+  constexpr llvm::StringLiteral beforePrefix("   before  : ");
+  logOpActivity(movePrefix, toMove);
+  logOpActivity(beforePrefix, latestOp);
+  toMove->moveBefore(latestOp);
 }
 
 void LinalgAlignRewriter::scheduleVisit(Operation *op) {
@@ -571,14 +581,30 @@ template <typename TiledOp>
 static Value
 makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
                    ArrayRef<TransformMapAttr> globalCoordsToGenericViews,
-                   linalg::GenericOp laGeneric) {
+                   linalg::GenericOp laGeneric, Operation *sink) {
   // 0. capture the memref containing the outputs being written or
   // (in the case of propagating tiling informatinon up to gemm-independent
   // code) where the values will be written.
   Location loc = tiledOp.getLoc();
   Value tile = getRegisterValue(tiledOp);
 
+  // move linalg.generic after the definitions of threadwiseReadIntoOp's
+  // inputs to maintaine correct def-use chain.
+  Operation *lastIdxDef = nullptr;
+  for (Value idx : tiledOp.getExtraIndices()) {
+    Operation *idxOp = idx.getDefiningOp();
+    if (idxOp) {
+      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+        lastIdxDef = idxOp;
+      }
+    }
+  }
+  if (lastIdxDef)
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
   // 1. create a second allocation of the same type to hold loaded elements
+  // where the laGeneric is located.
+  b.setInsertionPoint(laGeneric);
   MemRefType::Builder mrb(tile.getType().cast<MemRefType>());
   Value alloc = makeRegs(b, mrb, loc, src.getType());
 
@@ -596,31 +622,19 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType()
                           << " tile type: " << tile.getType() << "\n");
 
+  // Reset the insertion point if laGeneric and tiledOp are in different blocks
+  // and tiledOp reads from the output of linalg.generic. In such cases, we
+  // should insert new transform operations and threadwiseReadIntoOp inside the
+  // block of tiledOp, as their arguments may depend on that control flow. Later
+  // we will also move linalg.generic into the block.
+  if (laGeneric->getBlock() != tiledOp->getBlock() &&
+      laGeneric.getOperation() != sink)
+    b.setInsertionPoint(sink);
+
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
-  // 2.1. move linalg.generic if needed
-  // move linalg.generic after the definitions of threadwiseReadIntoOp's
-  // inputs to maintaine correct def-use chain.
-  Operation *lastIdxDef = nullptr;
-  for (Value idx : tiledOp.getExtraIndices()) {
-    Operation *idxOp = idx.getDefiningOp();
-    if (idxOp) {
-      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
-        lastIdxDef = idxOp;
-      }
-    }
-  }
-  if (lastIdxDef)
-    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
-
-  // move linalg.generic in the same block of threadwiseReadIntoOp
-  if (laGeneric->getBlock() != tiledOp->getBlock()) {
-    b.moveBeforeIfNeeded(laGeneric, tiledOp);
-    b.setInsertionPoint(laGeneric);
-  }
-
-  // 2.2. load into registers
+  // 2.1. load into registers
   ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
       loc, src, alloc, tiledOp.getExtraViews(),
       /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
@@ -700,7 +714,7 @@ static void addRegisterReadsForTiledInput(
       newInput = twWriteOp.getSource();
     } else {
       newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite,
-                                    laGeneric);
+                                    laGeneric, laGeneric);
     }
     newInputs.push_back(newInput);
   }
@@ -714,10 +728,14 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                ArrayRef<TransformMapAttr> relativeViewsOnResult,
                                SmallVectorImpl<Value> &newInputs) {
   for (auto inp : laGeneric.getInputs()) {
-    Value newInput =
-        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
+    Value newInput = makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult,
+                                        laGeneric, twReadOp);
     newInputs.push_back(newInput);
   }
+
+  // move linalg.generic into the same block with threadwiseReadIntoOp
+  if (laGeneric->getBlock() != twReadOp->getBlock())
+    b.moveBefore(laGeneric, twReadOp);
 }
 
 static void reconfigureLAGeneric(LinalgAlignRewriter &b,
@@ -752,11 +770,12 @@ static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
   for (auto &region : laGeneric->getRegions()) {
     for (auto &block : region) {
       for (auto &op : block) {
-        Type resultType = op.getResult(0).getType();
         if (llvm::isa<arith::TruncFOp>(op)) {
+          Type resultType = op.getResult(0).getType();
           isLegal = resultType == b.getF32Type();
           isLegal |= resultType == b.getF16Type();
         } else if (llvm::isa<arith::TruncIOp>(op)) {
+          Type resultType = op.getResult(0).getType();
           isLegal = resultType == b.getI32Type();
         } else if (llvm::isa<linalg::YieldOp>(op)) {
           isLegal = true;
@@ -846,11 +865,13 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
       b.setInsertionPoint(laGeneric);
     }
     Value newOutput = tileReadOp.getDest();
+    // Prevent SSA weirdness from register allocations introduced too late.
+    // Do this before calling addRegisterReadsForTiledOutput() as
+    // addRegisterReadsForTiledOutput() may move laGeneric.
+    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     SmallVector<Value> newInputs;
     addRegisterReadsForTiledOutput(b, laGeneric, tileReadOp,
                                    globalCoordsToGenericViews, newInputs);
-    // Prevent SSA weirdness from register allocations introduced too late.
-    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
     b.eraseOp(tileReadOp);
     return success();

@@ -23,6 +23,10 @@ name = "config"
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
 
+# reverse grid test
+[[suite.test]]
+config = "--reverse_grid -groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
+
 # -n 256 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=512 -in_h=28 -in_w=28 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"

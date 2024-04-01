@@ -19,6 +19,10 @@ name = "pr_attention_f16"
 [[suite.test]]
 config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64"
 
+# reverse grid test
+[[suite.test]]
+config = "--reverse_grid -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64"
+
 [[suite.test]]
 config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 -perf_config v2:32,64,32,32,32,4,1,1,1"
 

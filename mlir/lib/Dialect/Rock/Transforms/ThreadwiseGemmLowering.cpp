@@ -510,7 +510,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     loadType = elementType;
     vectorSrcLen = elementType.dyn_cast<VectorType>().getNumElements();
     elementType = elementType.dyn_cast<VectorType>().getElementType();
+    collapseContiguousMerges(sourceView);
     srcStride = 1;
+    if (!isDstVectorBuffer) {
+      numValues = numValues / vectorSrcLen;
+    }
   } else {
     VectorizationResult vectorSrcRes = getMaxVectorization(
         sourceView, extraIdxCount, /*inputDimLen=*/numValues);
