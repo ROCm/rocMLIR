@@ -13,6 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 #define MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 
+#include "mlir-c/Dialect/RockEnums.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -73,15 +74,11 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
-double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
-                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
-                            int32_t kPack, uint32_t numCUs,
-                            int32_t splitKFactor = 1);
+bool isSplitKRequested(ModuleOp &mod, StringRef &perfConfig);
 
-SmallVector<int64_t>
-computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
-                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
-                            int32_t kPack, uint32_t numCUs);
+RocmlirSplitKSelectionLikelihood mlirIsSplitKFaster(int64_t gDim, int64_t mDim,
+                                                    int64_t nDim, int64_t kDim,
+                                                    int64_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

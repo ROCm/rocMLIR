@@ -10,6 +10,7 @@
 #ifndef MLIR_C_DIALECT_ROCK_H
 #define MLIR_C_DIALECT_ROCK_H
 
+#include "mlir-c/Dialect/RockEnums.h"
 #include "mlir-c/Pass.h"
 
 #ifdef __cplusplus
@@ -33,14 +34,6 @@ DEFINE_C_API_STRUCT(MlirRockTuningParam, void);
 DEFINE_C_API_STRUCT(MlirRockTuningTable, void);
 // DEFINE_C_API_STRUCT(MlirRockGemmWrapperInterface, void);
 DEFINE_C_API_STRUCT(MlirRockTuningKey, const void);
-
-// See TuningParamSetKind in the C++ for descriptions of these flags.
-enum RocmlirTuningParamSetKind {
-  RocmlirTuningParamSetKindQuick = 0,
-  RocmlirTuningParamSetKindFull = 1,
-  RocmlirTuningParamSetKindExhaustive = 2
-};
-typedef enum RocmlirTuningParamSetKind RocmlirTuningParamSetKind;
 
 // Create full range of the tuning params space
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
@@ -139,9 +132,6 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 // happen), returns (size_t)(-1).
 MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
                                                size_t bufLen);
-
-// TODO (ravil): document
-enum RocmlirSplitKSelectionLikelihood { never = 0, maybe = 1, always = 2 };
 
 // TODO (ravil): document
 MLIR_CAPI_EXPORTED
