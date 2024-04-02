@@ -31,14 +31,14 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
   GemmFeatures features = attnOp.getFeatures();
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     // PopulateParamsXDL tuningInfo;
-    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-        {4, 8, 16, 32, 64, 128, 256}, // gemmMPerBlock
-        {4, 8, 16, 32, 64, 128, 256}, // gemmNPerBlock
-        {2, 4, 8, 16, 32, 64}, // gemmKPerBlock
-        {16, 32, 64, 128, 256}, // gemmMPerWave
-        {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 1632, 3201, 3202, 3204, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl    
-        {4, 8, 16}
-    };
+    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams =
+        {{4, 8, 16, 32, 64, 128, 256}, // gemmMPerBlock
+         {4, 8, 16, 32, 64, 128, 256}, // gemmNPerBlock
+         {2, 4, 8, 16, 32, 64},        // gemmKPerBlock
+         {16, 32, 64, 128, 256},       // gemmMPerWave
+         {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 1632, 3201, 3202, 3204,
+          3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl
+         {4, 8, 16}};
     constexpr uint64_t splitKFactor = 1;
     constexpr uint32_t forceUnroll = 1;
     OpBuilder b(attnOp.getContext());
@@ -51,33 +51,38 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
               for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
                 if (gemmMPerBlock >= gemmMPerWave &&
                     gemmNPerBlock >= gemmMnPerXdl) {
-                  InitParamsAccel gemmParams(
-                      gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                      gemmMnkPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
-                    GemmFeatures features = attnOp.getFeatures();
-                    auto populateParamsAccelPtr =
-                        PopulateParamsAccel::select(features);
-                    Attribute gemmParamsAttr =
-                        populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
-                    auto xdlopsParams = gemmParamsAttr.cast<XdlopsGemmParamsAttr>();
-                    auto derivedParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
-                    Type qType = attnOp.getQueries().getType().getElementType();
-                    Type kType = attnOp.getKeys().getType().getElementType();
-                    if(succeeded(populateParamsAccelPtr->isValidBlockwiseGemm(derivedParams, qType, kType, attnOp.getArch(), false, false))){
-                      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(xdlopsParams));
-                    }
+                  InitParamsAccel gemmParams(gemmMPerBlock, gemmNPerBlock,
+                                             gemmKPerBlock, gemmMPerWave,
+                                             gemmMnkPerXdl, gemmKPack,
+                                             splitKFactor, forceUnroll, true);
+                  GemmFeatures features = attnOp.getFeatures();
+                  auto populateParamsAccelPtr =
+                      PopulateParamsAccel::select(features);
+                  Attribute gemmParamsAttr =
+                      populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
+                  auto xdlopsParams =
+                      gemmParamsAttr.cast<XdlopsGemmParamsAttr>();
+                  auto derivedParams =
+                      XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
+                  Type qType = attnOp.getQueries().getType().getElementType();
+                  Type kType = attnOp.getKeys().getType().getElementType();
+                  if (succeeded(populateParamsAccelPtr->isValidBlockwiseGemm(
+                          derivedParams, qType, kType, attnOp.getArch(), false,
+                          false))) {
+                    newSpace->tuningRange.push_back(
+                        cast<RockTuningParamAttrInterface>(xdlopsParams));
                   }
+                }
               }
             }
           }
         }
       }
     }
-  }
-  else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-        {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
-        {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
+  } else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams =
+        {{32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
+         {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
     constexpr uint64_t splitKFactor = 1;
     constexpr uint32_t forceUnroll = 1;
     OpBuilder b(attnOp.getContext());
@@ -106,9 +111,9 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
         }
       }
     }
-  }
-  else{
-    llvm_unreachable("rock.attention is not supported on GPU with matrix accelerators");
+  } else {
+    llvm_unreachable(
+        "rock.attention is not supported on GPU with matrix accelerators");
   }
 }
 
@@ -212,19 +217,22 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {16, 32, 64, 128, 256},
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
-      {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 3201, 3202, 3204, 3208}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl   
+      {401, 402, 404, 1601, 1602, 1604, 1608, 1616, 3201, 3202, 3204,
+       3208}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl
       {1, 4, 8},
       {0, 1}};
 
   // M/block N/block K/block M/wave gemmMnkPerXdl kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
-      validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
-                                                {16, 32, 64, 128, 256},
-                                                {4, 8, 16, 32},
-                                                {4, 8, 16, 32, 64, 128},
-                                                {1616, 1632, 3208, 3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl
-                                                {1, 4, 8, 16},
-                                                {0, 1}};
+      validRangeAccelGemmParams8BitReduction = {
+          {4, 8, 16, 32, 64, 128, 256},
+          {16, 32, 64, 128, 256},
+          {4, 8, 16, 32},
+          {4, 8, 16, 32, 64, 128},
+          {1616, 1632, 3208,
+           3216}, // gemmMnkPerXdl = gemmMnPerXdl * 100 +  gemmkPerXdl
+          {1, 4, 8, 16},
+          {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {

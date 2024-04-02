@@ -231,7 +231,8 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
           op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
-    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl() * 100 + gemm0XdlDerivedParams.getKPerXdl();
+    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl() * 100 +
+                             gemm0XdlDerivedParams.getKPerXdl();
   }
   return InitParamsAccel(
       /*gemmMPerBlock=*/gemm1MPerBlock,

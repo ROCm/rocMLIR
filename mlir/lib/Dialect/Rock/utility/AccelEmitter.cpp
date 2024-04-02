@@ -185,12 +185,12 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   Value nResultVectorsConst = b.create<ConstantIndexOp>(loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
   auto regCOffsetEndVal = regCOffset.back();
-  regCOffsetEndVal = b.create<MulIOp>(loc, regCOffsetEndVal, nResultVectorsConst);
+  regCOffsetEndVal =
+      b.create<MulIOp>(loc, regCOffsetEndVal, nResultVectorsConst);
   auto outputOffset = llvm::to_vector(regCOffset);
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-    offset = b.create<AddIOp>(
-        loc, offset, regCOffsetEndVal);
+    offset = b.create<AddIOp>(loc, offset, regCOffsetEndVal);
     outputOffset.back() = offset;
     auto vectorC =
         b.create<memref::LoadOp>(loc, vectorType, bufferC, outputOffset);
@@ -1478,8 +1478,10 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   if (isMfma) {
     XdlopsGemmDerivedParamsAttr mfmaParams =
         tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
-                                                    mfmaParams.getMnPerXdl(), mfmaParams.getKPerXdl(), mfmaParams.getMPerWave(), mfmaParams.getNPerWave());
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
+        mfmaParams.getKPerXdl(), mfmaParams.getMPerWave(),
+        mfmaParams.getNPerWave());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

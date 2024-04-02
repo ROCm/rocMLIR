@@ -685,8 +685,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   int64_t nPerWave = derivedParam.getNPerWave();
   int64_t kPerXdl = derivedParam.getKPerXdl();
 
-  auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl, kPerXdl, mPerWave, nPerWave);
+  auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+      dataTypeA, dataTypeB, arch, mnPerXdl, kPerXdl, mPerWave, nPerWave);
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -721,10 +721,13 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
         OpBuilder builder(dataTypeA.getContext());
-        XdlopsGemmParamsAttr xdlopParam = getGemmParamsAttr(builder, param).cast<XdlopsGemmParamsAttr>();
+        XdlopsGemmParamsAttr xdlopParam =
+            getGemmParamsAttr(builder, param).cast<XdlopsGemmParamsAttr>();
         auto xdlopDerivedParam = XdlopsGemmDerivedParamsAttr::get(xdlopParam);
-        auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, xdlopDerivedParam.getMnPerXdl(), xdlopDerivedParam.getKPerXdl(), xdlopDerivedParam.getMPerWave(), xdlopDerivedParam.getNPerWave());
+        auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+            dataTypeA, dataTypeB, arch, xdlopDerivedParam.getMnPerXdl(),
+            xdlopDerivedParam.getKPerXdl(), xdlopDerivedParam.getMPerWave(),
+            xdlopDerivedParam.getNPerWave());
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }

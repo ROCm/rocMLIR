@@ -152,8 +152,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
         gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnkPerXdl(attr.getMnkPerXdl()), gemmKPack(attr.getKpack()),
-        splitKFactor(attr.getSplitKFactor()),
+        gemmNPerWaveOrMnkPerXdl(attr.getMnkPerXdl()),
+        gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
 
