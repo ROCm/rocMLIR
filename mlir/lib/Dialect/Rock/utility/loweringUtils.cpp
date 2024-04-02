@@ -103,28 +103,29 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 }
 
 SmallVector<int64_t>
-mlir::rock::backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
-                                  int64_t dilationHeight, int64_t dilationWidth,
-                                  int64_t filterHeight, int64_t filterWidth) {
-  int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
-  int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
+mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
+                                  ArrayRef<int64_t> dilationDims,
+                                  ArrayRef<int64_t> filterDims) {
+  assert(strideDims.size() == dilationDims.size());
+  SmallVector<int64_t, 5> gcdStrideDilations;
+  assert(strideDims.size() == dilationDims.size());
+  for (const auto &[stride, dilation] : zip(strideDims, dilationDims)) {
+    gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
+  }
 
-  int64_t yTilda = strideHeight / gcdStrideDilationH;
-  int64_t xTilda = strideWidth / gcdStrideDilationW;
+  SmallVector<int64_t, 5> filTilda;
+  for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations)) {
+    filTilda.push_back(stride / gcdSD);
+  }
 
-  int64_t y = filterHeight;
-  int64_t x = filterWidth;
 
   // Heuristic to determine if every pixel in the output would be written by the
   // backward data convolution algorithm.
   auto isEveryPixelWritten = [&]() -> bool {
     bool result = true;
-    for (int32_t dim = 0; dim < 2; ++dim) {
-      int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
-      int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
-      int64_t filterSize = (dim == 0) ? filterHeight : filterWidth;
-
-      if (!(convDilation == 1 && convStride <= filterSize))
+    for (const auto &[stride, dilation, filterSize] : zip(strideDims, dilationDims,
+                                                          filterDims)) {
+      if (!(dilation == 1 && stride <= filterSize))
         result = false;
     }
     return result;
@@ -137,18 +138,40 @@ mlir::rock::backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
 
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
-  for (int64_t kernelId = 0; kernelId < yTilda * xTilda; ++kernelId) {
+  int64_t product = 1;
+  for (size_t i = 1; i < filterDims.size(); i++)
+    product *= filTilda[i];
+  for (int64_t kernelId = 0; kernelId < product; ++kernelId) {
     // gemmK size is different for each GEMM
-    const int64_t iYTilda = kernelId / xTilda;
-    const int64_t iXTilda = kernelId % xTilda;
+    SmallVector<int64_t, 3> iTilda;
+    SmallVector<int64_t, 3> iDotSlice;
+    int64_t divisor = 1;
+    iTilda.resize(filterDims.size());
+    switch (filterDims.size()) {
+    default:
+      llvm_unreachable("Only 2-D and 3-D have been implemented.");
+      break;
+    case 3:
+      divisor = filTilda[2];
+      iTilda[2] = kernelId % divisor;
+      [[fallthrough]];
+    case 2:
+      iTilda[1] = (kernelId % product) / divisor;
+      iTilda[0] = kernelId / product;
+    }
+    for (size_t i = 0; i < filterDims.size(); i++)
+      iDotSlice.push_back(math_util::integer_divide_ceil(
+          filterDims[i] - iTilda[i], filTilda[i]));
 
-    int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
-    if (yDotSlice * xDotSlice > 0) {
+    int64_t gemmKproduct = 1;
+    for (int64_t ds : iDotSlice)
+      gemmKproduct *= ds;
+    if (gemmKproduct > 0) {
       kernelIds.push_back(kernelId);
     }
   }
+
   return kernelIds;
 }
 
