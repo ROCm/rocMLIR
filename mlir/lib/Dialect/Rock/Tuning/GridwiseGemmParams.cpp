@@ -459,6 +459,8 @@ PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = 
   {64, 128, 4, 32, 3208, 8, 1, true, true},
   {64, 128, 2, 64, 3208, 8, 1, true, true},
   {64, 128, 2, 32, 3208, 8, 1, true, true},
+  // just keeping one for bf16 for gfx908
+  {64, 64, 8, 32, 3204, 8, 1, true, true},
   {64, 64, 8, 32, 3208, 8, 1, true, true},
   {64, 64, 8, 32, 3208, 4, 1, true, true},
   {64, 64, 8, 16, 1616, 8, 1, true, true},
