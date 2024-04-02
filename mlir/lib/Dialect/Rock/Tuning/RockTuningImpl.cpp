@@ -414,7 +414,7 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/32,
             /*nPerBlock=*/32, /*kpack=*/1,
-            /*mPerWave=*/32, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/32, /*MnkPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
 
     // add performant configs for tier1
@@ -422,13 +422,13 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/8, /*mPerBlock=*/64,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/32, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/32, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/8, /*mPerBlock=*/64,
             /*nPerBlock=*/64, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/64, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
 
     // add performant config for triton configs
@@ -436,25 +436,25 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/16, /*mPerBlock=*/128,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/64, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/16, /*mPerBlock=*/128,
             /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/64, /*splitKFactor*/ 1,
+            /*mPerWave=*/64, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/128,
             /*nPerBlock=*/256, /*kpack=*/4,
-            /*mPerWave=*/128, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/128, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
     newSpace->tuningRange.push_back(
         cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
             /*kpackPerBlock=*/32, /*mPerBlock=*/64,
             /*nPerBlock=*/128, /*kpack=*/4,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
+            /*mPerWave=*/64, /*MnPerXdl=*/3208, /*splitKFactor*/ 1,
             /*forceUnroll=*/true)));
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     // Wmma

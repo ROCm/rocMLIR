@@ -259,8 +259,12 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     return;
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
+  GemmFeatures features = op.getFeatures();
   // set a default one if params is not provided
   std::string perfConfigStr = "v2:128,128,16,64,3200,1,1,1,1";
+  if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    perfConfigStr = "v2:128,128,16,64,32,1,1,1,1";
+  }
   InitParamsAccel initAccelParams;
   if (!params0) {
     if (StringAttr perfConfigStrAttr =
@@ -268,7 +272,6 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
       perfConfigStr = perfConfigStrAttr.str();
     }
   }
-  GemmFeatures features = op.getFeatures();
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   if (initAccelParams.deserialize(perfConfigStr)) {
     params0 =
