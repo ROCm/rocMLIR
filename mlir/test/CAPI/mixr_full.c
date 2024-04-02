@@ -194,7 +194,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
       mlirRockTuningSpaceCreate(module, RocmlirTuningParamSetKindFull);
   printf("Got tuning space,\n");
   unsigned fNum = mlirRockTuningGetNumParams(tuningSpace);
-  // CHECK: full set = 567
+  // CHECK: full set = 626
   printf("full set = %u\n", fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
@@ -229,7 +229,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     mlirRockTuningSetParam(tuningClone, tuningParam);
     if (mlirLogicalResultIsFailure(
             mlirPassManagerRunOnOp(applicabilityPm, tuningCloneOp))) {
-      // CHECK-NOT: is not applicable
+      // CHECK: is not applicable
       printf("Perfconfig \"%s\" is not applicable to the problem string(%s)\n",
              paramStr, problemKey);
       mlirModuleDestroy(tuningClone);

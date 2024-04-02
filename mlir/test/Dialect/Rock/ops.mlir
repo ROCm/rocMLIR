@@ -209,9 +209,10 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
       kpack = 4,
       mPerBlock = 128,
       mPerWave = 64,
-      nPerBlock = 128,
       nPerWave = 64,
+      nPerBlock = 128,
       mnPerXdl = 32,
+      kPerXdl = 2,
       splitKFactor = 1,
       forceUnroll = true>
   } : memref<2x1024x1024xf32>, memref<2x1024x2048xf32>, memref<2x1024x2048xf32>

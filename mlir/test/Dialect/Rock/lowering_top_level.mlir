@@ -31,8 +31,9 @@
 
 #general_gemm_params0 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
 #general_gemm_params1 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
-#xdlops_gemm_params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>
-#xdlops_gemm_params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>
+#xdlops_gemm_params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, kPerXdl = 8, splitKFactor = 1, forceUnroll = true>
+#xdlops_gemm_params1_f32 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, kPerXdl = 2, splitKFactor = 1, forceUnroll = true>
+#xdlops_gemm_params1_f16 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, kPerXdl = 8, splitKFactor = 1, forceUnroll = true>
 
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   rock.conv2d(%filter, %input, %output) features = none {
@@ -118,7 +119,7 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    params = #xdlops_gemm_params1,
+    params = #xdlops_gemm_params1_f32,
     strides = [1 : index, 1 : index]
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
@@ -149,7 +150,7 @@ rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    params = #xdlops_gemm_params1,
+    params = #xdlops_gemm_params1_f16,
     strides = [1 : index, 1 : index]
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
