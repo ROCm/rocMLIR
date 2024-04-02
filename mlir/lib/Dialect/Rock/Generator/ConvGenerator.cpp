@@ -347,9 +347,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
 int ConvGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
-      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
-      config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+      config.strideDims, config.dilationDims, config.filterDims);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -851,9 +849,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
-        config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
-        config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+        config.strideDims, config.dilationDims, config.filterDims);
     assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
     kernelId = kernelIds[rawKernelId];
   }
