@@ -115,6 +115,12 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
+static llvm::cl::opt<bool> reverse_grid(
+    "reverse_grid",
+    llvm::cl::desc(
+        "Indicates whether to reverse the workgroup indices in the kernel"),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
+
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -273,10 +279,6 @@ static llvm::cl::opt<bool>
     transposeC("transC",
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
-
-static llvm::cl::opt<int64_t>
-    splitkFactor("split-k", llvm::cl::desc("split-k factor"),
-                 llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
@@ -716,6 +718,12 @@ static llvm::cl::opt<bool> applyBufferizationPipeline(
     "apply-bufferization-pipeline",
     llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
     llvm::cl::init(true));
+
+// TODO[split-K]: remove after integrating with MIGraphX
+static llvm::cl::opt<bool> disableSplitKForTuning(
+    "disable-split-k-for-tuning",
+    llvm::cl::desc("disable split-K GEMM scheme for tuning"),
+    llvm::cl::init(false));
 
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
@@ -2212,6 +2220,9 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
+  if (reverse_grid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
+  }
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2229,9 +2240,12 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  gemm->setAttr("split-k-factor", b.getI32IntegerAttr(splitkFactor));
-
   b.create<func::ReturnOp>(loc);
+
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSpliKForTuningAttr::getMnemonic(),
+                  b.getUnitAttr());
 
   module.push_back(func);
   return func;
@@ -2340,6 +2354,10 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(argTypes, {}), funcAttrs);
+  if (reverse_grid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3543,7 +3561,8 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
-          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
+          reverse_grid, enabledFeatures,
+          rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilationHeight.getValue(),
           dilationWidth.getValue(), strideHeight.getValue(),

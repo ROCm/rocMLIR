@@ -163,6 +163,21 @@ FailureOr<rock::GpuAllocOp> findAlloc(Value value);
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
+// Get the arch from the op
+FailureOr<StringAttr> getArch(Operation *op);
+
+// Get the num_cu from the op
+FailureOr<int64_t> getNumCU(Operation *op);
+
+// Get whether to reverse the grid
+FailureOr<UnitAttr> getReverseGrid(Operation *op);
+
+// Get gridSize
+FailureOr<IntegerAttr> getGridSize(Operation *op);
+
+// Return an affine map to reverse loop coordinates
+AffineMap getIdxReversalMap(OpBuilder &b);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

@@ -115,22 +115,16 @@ getArchAttributes(Operation *op, Type inputType) {
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
+  FailureOr<StringAttr> maybeArch = rock::getArch(op);
+  if (succeeded(maybeArch)) {
+    arch = maybeArch.value();
+  }
   std::optional<uint32_t> num_cu = std::nullopt;
+  FailureOr<int64_t> maybeNumCU = rock::getNumCU(op);
+  if (succeeded(maybeNumCU)) {
+    num_cu = (uint32_t)maybeNumCU.value();
+  }
   std::optional<bool> xdlopsV2 = std::nullopt;
-
-  if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("mhal.arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = mod->getAttrOfType<StringAttr>("mhal.arch"))
-    arch = attr;
-
-  if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
-    num_cu = attr.getValue().getZExtValue();
-  else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
-    num_cu = attr.getValue().getZExtValue();
 
   if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();

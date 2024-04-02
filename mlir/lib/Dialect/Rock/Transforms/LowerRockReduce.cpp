@@ -63,9 +63,9 @@ struct ReduceRewritePattern : public OpConversionPattern<ReduceOp> {
 
 // This function will create a view of the tensor that is being
 // reduced from arbitary dimension sizes to bid x tid x iter space.
-static ArrayAttr createThreadViewMaps(Value redInput, int64_t blockSize,
-                                      int64_t gridSize, Location loc,
-                                      PatternRewriter &rewriter) {
+static Value createThreadViewMaps(Value redInput, int64_t blockSize,
+                                  int64_t gridSize, Location loc,
+                                  PatternRewriter &rewriter) {
   int64_t totalThreads = gridSize * blockSize;
   ShapedType inpShape = redInput.getType().cast<ShapedType>();
   int64_t elementCount = inpShape.getNumElements();
@@ -87,18 +87,21 @@ static ArrayAttr createThreadViewMaps(Value redInput, int64_t blockSize,
   threadsToInpTensor.getStartNames(lowerNameRefs);
   threadsToInpTensor.merge("flatDim", 0, lowerNameRefs);
   TransformMapAttr mergeTrMap = threadsToInpTensor.get();
+  Value ret = rewriter.create<TransformOp>(loc, redInput, mergeTrMap);
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, mergeTrMap);
   threadsToInpTensor.pad({"flatDim"},
                          {0, totalThreads * dataPerThread - lowerSizeProduct});
   TransformMapAttr padTrMap = threadsToInpTensor.get();
+  ret = rewriter.create<TransformOp>(loc, ret, padTrMap);
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, padTrMap);
   threadsToInpTensor.unmerge({"bid", "iter", "tid"}, {0, 1, 2}, "flatDim",
                              {gridSize, dataPerThread, blockSize});
   TransformMapAttr unmergeTrMap = threadsToInpTensor.get();
+  ret = rewriter.create<TransformOp>(loc, ret, unmergeTrMap);
 
-  return rewriter.getArrayAttr({unmergeTrMap, padTrMap, mergeTrMap});
+  return ret;
 }
 
 static LogicalResult getStoreMethod(ReduceMethod rMethod,
@@ -121,26 +124,27 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
   uint64_t gridSize = op.getGridSizeAttr().getInt();
   uint64_t blockSize = op.getBlockSizeAttr().getInt();
 
-  ArrayAttr trMaps =
+  Value threadViewSource =
       createThreadViewMaps(op.getIn(), blockSize, gridSize, loc, rewriter);
+  VectorizationResult vectorRes = getMaxVectorization(threadViewSource, 1);
+  int64_t vectorLength = vectorRes.max;
+
   ArrayAttr sourceTransformsFromOp;
   Value source;
   bool needs64BitIdx;
   std::tie(source, sourceTransformsFromOp, needs64BitIdx) =
-      untransform(rewriter, op.getIn(), trMaps);
+      untransform(rewriter, threadViewSource);
+  auto threadViewType = cast<ShapedType>(threadViewSource.getType());
+  Type elementType = threadViewType.getElementType();
+  ArrayRef<int64_t> threadViewShape = threadViewType.getShape();
 
-  Type elementType = source.getType().cast<MemRefType>().getElementType();
-  ArrayRef<int64_t> threadViewShape =
-      trMaps[0].cast<TransformMapAttr>().getUpperBounds();
-  int64_t vectorLength = getMaxVectorizationForDatatype(
-      sourceTransformsFromOp, /*dim=*/1, threadViewShape[1],
-      source.getType().cast<MemRefType>().getShape(), elementType);
   SmallVector<int64_t> bounds(threadViewShape.size(), 1LL);
   // Setting iter dimension bounds to threadViewShape size
   bounds[1] = threadViewShape[1];
   SmallVector<int64_t> strides(threadViewShape.size(), 1LL);
   strides[1] = vectorLength;
-  Type vectorType = vectorTypeOrSelf(elementType, vectorLength);
+  Type vectorType =
+      vectorTypeOrSelf(threadViewType.getElementType(), vectorLength);
 
   // Get current workgroup ID.
   WorkgroupIdOp bid =

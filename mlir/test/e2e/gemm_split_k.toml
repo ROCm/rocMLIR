@@ -4,12 +4,17 @@ suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | ro
 
 [[axis]]
 name = "splitKFactor"
-values = ["0", "1", "2", "3", "4", "5"]
-prefix = "--split-k="
+values = ["v2:64,64,16,32,32,4,1,1,1",
+          "v2:64,64,16,32,32,4,2,1,1",
+          "v2:64,64,16,32,32,4,3,1,1",
+          "v2:64,64,16,32,32,4,4,1,1",
+          "v2:64,64,16,32,32,4,5,1,1",
+          "v2:64,64,16,32,32,4,6,1,1"]
+prefix = "-perf_config"
 
 [[axis]]
 name = "data type"
-values = ["f32"]
+values = ["f32", "f16 -RMS_threshold=1e-3"]
 prefix = "-t "
 
 ## Gemm variants
@@ -17,4 +22,4 @@ prefix = "-t "
 name = "gemm_variants"
 
 [[suite.test]]
-config = "-g 3 -m 1024 -k 769 -n 1024"
+config = "-g 3 -m 256 -k 769 -n 256"

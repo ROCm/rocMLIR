@@ -1,0 +1,16 @@
+# python3 ./bin/tuningRunner.py --op gemm --tuning-space=quick --verify-mode=none --config='-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 154 -n 166400 -k 2048
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 154 -n 166400 -k 2048
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2 -n 1280 -k 2816
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2 -n 1280 -k 320
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2 -n 13760 -k 1280
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 8192 -n 640 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 1920 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 640 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 5120 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 640 -k 2560
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 2048 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 3840 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1280 -k 5120

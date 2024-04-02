@@ -37,7 +37,7 @@ using namespace mlir::rock;
 ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig,
-    std::optional<int> num_cu, GemmFeatures features,
+    std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
     const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, int dilationHeight, int dilationWidth,
@@ -51,6 +51,7 @@ ConvGenerator::ConvGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
+             reverseGrid,
              features,
              operation,
              filterDataTypeStr,
@@ -416,9 +417,8 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
-    uint32_t blockSize;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
-        info, config.perfConfig, validParams, blockSize);
+        builder, info, config.perfConfig, validParams);
     if (succeeded(res)) {
       needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
                           validParams, gemmSize) != 0);
@@ -427,8 +427,8 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   } else {
     PopulateParams populateParams;
     InitParamsNonAccel validParams;
-    auto res = populateParams.obtainTuningParameters(info, config.perfConfig,
-                                                     validParams);
+    auto res = populateParams.obtainTuningParameters(
+        builder, info, config.perfConfig, validParams);
 
     if (succeeded(res)) {
       needExtraPad =
@@ -561,6 +561,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
+  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -811,6 +812,10 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
+  if (config.reverseGrid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
   module.push_back(func);
   if (!is_verifier)
     module->setAttr(archAttr.getName(), archAttr.getValue());

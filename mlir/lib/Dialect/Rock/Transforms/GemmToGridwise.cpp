@@ -23,12 +23,14 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -143,8 +145,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   MemRefType typeA = a.getType().cast<MemRefType>();
   MemRefType typeB = b.getType().cast<MemRefType>();
+  MemRefType typeC = c.getType().cast<MemRefType>();
   Type elemTypeA = typeA.getElementType();
   Type elemTypeB = typeB.getElementType();
+  Type elemTypeC = typeC.getElementType();
   ArrayRef<int64_t> aShape = typeA.getShape();
   ArrayRef<int64_t> bShape = typeB.getShape();
 
@@ -171,6 +175,28 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
 
+  const int64_t splitKFactor = op.getParams()->getSplitKFactor();
+  if (splitKFactor > 1) {
+    const auto isAllowedTypeA =
+        elemTypeA == rw.getF32Type() || elemTypeA == rw.getF16Type();
+    const auto isAllowedTypeB =
+        elemTypeB == rw.getF32Type() || elemTypeB == rw.getF16Type();
+    const auto isAllowedTypeC =
+        elemTypeC == rw.getF32Type() || elemTypeC == rw.getF16Type();
+
+    if (!bitEnumContainsAll(op.getFeatures(), GemmFeatures::atomic_add)) {
+      return op.emitError(
+          "Split-K `GemmOp` requires support of `atomic_add` hardware feature");
+    }
+
+    if (!(isAllowedTypeA && isAllowedTypeB && isAllowedTypeC)) {
+      return op.emitError(
+          "Split-K `GemmOp` currently supports only f32/f16 element types");
+    }
+    std::tie(a, b, c) =
+        arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+  }
+
   aShape = a.getType().cast<MemRefType>().getShape();
   bShape = b.getType().cast<MemRefType>().getShape();
 
@@ -178,35 +204,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
                 /*n=*/bShape[2]);
 
-  GemmSize extraPaddingFactor{1, 1, 1, 1};
-  int64_t splitKFactor{1};
-  if (auto attr = op->getAttr("split-k-factor")) {
-    splitKFactor = attr.cast<IntegerAttr>().getInt();
-    extraPaddingFactor.k = splitKFactor;
-  }
-
-  GemmSize extraPad = requiredPadding(params, size, extraPaddingFactor)
-                          .value_or(GemmSize{0, 0, 0, 0});
+  GemmSize extraPad =
+      requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
-
-  if (splitKFactor > 1) {
-    auto isAF32 =
-        a.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
-    auto isBF32 =
-        b.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
-    auto isCF32 =
-        c.getType().cast<MemRefType>().getElementType() == rw.getF32Type();
-
-    if (!(isAF32 && isBF32 && isCF32)) {
-      return op.emitError(
-          "Split-K `GemmOp` currently supports only f32 element type");
-    }
-    std::tie(a, b, c) =
-        arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
-  }
 
   if (failed(computeGridSize(rw, op, a, b))) {
     return op.emitError("failed to compute the grid size of `GemmOp`");
@@ -288,6 +291,13 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     zero = builder.getIntegerAttr(elementType, 0);
   }
   func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
+
+  const int64_t origK = a.getType().cast<MemRefType>().getShape()[1];
+  const int64_t kPad =
+      splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+
+  a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
+  b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
 
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
