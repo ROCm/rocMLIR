@@ -215,11 +215,11 @@ static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
   // is less than 32 (i.e. 16).
   int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
   // This is good enough heuristic for now to guard from cases where
-  // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
+  // head dimension exceed 1024 for i8, 512 for f16 and 256 for for f32
   Type gemm1ElemType =
       op.getValues().getType().cast<ShapedType>().getElementType();
   int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
-  int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
+  int64_t gemm1MUpperBound = 1024 / gemm1ElemTypeByteWidth;
   gemm1M = math_util::integer_least_multiple(gemm1M,
                                              gemm0TuningParams.getMPerBlock());
   int64_t gemm1MPerBlockNew = std::min(gemm1M, gemm1MUpperBound);
