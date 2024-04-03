@@ -58,35 +58,40 @@ EffectType getMemoryEffect(UserWrapper &user) {
   return EffectType::unknown;
 }
 
-BufferDependencyAnalysis::Results
-BufferDependencyAnalysis::findReadersAndWriters(
+BufferDependencyAnalysis::LocalResult
+BufferDependencyAnalysis::findReadersAndWriters(memref::AllocOp allocOp) {
+  BufferDependencyAnalysis::LocalResult result;
+
+  llvm::SmallVector<UserWrapper> users;
+  findAllUsers(allocOp, users);
+  for (auto &user : users) {
+    EffectType memoryEffect = getMemoryEffect(user);
+    switch (memoryEffect) {
+    case EffectType::read: {
+      result.readers.push_back(user.op);
+      break;
+    }
+    case EffectType::write: {
+      result.writers.push_back(user.op);
+      break;
+    }
+    default:
+      break;
+    }
+  }
+
+  return result;
+}
+
+BufferDependencyAnalysis::AnalysisResults BufferDependencyAnalysis::run(
     llvm::SmallVectorImpl<memref::AllocOp> &allocOps) {
-  BufferDependencyAnalysis::Results results;
+  BufferDependencyAnalysis::AnalysisResults results;
 
   for (auto &allocOp : allocOps) {
-    llvm::SmallVector<Operation *> readers = {};
-    llvm::SmallVector<Operation *> writers = {};
+    auto localResult = findReadersAndWriters(allocOp);
 
-    llvm::SmallVector<UserWrapper> users;
-    findAllUsers(allocOp, users);
-    for (auto &user : users) {
-      EffectType memoryEffect = getMemoryEffect(user);
-      switch (memoryEffect) {
-      case EffectType::read: {
-        readers.push_back(user.op);
-        break;
-      }
-      case EffectType::write: {
-        writers.push_back(user.op);
-        break;
-      }
-      default:
-        break;
-      }
-    }
-
-    results.readers.insert(std::make_pair(allocOp, readers));
-    results.writers.insert(std::make_pair(allocOp, writers));
+    results.readers.insert(std::make_pair(allocOp, localResult.readers));
+    results.writers.insert(std::make_pair(allocOp, localResult.writers));
   }
 
   return results;

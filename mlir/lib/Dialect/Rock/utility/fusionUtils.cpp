@@ -27,7 +27,7 @@ bool mlir::rock::testFusability(ModuleOp mod) {
     return true;
   }
 
-  auto maps = BufferDependencyAnalysis::findReadersAndWriters(memAllocOps);
+  auto maps = BufferDependencyAnalysis::run(memAllocOps);
 
   WalkResult walkResult =
       mod.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {

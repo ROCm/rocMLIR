@@ -17,13 +17,18 @@
 namespace mlir {
 
 struct BufferDependencyAnalysis {
-  struct Results {
+  struct AnalysisResults {
     llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readers;
     llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writers;
   };
 
-  static Results
-  findReadersAndWriters(llvm::SmallVectorImpl<memref::AllocOp> &allocOps);
+  struct LocalResult {
+    llvm::SmallVector<Operation *> readers;
+    llvm::SmallVector<Operation *> writers;
+  };
+
+  static LocalResult findReadersAndWriters(memref::AllocOp allocOps);
+  static AnalysisResults run(llvm::SmallVectorImpl<memref::AllocOp> &allocOps);
 };
 
 } // namespace mlir

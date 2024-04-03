@@ -23,6 +23,7 @@ namespace rock {
 void registerCollapseContiguousMergesTestPass();
 void registerVectorizationInferenceTestPass();
 void registerMultiBufferingTestPass();
+void registerBufferDependencyAnalysisTestPass();
 } // end namespace rock
 } // end namespace mlir
 
@@ -31,6 +32,7 @@ void registerRockTestPasses() {
   rock::registerCollapseContiguousMergesTestPass();
   rock::registerVectorizationInferenceTestPass();
   rock::registerMultiBufferingTestPass();
+  rock::registerBufferDependencyAnalysisTestPass();
 }
 #endif
 
